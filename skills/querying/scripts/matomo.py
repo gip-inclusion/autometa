@@ -274,10 +274,452 @@ class MatomoAPI:
 
         return results
 
+    # --- Events ---
+
+    def get_event_categories(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get event categories with counts.
+
+        Returns list of dicts with label (category name), nb_events, nb_visits, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Events.getCategory", params)
+
+    def get_event_actions(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get event actions with counts.
+
+        Returns list of dicts with label (action name), nb_events, nb_visits, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Events.getAction", params)
+
+    def get_event_names(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get event names with counts.
+
+        Returns list of dicts with label (event name), nb_events, nb_visits, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Events.getName", params)
+
+    # --- Entry/Exit pages ---
+
+    def get_entry_pages(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        flat: bool = True,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get landing pages (first page of visits).
+
+        Returns list of dicts with label (URL), entry_nb_visits, entry_bounce_count, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        if flat:
+            params["flat"] = 1
+        return self._request("Actions.getEntryPageUrls", params)
+
+    def get_exit_pages(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        flat: bool = True,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get exit pages (last page of visits).
+
+        Returns list of dicts with label (URL), exit_nb_visits, exit_rate, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        if flat:
+            params["flat"] = 1
+        return self._request("Actions.getExitPageUrls", params)
+
+    # --- Transitions (page flow) ---
+
+    def get_transitions(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        page_url: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict:
+        """
+        Get page flow: what pages users visited before and after a specific URL.
+
+        Args:
+            page_url: The page URL to analyze (e.g., "/gps/groups/list")
+
+        Returns:
+            Dict with:
+            - previousPages: list of pages visited before
+            - followingPages: list of pages visited after
+            - referrers: external sources leading to this page
+            - outlinks: external links clicked from this page
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "actionType": "url",
+            "actionName": page_url,
+            "limitBeforeGrouping": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Transitions.getTransitionsForAction", params)
+
+    # --- Visit time patterns ---
+
+    def get_visits_by_hour(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        Get visit distribution by hour of day (server time).
+
+        Returns list of 24 dicts (one per hour) with nb_visits, nb_uniq_visitors, etc.
+        """
+        params = {"idSite": site_id, "period": period, "date": date}
+        if segment:
+            params["segment"] = segment
+        return self._request("VisitTime.getVisitInformationPerServerTime", params)
+
+    def get_visits_by_day_of_week(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        Get visit distribution by day of week.
+
+        Returns list of 7 dicts (Monday=1 to Sunday=7) with nb_visits, etc.
+        """
+        params = {"idSite": site_id, "period": period, "date": date}
+        if segment:
+            params["segment"] = segment
+        return self._request("VisitTime.getByDayOfWeek", params)
+
+    # --- Referrers ---
+
+    def get_referrers(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get all referrer types with visit counts.
+
+        Returns list of dicts with label (referrer type), nb_visits, nb_actions, etc.
+        Types include: Direct Entry, Search Engines, Websites, Social Networks, Campaigns.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Referrers.getReferrerType", params)
+
+    def get_referrer_websites(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get referring websites with visit counts.
+
+        Returns list of dicts with label (website URL), nb_visits, nb_actions, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Referrers.getWebsites", params)
+
+    def get_referrer_search_engines(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get search engines with visit counts.
+
+        Returns list of dicts with label (search engine name), nb_visits, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Referrers.getSearchEngines", params)
+
+    def get_referrer_socials(
+        self,
+        site_id: int,
+        period: str,
+        date: str,
+        segment: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get social networks with visit counts.
+
+        Returns list of dicts with label (social network name), nb_visits, etc.
+        """
+        params = {
+            "idSite": site_id,
+            "period": period,
+            "date": date,
+            "filter_limit": limit,
+        }
+        if segment:
+            params["segment"] = segment
+        return self._request("Referrers.getSocials", params)
+
 
 class MatomoError(Exception):
     """Error from Matomo API."""
     pass
+
+
+# --- Web UI URL generation ---
+
+# Mapping from API methods to web UI category/subcategory
+# Discovered via API.getWidgetMetadata - these are the actual Matomo IDs
+_UI_MAPPING = {
+    # Visitors
+    "VisitsSummary.get": ("General_Visitors", "General_Overview"),
+    "VisitsSummary.getUniqueVisitors": ("General_Visitors", "General_Overview"),
+    # Actions - Pages
+    "Actions.getPageUrls": ("General_Actions", "General_Pages"),
+    "Actions.getPageTitles": ("General_Actions", "Actions_SubmenuPageTitles"),
+    "Actions.getEntryPageUrls": ("General_Actions", "Actions_SubmenuPagesEntry"),
+    "Actions.getExitPageUrls": ("General_Actions", "Actions_SubmenuPagesExit"),
+    # Custom dimensions - subcategory is "customdimension{N}" where N is dimension ID
+    "CustomDimensions.getCustomDimension": ("General_Visitors", None),  # subcategory = f"customdimension{id}"
+    # Events
+    "Events.getCategory": ("General_Actions", "Events_Events"),
+    "Events.getAction": ("General_Actions", "Events_Events"),
+    "Events.getName": ("General_Actions", "Events_Events"),
+    # Referrers
+    "Referrers.getReferrerType": ("Referrers_Referrers", "Referrers_WidgetGetAll"),
+    "Referrers.getWebsites": ("Referrers_Referrers", "Referrers_SubmenuWebsitesOnly"),
+    "Referrers.getSearchEngines": ("Referrers_Referrers", "Referrers_SubmenuSearchEngines"),
+    "Referrers.getSocials": ("Referrers_Referrers", "Referrers_Socials"),
+    "Referrers.getAll": ("Referrers_Referrers", "Referrers_WidgetGetAll"),
+    # Visit time
+    "VisitTime.getVisitInformationPerServerTime": ("General_Visitors", "VisitTime_SubmenuTimes"),
+    "VisitTime.getByDayOfWeek": ("General_Visitors", "VisitTime_SubmenuTimes"),
+    # Transitions
+    "Transitions.getTransitionsForAction": ("General_Actions", "Transitions_Transitions"),
+    # Devices & Location
+    "DevicesDetection.getType": ("General_Visitors", "DevicesDetection_Devices"),
+    "DevicesDetection.getBrowsers": ("General_Visitors", "DevicesDetection_Software"),
+    "UserCountry.getCountry": ("General_Visitors", "UserCountry_SubmenuLocations"),
+    "UserCountry.getRegion": ("General_Visitors", "UserCountry_SubmenuLocations"),
+    "UserCountry.getCity": ("General_Visitors", "UserCountry_SubmenuLocations"),
+    # Engagement
+    "VisitorInterest.getNumberOfVisitsPerVisitDuration": ("General_Actions", "VisitorInterest_Engagement"),
+    "VisitorInterest.getNumberOfVisitsPerPage": ("General_Actions", "VisitorInterest_Engagement"),
+}
+
+
+def get_ui_url(
+    base_url: str,
+    method: str,
+    site_id: int,
+    period: str,
+    date: str,
+    segment: Optional[str] = None,
+    dimension_id: Optional[int] = None,
+) -> str:
+    """
+    Generate a Matomo web UI URL for a given API method.
+
+    Args:
+        base_url: Matomo instance URL (e.g., "matomo.inclusion.beta.gouv.fr")
+        method: API method name (e.g., "VisitsSummary.get")
+        site_id: Matomo site ID
+        period: day, week, month, or year
+        date: YYYY-MM-DD format
+        segment: Optional segment filter
+        dimension_id: Required for CustomDimensions methods
+
+    Returns:
+        Full URL to the Matomo web UI with the appropriate view.
+    """
+    mapping = _UI_MAPPING.get(method)
+    if not mapping:
+        # Fallback to dashboard
+        category, subcategory = "Dashboard_Dashboard", "1"
+    else:
+        category, subcategory = mapping
+        if subcategory is None and dimension_id is not None:
+            # Custom dimensions use "customdimension{N}" format
+            subcategory = f"customdimension{dimension_id}"
+
+    # Build the hash fragment with category/subcategory
+    hash_params = {
+        "category": category,
+        "subcategory": subcategory or "1",
+    }
+    if segment:
+        hash_params["segment"] = segment
+
+    # Use safe='@=;' to avoid over-encoding segment operators
+    hash_fragment = urllib.parse.urlencode(hash_params, safe='@=;,')
+
+    # Build the main URL
+    main_params = {
+        "module": "CoreHome",
+        "action": "index",
+        "idSite": site_id,
+        "period": period,
+        "date": date,
+    }
+    main_query = urllib.parse.urlencode(main_params)
+
+    return f"https://{base_url}/index.php?{main_query}#?{hash_fragment}"
+
+
+def format_data_source(
+    base_url: str,
+    method: str,
+    params: dict,
+    dimension_id: Optional[int] = None,
+) -> str:
+    """
+    Format a data source reference for reports.
+
+    Returns a markdown string with:
+    - A hyperlink to the web UI
+    - The raw API call for reproducibility
+
+    Args:
+        base_url: Matomo instance URL
+        method: API method name
+        params: Dict with idSite, period, date, and optionally segment
+        dimension_id: For custom dimension queries
+
+    Returns:
+        Markdown-formatted data source string.
+    """
+    site_id = params.get("idSite")
+    period = params.get("period")
+    date = params.get("date")
+    segment = params.get("segment")
+
+    # Generate web UI link
+    ui_url = get_ui_url(
+        base_url=base_url,
+        method=method,
+        site_id=site_id,
+        period=period,
+        date=date,
+        segment=segment,
+        dimension_id=dimension_id,
+    )
+
+    # Generate raw API call (without token)
+    api_params = {"idSite": site_id, "period": period, "date": date}
+    if segment:
+        api_params["segment"] = segment
+    if dimension_id:
+        api_params["idDimension"] = dimension_id
+
+    api_call = f"{method}?" + "&".join(f"{k}={v}" for k, v in api_params.items())
+
+    return f"[View in Matomo]({ui_url}) | `{api_call}`"
 
 
 # --- Convenience functions for CLI usage ---
