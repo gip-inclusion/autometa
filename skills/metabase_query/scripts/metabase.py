@@ -131,6 +131,10 @@ class MetabaseAPI:
 
     def _parse_result(self, data: dict) -> QueryResult:
         """Parse Metabase query result into QueryResult."""
+        # Check for query errors (Metabase returns 202 with error in body)
+        if data.get("error"):
+            raise MetabaseError(data.get("error"))
+
         cols = data.get("data", {}).get("cols", [])
         rows = data.get("data", {}).get("rows", [])
 
