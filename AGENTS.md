@@ -87,12 +87,24 @@ API methods to their corresponding web UI categories and handles URL encoding.
 
 ### Context and resources
 
-The ./knowledge folder contains markdown files – one for each service, with the staging
-servers excluded, as they work the same as the production servers – that describe what's
-interesting to look for, and how to look for it. Definitions, tricks, business knowledge.
+The ./knowledge folder is organized as follows:
 
-Load the ones that are necessary for your work. DO NOT launch a query without having read
-the domain knowledge.
+```
+knowledge/
+├── sites/          # One file per website (emplois.md, dora.md, etc.)
+│                   # Baselines, custom dimensions, business context
+└── matomo/         # Matomo API reference
+    ├── README.md       # Index - read this first, often enough on its own
+    ├── core-modules.md # VisitsSummary, Actions, Events, Referrers, etc.
+    ├── cohorts.md      # Premium: cohort analysis
+    └── funnels.md      # Premium: conversion funnels
+```
+
+**Don't load everything.** Load only what's relevant:
+- For site-specific queries: `knowledge/sites/{site}.md`
+- For API reference: `knowledge/matomo/README.md` (+ module files if needed)
+
+DO NOT launch a query without having read the relevant domain knowledge.
 
 The ./skills folder contains skills, in the "AI agent skills" sense of the word.
 You MUST get acquainted with the list of available skills before you begin working.
@@ -122,6 +134,9 @@ You do not need to read JOURNAL.md yourself (you can, but it's not necessary). T
 serves as a way for operators to audit and follow your progress.
 
 ### Output
+
+**Language: French by default.** Most users query cyberputois in French. All reports
+MUST be written in French unless the user explicitly requests another language.
 
 Write down your reports in ./reports.
 Name the reports using the format YYYY-MM-parameterized-name.md.
