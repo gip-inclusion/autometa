@@ -140,6 +140,92 @@ Scraped from codebase YYYY-MM-DD. ~N events tracked.
 - **Dynamic values**: Some event names are computed at runtime
 - **Consent**: Events may not fire if user declines tracking
 
+## CRITICAL: Segments Filter Visits, Not Events
+
+**Matomo segments like `pageUrl=@/gps/` filter VISITS, not EVENTS.**
+
+When you query events with a segment, you get all events triggered during visits
+that included at least one matching page — NOT events triggered ON those pages.
+
+Example: A user visits `/dashboard/`, clicks "Statistiques" (fires `statistiques`
+event), then navigates to `/gps/groups/list`. The segment `pageUrl=@/gps/` will
+include the `statistiques` event because it happened during a visit that included
+a GPS page, even though it was triggered on the dashboard.
+
+### How to Identify Events Triggered ON Specific Pages
+
+**The only reliable method is to search the codebase.**
+
+#### Step 1: Clone the repository
+
+```bash
+git clone --depth 1 https://github.com/gip-inclusion/les-emplois.git /tmp/les-emplois
+```
+
+#### Step 2: Search for event declarations
+
+For Django apps using `matomo_event` template tags:
+
+```bash
+# Find all matomo events in templates
+grep -r "matomo_event" /tmp/les-emplois/itou/templates/ --include="*.html"
+
+# Search for a specific event name
+grep -r "consulter_fiche_candidat" /tmp/les-emplois/
+
+# Find data-matomo attributes (JS-triggered events)
+grep -r "data-matomo-" /tmp/les-emplois/itou/templates/
+```
+
+#### Step 3: Map templates to URL paths
+
+Django templates are organized by app/feature:
+- `templates/gps/` → `/gps/*` pages
+- `templates/dashboard/` → `/dashboard/*` pages
+- `templates/apply/` → `/apply/*` pages
+- `templates/companies/` → company cards and search results
+
+Check `urls.py` files to confirm URL→template mappings.
+
+#### Step 4: Verify navigation vs page events
+
+Events in navigation components fire BEFORE the user lands on the target page:
+
+```html
+<!-- This fires when CLICKING the link, not when ON the GPS page -->
+<a href="/gps/groups/list" data-matomo-option="tdb_liste_beneficiaires">
+```
+
+Look for the template location:
+- `includes/nav.html`, `layout.html` → Navigation events (fire before page load)
+- `gps/memberships.html` → Actual GPS page events
+
+### Django-Specific Patterns
+
+#### Template tag location
+```django
+{% matomo_event "category" "action" "name" %}
+```
+This generates `data-matomo-*` attributes. The template file location tells you
+which page triggers the event.
+
+#### Navigation module (`nav.py` or similar)
+```python
+# itou/utils/templatetags/nav.py
+NavItem(
+    url="/gps/groups/list",
+    matomo_event_option="tdb_liste_beneficiaires",  # Fires on CLICK, not on page
+)
+```
+
+#### Verification checklist
+| Check | Meaning |
+|-------|---------|
+| Event in `templates/{feature}/` | Fires ON feature pages |
+| Event in `templates/includes/` | May fire anywhere (shared component) |
+| Event in nav.py/layout.html | Navigation click, fires BEFORE target page |
+| Event in JS file | Check which pages include that JS |
+
 ## Repositories
 
 | Site | GitHub |

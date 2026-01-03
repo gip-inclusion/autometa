@@ -3,6 +3,9 @@
 > Here are all the updates to the context engine (ie, AGENTS.md, ./knowledge and ./skills).
 > New entries are added to the top of the list.
 
+- 2026-01-03. Tested Cohorts API: all 3 methods work (getCohorts, getCohortsOverTime, getByPeriodOfFirstVisit). Documented usage patterns, example retention data, and caveat about segments causing timeouts. Updated knowledge/matomo/cohorts.md.
+- 2026-01-03. CRITICAL fix: documented that Matomo segments filter VISITS not EVENTS. Added methodology for identifying which events fire ON specific pages (clone repo, grep for matomo_event, check template paths). Updated sync-events/SKILL.md and knowledge/matomo/core-modules.md.
+- 2026-01-03. Fixed import path in matomo.py to use relative import for ui_mapping, ensuring compatibility when run from different directories.
 - 2026-01-03. Added sync-events skill: two-pronged approach to sync Matomo events between codebase and actual tracking.
 - 2026-01-03. Added Matomo events documentation to emplois.md: ~108 events across 23 categories. Documented dynamic patterns (connexion+account_type, candidature+user_kind, status appends). Verified against live Matomo data.
 - 2026-01-03. Reorganized knowledge/: sites/ for website docs, matomo/ for API reference. Split API reference into README.md (index), core-modules.md, cohorts.md, funnels.md. Updated AGENTS.md with new structure.

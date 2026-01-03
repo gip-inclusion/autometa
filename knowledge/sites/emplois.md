@@ -63,7 +63,14 @@ Based on December 2025 (representative month):
 
 **Key ratio:** Employers outnumber prescribers ~1.3:1 site-wide.
 
-This baseline is essential for comparing feature-specific usage. For example, if a feature shows prescribers > employers, that feature is disproportionately used by prescribers relative to the site average.
+### Feature-Specific Insights
+
+#### GPS (Referral Network)
+Analysis based on Dec 2025 data (`/gps/*`):
+- **Audience Mix:** Prescribers (57%) > Employers (38%). Inverse of site-wide baseline.
+- **Loyalty:** 98.3% of visits from returning users.
+- **Regional Concentration:** Département 59 (Nord) is the primary driver of GPS traffic.
+- **Engagement:** Very high (37+ actions/visit).
 
 ## Custom Dimensions
 

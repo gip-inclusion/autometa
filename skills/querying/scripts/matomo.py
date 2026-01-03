@@ -703,7 +703,7 @@ class MatomoError(Exception):
 
 # --- Web UI URL generation (re-exported from ui_mapping) ---
 
-from scripts.ui_mapping import UI_MAPPING, get_ui_url, format_data_source
+from .ui_mapping import UI_MAPPING, get_ui_url, format_data_source
 
 
 # --- Convenience functions for CLI usage ---

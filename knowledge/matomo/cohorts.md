@@ -10,20 +10,69 @@ Cohorts.getCohortsOverTime(idSite, period, displayDateRange, cohorts, segment = 
 Cohorts.getByPeriodOfFirstVisit(idSite, cohorts, period, segment = '', periodsFromStart = '')
 ```
 
-## How It Works
+## Tested and Working (2026-01-03)
 
-A **cohort** = visitors whose first visit was within a specific period.
+### getCohorts - Basic Retention
 
-**Archiving:** Records aggregate metrics by the day of first visit. For non-day periods, daily records are summed.
+Returns data keyed by cohort start date. Each date has an array of cohorts labeled `Cohorts_month0`, `Cohorts_month1`, etc.
 
-**API transformation:** Records (by first day of visit) are transformed to reports (by period of first visit). Rows with the same period label are grouped together.
+```python
+api.get_cohorts(site_id=117, period='month', date='2025-10-01', limit=20)
+# Returns: {'2025-10-01': [{'label': 'Cohorts_month0', 'nb_visits': 213688, ...}, ...]}
+```
+
+**Key fields:**
+- `label`: `Cohorts_monthN` where N = months since first visit
+- `nb_uniq_visitors`: unique visitors in this cohort still active
+- `Cohorts_returning_visitors_percent`: retention rate (e.g., "9.2%")
+- `goal_N_nb_conversions`: goal conversions for this cohort
+
+**Example retention (October 2025 cohort on les Emplois):**
+- Month 0: 149,085 unique visitors (100%)
+- Month 1: 13,715 returning (9.2%)
+- Month 2: 6,402 returning (4.3%)
+
+### getCohortsOverTime - Time Series
+
+Shows cohort metrics across a date range.
+
+```python
+api._request('Cohorts.getCohortsOverTime', {
+    'idSite': 117,
+    'period': 'month',
+    'displayDateRange': '2025-10-01,2025-12-31',
+    'cohorts': '2025-10-01,2025-11-01',
+})
+# Returns: {'2025-10': [...], '2025-11': [...], '2025-12': [...]}
+```
+
+### getByPeriodOfFirstVisit - Grouped by Display Period
+
+Returns data keyed by the display period, with cohort data nested inside.
+
+```python
+api._request('Cohorts.getByPeriodOfFirstVisit', {
+    'idSite': 117,
+    'period': 'month',
+    'cohorts': '2025-10-01,2025-11-01',
+})
+```
 
 ## Parameters
 
-- `cohorts` - Cohort specification (format TBD - needs testing when endpoint is up)
-- `displayDateRange` - Date range for the cohorts over time report
+- `cohorts` - Comma-separated dates: `'2025-10-01,2025-11-01'`
+- `displayDateRange` - Date range: `'2025-10-01,2025-12-31'`
 - `periodsFromStart` - Number of periods from cohort start to include
 - `metric` - Specific metric to return
+
+## Caveats
+
+**⚠️ Segments cause timeouts.** Cohort queries are heavy. Adding a segment like
+`pageUrl=@/gps/` will likely cause HTTP 504 Gateway Timeout errors. Query cohorts
+without segments for best results.
+
+**Long-term data.** Old cohorts (e.g., from 2021) still appear in results,
+showing visitors who have been returning for years.
 
 ## Use Cases
 
