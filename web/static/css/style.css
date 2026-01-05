@@ -135,9 +135,10 @@
   overflow-y: auto;
 }
 
-/* Hide tools toggle */
+/* Hide tools toggle - hides all technical events */
 .chat-output.hide-tools .event-tool_use,
-.chat-output.hide-tools .event-tool_result {
+.chat-output.hide-tools .event-tool_result,
+.chat-output.hide-tools .event-system {
   display: none;
 }
 

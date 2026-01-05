@@ -130,9 +130,13 @@ function startStream() {
   const eventTypes = ['assistant', 'tool_use', 'tool_result', 'system', 'error'];
   eventTypes.forEach(type => {
     eventSource.addEventListener(type, (e) => {
-      hideLoading();
       const data = JSON.parse(e.data);
       appendEvent(type, data);
+
+      // Only hide loading when we get actual content (assistant response or error)
+      if (type === 'assistant' || type === 'error') {
+        hideLoading();
+      }
     });
   });
 
