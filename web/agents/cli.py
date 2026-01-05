@@ -54,6 +54,7 @@ class CLIBackend(AgentBackend):
             config.CLAUDE_CLI,
             "--output-format", "stream-json",
             "--verbose",
+            "--setting-sources", "project",  # Only load project skills, not user plugins
         ]
 
         # Add AGENTS.md as system prompt
