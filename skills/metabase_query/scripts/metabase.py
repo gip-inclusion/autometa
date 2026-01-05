@@ -294,6 +294,52 @@ class MetabaseAPI:
         return self._request("GET", "/api/user/current")
 
 
+# --- Data source formatting ---
+
+
+def format_data_source(
+    base_url: str,
+    card_id: Optional[int] = None,
+    dashboard_id: Optional[int] = None,
+    sql: Optional[str] = None,
+) -> str:
+    """
+    Format a data source reference for reports.
+
+    Returns a markdown string with:
+    - A hyperlink to the Metabase UI (if card_id or dashboard_id provided)
+    - The raw SQL query (for reproducibility)
+
+    Args:
+        base_url: Metabase instance URL (e.g., "https://metabase.inclusion.beta.gouv.fr")
+        card_id: Optional card/question ID
+        dashboard_id: Optional dashboard ID
+        sql: SQL query (required for ad-hoc queries, optional for cards)
+
+    Returns:
+        Markdown-formatted data source string.
+    """
+    parts = []
+
+    # Generate UI link
+    if card_id:
+        ui_url = f"{base_url}/question/{card_id}"
+        parts.append(f"[View in Metabase]({ui_url})")
+    elif dashboard_id:
+        ui_url = f"{base_url}/dashboard/{dashboard_id}"
+        parts.append(f"[View in Metabase]({ui_url})")
+
+    # Add SQL query
+    if sql:
+        # Truncate long queries for display
+        display_sql = sql.strip().replace("\n", " ")
+        if len(display_sql) > 100:
+            display_sql = display_sql[:97] + "..."
+        parts.append(f"`{display_sql}`")
+
+    return " | ".join(parts) if parts else "(no source)"
+
+
 def load_api() -> MetabaseAPI:
     """Load API client from .env in current directory or parents."""
     # Try current directory first
