@@ -1,0 +1,372 @@
+/* Matometa Web - Styles adapted from autoplatformer */
+
+/* Logo */
+.logo-text {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #000091;
+  text-decoration: none;
+}
+
+.logo-text:hover {
+  text-decoration: none;
+  color: #000091;
+}
+
+/* Section Layout */
+.section-content {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 120px);
+}
+
+.section-header {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  padding: 2rem 0;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.section-header h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #212529;
+}
+
+.section-body {
+  flex: 1;
+  padding: 2rem 0;
+  padding-bottom: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.section-body--full {
+  padding-bottom: 2rem;
+}
+
+/* Chat Output */
+.chat-output {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Event blocks */
+.event-block {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: white;
+  border: 1px solid #dee2e6;
+}
+
+.event-user {
+  background: #e7f1ff;
+  border-color: #b6d4fe;
+  margin-left: 2rem;
+}
+
+.event-user::before {
+  content: "Vous";
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0d6efd;
+  margin-bottom: 0.5rem;
+}
+
+.event-assistant {
+  background: white;
+  border-color: #dee2e6;
+  margin-right: 2rem;
+}
+
+.event-assistant::before {
+  content: "Matometa";
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #000091;
+  margin-bottom: 0.5rem;
+}
+
+.event-tool_use,
+.event-tool_result {
+  background: #f8f9fa;
+  border-color: #e9ecef;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  margin-left: 1rem;
+  margin-right: 1rem;
+}
+
+.event-tool_use::before {
+  content: "Outil";
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #6c757d;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.event-tool_result::before {
+  content: "Resultat";
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #6c757d;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.event-system {
+  background: #fff3cd;
+  border-color: #ffecb5;
+  font-size: 0.875rem;
+  color: #664d03;
+}
+
+.event-error {
+  background: #f8d7da;
+  border-color: #f5c2c7;
+  color: #842029;
+}
+
+/* Tool content formatting */
+.tool-name {
+  font-weight: 600;
+  color: #495057;
+}
+
+.tool-content {
+  margin-top: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Hide tools toggle */
+.chat-output.hide-tools .event-tool_use,
+.chat-output.hide-tools .event-tool_result {
+  display: none;
+}
+
+/* Chat Bar */
+.chat-bar-container {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 1px solid #dee2e6;
+  padding: 1rem 0;
+  z-index: 100;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.chat-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 0.875rem 1.25rem;
+  border: 2px solid #dee2e6;
+  border-radius: 1.5rem;
+  font-size: 1rem;
+  resize: none;
+  max-height: 150px;
+  line-height: 1.4;
+  transition: all 0.2s;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: #000091;
+  box-shadow: 0 0 0 3px rgba(0, 0, 145, 0.1);
+}
+
+.chat-input::placeholder {
+  color: #adb5bd;
+}
+
+.chat-send-btn,
+.chat-cancel-btn {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.chat-send-btn {
+  background: #000091;
+  color: white;
+}
+
+.chat-send-btn:hover:not(:disabled) {
+  background: #6a6af4;
+  transform: scale(1.05);
+}
+
+.chat-send-btn:disabled {
+  background: #adb5bd;
+  cursor: not-allowed;
+}
+
+.chat-cancel-btn {
+  background: #dc3545;
+  color: white;
+}
+
+.chat-cancel-btn:hover {
+  background: #bb2d3b;
+  transform: scale(1.05);
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: #6c757d;
+  flex: 1;
+}
+
+.empty-state i {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+/* Loading indicator */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: #6c757d;
+  font-size: 0.875rem;
+}
+
+.loading-indicator .spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid #dee2e6;
+  border-top-color: #000091;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Menu Navigation */
+.menu-nav {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.menu-nav .nav-item {
+  margin-bottom: 0.25rem;
+}
+
+.menu-nav .nav-link {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  color: #212529;
+  text-decoration: none;
+  border-radius: 0.375rem;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.menu-nav .nav-link:hover {
+  background-color: #f8f9fa;
+  border-left-color: #000091;
+}
+
+.menu-nav .nav-link.active {
+  background-color: rgba(0, 0, 145, 0.1);
+  border-left-color: #000091;
+  color: #000091;
+  font-weight: 500;
+}
+
+.menu-nav .nav-link i {
+  margin-right: 0.75rem;
+  font-size: 1.25rem;
+  width: 1.25rem;
+  text-align: center;
+}
+
+/* Text colors */
+.text-primary {
+  color: #000091 !important;
+}
+
+/* Placeholder content */
+.placeholder-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Responsive */
+@media (max-width: 767.98px) {
+  .section-header {
+    padding: 1.5rem 0;
+  }
+
+  .section-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .section-body {
+    padding-bottom: 100px;
+  }
+
+  .chat-input {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+  }
+
+  .chat-send-btn,
+  .chat-cancel-btn {
+    width: 42px;
+    height: 42px;
+  }
+
+  .event-user {
+    margin-left: 1rem;
+  }
+
+  .event-assistant {
+    margin-right: 1rem;
+  }
+}

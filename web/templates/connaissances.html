@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Connaissances{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-connaissances">
+  <div class="section-header">
+    <div class="container">
+      <div class="d-flex align-items-center gap-3">
+        <i class="ri-book-open-line ri-2x text-primary"></i>
+        <div>
+          <h1 class="mb-0">Connaissances</h1>
+          <p class="text-muted mb-0">Contexte et documentation de l'agent</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container section-body section-body--full">
+    <div class="placeholder-content">
+      <div class="empty-state">
+        <i class="ri-tools-line"></i>
+        <p>Cette section sera disponible prochainement</p>
+        <p class="text-muted small">
+          Vous pourrez explorer et editer les fichiers de<br>
+          <code>knowledge/</code> et <code>skills/</code>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
