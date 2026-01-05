@@ -50,21 +50,21 @@ class CLIBackend(AgentBackend):
         # Build command with system context
         prompt = self._build_prompt(message, history)
 
-        # Prepend AGENTS.md content as context
-        agents_md_path = config.BASE_DIR / "AGENTS.md"
-        if agents_md_path.exists():
-            agents_content = agents_md_path.read_text()
-            prompt = f"<system-context>\n{agents_content}\n</system-context>\n\n{prompt}"
-
         cmd = [
             config.CLAUDE_CLI,
             "--output-format", "stream-json",
             "--verbose",
         ]
 
-        # Auto-approve tool calls for local development
-        if config.SKIP_PERMISSIONS:
-            cmd.append("--dangerously-skip-permissions")
+        # Add AGENTS.md as system prompt
+        agents_md_path = config.BASE_DIR / "AGENTS.md"
+        if agents_md_path.exists():
+            agents_content = agents_md_path.read_text()
+            cmd.extend(["--system-prompt", agents_content])
+
+        # Whitelist safe tools only
+        if config.ALLOWED_TOOLS:
+            cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])
 
         cmd.extend(["-p", prompt])
 

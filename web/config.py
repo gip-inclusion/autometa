@@ -12,8 +12,11 @@ AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli")
 # Claude CLI path (uses system default if not set)
 CLAUDE_CLI = os.getenv("CLAUDE_CLI", "claude")
 
-# Auto-approve tool calls (for local development only!)
-SKIP_PERMISSIONS = os.getenv("SKIP_PERMISSIONS", "true").lower() == "true"
+# Allowed tools for the agent (safe subset)
+# Bash patterns: sqlite3, curl, python, rg, grep, cat, ls, head, tail
+ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
+    "Read,Write,Edit,Glob,Grep,Bash(sqlite3:*),Bash(curl:*),Bash(python:*),Bash(rg:*),Bash(grep:*),Bash(cat:*),Bash(ls:*),Bash(head:*),Bash(tail:*),Bash(wc:*)"
+)
 
 # Web server settings
 HOST = os.getenv("WEB_HOST", "127.0.0.1")
