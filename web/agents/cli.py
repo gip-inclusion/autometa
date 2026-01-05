@@ -47,9 +47,26 @@ class CLIBackend(AgentBackend):
     ) -> AsyncIterator[AgentMessage]:
         """Spawn claude CLI and stream responses."""
 
-        # Build command
+        # Build command with system context
         prompt = self._build_prompt(message, history)
-        cmd = [config.CLAUDE_CLI, "--output-format", "stream-json", "--verbose", "-p", prompt]
+
+        # Prepend AGENTS.md content as context
+        agents_md_path = config.BASE_DIR / "AGENTS.md"
+        if agents_md_path.exists():
+            agents_content = agents_md_path.read_text()
+            prompt = f"<system-context>\n{agents_content}\n</system-context>\n\n{prompt}"
+
+        cmd = [
+            config.CLAUDE_CLI,
+            "--output-format", "stream-json",
+            "--verbose",
+        ]
+
+        # Auto-approve tool calls for local development
+        if config.SKIP_PERMISSIONS:
+            cmd.append("--dangerously-skip-permissions")
+
+        cmd.extend(["-p", prompt])
 
         # Add resume flag if we have a session
         if session_id:
