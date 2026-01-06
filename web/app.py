@@ -178,23 +178,44 @@ def stream_conversation(conv_id: str):
         all_events = []
         assistant_text_parts = []
 
-        # Run async generator in sync context
-        async def stream():
-            async for event in agent.send_message(
-                conversation_id=conv_id,
-                message=last_message,
-                history=history,
-                session_id=conv.session_id,
-            ):
-                yield event
+        # Run async generator in sync context using a queue
+        import queue
+        import threading
 
-        # Create event loop for async iteration
-        loop = asyncio.new_event_loop()
-        try:
-            gen = stream()
-            while True:
+        event_queue = queue.Queue()
+        error_holder = [None]
+
+        def run_async():
+            """Run the async generator in a dedicated thread with its own event loop."""
+            async def collect_events():
                 try:
-                    event = loop.run_until_complete(gen.__anext__())
+                    async for event in agent.send_message(
+                        conversation_id=conv_id,
+                        message=last_message,
+                        history=history,
+                        session_id=conv.session_id,
+                    ):
+                        event_queue.put(("event", event))
+                except Exception as e:
+                    error_holder[0] = e
+                finally:
+                    event_queue.put(("done", None))
+
+            asyncio.run(collect_events())
+
+        # Start async processing in background thread
+        thread = threading.Thread(target=run_async, daemon=True)
+        thread.start()
+
+        # Yield events as they arrive
+        while True:
+            try:
+                msg_type, event = event_queue.get(timeout=120)  # 2 min timeout
+
+                if msg_type == "done":
+                    break
+
+                if event:
                     all_events.append(event.raw)
 
                     # Collect assistant text
@@ -205,10 +226,17 @@ def stream_conversation(conv_id: str):
                     yield f"event: {event.type}\n"
                     yield f"data: {json.dumps(event.to_dict())}\n\n"
 
-                except StopAsyncIteration:
-                    break
-        finally:
-            loop.close()
+            except queue.Empty:
+                # Timeout - send keepalive
+                yield ": keepalive\n\n"
+
+        # Check for errors
+        if error_holder[0]:
+            yield f"event: error\n"
+            yield f"data: {json.dumps({'error': str(error_holder[0])})}\n\n"
+
+        # Wait for thread to finish
+        thread.join(timeout=5)
 
         # Save assistant response to conversation
         if assistant_text_parts:
@@ -234,12 +262,8 @@ def cancel_conversation(conv_id: str):
     """Cancel a running conversation."""
     agent = get_agent_instance()
 
-    # Run cancel in event loop
-    loop = asyncio.new_event_loop()
-    try:
-        cancelled = loop.run_until_complete(agent.cancel(conv_id))
-    finally:
-        loop.close()
+    # Run cancel with asyncio.run for proper context management
+    cancelled = asyncio.run(agent.cancel(conv_id))
 
     if cancelled:
         return jsonify({"status": "cancelled"})
