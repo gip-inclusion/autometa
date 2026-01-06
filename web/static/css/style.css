@@ -124,6 +124,7 @@ body.has-sidebar {
   flex: 1;
   margin-left: var(--sidebar-width);
   min-height: 100vh;
+  width: calc(100% - var(--sidebar-width));
 }
 
 /* Mobile header */
@@ -160,6 +161,7 @@ body.has-sidebar {
   .app-main {
     margin-left: 0;
     padding-top: 56px;
+    width: 100%;
   }
 }
 
@@ -264,13 +266,19 @@ body.has-sidebar {
 .chat-bar-container {
   position: fixed;
   bottom: 0;
-  left: 0;
+  left: var(--sidebar-width);
   right: 0;
   background: white;
   border-top: 1px solid #dee2e6;
   padding: 1rem 0;
   z-index: 100;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 991.98px) {
+  .chat-bar-container {
+    left: 0;
+  }
 }
 
 .chat-bar {
