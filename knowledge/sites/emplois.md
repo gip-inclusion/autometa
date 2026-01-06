@@ -106,6 +106,52 @@ Analysis based on Dec 2025 data (`/gps/*`):
 Query visit-scoped dimensions with `idDimension=1`.
 Query action-scoped dimensions with `idDimension=3` (org) or `idDimension=4` (dept).
 
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| AI | `dimension1==employer;dimension3==AI` |
+| Audience - SIAE STAFF OLD | `eventCategory==connexion%2520siae_staff` |
+| CADA | `dimension1==prescriber;dimension3==CADA` |
+| CAP_EMPLOI | `dimension1==prescriber;dimension3==CAP_EMPLOI` |
+| CCAS | `dimension1==PRESCRIBER;dimension3==CCAS` |
+| CONTENT - PAge Apply | `pageUrl=@apply` |
+| CONTENT - vue de carte structure + poste | `pageUrl=@company;pageUrl=@card` |
+| Candidats | `dimension1==job_seeker` |
+| DEPT | `dimension1==PRESCRIBER;dimension3==DEPT` |
+| EI | `dimension1==EMPLOYER;dimension3==EI` |
+| ETTI | `dimension1==EMPLOYER;dimension3==ETTI` |
+| EVENT - Any event employer | `eventCategory==employeurs` |
+| EVENT - Any submit event from employer | `eventCategory==employeurs;eventAction==submit` |
+| EVENT - Visites engagées | `eventName==candidature_prescripteur,eventName==refuse_app...` |
+| Employeurs | `dimension1==employer` |
+| France Travail | `dimension1==prescriber;dimension3==PE` |
+| GEIQ | `dimension1==EMPLOYER;dimension3==GEIQ` |
+| GPS - ACTION - IMER | `visitEndServerDate=@2025,visitEndServerDate=@2026;eventNa...` |
+| GPS - ACTION - Liste Groupes - All | `eventCategory==GPS_liste_groupes` |
+| GPS - CONTENT - Page détail | `pageUrl=@https%253A%252F%252Femplois.inclusion.beta.gouv....` |
+| GPS - CONTENT - URL GROUP GROUP | `visitEndServerDate=@2025,visitEndServerDate=@2026,visitEn...` |
+| GPS - Engagés | `visitEndServerDate=@2025,visitEndServerDate=@2026;eventNa...` |
+| GPS - RETENTION - LIST GROUP | `eventCategory==GPS_liste_groupes;daysSinceLastVisit>=1;da...` |
+| GPS - visites avec une page GPS vue | `pageUrl=@gps` |
+| PARCOURS - Déclarer une embauche - Démarré | `pageUrl=@apply;pageUrl=@hire;pageUrl=@check-nir` |
+| PARCOURS - Déclarer une embauche - fin | `pageUrl=@approvals%252Fdetail` |
+| PROFILE - PRESCRIPTEUR | `dimension1==prescriber` |
+| PROFILE - employer | `dimension1==employer` |
+| PROFILE - job_seeker | `dimension1==job_seeker` |
+| PROFILE - labor_inspector | `dimension1==labor_inspector` |
+| Prescripteurs | `dimension1==prescriber` |
+| RETENTION - dernière visite 30j | `daysSinceLastVisit>=1;daysSinceLastVisit<32` |
+| RETENTION - dernière visite 30j - Beneficiaire | `daysSinceLastVisit>=1;dimension1==job_seeker;daysSinceLas...` |
+| RETENTION - dernière visite 30j - Employeurs | `daysSinceLastVisit>=3;dimension1==employer;daysSinceLastV...` |
+| RETENTION - dernière visite 30j - Groupe GPS | `daysSinceLastVisit==1;daysSinceLastVisit<32;pageUrl=@http...` |
+| RETENTION - dernière visite 30j - IT | `daysSinceLastVisit>=1;dimension1==labor_inspector;daysSin...` |
+| RETENTION - dernière visite 30j - Prescripteurs | `daysSinceLastVisit>=1;dimension1==prescriber;daysSinceLas...` |
+| SORTIE - vers Dora après recherche | `outlinkUrl=@%253Fmtm_campaign%253DLesEmplois%2526mtm_kwd%...` |
+| job-descriptions | `pageUrl=@%252Fsearch%252Fjob-descriptions%252F` |
+
 ## Event Names
 
 *Data from 2025-12, retrieved 2026-01-06 via Matomo API.*

@@ -60,6 +60,22 @@ Data retrieved 2026-01-06 via Matomo API.
 
 The site does not track user types or organization information via Matomo custom dimensions.
 
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| ACQUISITION - jour de l'événement | `visitorFirstVisitTime>2024-02-01%252000%253A00%253A01;vis...` |
+| CONTENT - Page tdb privés | `pageUrl=@https%253A%252F%252Fpilotage.inclusion.beta.gouv...` |
+| CONTENT- ANALYSE DE LOFFRE DINSERTION | `pageUrl==https%253A%252F%252Fpilotage.inclusion.beta.gouv...` |
+| RETENTION - 15/75 | `daysSinceLastVisit<75;daysSinceLastVisit>15` |
+| RETENTION - 30/75 | `daysSinceLastVisit>30;daysSinceLastVisit<75` |
+| RETENTION - derniere visite <45j | `daysSinceLastVisit<45` |
+| RETENTION - test 1-30j | `daysSinceLastVisit>=1;daysSinceLastVisit<32` |
+| RETENTION - user retenus 30j - visite tdb public | `pageTitle=@Tableaux%2520de%2520bord%2520publics;daysSince...` |
+| VISITS - Visites du post du 25/06 | `pageUrl=@%253Futm_name%253DC0-post-25-06-2023` |
+
 ## Matomo Events
 
 ### Implementation

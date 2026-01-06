@@ -7,41 +7,59 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-03 via Matomo API.
+Data retrieved 2026-01-06 via Matomo API.
 
 ### Monthly Visitor Stats
 
-| Month   | Unique Visitors | Visits  | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|---------|--------------------|-----------------:|
-| 2025-01 | 21,052          | 35,104  | 679                | 1,132            |
-| 2025-02 | 19,196          | 31,698  | 686                | 1,132            |
-| 2025-03 | 19,690          | 32,771  | 635                | 1,057            |
-| 2025-04 | 18,662          | 30,932  | 622                | 1,031            |
-| 2025-05 | 16,693          | 26,930  | 538                | 869              |
-| 2025-06 | 17,420          | 28,636  | 581                | 955              |
-| 2025-07 | 16,529          | 27,775  | 533                | 896              |
-| 2025-08 | 12,531          | 19,826  | 404                | 640              |
-| 2025-09 | 19,482          | 31,833  | 649                | 1,061            |
-| 2025-10 | 19,864          | 32,841  | 641                | 1,059            |
-| 2025-11 | 12,078          | 17,876  | 403                | 596              |
-| 2025-12 | 10,145          | 15,226  | 327                | 491              |
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |          21,052 |    35,104 |                679 |            1,132 |
+| 2025-02 |          19,196 |    31,698 |                686 |            1,132 |
+| 2025-03 |          19,690 |    32,771 |                635 |            1,057 |
+| 2025-04 |          18,662 |    30,932 |                622 |            1,031 |
+| 2025-05 |          16,693 |    26,930 |                538 |              869 |
+| 2025-06 |          17,420 |    28,636 |                581 |              955 |
+| 2025-07 |          16,529 |    27,775 |                533 |              896 |
+| 2025-08 |          12,531 |    19,826 |                404 |              640 |
+| 2025-09 |          19,482 |    31,833 |                649 |            1,061 |
+| 2025-10 |          19,864 |    32,841 |                641 |            1,059 |
+| 2025-11 |          12,078 |    17,876 |                403 |              596 |
+| 2025-12 |          10,288 |    15,476 |                332 |              499 |
 
-**Typical range:** 300-700 unique visitors/day, 500-1,200 visits/day.
+**Typical range:** 332-686 unique visitors/day, 499-1,132 visits/day.
 
-**Seasonal patterns:**
-- Peak: January (new year activity), September-October (rentree)
-- Low: August (summer holidays), November-December (year-end decline)
+### Engagement Metrics
 
-**Traffic profile:** This is a low-traffic institutional/marketing site, about 10x smaller than les-emplois.
-
-**Engagement metrics (Dec 2025):**
-- Bounce rate: 1-2% (very low, indicates engaged visitors)
-- Actions per visit: 4.4-5.1
-- Average time on site: 90-134 seconds
+| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
+|---------|-------------|---------------|------------------|
+| 2025-01 |          2% |           5.1 |           2m 14s |
+| 2025-02 |          2% |             5 |           2m 05s |
+| 2025-03 |          2% |           4.9 |           2m 04s |
+| 2025-04 |          2% |           4.9 |           2m 05s |
+| 2025-05 |          3% |           4.9 |           2m 06s |
+| 2025-06 |          2% |           4.8 |           2m 01s |
+| 2025-07 |          3% |           4.7 |           1m 56s |
+| 2025-08 |          2% |           4.7 |           1m 47s |
+| 2025-09 |          2% |           4.8 |           1m 50s |
+| 2025-10 |          2% |           4.7 |           1m 50s |
+| 2025-11 |          2% |           4.8 |           1m 37s |
+| 2025-12 |          1% |           4.4 |           1m 30s |
 
 ## Custom Dimensions
 
 No custom dimensions configured for this site.
+
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| ACTION - Clic sur liste des services | `eventName==Clic%2520Liste%2520des%2520Services` |
+| ACTION - Formulaire envoyé | `eventAction==Formulaire%2520Envoy%25C3%25A9%2520-%2520Sup...` |
+| SORTIE - Les emplois | `exitPageTitle==Emplois%2520de%2520l%27inclusion%2520%25E2...` |
+| SOURCE - Linkedin | `referrerName==LinkedIn` |
+| VISITS - 2 pages vues minimum | `eventName==Nombre%2520de%2520pages%2520vues;eventValue>=2` |
 
 ## Matomo Events
 

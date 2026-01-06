@@ -7,35 +7,43 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-03 via Matomo API.
+Data retrieved 2026-01-06 via Matomo API.
 
 ### Monthly Visitor Stats
 
-| Month   | Unique Visitors | Visits  | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|---------|--------------------|-----------------:|
-| 2025-01 | 28,898          | 33,722  | 932                | 1,088            |
-| 2025-02 | 21,643          | 25,755  | 773                | 920              |
-| 2025-03 | 28,709          | 33,216  | 926                | 1,072            |
-| 2025-04 | 21,464          | 25,829  | 715                | 861              |
-| 2025-05 | 17,485          | 20,873  | 564                | 673              |
-| 2025-06 | 18,037          | 21,804  | 601                | 727              |
-| 2025-07 | 17,435          | 20,475  | 562                | 660              |
-| 2025-08 | 14,215          | 15,830  | 459                | 511              |
-| 2025-09 | 20,032          | 23,076  | 668                | 769              |
-| 2025-10 | 24,337          | 27,977  | 785                | 902              |
-| 2025-11 | 23,396          | 27,129  | 780                | 904              |
-| 2025-12 | 19,681          | 22,689  | 635                | 732              |
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |          28,898 |    33,722 |                932 |            1,088 |
+| 2025-02 |          21,643 |    25,755 |                773 |              920 |
+| 2025-03 |          28,709 |    33,216 |                926 |            1,071 |
+| 2025-04 |          21,464 |    25,829 |                715 |              861 |
+| 2025-05 |          17,485 |    20,873 |                564 |              673 |
+| 2025-06 |          18,037 |    21,804 |                601 |              727 |
+| 2025-07 |          17,435 |    20,475 |                562 |              660 |
+| 2025-08 |          14,215 |    15,830 |                459 |              511 |
+| 2025-09 |          20,032 |    23,076 |                668 |              769 |
+| 2025-10 |          24,337 |    27,977 |                785 |              902 |
+| 2025-11 |          23,396 |    27,129 |                780 |              904 |
+| 2025-12 |          19,967 |    23,027 |                644 |              743 |
 
-**Typical range:** 500-1,000 unique visitors/day, 600-1,100 visits/day.
+**Typical range:** 459-932 unique visitors/day, 511-1,088 visits/day.
 
-**Seasonal patterns:**
-- Peak: January, March, October-November
-- Low: August (summer holidays), May (bridge holidays)
+### Engagement Metrics
 
-**Key metrics:**
-- Bounce rate: 64-73%
-- Actions per visit: 2.4-2.9
-- Average time on site: 85-142 seconds
+| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
+|---------|-------------|---------------|------------------|
+| 2025-01 |         68% |           2.7 |           1m 36s |
+| 2025-02 |         64% |           2.8 |           1m 48s |
+| 2025-03 |         66% |           2.6 |           2m 22s |
+| 2025-04 |         64% |           2.8 |           1m 46s |
+| 2025-05 |         64% |           2.6 |           1m 34s |
+| 2025-06 |         64% |           2.8 |           1m 43s |
+| 2025-07 |         64% |           2.9 |           1m 47s |
+| 2025-08 |         69% |           2.5 |           1m 25s |
+| 2025-09 |         69% |           2.7 |           1m 35s |
+| 2025-10 |         73% |           2.5 |           1m 29s |
+| 2025-11 |         72% |           2.4 |           1m 37s |
+| 2025-12 |         72% |           2.5 |           1m 37s |
 
 ## Custom Dimensions
 
@@ -72,6 +80,23 @@ Top values from dimension 2:
 | Acheteur : Grand groupe                    | 44     |
 | Acheteur : Collectivite                    | 37     |
 | Partenaire : Facilitateur clauses sociales | 25     |
+
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| ACTION - Recherche non loggée | `eventAction=@recherche;dimension1!@A;dimension1!@E` |
+| EXIT - Tally | `outlinkUrl=@tally` |
+| PROFILE - Acheteurs + déposer un besoin | `form_name==tender-create-survey-form,dimension1=@BUYER` |
+| PROFILE - BUYER | `dimension1==buyer;outlinkUrl!@tally` |
+| PROFILE - INDIVIDUAL | `dimension1==INDIVIDUAL` |
+| PROFILE - SIAE | `dimension1==SIAE` |
+| RETENTION - dernière visite 30j | `daysSinceLastVisit<32;daysSinceLastVisit>=1` |
+| RETENTION - dernière visite 30j - Acheteurs | `dimension2=@Acheteur;daysSinceLastVisit<32;daysSinceLastV...` |
+| RETENTION - dernière visite 30j - Structures | `daysSinceLastVisit<32;dimension2=@structure;daysSinceLast...` |
+| RETENTION NON PRO - dernière visite 30j | `daysSinceLastVisit<32;daysSinceLastVisit>=1;outlinkUrl=@t...` |
 
 ## Goals
 

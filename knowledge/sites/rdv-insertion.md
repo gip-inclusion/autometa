@@ -6,39 +6,59 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-03 via Matomo API.
+Data retrieved 2026-01-06 via Matomo API.
 
 ### Monthly Visitor Stats
 
-| Month   | Unique Visitors | Visits  | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|---------|--------------------|-----------------:|
-| 2025-01 | 3,962           | 14,648  | 128                | 473              |
-| 2025-02 | 3,563           | 13,617  | 127                | 486              |
-| 2025-03 | 4,013           | 15,739  | 129                | 508              |
-| 2025-04 | 3,874           | 14,954  | 129                | 498              |
-| 2025-05 | 2,556           | 8,851   | 82                 | 285              |
-| 2025-06 | 4               | 5       | <1                 | <1               |
-| 2025-07 | 2,542           | 11,264  | 82                 | 363              |
-| 2025-08 | 820             | 6,499   | 26                 | 210              |
-| 2025-09 | 1,043           | 8,738   | 35                 | 291              |
-| 2025-10 | 980             | 8,979   | 32                 | 290              |
-| 2025-11 | 877             | 8,091   | 29                 | 270              |
-| 2025-12 | 914             | 7,597   | 29                 | 245              |
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |           3,962 |    14,648 |                128 |              473 |
+| 2025-02 |           3,563 |    13,617 |                127 |              486 |
+| 2025-03 |           4,013 |    15,739 |                129 |              508 |
+| 2025-04 |           3,874 |    14,954 |                129 |              498 |
+| 2025-05 |           2,556 |     8,851 |                 82 |              286 |
+| 2025-06 |               4 |         5 |                  0 |                0 |
+| 2025-07 |           2,542 |    11,264 |                 82 |              363 |
+| 2025-08 |             820 |     6,499 |                 26 |              210 |
+| 2025-09 |           1,043 |     8,738 |                 35 |              291 |
+| 2025-10 |             980 |     8,979 |                 32 |              290 |
+| 2025-11 |             877 |     8,091 |                 29 |              270 |
+| 2025-12 |             923 |     7,784 |                 30 |              251 |
 
-**Note:** June 2025 data appears anomalous (likely tracking issue). Late 2025 shows reduced unique visitors but consistent visit counts, suggesting higher engagement per user.
+**Typical range:** 0-129 unique visitors/day, 0-508 visits/day.
 
-**Typical range:** 25-130 unique visitors/day, 200-500 visits/day.
+### Engagement Metrics
 
-**Engagement metrics:** High actions per visit (20-28) and average time on site (12-16 minutes) indicate professional users deeply engaged with the platform.
-
-**Seasonal patterns:**
-- Peak: January-April (normal operations)
-- Drop: May-August (tracking issues and summer holidays)
-- Stable: September-December (normalized at lower unique visitor count)
+| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
+|---------|-------------|---------------|------------------|
+| 2025-01 |         27% |          13.8 |          12m 09s |
+| 2025-02 |         26% |          14.3 |          12m 58s |
+| 2025-03 |         23% |          20.8 |          13m 28s |
+| 2025-04 |         22% |          23.9 |          14m 07s |
+| 2025-05 |         23% |          25.1 |          13m 31s |
+| 2025-06 |         80% |           1.2 |               1s |
+| 2025-07 |         19% |          27.8 |          14m 18s |
+| 2025-08 |          5% |          23.7 |          15m 46s |
+| 2025-09 |          5% |            21 |          15m 03s |
+| 2025-10 |          5% |          20.6 |          15m 10s |
+| 2025-11 |          4% |          21.7 |          15m 52s |
+| 2025-12 |          5% |            21 |          15m 10s |
 
 ## Custom Dimensions
 
 No custom dimensions configured for this site.
+
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| CONTENT - page Sign in | `pageUrl=@https%253A%252F%252Fwww.rdv-insertion.fr%252Fsig...` |
+| DEVICE - mobile | `deviceType==smartphone` |
+| PROFILE - Logged in | `pageUrl=@https%253A%252F%252Fwww.rdv-insertion.fr%252Forg...` |
+| RETENTION - dernière visite 30j | `daysSinceLastVisit<32;daysSinceLastVisit>=1` |
+| RETENTION - dernière visite 30j - Connectés | `daysSinceLastVisit<32;pageUrl=@https%253A%252F%252Fwww.rd...` |
 
 ## Matomo Events
 

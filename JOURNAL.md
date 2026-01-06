@@ -3,6 +3,7 @@
 > Here are all the updates to the context engine (ie, AGENTS.md, ./knowledge and ./skills).
 > New entries are added to the top of the list.
 
+- 2026-01-06. Added `## Saved Segments` section to all 8 site knowledge files. knowledge_sync already had segment fetching via `SegmentEditor.getAll`. Ran sync: Emplois (39), Dora (29), Communauté (13), Marché (10), Pilotage (9), RDV-Insertion (5), Mon Recap (5), Plateforme (5). Segments help avoid timeouts by reusing pre-defined filters.
 - 2026-01-06. Removed scripts/api-linker.py (web UI and reports sufficient). Fixed AGENTS.md Quick Start: now leads with Python client usage instead of "run a script", clarified that ./scripts/ contains agent-produced one-off queries.
 - 2026-01-06. Restructured AGENTS.md: added Quick Start section, reorganized into 7 logical sections (Quick Start, Domain Context, Query Workflow, Behavioral Guidelines, Technical Reference, Output & Reports, Site Documentation Methodology). Removed redundancy, fixed heading hierarchy, front-loaded essential commands. Reduced from 378 to 307 lines.
 - 2026-01-06. Added "Web UI" section to AGENTS.md: documents how to start the Flask web server (`.venv/bin/python -m web.app`, runs at http://127.0.0.1:5000).

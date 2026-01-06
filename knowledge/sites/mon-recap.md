@@ -7,45 +7,59 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-03 via Matomo API.
+Data retrieved 2026-01-06 via Matomo API.
 
 ### Monthly Visitor Stats
 
-| Month   | Unique Visitors | Visits | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|--------|--------------------|-----------------:|
-| 2025-01 | 493             | 673    | 16                 | 22               |
-| 2025-02 | 937             | 1,251  | 33                 | 45               |
-| 2025-03 | 1,051           | 1,433  | 34                 | 46               |
-| 2025-04 | 1,480           | 1,842  | 49                 | 61               |
-| 2025-05 | 1,516           | 2,092  | 49                 | 67               |
-| 2025-06 | 1,488           | 1,878  | 50                 | 63               |
-| 2025-07 | 1,387           | 1,745  | 45                 | 56               |
-| 2025-08 | 1,147           | 1,486  | 37                 | 48               |
-| 2025-09 | 1,757           | 2,208  | 59                 | 74               |
-| 2025-10 | 2,513           | 3,117  | 81                 | 101              |
-| 2025-11 | 4,274           | 5,007  | 142                | 167              |
-| 2025-12 | 2,314           | 2,958  | 75                 | 95               |
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |             493 |       673 |                 16 |               22 |
+| 2025-02 |             937 |     1,251 |                 33 |               45 |
+| 2025-03 |           1,051 |     1,433 |                 34 |               46 |
+| 2025-04 |           1,480 |     1,842 |                 49 |               61 |
+| 2025-05 |           1,516 |     2,092 |                 49 |               67 |
+| 2025-06 |           1,488 |     1,878 |                 50 |               63 |
+| 2025-07 |           1,387 |     1,745 |                 45 |               56 |
+| 2025-08 |           1,147 |     1,486 |                 37 |               48 |
+| 2025-09 |           1,757 |     2,208 |                 59 |               74 |
+| 2025-10 |           2,513 |     3,117 |                 81 |              101 |
+| 2025-11 |           4,274 |     5,007 |                142 |              167 |
+| 2025-12 |           2,337 |     2,990 |                 75 |               96 |
 
-**Typical range:** 40-150 unique visitors/day, 50-170 visits/day.
+**Typical range:** 16-142 unique visitors/day, 22-167 visits/day.
 
-**Growth pattern:** Traffic grew significantly throughout 2025, from ~500 unique visitors in January to ~4,300 in November (peak). This reflects a product in active growth phase.
+### Engagement Metrics
 
-**Seasonal patterns:**
-- Peak: November 2025 (highest traffic)
-- Low: January (product launch), August (summer holidays)
-- Strong growth from September onwards
-
-### Key Metrics (2025 Averages)
-
-| Metric                | Value |
-|-----------------------|-------|
-| Bounce Rate           | 45%   |
-| Pages per Visit       | 2.6   |
-| Avg Time on Site      | 2min 15s |
+| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
+|---------|-------------|---------------|------------------|
+| 2025-01 |         36% |           2.8 |           2m 37s |
+| 2025-02 |         36% |           2.8 |           2m 17s |
+| 2025-03 |         39% |             3 |           2m 05s |
+| 2025-04 |         36% |           2.8 |           1m 51s |
+| 2025-05 |         48% |           2.4 |           2m 14s |
+| 2025-06 |         50% |           2.2 |           2m 20s |
+| 2025-07 |         46% |           2.3 |           2m 20s |
+| 2025-08 |         53% |           2.5 |           2m 37s |
+| 2025-09 |         53% |           3.7 |           2m 29s |
+| 2025-10 |         57% |           2.4 |           2m 07s |
+| 2025-11 |         41% |           2.4 |           2m 17s |
+| 2025-12 |         47% |           2.2 |           2m 02s |
 
 ## Custom Dimensions
 
 No custom dimensions configured for this site.
+
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| EVENT - Commande accompagnateur | `eventName==Clic%2520Bouton%2520de%2520commande%2520accomp` |
+| EVENT - commande usager | `eventName==Clic%2520Bouton%2520de%2520commande%2520usagers` |
+| EXIT - sortie vers le tally | `outlinkUrl=@%252Fr%252FmRMDWl` |
+| EXIT - sortie vers le tally usagers | `outlinkUrl=@%252Fr%252FmRMDWl;outlinkUrl=@usagers` |
+| SOURCE - QR CODE PAGE ACCOMP | `referrerKeyword==page-accompagnateurs` |
 
 ## Conversion Goals
 

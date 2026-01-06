@@ -6,53 +6,67 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-03 via Matomo API.
+Data retrieved 2026-01-06 via Matomo API.
 
 ### Monthly Visitor Stats
 
-| Month   | Unique Visitors | Visits  | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|---------|--------------------|-----------------:|
-| 2025-01 | 30,643          | 41,836  | 988                | 1,350            |
-| 2025-02 | 25,553          | 34,110  | 913                | 1,218            |
-| 2025-03 | 27,469          | 36,687  | 886                | 1,183            |
-| 2025-04 | 27,557          | 36,246  | 919                | 1,208            |
-| 2025-05 | 25,716          | 33,818  | 829                | 1,091            |
-| 2025-06 | 24,370          | 32,152  | 812                | 1,072            |
-| 2025-07 | 22,334          | 28,912  | 720                | 933              |
-| 2025-08 | 17,051          | 21,623  | 550                | 698              |
-| 2025-09 | 27,707          | 34,910  | 924                | 1,164            |
-| 2025-10 | 33,324          | 44,914  | 1,075              | 1,449            |
-| 2025-11 | 25,444          | 32,056  | 848                | 1,069            |
-| 2025-12 | 21,321          | 26,671  | 688                | 860              |
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |          30,643 |    41,836 |                988 |            1,350 |
+| 2025-02 |          25,553 |    34,110 |                913 |            1,218 |
+| 2025-03 |          27,469 |    36,687 |                886 |            1,183 |
+| 2025-04 |          27,557 |    36,246 |                919 |            1,208 |
+| 2025-05 |          25,716 |    33,818 |                830 |            1,091 |
+| 2025-06 |          24,370 |    32,152 |                812 |            1,072 |
+| 2025-07 |          22,334 |    28,912 |                720 |              933 |
+| 2025-08 |          17,051 |    21,623 |                550 |              698 |
+| 2025-09 |          27,707 |    34,910 |                924 |            1,164 |
+| 2025-10 |          33,324 |    44,914 |              1,075 |            1,449 |
+| 2025-11 |          25,444 |    32,056 |                848 |            1,069 |
+| 2025-12 |          21,643 |    27,109 |                698 |              874 |
 
-**Typical range:** 700-1,100 unique visitors/day, 900-1,500 visits/day.
-
-**Seasonal patterns:**
-- Peak: October (rentrée effet)
-- Low: August (summer holidays), December (year-end)
+**Typical range:** 550-1,075 unique visitors/day, 698-1,449 visits/day.
 
 ### Engagement Metrics
 
 | Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
 |---------|-------------|---------------|------------------|
-| 2025-01 | 62%         | 3.3           | 2m 40s           |
-| 2025-02 | 62%         | 3.3           | 2m 44s           |
-| 2025-03 | 62%         | 3.3           | 2m 43s           |
-| 2025-04 | 61%         | 3.1           | 2m 44s           |
-| 2025-05 | 60%         | 3.2           | 2m 30s           |
-| 2025-06 | 61%         | 3.0           | 2m 28s           |
-| 2025-07 | 59%         | 3.0           | 2m 21s           |
-| 2025-08 | 62%         | 2.9           | 2m 14s           |
-| 2025-09 | 64%         | 2.7           | 2m 04s           |
-| 2025-10 | 67%         | 2.6           | 1m 59s           |
-| 2025-11 | 67%         | 2.4           | 2m 02s           |
-| 2025-12 | 67%         | 2.5           | 2m 09s           |
-
-**Trend:** Bounce rate increased from 60% to 67% over 2025; actions per visit decreased from 3.3 to 2.5.
+| 2025-01 |         62% |           3.3 |           2m 40s |
+| 2025-02 |         62% |           3.3 |           2m 44s |
+| 2025-03 |         62% |           3.3 |           2m 43s |
+| 2025-04 |         61% |           3.1 |           2m 44s |
+| 2025-05 |         60% |           3.2 |           2m 30s |
+| 2025-06 |         61% |             3 |           2m 28s |
+| 2025-07 |         59% |             3 |           2m 21s |
+| 2025-08 |         62% |           2.9 |           2m 14s |
+| 2025-09 |         64% |           2.7 |           2m 04s |
+| 2025-10 |         67% |           2.6 |           1m 59s |
+| 2025-11 |         67% |           2.4 |           2m 02s |
+| 2025-12 |         67% |           2.5 |           2m 09s |
 
 ## Custom Dimensions
 
 No custom dimensions are configured for this site.
+
+## Saved Segments
+
+*Retrieved 2026-01-06 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| ACQUISITION - jour de l'événement | `visitorFirstVisitTime>2024-02-01%252000%253A00%253A01;vis...` |
+| Action - Créer un événement | `pageUrl==https%253A%252F%252Fcommunaute.inclusion.beta.go...` |
+| Création de topic | `pageUrl=@create` |
+| DEVICE - Smartphone | `deviceType==smartphone` |
+| PROFILE - connecté | `pageUrl=@https%253A%252F%252Fcommunaute.inclusion.gouv.fr...` |
+| Première visite | `visitCount<2` |
+| RETENTION - dernière visite 30j | `daysSinceLastVisit>=1;daysSinceLastVisit<32` |
+| RETENTION - dernière visite 30j - Engagés | `daysSinceLastVisit>=1;eventAction==contribute,eventAction...` |
+| STATS GIP - engagés | `eventAction==Poser%2520une%2520question,eventAction==cont...` |
+| Visite de Topic | `pageUrl=@topic` |
+| Visites Forums | `pageUrl=@https%253A%252F%252Fcommunaute-experimentation.i...` |
+| Visites avec Action | `actions>=1` |
+| visites de la home | `pageTitle=@Accueil` |
 
 ## Matomo Events
 
