@@ -7,7 +7,7 @@
 
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/ico">
 
-  <!-- Itou Theme CSS (exact same as autoplatformer) -->
+  <!-- Itou Theme CSS -->
   <link rel="stylesheet" href="https://emplois.inclusion.beta.gouv.fr/static/css/itou.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/gip-inclusion/itou-theme@v1.4.5/dist/stylesheets/app.css">
 
@@ -17,7 +17,7 @@
   {% block head %}{% endblock %}
 </head>
 
-<body id="top" class="l-authenticated">
+<body id="top" class="has-sidebar">
   <nav role="navigation" aria-label="Accès rapide" tabindex="0" class="c-skiplinks">
     <ul>
       <li><a href="#nav-primary">Aller au menu principal</a></li>
@@ -25,112 +25,113 @@
     </ul>
   </nav>
 
-  <header role="banner" id="header">
-    <section class="s-header-authenticated">
-      <div class="s-header-authenticated__container container">
-        <div class="s-header-authenticated__row row">
-          <div class="s-header-authenticated__col s-header-authenticated__col--logo-service col-auto d-flex align-items-center pe-0">
-            <a href="/"><span class="h4 mb-0 text-primary fw-bold">Matometa</span></a>
-          </div>
-          <div class="s-header-authenticated__col s-header-authenticated__col--nav col d-flex align-items-center justify-content-end pe-0">
-            <nav role="navigation" id="nav-primary" aria-label="Navigation principale">
-              <ul>
-                <li class="d-none d-lg-inline-block dropdown dropdown-structure">
-                  <button type="button" class="btn btn-outline-primary btn-ico bg-white dropdown-toggle" data-bs-toggle="dropdown" aria-haspopup="true" aria-controls="switchUserDropdown" aria-expanded="false">
-                    <i class="ri-bar-chart-box-line" aria-hidden="true"></i>
-                    <span>Analytics</span>
-                  </button>
-                </li>
-              </ul>
-            </nav>
-          </div>
-          <div class="s-header-authenticated__col s-header-authenticated__col--burger col-auto d-flex align-items-center ps-0">
-            <button type="button" class="btn btn-link btn-ico pe-0" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNav" aria-controls="offcanvasNav" aria-label="Ouvrir le menu de navigation principale">
-              <i class="ri-menu-line" aria-hidden="true"></i>
-              <span>Menu</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Offcanvas menu (exact copy from autoplatformer) -->
-    <div class="offcanvas" id="offcanvasNav" aria-label="Navigation principale">
-      <div class="offcanvas-header offcanvas-header--structure">
-        <div class="dropdown dropdown-structure flex-grow-1 py-4">
-          <div class="dropdown-toggle dropdown-toggle__summary" data-bs-toggle="dropdown" aria-haspopup="true" aria-controls="switchUserDropdown" aria-expanded="false">
-            <i class="ri-bar-chart-box-line" aria-hidden="true"></i>
-            <span>ANALYTICS</span>
-            <strong>Matometa</strong>
-          </div>
-        </div>
-        <div class="border-start border-nuance-08 d-xl-none">
-          <button type="button" class="btn-link ps-4 pt-5 pe-2 me-n2" data-bs-dismiss="offcanvas" aria-label="Fermer">
-            <i class="ri-close-line" aria-hidden="true"></i>
-          </button>
-        </div>
-      </div>
-      <div class="offcanvas-body d-flex flex-column">
-        <nav class="flex-grow-1" role="navigation" aria-label="Navigation principale">
-          <ul class="nav nav-tabs flex-column" id="menuList">
-            <!-- Explorations section -->
-            <li class="nav-item">
-              <a href="/explorations" class="nav-link {% if section == 'explorations' %}active{% endif %}">
-                <i class="ri-compass-discover-line fw-medium" aria-hidden="true"></i>
-                <span>Explorations</span>
-              </a>
-              <!-- Conversation sub-list -->
-              <ul class="nav-sublist" id="conversationList">
-                <li class="nav-subitem nav-subitem-new">
-                  <a href="/explorations" class="nav-sublink" onclick="startFreshConversation(); return false;">
-                    <i class="ri-add-line"></i>
-                    <span>Nouvelle conversation</span>
-                  </a>
-                </li>
-                {% for conv in conversations %}
-                <li class="nav-subitem">
-                  <a href="/explorations?conv={{ conv.id }}" class="nav-sublink {% if current_conv == conv.id %}active{% endif %}" data-conv-id="{{ conv.id }}">
-                    <i class="ri-chat-3-line"></i>
-                    <span>{{ conv.title or 'Sans titre' }}</span>
-                  </a>
-                </li>
-                {% endfor %}
-              </ul>
-            </li>
-            <!-- Reports section -->
-            <li class="nav-item">
-              <a href="#" class="nav-link nav-link-collapse {% if section == 'reports' %}active{% endif %}" data-bs-toggle="collapse" data-bs-target="#reportsSublist">
-                <i class="ri-file-text-line fw-medium" aria-hidden="true"></i>
-                <span>Rapports</span>
-                <i class="ri-arrow-down-s-line nav-collapse-icon"></i>
-              </a>
-              <ul class="nav-sublist collapse {% if section == 'reports' %}show{% endif %}" id="reportsSublist">
-                {% for report in reports %}
-                <li class="nav-subitem">
-                  <a href="/api/reports/{{ report.filename }}" target="_blank" class="nav-sublink">
-                    <i class="ri-article-line"></i>
-                    <span>{{ report.title }}</span>
-                  </a>
-                </li>
-                {% else %}
-                <li class="nav-subitem text-muted small px-3 py-2">Aucun rapport</li>
-                {% endfor %}
-              </ul>
-            </li>
-            <!-- Connaissances section -->
-            <li class="nav-item">
-              <a href="/connaissances" class="nav-link {% if section == 'connaissances' %}active{% endif %}">
-                <i class="ri-book-open-line fw-medium" aria-hidden="true"></i>
-                <span>Connaissances</span>
-              </a>
-            </li>
-          </ul>
-        </nav>
-      </div>
+  <!-- Fixed sidebar (desktop) -->
+  <aside class="app-sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-brand">
+        <i class="ri-bar-chart-box-line"></i>
+        <span>Matometa</span>
+      </a>
     </div>
+
+    <nav class="sidebar-nav" role="navigation" id="nav-primary" aria-label="Navigation principale">
+      <ul class="nav flex-column">
+        <!-- Explorations section -->
+        <li class="nav-item">
+          <a href="/explorations" class="nav-link {% if section == 'explorations' %}active{% endif %}">
+            <i class="ri-compass-discover-line" aria-hidden="true"></i>
+            <span>Explorations</span>
+          </a>
+          <!-- Conversation sub-list -->
+          <ul class="nav-sublist" id="conversationList">
+            <li class="nav-subitem nav-subitem-new">
+              <a href="/explorations" class="nav-sublink" onclick="startFreshConversation(); return false;">
+                <i class="ri-add-line"></i>
+                <span>Nouvelle conversation</span>
+              </a>
+            </li>
+            {% for conv in conversations %}
+            <li class="nav-subitem">
+              <a href="/explorations?conv={{ conv.id }}" class="nav-sublink {% if current_conv == conv.id %}active{% endif %}" data-conv-id="{{ conv.id }}">
+                <i class="ri-chat-3-line"></i>
+                <span>{{ conv.title or 'Sans titre' }}</span>
+              </a>
+            </li>
+            {% endfor %}
+          </ul>
+        </li>
+
+        <!-- Reports section -->
+        <li class="nav-item">
+          <a href="#" class="nav-link nav-link-collapse" data-bs-toggle="collapse" data-bs-target="#reportsSublist" aria-expanded="true">
+            <i class="ri-file-text-line" aria-hidden="true"></i>
+            <span>Rapports</span>
+            <i class="ri-arrow-down-s-line nav-collapse-icon ms-auto"></i>
+          </a>
+          <ul class="nav-sublist collapse show" id="reportsSublist">
+            {% for report in reports %}
+            <li class="nav-subitem">
+              <a href="/api/reports/{{ report.filename }}" target="_blank" class="nav-sublink">
+                <i class="ri-article-line"></i>
+                <span>{{ report.title }}</span>
+              </a>
+            </li>
+            {% else %}
+            <li class="nav-subitem nav-subitem-empty">Aucun rapport</li>
+            {% endfor %}
+          </ul>
+        </li>
+
+        <!-- Connaissances section -->
+        <li class="nav-item">
+          <a href="/connaissances" class="nav-link {% if section == 'connaissances' %}active{% endif %}">
+            <i class="ri-book-open-line" aria-hidden="true"></i>
+            <span>Connaissances</span>
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Mobile header (only visible on small screens) -->
+  <header class="app-header-mobile d-lg-none">
+    <a href="/" class="header-brand">
+      <i class="ri-bar-chart-box-line"></i>
+      <span>Matometa</span>
+    </a>
+    <button type="button" class="btn btn-link" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-label="Menu">
+      <i class="ri-menu-line ri-lg"></i>
+    </button>
   </header>
 
-  <main class="s-main" role="main" id="main">
+  <!-- Mobile offcanvas (only for mobile) -->
+  <div class="offcanvas offcanvas-start d-lg-none" id="mobileNav" tabindex="-1">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title">
+        <i class="ri-bar-chart-box-line me-2"></i>Matometa
+      </h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
+    </div>
+    <div class="offcanvas-body">
+      <nav role="navigation">
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a href="/explorations" class="nav-link {% if section == 'explorations' %}active{% endif %}">
+              <i class="ri-compass-discover-line me-2"></i>Explorations
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/connaissances" class="nav-link {% if section == 'connaissances' %}active{% endif %}">
+              <i class="ri-book-open-line me-2"></i>Connaissances
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Main content area -->
+  <main class="app-main" role="main" id="main">
     {% block content %}{% endblock %}
   </main>
 

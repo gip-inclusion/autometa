@@ -1,4 +1,10 @@
-/* Matometa Web - Styles following autoplatformer pattern */
+/* Matometa Web - Styles */
+
+:root {
+  --sidebar-width: 280px;
+  --sidebar-bg: #f8f9fa;
+  --sidebar-border: #e9ecef;
+}
 
 /* ==========================================================================
    Skip links - hidden until focused
@@ -30,17 +36,153 @@
 }
 
 /* ==========================================================================
-   Offcanvas - NO custom styles, use itou-theme defaults like autoplatformer
+   App Layout - Fixed sidebar + main content
    ========================================================================== */
-/* The itou-theme CSS handles all offcanvas styling */
+body.has-sidebar {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar - always visible on desktop */
+.app-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  padding: 1.25rem 1rem;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--bs-primary);
+  text-decoration: none;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.sidebar-brand:hover {
+  color: var(--bs-primary);
+}
+
+.sidebar-brand i {
+  font-size: 1.5rem;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 1rem 0;
+  overflow-y: auto;
+}
+
+.sidebar-nav .nav-item {
+  margin-bottom: 0.25rem;
+}
+
+.sidebar-nav .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--bs-gray-700);
+  text-decoration: none;
+  font-weight: 500;
+  border-left: 3px solid transparent;
+  transition: all 0.15s;
+}
+
+.sidebar-nav .nav-link:hover {
+  background: rgba(0, 0, 145, 0.05);
+  color: var(--bs-primary);
+}
+
+.sidebar-nav .nav-link.active {
+  background: rgba(0, 0, 145, 0.1);
+  color: var(--bs-primary);
+  border-left-color: var(--bs-primary);
+}
+
+.sidebar-nav .nav-link i {
+  font-size: 1.25rem;
+  opacity: 0.8;
+}
+
+/* Main content area */
+.app-main {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+}
+
+/* Mobile header */
+.app-header-mobile {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: white;
+  border-bottom: 1px solid var(--sidebar-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  z-index: 1000;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--bs-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* Hide sidebar on mobile, show mobile header */
+@media (max-width: 991.98px) {
+  .app-sidebar {
+    display: none;
+  }
+
+  .app-main {
+    margin-left: 0;
+    padding-top: 56px;
+  }
+}
+
+/* Hide mobile header on desktop */
+@media (min-width: 992px) {
+  .app-header-mobile {
+    display: none !important;
+  }
+}
 
 /* ==========================================================================
-   Section layout (from autoplatformer)
+   Section layout
    ========================================================================== */
 .section-content {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+}
+
+@media (max-width: 991.98px) {
+  .section-content {
+    min-height: calc(100vh - 56px);
+  }
 }
 
 .section-header {
@@ -589,28 +731,32 @@
   margin: 0;
 }
 
+.nav-subitem-empty {
+  padding: 0.5rem 1rem 0.5rem 3rem;
+  color: var(--bs-gray-500);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
 .nav-sublink {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 1rem 0.5rem 2.5rem;
-  color: var(--bs-gray-700);
+  padding: 0.5rem 1rem 0.5rem 2.75rem;
+  color: var(--bs-gray-600);
   text-decoration: none;
-  font-size: 0.875rem;
-  border-left: 2px solid transparent;
+  font-size: 0.8125rem;
+  border-left: 3px solid transparent;
   transition: all 0.15s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .nav-sublink:hover {
-  background: var(--bs-gray-100);
+  background: rgba(0, 0, 145, 0.05);
   color: var(--bs-primary);
 }
 
 .nav-sublink.active {
-  background: var(--bs-primary-bg-subtle);
+  background: rgba(0, 0, 145, 0.08);
   border-left-color: var(--bs-primary);
   color: var(--bs-primary);
   font-weight: 500;
@@ -618,13 +764,14 @@
 
 .nav-sublink i {
   flex-shrink: 0;
-  font-size: 1rem;
+  font-size: 0.875rem;
   opacity: 0.7;
 }
 
 .nav-sublink span {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* New conversation item */
@@ -633,8 +780,12 @@
   font-weight: 500;
 }
 
+.nav-subitem-new .nav-sublink i {
+  opacity: 1;
+}
+
 .nav-subitem-new .nav-sublink:hover {
-  background: var(--bs-primary-bg-subtle);
+  background: rgba(0, 0, 145, 0.1);
 }
 
 /* Collapsible sections */
@@ -643,10 +794,10 @@
 }
 
 .nav-link-collapse .nav-collapse-icon {
-  margin-left: auto;
   transition: transform 0.2s;
+  font-size: 1rem;
 }
 
-.nav-link-collapse[aria-expanded="true"] .nav-collapse-icon {
-  transform: rotate(180deg);
+.nav-link-collapse[aria-expanded="false"] .nav-collapse-icon {
+  transform: rotate(-90deg);
 }
