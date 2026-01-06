@@ -16,51 +16,43 @@ This is a low-traffic internal tool used by professionals in the inclusion ecosy
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-03 via Matomo API.
+Data retrieved 2026-01-06 via Matomo API.
 
 ### Monthly Visitor Stats
 
-| Month   | Unique Visitors | Visits  | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|---------|--------------------|-----------------:|
-| 2025-01 | 1,177           | 1,529   | 38                 | 49               |
-| 2025-02 | 2,218           | 2,800   | 79                 | 100              |
-| 2025-03 | 1,010           | 1,363   | 33                 | 44               |
-| 2025-04 | -               | -       | -                  | -                |
-| 2025-05 | 288             | 346     | 9                  | 11               |
-| 2025-06 | 5,731           | 6,460   | 191                | 215              |
-| 2025-07 | 1,239           | 1,572   | 40                 | 51               |
-| 2025-08 | 710             | 876     | 23                 | 28               |
-| 2025-09 | 3,226           | 3,958   | 108                | 132              |
-| 2025-10 | 1,462           | 1,905   | 47                 | 61               |
-| 2025-11 | 975             | 1,266   | 33                 | 42               |
-| 2025-12 | 668             | 894     | 22                 | 29               |
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |           1,177 |     1,529 |                 38 |               49 |
+| 2025-02 |           2,218 |     2,800 |                 79 |              100 |
+| 2025-03 |           1,010 |     1,363 |                 33 |               44 |
+| 2025-04 |               - |         - |                  - |                - |
+| 2025-05 |             288 |       346 |                  9 |               11 |
+| 2025-06 |           5,731 |     6,460 |                191 |              215 |
+| 2025-07 |           1,239 |     1,572 |                 40 |               51 |
+| 2025-08 |             710 |       876 |                 23 |               28 |
+| 2025-09 |           3,226 |     3,958 |                108 |              132 |
+| 2025-10 |           1,462 |     1,905 |                 47 |               61 |
+| 2025-11 |             975 |     1,266 |                 32 |               42 |
+| 2025-12 |             686 |       921 |                 22 |               30 |
 
-**Note:** April 2025 shows no data (possibly site migration or tracking issue).
-
-**Typical range:** 20-100 unique visitors/day (excluding anomalous months).
-
-**Traffic patterns:**
-- Peak: June 2025 (191 visitors/day) and September 2025 (108 visitors/day)
-- Low: May 2025 (9 visitors/day), December 2025 (22 visitors/day)
-- High variability suggests usage tied to specific campaigns, webinars, or reporting periods
+**Typical range:** 9-191 unique visitors/day, 11-215 visits/day.
 
 ### Engagement Metrics
 
 | Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
 |---------|-------------|---------------|------------------|
-| 2025-01 | 45%         | 3.0           | 182s             |
-| 2025-02 | 59%         | 2.3           | 145s             |
-| 2025-03 | 43%         | 3.0           | 193s             |
-| 2025-05 | 46%         | 3.1           | 156s             |
-| 2025-06 | 43%         | 2.1           | 129s             |
-| 2025-07 | 51%         | 2.5           | 113s             |
-| 2025-08 | 53%         | 2.5           | 129s             |
-| 2025-09 | 38%         | 2.4           | 129s             |
-| 2025-10 | 53%         | 2.8           | 134s             |
-| 2025-11 | 52%         | 2.7           | 147s             |
-| 2025-12 | 43%         | 3.2           | 334s             |
-
-**Typical engagement:** 2-3 actions per visit, 2-3 minutes on site.
+| 2025-01 |         45% |             3 |           3m 02s |
+| 2025-02 |         59% |           2.3 |           2m 25s |
+| 2025-03 |         43% |             3 |           3m 13s |
+| 2025-04 |           - |             - |                - |
+| 2025-05 |         46% |           3.1 |           2m 36s |
+| 2025-06 |         43% |           2.1 |           2m 09s |
+| 2025-07 |         51% |           2.5 |           1m 53s |
+| 2025-08 |         53% |           2.5 |           2m 09s |
+| 2025-09 |         38% |           2.4 |           2m 09s |
+| 2025-10 |         53% |           2.8 |           2m 14s |
+| 2025-11 |         52% |           2.7 |           2m 27s |
+| 2025-12 |         42% |           3.3 |           5m 38s |
 
 ## Custom Dimensions
 
