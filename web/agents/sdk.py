@@ -50,7 +50,7 @@ class SDKBackend(AgentBackend):
         try:
             # Build options
             options = ClaudeAgentOptions(
-                allowed_tools=["Read", "Bash", "Grep", "Glob", "Write", "Edit", "WebFetch", "WebSearch"],
+                allowed_tools=["Skill", "Read", "Bash", "Grep", "Glob", "Write", "Edit", "WebFetch", "WebSearch"],
                 cwd=str(config.BASE_DIR),
                 permission_mode="acceptEdits",  # Auto-approve for web use
                 setting_sources=["project"],  # Load project skills
