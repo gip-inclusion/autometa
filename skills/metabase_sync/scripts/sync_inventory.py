@@ -259,12 +259,199 @@ def generate_readme(db: CardsDB, last_sync: str):
     return readme_path
 
 
+def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
+    """Generate Markdown files for git tracking."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Clear existing markdown files
+    for f in output_dir.glob("*.md"):
+        f.unlink()
+
+    all_cards = db.all()
+    topics_summary = db.topics_summary()
+    dashboards_summary = db.dashboards_summary()
+    tables_summary = db.tables_summary()
+
+    # --- Generate index.md ---
+    index_lines = [
+        "# Inventaire Metabase",
+        "",
+        f"*Dernière synchronisation : {last_sync}*",
+        f"*Total : {len(all_cards)} cartes*",
+        "",
+        "## Table des matières",
+        "",
+        "### Par thème",
+        "",
+    ]
+
+    for topic, count in sorted(topics_summary.items(), key=lambda x: -x[1]):
+        if count > 0:
+            desc = TOPICS.get(topic, "")
+            index_lines.append(f"- [{topic}](topic-{topic}.md) ({count}) — {desc}")
+
+    index_lines.extend([
+        "",
+        "### Par dashboard",
+        "",
+    ])
+
+    for dash_id, count in list(dashboards_summary.items())[:20]:
+        dash = db.get_dashboard(dash_id)
+        dash_name = dash.name if dash else f"Dashboard {dash_id}"
+        index_lines.append(f"- [{dash_name}](dashboard-{dash_id}.md) ({count} cartes)")
+
+    # Best of: most referenced tables
+    index_lines.extend([
+        "",
+        "## Best of — Tables les plus utilisées",
+        "",
+        "| Table | Cartes |",
+        "|-------|--------|",
+    ])
+
+    for table, count in list(tables_summary.items())[:15]:
+        index_lines.append(f"| `{table}` | {count} |")
+
+    # Best of: cards with longest SQL (complex queries)
+    cards_by_sql_len = sorted(
+        [c for c in all_cards if c.sql_query],
+        key=lambda c: len(c.sql_query or ""),
+        reverse=True
+    )[:10]
+
+    index_lines.extend([
+        "",
+        "## Best of — Requêtes les plus complexes",
+        "",
+    ])
+
+    for card in cards_by_sql_len:
+        sql_len = len(card.sql_query or "")
+        index_lines.append(f"- **{card.name}** (ID: {card.id}, {sql_len} chars)")
+
+    with open(output_dir / "_index.md", "w") as f:
+        f.write("\n".join(index_lines))
+
+    # --- Generate topic files ---
+    for topic in topics_summary:
+        cards = db.by_topic(topic)
+        if not cards:
+            continue
+
+        lines = [
+            f"# Thème : {topic}",
+            "",
+            f"*{TOPICS.get(topic, '')}*",
+            "",
+            f"**{len(cards)} cartes**",
+            "",
+        ]
+
+        for card in cards:
+            lines.extend([
+                f"## {card.name}",
+                "",
+                f"- **ID:** {card.id}",
+            ])
+            if card.description:
+                lines.append(f"- **Description:** {card.description}")
+            if card.dashboard_id:
+                lines.append(f"- **Dashboard:** {card.dashboard_id}")
+            if card.tables_referenced:
+                lines.append(f"- **Tables:** {', '.join(card.tables_referenced)}")
+
+            if card.sql_query:
+                # Truncate very long SQL for readability
+                sql = card.sql_query
+                if len(sql) > 2000:
+                    sql = sql[:2000] + "\n-- ... (truncated)"
+                lines.extend([
+                    "",
+                    "```sql",
+                    sql,
+                    "```",
+                ])
+
+            lines.append("")
+
+        with open(output_dir / f"topic-{topic}.md", "w") as f:
+            f.write("\n".join(lines))
+
+    # --- Generate dashboard files ---
+    for dash_id in dashboards_summary:
+        cards = db.by_dashboard(dash_id)
+        if not cards:
+            continue
+
+        dash = db.get_dashboard(dash_id)
+        dash_name = dash.name if dash else f"Dashboard {dash_id}"
+        dash_desc = dash.description if dash else None
+
+        lines = [
+            f"# Dashboard : {dash_name}",
+            "",
+        ]
+
+        if dash_desc:
+            lines.extend([dash_desc, ""])
+
+        if dash and dash.pilotage_url:
+            lines.extend([f"**URL:** {dash.pilotage_url}", ""])
+
+        lines.extend([f"**{len(cards)} cartes**", ""])
+
+        for card in cards:
+            lines.extend([
+                f"## {card.name}",
+                "",
+                f"- **ID:** {card.id}",
+                f"- **Thème:** {card.topic or 'autre'}",
+            ])
+            if card.description:
+                lines.append(f"- **Description:** {card.description}")
+            if card.tables_referenced:
+                lines.append(f"- **Tables:** {', '.join(card.tables_referenced)}")
+
+            if card.sql_query:
+                sql = card.sql_query
+                if len(sql) > 2000:
+                    sql = sql[:2000] + "\n-- ... (truncated)"
+                lines.extend([
+                    "",
+                    "```sql",
+                    sql,
+                    "```",
+                ])
+
+            lines.append("")
+
+        with open(output_dir / f"dashboard-{dash_id}.md", "w") as f:
+            f.write("\n".join(lines))
+
+    return output_dir
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sync Metabase cards to SQLite")
     parser.add_argument("--skip-categorize", action="store_true", help="Skip AI categorization")
     parser.add_argument("--collections", type=int, nargs="+", default=DEFAULT_COLLECTIONS, help="Collection IDs to sync")
     parser.add_argument("--clear", action="store_true", help="Clear database before sync")
+    parser.add_argument("--markdown", action="store_true", help="Generate Markdown files for git tracking")
+    parser.add_argument("--markdown-only", action="store_true", help="Only regenerate Markdown from existing DB")
     args = parser.parse_args()
+
+    # Handle --markdown-only mode
+    if args.markdown_only:
+        print("📄 Regenerating Markdown from existing database...")
+        db = CardsDB()
+        last_sync = datetime.now().strftime("%Y-%m-%d %H:%M")
+        markdown_dir = DB_PATH.parent / "markdown"
+        generate_markdown(db, markdown_dir, last_sync)
+        md_files = list(markdown_dir.glob("*.md"))
+        print(f"✅ {len(md_files)} files written to {markdown_dir}")
+        db.close()
+        return
 
     print("=" * 70)
     print("🚀 Metabase Cards Sync")
@@ -393,6 +580,19 @@ def main():
     readme_path = generate_readme(db, last_sync)
     print(f"   ✅ {readme_path}")
 
+    # Step 6: Generate Markdown (optional)
+    if args.markdown:
+        print()
+        print("📄 STEP 6: Generating Markdown files...")
+        print("-" * 70)
+
+        markdown_dir = DB_PATH.parent / "markdown"
+        generate_markdown(db, markdown_dir, last_sync)
+
+        # Count generated files
+        md_files = list(markdown_dir.glob("*.md"))
+        print(f"   ✅ {len(md_files)} files written to {markdown_dir}")
+
     db.close()
 
     print()
@@ -401,6 +601,8 @@ def main():
     print("=" * 70)
     print(f"Database: {DB_PATH}")
     print(f"Cards: {len(all_cards)}")
+    if args.markdown:
+        print(f"Markdown: {DB_PATH.parent / 'markdown'}")
 
 
 if __name__ == "__main__":
