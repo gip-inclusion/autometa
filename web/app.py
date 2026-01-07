@@ -77,11 +77,30 @@ def index():
     return render_template("explorations.html", section="explorations", **data)
 
 
+def humanize_title(title: str) -> str:
+    """Clean up a title: strip date prefix, replace separators, capitalize."""
+    if not title:
+        return title
+    # Strip YYYY-MM- or YYYY-MM-DD- prefix
+    title = re.sub(r"^\d{4}-\d{2}(-\d{2})?[-_]?", "", title)
+    # Replace dashes and underscores with spaces
+    title = re.sub(r"[-_]+", " ", title)
+    # Capitalize first letter
+    if title:
+        title = title[0].upper() + title[1:]
+    return title.strip()
+
+
 @app.route("/explorations")
 def explorations():
     """Explorations section - chat interface."""
     data = get_sidebar_data()
-    current_conv = request.args.get("conv")
+    current_conv_id = request.args.get("conv")
+    current_conv = None
+    if current_conv_id:
+        current_conv = store.get_conversation(current_conv_id, include_messages=False)
+        if current_conv and current_conv.title:
+            current_conv.title = humanize_title(current_conv.title)
     return render_template("explorations.html", section="explorations", current_conv=current_conv, **data)
 
 

@@ -67,10 +67,42 @@ class SDKBackend(AgentBackend):
                 options.resume = resume_id
                 logger.info(f"Resuming session {resume_id}")
 
+            # If no session but we have history, include it in the prompt
+            full_prompt = message
+            if not resume_id and history:
+                # Truncate very long history to avoid token limits
+                MAX_HISTORY_CHARS = 50000
+                history_parts = []
+                total_chars = 0
+                for m in history:
+                    content = m['content']
+                    if total_chars + len(content) > MAX_HISTORY_CHARS:
+                        # Truncate this message
+                        remaining = MAX_HISTORY_CHARS - total_chars
+                        if remaining > 500:
+                            content = content[:remaining] + "\n[... truncated ...]"
+                            history_parts.append(f"{'User' if m['role'] == 'user' else 'Assistant'}: {content}")
+                        break
+                    history_parts.append(f"{'User' if m['role'] == 'user' else 'Assistant'}: {content}")
+                    total_chars += len(content)
+
+                if history_parts:
+                    history_text = "\n\n".join(history_parts)
+                    full_prompt = f"""Previous conversation context:
+
+{history_text}
+
+---
+
+User: {message}"""
+                    logger.info(f"No session, prepending {len(history_parts)} messages ({total_chars} chars) as context")
+            else:
+                full_prompt = message
+
             logger.info(f"Starting SDK query for conversation {conversation_id}")
 
             # Stream responses from SDK
-            async for sdk_message in query(prompt=message, options=options):
+            async for sdk_message in query(prompt=full_prompt, options=options):
                 # Capture session ID from system init message
                 if isinstance(sdk_message, SystemMessage):
                     if hasattr(sdk_message, 'session_id') and sdk_message.session_id:

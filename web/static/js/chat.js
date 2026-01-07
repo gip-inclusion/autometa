@@ -12,6 +12,22 @@ let lastUserMessage = null;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+// htmx integration - only add listener once
+document.body.addEventListener('htmx:afterSwap', (e) => {
+  if (e.detail.target.id === 'main') {
+    initChat();
+    // Check if we're on a conversation page
+    const urlParams = new URLSearchParams(window.location.search);
+    const convId = urlParams.get('conv');
+    if (convId && convId !== currentConversationId) {
+      currentConversationId = convId;
+      loadConversation(convId);
+    } else if (!convId) {
+      currentConversationId = null;
+    }
+  }
+});
+
 /**
  * Initialize the chat interface
  */
@@ -772,6 +788,9 @@ async function loadConversation(convId) {
     // Render existing messages
     const chatOutput = document.getElementById('chatOutput');
     if (chatOutput && conv.messages) {
+      // Clear existing content first
+      chatOutput.innerHTML = '';
+
       for (const msg of conv.messages) {
         if (msg.type === 'user') {
           appendEvent('user', { content: msg.content });

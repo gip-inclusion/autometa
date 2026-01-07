@@ -10,14 +10,14 @@
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div class="d-flex align-items-center gap-3">
           {% if current_conv %}
-          <a href="/explorations" class="btn btn-link p-0 me-2" hx-get="/explorations" hx-target="#main" hx-push-url="true">
+          <a href="/explorations" class="btn btn-link p-0 me-2" hx-get="/explorations" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-arrow-left-line ri-xl"></i>
           </a>
           {% endif %}
           <i class="ri-compass-discover-line ri-2x text-primary"></i>
           <div>
-            <h1 class="mb-0">{% if current_conv %}Conversation{% else %}Explorations{% endif %}</h1>
-            <p class="text-muted mb-0">{% if current_conv %}Continuez votre exploration{% else %}Posez vos questions sur les données{% endif %}</p>
+            <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Nouvelle conversation' }}{% else %}Explorations{% endif %}</h1>
+            <p class="text-muted mb-0">{% if current_conv %}{% if current_conv.has_report %}<i class="ri-file-text-line"></i> Rapport{% else %}Conversation{% endif %}{% else %}Posez vos questions sur les données{% endif %}</p>
           </div>
         </div>
         {% if current_conv %}
@@ -57,7 +57,7 @@
         {% for conv in conversations %}
         <div class="col-12 col-md-6 col-lg-4">
           <a href="/explorations?conv={{ conv.id }}" class="card conversation-card h-100"
-             hx-get="/explorations?conv={{ conv.id }}" hx-target="#main" hx-push-url="true">
+             hx-get="/explorations?conv={{ conv.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <div class="card-body">
               <div class="d-flex justify-content-between align-items-start mb-2">
                 <h5 class="card-title mb-0">{{ conv.title or 'Sans titre' }}</h5>
@@ -119,9 +119,9 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     {% if current_conv %}
-    // Load existing conversation
-    currentConversationId = '{{ current_conv }}';
-    loadConversation('{{ current_conv }}').then(() => {
+    // Load existing conversation on initial page load
+    currentConversationId = '{{ current_conv.id }}';
+    loadConversation('{{ current_conv.id }}').then(() => {
       // Check if there's a pending message to send
       const urlParams = new URLSearchParams(window.location.search);
       const pendingMessage = urlParams.get('message');
@@ -138,21 +138,6 @@
     {% endif %}
     initChat();
   });
-
-  // Re-init chat after htmx swaps
-  document.body.addEventListener('htmx:afterSwap', (e) => {
-    if (e.detail.target.id === 'main') {
-      initChat();
-      // Check if we're on a conversation page
-      const urlParams = new URLSearchParams(window.location.search);
-      const convId = urlParams.get('conv');
-      if (convId) {
-        currentConversationId = convId;
-        loadConversation(convId);
-      } else {
-        currentConversationId = null;
-      }
-    }
-  });
+  // htmx:afterSwap listener is in chat.js (added once, not on each swap)
 </script>
 {% endblock %}

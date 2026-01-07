@@ -41,7 +41,7 @@
       <ul class="nav flex-column">
         <li class="nav-item">
           <a href="/explorations" class="nav-link {% if section == 'explorations' %}active{% endif %}"
-             hx-get="/explorations" hx-target="#main" hx-push-url="true">
+             hx-get="/explorations" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-compass-discover-line" aria-hidden="true"></i>
             <span>Explorations</span>
           </a>
@@ -49,7 +49,7 @@
 
         <li class="nav-item">
           <a href="/connaissances" class="nav-link {% if section == 'connaissances' %}active{% endif %}"
-             hx-get="/connaissances" hx-target="#main" hx-push-url="true">
+             hx-get="/connaissances" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-book-open-line" aria-hidden="true"></i>
             <span>Connaissances</span>
           </a>

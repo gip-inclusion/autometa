@@ -92,6 +92,9 @@ def migrate_reports(reports_dir: Path, dry_run: bool = False):
 
             # Add a synthetic user message (the original query if available)
             original_query = metadata.get("original query", f"Generate a report about {title}")
+            # Strip surrounding quotes if present
+            if original_query.startswith('"') and original_query.endswith('"'):
+                original_query = original_query[1:-1]
             store.add_message(conv.id, "user", original_query)
 
             # Add the report content as assistant message
