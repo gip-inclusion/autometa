@@ -2,6 +2,7 @@ services:
   matometa:
     build: .
     restart: always
+    hostname: matometa
     environment:
       - AGENT_BACKEND=sdk
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -15,6 +16,8 @@ services:
       - ./data:/app/data
       # Persist Claude credentials between deploys
       - ./claude-credentials:/home/matometa/.claude
+      # Stable machine identity for OAuth fingerprinting
+      - /etc/machine-id:/etc/machine-id:ro
       # Mount knowledge files (read-only)
       - ./knowledge:/app/knowledge:ro
       - ./AGENTS.md:/app/AGENTS.md:ro
