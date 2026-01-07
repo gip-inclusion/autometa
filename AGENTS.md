@@ -203,18 +203,45 @@ returning HTML instead of JSON.
 
 ## Output & Reports
 
-### Report Format
+### Report Storage
 
-Write reports to `./reports/` with filename `YYYY-MM-parameterized-name.md`.
+Reports are stored in the SQLite database at `./data/matometa.db`. This applies to both
+Web UI mode and CLI mode.
 
-YAML front-matter:
+**DO NOT write report files** to `./reports/`. That folder is archived.
+
+**Use the save_report skill:**
+
+```python
+from skills.save_report.scripts.save_report import save_report, update_report, append_report, list_reports
+
+# Create new report (creates new conversation)
+result = save_report(
+    title="Monthly traffic analysis",
+    content="---\ndate: 2026-01-07\n...\n---\n\n# Report\n\nContent...",
+    website="emplois",
+    category="Traffic analysis",
+    original_query="What was the traffic in December?"
+)
+
+# Update existing report (increments version)
+result = update_report(report_id=42, content="Updated content...")
+
+# Append to existing conversation
+result = append_report(conversation_id="uuid-here", title="Follow-up", content="...")
+
+# List existing reports
+reports = list_reports(website="emplois", limit=10)
+```
+
+Include YAML front-matter at the start of report content:
 ```yaml
 ---
 date: 2025-01-15
 website: emplois  # or array: [emplois, dora]
-original query: "verbatim user query"
-query category: "short category description"
-indicator type: [tag1, tag2]
+original_query: "verbatim user query"
+query_category: "short category description"
+indicator_type: [tag1, tag2]
 ---
 ```
 

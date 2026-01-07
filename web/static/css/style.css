@@ -872,3 +872,73 @@ body.has-sidebar {
 .conversation-card .card-text {
   font-size: 0.8rem;
 }
+
+.conversation-card {
+  position: relative;
+}
+
+.conversation-card .card-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+.conversation-card .card-delete-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+  padding: 0.25rem 0.5rem;
+}
+
+.conversation-card:hover .card-delete-btn {
+  opacity: 1;
+}
+
+.conversation-card .card-delete-btn:hover {
+  color: var(--bs-danger) !important;
+}
+
+/* Title editing */
+.conv-title-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-title-display {
+  display: flex;
+  align-items: center;
+}
+
+.conv-title-display h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-title-display .btn-link {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.conv-title-wrapper:hover .conv-title-display .btn-link {
+  opacity: 1;
+}
+
+.conv-title-edit {
+  display: flex;
+  align-items: center;
+}
+
+.conv-title-edit input {
+  max-width: 400px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ri-spin {
+  animation: spin 1s linear infinite;
+}

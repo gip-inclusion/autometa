@@ -25,3 +25,7 @@ ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
 HOST = os.getenv("WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("WEB_PORT", "5000"))
 DEBUG = os.getenv("WEB_DEBUG", "true").lower() == "true"
+
+# Logging
+LOG_FILE = BASE_DIR / "data" / "agent.log"
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)

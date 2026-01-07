@@ -15,8 +15,29 @@
           </a>
           {% endif %}
           <i class="ri-compass-discover-line ri-2x text-primary"></i>
-          <div>
-            <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Nouvelle conversation' }}{% else %}Explorations{% endif %}</h1>
+          <div class="conv-title-wrapper">
+            <div class="conv-title-display" id="convTitleDisplay">
+              <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Nouvelle conversation' }}{% else %}Explorations{% endif %}</h1>
+              {% if current_conv %}
+              <button type="button" class="btn btn-link btn-sm text-muted p-0 ms-2" id="editTitleBtn" title="Renommer">
+                <i class="ri-pencil-line"></i>
+              </button>
+              <button type="button" class="btn btn-link btn-sm text-muted p-0 ms-1" id="autoTitleBtn" title="Générer un titre">
+                <i class="ri-magic-line"></i>
+              </button>
+              {% endif %}
+            </div>
+            {% if current_conv %}
+            <div class="conv-title-edit d-none" id="convTitleEdit">
+              <input type="text" class="form-control form-control-sm" id="convTitleInput" value="{{ current_conv.title or '' }}" placeholder="Titre de la conversation">
+              <button type="button" class="btn btn-sm btn-primary ms-2" id="saveTitleBtn">
+                <i class="ri-check-line"></i>
+              </button>
+              <button type="button" class="btn btn-sm btn-link text-muted" id="cancelTitleBtn">
+                <i class="ri-close-line"></i>
+              </button>
+            </div>
+            {% endif %}
             <p class="text-muted mb-0">{% if current_conv %}{% if current_conv.has_report %}<i class="ri-file-text-line"></i> Rapport{% else %}Conversation{% endif %}{% else %}Posez vos questions sur les données{% endif %}</p>
           </div>
         </div>
@@ -55,24 +76,30 @@
       {% if conversations %}
       <div class="row g-3">
         {% for conv in conversations %}
-        <div class="col-12 col-md-6 col-lg-4">
-          <a href="/explorations?conv={{ conv.id }}" class="card conversation-card h-100"
-             hx-get="/explorations?conv={{ conv.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start mb-2">
-                <h5 class="card-title mb-0">{{ conv.title or 'Sans titre' }}</h5>
-                {% if conv.has_report %}
-                <span class="badge bg-primary">
-                  <i class="ri-file-text-line"></i> Rapport
-                </span>
-                {% endif %}
-              </div>
+        <div class="col-12 col-md-6 col-lg-4" id="conv-{{ conv.id }}">
+          <div class="card conversation-card h-100">
+            <a href="/explorations?conv={{ conv.id }}" class="card-body text-decoration-none"
+               hx-get="/explorations?conv={{ conv.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <h5 class="card-title mb-2">{{ conv.title or 'Sans titre' }}</h5>
               <p class="card-text text-muted small mb-0">
-                <i class="ri-time-line"></i>
                 {{ conv.updated_at.strftime('%d/%m/%Y %H:%M') }}
               </p>
+            </a>
+            <div class="card-footer-row">
+              {% if conv.has_report %}
+              <span class="badge bg-primary">Rapport</span>
+              {% else %}
+              <span></span>
+              {% endif %}
+              <button class="btn btn-link btn-sm text-muted card-delete-btn" title="Supprimer"
+                      hx-delete="/api/conversations/{{ conv.id }}"
+                      hx-target="#conv-{{ conv.id }}"
+                      hx-swap="outerHTML"
+                      hx-confirm="Supprimer cette conversation ?">
+                <i class="ri-delete-bin-line"></i>
+              </button>
             </div>
-          </a>
+          </div>
         </div>
         {% endfor %}
       </div>

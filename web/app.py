@@ -2,14 +2,27 @@
 
 import asyncio
 import json
+import logging
 import os
 import re
 import threading
+import time
 from flask import Flask, Response, jsonify, render_template, request
 
 from . import config
 from .storage import store
 from .agents import get_agent
+
+# Configure logging to file
+logging.basicConfig(
+    level=logging.DEBUG if config.DEBUG else logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -63,10 +76,30 @@ def get_agent_instance():
 # -----------------------------------------------------------------------------
 
 
+def humanize_title(title: str) -> str:
+    """Clean up a title: strip date prefix, ISO timestamps, separators; capitalize."""
+    if not title:
+        return title
+    # Strip YYYY-MM- or YYYY-MM-DD- prefix
+    title = re.sub(r"^\d{4}-\d{2}(-\d{2})?[-_]?", "", title)
+    # Strip ISO 8601 timestamps like 2026-01-07T07:57:11.178085
+    title = re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?", "", title)
+    # Replace dashes and underscores with spaces
+    title = re.sub(r"[-_]+", " ", title)
+    # Capitalize first letter
+    if title:
+        title = title[0].upper() + title[1:]
+    return title.strip()
+
+
 def get_sidebar_data():
     """Get data for sidebar (conversations only, reports are now in DB)."""
     # Recent conversations with report info
     conversations = store.list_conversations(limit=10)
+    # Humanize titles
+    for conv in conversations:
+        if conv.title:
+            conv.title = humanize_title(conv.title)
     return {"conversations": conversations}
 
 
@@ -75,20 +108,6 @@ def index():
     """Redirect to explorations."""
     data = get_sidebar_data()
     return render_template("explorations.html", section="explorations", **data)
-
-
-def humanize_title(title: str) -> str:
-    """Clean up a title: strip date prefix, replace separators, capitalize."""
-    if not title:
-        return title
-    # Strip YYYY-MM- or YYYY-MM-DD- prefix
-    title = re.sub(r"^\d{4}-\d{2}(-\d{2})?[-_]?", "", title)
-    # Replace dashes and underscores with spaces
-    title = re.sub(r"[-_]+", " ", title)
-    # Capitalize first letter
-    if title:
-        title = title[0].upper() + title[1:]
-    return title.strip()
 
 
 @app.route("/explorations")
@@ -176,8 +195,77 @@ def list_conversations_api():
 def delete_conversation(conv_id: str):
     """Delete a conversation."""
     if store.delete_conversation(conv_id):
-        return jsonify({"status": "deleted"})
+        # Return empty response for htmx to remove the element
+        return "", 200
     return jsonify({"error": "Conversation not found"}), 404
+
+
+@app.route("/api/conversations/<conv_id>", methods=["PATCH"])
+def update_conversation_api(conv_id: str):
+    """Update conversation (title, etc.)."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    title = data.get("title")
+    if title is not None:
+        store.update_conversation(conv_id, title=title)
+        return jsonify({"title": title})
+
+    return jsonify({"error": "No valid fields to update"}), 400
+
+
+@app.route("/api/conversations/<conv_id>/generate-title", methods=["POST"])
+def generate_title_api(conv_id: str):
+    """Generate a title for a conversation using LLM."""
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        return jsonify({"error": "Conversation not found"}), 404
+
+    # Collect context: first 2 user messages + last assistant message
+    user_messages = []
+    last_assistant_msg = None
+    for msg in conv.messages:
+        if msg.type == "user" and len(user_messages) < 2:
+            user_messages.append(msg.content[:300])
+        if msg.type == "assistant":
+            last_assistant_msg = msg.content[:500]
+
+    if not user_messages:
+        return jsonify({"error": "No user message to generate title from"}), 400
+
+    # Build context
+    context_parts = []
+    for i, um in enumerate(user_messages, 1):
+        context_parts.append(f"Message utilisateur {i}: {um}")
+    if last_assistant_msg:
+        context_parts.append(f"Dernière réponse: {last_assistant_msg}")
+    context = "\n\n".join(context_parts)
+
+    # Generate title synchronously (blocking for API response)
+    try:
+        from anthropic import Anthropic
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=50,
+            messages=[{
+                "role": "user",
+                "content": f"Écris un titre court et direct (4-8 mots) sur le thème de cette conversation. En français uniquement. Pas de guillemets.\n\n{context}"
+            }]
+        )
+        title = response.content[0].text.strip().strip('"\'')[:60]
+        store.update_conversation(conv_id, title=title)
+        return jsonify({"title": title})
+
+    except Exception as e:
+        logger.error(f"Failed to generate title: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # -----------------------------------------------------------------------------
@@ -306,6 +394,11 @@ def stream_conversation(conv_id: str):
                     # Collect assistant text
                     if event.type == "assistant":
                         assistant_text_parts.append(str(event.content))
+
+                    # Store tool events for replay
+                    if event.type in ("tool_use", "tool_result"):
+                        content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
+                        store.add_message(conv_id, event.type, content)
 
                     # Yield SSE event
                     yield f"event: {event.type}\n"
@@ -456,6 +549,59 @@ def get_report(report_id: int):
             },
         }
     )
+
+
+# -----------------------------------------------------------------------------
+# API Routes - Logs
+# -----------------------------------------------------------------------------
+
+
+@app.route("/api/logs")
+def stream_logs():
+    """Stream agent logs via SSE (tail -f style)."""
+    lines = request.args.get("lines", 50, type=int)
+
+    def generate():
+        # First, send last N lines
+        try:
+            with open(config.LOG_FILE, "r") as f:
+                all_lines = f.readlines()
+                for line in all_lines[-lines:]:
+                    yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
+        except FileNotFoundError:
+            yield f"data: {json.dumps({'line': '[No logs yet]'})}\n\n"
+
+        # Then tail the file
+        try:
+            with open(config.LOG_FILE, "r") as f:
+                f.seek(0, 2)  # Go to end
+                while True:
+                    line = f.readline()
+                    if line:
+                        yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
+                    else:
+                        time.sleep(0.5)
+                        yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/api/logs/recent")
+def get_recent_logs():
+    """Get recent log lines (non-streaming)."""
+    lines = request.args.get("lines", 100, type=int)
+    try:
+        with open(config.LOG_FILE, "r") as f:
+            all_lines = f.readlines()
+            return jsonify({"lines": [l.rstrip() for l in all_lines[-lines:]]})
+    except FileNotFoundError:
+        return jsonify({"lines": []})
 
 
 # -----------------------------------------------------------------------------

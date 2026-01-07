@@ -96,6 +96,100 @@ function initChat() {
       }
     });
   }
+
+  // Title editing
+  initTitleEditing();
+}
+
+/**
+ * Initialize title editing functionality
+ */
+function initTitleEditing() {
+  const editBtn = document.getElementById('editTitleBtn');
+  const autoBtn = document.getElementById('autoTitleBtn');
+  const titleDisplay = document.getElementById('convTitleDisplay');
+  const titleEdit = document.getElementById('convTitleEdit');
+  const titleInput = document.getElementById('convTitleInput');
+  const saveBtn = document.getElementById('saveTitleBtn');
+  const cancelBtn = document.getElementById('cancelTitleBtn');
+
+  if (!editBtn || !titleDisplay || !titleEdit) return;
+
+  // Show edit form
+  editBtn.addEventListener('click', () => {
+    titleDisplay.classList.add('d-none');
+    titleEdit.classList.remove('d-none');
+    titleInput.focus();
+    titleInput.select();
+  });
+
+  // Cancel editing
+  cancelBtn.addEventListener('click', () => {
+    titleEdit.classList.add('d-none');
+    titleDisplay.classList.remove('d-none');
+  });
+
+  // Save title
+  saveBtn.addEventListener('click', () => saveTitle());
+  titleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveTitle();
+    } else if (e.key === 'Escape') {
+      cancelBtn.click();
+    }
+  });
+
+  async function saveTitle() {
+    const newTitle = titleInput.value.trim();
+    if (!newTitle || !currentConversationId) return;
+
+    try {
+      const response = await fetch(`/api/conversations/${currentConversationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle })
+      });
+
+      if (response.ok) {
+        // Update displayed title
+        const h1 = titleDisplay.querySelector('h1');
+        if (h1) h1.textContent = newTitle;
+        titleEdit.classList.add('d-none');
+        titleDisplay.classList.remove('d-none');
+      }
+    } catch (error) {
+      console.error('Failed to save title:', error);
+    }
+  }
+
+  // Auto-generate title
+  if (autoBtn) {
+    autoBtn.addEventListener('click', async () => {
+      if (!currentConversationId) return;
+
+      autoBtn.disabled = true;
+      autoBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+
+      try {
+        const response = await fetch(`/api/conversations/${currentConversationId}/generate-title`, {
+          method: 'POST'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const h1 = titleDisplay.querySelector('h1');
+          if (h1) h1.textContent = data.title;
+          titleInput.value = data.title;
+        }
+      } catch (error) {
+        console.error('Failed to generate title:', error);
+      } finally {
+        autoBtn.disabled = false;
+        autoBtn.innerHTML = '<i class="ri-magic-line"></i>';
+      }
+    });
+  }
 }
 
 /**
@@ -796,8 +890,21 @@ async function loadConversation(convId) {
           appendEvent('user', { content: msg.content });
         } else if (msg.type === 'assistant') {
           appendEvent('assistant', { content: msg.content });
+        } else if (msg.type === 'tool_use') {
+          try {
+            const content = JSON.parse(msg.content);
+            appendEvent('tool_use', { content });
+          } catch {
+            appendEvent('tool_use', { content: { tool: 'unknown', input: msg.content } });
+          }
+        } else if (msg.type === 'tool_result') {
+          try {
+            const content = JSON.parse(msg.content);
+            appendEvent('tool_result', { content });
+          } catch {
+            appendEvent('tool_result', { content: { output: msg.content } });
+          }
         }
-        // Skip tool_use and tool_result for now (they're in the DB but not needed for replay)
       }
       // Mark final answers for minimal view mode
       markFinalAnswersInConversation();

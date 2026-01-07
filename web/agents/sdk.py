@@ -116,11 +116,29 @@ User: {message}"""
             logger.info(f"SDK query completed for conversation {conversation_id}")
 
         except Exception as e:
-            logger.error(f"SDK error: {e}")
+            error_str = str(e)
+            logger.error(f"SDK error: {error_str}")
+
+            # If session resume failed, try without resume
+            if "exit code 1" in error_str and resume_id:
+                logger.warning(f"Session resume may have failed, retrying without session")
+                try:
+                    options.resume = None
+                    async for sdk_message in query(prompt=full_prompt, options=options):
+                        if isinstance(sdk_message, SystemMessage):
+                            if hasattr(sdk_message, 'session_id') and sdk_message.session_id:
+                                self._sessions[conversation_id] = sdk_message.session_id
+                        for agent_msg in self._normalize_message(sdk_message):
+                            yield agent_msg
+                    return
+                except Exception as retry_error:
+                    logger.error(f"Retry also failed: {retry_error}")
+                    error_str = str(retry_error)
+
             yield AgentMessage(
                 type="error",
-                content=str(e),
-                raw={"error": str(e), "type": type(e).__name__}
+                content=error_str,
+                raw={"error": error_str, "type": type(e).__name__}
             )
 
         finally:
