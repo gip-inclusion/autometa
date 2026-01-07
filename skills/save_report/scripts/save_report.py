@@ -200,8 +200,71 @@ def list_reports(website: str = None, category: str = None, limit: int = 20) -> 
 
 
 if __name__ == "__main__":
-    # Quick test
-    reports = list_reports(limit=5)
-    print("Recent reports:")
-    for r in reports:
-        print(f"  [{r['id']}] {r['title']} (v{r['version']})")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Save or update reports in the database")
+    parser.add_argument("--file", "-f", help="Path to markdown file containing report content")
+    parser.add_argument("--title", "-t", help="Report title")
+    parser.add_argument("--website", "-w", help="Website (emplois, dora, etc.)")
+    parser.add_argument("--category", "-c", help="Query category")
+    parser.add_argument("--query", "-q", help="Original user query")
+    parser.add_argument("--report-id", "-r", type=int, help="Report ID to update (for updates)")
+    parser.add_argument("--conversation-id", help="Conversation ID to append to")
+    parser.add_argument("--list", "-l", action="store_true", help="List recent reports")
+
+    args = parser.parse_args()
+
+    if args.list:
+        reports = list_reports(limit=10)
+        print("Recent reports:")
+        for r in reports:
+            print(f"  [{r['id']}] {r['title']} (v{r['version']}) - {r['website'] or 'N/A'}")
+        sys.exit(0)
+
+    if not args.file:
+        parser.error("--file is required for save/update operations")
+
+    # Read content from file
+    content_path = Path(args.file)
+    if not content_path.exists():
+        print(f"Error: File not found: {args.file}", file=sys.stderr)
+        sys.exit(1)
+    content = content_path.read_text()
+
+    if args.report_id:
+        # Update existing report
+        result = update_report(
+            report_id=args.report_id,
+            content=content,
+            title=args.title,
+            website=args.website,
+            category=args.category,
+        )
+        print(f"Updated report {result['report_id']} to version {result['version']}")
+
+    elif args.conversation_id:
+        # Append to existing conversation
+        if not args.title:
+            parser.error("--title is required when appending to conversation")
+        result = append_report(
+            conversation_id=args.conversation_id,
+            title=args.title,
+            content=content,
+            website=args.website,
+            category=args.category,
+            original_query=args.query,
+        )
+        print(f"Appended report {result['report_id']} to conversation {result['conversation_id']}")
+
+    else:
+        # Create new report
+        if not args.title:
+            parser.error("--title is required for new reports")
+        result = save_report(
+            title=args.title,
+            content=content,
+            website=args.website,
+            category=args.category,
+            original_query=args.query,
+        )
+        print(f"Created report {result['report_id']} in conversation {result['conversation_id']}")

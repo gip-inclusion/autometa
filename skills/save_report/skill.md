@@ -7,58 +7,75 @@ description: Save or update a report in the database (project)
 
 Create, update, or append reports to the SQLite database.
 
-## Usage
+## Recommended: CLI with File (avoids escaping issues)
 
-```python
-from skills.save_report.scripts.save_report import save_report, update_report, append_report
+**Step 1:** Write report content to a file using the Write tool:
 
-# Create new report (creates new conversation)
-result = save_report(
-    title="Monthly traffic analysis",
-    content="---\ndate: 2026-01-07\n...",
-    website="emplois",
-    category="Traffic analysis",
-    original_query="What was the traffic in December?"
-)
-print(f"Created report {result['report_id']} in conversation {result['conversation_id']}")
+```markdown
+# /tmp/report.md
+---
+date: 2026-01-07
+website: emplois
+original_query: "User's question"
+query_category: "Category name"
+---
 
-# Update existing report
-result = update_report(
-    report_id=42,
-    content="Updated report content...",
-    title="Updated title"  # optional
-)
-print(f"Updated report {result['report_id']} to version {result['version']}")
+# Report Title
 
-# Append report to existing conversation
-result = append_report(
-    conversation_id="6ba8debb-937a-4680-a84b-79f21225bc82",
-    title="Follow-up analysis",
-    content="---\ndate: 2026-01-07\n...",
-    website="emplois"
-)
-print(f"Appended report {result['report_id']}")
+Report content...
 ```
 
-## Functions
+**Step 2:** Run the CLI to save to database:
 
-### save_report(title, content, website=None, category=None, original_query=None)
+```bash
+# Create new report
+.venv/bin/python skills/save_report/scripts/save_report.py \
+    --file /tmp/report.md \
+    --title "Monthly traffic analysis" \
+    --website emplois \
+    --category "Traffic analysis"
 
-Creates a new conversation and saves the report to it.
+# Update existing report
+.venv/bin/python skills/save_report/scripts/save_report.py \
+    --file /tmp/report.md \
+    --report-id 42
 
-Returns: `{"conversation_id": str, "report_id": int, "message_id": int}`
+# Append to conversation
+.venv/bin/python skills/save_report/scripts/save_report.py \
+    --file /tmp/report.md \
+    --conversation-id "uuid-here" \
+    --title "Follow-up analysis"
 
-### update_report(report_id, content, title=None, website=None, category=None)
+# List recent reports
+.venv/bin/python skills/save_report/scripts/save_report.py --list
+```
 
-Updates an existing report. Increments version number and updates the linked message content.
+## CLI Options
 
-Returns: `{"report_id": int, "version": int}`
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--file` | `-f` | Path to markdown file (required) |
+| `--title` | `-t` | Report title (required for new/append) |
+| `--website` | `-w` | Website: emplois, dora, etc. |
+| `--category` | `-c` | Query category |
+| `--query` | `-q` | Original user query |
+| `--report-id` | `-r` | Report ID to update |
+| `--conversation-id` | | Conversation ID to append to |
+| `--list` | `-l` | List recent reports |
 
-### append_report(conversation_id, title, content, website=None, category=None, original_query=None)
+## Alternative: Python API
 
-Appends a new report to an existing conversation.
+For scripts that need programmatic access:
 
-Returns: `{"conversation_id": str, "report_id": int, "message_id": int}`
+```python
+from skills.save_report.scripts.save_report import save_report, update_report, list_reports
+
+result = save_report(
+    title="Report title",
+    content=content_string,
+    website="emplois"
+)
+```
 
 ## Content Format
 
