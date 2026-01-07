@@ -4,6 +4,32 @@
 - Matomo site ID: 117
 - GitHub: https://github.com/gip-inclusion/les-emplois
 
+## Key Concepts: Two Dimensions of the IAE Workflow
+
+### Who submitted the application?
+
+| Answer | Term | Tracking |
+|--------|------|----------|
+| The candidate themselves | **Candidature autonome** | Event `candidature_candidat` (~7k/month) |
+| A prescriber on their behalf | **Candidature prescripteur** | Event `candidature_prescripteur` (~31k/month) |
+
+A "candidat autonome" creates their own account and applies directly to SIAEs.
+
+### Who validated IAE eligibility?
+
+| Answer | Term | Notes |
+|--------|------|-------|
+| The SIAE (employer) | **Autoprescription** | SIAE conducts diagnostic, subject to DDETS control |
+| An external prescriber | **Prescription** | France Travail, Mission Locale, Cap Emploi, etc. |
+
+In autoprescription, the employer acts as their own prescriber for eligibility validation.
+
+### These dimensions are orthogonal
+
+A candidate can apply autonomously but have eligibility validated by a prescriber.
+Conversely, a prescriber-referred candidate can have eligibility validated via
+autoprescription by the SIAE.
+
 ## Traffic Baselines (2025)
 
 Data retrieved 2026-01-06 via Matomo API.
