@@ -20,5 +20,13 @@ Avec le filtre **Origine détaillée de la candidature**, vous pouvez obtenir le
 - **Tables:** public, candidatures_echelle_locale
 
 ```sql
-SELECT "public"."candidatures_echelle_locale"."motif_de_refus" AS "motif_de_refus", COUNT(*) AS "count" FROM "public"."candidatures_echelle_locale" WHERE ("public"."candidatures_echelle_locale"."état" = 'Candidature refusée') AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') AND ("public"."candidatures_echelle_locale"."motif_de_refus" IS NOT NULL) AND (("public"."candidatures_echelle_locale"."motif_de_refus" <> '') OR ("public"."candidatures_echelle_locale"."motif_de_refus" IS NULL)) GROUP BY "public"."candidatures_echelle_locale"."motif_de_refus" ORDER BY "count" DESC, "public"."candidatures_echelle_locale"."motif_de_refus" ASC
+SELECT "public"."candidatures_echelle_locale"."motif_de_refus" AS "motif_de_refus", COUNT(*) AS "count" 
+FROM "public"."candidatures_echelle_locale" 
+WHERE ("public"."candidatures_echelle_locale"."état" = 'Candidature refusée') 
+AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
+AND ("public"."candidatures_echelle_locale"."motif_de_refus" IS NOT NULL) 
+AND (("public"."candidatures_echelle_locale"."motif_de_refus" <> '') 
+OR ("public"."candidatures_echelle_locale"."motif_de_refus" IS NULL)) 
+GROUP BY "public"."candidatures_echelle_locale"."motif_de_refus" 
+ORDER BY "count" DESC, "public"."candidatures_echelle_locale"."motif_de_refus" ASC
 ```

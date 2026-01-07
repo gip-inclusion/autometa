@@ -297,21 +297,32 @@ def generate_markdown(db: CardsDB, cards_dir: Path, dashboards_dir: Path, last_s
     dashboards_summary = db.dashboards_summary()
     tables_summary = db.tables_summary()
 
-    # --- Generate index.md in cards dir ---
+    # --- Generate unified index.md in stats dir ---
     index_lines = [
-        "# Inventaire Metabase - Cartes",
+        "# Inventaire Metabase",
         "",
         f"*Dernière synchronisation : {last_sync}*",
-        f"*Total : {len(all_cards)} cartes*",
+        f"*{len(all_cards)} cartes · {len(dashboards_summary)} dashboards*",
         "",
-        "## Par thème",
+        "## Cartes par thème",
         "",
     ]
 
     for topic, count in sorted(topics_summary.items(), key=lambda x: -x[1]):
         if count > 0:
             desc = TOPICS.get(topic, "")
-            index_lines.append(f"- [{topic}](topic-{topic}.md) ({count}) — {desc}")
+            index_lines.append(f"- [{topic}](cards/topic-{topic}.md) ({count}) — {desc}")
+
+    index_lines.extend([
+        "",
+        "## Dashboards",
+        "",
+    ])
+
+    for dash_id, count in list(dashboards_summary.items())[:30]:
+        dash = db.get_dashboard(dash_id)
+        dash_name = dash.name if dash else f"Dashboard {dash_id}"
+        index_lines.append(f"- [{dash_name}](dashboards/dashboard-{dash_id}.md) ({count} cartes)")
 
     # Best of: most referenced tables
     index_lines.extend([
@@ -325,27 +336,10 @@ def generate_markdown(db: CardsDB, cards_dir: Path, dashboards_dir: Path, last_s
     for table, count in list(tables_summary.items())[:15]:
         index_lines.append(f"| `{table}` | {count} |")
 
-    with open(cards_dir / "_index.md", "w") as f:
+    # Write to stats/_index.md (parent of cards and dashboards)
+    stats_dir = cards_dir.parent
+    with open(stats_dir / "_index.md", "w") as f:
         f.write("\n".join(index_lines))
-
-    # --- Generate dashboards index ---
-    dash_index_lines = [
-        "# Inventaire Metabase - Dashboards",
-        "",
-        f"*Dernière synchronisation : {last_sync}*",
-        f"*Total : {len(dashboards_summary)} dashboards*",
-        "",
-        "## Par dashboard",
-        "",
-    ]
-
-    for dash_id, count in list(dashboards_summary.items())[:30]:
-        dash = db.get_dashboard(dash_id)
-        dash_name = dash.name if dash else f"Dashboard {dash_id}"
-        dash_index_lines.append(f"- [{dash_name}](dashboard-{dash_id}.md) ({count} cartes)")
-
-    with open(dashboards_dir / "_index.md", "w") as f:
-        f.write("\n".join(dash_index_lines))
 
     # --- Generate topic files ---
     for topic in topics_summary:
