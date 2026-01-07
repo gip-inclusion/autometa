@@ -14,7 +14,7 @@ from . import config
 DB_PATH = config.BASE_DIR / "data" / "matometa.db"
 
 # Schema version for migrations
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def get_connection() -> sqlite3.Connection:
@@ -56,6 +56,9 @@ def init_db():
 
         if current_version < 2:
             _migrate_to_v2(conn)
+
+        if current_version < 3:
+            _migrate_to_v3(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection):
@@ -134,6 +137,28 @@ def _migrate_to_v2(conn: sqlite3.Connection):
     """)
 
 
+def _migrate_to_v3(conn: sqlite3.Connection):
+    """Migrate to v3 schema: add type, file_path, status to conversations for knowledge editing."""
+    cursor = conn.execute("PRAGMA table_info(conversations)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    if "conv_type" not in columns:
+        conn.execute("ALTER TABLE conversations ADD COLUMN conv_type TEXT DEFAULT 'exploration'")
+
+    if "file_path" not in columns:
+        conn.execute("ALTER TABLE conversations ADD COLUMN file_path TEXT")
+
+    if "status" not in columns:
+        conn.execute("ALTER TABLE conversations ADD COLUMN status TEXT DEFAULT 'active'")
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_conversations_type_status
+            ON conversations(conv_type, status)
+    """)
+
+    conn.execute("UPDATE schema_version SET version = 3")
+
+
 # =============================================================================
 # Data Classes
 # =============================================================================
@@ -174,6 +199,9 @@ class Conversation:
     user_id: Optional[str] = None
     title: Optional[str] = None
     session_id: Optional[str] = None
+    conv_type: str = "exploration"  # 'exploration' or 'knowledge'
+    file_path: Optional[str] = None  # for knowledge conversations
+    status: str = "active"  # 'active', 'committed', 'abandoned'
     messages: list[Message] = field(default_factory=list)
     report: Optional[Report] = None
     created_at: datetime = field(default_factory=datetime.now)
@@ -190,6 +218,9 @@ class Conversation:
             "user_id": self.user_id,
             "title": self.title,
             "session_id": self.session_id,
+            "conv_type": self.conv_type,
+            "file_path": self.file_path,
+            "status": self.status,
             "has_report": self.has_report,
             "messages": [
                 {
@@ -227,18 +258,25 @@ class ConversationStore:
     # Conversations
     # -------------------------------------------------------------------------
 
-    def create_conversation(self, user_id: Optional[str] = None) -> Conversation:
+    def create_conversation(
+        self,
+        user_id: Optional[str] = None,
+        conv_type: str = "exploration",
+        file_path: Optional[str] = None,
+    ) -> Conversation:
         """Create a new conversation."""
         conv = Conversation(
             id=str(uuid.uuid4()),
             user_id=user_id,
+            conv_type=conv_type,
+            file_path=file_path,
         )
 
         with get_db() as conn:
             conn.execute(
-                """INSERT INTO conversations (id, user_id, title, session_id, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (conv.id, conv.user_id, conv.title, conv.session_id,
+                """INSERT INTO conversations (id, user_id, title, session_id, conv_type, file_path, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (conv.id, conv.user_id, conv.title, conv.session_id, conv.conv_type, conv.file_path, conv.status,
                  conv.created_at.isoformat(), conv.updated_at.isoformat())
             )
 
@@ -298,19 +336,39 @@ class ConversationStore:
                 id=row["id"],
                 user_id=row["user_id"],
                 title=row["title"],
-                messages=messages,
                 session_id=row["session_id"],
+                conv_type=row["conv_type"] or "exploration",
+                file_path=row["file_path"],
+                status=row["status"] or "active",
+                messages=messages,
                 report=report,
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
             )
 
     def list_conversations(
-        self, user_id: Optional[str] = None, limit: int = 50
+        self, user_id: Optional[str] = None, limit: int = 50, conv_type: Optional[str] = None
     ) -> list[Conversation]:
         """List recent conversations with report info."""
         with get_db() as conn:
-            query = """
+            conditions = []
+            params = []
+
+            if user_id:
+                conditions.append("c.user_id = ?")
+                params.append(user_id)
+
+            if conv_type:
+                conditions.append("c.conv_type = ?")
+                params.append(conv_type)
+            else:
+                # By default, only show exploration conversations
+                conditions.append("(c.conv_type = 'exploration' OR c.conv_type IS NULL)")
+
+            where = "WHERE " + " AND ".join(conditions) if conditions else ""
+            params.append(limit)
+
+            query = f"""
                 SELECT c.*, r.id as report_id, r.title as report_title
                 FROM conversations c
                 LEFT JOIN reports r ON r.conversation_id = c.id
@@ -319,25 +377,70 @@ class ConversationStore:
                 LIMIT ?
             """
 
-            if user_id:
-                rows = conn.execute(
-                    query.format(where="WHERE c.user_id = ?"),
-                    (user_id, limit)
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    query.format(where=""),
-                    (limit,)
-                ).fetchall()
+            rows = conn.execute(query, params).fetchall()
 
             return [
                 Conversation(
                     id=row["id"],
                     user_id=row["user_id"],
                     title=row["title"],
-                    messages=[],
                     session_id=row["session_id"],
+                    conv_type=row["conv_type"] or "exploration",
+                    file_path=row["file_path"],
+                    status=row["status"] or "active",
+                    messages=[],
                     report=Report(id=row["report_id"], title=row["report_title"] or "") if row["report_id"] else None,
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                    updated_at=datetime.fromisoformat(row["updated_at"]),
+                )
+                for row in rows
+            ]
+
+    def get_active_knowledge_conversation(self, file_path: str) -> Optional[Conversation]:
+        """Get active knowledge conversation for a file."""
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT * FROM conversations
+                   WHERE conv_type = 'knowledge' AND file_path = ? AND status = 'active'
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (file_path,)
+            ).fetchone()
+
+            if not row:
+                return None
+
+            return Conversation(
+                id=row["id"],
+                user_id=row["user_id"],
+                title=row["title"],
+                session_id=row["session_id"],
+                conv_type=row["conv_type"],
+                file_path=row["file_path"],
+                status=row["status"],
+                messages=[],
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+
+    def list_active_knowledge_conversations(self) -> list[Conversation]:
+        """List all active knowledge conversations."""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT * FROM conversations
+                   WHERE conv_type = 'knowledge' AND status = 'active'
+                   ORDER BY updated_at DESC"""
+            ).fetchall()
+
+            return [
+                Conversation(
+                    id=row["id"],
+                    user_id=row["user_id"],
+                    title=row["title"],
+                    session_id=row["session_id"],
+                    conv_type=row["conv_type"],
+                    file_path=row["file_path"],
+                    status=row["status"],
+                    messages=[],
                     created_at=datetime.fromisoformat(row["created_at"]),
                     updated_at=datetime.fromisoformat(row["updated_at"]),
                 )
@@ -346,7 +449,7 @@ class ConversationStore:
 
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
         """Update conversation fields."""
-        allowed = {"title", "session_id", "user_id"}
+        allowed = {"title", "session_id", "user_id", "status"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False

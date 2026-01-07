@@ -994,3 +994,102 @@ body.has-sidebar {
 .ri-spin {
   animation: spin 1s linear infinite;
 }
+
+/* ==========================================================================
+   Knowledge Section
+   ========================================================================== */
+
+.knowledge-card {
+  transition: box-shadow 0.15s, border-color 0.15s;
+  border: 1px solid var(--bs-border-color);
+}
+
+.knowledge-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: var(--bs-primary);
+}
+
+.knowledge-card .card-body {
+  color: var(--bs-body-color);
+}
+
+.knowledge-card .card-footer-row {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--bs-border-color);
+  background: var(--bs-light);
+}
+
+.knowledge-content {
+  background: white;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.knowledge-content .markdown-body {
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.knowledge-content .markdown-body h1,
+.knowledge-content .markdown-body h2,
+.knowledge-content .markdown-body h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.knowledge-content .markdown-body h1:first-child,
+.knowledge-content .markdown-body h2:first-child {
+  margin-top: 0;
+}
+
+.knowledge-content .markdown-body code {
+  background: var(--bs-light);
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.knowledge-content .markdown-body pre {
+  background: var(--bs-light);
+  padding: 1rem;
+  border-radius: var(--bs-border-radius);
+  overflow-x: auto;
+}
+
+.knowledge-content .markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.knowledge-content .markdown-body table {
+  width: 100%;
+  margin: 1rem 0;
+  border-collapse: collapse;
+}
+
+.knowledge-content .markdown-body th,
+.knowledge-content .markdown-body td {
+  border: 1px solid var(--bs-border-color);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.knowledge-content .markdown-body th {
+  background: var(--bs-light);
+}
+
+/* Staged files panel */
+.staged-files-panel {
+  border: 2px solid var(--bs-warning);
+}
+
+.staged-files-panel .card-header {
+  background: var(--bs-warning-bg-subtle);
+  color: var(--bs-warning-text-emphasis);
+}
+
+.staged-files-panel .list-group-item {
+  font-family: var(--bs-font-monospace);
+}

@@ -5,13 +5,87 @@ import json
 import logging
 import os
 import re
+import shutil
 import threading
 import time
+from datetime import datetime
+from pathlib import Path
+
 from flask import Flask, Response, jsonify, render_template, request
 
 from . import config
 from .storage import store
 from .agents import get_agent
+
+
+# =============================================================================
+# Knowledge Path Validation (Security Critical)
+# =============================================================================
+
+KNOWLEDGE_ROOT = (config.BASE_DIR / "knowledge").resolve()
+KNOWLEDGE_DRAFTS_ROOT = config.BASE_DIR / "knowledge-drafts"
+ALLOWED_EXTENSIONS = {".md"}
+
+
+def validate_knowledge_path(file_param: str) -> Path | None:
+    """
+    Validate and resolve a knowledge file path.
+    Returns None if invalid/unsafe.
+    """
+    if not file_param:
+        return None
+
+    # Reject obvious attacks early
+    if ".." in file_param or file_param.startswith("/"):
+        return None
+
+    # Only allow simple alphanumeric + hyphen/underscore/dot + slash
+    if not re.match(r'^[a-zA-Z0-9_\-./]+\.md$', file_param):
+        return None
+
+    # No double slashes, no hidden files
+    if "//" in file_param or "/." in file_param:
+        return None
+
+    # Resolve full path
+    candidate = (KNOWLEDGE_ROOT / file_param).resolve()
+
+    # CRITICAL: ensure it's inside knowledge/
+    try:
+        candidate.relative_to(KNOWLEDGE_ROOT)
+    except ValueError:
+        return None  # Path escapes knowledge/
+
+    # Must exist and be a file
+    if not candidate.is_file():
+        return None
+
+    # Extension check (belt + suspenders)
+    if candidate.suffix.lower() not in ALLOWED_EXTENSIONS:
+        return None
+
+    return candidate
+
+
+def get_staging_dir(conv_id: str) -> Path:
+    """Get staging directory for a knowledge conversation."""
+    return KNOWLEDGE_DRAFTS_ROOT / conv_id
+
+
+def list_staged_files(conv_id: str) -> list[str]:
+    """List files in staging directory relative to knowledge root."""
+    staging_dir = get_staging_dir(conv_id)
+    if not staging_dir.exists():
+        return []
+
+    files = []
+    for f in staging_dir.rglob("*.md"):
+        try:
+            rel_path = f.relative_to(staging_dir)
+            files.append(str(rel_path))
+        except ValueError:
+            pass
+    return sorted(files)
 
 # Configure logging to file
 logging.basicConfig(
@@ -128,11 +202,87 @@ def explorations():
     return render_template("explorations.html", section="explorations", current_conv=current_conv, **data)
 
 
+def list_knowledge_files() -> dict[str, list[dict]]:
+    """List all knowledge files grouped by category."""
+    categories = {}
+
+    for category_dir in sorted(KNOWLEDGE_ROOT.iterdir()):
+        if not category_dir.is_dir() or category_dir.name.startswith("."):
+            continue
+
+        files = []
+        for f in sorted(category_dir.rglob("*.md")):
+            rel_path = f.relative_to(KNOWLEDGE_ROOT)
+            files.append({
+                "path": str(rel_path),
+                "name": humanize_title(f.stem),
+                "modified": f.stat().st_mtime,
+            })
+
+        if files:
+            categories[category_dir.name] = files
+
+    return categories
+
+
 @app.route("/connaissances")
 def connaissances():
-    """Connaissances section - placeholder."""
+    """Connaissances section - knowledge file browser."""
     data = get_sidebar_data()
-    return render_template("connaissances.html", section="connaissances", **data)
+    file_param = request.args.get("file")
+    conv_id = request.args.get("conv")
+
+    current_file = None
+    file_content = None
+    current_conv = None
+    staged_files = []
+
+    if file_param:
+        # Validate the file path
+        validated_path = validate_knowledge_path(file_param)
+        if validated_path:
+            current_file = file_param
+            file_content = validated_path.read_text()
+
+            # Check for active conversation on this file
+            if conv_id:
+                current_conv = store.get_conversation(conv_id, include_messages=False)
+            else:
+                current_conv = store.get_active_knowledge_conversation(file_param)
+
+            # Get staged files if conversation exists
+            if current_conv:
+                staged_files = list_staged_files(current_conv.id)
+        else:
+            # Invalid path - redirect to list
+            return render_template(
+                "connaissances.html",
+                section="connaissances",
+                error="Fichier non trouvé",
+                categories=list_knowledge_files(),
+                active_conversations=store.list_active_knowledge_conversations(),
+                **data
+            )
+
+    # Get categories for list view
+    categories = list_knowledge_files()
+
+    # Get active knowledge conversations to show badges
+    active_conversations = store.list_active_knowledge_conversations()
+    active_files = {c.file_path: c for c in active_conversations if c.file_path}
+
+    return render_template(
+        "connaissances.html",
+        section="connaissances",
+        categories=categories,
+        current_file=current_file,
+        file_content=file_content,
+        current_conv=current_conv,
+        staged_files=staged_files,
+        active_files=active_files,
+        active_conversations=active_conversations,
+        **data
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -592,6 +742,171 @@ def get_report(report_id: int):
             },
         }
     )
+
+
+# -----------------------------------------------------------------------------
+# API Routes - Knowledge
+# -----------------------------------------------------------------------------
+
+
+@app.route("/api/knowledge", methods=["GET"])
+def list_knowledge_api():
+    """List all knowledge files."""
+    categories = list_knowledge_files()
+    return jsonify({"categories": categories})
+
+
+@app.route("/api/knowledge/files/<path:file_path>", methods=["GET"])
+def get_knowledge_file(file_path: str):
+    """Get a knowledge file's content."""
+    validated_path = validate_knowledge_path(file_path)
+    if not validated_path:
+        return jsonify({"error": "Invalid or non-existent file path"}), 404
+
+    return jsonify({
+        "path": file_path,
+        "content": validated_path.read_text(),
+        "modified": validated_path.stat().st_mtime,
+    })
+
+
+@app.route("/api/knowledge/files/<path:file_path>/conversation", methods=["POST"])
+def start_knowledge_conversation(file_path: str):
+    """Start or resume a knowledge editing conversation."""
+    validated_path = validate_knowledge_path(file_path)
+    if not validated_path:
+        return jsonify({"error": "Invalid or non-existent file path"}), 404
+
+    # Check for existing active conversation
+    existing = store.get_active_knowledge_conversation(file_path)
+    if existing:
+        return jsonify({
+            "id": existing.id,
+            "resumed": True,
+            "staged_files": list_staged_files(existing.id),
+            "links": {
+                "self": f"/api/conversations/{existing.id}",
+                "stream": f"/api/conversations/{existing.id}/stream",
+                "commit": f"/api/knowledge/conversations/{existing.id}/commit",
+                "abandon": f"/api/knowledge/conversations/{existing.id}/abandon",
+            },
+        })
+
+    # Create new conversation
+    conv = store.create_conversation(conv_type="knowledge", file_path=file_path)
+
+    # Create staging directory
+    staging_dir = get_staging_dir(conv.id)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy original file to staging
+    staged_file = staging_dir / file_path
+    staged_file.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(validated_path, staged_file)
+
+    return jsonify({
+        "id": conv.id,
+        "resumed": False,
+        "staged_files": [file_path],
+        "links": {
+            "self": f"/api/conversations/{conv.id}",
+            "stream": f"/api/conversations/{conv.id}/stream",
+            "commit": f"/api/knowledge/conversations/{conv.id}/commit",
+            "abandon": f"/api/knowledge/conversations/{conv.id}/abandon",
+        },
+    })
+
+
+@app.route("/api/knowledge/conversations/<conv_id>/files", methods=["GET"])
+def get_staged_files(conv_id: str):
+    """Get list of staged files for a knowledge conversation."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv or conv.conv_type != "knowledge":
+        return jsonify({"error": "Knowledge conversation not found"}), 404
+
+    return jsonify({
+        "files": list_staged_files(conv_id),
+        "conversation_id": conv_id,
+    })
+
+
+@app.route("/api/knowledge/conversations/<conv_id>/commit", methods=["POST"])
+def commit_knowledge_changes(conv_id: str):
+    """Commit staged changes to knowledge directory."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv or conv.conv_type != "knowledge":
+        return jsonify({"error": "Knowledge conversation not found"}), 404
+
+    if conv.status != "active":
+        return jsonify({"error": "Conversation is not active"}), 400
+
+    staging_dir = get_staging_dir(conv_id)
+    if not staging_dir.exists():
+        return jsonify({"error": "No staged files"}), 400
+
+    staged_files = list_staged_files(conv_id)
+    if not staged_files:
+        return jsonify({"error": "No staged files"}), 400
+
+    # Get commit summary from request (optional)
+    data = request.get_json() or {}
+    summary = data.get("summary", "Knowledge update")
+
+    # Copy staged files to knowledge directory
+    committed_files = []
+    for rel_path in staged_files:
+        src = staging_dir / rel_path
+        dst = KNOWLEDGE_ROOT / rel_path
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            committed_files.append(rel_path)
+
+    # Append to JOURNAL.md
+    journal_path = config.BASE_DIR / "JOURNAL.md"
+    journal_entry = f"\n\n## {datetime.now().strftime('%Y-%m-%d %H:%M')} - Knowledge Update\n\n"
+    journal_entry += "Files modified:\n"
+    for f in committed_files:
+        journal_entry += f"- {f}\n"
+    journal_entry += f"\nSummary: {summary}\n"
+
+    with open(journal_path, "a") as f:
+        f.write(journal_entry)
+
+    # Clean up staging directory
+    shutil.rmtree(staging_dir, ignore_errors=True)
+
+    # Update conversation status
+    store.update_conversation(conv_id, status="committed")
+
+    return jsonify({
+        "status": "committed",
+        "files": committed_files,
+        "conversation_id": conv_id,
+    })
+
+
+@app.route("/api/knowledge/conversations/<conv_id>/abandon", methods=["POST"])
+def abandon_knowledge_changes(conv_id: str):
+    """Abandon staged changes and close conversation."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv or conv.conv_type != "knowledge":
+        return jsonify({"error": "Knowledge conversation not found"}), 404
+
+    if conv.status != "active":
+        return jsonify({"error": "Conversation is not active"}), 400
+
+    # Clean up staging directory
+    staging_dir = get_staging_dir(conv_id)
+    shutil.rmtree(staging_dir, ignore_errors=True)
+
+    # Update conversation status
+    store.update_conversation(conv_id, status="abandoned")
+
+    return jsonify({
+        "status": "abandoned",
+        "conversation_id": conv_id,
+    })
 
 
 # -----------------------------------------------------------------------------

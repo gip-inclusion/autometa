@@ -1,41 +1,350 @@
 {% extends "base.html" %}
 
-{% block title_suffix %} - Connaissances{% endblock %}
+{% block title_suffix %} – Connaissances{% endblock %}
 
 {% block content %}
-<section class="s-title-02">
-  <div class="s-title-02__container container">
-    <div class="s-title-02__row row">
-      <div class="s-title-02__col col-12">
-        <div class="c-title">
-          <div class="c-title__main">
-            <h1>
-              <i class="ri-book-open-line ri-xl fw-normal text-disabled"></i>
-              Connaissances
-            </h1>
+<section class="section-content" id="section-connaissances">
+  <!-- Sticky section header -->
+  <div class="section-header">
+    <div class="container">
+      <div class="d-flex align-items-center justify-content-between gap-3">
+        <div class="d-flex align-items-center gap-3">
+          {% if current_file %}
+          <a href="/connaissances" class="btn btn-link p-0 me-2" hx-get="/connaissances" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-arrow-left-line ri-xl"></i>
+          </a>
+          {% endif %}
+          <i class="ri-book-open-line ri-2x text-primary"></i>
+          <div>
+            <h1 class="mb-0">{% if current_file %}{{ current_file.split('/')[-1].replace('.md', '').replace('-', ' ').replace('_', ' ').title() }}{% else %}Connaissances{% endif %}</h1>
+            <p class="text-muted mb-0">{% if current_file %}{{ current_file }}{% else %}Fichiers de référence{% endif %}</p>
           </div>
         </div>
       </div>
     </div>
   </div>
-</section>
 
-<section class="s-section">
-  <div class="s-section__container container">
-    <div class="s-section__row row">
-      <div class="s-section__col col-12">
-        <div class="c-box">
-          <div class="text-center py-5">
-            <i class="ri-tools-line ri-3x text-disabled mb-3"></i>
-            <p class="mb-0 text-muted">Cette section sera disponible prochainement</p>
-            <p class="small text-muted">
-              Vous pourrez explorer et editer les fichiers de
-              <code>knowledge/</code> et <code>skills/</code>
-            </p>
+  {% if error %}
+  <div class="container mt-3">
+    <div class="alert alert-danger">{{ error }}</div>
+  </div>
+  {% endif %}
+
+  <!-- Main content area -->
+  <div class="container section-body">
+    {% if current_file %}
+    <!-- File detail view -->
+    <div class="row">
+      <div class="col-12 {% if staged_files %}col-lg-8{% endif %}">
+        <div class="knowledge-content" id="knowledgeContent">
+          <div class="markdown-body" id="markdownContent">
+            {{ file_content }}
+          </div>
+        </div>
+
+        <!-- Chat output for conversation -->
+        {% if current_conv %}
+        <div class="chat-output view-normal mt-4" id="chatOutput">
+          <div class="loading-indicator" id="loadingConversation">
+            <div class="spinner"></div> Chargement...
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if staged_files %}
+      <!-- Staged files panel -->
+      <div class="col-12 col-lg-4">
+        <div class="card staged-files-panel sticky-top" style="top: 80px;">
+          <div class="card-header">
+            <h5 class="mb-0">
+              <i class="ri-file-edit-line"></i>
+              Fichiers modifiés ({{ staged_files|length }})
+            </h5>
+          </div>
+          <ul class="list-group list-group-flush">
+            {% for file in staged_files %}
+            <li class="list-group-item d-flex align-items-center">
+              <i class="ri-file-text-line me-2 text-primary"></i>
+              <span class="small">{{ file }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          <div class="card-footer d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm flex-fill" id="commitBtn">
+              <i class="ri-check-line"></i> Valider
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm" id="abandonBtn">
+              <i class="ri-close-line"></i> Abandonner
+            </button>
           </div>
         </div>
       </div>
+      {% endif %}
+    </div>
+
+    {% else %}
+    <!-- File list view -->
+    {% for category, files in categories.items() %}
+    <div class="mb-4">
+      <h4 class="text-capitalize mb-3">
+        <i class="ri-folder-line me-2"></i>{{ category }}
+      </h4>
+      <div class="row g-3">
+        {% for file in files %}
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="card knowledge-card h-100">
+            <a href="/connaissances?file={{ file.path }}" class="card-body text-decoration-none"
+               hx-get="/connaissances?file={{ file.path }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <h5 class="card-title mb-2">{{ file.name }}</h5>
+              <p class="card-text text-muted small mb-0">
+                {{ file.path }}
+              </p>
+            </a>
+            {% if file.path in active_files %}
+            <div class="card-footer-row">
+              <span class="badge bg-warning text-dark">
+                <i class="ri-edit-line"></i> En cours d'édition
+              </span>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if not categories %}
+    <div class="empty-state">
+      <i class="ri-book-open-line ri-4x text-disabled mb-3"></i>
+      <p class="mb-0 text-muted">Aucun fichier de connaissance</p>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  {% if current_file %}
+  <!-- Fixed chat bar at bottom -->
+  <div class="chat-bar-container">
+    <div class="container">
+      <div class="chat-bar">
+        <textarea
+          class="chat-input"
+          id="chatInput"
+          placeholder="Demandez des modifications au fichier..."
+          rows="1"
+        ></textarea>
+        <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
+          <i class="ri-send-plane-fill"></i>
+        </button>
+        <button type="button" class="chat-cancel-btn" id="chatCancelBtn" title="Annuler" style="display: none;">
+          <i class="ri-stop-fill"></i>
+        </button>
+      </div>
     </div>
   </div>
+  {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+<!-- Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  {% if current_file %}
+  // Render markdown content
+  const markdownContent = document.getElementById('markdownContent');
+  if (markdownContent && typeof marked !== 'undefined') {
+    const rawContent = markdownContent.textContent;
+    markdownContent.innerHTML = marked.parse(rawContent);
+  }
+
+  // Initialize knowledge chat
+  const currentFile = '{{ current_file }}';
+  let currentConversationId = {% if current_conv %}'{{ current_conv.id }}'{% else %}null{% endif %};
+  const chatInput = document.getElementById('chatInput');
+  const chatSendBtn = document.getElementById('chatSendBtn');
+  const chatCancelBtn = document.getElementById('chatCancelBtn');
+  const chatOutput = document.getElementById('chatOutput');
+
+  // Auto-resize textarea
+  if (chatInput) {
+    chatInput.addEventListener('input', () => {
+      chatInput.style.height = 'auto';
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + 'px';
+    });
+
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  }
+
+  if (chatSendBtn) {
+    chatSendBtn.addEventListener('click', sendMessage);
+  }
+
+  async function sendMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    // Start conversation if needed
+    if (!currentConversationId) {
+      const resp = await fetch(`/api/knowledge/files/${encodeURIComponent(currentFile)}/conversation`, {
+        method: 'POST',
+      });
+      const data = await resp.json();
+      currentConversationId = data.id;
+
+      // Show chat output area
+      if (chatOutput) {
+        chatOutput.innerHTML = '';
+        chatOutput.style.display = 'block';
+      }
+    }
+
+    // Clear input
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+
+    // Add user message to display
+    appendMessage('user', message);
+
+    // Send to API
+    await fetch(`/api/conversations/${currentConversationId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message }),
+    });
+
+    // Stream response
+    chatSendBtn.style.display = 'none';
+    chatCancelBtn.style.display = 'block';
+
+    const eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream`);
+    let assistantDiv = null;
+
+    eventSource.addEventListener('assistant', (e) => {
+      const data = JSON.parse(e.data);
+      if (!assistantDiv) {
+        assistantDiv = appendMessage('assistant', '');
+      }
+      assistantDiv.querySelector('.message-content').innerHTML += data.content;
+    });
+
+    eventSource.addEventListener('tool_use', (e) => {
+      const data = JSON.parse(e.data);
+      appendMessage('tool', `Using ${data.content.tool}...`);
+    });
+
+    eventSource.addEventListener('done', () => {
+      eventSource.close();
+      chatSendBtn.style.display = 'block';
+      chatCancelBtn.style.display = 'none';
+
+      // Refresh staged files
+      refreshStagedFiles();
+    });
+
+    eventSource.addEventListener('error', (e) => {
+      eventSource.close();
+      chatSendBtn.style.display = 'block';
+      chatCancelBtn.style.display = 'none';
+    });
+  }
+
+  function appendMessage(type, content) {
+    if (!chatOutput) return null;
+
+    const div = document.createElement('div');
+    div.className = `chat-message chat-message-${type}`;
+    div.innerHTML = `
+      <div class="message-header">${type === 'user' ? 'Vous' : type === 'assistant' ? 'Claude' : 'Outil'}</div>
+      <div class="message-content">${content}</div>
+    `;
+    chatOutput.appendChild(div);
+    chatOutput.scrollTop = chatOutput.scrollHeight;
+    return div;
+  }
+
+  async function refreshStagedFiles() {
+    if (!currentConversationId) return;
+
+    const resp = await fetch(`/api/knowledge/conversations/${currentConversationId}/files`);
+    const data = await resp.json();
+
+    // Reload page to show updated panel
+    if (data.files && data.files.length > 0) {
+      window.location.reload();
+    }
+  }
+
+  // Commit/Abandon buttons
+  const commitBtn = document.getElementById('commitBtn');
+  const abandonBtn = document.getElementById('abandonBtn');
+
+  if (commitBtn && currentConversationId) {
+    commitBtn.addEventListener('click', async () => {
+      const summary = prompt('Résumé des modifications (optionnel):') || 'Mise à jour';
+      const resp = await fetch(`/api/knowledge/conversations/${currentConversationId}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary }),
+      });
+      if (resp.ok) {
+        alert('Modifications validées !');
+        window.location.href = '/connaissances';
+      } else {
+        const err = await resp.json();
+        alert('Erreur: ' + err.error);
+      }
+    });
+  }
+
+  if (abandonBtn && currentConversationId) {
+    abandonBtn.addEventListener('click', async () => {
+      if (!confirm('Abandonner les modifications ?')) return;
+
+      const resp = await fetch(`/api/knowledge/conversations/${currentConversationId}/abandon`, {
+        method: 'POST',
+      });
+      if (resp.ok) {
+        window.location.href = '/connaissances';
+      }
+    });
+  }
+
+  {% if current_conv %}
+  // Load existing conversation
+  const loadingIndicator = document.getElementById('loadingConversation');
+  try {
+    const resp = await fetch(`/api/conversations/{{ current_conv.id }}`);
+    const conv = await resp.json();
+
+    if (chatOutput && loadingIndicator) {
+      loadingIndicator.style.display = 'none';
+    }
+
+    // Display existing messages
+    if (conv.messages) {
+      for (const msg of conv.messages) {
+        if (msg.type === 'user' || msg.type === 'assistant') {
+          appendMessage(msg.type, msg.content);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load conversation:', err);
+    if (loadingIndicator) {
+      loadingIndicator.innerHTML = 'Erreur de chargement';
+    }
+  }
+  {% endif %}
+  {% endif %}
+});
+</script>
 {% endblock %}
