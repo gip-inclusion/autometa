@@ -12,11 +12,30 @@ let lastUserMessage = null;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+// Scroll position management for htmx navigation
+let isPopState = false;
+
+// Save scroll position before htmx request
+document.body.addEventListener('htmx:beforeRequest', (e) => {
+  if (e.detail.target.id === 'main' && !isPopState) {
+    // Save current scroll position in history state
+    const state = { scrollY: window.scrollY, ...history.state };
+    history.replaceState(state, '');
+  }
+});
+
 // htmx integration - only add listener once
 document.body.addEventListener('htmx:afterSwap', (e) => {
   if (e.detail.target.id === 'main') {
     initChat();
     initKnowledge();
+
+    // Scroll to top on new navigation, unless it's a back/forward
+    if (!isPopState) {
+      window.scrollTo(0, 0);
+    }
+    isPopState = false;
+
     // Check if we're on a conversation page
     const urlParams = new URLSearchParams(window.location.search);
     const convId = urlParams.get('conv');
@@ -26,6 +45,17 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     } else if (!convId) {
       currentConversationId = null;
     }
+  }
+});
+
+// Restore scroll position on back/forward
+window.addEventListener('popstate', (e) => {
+  isPopState = true;
+  if (e.state && typeof e.state.scrollY === 'number') {
+    // Delay to let htmx finish swapping content
+    setTimeout(() => {
+      window.scrollTo(0, e.state.scrollY);
+    }, 50);
   }
 });
 
