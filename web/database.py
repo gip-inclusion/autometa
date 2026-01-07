@@ -525,6 +525,15 @@ class ConversationStore:
 
         return msg
 
+    def update_message(self, message_id: int, content: str) -> bool:
+        """Update a message's content. Returns True if updated."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE messages SET content = ? WHERE id = ?",
+                (content, message_id)
+            )
+            return cursor.rowcount > 0
+
     def get_messages(
         self,
         conv_id: str,

@@ -578,6 +578,7 @@ User request: """
         # Collect all events for the assistant response
         all_events = []
         assistant_text_parts = []
+        assistant_msg_id = None  # Track saved assistant message for updates
 
         # Run async generator in sync context using a queue
         import queue
@@ -626,9 +627,17 @@ User request: """
                 if event:
                     all_events.append(event.raw)
 
-                    # Collect assistant text
+                    # Save assistant text incrementally (so it persists if user leaves)
                     if event.type == "assistant":
                         assistant_text_parts.append(str(event.content))
+                        full_text = "\n".join(assistant_text_parts)
+                        if assistant_msg_id is None:
+                            # Create new message
+                            msg = store.add_message(conv_id, "assistant", full_text)
+                            assistant_msg_id = msg.id if msg else None
+                        else:
+                            # Update existing message
+                            store.update_message(assistant_msg_id, full_text)
 
                     # Store tool events for replay
                     if event.type in ("tool_use", "tool_result"):
@@ -651,14 +660,12 @@ User request: """
         # Wait for thread to finish
         thread.join(timeout=5)
 
-        # Save assistant response to conversation
-        if assistant_text_parts:
+        # Check if response is a report (has YAML front-matter)
+        # Assistant message was already saved incrementally above
+        if assistant_text_parts and assistant_msg_id:
             full_response = "\n".join(assistant_text_parts)
-            msg = store.add_message(conv_id, "assistant", full_response)
-
-            # Check if this is a report (has YAML front-matter)
-            if msg and full_response.startswith("---\n"):
-                _maybe_create_report(conv_id, msg.id, full_response, last_message)
+            if full_response.startswith("---\n"):
+                _maybe_create_report(conv_id, assistant_msg_id, full_response, last_message)
 
         # Send done event
         yield "event: done\n"

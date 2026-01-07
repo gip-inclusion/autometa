@@ -49,6 +49,9 @@ from skills.matomo_query.scripts.matomo import MatomoAPI
 
 api = MatomoAPI()  # loads credentials from .env
 
+# IMPORTANT: Use high-level methods below, or api.request() for unwrapped methods.
+# There is NO .call_api() method.
+
 # Get visit summary
 summary = api.get_visits(site_id=117, period="month", date="2025-12-01")
 print(f"Unique visitors: {summary['nb_uniq_visitors']}")
