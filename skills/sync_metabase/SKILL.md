@@ -30,11 +30,15 @@ python -m skills.sync_metabase.scripts.sync_inventory --clear
 3. **AI categorization** (optional) - uses Claude to assign topic categories
 4. **Writes to SQLite** at `knowledge/metabase/cards.db`
 5. **Generates README** at `knowledge/metabase/README.md`
+6. **Generates Markdown** (optional) at `knowledge/stats/cards/` and `knowledge/stats/dashboards/`
 
 ## Output
 
 - **SQLite database** with full-text search capabilities
 - **README.md** with schema documentation and topic summary
+- **Markdown files** (with `--markdown` flag):
+  - `knowledge/stats/cards/` - card files grouped by topic
+  - `knowledge/stats/dashboards/` - dashboard files with their cards
 
 ## Prerequisites
 

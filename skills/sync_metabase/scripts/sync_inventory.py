@@ -259,12 +259,37 @@ def generate_readme(db: CardsDB, last_sync: str):
     return readme_path
 
 
-def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
+def format_sql_for_markdown(sql: str) -> str:
+    """Format SQL for better readability in markdown, handling escaping."""
+    if not sql:
+        return ""
+
+    # Add line breaks after major SQL keywords for readability
+    keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'GROUP BY', 'ORDER BY',
+                'HAVING', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
+                'UNION', 'LIMIT', 'OFFSET']
+
+    formatted = sql
+    for kw in keywords:
+        # Add newline before keyword (case insensitive)
+        import re
+        formatted = re.sub(rf'(\s)({kw}\s)', rf'\1\n{kw} ', formatted, flags=re.IGNORECASE)
+
+    # Clean up multiple newlines
+    formatted = re.sub(r'\n\s*\n', '\n', formatted)
+
+    return formatted.strip()
+
+
+def generate_markdown(db: CardsDB, cards_dir: Path, dashboards_dir: Path, last_sync: str):
     """Generate Markdown files for git tracking."""
-    output_dir.mkdir(parents=True, exist_ok=True)
+    cards_dir.mkdir(parents=True, exist_ok=True)
+    dashboards_dir.mkdir(parents=True, exist_ok=True)
 
     # Clear existing markdown files
-    for f in output_dir.glob("*.md"):
+    for f in cards_dir.glob("*.md"):
+        f.unlink()
+    for f in dashboards_dir.glob("*.md"):
         f.unlink()
 
     all_cards = db.all()
@@ -272,16 +297,14 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
     dashboards_summary = db.dashboards_summary()
     tables_summary = db.tables_summary()
 
-    # --- Generate index.md ---
+    # --- Generate index.md in cards dir ---
     index_lines = [
-        "# Inventaire Metabase",
+        "# Inventaire Metabase - Cartes",
         "",
         f"*Dernière synchronisation : {last_sync}*",
         f"*Total : {len(all_cards)} cartes*",
         "",
-        "## Table des matières",
-        "",
-        "### Par thème",
+        "## Par thème",
         "",
     ]
 
@@ -290,21 +313,10 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
             desc = TOPICS.get(topic, "")
             index_lines.append(f"- [{topic}](topic-{topic}.md) ({count}) — {desc}")
 
-    index_lines.extend([
-        "",
-        "### Par dashboard",
-        "",
-    ])
-
-    for dash_id, count in list(dashboards_summary.items())[:20]:
-        dash = db.get_dashboard(dash_id)
-        dash_name = dash.name if dash else f"Dashboard {dash_id}"
-        index_lines.append(f"- [{dash_name}](dashboard-{dash_id}.md) ({count} cartes)")
-
     # Best of: most referenced tables
     index_lines.extend([
         "",
-        "## Best of — Tables les plus utilisées",
+        "## Tables les plus utilisées",
         "",
         "| Table | Cartes |",
         "|-------|--------|",
@@ -313,25 +325,27 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
     for table, count in list(tables_summary.items())[:15]:
         index_lines.append(f"| `{table}` | {count} |")
 
-    # Best of: cards with longest SQL (complex queries)
-    cards_by_sql_len = sorted(
-        [c for c in all_cards if c.sql_query],
-        key=lambda c: len(c.sql_query or ""),
-        reverse=True
-    )[:10]
-
-    index_lines.extend([
-        "",
-        "## Best of — Requêtes les plus complexes",
-        "",
-    ])
-
-    for card in cards_by_sql_len:
-        sql_len = len(card.sql_query or "")
-        index_lines.append(f"- **{card.name}** (ID: {card.id}, {sql_len} chars)")
-
-    with open(output_dir / "_index.md", "w") as f:
+    with open(cards_dir / "_index.md", "w") as f:
         f.write("\n".join(index_lines))
+
+    # --- Generate dashboards index ---
+    dash_index_lines = [
+        "# Inventaire Metabase - Dashboards",
+        "",
+        f"*Dernière synchronisation : {last_sync}*",
+        f"*Total : {len(dashboards_summary)} dashboards*",
+        "",
+        "## Par dashboard",
+        "",
+    ]
+
+    for dash_id, count in list(dashboards_summary.items())[:30]:
+        dash = db.get_dashboard(dash_id)
+        dash_name = dash.name if dash else f"Dashboard {dash_id}"
+        dash_index_lines.append(f"- [{dash_name}](dashboard-{dash_id}.md) ({count} cartes)")
+
+    with open(dashboards_dir / "_index.md", "w") as f:
+        f.write("\n".join(dash_index_lines))
 
     # --- Generate topic files ---
     for topic in topics_summary:
@@ -362,10 +376,10 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
                 lines.append(f"- **Tables:** {', '.join(card.tables_referenced)}")
 
             if card.sql_query:
-                # Truncate very long SQL for readability
-                sql = card.sql_query
-                if len(sql) > 2000:
-                    sql = sql[:2000] + "\n-- ... (truncated)"
+                # Format SQL for readability, truncate if very long
+                sql = format_sql_for_markdown(card.sql_query)
+                if len(sql) > 3000:
+                    sql = sql[:3000] + "\n-- ... (truncated)"
                 lines.extend([
                     "",
                     "```sql",
@@ -375,7 +389,7 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
 
             lines.append("")
 
-        with open(output_dir / f"topic-{topic}.md", "w") as f:
+        with open(cards_dir / f"topic-{topic}.md", "w") as f:
             f.write("\n".join(lines))
 
     # --- Generate dashboard files ---
@@ -414,9 +428,10 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
                 lines.append(f"- **Tables:** {', '.join(card.tables_referenced)}")
 
             if card.sql_query:
-                sql = card.sql_query
-                if len(sql) > 2000:
-                    sql = sql[:2000] + "\n-- ... (truncated)"
+                # Format SQL for readability, truncate if very long
+                sql = format_sql_for_markdown(card.sql_query)
+                if len(sql) > 3000:
+                    sql = sql[:3000] + "\n-- ... (truncated)"
                 lines.extend([
                     "",
                     "```sql",
@@ -426,10 +441,10 @@ def generate_markdown(db: CardsDB, output_dir: Path, last_sync: str):
 
             lines.append("")
 
-        with open(output_dir / f"dashboard-{dash_id}.md", "w") as f:
+        with open(dashboards_dir / f"dashboard-{dash_id}.md", "w") as f:
             f.write("\n".join(lines))
 
-    return output_dir
+    return cards_dir, dashboards_dir
 
 
 def main():
@@ -441,15 +456,21 @@ def main():
     parser.add_argument("--markdown-only", action="store_true", help="Only regenerate Markdown from existing DB")
     args = parser.parse_args()
 
+    # Output directories
+    stats_dir = Path(__file__).parent.parent.parent.parent / "knowledge" / "stats"
+    cards_dir = stats_dir / "cards"
+    dashboards_dir = stats_dir / "dashboards"
+
     # Handle --markdown-only mode
     if args.markdown_only:
         print("📄 Regenerating Markdown from existing database...")
         db = CardsDB()
         last_sync = datetime.now().strftime("%Y-%m-%d %H:%M")
-        markdown_dir = DB_PATH.parent / "markdown"
-        generate_markdown(db, markdown_dir, last_sync)
-        md_files = list(markdown_dir.glob("*.md"))
-        print(f"✅ {len(md_files)} files written to {markdown_dir}")
+        generate_markdown(db, cards_dir, dashboards_dir, last_sync)
+        cards_files = list(cards_dir.glob("*.md"))
+        dash_files = list(dashboards_dir.glob("*.md"))
+        print(f"✅ {len(cards_files)} card files written to {cards_dir}")
+        print(f"✅ {len(dash_files)} dashboard files written to {dashboards_dir}")
         db.close()
         return
 
@@ -586,12 +607,13 @@ def main():
         print("📄 STEP 6: Generating Markdown files...")
         print("-" * 70)
 
-        markdown_dir = DB_PATH.parent / "markdown"
-        generate_markdown(db, markdown_dir, last_sync)
+        generate_markdown(db, cards_dir, dashboards_dir, last_sync)
 
         # Count generated files
-        md_files = list(markdown_dir.glob("*.md"))
-        print(f"   ✅ {len(md_files)} files written to {markdown_dir}")
+        cards_files = list(cards_dir.glob("*.md"))
+        dash_files = list(dashboards_dir.glob("*.md"))
+        print(f"   ✅ {len(cards_files)} card files written to {cards_dir}")
+        print(f"   ✅ {len(dash_files)} dashboard files written to {dashboards_dir}")
 
     db.close()
 
@@ -602,7 +624,8 @@ def main():
     print(f"Database: {DB_PATH}")
     print(f"Cards: {len(all_cards)}")
     if args.markdown:
-        print(f"Markdown: {DB_PATH.parent / 'markdown'}")
+        print(f"Cards markdown: {cards_dir}")
+        print(f"Dashboards markdown: {dashboards_dir}")
 
 
 if __name__ == "__main__":
