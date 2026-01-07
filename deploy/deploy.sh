@@ -24,10 +24,15 @@ RSYNC_OPTS=(
     --exclude='.venv'
     --exclude='scripts/'
     --exclude='reports/'
+    --exclude='claude-credentials/'
+    --exclude='.claude/skills'
 )
 
 echo "Syncing files..."
 rsync "${RSYNC_OPTS[@]}" "$LOCAL_DIR/" "$SERVER:$REMOTE_DIR/"
+
+echo "Ensuring symlinks..."
+ssh "$SERVER" "cd $REMOTE_DIR/.claude && ln -sf ../skills skills 2>/dev/null || true"
 
 echo "Rebuilding container..."
 ssh "$SERVER" "cd $REMOTE_DIR && docker compose up -d --build"
