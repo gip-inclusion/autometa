@@ -13,7 +13,10 @@ services:
     volumes:
       # Persist SQLite database
       - ./data:/app/data
+      # Persist Claude credentials between deploys
+      - ./claude-credentials:/home/matometa/.claude
       # Mount knowledge files (read-only)
       - ./knowledge:/app/knowledge:ro
       - ./AGENTS.md:/app/AGENTS.md:ro
       - ./skills:/app/skills:ro
+      - ./.claude:/app/.claude:ro
