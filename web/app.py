@@ -11,6 +11,7 @@ from .routes import (
     knowledge_bp,
     logs_bp,
     html_bp,
+    rapports_bp,
 )
 
 # Configure logging
@@ -51,6 +52,7 @@ def extract_user_email():
 # =============================================================================
 
 app.register_blueprint(html_bp)
+app.register_blueprint(rapports_bp)
 app.register_blueprint(conversations_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(knowledge_bp)
