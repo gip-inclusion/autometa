@@ -1165,11 +1165,11 @@ body.has-sidebar {
 }
 
 /* ==========================================================================
-   Report Toggle Button
+   Report Toggle Button (inside conversation)
    ========================================================================== */
 .report-toggle {
-  margin-bottom: 0.5rem;
-  text-align: center;
+  margin: 1rem 0;
+  text-align: left;
 }
 
 .report-toggle-btn {

@@ -384,7 +384,7 @@ function startStream() {
   });
 
   // Show report toggle when streaming starts
-  showReportToggle(true);
+  showReportToggle();
 
   // Handle completion
   eventSource.addEventListener('done', async () => {
@@ -1138,34 +1138,38 @@ function formatReportCard(data) {
 }
 
 /**
- * Show the report toggle button
- * @param {boolean} showCheckbox - Whether to show checkbox (during streaming)
+ * Show the report toggle button (appended to chat output)
  */
-function showReportToggle(showCheckbox = false) {
-  const toggle = document.getElementById('reportToggle');
-  const checkbox = document.getElementById('reportCheckbox');
-  const btn = document.getElementById('reportToggleBtn');
+function showReportToggle() {
+  const chatOutput = document.getElementById('chatOutput');
+  if (!chatOutput) return;
 
-  if (!toggle) return;
+  // Remove existing toggle if any
+  const existing = document.getElementById('reportToggle');
+  if (existing) existing.remove();
 
-  toggle.style.display = 'block';
+  // Create toggle element
+  const toggle = document.createElement('div');
+  toggle.id = 'reportToggle';
+  toggle.className = 'report-toggle';
+  toggle.innerHTML = `
+    <button type="button" class="btn btn-outline-primary btn-sm report-toggle-btn" id="reportToggleBtn">
+      <i class="ri-file-text-line"></i>
+      <span class="toggle-label">Produire un rapport détaillé</span>
+      <input type="checkbox" class="form-check-input ms-2" id="reportCheckbox">
+    </button>
+  `;
 
-  if (showCheckbox && checkbox) {
-    checkbox.style.display = 'inline-block';
-    // During streaming, clicking button toggles checkbox
-    btn.onclick = () => {
-      checkbox.checked = !checkbox.checked;
-      btn.classList.toggle('active', checkbox.checked);
-    };
-  } else if (checkbox) {
-    // When idle, clicking button enables report mode
-    checkbox.style.display = 'none';
-    btn.onclick = () => {
-      checkbox.checked = true;
-      btn.classList.add('active');
-      checkbox.style.display = 'inline-block';
-    };
-  }
+  chatOutput.appendChild(toggle);
+  scrollToBottom();
+
+  // Setup click handler
+  const btn = toggle.querySelector('#reportToggleBtn');
+  const checkbox = toggle.querySelector('#reportCheckbox');
+  btn.onclick = () => {
+    checkbox.checked = !checkbox.checked;
+    btn.classList.toggle('active', checkbox.checked);
+  };
 }
 
 /**
