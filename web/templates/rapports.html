@@ -29,17 +29,19 @@
     {% if current_report %}
     <!-- Report detail view -->
     <div class="report-content" id="reportContent">
-      <div class="card">
-        <div class="card-body">
-          <div class="report-markdown" id="reportMarkdown">{{ current_report.content }}</div>
-        </div>
-        <div class="card-footer text-muted small">
-          {% if current_report.source_conversation_id %}
-          <a href="/explorations?conv={{ current_report.source_conversation_id }}">Voir la conversation d'origine</a> |
-          {% endif %}
-          Mis a jour le {{ current_report.updated_at.strftime('%d/%m/%Y %H:%M') }}
-        </div>
+      <div class="event-block event-report">
+        <div class="report-header" id="reportHeader"></div>
+        <div class="report-body" id="reportBody"></div>
       </div>
+      <div class="report-footer text-muted small mt-3">
+        {% if current_report.source_conversation_id %}
+        <a href="/explorations?conv={{ current_report.source_conversation_id }}">
+          <i class="ri-chat-3-line"></i> Voir la conversation d'origine
+        </a> |
+        {% endif %}
+        <i class="ri-time-line"></i> Mis a jour le {{ current_report.updated_at.strftime('%d/%m/%Y %H:%M') }}
+      </div>
+      <script type="text/plain" id="reportRawContent">{{ current_report.content }}</script>
     </div>
     {% else %}
     <!-- Reports list view -->
@@ -107,21 +109,53 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // Render markdown in report content
-  const reportMarkdown = document.getElementById('reportMarkdown');
-  if (reportMarkdown && typeof marked !== 'undefined') {
-    let content = reportMarkdown.textContent;
+  // Render report content like in chat.js
+  const rawContent = document.getElementById('reportRawContent');
+  const reportHeader = document.getElementById('reportHeader');
+  const reportBody = document.getElementById('reportBody');
 
-    // Strip YAML front-matter if present
-    content = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+  if (rawContent && reportHeader && reportBody && typeof marked !== 'undefined') {
+    let content = rawContent.textContent;
 
-    // Configure marked
+    // Parse YAML front-matter
+    const frontMatter = {};
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+    if (fmMatch) {
+      const fmText = fmMatch[1];
+      for (const line of fmText.split('\n')) {
+        const colonIdx = line.indexOf(':');
+        if (colonIdx > 0) {
+          const key = line.slice(0, colonIdx).trim().toLowerCase();
+          const value = line.slice(colonIdx + 1).trim();
+          frontMatter[key] = value;
+        }
+      }
+      // Remove front-matter from content
+      content = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+    }
+
+    // Build report header (like formatReport in chat.js)
+    let header = '<div class="report-title">';
+    header += '<i class="ri-file-text-line"></i> ';
+    header += frontMatter['query category'] || 'Rapport';
+    header += '</div>';
+
+    if (frontMatter.date) {
+      header += `<div class="report-meta"><i class="ri-calendar-line"></i> ${frontMatter.date}</div>`;
+    }
+    if (frontMatter.website) {
+      header += `<div class="report-meta"><i class="ri-global-line"></i> ${frontMatter.website}</div>`;
+    }
+
+    reportHeader.innerHTML = header;
+
+    // Configure marked for tables and GFM
     marked.setOptions({ breaks: true, gfm: true });
-    reportMarkdown.innerHTML = marked.parse(content);
+    reportBody.innerHTML = marked.parse(content);
 
     // Render mermaid diagrams
     if (typeof mermaid !== 'undefined') {
-      const mermaidBlocks = reportMarkdown.querySelectorAll('pre code.language-mermaid');
+      const mermaidBlocks = reportBody.querySelectorAll('pre code.language-mermaid');
       for (const block of mermaidBlocks) {
         const container = document.createElement('div');
         container.className = 'mermaid';
