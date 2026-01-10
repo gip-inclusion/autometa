@@ -271,14 +271,16 @@ Include date ranges and verification URLs in all data tables.
 
 ### Mermaid Visualizations
 
-Use Mermaid for charts (renders natively on GitHub).
+Use Mermaid for charts.
 
-**Pie charts** — for distributions:
+Don't use pie charts, use XY / bar graphs instead.
+
+**XY charts** — for distributions:
 ```mermaid
-pie showData
-    title Distribution
-    "Category A" : 45
-    "Category B" : 30
+xychart-beta
+    title "Distribution"
+    x-axis ["Category A", "Category B"]
+    bar [45, 30]
 ```
 
 **XY charts** — for time series:
@@ -296,9 +298,57 @@ flowchart LR
     A["Step 1"] --> B["Step 2"] --> C["Step 3"]
 ```
 
+**Sankey** — for traffic flows and conversions:
+```mermaid
+sankey-beta
+Source,Target,Value
+Homepage,Job search,450
+Homepage,Profile,120
+Homepage,Bounce,80
+Job search,Application,200
+Job search,Exit,250
+```
+
+**Treemap** — for hierarchical breakdowns:
+```mermaid
+treemap-beta
+"Traffic by user type"
+    "Candidats": 4500
+    "Prescripteurs"
+        "Habilites": 1200
+        "Orienteurs": 800
+    "Employeurs": 950
+```
+
+**Quadrant** — for prioritization matrices:
+```mermaid
+quadrantChart
+    title Feature prioritization
+    x-axis Low usage --> High usage
+    y-axis Low impact --> High impact
+    quadrant-1 Investir
+    quadrant-2 Explorer
+    quadrant-3 Abandonner
+    quadrant-4 Maintenir
+    Recherche emploi: [0.9, 0.85]
+    Export CSV: [0.2, 0.3]
+    Notifications: [0.4, 0.7]
+```
+
+**Gitgraph** — for release timelines:
+```mermaid
+gitgraph
+    commit id: "v1.0"
+    branch feature-x
+    commit id: "Add tracking"
+    checkout main
+    commit id: "Hotfix"
+    merge feature-x id: "v1.1"
+```
+
 **Rules:**
 - Quote all labels: `"Label text"`
-- No accents (use `e` not `é`)
+- No accents (use `e` not `é`) – this is ONLY FOR MERMAID, otherwise USE ACCENTS.
 - No `<br/>` tags or slashes
 - No ASCII art or inline HTML
 
