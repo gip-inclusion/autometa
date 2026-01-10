@@ -16,6 +16,28 @@ DB_PATH = config.BASE_DIR / "data" / "matometa.db"
 # Schema version for migrations
 SCHEMA_VERSION = 4
 
+# Valid column names for dynamic updates (security: prevents SQL injection)
+VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "status", "updated_at"})
+VALID_REPORT_COLUMNS = frozenset({"title", "website", "category", "tags", "original_query", "content", "updated_at"})
+
+
+def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, list]:
+    """
+    Build a safe UPDATE SET clause from a dict of updates.
+
+    Validates all keys against valid_columns to prevent SQL injection.
+    Returns (set_clause, values) for use in parameterized query.
+
+    Raises ValueError if any key is not in valid_columns.
+    """
+    for key in updates:
+        if key not in valid_columns:
+            raise ValueError(f"Invalid column name: {key}")
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values())
+    return set_clause, values
+
 
 def get_connection() -> sqlite3.Connection:
     """Get a database connection with row factory."""
@@ -198,18 +220,22 @@ class Message:
 
 @dataclass
 class Report:
-    """A report generated from a conversation."""
+    """A report with its content."""
     id: Optional[int] = None
-    conversation_id: Optional[str] = None
-    message_id: Optional[int] = None
     title: str = ""
+    content: Optional[str] = None  # the actual report markdown
     website: Optional[str] = None
     category: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     original_query: Optional[str] = None
+    source_conversation_id: Optional[str] = None  # where it came from
+    user_id: Optional[str] = None
     version: int = 1
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+    # Deprecated - keep for backwards compat during migration
+    conversation_id: Optional[str] = None
+    message_id: Optional[int] = None
 
 
 @dataclass
@@ -476,8 +502,8 @@ class ConversationStore:
 
         updates["updated_at"] = datetime.now().isoformat()
 
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [conv_id]
+        set_clause, values = _build_update_clause(updates, VALID_CONVERSATION_COLUMNS)
+        values.append(conv_id)
 
         with get_db() as conn:
             cursor = conn.execute(
@@ -596,32 +622,36 @@ class ConversationStore:
 
     def create_report(
         self,
-        conv_id: str,
-        message_id: int,
         title: str,
+        content: str,
         website: Optional[str] = None,
         category: Optional[str] = None,
         tags: Optional[list[str]] = None,
         original_query: Optional[str] = None,
+        source_conversation_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Optional[Report]:
-        """Create a report linked to a conversation and message."""
+        """Create a report with content."""
         report = Report(
-            conversation_id=conv_id,
-            message_id=message_id,
             title=title,
+            content=content,
             website=website,
             category=category,
             tags=tags or [],
             original_query=original_query,
+            source_conversation_id=source_conversation_id,
+            user_id=user_id,
         )
 
         with get_db() as conn:
             cursor = conn.execute(
                 """INSERT INTO reports
-                   (conversation_id, message_id, title, website, category, tags, original_query, version, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (conv_id, message_id, title, website, category,
+                   (title, content, website, category, tags, original_query,
+                    source_conversation_id, user_id, version, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (title, content, website, category,
                  json.dumps(tags) if tags else None, original_query,
+                 source_conversation_id, user_id,
                  1, report.created_at.isoformat(), report.updated_at.isoformat())
             )
             report.id = cursor.lastrowid
@@ -638,18 +668,32 @@ class ConversationStore:
             if not row:
                 return None
 
+            # Use content column if available, fall back to message lookup
+            content = row["content"] if "content" in row.keys() else None
+            if not content and row["message_id"]:
+                # Legacy: fetch from messages
+                msg = conn.execute(
+                    "SELECT content FROM messages WHERE id = ?",
+                    (row["message_id"],)
+                ).fetchone()
+                content = msg["content"] if msg else None
+
             return Report(
                 id=row["id"],
-                conversation_id=row["conversation_id"],
-                message_id=row["message_id"],
                 title=row["title"],
+                content=content,
                 website=row["website"],
                 category=row["category"],
                 tags=json.loads(row["tags"]) if row["tags"] else [],
                 original_query=row["original_query"],
+                source_conversation_id=row["source_conversation_id"] if "source_conversation_id" in row.keys() else None,
+                user_id=row["user_id"] if "user_id" in row.keys() else None,
                 version=row["version"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
+                # Legacy fields
+                conversation_id=row["conversation_id"],
+                message_id=row["message_id"],
             )
 
     def list_reports(
@@ -679,23 +723,27 @@ class ConversationStore:
             return [
                 Report(
                     id=row["id"],
-                    conversation_id=row["conversation_id"],
-                    message_id=row["message_id"],
                     title=row["title"],
+                    # Don't load content for listing (expensive)
                     website=row["website"],
                     category=row["category"],
                     tags=json.loads(row["tags"]) if row["tags"] else [],
                     original_query=row["original_query"],
+                    source_conversation_id=row["source_conversation_id"] if "source_conversation_id" in row.keys() else None,
+                    user_id=row["user_id"] if "user_id" in row.keys() else None,
                     version=row["version"],
                     created_at=datetime.fromisoformat(row["created_at"]),
                     updated_at=datetime.fromisoformat(row["updated_at"]),
+                    # Legacy fields
+                    conversation_id=row["conversation_id"],
+                    message_id=row["message_id"],
                 )
                 for row in rows
             ]
 
     def update_report(self, report_id: int, **kwargs) -> bool:
         """Update report fields, incrementing version."""
-        allowed = {"title", "website", "category", "tags", "original_query"}
+        allowed = {"title", "content", "website", "category", "tags", "original_query"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
@@ -706,15 +754,15 @@ class ConversationStore:
 
         updates["updated_at"] = datetime.now().isoformat()
 
+        set_clause, values = _build_update_clause(updates, VALID_REPORT_COLUMNS)
+        values.append(report_id)
+
         with get_db() as conn:
             # Increment version
             conn.execute(
                 "UPDATE reports SET version = version + 1 WHERE id = ?",
                 (report_id,)
             )
-
-            set_clause = ", ".join(f"{k} = ?" for k in updates)
-            values = list(updates.values()) + [report_id]
 
             cursor = conn.execute(
                 f"UPDATE reports SET {set_clause} WHERE id = ?",
