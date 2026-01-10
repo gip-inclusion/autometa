@@ -392,11 +392,6 @@ User request: """
 
         thread.join(timeout=5)
 
-        if assistant_text_parts and assistant_msg_id:
-            full_response = "\n".join(assistant_text_parts)
-            if full_response.startswith("---\n"):
-                _maybe_create_report(conv_id, assistant_msg_id, full_response, last_message)
-
         yield "event: done\n"
         yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
 
@@ -404,32 +399,6 @@ User request: """
         generate(),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-def _maybe_create_report(conv_id: str, message_id: int, content: str, original_query: str) -> None:
-    """Create a report record if the assistant message contains a report."""
-    match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
-    if not match:
-        return
-
-    front_matter = match.group(1)
-    metadata = {}
-    for line in front_matter.split("\n"):
-        if ":" in line:
-            key, value = line.split(":", 1)
-            metadata[key.strip().lower()] = value.strip()
-
-    if "query category" not in metadata:
-        return
-
-    store.create_report(
-        conv_id=conv_id,
-        message_id=message_id,
-        title=metadata.get("query category", "Rapport sans titre"),
-        website=metadata.get("website"),
-        category=metadata.get("query category"),
-        original_query=original_query,
     )
 
 
