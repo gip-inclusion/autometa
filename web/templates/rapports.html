@@ -52,22 +52,22 @@
             <a href="/rapports?id={{ report.id }}" class="card-body text-decoration-none"
                hx-get="/rapports?id={{ report.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
               <h5 class="card-title mb-2">{{ report.title }}</h5>
-              <p class="card-text text-muted small mb-0">
+              <div class="d-flex flex-wrap gap-1 mb-2">
                 {% if report.website %}<span class="badge bg-secondary">{{ report.website }}</span>{% endif %}
                 {% if report.category %}<span class="badge bg-light text-dark">{{ report.category }}</span>{% endif %}
-              </p>
+              </div>
               <p class="card-text text-muted small mb-0 mt-2">
                 {{ report.updated_at.strftime('%d/%m/%Y %H:%M') }}
               </p>
             </a>
             <div class="card-footer-row">
               <div></div>
-              <button class="btn btn-link btn-sm text-muted card-delete-btn" title="Supprimer"
-                      hx-delete="/api/reports/{{ report.id }}"
+              <button class="btn btn-link btn-sm text-muted card-archive-btn" title="Archiver"
+                      hx-post="/api/reports/{{ report.id }}/archive"
                       hx-target="#report-{{ report.id }}"
                       hx-swap="outerHTML"
-                      hx-confirm="Supprimer ce rapport ?">
-                <i class="ri-delete-bin-line"></i>
+                      hx-confirm="Archiver ce rapport ?">
+                <i class="ri-archive-line"></i>
               </button>
             </div>
           </div>
@@ -110,10 +110,25 @@ document.addEventListener('DOMContentLoaded', () => {
   // Render markdown in report content
   const reportMarkdown = document.getElementById('reportMarkdown');
   if (reportMarkdown && typeof marked !== 'undefined') {
-    reportMarkdown.innerHTML = marked.parse(reportMarkdown.textContent);
+    let content = reportMarkdown.textContent;
+
+    // Strip YAML front-matter if present
+    content = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+
+    // Configure marked
+    marked.setOptions({ breaks: true, gfm: true });
+    reportMarkdown.innerHTML = marked.parse(content);
+
     // Render mermaid diagrams
     if (typeof mermaid !== 'undefined') {
-      mermaid.run({ nodes: reportMarkdown.querySelectorAll('.language-mermaid') });
+      const mermaidBlocks = reportMarkdown.querySelectorAll('pre code.language-mermaid');
+      for (const block of mermaidBlocks) {
+        const container = document.createElement('div');
+        container.className = 'mermaid';
+        container.textContent = block.textContent;
+        block.parentElement.replaceWith(container);
+      }
+      mermaid.run();
     }
   }
 

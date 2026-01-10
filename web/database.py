@@ -14,7 +14,7 @@ from . import config
 DB_PATH = config.BASE_DIR / "data" / "matometa.db"
 
 # Schema version for migrations
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Valid column names for dynamic updates (security: prevents SQL injection)
 VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "status", "updated_at"})
@@ -87,6 +87,9 @@ def init_db():
 
         if current_version < 5:
             _migrate_to_v5(conn)
+
+        if current_version < 6:
+            _migrate_to_v6(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection):
@@ -252,6 +255,17 @@ def _migrate_to_v5(conn: sqlite3.Connection):
     """)
 
 
+def _migrate_to_v6(conn: sqlite3.Connection):
+    """Migrate to v6: add archived column to reports."""
+    cursor = conn.execute("PRAGMA table_info(reports)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    if "archived" not in columns:
+        conn.execute("ALTER TABLE reports ADD COLUMN archived INTEGER DEFAULT 0")
+
+    conn.execute("UPDATE schema_version SET version = 6")
+
+
 # =============================================================================
 # Data Classes
 # =============================================================================
@@ -281,6 +295,7 @@ class Report:
     original_query: Optional[str] = None
     source_conversation_id: Optional[str] = None  # where it came from
     user_id: Optional[str] = None
+    archived: bool = False
     version: int = 1
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -448,9 +463,14 @@ class ConversationStore:
             )
 
     def list_conversations(
-        self, user_id: Optional[str] = None, limit: int = 50, conv_type: Optional[str] = None
+        self, user_id: Optional[str] = None, limit: int = 50, conv_type: Optional[str] = None,
+        exclude_report_containers: bool = True
     ) -> list[Conversation]:
-        """List recent conversations with report info."""
+        """List recent conversations with report info.
+
+        By default, excludes conversations that were created only to contain a report
+        (identified by having a report linked via conversation_id).
+        """
         with get_db() as conn:
             conditions = []
             params = []
@@ -465,6 +485,10 @@ class ConversationStore:
             else:
                 # By default, only show exploration conversations
                 conditions.append("(c.conv_type = 'exploration' OR c.conv_type IS NULL)")
+
+            if exclude_report_containers:
+                # Exclude conversations that exist only to contain a report
+                conditions.append("r.id IS NULL")
 
             where = "WHERE " + " AND ".join(conditions) if conditions else ""
             params.append(limit)
@@ -743,6 +767,7 @@ class ConversationStore:
                 original_query=row["original_query"],
                 source_conversation_id=row["source_conversation_id"] if "source_conversation_id" in row.keys() else None,
                 user_id=row["user_id"] if "user_id" in row.keys() else None,
+                archived=bool(row["archived"]) if "archived" in row.keys() else False,
                 version=row["version"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
@@ -755,12 +780,16 @@ class ConversationStore:
         self,
         website: Optional[str] = None,
         category: Optional[str] = None,
+        include_archived: bool = False,
         limit: int = 50,
     ) -> list[Report]:
-        """List reports with optional filtering."""
+        """List reports with optional filtering. Excludes archived by default."""
         with get_db() as conn:
             query = "SELECT * FROM reports WHERE 1=1"
             params = []
+
+            if not include_archived:
+                query += " AND (archived = 0 OR archived IS NULL)"
 
             if website:
                 query += " AND website = ?"
@@ -786,6 +815,7 @@ class ConversationStore:
                     original_query=row["original_query"],
                     source_conversation_id=row["source_conversation_id"] if "source_conversation_id" in row.keys() else None,
                     user_id=row["user_id"] if "user_id" in row.keys() else None,
+                    archived=bool(row["archived"]) if "archived" in row.keys() else False,
                     version=row["version"],
                     created_at=datetime.fromisoformat(row["created_at"]),
                     updated_at=datetime.fromisoformat(row["updated_at"]),
@@ -795,6 +825,15 @@ class ConversationStore:
                 )
                 for row in rows
             ]
+
+    def archive_report(self, report_id: int) -> bool:
+        """Archive a report (soft delete)."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE reports SET archived = 1, updated_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), report_id)
+            )
+            return cursor.rowcount > 0
 
     def update_report(self, report_id: int, **kwargs) -> bool:
         """Update report fields, incrementing version."""

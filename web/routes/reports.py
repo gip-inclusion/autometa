@@ -65,8 +65,16 @@ def get_report(report_id: int):
 
 @bp.route("/<int:report_id>", methods=["DELETE"])
 def delete_report(report_id: int):
-    """Delete a report."""
+    """Delete a report (admin only - use archive for normal use)."""
     if store.delete_report(report_id):
+        return "", 200
+    return jsonify({"error": "Report not found"}), 404
+
+
+@bp.route("/<int:report_id>/archive", methods=["POST"])
+def archive_report(report_id: int):
+    """Archive a report (soft delete)."""
+    if store.archive_report(report_id):
         return "", 200
     return jsonify({"error": "Report not found"}), 404
 
