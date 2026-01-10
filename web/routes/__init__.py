@@ -1,0 +1,15 @@
+"""Flask blueprints for API routes."""
+
+from .conversations import bp as conversations_bp
+from .reports import bp as reports_bp
+from .knowledge import bp as knowledge_bp
+from .logs import bp as logs_bp
+from .html import bp as html_bp
+
+__all__ = [
+    "conversations_bp",
+    "reports_bp",
+    "knowledge_bp",
+    "logs_bp",
+    "html_bp",
+]
