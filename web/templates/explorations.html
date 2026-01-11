@@ -70,7 +70,7 @@
       <i class="ri-loader-4-line ri-spin"></i>
       <span>Un agent est en cours d'exécution en arrière-plan.</span>
       <div class="ms-auto d-flex gap-2">
-        <a href="/explorations?conv={{ background_running[0] }}" class="alert-link">Voir</a>
+        <a href="/explorations/{{ background_running[0] }}" class="alert-link">Voir</a>
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="killAgent('{{ background_running[0] }}', this.closest('#background-running-alert'))">
           <i class="ri-stop-circle-line"></i> Arrêter
         </button>
@@ -97,8 +97,8 @@
         {% for conv in conversations %}
         <div class="col-12 col-md-6 col-lg-4" id="conv-{{ conv.id }}">
           <div class="card conversation-card h-100">
-            <a href="/explorations?conv={{ conv.id }}" class="card-body text-decoration-none"
-               hx-get="/explorations?conv={{ conv.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <a href="/explorations/{{ conv.id }}" class="card-body text-decoration-none"
+               hx-get="/explorations/{{ conv.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
               <h5 class="card-title mb-2">{{ conv.title or 'Sans titre' }}</h5>
               <p class="card-text text-muted small mb-0">
                 {{ conv.updated_at.strftime('%d/%m/%Y %H:%M') }}
@@ -186,8 +186,11 @@
       lastUserMessage = pendingMessage;
       await sendToAgent(pendingMessage);
     }
+    {% elif is_new %}
+    // New conversation mode - focus input
+    const input = document.getElementById('chatInput');
+    if (input) input.focus();
     {% endif %}
   });
-  // htmx:afterSwap listener is in chat.js (added once, not on each swap)
 </script>
 {% endblock %}

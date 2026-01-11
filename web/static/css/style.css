@@ -1210,3 +1210,56 @@ body.has-sidebar {
 .report-card-title {
   font-weight: 500;
 }
+
+/* Sidebar conversation list */
+.sidebar-conversations {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+}
+
+.nav-link-conversation {
+  font-size: 0.85rem;
+  color: var(--bs-secondary);
+  padding: 0.35rem 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-link-conversation:hover {
+  color: var(--bs-primary);
+  background-color: rgba(0, 106, 220, 0.05);
+}
+
+.nav-link-conversation.active {
+  color: var(--bs-primary);
+  font-weight: 500;
+}
+
+.nav-link-conversation .ri-loader-4-line {
+  margin-right: 0.25rem;
+}
+
+.conv-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-view-more {
+  display: block;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: var(--bs-secondary);
+  text-decoration: none;
+}
+
+.sidebar-view-more:hover {
+  color: var(--bs-primary);
+}
+
+.nav-link-primary {
+  font-weight: 500;
+}
