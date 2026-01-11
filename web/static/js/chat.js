@@ -37,12 +37,12 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     isPopState = false;
 
     // Check if we're on a conversation page
-    const urlParams = new URLSearchParams(window.location.search);
-    const convId = urlParams.get('conv');
-    if (convId && convId !== currentConversationId) {
-      currentConversationId = convId;
-      loadConversation(convId);
-    } else if (!convId) {
+    const path = window.location.pathname;
+    const convMatch = path.match(/^\/explorations\/([a-f0-9-]+)$/);
+    if (convMatch && convMatch[1] !== currentConversationId) {
+      currentConversationId = convMatch[1];
+      loadConversation(convMatch[1]);
+    } else if (path === '/explorations' || path === '/explorations/new') {
       currentConversationId = null;
     }
   }
@@ -294,10 +294,13 @@ async function sendMessage() {
       // Redirect to conversation view if we're on the list view
       const chatOutput = document.getElementById('chatOutput');
       if (!chatOutput) {
-        // We're on list view, redirect to conversation
-        window.location.href = `/explorations?conv=${currentConversationId}&message=${encodeURIComponent(message)}`;
+        // We're on list view, redirect to conversation with pending message
+        window.location.href = `/explorations/${currentConversationId}?message=${encodeURIComponent(message)}`;
         return;
       }
+
+      // Update URL to new conversation (we're in the chat view)
+      history.replaceState({}, '', `/explorations/${currentConversationId}`);
     } catch (error) {
       console.error('Failed to create conversation:', error);
       showError('Impossible de créer la conversation');
@@ -1114,7 +1117,7 @@ async function loadConversation(convId) {
     }
 
     // Update URL without reload
-    window.history.replaceState({}, '', `/explorations?conv=${convId}`);
+    window.history.replaceState({}, '', `/explorations/${convId}`);
 
     // If conversation is running, resume the stream
     if (conv.is_running) {
@@ -1151,7 +1154,7 @@ function startFreshConversation() {
   }
 
   // Update URL
-  window.history.replaceState({}, '', '/explorations');
+  window.history.replaceState({}, '', '/explorations/new');
 
   // Focus input
   const input = document.getElementById('chatInput');
