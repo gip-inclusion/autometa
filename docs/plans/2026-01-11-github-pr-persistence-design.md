@@ -399,6 +399,8 @@ JOURNAL.md itself can be archived or deleted from the repo.
 
 ## Future Enhancements
 
+- **UX redesign: inline file preview** — Replace the staged files popover with inline rendering. When agent edits a file, show the new content as markdown directly in the conversation. User sees what changed, clicks "Accept" to create PR, or types feedback for revisions. Simpler, more transparent flow.
+
 - Auto-merge for certain paths (e.g., `knowledge/sites/*.md`)
 - Webhook to auto-pull when PRs merge
 - Privileged users who can merge their own PRs
