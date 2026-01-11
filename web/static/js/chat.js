@@ -625,6 +625,8 @@ function appendEvent(type, data) {
   if (type === 'user') {
     block.innerHTML = escapeHtml(data.content);
   } else if (type === 'assistant') {
+    // Store raw markdown for report creation
+    block.dataset.rawContent = data.content;
     // Check if this is a report (has YAML front-matter)
     const reportInfo = detectReport(data.content);
     if (reportInfo) {
@@ -1214,8 +1216,8 @@ async function maybeGenerateReport() {
       return;
     }
 
-    // Get raw text content (strip HTML)
-    const content = lastAssistant.innerText || lastAssistant.textContent;
+    // Get raw markdown content (stored in data attribute)
+    const content = lastAssistant.dataset.rawContent || lastAssistant.innerText;
 
     // Create report via API
     const response = await fetch('/api/reports', {
