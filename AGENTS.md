@@ -149,8 +149,11 @@ Use the `Skill` tool to invoke these skills before querying:
 
 **Always invoke `matomo_query` skill before writing Matomo queries.**
 
-**Use `wishlist` when:** you wish you had a tool you don't have, notice a
-knowledge gap, or have ideas for improvements. This helps track unmet needs.
+**Use `wishlist` when:**
+- A tool requires approval you can't get, or is blocked
+- You wish you had a capability you don't have
+- You notice a knowledge gap or missing documentation
+- You have ideas for workflow improvements
 
 ### Available Commands
 

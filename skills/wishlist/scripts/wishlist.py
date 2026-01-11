@@ -10,7 +10,7 @@ from pathlib import Path
 # Database path
 DB_PATH = Path(__file__).parent.parent.parent.parent / "data" / "matometa.db"
 
-CATEGORIES = ["tool", "knowledge", "skill", "workflow", "other"]
+CATEGORIES = ["permission", "tool", "knowledge", "skill", "workflow", "other"]
 
 
 def init_db():

@@ -1,12 +1,13 @@
 # Wishlist Skill
 
-Log capability requests, tool wishes, and improvement ideas.
+Log capability requests, tool wishes, blocked operations, and improvement ideas.
 
-Use this skill when you:
-- Wish you had a tool or capability you don't have
-- Think a task would be easier with different permissions
-- Have ideas for improving workflows or knowledge
-- Notice gaps in documentation or skills
+Use this skill when:
+- A tool requires approval you cannot obtain
+- A command is blocked or denied (permission, path, network)
+- You wish you had a tool or capability you don't have
+- You notice gaps in documentation or knowledge files
+- You have ideas for improving workflows
 
 ## Usage
 
@@ -26,6 +27,7 @@ python skills/wishlist/scripts/wishlist.py list --category tool
 
 ## Categories
 
+- `permission` - Blocked commands, approval required, access denied
 - `tool` - Missing or restricted tool capabilities
 - `knowledge` - Gaps in knowledge files
 - `skill` - Ideas for new skills
@@ -33,6 +35,14 @@ python skills/wishlist/scripts/wishlist.py list --category tool
 - `other` - Anything else
 
 ## Examples
+
+**Blocked operation:**
+```bash
+python skills/wishlist/scripts/wishlist.py add \
+    --category "permission" \
+    --title "git clone requires approval" \
+    --description "Tried to clone les-emplois repo to explore tracking code"
+```
 
 **Tool wish:**
 ```bash
