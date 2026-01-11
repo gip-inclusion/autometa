@@ -383,9 +383,6 @@ function startStream() {
     });
   });
 
-  // Show report toggle when streaming starts
-  showReportToggle();
-
   // Handle completion
   eventSource.addEventListener('done', async () => {
     eventSource.close();
@@ -394,9 +391,6 @@ function startStream() {
     hideLoading();
     removeProgressIndicator();
     markFinalAnswer();
-
-    // Check if report generation was requested
-    await maybeGenerateReport();
   });
 
   // Handle errors
@@ -1164,9 +1158,6 @@ function startFreshConversation() {
   if (input) {
     input.focus();
   }
-
-  // Hide report toggle when starting fresh
-  hideReportToggle();
 }
 
 /**
@@ -1186,110 +1177,4 @@ function formatReportCard(data) {
       </a>
     </div>
   `;
-}
-
-/**
- * Show the report toggle button (appended to chat output)
- */
-function showReportToggle() {
-  const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput) return;
-
-  // Remove existing toggle if any
-  const existing = document.getElementById('reportToggle');
-  if (existing) existing.remove();
-
-  // Create toggle element
-  const toggle = document.createElement('div');
-  toggle.id = 'reportToggle';
-  toggle.className = 'report-toggle';
-  toggle.innerHTML = `
-    <button type="button" class="btn btn-outline-primary btn-sm report-toggle-btn" id="reportToggleBtn">
-      <i class="ri-file-text-line"></i>
-      <span class="toggle-label">Produire un rapport détaillé</span>
-      <input type="checkbox" class="form-check-input ms-2" id="reportCheckbox">
-    </button>
-  `;
-
-  chatOutput.appendChild(toggle);
-  scrollToBottom();
-
-  // Setup click handler
-  const btn = toggle.querySelector('#reportToggleBtn');
-  const checkbox = toggle.querySelector('#reportCheckbox');
-  btn.onclick = () => {
-    checkbox.checked = !checkbox.checked;
-    btn.classList.toggle('active', checkbox.checked);
-  };
-}
-
-/**
- * Hide the report toggle button
- */
-function hideReportToggle() {
-  const toggle = document.getElementById('reportToggle');
-  const checkbox = document.getElementById('reportCheckbox');
-  const btn = document.getElementById('reportToggleBtn');
-
-  if (toggle) {
-    toggle.style.display = 'none';
-  }
-  if (checkbox) {
-    checkbox.checked = false;
-    checkbox.style.display = 'none';
-  }
-  if (btn) {
-    btn.classList.remove('active');
-  }
-}
-
-/**
- * Check if report generation was requested and create report
- */
-async function maybeGenerateReport() {
-  const checkbox = document.getElementById('reportCheckbox');
-  if (!checkbox || !checkbox.checked || !currentConversationId) {
-    hideReportToggle();
-    return;
-  }
-
-  try {
-    // Get the last assistant message content
-    const chatOutput = document.getElementById('chatOutput');
-    const assistantBlocks = chatOutput.querySelectorAll('.event-assistant');
-    const lastAssistant = assistantBlocks[assistantBlocks.length - 1];
-
-    if (!lastAssistant) {
-      console.warn('No assistant message found for report');
-      hideReportToggle();
-      return;
-    }
-
-    // Get raw markdown content (stored in data attribute)
-    const content = lastAssistant.dataset.rawContent || lastAssistant.innerText;
-
-    // Create report via API
-    const response = await fetch('/api/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: 'Rapport - ' + new Date().toLocaleDateString('fr-FR'),
-        content: content,
-        source_conversation_id: currentConversationId,
-        original_query: lastUserMessage
-      })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      // Show report card
-      appendEvent('report', { content: { report_id: data.id, title: data.title } });
-    } else {
-      console.error('Failed to create report:', await response.text());
-    }
-  } catch (err) {
-    console.error('Error creating report:', err);
-  }
-
-  hideReportToggle();
 }
