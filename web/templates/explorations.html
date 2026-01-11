@@ -9,7 +9,7 @@
     <div class="container">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div class="d-flex align-items-center gap-3">
-          {% if current_conv %}
+          {% if current_conv or is_new %}
           <a href="/explorations" class="btn btn-link p-0 me-2" hx-get="/explorations" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-arrow-left-line ri-xl"></i>
           </a>
@@ -17,7 +17,7 @@
           <i class="ri-compass-discover-line ri-2x text-primary"></i>
           <div class="conv-title-wrapper">
             <div class="conv-title-display" id="convTitleDisplay">
-              <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Nouvelle conversation' }}{% else %}Explorations{% endif %}</h1>
+              <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Nouvelle conversation' }}{% elif is_new %}Nouvelle conversation{% else %}Explorations{% endif %}</h1>
               {% if current_conv %}
               <button type="button" class="btn btn-link btn-sm text-muted p-0 ms-2" id="editTitleBtn" title="Renommer">
                 <i class="ri-pencil-line"></i>
@@ -38,7 +38,7 @@
               </button>
             </div>
             {% endif %}
-            <p class="text-muted mb-0">{% if current_conv %}{% if current_conv.has_report %}<i class="ri-file-text-line"></i> Rapport{% else %}Conversation{% endif %}{% else %}Posez vos questions sur les données{% endif %}</p>
+            <p class="text-muted mb-0">{% if current_conv %}{% if current_conv.has_report %}<i class="ri-file-text-line"></i> Rapport{% else %}Conversation{% endif %}{% elif is_new %}Posez vos questions sur les données{% else %}Toutes les conversations{% endif %}</p>
           </div>
         </div>
         {% if current_conv %}
@@ -87,6 +87,14 @@
     <div class="chat-output view-normal" id="chatOutput">
       <div class="loading-indicator" id="loadingConversation">
         <div class="spinner"></div> Chargement...
+      </div>
+    </div>
+    {% elif is_new %}
+    <!-- New conversation - empty chat -->
+    <div class="chat-output view-normal" id="chatOutput">
+      <div class="empty-state" id="emptyState">
+        <i class="ri-chat-3-line ri-4x text-disabled mb-3"></i>
+        <p class="mb-0 text-muted">Posez une question pour commencer</p>
       </div>
     </div>
     {% else %}
