@@ -4,6 +4,8 @@
 > Do NOT append to this file simply to say a report was created.
 > New entries are added to the top of the list.
 
+- 2026-01-11. Options buttons: last button is now primary (recommended action), not first. Updated AGENTS.md and chat.js.
+- 2026-01-11. User-scoped conversations: conversations are now private per user (filtered by email from oauth-proxy or DEFAULT_USER fallback). Reports remain shared. New URL structure: /explorations (list), /explorations/new (empty chat), /explorations/<uuid> (view). Sidebar redesigned: "Nouvelle conversation" at top, then Rapports/Connaissances, then 15 recent conversations with "Voir plus..." link. Migration script added for existing conversations.
 - 2026-01-11. Query workflow: added "Clarify intent" step requiring options block at conversation start (quick data / short analysis / full report). Added report workflow in Presenting Options: suggest sections in longhand for full reports, offer to save after substantial answers.
 - 2026-01-11. Options code block: implemented `\`\`\`options` for clickable action buttons in web UI. Format: `Label | Full request in French`. First button primary, rest outline. Populates message bar without auto-sending.
 - 2026-01-11. Removed "Produire un rapport détaillé" checkbox feature from web UI. Reports now saved via save_report skill when user confirms.
