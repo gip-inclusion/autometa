@@ -1,11 +1,59 @@
-# Metabase Cards Inventory
+# Inventaire Metabase
 
-**Database:** `knowledge/metabase/cards.db`
-**Last synced:** 2026-01-03 21:43
-**Total cards:** 334
-**Dashboards:** 16
+Documentation des cartes et dashboards Metabase pour les données IAE.
 
-## Database Schema
+## Sources de données
+
+### Markdown (recommandé)
+
+Les cartes sont documentées dans `knowledge/stats/` :
+- `_index.md` : vue d'ensemble
+- `cards/topic-*.md` : cartes groupées par thème
+- `dashboards/dashboard-*.md` : cartes par tableau de bord
+
+Ces fichiers sont versionnés dans git et mis à jour via le skill `sync_metabase`.
+
+### SQLite (optionnel)
+
+Si besoin de requêtes complexes, générer la base SQLite :
+
+```bash
+python -m skills.sync_metabase.scripts.sync_inventory --sqlite
+```
+
+Crée `knowledge/metabase/cards.db` avec recherche full-text.
+
+## Thèmes
+
+| Thème | Description |
+|-------|-------------|
+| file-active | Candidats en attente 30+ jours |
+| postes-tension | Postes difficiles à pourvoir |
+| candidatures | Flux de candidatures |
+| demographie | Répartitions âge/genre |
+| employeurs | Données SIAE/employeurs |
+| prescripteurs | Données prescripteurs |
+| auto-prescription | Métriques auto-prescription |
+| controles | Données conformité |
+| prolongations | Extensions PASS |
+| etp-effectifs | Métriques effectifs |
+| esat | Données ESAT |
+| generalites-iae | Stats générales IAE |
+
+## Synchronisation
+
+```bash
+# Sync complet avec catégorisation IA (génère markdown)
+python -m skills.sync_metabase.scripts.sync_inventory
+
+# Sans catégorisation IA
+python -m skills.sync_metabase.scripts.sync_inventory --skip-categorize
+
+# Générer aussi la base SQLite
+python -m skills.sync_metabase.scripts.sync_inventory --sqlite
+```
+
+## Schéma SQLite (si utilisé)
 
 ```sql
 CREATE TABLE cards (
@@ -16,93 +64,26 @@ CREATE TABLE cards (
     dashboard_id INTEGER,
     topic TEXT,
     sql_query TEXT,
-    tables_referenced TEXT,  -- JSON array
-    created_at TEXT,
-    updated_at TEXT
+    tables_referenced TEXT  -- JSON array
 );
 
 CREATE TABLE dashboards (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    description TEXT,  -- From virtual text cards
-    topic TEXT,
+    description TEXT,
     pilotage_url TEXT,
     collection_id INTEGER
 );
 ```
 
-## Topics
-
-| Topic | Cards | Description |
-|-------|-------|-------------|
-| file-active | 11 | Candidats dans la file active (30+ days waiting) |
-| postes-tension | 14 | Postes en tension (difficult to recruit) |
-| demographie | 35 | Age, gender, geographic breakdowns |
-| candidatures | 49 | Candidature metrics, states, flows |
-| employeurs | 14 | SIAE and employer information |
-| prescripteurs | 23 | Prescripteur and orientation data |
-| auto-prescription | 17 | Auto-prescription metrics |
-| controles | 6 | Control and compliance |
-| prolongations | 21 | PASS extensions |
-| etp-effectifs | 17 | ETP and workforce metrics |
-| esat | 116 | ESAT-specific data |
-| generalites-iae | 10 | General IAE statistics |
-| autre | 1 | Uncategorized |
-
-## Dashboards
-
-| ID | Name | Topic | Pilotage URL |
-|----|------|-------|--------------|
-| 52 | Candidatures - Zoom sur les prescripteurs | prescripteurs |  |
-| 54 | Offre - Zoom sur les employeurs | employeurs |  |
-| 116 | Candidatures - Traitement et résultats des ca... | candidatures |  |
-| 136 | Candidatures - L'accompagnement des prescript... | prescripteurs |  |
-| 150 | Offre - Postes en tension | postes-tension |  |
-| 185 | SIAE - Analyse des candidatures reçues et de ... | candidatures |  |
-| 216 | Publics - Représentation des femmes dans les ... | demographie | [link](/tableaux-de-bord/femmes-iae/) |
-| 217 | Pilotage dispositif - Suivi des PASS IAE | generalites-iae |  |
-| 265 | DDETS/DREETS- Suivi du contrôle a posteriori | controles | [link](/tableaux-de-bord/auto-prescription/) |
-| 267 | DDETS/DREETS - Les auto-prescription et suivi... | auto-prescription | [link](/tableaux-de-bord/auto-prescription/) |
-| 287 | Pilotage dispositif - Conventionnements IAE | generalites-iae | [link](/tableaux-de-bord/conventionnements-iae/) |
-| 325 | Pilotage dispositif - Analyses autour des con... | generalites-iae |  |
-| 336 | Pilotage dispositif - Demandes de prolongatio... | prolongations | [link](/tableaux-de-bord/suivi-demandes-prolongation/) |
-| 337 | Candidatures - Bilan annuel des candidatures ... | candidatures | [link](/tableaux-de-bord/etat-suivi-candidatures/) |
-| 408 | Publics - Candidats dans la file active IAE d... | file-active | [link](/tableaux-de-bord/candidat-file-active-IAE/) |
-| 471 | ESAT - Tableau de bord 2024 | esat | [link](/tableaux-de-bord/zoom-esat-2025/) |
-
-## Querying the Database
+## Requêtes SQLite
 
 ```python
 from skills.metabase_query.scripts.cards_db import load_cards_db
 
 db = load_cards_db()
-
-# Cards
-cards = db.search("file active")  # Full-text search
-cards = db.by_topic("candidatures")  # Filter by topic
-cards = db.by_dashboard(408)  # Cards in a dashboard
-card = db.get(7004)  # Get by ID
-
-# Dashboards
-dash = db.get_dashboard(408)
-dashboards = db.dashboards_by_topic("esat")
+cards = db.search("file active")      # Recherche full-text
+cards = db.by_topic("candidatures")   # Par thème
+cards = db.by_dashboard(408)          # Par dashboard
+card = db.get(7004)                   # Par ID
 ```
-
-## Key Tables Referenced
-
-| Table | Cards |
-|-------|-------|
-| `candidatures_echelle_locale` | 72 |
-| `Esat` | 55 |
-| `ESAT` | 42 |
-| `suivi_demandes_prolongations` | 21 |
-| `candidatures_candidats_recherche_active` | 19 |
-| `candidats_recherche_active` | 19 |
-| `esat` | 18 |
-| `questionnaire_2025` | 18 |
-| `structures` | 13 |
-| `fiches_deposte_en_tension_recrutement` | 13 |
-| `suivi_realisation_convention_mensuelle` | 12 |
-| `organisations` | 10 |
-| `suivi_auto_prescription` | 9 |
-| `taux_transformation_prescripteurs` | 9 |

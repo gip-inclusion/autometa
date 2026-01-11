@@ -1,26 +1,29 @@
 ---
 name: sync_metabase
-description: Sync Metabase cards inventory to SQLite database or markdown files (project)
+description: Sync Metabase cards inventory to markdown files (default) or SQLite database
 ---
 
 # Metabase Sync Skill
 
-Synchronize Metabase cards from specified collections to a local SQLite database or markdown directory for fast querying.
+Synchronize Metabase cards from collections to Markdown files for git tracking.
 
 ## Usage
 
 ```bash
-# Full sync with AI categorization
+# Full sync with AI categorization (generates markdown)
 python -m skills.sync_metabase.scripts.sync_inventory
 
 # Quick sync without AI categorization
 python -m skills.sync_metabase.scripts.sync_inventory --skip-categorize
 
+# Also generate SQLite database
+python -m skills.sync_metabase.scripts.sync_inventory --sqlite
+
+# SQLite only (no markdown)
+python -m skills.sync_metabase.scripts.sync_inventory --sqlite-only
+
 # Sync specific collections
 python -m skills.sync_metabase.scripts.sync_inventory --collections 453 452
-
-# Clear and resync
-python -m skills.sync_metabase.scripts.sync_inventory --clear
 ```
 
 ## What it does
@@ -28,17 +31,20 @@ python -m skills.sync_metabase.scripts.sync_inventory --clear
 1. **Fetches card metadata** from Metabase collections
 2. **Extracts SQL queries** (native SQL or compiled from GUI queries)
 3. **AI categorization** (optional) - uses Claude to assign topic categories
-4. **Writes to SQLite** at `knowledge/metabase/cards.db`
-5. **Generates README** at `knowledge/metabase/README.md`
-6. **Generates Markdown** (optional) at `knowledge/stats/cards/` and `knowledge/stats/dashboards/`
+4. **Writes Markdown files** (default) to `knowledge/stats/`
+5. **Writes SQLite database** (optional, with `--sqlite`) to `knowledge/metabase/cards.db`
 
 ## Output
 
-- **SQLite database** with full-text search capabilities
-- **README.md** with schema documentation and topic summary
-- **Markdown files** (with `--markdown` flag):
-  - `knowledge/stats/cards/` - card files grouped by topic
-  - `knowledge/stats/dashboards/` - dashboard files with their cards
+### Markdown (default)
+
+- `knowledge/stats/_index.md` - overview with links
+- `knowledge/stats/cards/topic-*.md` - cards grouped by topic
+- `knowledge/stats/dashboards/dashboard-*.md` - cards per dashboard
+
+### SQLite (optional)
+
+- `knowledge/metabase/cards.db` - full-text searchable database
 
 ## Prerequisites
 

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Sync Metabase cards inventory to SQLite database.
+Sync Metabase cards inventory to Markdown files (and optionally SQLite).
 
 Usage:
     python -m skills.sync_metabase.scripts.sync_inventory
     python -m skills.sync_metabase.scripts.sync_inventory --skip-categorize
+    python -m skills.sync_metabase.scripts.sync_inventory --sqlite
     python -m skills.sync_metabase.scripts.sync_inventory --collections 453 452
 
 This script:
 1. Fetches cards metadata from Metabase collections
 2. Extracts SQL queries (native or compiled from GUI queries)
 3. Optionally categorizes with Claude AI
-4. Writes to SQLite database
-5. Regenerates the README.md index
+4. Generates Markdown files in knowledge/stats/ (default)
+5. Optionally generates SQLite database (--sqlite)
 """
 
 import argparse
@@ -446,8 +447,8 @@ def main():
     parser.add_argument("--skip-categorize", action="store_true", help="Skip AI categorization")
     parser.add_argument("--collections", type=int, nargs="+", default=DEFAULT_COLLECTIONS, help="Collection IDs to sync")
     parser.add_argument("--clear", action="store_true", help="Clear database before sync")
-    parser.add_argument("--markdown", action="store_true", help="Generate Markdown files for git tracking")
-    parser.add_argument("--markdown-only", action="store_true", help="Only regenerate Markdown from existing DB")
+    parser.add_argument("--sqlite", action="store_true", help="Also generate SQLite database (optional)")
+    parser.add_argument("--sqlite-only", action="store_true", help="Only generate SQLite, skip markdown")
     args = parser.parse_args()
 
     # Output directories
@@ -455,18 +456,9 @@ def main():
     cards_dir = stats_dir / "cards"
     dashboards_dir = stats_dir / "dashboards"
 
-    # Handle --markdown-only mode
-    if args.markdown_only:
-        print("📄 Regenerating Markdown from existing database...")
-        db = CardsDB()
-        last_sync = datetime.now().strftime("%Y-%m-%d %H:%M")
-        generate_markdown(db, cards_dir, dashboards_dir, last_sync)
-        cards_files = list(cards_dir.glob("*.md"))
-        dash_files = list(dashboards_dir.glob("*.md"))
-        print(f"✅ {len(cards_files)} card files written to {cards_dir}")
-        print(f"✅ {len(dash_files)} dashboard files written to {dashboards_dir}")
-        db.close()
-        return
+    # Determine output modes
+    generate_markdown_files = not args.sqlite_only
+    generate_sqlite = args.sqlite or args.sqlite_only
 
     print("=" * 70)
     print("🚀 Metabase Cards Sync")
@@ -566,48 +558,63 @@ def main():
         for card in all_cards:
             card["topic"] = "autre"
 
-    # Step 4: Write to database
-    print()
-    print("💾 STEP 4: Writing to database...")
-    print("-" * 70)
-
-    for card in all_cards:
-        db.upsert_card(
-            card_id=card["id"],
-            name=card["name"],
-            description=card.get("description"),
-            collection_id=card.get("collection_id"),
-            topic=card.get("topic", "autre"),
-            sql_query=card.get("sql_query", ""),
-            tables_referenced=card.get("tables_referenced", []),
-        )
-
-    db.commit()
-    db.rebuild_fts()
-    print(f"   ✅ {len(all_cards)} cards written to {DB_PATH}")
-
-    # Step 5: Generate README
-    print()
-    print("📝 STEP 5: Generating README...")
-    print("-" * 70)
-
     last_sync = datetime.now().strftime("%Y-%m-%d %H:%M")
-    readme_path = generate_readme(db, last_sync)
-    print(f"   ✅ {readme_path}")
 
-    # Step 6: Generate Markdown (optional)
-    if args.markdown:
+    # Step 4: Write to SQLite (optional)
+    if generate_sqlite:
         print()
-        print("📄 STEP 6: Generating Markdown files...")
+        print("💾 STEP 4: Writing to SQLite database...")
         print("-" * 70)
+
+        for card in all_cards:
+            db.upsert_card(
+                card_id=card["id"],
+                name=card["name"],
+                description=card.get("description"),
+                collection_id=card.get("collection_id"),
+                topic=card.get("topic", "autre"),
+                sql_query=card.get("sql_query", ""),
+                tables_referenced=card.get("tables_referenced", []),
+            )
+
+        db.commit()
+        db.rebuild_fts()
+        print(f"   ✅ {len(all_cards)} cards written to {DB_PATH}")
+
+        # Generate SQLite README
+        readme_path = generate_readme(db, last_sync)
+        print(f"   ✅ {readme_path}")
+
+    # Step 5: Generate Markdown (default)
+    if generate_markdown_files:
+        print()
+        print("📄 STEP 5: Generating Markdown files...")
+        print("-" * 70)
+
+        # Create a temporary in-memory db for markdown generation if not using sqlite
+        if not generate_sqlite:
+            for card in all_cards:
+                db.upsert_card(
+                    card_id=card["id"],
+                    name=card["name"],
+                    description=card.get("description"),
+                    collection_id=card.get("collection_id"),
+                    topic=card.get("topic", "autre"),
+                    sql_query=card.get("sql_query", ""),
+                    tables_referenced=card.get("tables_referenced", []),
+                )
+            db.commit()
 
         generate_markdown(db, cards_dir, dashboards_dir, last_sync)
 
-        # Count generated files
         cards_files = list(cards_dir.glob("*.md"))
         dash_files = list(dashboards_dir.glob("*.md"))
         print(f"   ✅ {len(cards_files)} card files written to {cards_dir}")
         print(f"   ✅ {len(dash_files)} dashboard files written to {dashboards_dir}")
+
+        # Clean up SQLite if we only wanted markdown
+        if not generate_sqlite and DB_PATH.exists():
+            DB_PATH.unlink()
 
     db.close()
 
@@ -615,11 +622,12 @@ def main():
     print("=" * 70)
     print("✅ COMPLETE!")
     print("=" * 70)
-    print(f"Database: {DB_PATH}")
     print(f"Cards: {len(all_cards)}")
-    if args.markdown:
-        print(f"Cards markdown: {cards_dir}")
-        print(f"Dashboards markdown: {dashboards_dir}")
+    if generate_sqlite:
+        print(f"SQLite: {DB_PATH}")
+    if generate_markdown_files:
+        print(f"Markdown: {cards_dir}")
+        print(f"Dashboards: {dashboards_dir}")
 
 
 if __name__ == "__main__":
