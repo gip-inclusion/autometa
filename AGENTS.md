@@ -280,16 +280,18 @@ Buttons are rendered in the web UI; falls back to a code block elsewhere.
 ~~~markdown
 ```options
 Voir le trafic mensuel
-Analyser les conversions | focus on start_application events
-Comparer decembre vs novembre | compare December 2025 to November 2025
+Analyser les conversions | Analyser les conversions sur les Emplois en decembre 2025
+Comparer deux mois | Comparer le trafic de decembre 2025 avec novembre 2025
 ```
 ~~~
 
-- Text before `|` = button label (visible)
-- Text after `|` = context appended to prompt (hidden from user)
-- Clicking sends the full prompt automatically
+- Text before `|` = short button label
+- Text after `|` = full request (pre-filled in input, user can edit)
+- If no `|`, the label is used as-is
+- First option is the primary/recommended action
 
-Use this for:
+Clicking populates the message bar without sending, so the user can edit.
+Write options in French. Use this for:
 - Suggesting next steps after an analysis
 - Offering related queries
 - Disambiguation when a question is ambiguous

@@ -861,7 +861,8 @@ async function renderMermaid(element) {
 
 /**
  * Render options blocks as clickable buttons
- * Format: ```options\nLabel | hidden context\nLabel 2\n```
+ * Format: ```options\nLabel\nLabel | full request text\n```
+ * Text after | is the full prompt (editable by user), defaults to label
  */
 function renderOptions(element) {
   const codeBlocks = element.querySelectorAll('pre code.language-options');
@@ -873,29 +874,30 @@ function renderOptions(element) {
     const container = document.createElement('div');
     container.className = 'options-buttons';
 
-    for (const line of lines) {
+    lines.forEach((line, index) => {
       const parts = line.split('|').map(p => p.trim());
       const label = parts[0];
-      const hiddenContext = parts[1] || '';
+      const fullPrompt = parts[1] || label;
 
       const button = document.createElement('button');
-      button.className = 'option-button';
+      // First button is primary, rest are outline
+      button.className = index === 0 ? 'btn btn-primary btn-sm' : 'btn btn-outline-primary btn-sm';
       button.textContent = label;
-      button.dataset.prompt = hiddenContext ? `${label} ${hiddenContext}` : label;
+      button.dataset.prompt = fullPrompt;
 
       button.addEventListener('click', () => {
         const chatInput = document.getElementById('chatInput');
         if (chatInput) {
           chatInput.value = button.dataset.prompt;
           chatInput.focus();
-          // Optionally auto-send
-          const sendBtn = document.getElementById('chatSendBtn');
-          if (sendBtn) sendBtn.click();
+          // Auto-resize textarea if needed
+          chatInput.style.height = 'auto';
+          chatInput.style.height = chatInput.scrollHeight + 'px';
         }
       });
 
       container.appendChild(button);
-    }
+    });
 
     // Replace the code block with buttons
     const preElement = block.parentElement;
