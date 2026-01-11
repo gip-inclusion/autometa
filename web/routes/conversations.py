@@ -394,6 +394,11 @@ User request: """
                             store.update_message(assistant_msg_id, full_text)
 
                     if event.type in ("tool_use", "tool_result"):
+                        # Finalize current assistant message so next text creates a new one
+                        if event.type == "tool_use":
+                            assistant_msg_id = None
+                            assistant_text_parts = []
+
                         content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
                         store.add_message(conv_id, event.type, content)
 
