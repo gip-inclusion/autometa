@@ -17,7 +17,7 @@
           <i class="ri-book-open-line ri-2x text-primary"></i>
           <div>
             <h1 class="mb-0">{% if current_file %}{{ current_file.split('/')[-1].replace('.md', '').replace('-', ' ').replace('_', ' ').title() }}{% else %}Connaissances{% endif %}</h1>
-            <p class="text-muted mb-0">{% if current_file %}{{ current_file }}{% else %}Fichiers de référence{% endif %}</p>
+            <p class="text-muted mb-0">{% if current_file %}{{ current_file }}{% else %}Fichiers de référence · <a href="https://github.com/gip-inclusion/Matometa/tree/main/knowledge" target="_blank" class="text-muted">Faire une pull-request pour modifier la connaissance <i class="ri-external-link-line"></i></a>{% endif %}</p>
           </div>
         </div>
         {% if current_file %}
