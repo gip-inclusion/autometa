@@ -37,3 +37,6 @@ DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 # Logging
 LOG_FILE = BASE_DIR / "data" / "agent.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+# Feature flags
+FEATURE_KNOWLEDGE_CHAT = False  # Chat from Connaissance tab disabled (requires GitHub PAT)

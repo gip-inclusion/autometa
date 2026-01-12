@@ -4,6 +4,7 @@ import re
 
 from flask import Blueprint, render_template, request, g, redirect
 
+from ..config import FEATURE_KNOWLEDGE_CHAT
 from ..storage import store
 from ..helpers import validate_knowledge_path, list_knowledge_files, list_staged_files
 from .conversations import get_agent_instance
@@ -131,6 +132,7 @@ def connaissances():
                 error="Fichier non trouve",
                 categories=list_knowledge_files(),
                 active_conversations=store.list_active_knowledge_conversations(),
+                feature_knowledge_chat=FEATURE_KNOWLEDGE_CHAT,
                 **data
             )
 
@@ -148,5 +150,6 @@ def connaissances():
         staged_files=staged_files,
         active_files=active_files,
         active_conversations=active_conversations,
+        feature_knowledge_chat=FEATURE_KNOWLEDGE_CHAT,
         **data
     )
