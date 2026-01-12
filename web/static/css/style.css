@@ -356,6 +356,19 @@ body.has-sidebar {
   background: #c82333;
 }
 
+/* Read-only chat bar for shared conversations */
+.chat-bar-readonly {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.875rem 1.25rem;
+  background: #f8f9fa;
+  border: 2px dashed #dee2e6;
+  border-radius: 2rem;
+  font-size: 0.9rem;
+}
+
 /* ==========================================================================
    Chat output
    ========================================================================== */

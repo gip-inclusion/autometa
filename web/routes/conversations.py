@@ -99,15 +99,24 @@ def list_conversations():
 
 @bp.route("/<conv_id>", methods=["GET"])
 def get_conversation(conv_id: str):
-    """Get a conversation with all messages."""
-    conv = store.get_conversation(conv_id, user_id=g.user_email)
+    """Get a conversation with all messages.
+
+    Allows read-only access to any conversation (shared via UUID link).
+    Returns is_owner flag to indicate if current user owns the conversation.
+    """
+    # Allow read-only access to any conversation (no user_id filter)
+    conv = store.get_conversation(conv_id)
     if not conv:
         return jsonify({"error": "Conversation not found"}), 404
+
+    user_email = getattr(g, "user_email", None)
+    is_owner = conv.user_id == user_email or conv.user_id is None
 
     agent = get_agent_instance()
     return jsonify({
         **conv.to_dict(),
         "is_running": agent.is_running(conv_id),
+        "is_owner": is_owner,
         "links": {
             "self": f"/api/conversations/{conv_id}",
             "messages": f"/api/conversations/{conv_id}/messages",
@@ -198,10 +207,18 @@ def generate_title(conv_id: str):
 
 @bp.route("/<conv_id>/messages", methods=["POST"])
 def send_message(conv_id: str):
-    """Send a message to start agent processing."""
+    """Send a message to start agent processing.
+
+    Only the conversation owner can send messages. Shared conversations are read-only.
+    """
     conv = store.get_conversation(conv_id)
     if not conv:
         return jsonify({"error": "Conversation not found"}), 404
+
+    # Check ownership - only owner can send messages
+    user_email = getattr(g, "user_email", None)
+    if conv.user_id and conv.user_id != user_email:
+        return jsonify({"error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."}), 403
 
     data = request.get_json()
     if not data or "content" not in data:
@@ -230,11 +247,16 @@ def send_message(conv_id: str):
 
 @bp.route("/<conv_id>/stream", methods=["GET"])
 def stream_conversation(conv_id: str):
-    """Stream agent responses via Server-Sent Events."""
+    """Stream agent responses via Server-Sent Events.
+
+    Allows streaming for shared conversations (read-only view of existing responses).
+    New agent runs are still restricted to the owner via send_message.
+    """
     from ..helpers import get_staging_dir, KNOWLEDGE_ROOT
     from ..audit import audit_log
 
-    conv = store.get_conversation(conv_id, user_id=g.user_email)
+    # Allow streaming for any conversation (read-only access to existing messages)
+    conv = store.get_conversation(conv_id)
     if not conv:
         return jsonify({"error": "Conversation not found"}), 404
 

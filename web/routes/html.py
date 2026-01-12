@@ -67,19 +67,36 @@ def explorations_new():
 
 @bp.route("/explorations/<conv_id>")
 def explorations_conversation(conv_id: str):
-    """View a specific conversation."""
+    """View a specific conversation.
+
+    Allows viewing conversations owned by other users (shared via UUID link).
+    The owner's email is shown in the header for shared conversations.
+    """
     user_email = getattr(g, "user_email", None)
-    current_conv = store.get_conversation(conv_id, include_messages=False, user_id=user_email)
+
+    # Try to get conversation without user filter (allow shared access)
+    current_conv = store.get_conversation(conv_id, include_messages=False)
 
     if not current_conv:
-        # Conversation not found or not owned by user
+        # Conversation not found
         return redirect("/explorations")
+
+    # Check if this is a shared conversation (owned by someone else)
+    is_shared = current_conv.user_id and current_conv.user_id != user_email
+    owner_email = current_conv.user_id if is_shared else None
 
     if current_conv.title:
         current_conv.title = humanize_title(current_conv.title)
 
     data = get_sidebar_data()
-    return render_template("explorations.html", section="explorations", current_conv=current_conv, **data)
+    return render_template(
+        "explorations.html",
+        section="explorations",
+        current_conv=current_conv,
+        is_shared=is_shared,
+        owner_email=owner_email,
+        **data
+    )
 
 
 @bp.route("/connaissances")
