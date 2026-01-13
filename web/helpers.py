@@ -73,30 +73,34 @@ def list_staged_files(conv_id: str) -> list[str]:
 
 
 def list_knowledge_files() -> dict[str, list[dict]]:
-    """List all knowledge files grouped by category."""
-    categories = {}
+    """List all knowledge files grouped by subfolder."""
+    sections = {}
 
-    for category_dir in sorted(KNOWLEDGE_ROOT.iterdir()):
-        if not category_dir.is_dir() or category_dir.name.startswith("."):
+    for f in sorted(KNOWLEDGE_ROOT.rglob("*.md")):
+        if any(part.startswith(".") for part in f.parts):
             continue
 
-        files = []
-        for f in sorted(category_dir.rglob("*.md")):
-            rel_path = f.relative_to(KNOWLEDGE_ROOT)
-            # Humanize the name
-            name = f.stem
-            name = re.sub(r"^\d{4}-\d{2}(-\d{2})?[-_]?", "", name)
-            name = re.sub(r"[-_]+", " ", name)
-            if name:
-                name = name[0].upper() + name[1:]
+        rel_path = f.relative_to(KNOWLEDGE_ROOT)
+        # Section is the parent directory path (e.g., "stats", "stats/cards")
+        section = str(rel_path.parent) if rel_path.parent != Path(".") else ""
+        if not section:
+            continue  # Skip files at root level
 
-            files.append({
-                "path": str(rel_path),
-                "name": name,
-                "modified": f.stat().st_mtime,
-            })
+        # Humanize the name
+        name = f.stem
+        name = re.sub(r"^\d{4}-\d{2}(-\d{2})?[-_]?", "", name)
+        name = re.sub(r"[-_]+", " ", name)
+        if name:
+            name = name[0].upper() + name[1:]
 
-        if files:
-            categories[category_dir.name] = files
+        if section not in sections:
+            sections[section] = []
 
-    return categories
+        sections[section].append({
+            "path": str(rel_path),
+            "name": name,
+            "modified": f.stat().st_mtime,
+        })
+
+    # Sort sections by name, with top-level folders first
+    return dict(sorted(sections.items(), key=lambda x: (x[0].count("/"), x[0])))
