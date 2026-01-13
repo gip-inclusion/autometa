@@ -113,6 +113,72 @@ ORDER BY nb_siae DESC;
 
 **Note:** Sans filtre par département, la requête timeout. Exécuter par région ou ajouter des index sur `latitude`/`longitude`.
 
+### public.utilisateurs_v0
+
+Utilisateurs du service Emplois.
+
+| Colonne | Description |
+|---------|-------------|
+| id | Identifiant unique |
+| email | Email de l'utilisateur |
+| type | Type: `employer`, `prescriber`, `labor_inspector` |
+| prenom, nom | Prénom et nom |
+| dernière_connexion | Dernière connexion |
+| id_structure | FK vers structures (employeurs) |
+| id_organisation | FK vers organisations (prescripteurs) |
+
+**Volumétrie:** ~91 000 utilisateurs (aucun candidat, ils n'ont pas de compte).
+
+**Note:** Pas de lien direct au département. Utiliser `tmp_utilisateurs_avec_departement` pour les analyses géographiques.
+
+### public.tmp_utilisateurs_avec_departement
+
+Table enrichie liant les utilisateurs Emplois à leur département via leur structure/organisation.
+
+| Colonne | Description |
+|---------|-------------|
+| email | Email de l'utilisateur |
+| type | Type d'utilisateur |
+| prenom, nom | Prénom et nom |
+| entite | Nom de la structure/organisation |
+| departement | Département (format: "31 - Haute-Garonne") |
+
+**Volumétrie:** ~105 000 lignes (un utilisateur peut appartenir à plusieurs structures).
+
+**Usage:** Filtrer par département avec `WHERE departement LIKE '31 -%'`.
+
+### public.structures_v0
+
+Structures SIAE du service Emplois.
+
+| Colonne | Description |
+|---------|-------------|
+| ID | Identifiant unique |
+| Siret | SIRET |
+| Nom | Nom de la structure |
+| département | Code département |
+
+**Volumétrie:** ~7 500 structures.
+
+### public.organisations_v0
+
+Organisations prescriptrices.
+
+**Volumétrie:** ~9 750 organisations.
+
+### suivi_utilisateurs_tb_prive_semaine
+
+Utilisateurs du service Pilotage (tableaux de bord privés).
+
+| Colonne | Description |
+|---------|-------------|
+| email_utilisateur | Email de l'utilisateur |
+| semaine | Semaine de la visite |
+
+**Volumétrie:** ~15 400 utilisateurs uniques.
+
+**Note:** 100% des utilisateurs Pilotage sont aussi utilisateurs Emplois (service complémentaire).
+
 ### public.ref_clpe_ft
 
 Table de liaison commune → CLPE (Comité Local Pour l'Emploi). 357 CLPE, ~35 000 liaisons.

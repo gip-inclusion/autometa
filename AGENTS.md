@@ -468,6 +468,35 @@ When running in Docker (web UI mode):
 - **Credentials:** `/app/.env` (auto-loaded by Python clients)
 - **Skills:** `/app/skills/<name>/skill.md`
 - **Temp files:** Write to `/tmp/` for scratch work
+- **Public files:** Write to `/app/data/interactive/` for user-downloadable files
+
+### Downloadable Files
+
+Files in `/app/data/interactive/` are publicly served at `/interactive/`:
+
+```python
+# Export CSV for user download
+df.to_csv('/app/data/interactive/export.csv', index=False)
+# User can download at: https://matometa.../interactive/export.csv
+```
+
+### Security Restrictions
+
+Claude Code sandbox restricts file operations outside `/app/`:
+
+- **Reading `/tmp/`:** `head`, `cat`, `tail` commands are blocked
+- **Copying from `/tmp/`:** `cp /tmp/file /app/` is blocked
+- **Workaround:** Use Python scripts to read from `/tmp/` and output results
+
+```python
+# Instead of: head /tmp/results.csv (blocked)
+# Write a script:
+import pandas as pd
+df = pd.read_csv('/tmp/results.csv')
+print(df.head(50).to_markdown())
+```
+
+For heavy computations, create a SQLite database in `/tmp/` and query it via Python.
 
 Import paths:
 ```python
