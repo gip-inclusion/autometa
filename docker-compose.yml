@@ -34,3 +34,5 @@ services:
       - ./AGENTS.md:/app/AGENTS.md:ro
       - ./skills:/app/skills:ro
       - ./.claude:/app/.claude:ro
+      # Static interactive files
+      - ./interactive:/app/interactive:ro

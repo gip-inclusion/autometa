@@ -1,8 +1,9 @@
 """Matometa web application - Flask server with SSE streaming."""
 
 import logging
+from pathlib import Path
 
-from flask import Flask, g, request
+from flask import Flask, g, request, send_from_directory, abort
 
 from . import config
 from .routes import (
@@ -56,6 +57,21 @@ app.register_blueprint(conversations_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(knowledge_bp)
 app.register_blueprint(logs_bp)
+
+
+# =============================================================================
+# Static files: /interactive
+# =============================================================================
+
+INTERACTIVE_DIR = config.BASE_DIR / "interactive"
+
+
+@app.route("/interactive/<path:filename>")
+def serve_interactive(filename):
+    """Serve static files from the interactive directory."""
+    if not INTERACTIVE_DIR.exists():
+        abort(404)
+    return send_from_directory(INTERACTIVE_DIR, filename)
 
 
 # =============================================================================
