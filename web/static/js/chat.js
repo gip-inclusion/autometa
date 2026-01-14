@@ -109,6 +109,9 @@ async function initKnowledge() {
  * Initialize the chat interface
  */
 function initChat() {
+  // Fork button works on all conversation pages (including readonly)
+  initForkButton();
+
   const input = document.getElementById('chatInput');
   const sendBtn = document.getElementById('chatSendBtn');
   const cancelBtn = document.getElementById('chatCancelBtn');
@@ -180,9 +183,6 @@ function initChat() {
 
   // Title editing
   initTitleEditing();
-
-  // Fork button
-  initForkButton();
 }
 
 /**
