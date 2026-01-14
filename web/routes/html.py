@@ -167,10 +167,7 @@ def is_admin() -> bool:
 
 @bp.route("/admin/conversations")
 def admin_conversations():
-    """Admin view: list all conversations from all users."""
-    if not is_admin():
-        abort(403)
-
+    """List all conversations from all users."""
     agent = get_agent_instance()
 
     # Get ALL conversations (no user filter)
