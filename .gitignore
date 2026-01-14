@@ -12,3 +12,4 @@ __pycache__
 reports/
 knowledge-drafts/
 claude-credentials/
+AGENTS.local.md

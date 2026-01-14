@@ -1,1 +1,1 @@
-Read AGENTS.md.
+Read AGENTS.md. If AGENTS.local.md exists, read it too (local overrides).
