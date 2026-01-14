@@ -42,8 +42,12 @@
                 {% if conv.has_report %}
                 <span class="badge bg-primary">Rapport</span>
                 {% endif %}
-                <button type="button" class="btn btn-link btn-sm text-muted p-0 delete-conv-btn"
-                        data-conv-id="{{ conv.id }}" title="Supprimer">
+                <button class="btn btn-link btn-sm text-muted card-delete-btn"
+                        title="Supprimer"
+                        hx-delete="/api/conversations/{{ conv.id }}"
+                        hx-target="#conv-{{ conv.id }}"
+                        hx-swap="outerHTML"
+                        hx-confirm="Supprimer cette conversation ?">
                   <i class="ri-delete-bin-line"></i>
                 </button>
               </div>
@@ -63,29 +67,3 @@
 </section>
 {% endblock %}
 
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.delete-conv-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const convId = btn.dataset.convId;
-      if (!confirm('Supprimer cette conversation ?')) return;
-
-      try {
-        const resp = await fetch(`/api/conversations/${convId}`, { method: 'DELETE' });
-        if (resp.ok) {
-          document.getElementById(`conv-${convId}`).remove();
-        } else {
-          alert('Erreur lors de la suppression');
-        }
-      } catch (e) {
-        alert('Erreur réseau');
-      }
-    });
-  });
-});
-</script>
-{% endblock %}
