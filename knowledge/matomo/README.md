@@ -65,6 +65,10 @@ Optional modifiers:
 - `expanded=1` - Include subtables inline
 - `filter_limit=N` - Max rows to return
 
+## Segments
+Matomo primarily creates reports asynchronously (synchronous creation doesn't work well because our database is too large). This means that if you want to create a report on a new variable (for example, users who have viewed the /dashboard/ page on a website), you'll have to wait between 12 and 24 hours for the results to be processed. Note that this doesn't apply to existing filters: you can combine two existing filters, and Matomo should be able to provide the report immediately, without reprocessing the data.
+
+
 ## Python Client Quick Reference
 
 ```python
