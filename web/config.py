@@ -22,7 +22,7 @@ ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
     "Bash(curl:*raw.githubusercontent.com/gip-inclusion*),Bash(curl:*raw.githubusercontent.com/betagouv*),"
     "Bash(curl:*api.github.com*),"
     "Bash(jq:*),Bash(sqlite3:*),"
-    "Bash(python:*),"
+    "Bash(python:*),Bash(python3:*),"
     "Bash(.venv/bin/python:*)"
 )
 
