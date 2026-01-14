@@ -27,6 +27,17 @@ document.body.addEventListener('htmx:beforeRequest', (e) => {
 // htmx integration - only add listener once
 document.body.addEventListener('htmx:afterSwap', (e) => {
   if (e.detail.target.id === 'main') {
+    const path = window.location.pathname;
+    const convMatch = path.match(/^\/explorations\/([a-f0-9-]+)$/);
+    const previousConvId = currentConversationId;
+
+    // Set currentConversationId BEFORE initChat (needed for fork button)
+    if (convMatch) {
+      currentConversationId = convMatch[1];
+    } else if (path === '/explorations' || path === '/explorations/new') {
+      currentConversationId = null;
+    }
+
     initChat();
     initKnowledge();
 
@@ -36,19 +47,12 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     }
     isPopState = false;
 
-    // Check if we're on a conversation page
-    const path = window.location.pathname;
-    const convMatch = path.match(/^\/explorations\/([a-f0-9-]+)$/);
-    if (convMatch && convMatch[1] !== currentConversationId) {
-      currentConversationId = convMatch[1];
+    // Load conversation if navigated to a different one
+    if (convMatch && convMatch[1] !== previousConvId) {
       loadConversation(convMatch[1]);
-    } else if (path === '/explorations' || path === '/explorations/new') {
-      currentConversationId = null;
-      // Focus input on new conversation page
-      if (path === '/explorations/new') {
-        const input = document.getElementById('chatInput');
-        if (input) input.focus();
-      }
+    } else if (path === '/explorations/new') {
+      const input = document.getElementById('chatInput');
+      if (input) input.focus();
     }
   }
 });

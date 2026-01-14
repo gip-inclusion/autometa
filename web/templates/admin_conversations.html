@@ -42,7 +42,13 @@
                 <span class="badge bg-primary">Rapport</span>
                 {% endif %}
               </div>
-              <span class="text-muted small">{{ conv.user_id or 'Inconnu' }}</span>
+              <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small">{{ conv.user_id or 'Inconnu' }}</span>
+                <button type="button" class="btn btn-link btn-sm text-danger p-0 delete-conv-btn"
+                        data-conv-id="{{ conv.id }}" title="Supprimer">
+                  <i class="ri-delete-bin-line"></i>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -57,4 +63,31 @@
     </div>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.delete-conv-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const convId = btn.dataset.convId;
+      if (!confirm('Supprimer cette conversation ?')) return;
+
+      try {
+        const resp = await fetch(`/api/conversations/${convId}`, { method: 'DELETE' });
+        if (resp.ok) {
+          document.getElementById(`conv-${convId}`).remove();
+        } else {
+          alert('Erreur lors de la suppression');
+        }
+      } catch (e) {
+        alert('Erreur réseau');
+      }
+    });
+  });
+});
+</script>
 {% endblock %}
