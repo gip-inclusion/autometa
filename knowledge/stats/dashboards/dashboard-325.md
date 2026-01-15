@@ -1,35 +1,52 @@
 # Dashboard : Pilotage dispositif - Analyses autour des conventionnements IAE
 
-### 💡  Informations sur les données
-💾  Source : Le flux IAE de l'ASP
+**URL:** /tableaux-de-bord/analyses-conventionnements-iae/
 
-Les notions utilisées ci-dessous et des conseils d'utilisation détaillés sont présentés dans [ce guide](https://swll.to/nLUiv). 
+**3 cartes**
 
-Ces données sont des données professionnelles, leur utilisation et analyse nécessitent un temps de prise en main et de compréhension des mécanismes des dispositifs évoqués. Pour toute question, n’hésitez pas à nous contacter. 
+## [216] budget genré
 
-☝️ Attention : 
-- Ces données sont actualisées toutes les semaines, à partir des états mensuels validés par les structures. Ainsi, les données présentées (notamment pour l'année en cours) sont donc en évolution. 
-- Ces données ne permettent pas encore de visualiser le mécanisme de co-financement par le CD des ETP des ACI ni les CDI inclusion. Des travaux sont en cours. 
+- **ID:** 2579
+- **Thème:** demographie
+- **Tables:** etp_par_salarie
 
-###  🎯  Objectifs 
-En tant que professionnels de l’inclusion par l’activité économique, ou citoyen intéressé par le suivi du dispositif, vous avez consulté notre tableau de bord  [Conventionnement I
-
-**2 cartes**
+```sql
+SELECT "public"."etp_par_salarie"."emi_sme_annee" AS "emi_sme_annee", CAST(SUM(CASE WHEN "public"."etp_par_salarie"."genre_salarie" = 'Homme' THEN "public"."etp_par_salarie"."montant_alloue" ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(SUM("public"."etp_par_salarie"."montant_alloue") AS DOUBLE PRECISION), 0.0) AS "Part du budget alloué aux hommes", CAST(SUM(CASE WHEN "public"."etp_par_salarie"."genre_salarie" = 'Femme' THEN "public"."etp_par_salarie"."montant_alloue" ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(SUM("public"."etp_par_salarie"."montant_alloue") AS DOUBLE PRECISION), 0.0) AS "Part du budget alloué aux femmes" 
+FROM "public"."etp_par_salarie" 
+WHERE ("public"."etp_par_salarie"."genre_salarie" = 'Femme') 
+OR ("public"."etp_par_salarie"."genre_salarie" = 'Homme') 
+GROUP BY "public"."etp_par_salarie"."emi_sme_annee" 
+ORDER BY "public"."etp_par_salarie"."emi_sme_annee" ASC
+```
 
 ## [325] moyenne d'heures travaillées par type de structure et par genre
 
-- **ID:** 7239
-- **Thème:** demographie
+- **ID:** 3439
+- **Thème:** etp-effectifs
+- **Tables:** etp_par_salarie
 
 ```sql
-[Query timeout]
+SELECT "public"."etp_par_salarie"."genre_salarie" AS "genre_salarie", "public"."etp_par_salarie"."type_structure_emplois" AS "type_structure_emplois", AVG("public"."etp_par_salarie"."nombre_heures_travaillees") AS "avg" 
+FROM "public"."etp_par_salarie" 
+WHERE (("public"."etp_par_salarie"."genre_salarie" = 'Femme') 
+OR ("public"."etp_par_salarie"."genre_salarie" = 'Homme')) 
+AND ("public"."etp_par_salarie"."af_etat_annexe_financiere_code" = 'VALIDE') 
+GROUP BY "public"."etp_par_salarie"."genre_salarie", "public"."etp_par_salarie"."type_structure_emplois" 
+ORDER BY "public"."etp_par_salarie"."type_structure_emplois" ASC, "public"."etp_par_salarie"."genre_salarie" ASC
 ```
 
 ## [325] moyenne d'heures travaillées par type de structure
 
-- **ID:** 7240
+- **ID:** 3440
 - **Thème:** etp-effectifs
+- **Tables:** etp_par_salarie
 
 ```sql
-[Query timeout]
+SELECT "public"."etp_par_salarie"."type_structure_emplois" AS "type_structure_emplois", AVG("public"."etp_par_salarie"."nombre_heures_travaillees") AS "avg" 
+FROM "public"."etp_par_salarie" 
+WHERE ("public"."etp_par_salarie"."af_etat_annexe_financiere_code" = 'VALIDE') 
+AND (("public"."etp_par_salarie"."genre_salarie" = 'Femme') 
+OR ("public"."etp_par_salarie"."genre_salarie" = 'Homme')) 
+GROUP BY "public"."etp_par_salarie"."type_structure_emplois" 
+ORDER BY "public"."etp_par_salarie"."type_structure_emplois" ASC
 ```

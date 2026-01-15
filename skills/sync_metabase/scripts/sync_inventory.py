@@ -6,10 +6,10 @@ Usage:
     python -m skills.sync_metabase.scripts.sync_inventory
     python -m skills.sync_metabase.scripts.sync_inventory --skip-categorize
     python -m skills.sync_metabase.scripts.sync_inventory --sqlite
-    python -m skills.sync_metabase.scripts.sync_inventory --collections 453 452
+    python -m skills.sync_metabase.scripts.sync_inventory --dashboards 216 408
 
 This script:
-1. Fetches cards metadata from Metabase collections
+1. Fetches cards from public dashboards visible on pilotage.inclusion.beta.gouv.fr
 2. Extracts SQL queries (native or compiled from GUI queries)
 3. Optionally categorizes with Claude AI
 4. Generates Markdown files in knowledge/stats/ (default)
@@ -26,14 +26,54 @@ from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+# Load .env file
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
 
 from skills.metabase_query.scripts.metabase import MetabaseAPI, MetabaseError
-from skills.metabase_query.scripts.cards_db import CardsDB, TOPICS, DB_PATH
+from skills.metabase_query.scripts.cards_db import CardsDB, TOPICS, TABLE_TO_TOPIC, DB_PATH
 
 
-# Default collections to sync
-DEFAULT_COLLECTIONS = [453]
+def infer_topic_from_tables(tables: list[str]) -> str | None:
+    """Infer topic from table names. Returns None if no match."""
+    for table in tables:
+        table_lower = table.lower()
+        for pattern, topic in TABLE_TO_TOPIC.items():
+            if pattern in table_lower:
+                return topic
+    return None
+
+
+# Public dashboards on pilotage.inclusion.beta.gouv.fr
+# Format: dashboard_id -> pilotage_url
+PUBLIC_DASHBOARDS = {
+    # L'offre d'insertion par l'activité économique
+    90: "/tableaux-de-bord/metiers/",
+    150: "/tableaux-de-bord/postes-en-tension/",
+    54: "/tableaux-de-bord/zoom-employeurs/",
+    # Les publics dans l'IAE
+    408: "/tableaux-de-bord/candidat-file-active-IAE/",
+    216: "/tableaux-de-bord/femmes-iae/",
+    # Les candidatures vers l'IAE
+    337: "/tableaux-de-bord/bilan-candidatures-iae/",
+    218: "/tableaux-de-bord/cartographies-iae/",
+    116: "/tableaux-de-bord/etat-suivi-candidatures/",
+    32: "/tableaux-de-bord/auto-prescription/",
+    52: "/tableaux-de-bord/zoom-prescripteurs/",
+    136: "/tableaux-de-bord/prescripteurs-habilites/",
+    # Pilotage du dispositif IAE
+    287: "/tableaux-de-bord/conventionnements-iae/",
+    325: "/tableaux-de-bord/analyses-conventionnements-iae/",
+    336: "/tableaux-de-bord/suivi-demandes-prolongation/",
+    217: "/tableaux-de-bord/suivi-pass-iae/",
+    # ESAT
+    571: "/tableaux-de-bord/zoom-esat-2025/",
+    471: "/tableaux-de-bord/zoom-esat-2024/",
+    306: "/tableaux-de-bord/zoom-esat/",
+}
 
 
 def progress_bar(current: int, total: int, prefix: str = "", suffix: str = "", length: int = 40):
@@ -123,31 +163,47 @@ Cards:
 Return JSON array:
 [{{"id": 7090, "topic": "candidatures", "reason": "queries candidature table"}}, ...]
 
-Use ONLY the topic slugs listed. Look at SQL table names and fields.
+IMPORTANT:
+- Use ONLY the topic slugs listed above
+- Look at SQL table names and fields to determine the topic
+- Every card MUST get a topic - pick the closest match
+- For ESAT questionnaire tables, use "esat"
+- If unsure, look at what data the card is measuring
 """
 
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-3-5-haiku-20241022",
                 max_tokens=4000,
                 messages=[{"role": "user", "content": prompt}]
             )
             result_text = response.content[0].text.strip()
 
-            # Extract JSON from response
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
+            # Extract JSON array from response (may be wrapped in text or code blocks)
+            json_match = re.search(r'\[[\s\S]*\]', result_text)
+            if not json_match:
+                raise ValueError("No JSON array found in response")
 
-            categorizations = json.loads(result_text)
+            categorizations = json.loads(json_match.group())
             for item in categorizations:
-                results[item["id"]] = (item["topic"], item.get("reason", ""))
+                topic = item["topic"]
+                # Validate topic and fallback if invalid
+                if topic not in TOPICS:
+                    # Try table-based inference
+                    card_data = next((c for c in batch if c["id"] == item["id"]), None)
+                    if card_data:
+                        inferred = infer_topic_from_tables(card_data.get("tables_referenced", []))
+                        topic = inferred if inferred else "candidatures"
+                    else:
+                        topic = "candidatures"
+                results[item["id"]] = (topic, item.get("reason", ""))
 
         except Exception as e:
             print(f"\n   ⚠️  Batch error: {e}")
+            # Fallback: use table-based inference for each card
             for card in batch:
-                results[card["id"]] = ("autre", "error")
+                inferred = infer_topic_from_tables(card.get("tables_referenced", []))
+                results[card["id"]] = (inferred if inferred else "candidatures", "inferred from tables")
 
     progress_bar(total_batches, total_batches, prefix="   Categorizing", suffix=f"batch {total_batches}/{total_batches}")
     return results
@@ -415,7 +471,7 @@ def generate_markdown(db: CardsDB, cards_dir: Path, dashboards_dir: Path, last_s
                 f"## {card.name}",
                 "",
                 f"- **ID:** {card.id}",
-                f"- **Thème:** {card.topic or 'autre'}",
+                f"- **Thème:** {card.topic or 'candidatures'}",
             ])
             if card.description:
                 lines.append(f"- **Description:** {card.description}")
@@ -443,13 +499,15 @@ def generate_markdown(db: CardsDB, cards_dir: Path, dashboards_dir: Path, last_s
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sync Metabase cards to SQLite")
+    parser = argparse.ArgumentParser(description="Sync Metabase cards to markdown/SQLite")
     parser.add_argument("--skip-categorize", action="store_true", help="Skip AI categorization")
-    parser.add_argument("--collections", type=int, nargs="+", default=DEFAULT_COLLECTIONS, help="Collection IDs to sync")
-    parser.add_argument("--clear", action="store_true", help="Clear database before sync")
+    parser.add_argument("--dashboards", type=int, nargs="+", help="Dashboard IDs to sync (default: all public)")
     parser.add_argument("--sqlite", action="store_true", help="Also generate SQLite database (optional)")
     parser.add_argument("--sqlite-only", action="store_true", help="Only generate SQLite, skip markdown")
     args = parser.parse_args()
+
+    # Determine which dashboards to sync
+    dashboard_ids = args.dashboards if args.dashboards else list(PUBLIC_DASHBOARDS.keys())
 
     # Output directories
     stats_dir = Path(__file__).parent.parent.parent.parent / "knowledge" / "stats"
@@ -464,7 +522,7 @@ def main():
     print("🚀 Metabase Cards Sync")
     print("=" * 70)
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Collections: {args.collections}")
+    print(f"Dashboards: {len(dashboard_ids)} public dashboards")
     print()
 
     # Initialize API and DB
@@ -475,55 +533,104 @@ def main():
         print(f"❌ Failed to connect to Metabase: {e}")
         sys.exit(1)
 
-    db = CardsDB()
+    # Always use in-memory db during sync, save to file at the end if needed
+    db = CardsDB(in_memory=True)
     db.init_schema()
-    if args.clear:
-        db.clear()
-        print("🗑️  Database cleared")
 
-    # Step 1: Fetch cards metadata
+    # Step 1: Fetch dashboard metadata and cards
     print()
-    print("📋 STEP 1: Fetching cards metadata...")
+    print("📋 STEP 1: Fetching dashboards and cards...")
     print("-" * 70)
 
     all_cards = []
-    for coll_id in args.collections:
-        print(f"   Collection {coll_id}...", end=" ")
+    seen_card_ids = set()
+    dashboard_metadata = {}
+
+    for dash_id in dashboard_ids:
+        print(f"   Dashboard {dash_id}...", end=" ", flush=True)
         try:
-            cards = api.list_cards(coll_id)
-            for card in cards:
+            dashboard = api.get_dashboard(dash_id)
+            dashboard_metadata[dash_id] = {
+                "name": dashboard.get("name", f"Dashboard {dash_id}"),
+                "description": dashboard.get("description"),
+                "collection_id": dashboard.get("collection_id"),
+                "pilotage_url": PUBLIC_DASHBOARDS.get(dash_id),
+            }
+
+            # Extract cards from dashboard (skip unnamed/empty cards)
+            dashcards = dashboard.get("dashcards", [])
+            card_count = 0
+            for dc in dashcards:
+                card = dc.get("card")
+                if not card or not card.get("id"):
+                    continue
+                if card["id"] in seen_card_ids:
+                    continue
+                # Skip unnamed cards (name is None, empty, or just "Card {id}")
+                name = card.get("name", "").strip()
+                if not name or name == f"Card {card['id']}" or re.match(r"^Card \d+$", name):
+                    continue
+                seen_card_ids.add(card["id"])
                 all_cards.append({
                     "id": card["id"],
-                    "name": card["name"],
+                    "name": name,
                     "description": card.get("description"),
-                    "collection_id": coll_id,
+                    "collection_id": card.get("collection_id"),
+                    "dashboard_id": dash_id,
                 })
-            print(f"{len(cards)} cards")
+                card_count += 1
+
+            print(f"{card_count} cards")
         except MetabaseError as e:
             print(f"Error: {e}")
 
-    print(f"   Total: {len(all_cards)} cards")
+    print(f"   Total: {len(all_cards)} unique cards from {len(dashboard_ids)} dashboards")
 
-    # Step 2: Fetch SQL queries
+    # Store dashboard metadata in DB
+    for dash_id, meta in dashboard_metadata.items():
+        db.upsert_dashboard(
+            dashboard_id=dash_id,
+            name=meta["name"],
+            description=meta["description"],
+            topic=None,  # Will be inferred from cards
+            pilotage_url=meta["pilotage_url"],
+            collection_id=meta["collection_id"],
+        )
+    db.commit()
+
+    # Step 2: Fetch SQL queries (parallel)
     print()
-    print("🔍 STEP 2: Fetching SQL queries...")
+    print("🔍 STEP 2: Fetching SQL queries (parallel)...")
     print("-" * 70)
 
-    start = time.time()
-    for i, card in enumerate(all_cards):
-        progress_bar(i, len(all_cards), prefix="   Progress", suffix=f"{i}/{len(all_cards)}")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    def fetch_card_sql(card: dict) -> tuple[int, str, list[str]]:
+        """Fetch SQL for a single card. Returns (card_id, sql, tables)."""
         try:
             sql = api.get_card_sql(card["id"])
-            card["sql_query"] = sql
-            card["tables_referenced"] = extract_table_references(sql)
-        except MetabaseError:
-            card["sql_query"] = ""
-            card["tables_referenced"] = []
+            tables = extract_table_references(sql)
+            return (card["id"], sql, tables)
+        except (MetabaseError, TimeoutError, OSError):
+            return (card["id"], "", [])
 
-        # Rate limiting
-        if (i + 1) % 20 == 0:
-            time.sleep(0.3)
+    start = time.time()
+    completed = 0
+
+    # Use 10 parallel workers (balance between speed and not hammering the API)
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_card_sql, card): card for card in all_cards}
+
+        for future in as_completed(futures):
+            card_id, sql, tables = future.result()
+            # Find and update the card
+            for card in all_cards:
+                if card["id"] == card_id:
+                    card["sql_query"] = sql
+                    card["tables_referenced"] = tables
+                    break
+            completed += 1
+            progress_bar(completed, len(all_cards), prefix="   Progress", suffix=f"{completed}/{len(all_cards)}")
 
     progress_bar(len(all_cards), len(all_cards), prefix="   Progress", suffix=f"{len(all_cards)}/{len(all_cards)}")
 
@@ -543,7 +650,12 @@ def main():
             categorizations = categorize_cards_with_claude(all_cards, anthropic_key)
 
             for card in all_cards:
-                topic, reason = categorizations.get(card["id"], ("autre", "not categorized"))
+                topic, reason = categorizations.get(card["id"], (None, "not categorized"))
+                if not topic or topic not in TOPICS:
+                    # Fallback to table-based inference
+                    topic = infer_topic_from_tables(card.get("tables_referenced", []))
+                    if not topic:
+                        topic = "candidatures"  # Ultimate fallback
                 card["topic"] = topic
 
             print(f"   Time: {time.time() - start:.1f}s")
@@ -551,59 +663,45 @@ def main():
             print()
             print("⏭️  STEP 3: Skipping AI categorization (no ANTHROPIC_API_KEY)")
             for card in all_cards:
-                card["topic"] = "autre"
+                # Use table-based inference when no API key
+                topic = infer_topic_from_tables(card.get("tables_referenced", []))
+                card["topic"] = topic if topic else "candidatures"
     else:
         print()
         print("⏭️  STEP 3: Skipping AI categorization (--skip-categorize)")
         for card in all_cards:
-            card["topic"] = "autre"
+            # Use table-based inference when skipping AI
+            topic = infer_topic_from_tables(card.get("tables_referenced", []))
+            card["topic"] = topic if topic else "candidatures"
 
     last_sync = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # Step 4: Write to SQLite (optional)
-    if generate_sqlite:
-        print()
-        print("💾 STEP 4: Writing to SQLite database...")
-        print("-" * 70)
+    # Step 4: Populate database (single pass)
+    print()
+    print("💾 STEP 4: Populating database...")
+    print("-" * 70)
 
-        for card in all_cards:
-            db.upsert_card(
-                card_id=card["id"],
-                name=card["name"],
-                description=card.get("description"),
-                collection_id=card.get("collection_id"),
-                topic=card.get("topic", "autre"),
-                sql_query=card.get("sql_query", ""),
-                tables_referenced=card.get("tables_referenced", []),
-            )
+    for card in all_cards:
+        db.upsert_card(
+            card_id=card["id"],
+            name=card["name"],
+            description=card.get("description"),
+            collection_id=card.get("collection_id"),
+            dashboard_id=card.get("dashboard_id"),
+            topic=card.get("topic", "candidatures"),
+            sql_query=card.get("sql_query", ""),
+            tables_referenced=card.get("tables_referenced", []),
+        )
 
-        db.commit()
-        db.rebuild_fts()
-        print(f"   ✅ {len(all_cards)} cards written to {DB_PATH}")
+    db.commit()
+    db.rebuild_fts()
+    print(f"   ✅ {len(all_cards)} cards loaded")
 
-        # Generate SQLite README
-        readme_path = generate_readme(db, last_sync)
-        print(f"   ✅ {readme_path}")
-
-    # Step 5: Generate Markdown (default)
+    # Step 5: Generate outputs
     if generate_markdown_files:
         print()
         print("📄 STEP 5: Generating Markdown files...")
         print("-" * 70)
-
-        # Create a temporary in-memory db for markdown generation if not using sqlite
-        if not generate_sqlite:
-            for card in all_cards:
-                db.upsert_card(
-                    card_id=card["id"],
-                    name=card["name"],
-                    description=card.get("description"),
-                    collection_id=card.get("collection_id"),
-                    topic=card.get("topic", "autre"),
-                    sql_query=card.get("sql_query", ""),
-                    tables_referenced=card.get("tables_referenced", []),
-                )
-            db.commit()
 
         generate_markdown(db, cards_dir, dashboards_dir, last_sync)
 
@@ -612,9 +710,16 @@ def main():
         print(f"   ✅ {len(cards_files)} card files written to {cards_dir}")
         print(f"   ✅ {len(dash_files)} dashboard files written to {dashboards_dir}")
 
-        # Clean up SQLite if we only wanted markdown
-        if not generate_sqlite and DB_PATH.exists():
-            DB_PATH.unlink()
+    if generate_sqlite:
+        print()
+        print("💾 STEP 6: Saving SQLite database...")
+        print("-" * 70)
+        db.save_to_file(DB_PATH)
+        print(f"   ✅ Database saved to {DB_PATH}")
+
+        # Generate SQLite README
+        readme_path = generate_readme(db, last_sync)
+        print(f"   ✅ {readme_path}")
 
     db.close()
 

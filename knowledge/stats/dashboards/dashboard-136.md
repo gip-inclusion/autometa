@@ -1,79 +1,107 @@
 # Dashboard : Candidatures - L'accompagnement des prescripteurs habilités
 
-### ⚠️  Aide à la lecture des données
-#### Analyse des données basées sur la date et l'auteur du diagnostic d'éligibilité
-##### Voici un aperçu de certains termes clés utilisés dans ce tableau de bord :
-- Un **Prescripteur Habilité** est un professionnel qui soumet la candidature d'un candidat à un employeur. Il est également habilits à valider l'éligibilité d'un candidat à l'insertion par l'activité économique.
-- **Candidature** fait référence à l'acte de postuler à un emploi en envoyant un profil ou un CV à un employeur. Le **candidat** est la personne qui postule à l'emploi. Un candidat peut avoir plusieurs candidatures.
-- **Ici**, les données ont été analysées pour les candidats qui ont eu un diagnostic d'éligibilité réalisé par les Prescripteurs Habilités.
-- Un **candidat accepté** est un candidat qui a été déclaré embauché par une SIAE.
-
-### ✅ Comment ce tableau de bord vous accompagne dans vos missions ?
-En tant que prescripteur habilité, vous pouvez utiliser ce tableau pour sui
+**URL:** /tableaux-de-bord/prescripteurs-habilites/
 
 **8 cartes**
 
 ## [136] nouveaux candidats orientés par les prescripteurs habilités sur les 3 derniers - prescripteurs
 
-- **ID:** 7082
+- **ID:** 1209
 - **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
+- **Tables:** taux_transformation_prescripteurs
 
 ```sql
 SELECT COUNT(*) AS "count" 
 FROM "public"."taux_transformation_prescripteurs"
 ```
 
-## [136] Taux de candidats acceptés orientés par les prescripteurs habilités sur les 30 derniers jours - prescripteurs
-
-- **ID:** 7083
-- **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
-
-```sql
-SELECT "source"."departement_candidat" AS "departement_candidat", CAST(SUM(CASE WHEN "source"."Candidat accepté" = 'candidats acceptés' THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "Taux de candidats acceptés" 
-FROM (SELECT "public"."taux_transformation_prescripteurs"."departement_candidat" AS "departement_candidat", "public"."taux_transformation_prescripteurs"."total_embauches" AS "total_embauches", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidats acceptés' ELSE 'candidats non acceptés' END AS "Candidat accepté" 
-FROM "public"."taux_transformation_prescripteurs") AS "source" 
-GROUP BY "source"."departement_candidat" 
-ORDER BY "source"."departement_candidat" ASC
-```
-
 ## [136] candidats orientés par les prescripteurs habilités acceptés en IAE sur les 3 derniers mois - prescripteurs
 
-- **ID:** 7084
-- **Thème:** prescripteurs
-- **Tables:** candidatures, public, taux_transformation_prescripteurs
+- **ID:** 1210
+- **Thème:** candidatures
+- **Tables:** candidatures, taux_transformation_prescripteurs
 
 ```sql
 SELECT count(distinct "public"."taux_transformation_prescripteurs"."id_candidat") AS "count" 
 FROM "public"."taux_transformation_prescripteurs" LEFT 
-JOIN "public"."candidatures" AS "Candidatures" ON "public"."taux_transformation_prescripteurs"."id_candidat" = "Candidatures"."id_candidat" 
+JOIN (SELECT "public"."candidatures"."id" AS "id", "public"."candidatures"."candidature_archivee" AS "candidature_archivee", "public"."candidatures"."candidature_refusée_automatiquement" AS "candidature_refusée_automatiquement", "public"."candidatures"."date_candidature" AS "date_candidature", "public"."candidatures"."date_début_contrat" AS "date_début_contrat", "public"."candidatures"."date_traitement" AS "date_traitement", "public"."candidatures"."état" AS "état", "public"."candidatures"."origine" AS "origine", "public"."candidatures"."origine_détaillée" AS "origine_détaillée", "public"."candidatures"."origine_id_structure" AS "origine_id_structure", "public"."candidatures"."parcours_de_création" AS "parcours_de_création", "public"."candidatures"."délai_prise_en_compte" AS "délai_prise_en_compte", "public"."candidatures"."délai_de_réponse" AS "délai_de_réponse", "public"."candidatures"."motif_de_refus" AS "motif_de_refus", "public"."candidatures"."id_candidat" AS "id_candidat", "public"."candidatures"."id_structure" AS "id_structure", "public"."candidatures"."type_structure" AS "type_structure", "public"."candidatures"."nom_structure" AS "nom_structure", "public"."candidatures"."nom_complet_structure" AS "nom_complet_structure", "public"."candidatures"."département_structure" AS "département_structure", "public"."candidatures"."nom_département_structure" AS "nom_département_structure", "public"."candidatures"."région_structure" AS "région_structure", "public"."candidatures"."id_org_prescripteur" AS "id_org_prescripteur", "public"."candidatures"."nom_org_prescripteur" AS "nom_org_prescripteur", "public"."candidatures"."safir_org_prescripteur" AS "safir_org_prescripteur", "public"."candidatures"."nom_prénom_conseiller" AS "nom_prénom_conseiller", "public"."candidatures"."date_embauche" AS "date_embauche", "public"."candidatures"."injection_ai" AS "injection_ai", "public"."candidatures"."mode_attribution_pass_iae" AS "mode_attribution_pass_iae", "public"."candidatures"."type_contrat" AS "type_contrat", "public"."candidatures"."présence_de_cv" AS "présence_de_cv", "public"."candidatures"."date_mise_à_jour_metabase" AS "date_mise_à_jour_metabase" 
+FROM "public"."candidatures") AS "Candidatures" ON "public"."taux_transformation_prescripteurs"."id_candidat" = "Candidatures"."id_candidat" 
 WHERE ("public"."taux_transformation_prescripteurs"."date_diagnostic" IS NOT NULL) 
 AND ("Candidatures"."date_embauche" IS NOT NULL)
 ```
 
 ## [136] Répartition des nouveaux candidats orientés par les prescripteurs habilités par mois V2 - prescripteurs
 
-- **ID:** 7085
+- **ID:** 1213
 - **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
+- **Tables:** taux_transformation_prescripteurs
 
 ```sql
-SELECT CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) AS "date_diagnostic", "source"."État du candidat" AS "État du candidat", count(distinct "source"."id_candidat") AS "Nombre de Nouveaux candidats orientés chaque mois (entrée)" 
-FROM (SELECT "public"."taux_transformation_prescripteurs"."id_candidat" AS "id_candidat", "public"."taux_transformation_prescripteurs"."date_diagnostic" AS "date_diagnostic", "public"."taux_transformation_prescripteurs"."total_embauches" AS "total_embauches", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidats acceptés' ELSE 'candidats non acceptés' END AS "État du candidat" 
+SELECT DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) AS "date_diagnostic", "source"."État du candidat" AS "État du candidat", count(distinct "source"."id_candidat") AS "Nombre de Nouveaux candidats orientés chaque mois (entrée)" 
+FROM (SELECT "public"."taux_transformation_prescripteurs"."id_candidat" AS "id_candidat", "public"."taux_transformation_prescripteurs"."date_diagnostic" AS "date_diagnostic", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidats acceptés' ELSE 'candidats non acceptés' END AS "État du candidat" 
 FROM "public"."taux_transformation_prescripteurs" 
 WHERE ("public"."taux_transformation_prescripteurs"."date_diagnostic" >= DATE_TRUNC('year', (NOW() + INTERVAL '-2 year'))) 
 AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" < DATE_TRUNC('year', (NOW() + INTERVAL '1 year'))) 
 AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" > date '2021-01-01')) AS "source" 
-GROUP BY CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date), "source"."État du candidat" 
-ORDER BY CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) ASC, "source"."État du candidat" ASC
+GROUP BY DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)), "source"."État du candidat" 
+ORDER BY DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) ASC, "source"."État du candidat" ASC
+```
+
+## [136] Taux de candidats acceptés orientés par les prescripteurs habilités sur les 30 derniers jours - prescripteurs
+
+- **ID:** 1214
+- **Thème:** prescripteurs
+- **Tables:** taux_transformation_prescripteurs
+
+```sql
+SELECT "source"."departement_candidat" AS "departement_candidat", CAST(SUM(CASE WHEN "source"."Candidat accepté" = 'candidats acceptés' THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "Taux de candidats acceptés" 
+FROM (SELECT CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidats acceptés' ELSE 'candidats non acceptés' END AS "Candidat accepté", "public"."taux_transformation_prescripteurs"."departement_candidat" AS "departement_candidat" 
+FROM "public"."taux_transformation_prescripteurs") AS "source" 
+GROUP BY "source"."departement_candidat" 
+ORDER BY "source"."departement_candidat" ASC
+```
+
+## [136] Répartition des nouveaux candidats orientés par les prescripteurs habilités par mois V1 - diagnostic non valide"
+
+- **ID:** 1441
+- **Thème:** prescripteurs
+- **Tables:** taux_transformation_prescripteurs
+
+```sql
+SELECT DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) AS "date_diagnostic", count(distinct "source"."id_candidat") AS "Nombre de nouveaux candidats orientés", CAST(SUM(CASE WHEN "source"."Candidat accepté" = 'candidat accepté' THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "Taux de candidats acceptés" 
+FROM (SELECT "public"."taux_transformation_prescripteurs"."id_candidat" AS "id_candidat", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidat accepté' ELSE 'candidat non accepté' END AS "Candidat accepté", "public"."taux_transformation_prescripteurs"."date_diagnostic" AS "date_diagnostic" 
+FROM "public"."taux_transformation_prescripteurs" 
+WHERE ("public"."taux_transformation_prescripteurs"."date_diagnostic" >= DATE_TRUNC('year', (NOW() + INTERVAL '-2 year'))) 
+AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" < DATE_TRUNC('year', (NOW() + INTERVAL '1 year'))) 
+AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" > date '2021-01-01') 
+AND ("public"."taux_transformation_prescripteurs"."diagnostic_valide" = 'non')) AS "source" 
+GROUP BY DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) 
+ORDER BY DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) ASC
+```
+
+## [136] Répartition des nouveaux candidats orientés par les prescripteurs habilités par mois V1 - diagnostic valide
+
+- **ID:** 1442
+- **Thème:** prescripteurs
+- **Tables:** taux_transformation_prescripteurs
+
+```sql
+SELECT DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) AS "date_diagnostic", count(distinct "source"."id_candidat") AS "Nombre de nouveaux candidats orientés", CAST(SUM(CASE WHEN "source"."Candidat accepté" = 'candidat accepté' THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "Taux de candidats acceptés" 
+FROM (SELECT "public"."taux_transformation_prescripteurs"."id_candidat" AS "id_candidat", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidat accepté' ELSE 'candidat non accepté' END AS "Candidat accepté", "public"."taux_transformation_prescripteurs"."date_diagnostic" AS "date_diagnostic" 
+FROM "public"."taux_transformation_prescripteurs" 
+WHERE ("public"."taux_transformation_prescripteurs"."date_diagnostic" >= DATE_TRUNC('year', (NOW() + INTERVAL '-2 year'))) 
+AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" < DATE_TRUNC('year', (NOW() + INTERVAL '1 year'))) 
+AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" > date '2021-01-01') 
+AND ("public"."taux_transformation_prescripteurs"."diagnostic_valide" = 'Oui')) AS "source" 
+GROUP BY DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) 
+ORDER BY DATE_TRUNC('month', CAST("source"."date_diagnostic" AS timestamp)) ASC
 ```
 
 ## [136] % candidats orientés et acceptés
 
-- **ID:** 7086
+- **ID:** 1471
 - **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
+- **Tables:** taux_transformation_prescripteurs
 
 ```sql
 SELECT CAST(SUM(CASE WHEN ("public"."taux_transformation_prescripteurs"."total_embauches" <> 0) 
@@ -82,47 +110,11 @@ FROM "public"."taux_transformation_prescripteurs"
 WHERE "public"."taux_transformation_prescripteurs"."date_diagnostic" IS NOT NULL
 ```
 
-## [136] Répartition des nouveaux candidats orientés par les prescripteurs habilités par mois V1 - diagnostic valide
-
-- **ID:** 7087
-- **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
-
-```sql
-SELECT CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) AS "date_diagnostic", count(distinct "source"."id_candidat") AS "Nombre de nouveaux candidats orientés", CAST(SUM(CASE WHEN "source"."Candidat accepté" = 'candidat accepté' THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "Taux de candidats acceptés" 
-FROM (SELECT "public"."taux_transformation_prescripteurs"."id_candidat" AS "id_candidat", "public"."taux_transformation_prescripteurs"."date_diagnostic" AS "date_diagnostic", "public"."taux_transformation_prescripteurs"."total_embauches" AS "total_embauches", "public"."taux_transformation_prescripteurs"."diagnostic_valide" AS "diagnostic_valide", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidat accepté' ELSE 'candidat non accepté' END AS "Candidat accepté" 
-FROM "public"."taux_transformation_prescripteurs" 
-WHERE ("public"."taux_transformation_prescripteurs"."date_diagnostic" >= DATE_TRUNC('year', (NOW() + INTERVAL '-2 year'))) 
-AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" < DATE_TRUNC('year', (NOW() + INTERVAL '1 year'))) 
-AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" > date '2021-01-01') 
-AND ("public"."taux_transformation_prescripteurs"."diagnostic_valide" = 'Oui')) AS "source" 
-GROUP BY CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) 
-ORDER BY CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) ASC
-```
-
-## [136] Répartition des nouveaux candidats orientés par les prescripteurs habilités par mois V1 - diagnostic non valide"
-
-- **ID:** 7088
-- **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
-
-```sql
-SELECT CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) AS "date_diagnostic", count(distinct "source"."id_candidat") AS "Nombre de nouveaux candidats orientés", CAST(SUM(CASE WHEN "source"."Candidat accepté" = 'candidat accepté' THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "Taux de candidats acceptés" 
-FROM (SELECT "public"."taux_transformation_prescripteurs"."id_candidat" AS "id_candidat", "public"."taux_transformation_prescripteurs"."date_diagnostic" AS "date_diagnostic", "public"."taux_transformation_prescripteurs"."total_embauches" AS "total_embauches", "public"."taux_transformation_prescripteurs"."diagnostic_valide" AS "diagnostic_valide", CASE WHEN "public"."taux_transformation_prescripteurs"."total_embauches" > 0 THEN 'candidat accepté' ELSE 'candidat non accepté' END AS "Candidat accepté" 
-FROM "public"."taux_transformation_prescripteurs" 
-WHERE ("public"."taux_transformation_prescripteurs"."date_diagnostic" >= DATE_TRUNC('year', (NOW() + INTERVAL '-2 year'))) 
-AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" < DATE_TRUNC('year', (NOW() + INTERVAL '1 year'))) 
-AND ("public"."taux_transformation_prescripteurs"."date_diagnostic" > date '2021-01-01') 
-AND ("public"."taux_transformation_prescripteurs"."diagnostic_valide" = 'non')) AS "source" 
-GROUP BY CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) 
-ORDER BY CAST(DATE_TRUNC('month', "source"."date_diagnostic") AS date) ASC
-```
-
 ## [136] Répartition du nombre de candidats par type de prescripteur
 
-- **ID:** 7089
+- **ID:** 4834
 - **Thème:** prescripteurs
-- **Tables:** public, taux_transformation_prescripteurs
+- **Tables:** taux_transformation_prescripteurs
 
 ```sql
 SELECT "public"."taux_transformation_prescripteurs"."type_auteur_diagnostic_detaille" AS "type_auteur_diagnostic_detaille", COUNT(*) AS "count" 

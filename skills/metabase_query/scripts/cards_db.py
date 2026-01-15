@@ -21,7 +21,7 @@ from typing import Optional
 # Database location
 DB_PATH = Path(__file__).parent.parent.parent.parent / "knowledge" / "metabase" / "cards.db"
 
-# Topic taxonomy (from cyberyayou)
+# Topic taxonomy (no "autre" - all cards must be categorized)
 TOPICS = {
     "file-active": "Candidats dans la file active (30+ days waiting)",
     "postes-tension": "Postes en tension (difficult to recruit)",
@@ -34,8 +34,38 @@ TOPICS = {
     "prolongations": "PASS extensions",
     "etp-effectifs": "ETP and workforce metrics",
     "esat": "ESAT-specific data",
-    "generalites-iae": "General IAE statistics",
-    "autre": "Uncategorized",
+    "pass-iae": "PASS IAE delivery and tracking",
+}
+
+# Table name patterns to topic mapping (for fallback inference)
+TABLE_TO_TOPIC = {
+    "esat": "esat",
+    "questionnaire": "esat",  # ESAT questionnaires
+    "candidat": "candidatures",
+    "candidature": "candidatures",
+    "prolongation": "prolongations",
+    "pass_iae": "pass-iae",
+    "pass-iae": "pass-iae",
+    "suivi_pass": "pass-iae",
+    "prescripteur": "prescripteurs",
+    "orientation": "prescripteurs",
+    "auto_prescription": "auto-prescription",
+    "controle": "controles",
+    "structure": "employeurs",
+    "organisation": "employeurs",
+    "siae": "employeurs",
+    "convention": "employeurs",
+    "poste": "postes-tension",
+    "tension": "postes-tension",
+    "file_active": "file-active",
+    "recherche_active": "file-active",
+    "age": "demographie",
+    "genre": "demographie",
+    "sexe": "demographie",
+    "departement": "demographie",
+    "region": "demographie",
+    "etp": "etp-effectifs",
+    "effectif": "etp-effectifs",
 }
 
 
@@ -98,21 +128,30 @@ class Dashboard:
 class CardsDB:
     """SQLite database for Metabase cards."""
 
-    def __init__(self, db_path: Path = DB_PATH):
-        """Initialize database connection."""
+    def __init__(self, db_path: Optional[Path] = DB_PATH, in_memory: bool = False):
+        """Initialize database connection.
+
+        Args:
+            db_path: Path to database file. Ignored if in_memory=True.
+            in_memory: If True, use in-memory database (for sync operations).
+        """
         self.db_path = db_path
+        self.in_memory = in_memory
         self._conn: Optional[sqlite3.Connection] = None
 
     @property
     def conn(self) -> sqlite3.Connection:
         """Get database connection (lazy initialization)."""
         if self._conn is None:
-            if not self.db_path.exists():
-                raise FileNotFoundError(
-                    f"Cards database not found at {self.db_path}. "
-                    "Run sync_inventory.py to populate it."
-                )
-            self._conn = sqlite3.connect(self.db_path)
+            if self.in_memory:
+                self._conn = sqlite3.connect(":memory:")
+            else:
+                if not self.db_path.exists():
+                    raise FileNotFoundError(
+                        f"Cards database not found at {self.db_path}. "
+                        "Run sync_inventory.py to populate it."
+                    )
+                self._conn = sqlite3.connect(self.db_path)
         return self._conn
 
     def close(self):
@@ -131,10 +170,10 @@ class CardsDB:
 
     def init_schema(self):
         """Create database schema (called by sync script)."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.in_memory and self.db_path:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        cursor = self.conn.cursor()
 
         # Main cards table
         cursor.execute("""
@@ -190,8 +229,14 @@ class CardsDB:
             )
         """)
 
-        conn.commit()
-        conn.close()
+        self.conn.commit()
+
+    def save_to_file(self, path: Path):
+        """Save in-memory database to a file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file_conn = sqlite3.connect(path)
+        self.conn.backup(file_conn)
+        file_conn.close()
 
     # --- Card queries ---
 
