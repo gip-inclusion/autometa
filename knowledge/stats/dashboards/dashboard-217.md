@@ -7,7 +7,7 @@
 ## [217] Nombre de pass expirant entre le 27/11/23 et 3/12/23
 
 - **ID:** 1677
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agréments
 
 ```sql
@@ -24,7 +24,7 @@ ORDER BY "public"."pass_agréments"."département_structure_ou_org_pe" ASC
 ## [217] Moyenne hebdo du Nombre de pass expirant en 2025
 
 - **ID:** 1679
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agréments
 
 ```sql
@@ -41,7 +41,7 @@ ORDER BY "public"."pass_agréments"."département_structure_ou_org_pe" ASC
 ## Pass actifs à ce jour
 
 - **ID:** 6329
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agrements_valides
 
 ```sql
@@ -53,7 +53,7 @@ WHERE "public"."pass_agrements_valides"."validite_pass" = 'pass valide'
 ## Pass qui arrivent à expiration ce mois
 
 - **ID:** 6330
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agrements_valides
 
 ```sql
@@ -66,7 +66,7 @@ AND ("public"."pass_agrements_valides"."date_fin" < DATE_TRUNC('month', (NOW() +
 ## Pass délivrés par année (be)
 
 - **ID:** 6353
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agrements_valides
 
 ```sql
@@ -83,7 +83,7 @@ ORDER BY CAST(DATE_TRUNC('year', "public"."pass_agrements_valides"."date_début"
 ## Pass suspendus à ce jour
 
 - **ID:** 6354
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agrements_valides
 
 ```sql
@@ -96,7 +96,7 @@ AND ("public"."pass_agrements_valides"."validite_pass" = 'pass valide')
 ## Pass délivrés par mois (be)
 
 - **ID:** 6356
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agrements_valides
 
 ```sql

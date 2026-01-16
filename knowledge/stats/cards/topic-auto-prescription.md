@@ -2,7 +2,7 @@
 
 *Auto-prescription metrics*
 
-**19 cartes**
+**9 cartes**
 
 ## [267] Candidatures acceptées en auto prescription
 
@@ -58,49 +58,6 @@ GROUP BY CAST(DATE_TRUNC('month', "public"."suivi_auto_prescription"."date_diagn
 ORDER BY CAST(DATE_TRUNC('month', "public"."suivi_auto_prescription"."date_diagnostic") AS date) ASC
 ```
 
-## [267] Nombre de SIAE pratiquant l'auto prescription
-
-- **ID:** 2006
-- **Dashboard:** 32
-- **Tables:** siae_pratiquant_autoprescription
-
-```sql
-SELECT SUM("public"."siae_pratiquant_autoprescription"."Nombre de structures utilisant l'autoprescription") AS "sum" 
-FROM "public"."siae_pratiquant_autoprescription"
-```
-
-## [267] Nombre total de SIAE
-
-- **ID:** 2007
-- **Dashboard:** 32
-- **Tables:** siae_pratiquant_autoprescription
-
-```sql
-SELECT SUM("public"."siae_pratiquant_autoprescription"."Nombre total de structures") AS "sum" 
-FROM "public"."siae_pratiquant_autoprescription" 
-WHERE ("public"."siae_pratiquant_autoprescription"."type_structure" = 'ACI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'AI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'EI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'EITI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'ETTI')
-```
-
-## [267] % de structures pratiquant l'auto prescription
-
-- **ID:** 2008
-- **Dashboard:** 32
-- **Tables:** siae_pratiquant_autoprescription
-
-```sql
-SELECT CAST(SUM("public"."siae_pratiquant_autoprescription"."Nombre de structures utilisant l'autoprescription") AS DOUBLE PRECISION) / NULLIF(CAST(SUM("public"."siae_pratiquant_autoprescription"."Nombre total de structures") AS DOUBLE PRECISION), 0.0) AS "% de Siae pratiquant l'auto prescription" 
-FROM "public"."siae_pratiquant_autoprescription" 
-WHERE ("public"."siae_pratiquant_autoprescription"."type_structure" = 'ACI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'AI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'EI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'ETTI') 
-OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'EITI')
-```
-
 ## [267] Taux d'auto presciption par type de structure
 
 - **ID:** 2009
@@ -120,94 +77,6 @@ GROUP BY "public"."suivi_auto_prescription"."type_structure"
 ORDER BY "public"."suivi_auto_prescription"."type_structure" ASC
 ```
 
-## [267] Nombre candidats concernés auto-prescription
-
-- **ID:** 2025
-- **Dashboard:** 32
-- **Tables:** candidats_auto_prescription
-
-```sql
-SELECT COUNT(*) AS "Candidats concernés par l'auto-prescription" 
-FROM "public"."candidats_auto_prescription" 
-WHERE ((("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") <> 0) 
-OR (("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") IS NULL)) 
-AND ("public"."candidats_auto_prescription"."état" = 'Candidature acceptée') 
-AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescription')
-```
-
-## [267] Nombre de personnes recrutées en autoprescription critères niv 1
-
-- **ID:** 2027
-- **Dashboard:** 32
-- **Tables:** candidats_auto_prescription
-
-```sql
-SELECT COUNT(*) AS "count" 
-FROM "public"."candidats_auto_prescription" 
-WHERE ((("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") <> 0) 
-OR (("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") IS NULL)) 
-AND (("public"."candidats_auto_prescription"."total_critères_niveau_1" <> 0) 
-OR ("public"."candidats_auto_prescription"."total_critères_niveau_1" IS NULL)) 
-AND ("public"."candidats_auto_prescription"."état" = 'Candidature acceptée') 
-AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescription')
-```
-
-## [267] Détails critère de niveau 1
-
-- **ID:** 2028
-- **Dashboard:** 32
-- **Tables:** candidats_auto_prescription
-
-```sql
-SELECT SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_allocataire_aah" = 1 THEN 1 ELSE 0.0 END) AS "Nombre AAH", CAST(SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_allocataire_aah" = 1 THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "% AAH", SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_allocataire_ass" = 1 THEN 1 ELSE 0.0 END) AS "Nombre ASS", CAST(SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_allocataire_ass" = 1 THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "% ASS", SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_bénéficiaire_du_rsa" = 1 THEN 1 ELSE 0.0 END) AS "Nombre bRSA", CAST(SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_bénéficiaire_du_rsa" = 1 THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "% bRSA", SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_detld_plus_de_24_mois" = 1 THEN 1 ELSE 0.0 END) AS "Nombre DETLD", CAST(SUM(CASE WHEN "public"."candidats_auto_prescription"."critère_n1_detld_plus_de_24_mois" = 1 THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "% DETLD", COUNT(*) AS "Total de candidats" 
-FROM "public"."candidats_auto_prescription" 
-WHERE ((("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") <> 0) 
-OR (("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") IS NULL)) 
-AND (("public"."candidats_auto_prescription"."total_critères_niveau_1" <> 0) 
-OR ("public"."candidats_auto_prescription"."total_critères_niveau_1" IS NULL)) 
-AND ("public"."candidats_auto_prescription"."état" = 'Candidature acceptée') 
-AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescription')
-```
-
-## [267] Candidats - Nombre de critères de niveau 2
-
-- **ID:** 2029
-- **Dashboard:** 32
-- **Tables:** candidats_auto_prescription
-
-```sql
-SELECT "public"."candidats_auto_prescription"."total_critères_niveau_2" AS "total_critères_niveau_2", COUNT(*) AS "count" 
-FROM "public"."candidats_auto_prescription" 
-WHERE ((("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") <> 0) 
-OR (("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") IS NULL)) 
-AND ("public"."candidats_auto_prescription"."total_critères_niveau_1" = 0) 
-AND ("public"."candidats_auto_prescription"."état" = 'Candidature acceptée') 
-AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescription') 
-GROUP BY "public"."candidats_auto_prescription"."total_critères_niveau_2" 
-ORDER BY "public"."candidats_auto_prescription"."total_critères_niveau_2" ASC
-```
-
-## [267] Nombre de personnes recrutées en autoprescription critères niv 2
-
-- **ID:** 2030
-- **Dashboard:** 32
-- **Tables:** candidats_auto_prescription
-
-```sql
-SELECT COUNT(*) AS "count" 
-FROM "public"."candidats_auto_prescription" 
-WHERE ((("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") <> 0) 
-OR (("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") IS NULL)) 
-AND ("public"."candidats_auto_prescription"."total_critères_niveau_1" = 0) 
-AND ("public"."candidats_auto_prescription"."état" = 'Candidature acceptée') 
-AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescription')
-```
-
-## [267] Détails critère de niveau 2
-
-- **ID:** 2032
-- **Dashboard:** 32
-
 ## [267] Candidatures acceptées (toutes)
 
 - **ID:** 2280
@@ -223,23 +92,6 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'AI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
-```
-
-## [267] Candidats - Nombre de critères de niveau 1 (w/ 0)
-
-- **ID:** 2368
-- **Dashboard:** 32
-- **Tables:** candidats_auto_prescription
-
-```sql
-SELECT "public"."candidats_auto_prescription"."total_critères_niveau_1" AS "total_critères_niveau_1", COUNT(*) AS "count" 
-FROM "public"."candidats_auto_prescription" 
-WHERE ((("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") <> 0) 
-OR (("public"."candidats_auto_prescription"."total_critères_niveau_1" + "public"."candidats_auto_prescription"."total_critères_niveau_2") IS NULL)) 
-AND ("public"."candidats_auto_prescription"."état" = 'Candidature acceptée') 
-AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescription') 
-GROUP BY "public"."candidats_auto_prescription"."total_critères_niveau_1" 
-ORDER BY "public"."candidats_auto_prescription"."total_critères_niveau_1" ASC
 ```
 
 ## Evolution du taux d'auto-prescription

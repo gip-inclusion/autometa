@@ -7,7 +7,7 @@
 ## [216] budget genré
 
 - **ID:** 2579
-- **Thème:** demographie
+- **Thème:** etp-effectifs
 - **Tables:** etp_par_salarie
 
 ```sql

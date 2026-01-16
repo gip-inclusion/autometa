@@ -59,7 +59,7 @@ ORDER BY "public"."ESAT - Questionnaire transfo"."Budget activité sociale" ASC
 ## [471] Moyenne  du nombre de  salariés en droit commun (ETP)
 
 - **ID:** 4941
-- **Thème:** etp-effectifs
+- **Thème:** esat
 - **Tables:** Esat
 
 ```sql
@@ -92,7 +92,7 @@ FROM "public"."Esat - Questionnaire 2024"
 ## [471] Age moyen des travailleurs
 
 - **ID:** 4944
-- **Thème:** demographie
+- **Thème:** esat
 - **Tables:** Esat
 
 ```sql
@@ -336,7 +336,7 @@ ORDER BY "public"."Esat - Questionnaire 2024"."Budget commercial" ASC
 ## [471] Pourcentage moyen du CA avec secteur public
 
 - **ID:** 5054
-- **Thème:** esat
+- **Thème:** candidatures
 
 ## [471] Budget activité sociale
 
@@ -618,7 +618,7 @@ FROM "public"."Esat - Questionnaire 2024"
 ## Pourcentage moyen du CA avec secteur public
 
 - **ID:** 5407
-- **Thème:** employeurs
+- **Thème:** esat
 - **Tables:** ESAT
 
 ```sql
@@ -629,7 +629,7 @@ FROM "public"."ESAT - Questionnaire transfo"
 ## Financement OPCO
 
 - **ID:** 5409
-- **Thème:** employeurs
+- **Thème:** esat
 - **Tables:** ESAT
 
 ```sql

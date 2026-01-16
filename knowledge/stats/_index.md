@@ -1,22 +1,18 @@
 # Inventaire Metabase
 
-*Dernière synchronisation : 2026-01-15 10:09*
+*Dernière synchronisation : 2026-01-16 14:30*
 *325 cartes · 17 dashboards*
 
 ## Cartes par thème
 
-- [esat](cards/topic-esat.md) (107) — ESAT-specific data
-- [candidatures](cards/topic-candidatures.md) (51) — Candidature metrics, states, flows
-- [demographie](cards/topic-demographie.md) (33) — Age, gender, geographic breakdowns
-- [prescripteurs](cards/topic-prescripteurs.md) (28) — Prescripteur and orientation data
-- [prolongations](cards/topic-prolongations.md) (20) — PASS extensions
-- [auto-prescription](cards/topic-auto-prescription.md) (19) — Auto-prescription metrics
-- [etp-effectifs](cards/topic-etp-effectifs.md) (16) — ETP and workforce metrics
-- [postes-tension](cards/topic-postes-tension.md) (16) — Postes en tension (difficult to recruit)
-- [employeurs](cards/topic-employeurs.md) (14) — SIAE and employer information
-- [controles](cards/topic-controles.md) (9) — Control and compliance
-- [pass-iae](cards/topic-pass-iae.md) (9) — PASS IAE delivery and tracking
-- [file-active](cards/topic-file-active.md) (3) — Candidats dans la file active (30+ days waiting)
+- [esat](cards/topic-esat.md) (113) — ESAT-specific data
+- [candidatures](cards/topic-candidatures.md) (112) — Candidature metrics, states, flows
+- [employeurs](cards/topic-employeurs.md) (42) — SIAE and employer information
+- [prolongations](cards/topic-prolongations.md) (21) — PASS extensions
+- [postes-tension](cards/topic-postes-tension.md) (17) — Postes en tension (difficult to recruit)
+- [auto-prescription](cards/topic-auto-prescription.md) (9) — Auto-prescription metrics
+- [prescripteurs](cards/topic-prescripteurs.md) (8) — Prescripteur and orientation data
+- [etp-effectifs](cards/topic-etp-effectifs.md) (3) — ETP and workforce metrics
 
 ## Dashboards
 

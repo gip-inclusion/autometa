@@ -7,7 +7,7 @@
 ## [116]Profil des candidats embauchés
 
 - **ID:** 821
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidats
 
 ```sql
@@ -88,7 +88,7 @@ ORDER BY "public"."candidatures_echelle_locale"."origine" ASC, CAST(DATE_TRUNC('
 ## [116] Evolution des candidatures acceptées sur les 12 derniers mois, par type d'employeur - échelle locale
 
 - **ID:** 1393
-- **Thème:** employeurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -103,7 +103,7 @@ ORDER BY "count" DESC, "public"."candidatures_echelle_locale"."type_structure" A
 ## [116] Evolution des candidatures, par type d'orienteur - échelle locale
 
 - **ID:** 1394
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -215,7 +215,7 @@ ORDER BY "count" DESC, "public"."candidatures_echelle_locale"."motif_de_refus" A
 ## [116] Pourcentage de candidatures acceptées par type de prescripteur v2
 
 - **ID:** 2508
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql

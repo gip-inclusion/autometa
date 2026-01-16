@@ -2,7 +2,7 @@
 
 *ESAT-specific data*
 
-**107 cartes**
+**113 cartes**
 
 ## Nombre de travailleurs cumulant ESAT et Entreprise adaptée ou Milieu ordinaire par Région
 
@@ -351,6 +351,32 @@ GROUP BY "public"."ESAT - Questionnaire transfo"."PEPA"
 ORDER BY "public"."ESAT - Questionnaire transfo"."PEPA" ASC
 ```
 
+## Convention de partenariat avec un ou plusieurs acteurs du SPE (pole emploi, cap emploi, ML) , au national
+
+- **ID:** 3064
+- **Dashboard:** 306
+- **Tables:** ESAT
+
+```sql
+SELECT "public"."ESAT - Questionnaire transfo"."Convention de partenariat" AS "Convention de partenariat", COUNT(*) AS "count" 
+FROM "public"."ESAT - Questionnaire transfo" 
+GROUP BY "public"."ESAT - Questionnaire transfo"."Convention de partenariat" 
+ORDER BY "public"."ESAT - Questionnaire transfo"."Convention de partenariat" ASC
+```
+
+## Convention de partenariat avec un ou plusieurs acteurs du SPE (pole emploi, cap emploi, ML) , filtré sur la région choisie
+
+- **ID:** 3065
+- **Dashboard:** 306
+- **Tables:** ESAT
+
+```sql
+SELECT "public"."ESAT - Questionnaire transfo"."Convention de partenariat" AS "Convention de partenariat", COUNT(*) AS "count" 
+FROM "public"."ESAT - Questionnaire transfo" 
+GROUP BY "public"."ESAT - Questionnaire transfo"."Convention de partenariat" 
+ORDER BY "public"."ESAT - Questionnaire transfo"."Convention de partenariat" ASC
+```
+
 ## Partenariat Avec Entreprise Adaptée, au national
 
 - **ID:** 3066
@@ -433,6 +459,17 @@ GROUP BY "public"."ESAT - Questionnaire transfo"."Budget activité sociale"
 ORDER BY "public"."ESAT - Questionnaire transfo"."Budget activité sociale" ASC
 ```
 
+## [471] Moyenne  du nombre de  salariés en droit commun (ETP)
+
+- **ID:** 4941
+- **Dashboard:** 471
+- **Tables:** Esat
+
+```sql
+SELECT AVG("public"."Esat - Questionnaire 2024"."Nombre de salariés en droit commun") AS "avg" 
+FROM "public"."Esat - Questionnaire 2024"
+```
+
 ## [471] Moyenne du nombre de travailleurs accompagnés
 
 - **ID:** 4942
@@ -452,6 +489,17 @@ FROM "public"."Esat - Questionnaire 2024"
 
 ```sql
 SELECT AVG("public"."Esat - Questionnaire 2024"."Places autorisées par ARS") AS "avg" 
+FROM "public"."Esat - Questionnaire 2024"
+```
+
+## [471] Age moyen des travailleurs
+
+- **ID:** 4944
+- **Dashboard:** 471
+- **Tables:** Esat
+
+```sql
+SELECT AVG("public"."Esat - Questionnaire 2024"."Age moyen des travailleurs") AS "avg" 
 FROM "public"."Esat - Questionnaire 2024"
 ```
 
@@ -687,11 +735,6 @@ FROM "public"."Esat - Questionnaire 2024"
 GROUP BY "public"."Esat - Questionnaire 2024"."Budget commercial" 
 ORDER BY "public"."Esat - Questionnaire 2024"."Budget commercial" ASC
 ```
-
-## [471] Pourcentage moyen du CA avec secteur public
-
-- **ID:** 5054
-- **Dashboard:** 471
 
 ## [471] Budget activité sociale
 
@@ -970,6 +1013,31 @@ SELECT AVG("public"."Esat - Questionnaire 2024"."Nombre de conseillers insertion
 FROM "public"."Esat - Questionnaire 2024"
 ```
 
+## Pourcentage moyen du CA avec secteur public
+
+- **ID:** 5407
+- **Dashboard:** 471
+- **Tables:** ESAT
+
+```sql
+SELECT AVG("public"."ESAT - Questionnaire transfo"."Pourcentage du CA avec secteur public") AS "avg" 
+FROM "public"."ESAT - Questionnaire transfo"
+```
+
+## Financement OPCO
+
+- **ID:** 5409
+- **Dashboard:** 471
+- **Tables:** ESAT
+
+```sql
+SELECT "source"."Financement Opco" AS "Financement Opco", COUNT(*) AS "count" 
+FROM (SELECT CASE WHEN "public"."ESAT - Questionnaire transfo"."OPCO" = 1 THEN 'oui' WHEN "public"."ESAT - Questionnaire transfo"."OPCO" = 0 THEN 'non' END AS "Financement Opco" 
+FROM "public"."ESAT - Questionnaire transfo") AS "source" 
+GROUP BY "source"."Financement Opco" 
+ORDER BY "source"."Financement Opco" ASC
+```
+
 ## Nombre de conseillers insertion et inclusion (en ETP)
 
 - **ID:** 5410
@@ -1129,6 +1197,18 @@ SELECT AVG("esat"."questionnaire_2025"."nb_places_allowed") AS "avg"
 FROM "esat"."questionnaire_2025" 
 WHERE ("esat"."questionnaire_2025"."nb_places_allowed" <> 999) 
 OR ("esat"."questionnaire_2025"."nb_places_allowed" IS NULL)
+```
+
+## Âge moyen des salariés
+
+- **ID:** 6530
+- **Dashboard:** 571
+- **Tables:** questionnaire_2025
+
+```sql
+SELECT CAST(SUM("esat"."questionnaire_2025"."mean_employee_age" * "esat"."questionnaire_2025"."nb_employee_worked") AS DOUBLE PRECISION) / NULLIF(CAST(SUM("esat"."questionnaire_2025"."nb_employee_worked") AS DOUBLE PRECISION), 0.0) AS "âge moyen des salariés" 
+FROM "esat"."questionnaire_2025" 
+WHERE "esat"."questionnaire_2025"."mean_employee_age" < 100
 ```
 
 ## Pourcentage d'ESAT public

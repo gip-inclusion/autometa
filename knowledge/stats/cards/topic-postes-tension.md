@@ -2,7 +2,7 @@
 
 *Postes en tension (difficult to recruit)*
 
-**16 cartes**
+**17 cartes**
 
 ## [150] Nombre de fiches de poste en difficulté de recrutement n'ayant jamais reçu de candidature
 
@@ -65,25 +65,6 @@ WHERE ("public"."fiches_deposte_en_tension_recrutement"."etape" = '6- Fiches de 
 AND ("public"."fiches_deposte_en_tension_recrutement"."valeur" > 0)
 ```
 
-## % de SIAE avec un poste ouvert
-
-- **ID:** 3644
-- **Dashboard:** 337
-- **Tables:** structures
-
-```sql
-SELECT CAST(SUM(CASE WHEN ("public"."structures"."total_fiches_de_poste_actives" <> 0) 
-OR ("public"."structures"."total_fiches_de_poste_actives" IS NULL) THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "expression" 
-FROM "public"."structures" 
-WHERE ("public"."structures"."date_inscription" IS NOT NULL) 
-AND ("public"."structures"."categorie_structure" = 'IAE') 
-AND (("public"."structures"."type" = 'AI') 
-OR ("public"."structures"."type" = 'ACI') 
-OR ("public"."structures"."type" = 'EI') 
-OR ("public"."structures"."type" = 'EITI') 
-OR ("public"."structures"."type" = 'ETTI'))
-```
-
 ## Nombre de fiches de postes ouverts par les SIAE
 
 - **ID:** 3662
@@ -99,29 +80,6 @@ OR ("public"."fiches_de_poste"."type_employeur" = 'EI')
 OR ("public"."fiches_de_poste"."type_employeur" = 'EITI') 
 OR ("public"."fiches_de_poste"."type_employeur" = 'ETTI')) 
 AND ("public"."fiches_de_poste"."recrutement_ouvert" = 1)
-```
-
-## % de SIAE ayant accepté une candidature sur les 30 derniers jours
-
-- **ID:** 3663
-- **Dashboard:** 337
-- **Tables:** structures
-
-```sql
-SELECT CAST(SUM(CASE WHEN ("public"."structures"."total_embauches_30j" <> 0) 
-OR ("public"."structures"."total_embauches_30j" IS NULL) THEN 1 ELSE 0.0 END) AS DOUBLE PRECISION) / NULLIF(CAST(COUNT(*) AS DOUBLE PRECISION), 0.0) AS "expression" 
-FROM "public"."structures" 
-WHERE ("public"."structures"."date_inscription" IS NOT NULL) 
-AND (("public"."structures"."type" = 'ACI') 
-OR ("public"."structures"."type" = 'AI') 
-OR ("public"."structures"."type" = 'EI') 
-OR ("public"."structures"."type" = 'EITI') 
-OR ("public"."structures"."type" = 'ETTI')) 
-AND (("public"."structures"."type" = 'AI') 
-OR ("public"."structures"."type" = 'ACI') 
-OR ("public"."structures"."type" = 'EI') 
-OR ("public"."structures"."type" = 'EITI') 
-OR ("public"."structures"."type" = 'ETTI'))
 ```
 
 ## Nb de SIAE avec des fiches de poste en tension n'ayant reçu aucune candidature
@@ -218,6 +176,64 @@ FROM "public"."fiches_deposte_en_tension_recrutement"
 WHERE "public"."fiches_deposte_en_tension_recrutement"."etape" = '6- Fiches de poste en difficulté de recrutement n ayant jamais reçu de candidatures' 
 GROUP BY "public"."fiches_deposte_en_tension_recrutement"."domaine_professionnel" 
 ORDER BY "Nombre de fiches de poste en difficulté de recrutement" DESC, "public"."fiches_deposte_en_tension_recrutement"."domaine_professionnel" ASC
+```
+
+## Nombre de fdp ouvertes par SIAE
+
+- **ID:** 4313
+- **Dashboard:** 408
+- **Tables:** fiches_de_poste
+
+```sql
+SELECT "source"."type_employeur" AS "type_employeur", COUNT(*) AS "count" 
+FROM (SELECT "public"."fiches_de_poste"."id" AS "id", "public"."fiches_de_poste"."code_rome" AS "code_rome", "public"."fiches_de_poste"."nom_rome" AS "nom_rome", "public"."fiches_de_poste"."recrutement_ouvert" AS "recrutement_ouvert", "public"."fiches_de_poste"."type_contrat" AS "type_contrat", "public"."fiches_de_poste"."id_employeur" AS "id_employeur", "public"."fiches_de_poste"."type_employeur" AS "type_employeur", "public"."fiches_de_poste"."siret_employeur" AS "siret_employeur", "public"."fiches_de_poste"."nom_employeur" AS "nom_employeur", "public"."fiches_de_poste"."mises_a_jour_champs" AS "mises_a_jour_champs", "public"."fiches_de_poste"."département_employeur" AS "département_employeur", "public"."fiches_de_poste"."nom_département_employeur" AS "nom_département_employeur", "public"."fiches_de_poste"."région_employeur" AS "région_employeur", "public"."fiches_de_poste"."total_candidatures" AS "total_candidatures", "public"."fiches_de_poste"."date_création" AS "date_création", "public"."fiches_de_poste"."date_dernière_modification" AS "date_dernière_modification", "public"."fiches_de_poste"."date_mise_à_jour_metabase" AS "date_mise_à_jour_metabase" 
+FROM "public"."fiches_de_poste") AS "source" 
+WHERE ("source"."recrutement_ouvert" = 1) 
+AND (("source"."type_employeur" = 'ACI') 
+OR ("source"."type_employeur" = 'AI') 
+OR ("source"."type_employeur" = 'EITI') 
+OR ("source"."type_employeur" = 'EI') 
+OR ("source"."type_employeur" = 'ETTI')) 
+GROUP BY "source"."type_employeur" 
+ORDER BY "source"."type_employeur" ASC
+```
+
+## Nombre de fdp ouvertes par département
+
+- **ID:** 4315
+- **Dashboard:** 408
+- **Tables:** fiches_de_poste
+
+```sql
+SELECT "source"."département_employeur" AS "département_employeur", COUNT(*) AS "count" 
+FROM (SELECT "public"."fiches_de_poste"."id" AS "id", "public"."fiches_de_poste"."code_rome" AS "code_rome", "public"."fiches_de_poste"."nom_rome" AS "nom_rome", "public"."fiches_de_poste"."recrutement_ouvert" AS "recrutement_ouvert", "public"."fiches_de_poste"."type_contrat" AS "type_contrat", "public"."fiches_de_poste"."id_employeur" AS "id_employeur", "public"."fiches_de_poste"."type_employeur" AS "type_employeur", "public"."fiches_de_poste"."siret_employeur" AS "siret_employeur", "public"."fiches_de_poste"."nom_employeur" AS "nom_employeur", "public"."fiches_de_poste"."mises_a_jour_champs" AS "mises_a_jour_champs", "public"."fiches_de_poste"."département_employeur" AS "département_employeur", "public"."fiches_de_poste"."nom_département_employeur" AS "nom_département_employeur", "public"."fiches_de_poste"."région_employeur" AS "région_employeur", "public"."fiches_de_poste"."total_candidatures" AS "total_candidatures", "public"."fiches_de_poste"."date_création" AS "date_création", "public"."fiches_de_poste"."date_dernière_modification" AS "date_dernière_modification", "public"."fiches_de_poste"."date_mise_à_jour_metabase" AS "date_mise_à_jour_metabase" 
+FROM "public"."fiches_de_poste") AS "source" 
+WHERE ("source"."recrutement_ouvert" = 1) 
+AND (("source"."type_employeur" = 'ACI') 
+OR ("source"."type_employeur" = 'AI') 
+OR ("source"."type_employeur" = 'EITI') 
+OR ("source"."type_employeur" = 'EI') 
+OR ("source"."type_employeur" = 'ETTI')) 
+GROUP BY "source"."département_employeur" 
+ORDER BY "source"."département_employeur" ASC
+```
+
+## [408] Nombre de fdp ouvertes
+
+- **ID:** 4493
+- **Dashboard:** 408
+- **Tables:** fiches_de_poste
+
+```sql
+SELECT COUNT(*) AS "count" 
+FROM (SELECT "public"."fiches_de_poste"."id" AS "id", "public"."fiches_de_poste"."code_rome" AS "code_rome", "public"."fiches_de_poste"."nom_rome" AS "nom_rome", "public"."fiches_de_poste"."recrutement_ouvert" AS "recrutement_ouvert", "public"."fiches_de_poste"."type_contrat" AS "type_contrat", "public"."fiches_de_poste"."id_employeur" AS "id_employeur", "public"."fiches_de_poste"."type_employeur" AS "type_employeur", "public"."fiches_de_poste"."siret_employeur" AS "siret_employeur", "public"."fiches_de_poste"."nom_employeur" AS "nom_employeur", "public"."fiches_de_poste"."mises_a_jour_champs" AS "mises_a_jour_champs", "public"."fiches_de_poste"."département_employeur" AS "département_employeur", "public"."fiches_de_poste"."nom_département_employeur" AS "nom_département_employeur", "public"."fiches_de_poste"."région_employeur" AS "région_employeur", "public"."fiches_de_poste"."total_candidatures" AS "total_candidatures", "public"."fiches_de_poste"."date_création" AS "date_création", "public"."fiches_de_poste"."date_dernière_modification" AS "date_dernière_modification", "public"."fiches_de_poste"."date_mise_à_jour_metabase" AS "date_mise_à_jour_metabase" 
+FROM "public"."fiches_de_poste") AS "source" 
+WHERE ("source"."recrutement_ouvert" = 1) 
+AND (("source"."type_employeur" = 'ACI') 
+OR ("source"."type_employeur" = 'AI') 
+OR ("source"."type_employeur" = 'EITI') 
+OR ("source"."type_employeur" = 'EI') 
+OR ("source"."type_employeur" = 'ETTI'))
 ```
 
 ## [150] Carte des SIAE avec au moins une fiche de poste en difficulté de recrutement - Modifié

@@ -61,7 +61,7 @@ ORDER BY CAST(DATE_TRUNC('month', "public"."suivi_auto_prescription"."date_diagn
 ## [267] Nombre de SIAE pratiquant l'auto prescription
 
 - **ID:** 2006
-- **Thème:** auto-prescription
+- **Thème:** employeurs
 - **Tables:** siae_pratiquant_autoprescription
 
 ```sql
@@ -72,7 +72,7 @@ FROM "public"."siae_pratiquant_autoprescription"
 ## [267] Nombre total de SIAE
 
 - **ID:** 2007
-- **Thème:** auto-prescription
+- **Thème:** employeurs
 - **Tables:** siae_pratiquant_autoprescription
 
 ```sql
@@ -88,7 +88,7 @@ OR ("public"."siae_pratiquant_autoprescription"."type_structure" = 'ETTI')
 ## [267] % de structures pratiquant l'auto prescription
 
 - **ID:** 2008
-- **Thème:** auto-prescription
+- **Thème:** employeurs
 - **Tables:** siae_pratiquant_autoprescription
 
 ```sql
@@ -123,7 +123,7 @@ ORDER BY "public"."suivi_auto_prescription"."type_structure" ASC
 ## [265] part SIAE ctrlées pos vs neg
 
 - **ID:** 2017
-- **Thème:** controles
+- **Thème:** employeurs
 - **Tables:** cap_campagnes, cap_structures, structures
 
 ```sql
@@ -137,7 +137,7 @@ JOIN (SELECT "public"."structures"."id" AS "id", "public"."structures"."id_asp" 
 ## [267] Nombre candidats concernés auto-prescription
 
 - **ID:** 2025
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 - **Tables:** candidats_auto_prescription
 
 ```sql
@@ -152,7 +152,7 @@ AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescri
 ## [267] Nombre de personnes recrutées en autoprescription critères niv 1
 
 - **ID:** 2027
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 - **Tables:** candidats_auto_prescription
 
 ```sql
@@ -169,7 +169,7 @@ AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescri
 ## [267] Détails critère de niveau 1
 
 - **ID:** 2028
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 - **Tables:** candidats_auto_prescription
 
 ```sql
@@ -186,7 +186,7 @@ AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescri
 ## [267] Candidats - Nombre de critères de niveau 2
 
 - **ID:** 2029
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 - **Tables:** candidats_auto_prescription
 
 ```sql
@@ -204,7 +204,7 @@ ORDER BY "public"."candidats_auto_prescription"."total_critères_niveau_2" ASC
 ## [267] Nombre de personnes recrutées en autoprescription critères niv 2
 
 - **ID:** 2030
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 - **Tables:** candidats_auto_prescription
 
 ```sql
@@ -220,12 +220,12 @@ AND ("public"."candidats_auto_prescription"."type_de_candidature" = 'Autoprescri
 ## [267] Détails critère de niveau 2
 
 - **ID:** 2032
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 
 ## [265] Etat contrôle critères
 
 - **ID:** 2140
-- **Thème:** controles
+- **Thème:** candidatures
 - **Tables:** suivi_cap_criteres
 
 ```sql
@@ -238,7 +238,7 @@ ORDER BY "public"."suivi_cap_criteres"."nom_critère" ASC, "public"."suivi_cap_c
 ## [265] description critères refusés
 
 - **ID:** 2179
-- **Thème:** controles
+- **Thème:** candidatures
 - **Tables:** suivi_cap_criteres
 
 ```sql
@@ -269,7 +269,7 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
 ## [265] Nb de structures dont le contrôle est terminé
 
 - **ID:** 2291
-- **Thème:** controles
+- **Thème:** employeurs
 - **Tables:** suivi_cap_structures
 
 ```sql
@@ -282,7 +282,7 @@ OR ("public"."suivi_cap_structures"."état" = 'REFUSED')
 ## [267] Candidats - Nombre de critères de niveau 1 (w/ 0)
 
 - **ID:** 2368
-- **Thème:** auto-prescription
+- **Thème:** candidatures
 - **Tables:** candidats_auto_prescription
 
 ```sql
@@ -299,7 +299,7 @@ ORDER BY "public"."candidats_auto_prescription"."total_critères_niveau_1" ASC
 ## [265] SIAE à contrôler
 
 - **ID:** 2438
-- **Thème:** controles
+- **Thème:** employeurs
 - **Tables:** cap_campagnes, cap_structures
 
 ```sql
@@ -312,7 +312,7 @@ FROM "public"."cap_campagnes") AS "Cap Campagnes" ON "public"."cap_structures"."
 ## [265] % SIAE contrôlées parmi les SIAE à contrôler - v2
 
 - **ID:** 5017
-- **Thème:** controles
+- **Thème:** employeurs
 - **Tables:** cap_campagnes, cap_structures, suivi_cap_structures
 
 ```sql

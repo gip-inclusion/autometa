@@ -7,7 +7,7 @@
 ## Répartition orienteurs inscrits par type
 
 - **ID:** 3504
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -64,7 +64,7 @@ ORDER BY CAST(DATE_TRUNC('year', "public"."candidatures_echelle_locale"."date_ca
 ## Suivi des orientations par orienteur
 
 - **ID:** 3608
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -95,7 +95,7 @@ ORDER BY CAST(DATE_TRUNC('year', "public"."candidatures_echelle_locale"."date_ca
 ## Répartition des conseilleurs inscrits par type de prescripteurs
 
 - **ID:** 3622
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -154,7 +154,7 @@ ORDER BY "count" DESC, "public"."structures"."département" ASC
 ## Cartographie des prescripteurs
 
 - **ID:** 3625
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -169,7 +169,7 @@ ORDER BY "count" DESC, "public"."organisations"."département" ASC
 ## Candidats par tranche d'âge
 
 - **ID:** 3629
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -185,7 +185,7 @@ ORDER BY "public"."candidatures_echelle_locale"."tranche_age" ASC, CAST(DATE_TRU
 ## Candidats par genre
 
 - **ID:** 3630
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -248,7 +248,7 @@ ORDER BY CAST(DATE_TRUNC('year', "public"."candidatures_echelle_locale"."date_ca
 ## % de SIAE avec un poste ouvert
 
 - **ID:** 3644
-- **Thème:** postes-tension
+- **Thème:** employeurs
 - **Tables:** structures
 
 ```sql
@@ -284,7 +284,7 @@ AND ("public"."fiches_de_poste"."recrutement_ouvert" = 1)
 ## % de SIAE ayant accepté une candidature sur les 30 derniers jours
 
 - **ID:** 3663
-- **Thème:** postes-tension
+- **Thème:** employeurs
 - **Tables:** structures
 
 ```sql
@@ -325,7 +325,7 @@ OR ("public"."fiches_deposte_en_tension_recrutement"."type_structure" = 'ETTI'))
 ## Répartition des orientations vers l'IAE
 
 - **ID:** 3665
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -444,7 +444,7 @@ ORDER BY CAST(DATE_TRUNC('year', "public"."candidatures_echelle_locale"."date_ca
 ## Evolution des prescriptions des PH
 
 - **ID:** 3682
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -513,7 +513,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ## Organisations, Nombre total de conseillers inscrits, Grouped by Date Inscription: Year, Filtered by Date Inscription is not empty, Sorted by Nombre total de conseillers inscrits descending
 
 - **ID:** 3688
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -595,7 +595,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ## Part de prescriptions du SPE
 
 - **ID:** 3815
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -641,7 +641,7 @@ ORDER BY "count" DESC, "public"."candidatures_echelle_locale"."motif_de_refus" A
 ## Part de prescriptions du SPE en 2024
 
 - **ID:** 3863
-- **Thème:** prescripteurs
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -869,7 +869,7 @@ ORDER BY "public"."candidatures_echelle_locale"."type_structure" ASC
 ## Candidatures par genre
 
 - **ID:** 3881
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -890,7 +890,7 @@ ORDER BY "public"."candidatures_echelle_locale"."genre_candidat" ASC, CAST(DATE_
 ## Représentation des candidatures reçues par les SIAE par tranche d'âge
 
 - **ID:** 3882
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -911,7 +911,7 @@ ORDER BY "public"."candidatures_echelle_locale"."tranche_age" ASC, CAST(DATE_TRU
 ## Nombre de pass agréments délivrés par année
 
 - **ID:** 6236
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agréments
 
 ```sql

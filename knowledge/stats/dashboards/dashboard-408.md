@@ -38,7 +38,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "
 ## Nombre de fdp ouvertes par SIAE
 
 - **ID:** 4313
-- **Thème:** employeurs
+- **Thème:** postes-tension
 - **Tables:** fiches_de_poste
 
 ```sql
@@ -58,7 +58,7 @@ ORDER BY "source"."type_employeur" ASC
 ## Nombre de fdp ouvertes par département
 
 - **ID:** 4315
-- **Thème:** employeurs
+- **Thème:** postes-tension
 - **Tables:** fiches_de_poste
 
 ```sql
@@ -106,7 +106,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] Nombre de candidatures (émise il y a plus de 30 jours et non acceptée)
 
 - **ID:** 4489
-- **Thème:** file-active
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql
@@ -118,7 +118,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## Nombre de candidatures (émise il y a plus de 30 jours et non acceptée)
 
 - **ID:** 4490
-- **Thème:** file-active
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql
@@ -130,7 +130,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] Nombre de fdp ouvertes
 
 - **ID:** 4493
-- **Thème:** candidatures
+- **Thème:** postes-tension
 - **Tables:** fiches_de_poste
 
 ```sql
@@ -222,7 +222,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] delai dernière candidature envoyée
 
 - **ID:** 4543
-- **Thème:** file-active
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql
@@ -234,7 +234,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] Carto des candidats en recherche active
 
 - **ID:** 4544
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql
@@ -258,7 +258,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] Nombre de candidats dans la file active IAE par genre
 
 - **ID:** 4803
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql
@@ -270,7 +270,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] Nombre de candidats dans la file active IAE par tranche d'âge
 
 - **ID:** 4804
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql
@@ -282,7 +282,7 @@ FROM (SELECT "public"."candidatures_candidats_recherche_active"."id" AS "id", "p
 ## [408] Répartition candidats dans la file active par région
 
 - **ID:** 4805
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidats_recherche_active, candidatures_candidats_recherche_active
 
 ```sql

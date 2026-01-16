@@ -7,7 +7,7 @@
 ## Carte des orienteurs
 
 - **ID:** 1749
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -23,7 +23,7 @@ ORDER BY "public"."organisations"."département" ASC
 ## Candidats inscrits sur les emplois
 
 - **ID:** 1809
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidats
 
 ```sql
@@ -50,7 +50,7 @@ ORDER BY "public"."fiches_de_poste"."département_employeur" ASC
 ## [216] part de femmes dans les candidatures émises - département
 
 - **ID:** 2022
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql
@@ -71,7 +71,7 @@ ORDER BY "public"."candidatures_echelle_locale"."département_structure" ASC
 ## [216] part de femmes dans les candidatures acceptées - département
 
 - **ID:** 2023
-- **Thème:** demographie
+- **Thème:** candidatures
 - **Tables:** candidatures_echelle_locale
 
 ```sql

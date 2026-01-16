@@ -7,7 +7,7 @@
 ## Evolution du nombre de prescripteurs inscrits
 
 - **ID:** 1527
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -22,7 +22,7 @@ ORDER BY "source"."date_inscription" ASC
 ## [52] Tableau des prescripteurs par type détaillé
 
 - **ID:** 2590
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -36,7 +36,7 @@ ORDER BY "sum" DESC, "public"."organisations"."type_complet" ASC, "public"."orga
 ## [52] % conseillers SPE
 
 - **ID:** 2601
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -48,7 +48,7 @@ WHERE "public"."organisations"."date_inscription" IS NOT NULL
 ## [52] % conseillers hors SPE
 
 - **ID:** 2602
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql
@@ -65,7 +65,7 @@ WHERE "public"."organisations"."date_inscription" IS NOT NULL
 ## [52] nombre total de conseillers inscrits
 
 - **ID:** 2603
-- **Thème:** prescripteurs
+- **Thème:** employeurs
 - **Tables:** organisations
 
 ```sql

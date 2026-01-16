@@ -7,7 +7,7 @@
 ## [217] Expiration PASS reprise de stock AI
 
 - **ID:** 1656
-- **Thème:** pass-iae
+- **Thème:** candidatures
 - **Tables:** pass_agréments
 
 ```sql
@@ -125,7 +125,7 @@ AND ("public"."suivi_demandes_prolongations"."date_de_création" > date '2023-07
 ## [336] Répartition des demandes par type de prescripteur habilité
 
 - **ID:** 2748
-- **Thème:** prescripteurs
+- **Thème:** prolongations
 - **Tables:** suivi_demandes_prolongations
 
 ```sql

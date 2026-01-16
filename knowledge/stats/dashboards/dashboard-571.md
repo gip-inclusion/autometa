@@ -56,7 +56,7 @@ OR ("esat"."questionnaire_2025"."nb_places_allowed" IS NULL)
 ## Âge moyen des salariés
 
 - **ID:** 6530
-- **Thème:** demographie
+- **Thème:** esat
 - **Tables:** questionnaire_2025
 
 ```sql

@@ -2,7 +2,7 @@
 
 *PASS extensions*
 
-**20 cartes**
+**21 cartes**
 
 ## [336] Nombre de demandes de prolongation
 
@@ -105,6 +105,23 @@ WHERE (("public"."suivi_demandes_prolongations"."motif" = '50 ans et plus')
 OR ("public"."suivi_demandes_prolongations"."motif" = 'RQTH - Reconnaissance de la qualité de travailleur handicapé') 
 OR ("public"."suivi_demandes_prolongations"."motif" = 'Difficultés particulièrement importantes dont l''absence de prise en charge ferait obstacle à son insertion professionnelle')) 
 AND ("public"."suivi_demandes_prolongations"."date_de_création" > date '2023-07-25')
+```
+
+## [336] Répartition des demandes par type de prescripteur habilité
+
+- **ID:** 2748
+- **Dashboard:** 336
+- **Tables:** suivi_demandes_prolongations
+
+```sql
+SELECT "public"."suivi_demandes_prolongations"."type_prescripteur" AS "type_prescripteur", COUNT(*) AS "count" 
+FROM "public"."suivi_demandes_prolongations" 
+WHERE (("public"."suivi_demandes_prolongations"."motif" = '50 ans et plus') 
+OR ("public"."suivi_demandes_prolongations"."motif" = 'RQTH - Reconnaissance de la qualité de travailleur handicapé') 
+OR ("public"."suivi_demandes_prolongations"."motif" = 'Difficultés particulièrement importantes dont l''absence de prise en charge ferait obstacle à son insertion professionnelle')) 
+AND ("public"."suivi_demandes_prolongations"."date_de_création" > date '2023-07-25') 
+GROUP BY "public"."suivi_demandes_prolongations"."type_prescripteur" 
+ORDER BY "public"."suivi_demandes_prolongations"."type_prescripteur" ASC
 ```
 
 ## [336] Nombre des demandes envoyées aux prescripteurs par semaine
