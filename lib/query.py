@@ -35,7 +35,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from .sources import get_metabase, get_matomo
+from ._sources import get_metabase, get_matomo
 
 # Use the same audit database as web/audit.py
 AUDIT_DB_PATH = Path(__file__).parent.parent / "data" / "audit.db"

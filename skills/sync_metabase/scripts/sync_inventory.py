@@ -37,7 +37,7 @@ load_dotenv(project_root / ".env")
 
 from skills.metabase_query.scripts.metabase import MetabaseError
 from skills.metabase_query.scripts.cards_db import CardsDB, TOPICS, TABLE_TO_TOPIC, DB_PATH
-from lib.sources import load_config, get_source_config, get_metabase, list_instances
+from lib._sources import load_config, get_source_config, get_metabase, list_instances
 
 
 def infer_topic_from_tables(tables: list[str]) -> str | None:

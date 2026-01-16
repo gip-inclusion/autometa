@@ -4,6 +4,7 @@
 > Do NOT append to this file simply to say a report was created.
 > New entries are added to the top of the list.
 
+- 2026-01-16. Refactored query API: lib/sources.py renamed to lib/_sources.py (private). All queries must now use lib.query (execute_query, execute_metabase_query, execute_matomo_query) which provides automatic logging to audit.db query_log table. Updated AGENTS.md Quick Start and examples. Internal admin tools (sync_metabase) can still use _sources directly.
 - 2026-01-13. Added /tmp access to both CLI (--add-dir) and SDK (add_dirs) backends. Documented /app/data/interactive/ served at /interactive/ for downloadable files. Added user-related Metabase tables: utilisateurs_v0, tmp_utilisateurs_avec_departement, structures_v0, organisations_v0, suivi_utilisateurs_tb_prive_semaine. Updated AGENTS.md, knowledge/metabase/README.md, web/agents/cli.py, and web/agents/sdk.py.
 - 2026-01-11. Options buttons: last button is now primary (recommended action), not first. Updated AGENTS.md and chat.js.
 - 2026-01-11. User-scoped conversations: conversations are now private per user (filtered by email from oauth-proxy or DEFAULT_USER fallback). Reports remain shared. New URL structure: /explorations (list), /explorations/new (empty chat), /explorations/<uuid> (view). Sidebar redesigned: "Nouvelle conversation" at top, then Rapports/Connaissances, then 15 recent conversations with "Voir plus..." link. Migration script added for existing conversations.

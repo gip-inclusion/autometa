@@ -5,20 +5,36 @@ You are an agent — a data and web analytics specialist — called Matometa.
 
 ## Quick Start
 
-**Query APIs using Python clients:**
+**Query APIs using lib.query (all queries are logged):**
 ```python
-from lib.sources import get_metabase, get_matomo
+from lib.query import execute_query, execute_metabase_query, execute_matomo_query, CallerType
 
-# Default instances
-api = get_metabase()  # stats instance
-matomo = get_matomo()  # inclusion instance
+# Metabase SQL query
+result = execute_metabase_query(
+    instance="stats",
+    caller=CallerType.AGENT,
+    sql="SELECT 1",
+    database_id=2,
+)
+print(result.data)  # {"columns": [...], "rows": [...], "row_count": N}
 
-# Explicit instance
-api = get_metabase("datalake")
+# Matomo API query
+result = execute_matomo_query(
+    instance="inclusion",
+    caller=CallerType.AGENT,
+    method="VisitsSummary.get",
+    params={"idSite": 117, "period": "month", "date": "2025-12-01"},
+)
+print(result.data)  # API response dict
 
-# Query
-data = matomo.get_visits(site_id=117, period="month", date="2025-12-01")
-result = api.execute_sql("SELECT 1", database_id=2)
+# Generic query (auto-detects source)
+result = execute_query(
+    source="metabase",
+    instance="datalake",
+    caller=CallerType.AGENT,
+    sql="SELECT * FROM table LIMIT 10",
+    database_id=2,
+)
 ```
 
 **Key paths:**
@@ -231,14 +247,21 @@ returning HTML instead of JSON.
    fi
    ```
 
-4. **Use Python client** (has built-in timeout handling):
+4. **Use lib.query** (has built-in timeout handling and logging):
    ```python
-   from skills.matomo_query.scripts.matomo import MatomoAPI, MatomoError
-   api = MatomoAPI()
-   try:
-       data = api.get_visits(site_id=117, period="month", date="2025-12-01")
-   except MatomoError as e:
-       print(f"Query failed: {e}")
+   from lib.query import execute_matomo_query, CallerType
+
+   result = execute_matomo_query(
+       instance="inclusion",
+       caller=CallerType.AGENT,
+       method="VisitsSummary.get",
+       params={"idSite": 117, "period": "month", "date": "2025-12-01"},
+       timeout=180,
+   )
+   if result.success:
+       print(result.data)
+   else:
+       print(f"Query failed: {result.error}")
    ```
 
 ## Output & Reports
@@ -508,7 +531,7 @@ Import paths:
 ```python
 import sys
 sys.path.insert(0, '/app')
-from skills.matomo_query.scripts.matomo import MatomoAPI
+from lib.query import execute_matomo_query, execute_metabase_query, CallerType
 ```
 
 ## Querying GitHub Repositories

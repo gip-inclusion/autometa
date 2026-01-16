@@ -1,13 +1,10 @@
 """
-Load data source configuration and return configured API clients.
+PRIVATE MODULE - Do not import directly.
 
-Usage:
-    from lib.sources import get_metabase, get_matomo, load_config
+Use lib.query for all queries (provides logging):
+    from lib.query import execute_query, execute_metabase_query, execute_matomo_query
 
-    api = get_metabase()           # default instance (stats)
-    api = get_metabase("datalake") # explicit instance
-
-    matomo = get_matomo()          # default instance (inclusion)
+This module provides the underlying client factories for internal use only.
 """
 
 import os
