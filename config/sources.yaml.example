@@ -1,0 +1,42 @@
+# Data source configuration
+# Copy to sources.yaml and set API keys in .env
+
+metabase:
+  _default: stats
+
+  stats:
+    url: https://stats.inclusion.beta.gouv.fr
+    api_key: ${env.METABASE_STATS_API_KEY}
+    knowledge_path: knowledge/stats/
+    dashboards:
+      90: /tableaux-de-bord/metiers/
+      150: /tableaux-de-bord/postes-en-tension/
+      54: /tableaux-de-bord/zoom-employeurs/
+      408: /tableaux-de-bord/candidat-file-active-IAE/
+      216: /tableaux-de-bord/femmes-iae/
+      337: /tableaux-de-bord/bilan-candidatures-iae/
+      218: /tableaux-de-bord/cartographies-iae/
+      116: /tableaux-de-bord/etat-suivi-candidatures/
+      32: /tableaux-de-bord/auto-prescription/
+      52: /tableaux-de-bord/zoom-prescripteurs/
+      136: /tableaux-de-bord/prescripteurs-habilites/
+      287: /tableaux-de-bord/conventionnements-iae/
+      325: /tableaux-de-bord/analyses-conventionnements-iae/
+      336: /tableaux-de-bord/suivi-demandes-prolongation/
+      217: /tableaux-de-bord/suivi-pass-iae/
+      571: /tableaux-de-bord/zoom-esat-2025/
+      471: /tableaux-de-bord/zoom-esat-2024/
+      306: /tableaux-de-bord/zoom-esat/
+
+  datalake:
+    url: https://datalake.example.com
+    api_key: ${env.METABASE_DATALAKE_API_KEY}
+    knowledge_path: knowledge/datalake/
+    dashboards: {}
+
+matomo:
+  _default: inclusion
+
+  inclusion:
+    url: https://matomo.inclusion.beta.gouv.fr
+    token: ${env.MATOMO_TOKEN}
