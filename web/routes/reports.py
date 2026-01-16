@@ -9,6 +9,20 @@ from ..storage import store
 bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 
 
+@bp.route("/tags", methods=["GET"])
+def list_tags():
+    """Get all available tags, optionally filtered by type."""
+    tag_type = request.args.get("type")
+    if tag_type:
+        tags = store.get_all_tags(tag_type=tag_type)
+    else:
+        tags = store.get_all_tags()
+
+    return jsonify({
+        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
+    })
+
+
 @bp.route("", methods=["GET"])
 def list_reports():
     """List available reports from database."""
@@ -118,3 +132,30 @@ def create_report():
             "view": f"/rapports?id={report.id}",
         }
     }), 201
+
+
+@bp.route("/<int:report_id>/tags", methods=["GET"])
+def get_report_tags(report_id: int):
+    """Get tags for a report."""
+    tags = store.get_report_tags(report_id)
+    return jsonify({
+        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
+    })
+
+
+@bp.route("/<int:report_id>/tags", methods=["PUT"])
+def set_report_tags(report_id: int):
+    """Set tags for a report (replaces existing)."""
+    data = request.get_json()
+    if not data or "tags" not in data:
+        return jsonify({"error": "Missing 'tags' field"}), 400
+
+    tag_names = data["tags"]
+    if not isinstance(tag_names, list):
+        return jsonify({"error": "'tags' must be a list"}), 400
+
+    store.set_report_tags(report_id, tag_names)
+    tags = store.get_report_tags(report_id)
+    return jsonify({
+        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
+    })
