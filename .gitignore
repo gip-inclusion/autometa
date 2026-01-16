@@ -14,3 +14,4 @@ knowledge-drafts/
 claude-credentials/
 AGENTS.local.md
 knowledge/metabase/cards.db
+auth/allowed_emails.txt
