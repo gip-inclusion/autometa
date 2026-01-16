@@ -37,6 +37,7 @@ def query():
     Request body (JSON):
         source: "metabase" or "matomo"
         instance: Instance name (e.g., "stats", "datalake", "inclusion")
+        conversation_id: Optional conversation ID for audit logging
 
         # For Metabase:
         sql: SQL query string (with database_id)
@@ -80,7 +81,7 @@ def query():
         source=source,
         instance=instance,
         caller=CallerType.APP,
-        user_email=g.user_email,
+        conversation_id=data.get("conversation_id"),
         # Metabase params
         sql=data.get("sql"),
         database_id=data.get("database_id"),

@@ -9,7 +9,7 @@ Usage:
         source="metabase",
         instance="datalake",
         caller=CallerType.APP,
-        user_email="user@example.com",
+        conversation_id="abc-123",
         sql="SELECT * FROM table LIMIT 10",
         database_id=2,
     )
@@ -19,7 +19,7 @@ Usage:
         source="matomo",
         instance="inclusion",
         caller=CallerType.AGENT,
-        user_email="user@example.com",
+        conversation_id="def-456",
         method="VisitsSummary.get",
         params={"idSite": 117, "period": "month", "date": "2025-12-01"},
     )
@@ -69,31 +69,49 @@ def _get_db_connection() -> sqlite3.Connection:
 def _init_query_log_table():
     """Initialize the query_log table in audit.db."""
     conn = _get_db_connection()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS query_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            source TEXT NOT NULL,
-            instance TEXT NOT NULL,
-            caller TEXT NOT NULL,
-            user_email TEXT,
-            query_type TEXT,
-            query_details TEXT,
-            success INTEGER NOT NULL,
-            error TEXT,
-            execution_time_ms INTEGER,
-            row_count INTEGER
-        );
 
-        CREATE INDEX IF NOT EXISTS idx_query_log_timestamp
-            ON query_log(timestamp DESC);
+    # Check if table exists and has old schema (user_email instead of conversation_id)
+    cursor = conn.execute("PRAGMA table_info(query_log)")
+    columns = {row[1] for row in cursor.fetchall()}
 
-        CREATE INDEX IF NOT EXISTS idx_query_log_source_instance
-            ON query_log(source, instance);
+    if "user_email" in columns and "conversation_id" not in columns:
+        # Migrate: rename user_email to conversation_id
+        conn.executescript("""
+            ALTER TABLE query_log RENAME COLUMN user_email TO conversation_id;
+            CREATE INDEX IF NOT EXISTS idx_query_log_conversation
+                ON query_log(conversation_id);
+        """)
+    elif not columns:
+        # Create new table
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS query_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                source TEXT NOT NULL,
+                instance TEXT NOT NULL,
+                caller TEXT NOT NULL,
+                conversation_id TEXT,
+                query_type TEXT,
+                query_details TEXT,
+                success INTEGER NOT NULL,
+                error TEXT,
+                execution_time_ms INTEGER,
+                row_count INTEGER
+            );
 
-        CREATE INDEX IF NOT EXISTS idx_query_log_caller
-            ON query_log(caller);
-    """)
+            CREATE INDEX IF NOT EXISTS idx_query_log_timestamp
+                ON query_log(timestamp DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_query_log_source_instance
+                ON query_log(source, instance);
+
+            CREATE INDEX IF NOT EXISTS idx_query_log_caller
+                ON query_log(caller);
+
+            CREATE INDEX IF NOT EXISTS idx_query_log_conversation
+                ON query_log(conversation_id);
+        """)
+
     conn.commit()
     conn.close()
 
@@ -106,7 +124,7 @@ def _log_query(
     source: str,
     instance: str,
     caller: CallerType,
-    user_email: Optional[str],
+    conversation_id: Optional[str],
     query_type: str,
     query_details: dict,
     success: bool,
@@ -120,7 +138,7 @@ def _log_query(
         conn.execute(
             """
             INSERT INTO query_log
-            (timestamp, source, instance, caller, user_email, query_type,
+            (timestamp, source, instance, caller, conversation_id, query_type,
              query_details, success, error, execution_time_ms, row_count)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -129,7 +147,7 @@ def _log_query(
                 source,
                 instance,
                 caller.value,
-                user_email,
+                conversation_id,
                 query_type,
                 json.dumps(query_details, default=str),
                 1 if success else 0,
@@ -147,7 +165,7 @@ def _log_query(
 def execute_metabase_query(
     instance: str,
     caller: CallerType,
-    user_email: Optional[str] = None,
+    conversation_id: Optional[str] = None,
     sql: Optional[str] = None,
     database_id: Optional[int] = None,
     card_id: Optional[int] = None,
@@ -194,7 +212,7 @@ def execute_metabase_query(
             source="metabase",
             instance=instance,
             caller=caller,
-            user_email=user_email,
+            conversation_id=conversation_id,
             query_type=query_type,
             query_details=query_details,
             success=True,
@@ -213,7 +231,7 @@ def execute_metabase_query(
             source="metabase",
             instance=instance,
             caller=caller,
-            user_email=user_email,
+            conversation_id=conversation_id,
             query_type=query_type,
             query_details=query_details,
             success=False,
@@ -227,7 +245,7 @@ def execute_metabase_query(
 def execute_matomo_query(
     instance: str,
     caller: CallerType,
-    user_email: Optional[str] = None,
+    conversation_id: Optional[str] = None,
     method: str = "",
     params: Optional[dict] = None,
     timeout: int = 180,
@@ -255,7 +273,7 @@ def execute_matomo_query(
             source="matomo",
             instance=instance,
             caller=caller,
-            user_email=user_email,
+            conversation_id=conversation_id,
             query_type=method,
             query_details=query_details,
             success=True,
@@ -274,7 +292,7 @@ def execute_matomo_query(
             source="matomo",
             instance=instance,
             caller=caller,
-            user_email=user_email,
+            conversation_id=conversation_id,
             query_type=method,
             query_details=query_details,
             success=False,
@@ -289,7 +307,7 @@ def execute_query(
     source: str,
     instance: str,
     caller: CallerType,
-    user_email: Optional[str] = None,
+    conversation_id: Optional[str] = None,
     # Metabase params
     sql: Optional[str] = None,
     database_id: Optional[int] = None,
@@ -307,7 +325,7 @@ def execute_query(
         source: "metabase" or "matomo"
         instance: Instance name (e.g., "stats", "datalake", "inclusion")
         caller: CallerType.AGENT or CallerType.APP
-        user_email: Email of the user making the request
+        conversation_id: ID of the conversation making the request
 
         # For Metabase:
         sql: SQL query string
@@ -327,7 +345,7 @@ def execute_query(
         return execute_metabase_query(
             instance=instance,
             caller=caller,
-            user_email=user_email,
+            conversation_id=conversation_id,
             sql=sql,
             database_id=database_id,
             card_id=card_id,
@@ -337,7 +355,7 @@ def execute_query(
         return execute_matomo_query(
             instance=instance,
             caller=caller,
-            user_email=user_email,
+            conversation_id=conversation_id,
             method=method or "",
             params=params,
             timeout=timeout,

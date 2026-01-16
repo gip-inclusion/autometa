@@ -240,6 +240,7 @@ const result = await query({
     source: 'matomo',
     instance: 'inclusion',
     method: 'VisitsSummary.get',
+    conversation_id: 'my-app-session-123',  // optional, for audit
     params: {
         idSite: 117,
         period: 'month',
