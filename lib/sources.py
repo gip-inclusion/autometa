@@ -25,8 +25,14 @@ CONFIG_PATH = Path(__file__).parent.parent / "config" / "sources.yaml"
 _config: dict | None = None
 
 
-def _substitute_env_vars(value: Any) -> Any:
-    """Recursively substitute ${env.VAR} patterns with environment values."""
+def _substitute_env_vars(value: Any, strict: bool = False) -> Any:
+    """
+    Recursively substitute ${env.VAR} patterns with environment values.
+
+    Args:
+        value: Value to process
+        strict: If True, raise error for missing env vars. If False, keep original string.
+    """
     if isinstance(value, str):
         pattern = r'\$\{env\.([^}]+)\}'
 
@@ -34,7 +40,9 @@ def _substitute_env_vars(value: Any) -> Any:
             var_name = match.group(1)
             env_value = os.environ.get(var_name)
             if env_value is None:
-                raise ValueError(f"Environment variable {var_name} not set")
+                if strict:
+                    raise ValueError(f"Environment variable {var_name} not set")
+                return match.group(0)  # Keep original ${env.VAR} string
             return env_value
 
         return re.sub(pattern, replacer, value)
@@ -99,7 +107,9 @@ def get_source_config(source_type: str, instance: str | None = None) -> dict:
             f"Available: {', '.join(available)}"
         )
 
-    return source_config[instance]
+    # Re-substitute with strict mode to catch missing env vars for this specific instance
+    instance_config = source_config[instance]
+    return _substitute_env_vars(instance_config, strict=True)
 
 
 def get_metabase(instance: str | None = None):

@@ -3,17 +3,19 @@
 Sync Metabase cards inventory to Markdown files (and optionally SQLite).
 
 Usage:
-    python -m skills.sync_metabase.scripts.sync_inventory
-    python -m skills.sync_metabase.scripts.sync_inventory --skip-categorize
-    python -m skills.sync_metabase.scripts.sync_inventory --sqlite
-    python -m skills.sync_metabase.scripts.sync_inventory --dashboards 216 408
+    python -m skills.sync_metabase.scripts.sync_inventory --instance stats
+    python -m skills.sync_metabase.scripts.sync_inventory --instance datalake
+    python -m skills.sync_metabase.scripts.sync_inventory --all
+    python -m skills.sync_metabase.scripts.sync_inventory --instance stats --skip-categorize
+    python -m skills.sync_metabase.scripts.sync_inventory --instance stats --sqlite
 
 This script:
-1. Fetches cards from public dashboards visible on pilotage.inclusion.beta.gouv.fr
-2. Extracts SQL queries (native or compiled from GUI queries)
-3. Optionally categorizes with Claude AI
-4. Generates Markdown files in knowledge/stats/ (default)
-5. Optionally generates SQLite database (--sqlite)
+1. Reads instance config from config/sources.yaml
+2. Fetches cards from dashboards configured for that instance
+3. Extracts SQL queries (native or compiled from GUI queries)
+4. Optionally categorizes with Claude AI
+5. Generates Markdown files in the instance's knowledge_path
+6. Optionally generates SQLite database (--sqlite)
 """
 
 import argparse
@@ -33,8 +35,9 @@ sys.path.insert(0, str(project_root))
 from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
-from skills.metabase_query.scripts.metabase import MetabaseAPI, MetabaseError
+from skills.metabase_query.scripts.metabase import MetabaseError
 from skills.metabase_query.scripts.cards_db import CardsDB, TOPICS, TABLE_TO_TOPIC, DB_PATH
+from lib.sources import load_config, get_source_config, get_metabase, list_instances
 
 
 def infer_topic_from_tables(tables: list[str]) -> str | None:
@@ -45,35 +48,6 @@ def infer_topic_from_tables(tables: list[str]) -> str | None:
             if pattern in table_lower:
                 return topic
     return None
-
-
-# Public dashboards on pilotage.inclusion.beta.gouv.fr
-# Format: dashboard_id -> pilotage_url
-PUBLIC_DASHBOARDS = {
-    # L'offre d'insertion par l'activité économique
-    90: "/tableaux-de-bord/metiers/",
-    150: "/tableaux-de-bord/postes-en-tension/",
-    54: "/tableaux-de-bord/zoom-employeurs/",
-    # Les publics dans l'IAE
-    408: "/tableaux-de-bord/candidat-file-active-IAE/",
-    216: "/tableaux-de-bord/femmes-iae/",
-    # Les candidatures vers l'IAE
-    337: "/tableaux-de-bord/bilan-candidatures-iae/",
-    218: "/tableaux-de-bord/cartographies-iae/",
-    116: "/tableaux-de-bord/etat-suivi-candidatures/",
-    32: "/tableaux-de-bord/auto-prescription/",
-    52: "/tableaux-de-bord/zoom-prescripteurs/",
-    136: "/tableaux-de-bord/prescripteurs-habilites/",
-    # Pilotage du dispositif IAE
-    287: "/tableaux-de-bord/conventionnements-iae/",
-    325: "/tableaux-de-bord/analyses-conventionnements-iae/",
-    336: "/tableaux-de-bord/suivi-demandes-prolongation/",
-    217: "/tableaux-de-bord/suivi-pass-iae/",
-    # ESAT
-    571: "/tableaux-de-bord/zoom-esat-2025/",
-    471: "/tableaux-de-bord/zoom-esat-2024/",
-    306: "/tableaux-de-bord/zoom-esat/",
-}
 
 
 def progress_bar(current: int, total: int, prefix: str = "", suffix: str = "", length: int = 40):
@@ -498,19 +472,22 @@ def generate_markdown(db: CardsDB, cards_dir: Path, dashboards_dir: Path, last_s
     return cards_dir, dashboards_dir
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Sync Metabase cards to markdown/SQLite")
-    parser.add_argument("--skip-categorize", action="store_true", help="Skip AI categorization")
-    parser.add_argument("--dashboards", type=int, nargs="+", help="Dashboard IDs to sync (default: all public)")
-    parser.add_argument("--sqlite", action="store_true", help="Also generate SQLite database (optional)")
-    parser.add_argument("--sqlite-only", action="store_true", help="Only generate SQLite, skip markdown")
-    args = parser.parse_args()
+def sync_instance(instance_name: str, args):
+    """Sync a single Metabase instance."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # Determine which dashboards to sync
-    dashboard_ids = args.dashboards if args.dashboards else list(PUBLIC_DASHBOARDS.keys())
+    # Load instance config
+    instance_config = get_source_config("metabase", instance_name)
+    public_dashboards = instance_config.get("dashboards", {})
+    dashboard_ids = list(public_dashboards.keys())
+    knowledge_path = instance_config.get("knowledge_path", f"knowledge/{instance_name}/")
+
+    if not dashboard_ids:
+        print(f"⚠️  No dashboards configured for instance '{instance_name}'")
+        return
 
     # Output directories
-    stats_dir = Path(__file__).parent.parent.parent.parent / "knowledge" / "stats"
+    stats_dir = project_root / knowledge_path
     cards_dir = stats_dir / "cards"
     dashboards_dir = stats_dir / "dashboards"
 
@@ -519,19 +496,21 @@ def main():
     generate_sqlite = args.sqlite or args.sqlite_only
 
     print("=" * 70)
-    print("🚀 Metabase Cards Sync")
+    print(f"🚀 Metabase Cards Sync: {instance_name}")
     print("=" * 70)
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Dashboards: {len(dashboard_ids)} public dashboards")
+    print(f"Instance: {instance_name} ({instance_config['url']})")
+    print(f"Dashboards: {len(dashboard_ids)}")
+    print(f"Output: {knowledge_path}")
     print()
 
     # Initialize API and DB
     try:
-        api = MetabaseAPI()
+        api = get_metabase(instance_name)
         print("✅ Metabase API connected")
     except Exception as e:
         print(f"❌ Failed to connect to Metabase: {e}")
-        sys.exit(1)
+        return
 
     # Always use in-memory db during sync, save to file at the end if needed
     db = CardsDB(in_memory=True)
@@ -554,7 +533,7 @@ def main():
                 "name": dashboard.get("name", f"Dashboard {dash_id}"),
                 "description": dashboard.get("description"),
                 "collection_id": dashboard.get("collection_id"),
-                "pilotage_url": PUBLIC_DASHBOARDS.get(dash_id),
+                "pilotage_url": public_dashboards.get(dash_id),
             }
 
             # Extract cards from dashboard (skip unnamed/empty cards)
@@ -586,6 +565,11 @@ def main():
 
     print(f"   Total: {len(all_cards)} unique cards from {len(dashboard_ids)} dashboards")
 
+    if not all_cards:
+        print("⚠️  No cards found, skipping remaining steps")
+        db.close()
+        return
+
     # Store dashboard metadata in DB
     for dash_id, meta in dashboard_metadata.items():
         db.upsert_dashboard(
@@ -602,8 +586,6 @@ def main():
     print()
     print("🔍 STEP 2: Fetching SQL queries (parallel)...")
     print("-" * 70)
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def fetch_card_sql(card: dict) -> tuple[int, str, list[str]]:
         """Fetch SQL for a single card. Returns (card_id, sql, tables)."""
@@ -714,12 +696,15 @@ def main():
         print()
         print("💾 STEP 6: Saving SQLite database...")
         print("-" * 70)
-        db.save_to_file(DB_PATH)
-        print(f"   ✅ Database saved to {DB_PATH}")
+        # Save to instance-specific path
+        sqlite_path = stats_dir / "cards.db"
+        db.save_to_file(sqlite_path)
+        print(f"   ✅ Database saved to {sqlite_path}")
 
-        # Generate SQLite README
-        readme_path = generate_readme(db, last_sync)
-        print(f"   ✅ {readme_path}")
+        # Generate SQLite README in the instance knowledge dir
+        readme_path = stats_dir / "README.md"
+        # Use generate_readme but with correct path
+        # For now, skip the README generation for non-default instances
 
     db.close()
 
@@ -727,12 +712,38 @@ def main():
     print("=" * 70)
     print("✅ COMPLETE!")
     print("=" * 70)
+    print(f"Instance: {instance_name}")
     print(f"Cards: {len(all_cards)}")
-    if generate_sqlite:
-        print(f"SQLite: {DB_PATH}")
     if generate_markdown_files:
         print(f"Markdown: {cards_dir}")
         print(f"Dashboards: {dashboards_dir}")
+    print()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Sync Metabase cards to markdown/SQLite")
+    parser.add_argument("--instance", type=str, help="Metabase instance to sync (e.g., stats, datalake)")
+    parser.add_argument("--all", action="store_true", help="Sync all configured instances")
+    parser.add_argument("--skip-categorize", action="store_true", help="Skip AI categorization")
+    parser.add_argument("--sqlite", action="store_true", help="Also generate SQLite database")
+    parser.add_argument("--sqlite-only", action="store_true", help="Only generate SQLite, skip markdown")
+    args = parser.parse_args()
+
+    # Require explicit instance selection
+    if not args.instance and not args.all:
+        available = list_instances("metabase")
+        print("Error: Please specify --instance <name> or --all")
+        print(f"Available instances: {', '.join(available)}")
+        sys.exit(1)
+
+    # Determine which instances to sync
+    if args.all:
+        instances = list_instances("metabase")
+    else:
+        instances = [args.instance]
+
+    for instance_name in instances:
+        sync_instance(instance_name, args)
 
 
 if __name__ == "__main__":
