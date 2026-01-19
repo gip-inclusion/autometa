@@ -82,9 +82,8 @@ def list_knowledge_files() -> dict[str, list[dict]]:
 
         rel_path = f.relative_to(KNOWLEDGE_ROOT)
         # Section is the parent directory path (e.g., "stats", "stats/cards")
-        section = str(rel_path.parent) if rel_path.parent != Path(".") else ""
-        if not section:
-            continue  # Skip files at root level
+        # Use "." for root-level files
+        section = str(rel_path.parent) if rel_path.parent != Path(".") else "."
 
         # Humanize the name
         name = f.stem
