@@ -379,6 +379,44 @@ body.has-sidebar {
   font-size: 0.9rem;
 }
 
+/* Public conversations warning banner */
+.chat-bar-warning {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  color: #856404;
+}
+
+.chat-bar-warning i {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.chat-bar-warning-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: #856404;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: background 0.15s;
+}
+
+.chat-bar-warning-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
 /* ==========================================================================
    Chat output
    ========================================================================== */
