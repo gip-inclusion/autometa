@@ -120,14 +120,16 @@ def get_metabase(instance: str | None = None, database_id: int | None = None):
     Returns:
         Configured MetabaseAPI instance
     """
-    from skills.metabase_query.scripts.metabase import MetabaseAPI
+    from ._metabase import MetabaseAPI
 
     config = get_source_config("metabase", instance)
+    instance_name = instance or get_default_instance("metabase") or "stats"
 
     return MetabaseAPI(
         url=config["url"],
         api_key=config["api_key"],
         database_id=database_id,
+        instance=instance_name,
     )
 
 
@@ -141,9 +143,10 @@ def get_matomo(instance: str | None = None):
     Returns:
         Configured MatomoAPI instance
     """
-    from skills.matomo_query.scripts.matomo import MatomoAPI
+    from ._matomo import MatomoAPI
 
     config = get_source_config("matomo", instance)
+    instance_name = instance or get_default_instance("matomo") or "inclusion"
 
     # MatomoAPI expects hostname only (without https://)
     url = config["url"]
@@ -155,6 +158,7 @@ def get_matomo(instance: str | None = None):
     return MatomoAPI(
         url=url,
         token=config["token"],
+        instance=instance_name,
     )
 
 

@@ -7,6 +7,13 @@ Configure test parameters here or via environment variables.
 import os
 import pytest
 
+# Load .env file for integration tests
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, rely on shell environment
+
 
 # Matomo test configuration - override via environment variables if needed
 MATOMO_TEST_SITE_ID = int(os.environ.get("MATOMO_TEST_SITE_ID", "117"))

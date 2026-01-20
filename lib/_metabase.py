@@ -1,0 +1,313 @@
+"""
+Metabase API client with automatic audit logging.
+
+Usage:
+    from lib.query import MetabaseAPI
+
+    api = MetabaseAPI(url="https://metabase.example.com", api_key="...", database_id=2)
+    result = api.execute_sql("SELECT 1")
+    print(result.to_markdown())
+"""
+
+import json
+import time
+import urllib.request
+import urllib.parse
+from dataclasses import dataclass
+from typing import Any, Optional
+
+from ._audit import log_query
+
+
+@dataclass
+class QueryResult:
+    """Result from a Metabase query."""
+
+    columns: list[str]
+    rows: list[list[Any]]
+    row_count: int
+
+    def to_markdown(self, max_rows: int = 20) -> str:
+        """Format result as a markdown table."""
+        if self.row_count == 0:
+            return "Aucun resultat trouve."
+
+        lines = [f"Resultats ({self.row_count} lignes):", ""]
+
+        # Header
+        lines.append("| " + " | ".join(self.columns) + " |")
+        lines.append("| " + " | ".join("---" for _ in self.columns) + " |")
+
+        # Rows
+        rows_to_show = min(max_rows, self.row_count)
+        for i in range(rows_to_show):
+            cells = [str(cell) if cell is not None else "" for cell in self.rows[i]]
+            lines.append("| " + " | ".join(cells) + " |")
+
+        if self.row_count > max_rows:
+            lines.append(f"\n... et {self.row_count - max_rows} lignes supplementaires")
+
+        return "\n".join(lines)
+
+    def to_dicts(self) -> list[dict]:
+        """Convert rows to list of dictionaries."""
+        return [dict(zip(self.columns, row)) for row in self.rows]
+
+
+class MetabaseError(Exception):
+    """Error from Metabase API."""
+    pass
+
+
+class MetabaseAPI:
+    """
+    Client for querying the Metabase API.
+
+    All queries are automatically logged to the audit database.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        api_key: str,
+        database_id: Optional[int] = None,
+        instance: str = "stats",
+        caller: str = "agent",
+    ):
+        """
+        Initialize the API client.
+
+        Args:
+            url: Metabase base URL (e.g., "https://metabase.example.com")
+            api_key: API authentication key
+            database_id: Default database ID for SQL queries
+            instance: Instance name for logging (default: "stats")
+            caller: Caller type for logging (default: "agent")
+        """
+        self.url = url.rstrip("/")
+        self.api_key = api_key
+        self.database_id = database_id or 2
+        self.instance = instance
+        self.caller = caller
+
+    def _request(
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[dict] = None,
+        timeout: int = 60,
+    ) -> Any:
+        """Make an API request."""
+        url = f"{self.url}{endpoint}"
+
+        headers = {
+            "X-API-KEY": self.api_key,
+            "Content-Type": "application/json",
+        }
+
+        request_data = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=request_data, headers=headers, method=method)
+
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode())
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else str(e)
+            raise MetabaseError(f"HTTP {e.code}: {error_body}")
+        except urllib.error.URLError as e:
+            raise MetabaseError(f"Request failed: {e}")
+
+    def _parse_result(self, data: dict) -> QueryResult:
+        """Parse Metabase query result into QueryResult."""
+        # Check for query errors (Metabase returns 202 with error in body)
+        if data.get("error"):
+            raise MetabaseError(data.get("error"))
+
+        cols = data.get("data", {}).get("cols", [])
+        rows = data.get("data", {}).get("rows", [])
+
+        columns = [col.get("display_name") or col.get("name", f"col_{i}")
+                   for i, col in enumerate(cols)]
+
+        return QueryResult(
+            columns=columns,
+            rows=rows,
+            row_count=len(rows),
+        )
+
+    # --- Core methods ---
+
+    def execute_sql(self, sql: str, timeout: int = 60) -> QueryResult:
+        """
+        Execute a native SQL query.
+
+        Args:
+            sql: SQL query to execute
+            timeout: Request timeout in seconds
+
+        Returns:
+            QueryResult with columns and rows
+        """
+        start_time = time.time()
+        query_details = {"sql": sql[:500], "database_id": self.database_id}
+
+        try:
+            data = {
+                "database": self.database_id,
+                "type": "native",
+                "native": {"query": sql},
+            }
+            result_data = self._request("POST", "/api/dataset", data, timeout=timeout)
+            result = self._parse_result(result_data)
+
+            execution_time_ms = int((time.time() - start_time) * 1000)
+
+            log_query(
+                source="metabase",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,  # Auto-read from env
+                query_type="sql",
+                query_details=query_details,
+                success=True,
+                error=None,
+                execution_time_ms=execution_time_ms,
+                row_count=result.row_count,
+            )
+
+            return result
+
+        except Exception as e:
+            execution_time_ms = int((time.time() - start_time) * 1000)
+            error_msg = str(e)
+
+            log_query(
+                source="metabase",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,
+                query_type="sql",
+                query_details=query_details,
+                success=False,
+                error=error_msg,
+                execution_time_ms=execution_time_ms,
+            )
+
+            raise
+
+    def execute_card(self, card_id: int, timeout: int = 60) -> QueryResult:
+        """
+        Execute a saved Metabase card/question.
+
+        Args:
+            card_id: The card ID to execute
+            timeout: Request timeout in seconds
+
+        Returns:
+            QueryResult with columns and rows
+        """
+        start_time = time.time()
+        query_details = {"card_id": card_id}
+
+        try:
+            result_data = self._request(
+                "POST", f"/api/card/{card_id}/query", {}, timeout=timeout
+            )
+            result = self._parse_result(result_data)
+
+            execution_time_ms = int((time.time() - start_time) * 1000)
+
+            log_query(
+                source="metabase",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,
+                query_type="card",
+                query_details=query_details,
+                success=True,
+                error=None,
+                execution_time_ms=execution_time_ms,
+                row_count=result.row_count,
+            )
+
+            return result
+
+        except Exception as e:
+            execution_time_ms = int((time.time() - start_time) * 1000)
+            error_msg = str(e)
+
+            log_query(
+                source="metabase",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,
+                query_type="card",
+                query_details=query_details,
+                success=False,
+                error=error_msg,
+                execution_time_ms=execution_time_ms,
+            )
+
+            raise
+
+    def get_card(self, card_id: int) -> dict:
+        """Get card metadata."""
+        return self._request("GET", f"/api/card/{card_id}")
+
+    # --- Discovery methods ---
+
+    def list_cards(self, collection_id: int) -> list[dict]:
+        """List cards in a collection."""
+        result = self._request("GET", f"/api/collection/{collection_id}/items")
+        items = result.get("data", [])
+        return [item for item in items if item.get("model") == "card"]
+
+    def search_cards(self, query: str, limit: int = 50) -> list[dict]:
+        """Search for cards by name/description."""
+        params = urllib.parse.urlencode({
+            "q": query,
+            "models": "card",
+            "limit": limit,
+        })
+        result = self._request("GET", f"/api/search?{params}")
+        return result.get("data", [])
+
+    def get_card_sql(self, card_id: int) -> str:
+        """
+        Get the SQL query for a card.
+
+        For native queries, returns the SQL directly.
+        For GUI queries, executes the card to get compiled SQL.
+        """
+        card = self.get_card(card_id)
+        dataset_query = card.get("dataset_query", {})
+
+        # Native SQL query
+        if dataset_query.get("type") == "native":
+            return dataset_query.get("native", {}).get("query", "")
+
+        # GUI query - need to execute to get compiled SQL
+        try:
+            result = self._request("POST", f"/api/card/{card_id}/query", {})
+            native_form = result.get("data", {}).get("native_form", {})
+            return native_form.get("query", "")
+        except MetabaseError:
+            return ""
+
+    # --- Dashboard methods ---
+
+    def get_dashboard(self, dashboard_id: int) -> dict:
+        """Get dashboard metadata including cards."""
+        return self._request("GET", f"/api/dashboard/{dashboard_id}")
+
+    def list_dashboards(self, collection_id: int) -> list[dict]:
+        """List dashboards in a collection."""
+        result = self._request("GET", f"/api/collection/{collection_id}/items")
+        items = result.get("data", [])
+        return [item for item in items if item.get("model") == "dashboard"]
+
+    # --- User info ---
+
+    def get_current_user(self) -> dict:
+        """Get current authenticated user info."""
+        return self._request("GET", "/api/user/current")

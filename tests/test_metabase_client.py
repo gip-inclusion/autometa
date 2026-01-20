@@ -1,16 +1,17 @@
 """
 Tests for the Metabase API client.
 
-Run with: pytest tests/test_metabase_client.py -v
+These are integration tests that require credentials.
+Run with: pytest tests/test_metabase_client.py -v -m integration
 """
 
 import pytest
-from skills.metabase_query.scripts.metabase import (
-    MetabaseAPI,
-    MetabaseError,
-    QueryResult,
-    format_data_source,
-)
+from lib.query import MetabaseAPI, MetabaseError
+from lib._metabase import QueryResult
+from lib._sources import get_metabase
+
+# All tests in this file are integration tests
+pytestmark = pytest.mark.integration
 
 # Known collection IDs
 COLLECTION_452 = 452
@@ -23,7 +24,7 @@ KNOWN_CARD_ID = 4413
 @pytest.fixture(scope="module")
 def api():
     """Create API client for all tests."""
-    return MetabaseAPI()
+    return get_metabase(instance="stats")
 
 
 class TestConnection:
@@ -169,52 +170,3 @@ class TestDashboards:
             dashboard = api.get_dashboard(dashboard_id)
             assert "id" in dashboard
             assert dashboard["id"] == dashboard_id
-
-
-class TestFormatDataSource:
-    """Test format_data_source() helper."""
-
-    BASE_URL = "https://stats.inclusion.beta.gouv.fr"
-
-    def test_card_only(self):
-        """Card ID generates question URL."""
-        result = format_data_source(self.BASE_URL, card_id=123)
-        assert "[View in Metabase]" in result
-        assert "/question/123" in result
-
-    def test_dashboard_only(self):
-        """Dashboard ID generates dashboard URL."""
-        result = format_data_source(self.BASE_URL, dashboard_id=45)
-        assert "[View in Metabase]" in result
-        assert "/dashboard/45" in result
-
-    def test_sql_only(self):
-        """SQL without card/dashboard shows just the query."""
-        result = format_data_source(self.BASE_URL, sql="SELECT 1")
-        assert "`SELECT 1`" in result
-        assert "View in Metabase" not in result
-
-    def test_card_and_sql(self):
-        """Card + SQL shows both."""
-        result = format_data_source(self.BASE_URL, card_id=123, sql="SELECT * FROM foo")
-        assert "/question/123" in result
-        assert "`SELECT * FROM foo`" in result
-        assert " | " in result
-
-    def test_long_sql_truncated(self):
-        """Long SQL queries are truncated."""
-        long_sql = "SELECT " + ", ".join(f"col{i}" for i in range(50)) + " FROM table"
-        result = format_data_source(self.BASE_URL, sql=long_sql)
-        assert "..." in result
-        assert len(result) < len(long_sql) + 50
-
-    def test_no_args_returns_no_source(self):
-        """No arguments returns placeholder."""
-        result = format_data_source(self.BASE_URL)
-        assert result == "(no source)"
-
-    def test_card_preferred_over_dashboard(self):
-        """When both card and dashboard provided, card wins."""
-        result = format_data_source(self.BASE_URL, card_id=123, dashboard_id=45)
-        assert "/question/123" in result
-        assert "/dashboard/" not in result

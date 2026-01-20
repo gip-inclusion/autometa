@@ -56,6 +56,7 @@ class SDKBackend(AgentBackend):
                 permission_mode="acceptEdits",  # Auto-approve for web use
                 setting_sources=["project"],  # Load project skills
                 add_dirs=config.ADDITIONAL_DIRS,
+                env={"MATOMETA_CONVERSATION_ID": conversation_id},
             )
 
             # Add system prompt from AGENTS.md

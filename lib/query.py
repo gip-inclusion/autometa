@@ -2,45 +2,36 @@
 Query execution with observability logging.
 
 Usage:
-    from lib.query import execute_query, CallerType
+    from lib.query import execute_query, CallerType, MatomoAPI, MetabaseAPI
 
-    # From an app (frontend)
+    # Using execute functions (returns QueryResult, never raises)
     result = execute_query(
         source="metabase",
         instance="datalake",
         caller=CallerType.APP,
-        conversation_id="abc-123",
         sql="SELECT * FROM table LIMIT 10",
         database_id=2,
     )
+    if result.success:
+        print(result.data)
 
-    # From the agent
-    result = execute_query(
-        source="matomo",
-        instance="inclusion",
-        caller=CallerType.AGENT,
-        conversation_id="def-456",
-        method="VisitsSummary.get",
-        params={"idSite": 117, "period": "month", "date": "2025-12-01"},
-    )
+    # Using API classes directly (raises on error, auto-logs)
+    api = MatomoAPI(url="matomo.example.com", token="...", instance="inclusion")
+    visits = api.get_visits(site_id=117, period="month", date="2025-12-01")
 """
 
-import json
-import logging
-import sqlite3
+import os
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any, Optional
 
 from ._sources import get_metabase, get_matomo
+from ._audit import log_query, _get_db_connection
 
-# Use the same audit database as web/audit.py
-AUDIT_DB_PATH = Path(__file__).parent.parent / "data" / "audit.db"
-
-logger = logging.getLogger(__name__)
+# Re-export API classes for convenience
+from ._matomo import MatomoAPI, MatomoError
+from ._metabase import MetabaseAPI, MetabaseError
 
 
 class CallerType(str, Enum):
@@ -58,110 +49,6 @@ class QueryResult:
     execution_time_ms: int = 0
 
 
-def _get_db_connection() -> sqlite3.Connection:
-    """Get audit database connection."""
-    AUDIT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(AUDIT_DB_PATH), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _init_query_log_table():
-    """Initialize the query_log table in audit.db."""
-    conn = _get_db_connection()
-
-    # Check if table exists and has old schema (user_email instead of conversation_id)
-    cursor = conn.execute("PRAGMA table_info(query_log)")
-    columns = {row[1] for row in cursor.fetchall()}
-
-    if "user_email" in columns and "conversation_id" not in columns:
-        # Migrate: rename user_email to conversation_id
-        conn.executescript("""
-            ALTER TABLE query_log RENAME COLUMN user_email TO conversation_id;
-            CREATE INDEX IF NOT EXISTS idx_query_log_conversation
-                ON query_log(conversation_id);
-        """)
-    elif not columns:
-        # Create new table
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS query_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                source TEXT NOT NULL,
-                instance TEXT NOT NULL,
-                caller TEXT NOT NULL,
-                conversation_id TEXT,
-                query_type TEXT,
-                query_details TEXT,
-                success INTEGER NOT NULL,
-                error TEXT,
-                execution_time_ms INTEGER,
-                row_count INTEGER
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_query_log_timestamp
-                ON query_log(timestamp DESC);
-
-            CREATE INDEX IF NOT EXISTS idx_query_log_source_instance
-                ON query_log(source, instance);
-
-            CREATE INDEX IF NOT EXISTS idx_query_log_caller
-                ON query_log(caller);
-
-            CREATE INDEX IF NOT EXISTS idx_query_log_conversation
-                ON query_log(conversation_id);
-        """)
-
-    conn.commit()
-    conn.close()
-
-
-# Initialize on import
-_init_query_log_table()
-
-
-def _log_query(
-    source: str,
-    instance: str,
-    caller: CallerType,
-    conversation_id: Optional[str],
-    query_type: str,
-    query_details: dict,
-    success: bool,
-    error: Optional[str],
-    execution_time_ms: int,
-    row_count: Optional[int] = None,
-):
-    """Log a query execution to the audit database."""
-    try:
-        conn = _get_db_connection()
-        conn.execute(
-            """
-            INSERT INTO query_log
-            (timestamp, source, instance, caller, conversation_id, query_type,
-             query_details, success, error, execution_time_ms, row_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                datetime.utcnow().isoformat(),
-                source,
-                instance,
-                caller.value,
-                conversation_id,
-                query_type,
-                json.dumps(query_details, default=str),
-                1 if success else 0,
-                error,
-                execution_time_ms,
-                row_count,
-            )
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.warning(f"Failed to log query: {e}")
-
-
 def execute_metabase_query(
     instance: str,
     caller: CallerType,
@@ -175,17 +62,19 @@ def execute_metabase_query(
     Execute a Metabase query with logging.
 
     Either sql+database_id or card_id must be provided.
+    Returns QueryResult (never raises).
     """
+    # Auto-read conversation_id from environment if not provided
+    if conversation_id is None:
+        conversation_id = os.environ.get("MATOMETA_CONVERSATION_ID")
+
     start_time = time.time()
-    query_type = "sql" if sql else "card"
-    query_details = {
-        "sql": sql[:500] if sql else None,  # Truncate for logging
-        "database_id": database_id,
-        "card_id": card_id,
-    }
 
     try:
+        # Get API client (logging is built into the class)
         api = get_metabase(instance, database_id=database_id)
+        # Override caller for logging consistency
+        api.caller = caller.value
 
         if sql and database_id is not None:
             result = api.execute_sql(sql, timeout=timeout)
@@ -194,7 +83,6 @@ def execute_metabase_query(
                 "rows": result.rows,
                 "row_count": result.row_count,
             }
-            row_count = result.row_count
         elif card_id is not None:
             result = api.execute_card(card_id, timeout=timeout)
             data = {
@@ -202,44 +90,15 @@ def execute_metabase_query(
                 "rows": result.rows,
                 "row_count": result.row_count,
             }
-            row_count = result.row_count
         else:
             raise ValueError("Either sql+database_id or card_id must be provided")
 
         execution_time_ms = int((time.time() - start_time) * 1000)
-
-        _log_query(
-            source="metabase",
-            instance=instance,
-            caller=caller,
-            conversation_id=conversation_id,
-            query_type=query_type,
-            query_details=query_details,
-            success=True,
-            error=None,
-            execution_time_ms=execution_time_ms,
-            row_count=row_count,
-        )
-
         return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
 
     except Exception as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
-        error_msg = str(e)
-
-        _log_query(
-            source="metabase",
-            instance=instance,
-            caller=caller,
-            conversation_id=conversation_id,
-            query_type=query_type,
-            query_details=query_details,
-            success=False,
-            error=error_msg,
-            execution_time_ms=execution_time_ms,
-        )
-
-        return QueryResult(success=False, data=None, error=error_msg, execution_time_ms=execution_time_ms)
+        return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 
 
 def execute_matomo_query(
@@ -252,55 +111,29 @@ def execute_matomo_query(
 ) -> QueryResult:
     """
     Execute a Matomo API query with logging.
+    Returns QueryResult (never raises).
     """
+    # Auto-read conversation_id from environment if not provided
+    if conversation_id is None:
+        conversation_id = os.environ.get("MATOMETA_CONVERSATION_ID")
+
     start_time = time.time()
     params = params or {}
-    query_details = {
-        "method": method,
-        "params": params,
-    }
 
     try:
+        # Get API client (logging is built into the class)
         api = get_matomo(instance)
+        # Override caller for logging consistency
+        api.caller = caller.value
+
         data = api.request(method, timeout=timeout, **params)
 
-        # Estimate row count for list responses
-        row_count = len(data) if isinstance(data, list) else None
-
         execution_time_ms = int((time.time() - start_time) * 1000)
-
-        _log_query(
-            source="matomo",
-            instance=instance,
-            caller=caller,
-            conversation_id=conversation_id,
-            query_type=method,
-            query_details=query_details,
-            success=True,
-            error=None,
-            execution_time_ms=execution_time_ms,
-            row_count=row_count,
-        )
-
         return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
 
     except Exception as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
-        error_msg = str(e)
-
-        _log_query(
-            source="matomo",
-            instance=instance,
-            caller=caller,
-            conversation_id=conversation_id,
-            query_type=method,
-            query_details=query_details,
-            success=False,
-            error=error_msg,
-            execution_time_ms=execution_time_ms,
-        )
-
-        return QueryResult(success=False, data=None, error=error_msg, execution_time_ms=execution_time_ms)
+        return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 
 
 def execute_query(

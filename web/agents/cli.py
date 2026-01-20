@@ -85,6 +85,7 @@ class CLIBackend(AgentBackend):
         # Build environment: inherit from parent but remove ANTHROPIC_API_KEY
         # so CLI uses OAuth credentials instead
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        env["MATOMETA_CONVERSATION_ID"] = conversation_id
 
         # Spawn process
         process = await asyncio.create_subprocess_exec(
