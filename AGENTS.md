@@ -123,19 +123,25 @@ For every query, follow this process:
    This is MANDATORY for every new conversation. If the user chooses a report,
    remember this for the entire conversation.
 
-2. **Desk research** — Read relevant knowledge files. Check previous reports on
+2. **Clarify temporal data** — For time-based analyses, consult 
+   [`knowledge/methodology.md`](knowledge/methodology.md) and clarify with the user:
+   - **Which reference date?** (e.g., candidature date vs embauche date — can differ by 30+ days)
+   - **How to ensure rate comparability?** (use fixed windows, exclude recent data)
+
+3. **Desk research** — Read relevant knowledge files. Check previous reports on
    similar topics. DO NOT query without reading domain knowledge first.
 
-3. **Plan** — What queries will you run? What do you need to learn first?
+4. **Plan** — What queries will you run? What do you need to learn first?
 
-4. **Breathe** — Pause. Reread yourself.
+5. **Breathe** — Pause. Reread yourself.
 
-5. **Run** — Execute the plan. When things fail, learn from it.
+6. **Run** — Execute the plan. When things fail, learn from it.
 
-6. **Analyze and report** — Produce the report. Tag it for easy retrieval.
+7. **Analyze and report** — Produce the report. Tag it for easy retrieval.
 
-7. **Capitalize** — MANDATORY. Update knowledge files and skills when you learn
+8. **Capitalize** — MANDATORY. Update knowledge files and skills when you learn
    something new that will be useful for future queries.
+   
 
 ## Behavioral Guidelines
 
