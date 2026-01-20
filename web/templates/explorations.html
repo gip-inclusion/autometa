@@ -28,6 +28,12 @@
                 {% if current_conv.forked_from %}
                   · <a href="/explorations/{{ current_conv.forked_from }}" class="text-muted"><i class="ri-git-branch-line"></i> fork</a>
                 {% endif %}
+                <span id="tokenDisplay" class="{% if not (current_conv.input_tokens or current_conv.output_tokens) %}d-none{% endif %}"
+                      data-input="{{ current_conv.input_tokens or 0 }}"
+                      data-output="{{ current_conv.output_tokens or 0 }}">
+                  {% set total_tokens = (current_conv.input_tokens or 0) + (current_conv.output_tokens or 0) %}
+                  · <span title="Tokens utilisés: {{ current_conv.input_tokens or 0 }} entrée, {{ current_conv.output_tokens or 0 }} sortie"><i class="ri-coin-line"></i> <span id="tokenCount">{{ "{:,}".format(total_tokens) }}</span> tokens</span>
+                </span>
               {% elif is_new %}
                 Nouvelle conversation
               {% else %}
@@ -404,7 +410,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
-    // Hide public warning if previously dismissed
+    // Hide public warning if previously dismissed (HTMX case handled in chat.js)
     if (localStorage.getItem('publicWarningDismissed') === 'true') {
       const warning = document.getElementById('publicWarning');
       if (warning) warning.style.display = 'none';

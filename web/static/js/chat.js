@@ -15,6 +15,14 @@ const RETRY_DELAY_MS = 1000;
 // Scroll position management for htmx navigation
 let isPopState = false;
 
+// Hide public warning banner if previously dismissed - runs on every htmx load
+document.body.addEventListener('htmx:afterSettle', () => {
+  if (localStorage.getItem('publicWarningDismissed') === 'true') {
+    const warning = document.getElementById('publicWarning');
+    if (warning) warning.style.display = 'none';
+  }
+});
+
 // Save scroll position before htmx request
 document.body.addEventListener('htmx:beforeRequest', (e) => {
   if (e.detail.target.id === 'main' && !isPopState) {
@@ -642,14 +650,48 @@ async function killAgent(convId, alertElement, cardElement) {
 }
 
 /**
+ * Update token display with new usage data
+ */
+function updateTokenDisplay(usage) {
+  const tokenDisplay = document.getElementById('tokenDisplay');
+  const tokenCount = document.getElementById('tokenCount');
+  if (!tokenDisplay || !tokenCount) return;
+
+  // Get current values from data attributes
+  let currentInput = parseInt(tokenDisplay.dataset.input) || 0;
+  let currentOutput = parseInt(tokenDisplay.dataset.output) || 0;
+
+  // Add new usage
+  const newInput = usage.input_tokens || 0;
+  const newOutput = usage.output_tokens || 0;
+  currentInput += newInput;
+  currentOutput += newOutput;
+
+  // Update data attributes
+  tokenDisplay.dataset.input = currentInput;
+  tokenDisplay.dataset.output = currentOutput;
+
+  // Update display
+  const total = currentInput + currentOutput;
+  tokenCount.textContent = total.toLocaleString();
+  tokenDisplay.title = `Tokens utilisés: ${currentInput.toLocaleString()} entrée, ${currentOutput.toLocaleString()} sortie`;
+
+  // Show if hidden
+  tokenDisplay.classList.remove('d-none');
+}
+
+/**
  * Append an event to the chat output
  */
 function appendEvent(type, data) {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
 
-  // System events are never shown
+  // System events: check for usage data, then skip display
   if (type === 'system') {
+    if (data.raw && data.raw.usage) {
+      updateTokenDisplay(data.raw.usage);
+    }
     return;
   }
 
