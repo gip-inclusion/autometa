@@ -399,6 +399,24 @@ body.has-sidebar {
   flex-shrink: 0;
 }
 
+.chat-bar-warning-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: #856404;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: background 0.15s;
+}
+
+.chat-bar-warning-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
 /* ==========================================================================
    Chat output
    ========================================================================== */

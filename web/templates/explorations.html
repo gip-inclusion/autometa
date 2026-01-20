@@ -285,9 +285,12 @@
       </div>
       {% else %}
       <!-- Public conversations warning -->
-      <div class="chat-bar-warning">
+      <div class="chat-bar-warning" id="publicWarning">
         <i class="ri-eye-line"></i>
         <span>Toutes les conversations sont publiques et visibles par les autres utilisateurs.</span>
+        <button type="button" class="chat-bar-warning-close" onclick="dismissPublicWarning()" title="Fermer">
+          <i class="ri-close-line"></i>
+        </button>
       </div>
       <div class="chat-bar">
         <textarea
@@ -391,7 +394,22 @@
     }
   }
 
+  // Dismiss public warning and remember choice
+  function dismissPublicWarning() {
+    const warning = document.getElementById('publicWarning');
+    if (warning) {
+      warning.style.display = 'none';
+      localStorage.setItem('publicWarningDismissed', 'true');
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', async () => {
+    // Hide public warning if previously dismissed
+    if (localStorage.getItem('publicWarningDismissed') === 'true') {
+      const warning = document.getElementById('publicWarning');
+      if (warning) warning.style.display = 'none';
+    }
+
     {% if current_conv %}
     // Set conversation ID before initChat to prevent duplicate loadConversation call
     currentConversationId = '{{ current_conv.id }}';
