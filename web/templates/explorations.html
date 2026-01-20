@@ -284,6 +284,11 @@
         <span class="text-muted">Consultation seule — cette conversation appartient à {{ owner_email }}</span>
       </div>
       {% else %}
+      <!-- Public conversations warning -->
+      <div class="chat-bar-warning">
+        <i class="ri-eye-line"></i>
+        <span>Toutes les conversations sont publiques et visibles par les autres utilisateurs.</span>
+      </div>
       <div class="chat-bar">
         <textarea
           class="chat-input"
