@@ -1,20 +1,22 @@
-"""SQLite database for conversation and report persistence."""
+"""Database for conversation and report persistence (SQLite or PostgreSQL)."""
 
 import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 import uuid
+import os
 
 from . import config
 
-# Database path
-DB_PATH = config.BASE_DIR / "data" / "matometa.db"
+# Database backend detection from DATABASE_URL
+USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
-# Schema version for migrations
-SCHEMA_VERSION = 10
+if USE_POSTGRES:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
 
 # Valid column names for dynamic updates (security: prevents SQL injection)
 VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "status", "pr_url", "updated_at"})
@@ -27,6 +29,7 @@ def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, 
 
     Validates all keys against valid_columns to prevent SQL injection.
     Returns (set_clause, values) for use in parameterized query.
+    Uses ? placeholders (ConnectionWrapper converts to %s for PostgreSQL).
 
     Raises ValueError if any key is not in valid_columns.
     """
@@ -39,13 +42,167 @@ def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, 
     return set_clause, values
 
 
-def get_connection() -> sqlite3.Connection:
+class DictRowWrapper:
+    """Wrapper to make psycopg2 RealDictRow behave like sqlite3.Row for .keys() method."""
+    def __init__(self, row: dict):
+        self._row = row
+
+    def __getitem__(self, key):
+        return self._row[key]
+
+    def keys(self):
+        return self._row.keys()
+
+
+class ConnectionWrapper:
+    """Wrapper to normalize sqlite3 and psycopg2 connection interfaces.
+
+    Provides a unified interface for both SQLite and PostgreSQL:
+    - Automatic placeholder conversion (? to %s for PostgreSQL)
+    - Consistent row factory (dict-like access)
+    - Helper methods for common patterns (insert_and_get_id, insert_ignore)
+    """
+
+    def __init__(self, conn, is_postgres: bool):
+        self._conn = conn
+        self._is_postgres = is_postgres
+        self._cursor = None
+
+    @property
+    def is_postgres(self) -> bool:
+        """Check if this is a PostgreSQL connection."""
+        return self._is_postgres
+
+    def execute(self, sql: str, params: tuple = ()) -> "ConnectionWrapper":
+        """Execute a query, converting placeholders if needed."""
+        if self._is_postgres:
+            # Convert ? to %s for PostgreSQL
+            sql = sql.replace("?", "%s")
+            self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            self._cursor = self._conn.cursor()
+        self._cursor.execute(sql, params)
+        return self
+
+    def executescript(self, sql: str) -> "ConnectionWrapper":
+        """Execute multiple statements (SQLite) or single execution (PostgreSQL)."""
+        if self._is_postgres:
+            # PostgreSQL can execute multiple statements in one call
+            self._cursor = self._conn.cursor()
+            self._cursor.execute(sql)
+        else:
+            self._conn.executescript(sql)
+            self._cursor = self._conn.cursor()
+        return self
+
+    def executemany(self, sql: str, params_list: list) -> "ConnectionWrapper":
+        """Execute a query with multiple parameter sets."""
+        if self._is_postgres:
+            sql = sql.replace("?", "%s")
+            self._cursor = self._conn.cursor()
+        else:
+            self._cursor = self._conn.cursor()
+        self._cursor.executemany(sql, params_list)
+        return self
+
+    def fetchone(self) -> Optional[Any]:
+        """Fetch one row."""
+        if self._cursor is None:
+            return None
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        if self._is_postgres:
+            return DictRowWrapper(row)
+        return row
+
+    def fetchall(self) -> list:
+        """Fetch all rows."""
+        if self._cursor is None:
+            return []
+        rows = self._cursor.fetchall()
+        if self._is_postgres:
+            return [DictRowWrapper(row) for row in rows]
+        return rows
+
+    @property
+    def lastrowid(self) -> Optional[int]:
+        """Get last inserted row ID."""
+        if self._cursor is None:
+            return None
+        if self._is_postgres:
+            # PostgreSQL needs RETURNING clause, handle in caller
+            return None
+        return self._cursor.lastrowid
+
+    @property
+    def rowcount(self) -> int:
+        """Get number of affected rows."""
+        if self._cursor is None:
+            return 0
+        return self._cursor.rowcount
+
+    def insert_and_get_id(self, sql: str, params: tuple = ()) -> Optional[int]:
+        """Execute an INSERT and return the new row's ID.
+
+        For PostgreSQL, appends RETURNING id to the query.
+        For SQLite, uses lastrowid.
+        """
+        if self._is_postgres:
+            sql = sql.replace("?", "%s")
+            if "RETURNING" not in sql.upper():
+                sql = sql.rstrip().rstrip(";") + " RETURNING id"
+            self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
+            self._cursor.execute(sql, params)
+            row = self._cursor.fetchone()
+            return row["id"] if row else None
+        else:
+            self._cursor = self._conn.cursor()
+            self._cursor.execute(sql, params)
+            return self._cursor.lastrowid
+
+    def insert_ignore(self, table: str, columns: list[str], values: tuple) -> "ConnectionWrapper":
+        """Execute an INSERT that ignores conflicts (duplicate keys).
+
+        Uses INSERT OR IGNORE for SQLite, INSERT ... ON CONFLICT DO NOTHING for PostgreSQL.
+        """
+        placeholders = ", ".join(["%s" if self._is_postgres else "?"] * len(values))
+        cols = ", ".join(columns)
+
+        if self._is_postgres:
+            sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+            self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            sql = f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})"
+            self._cursor = self._conn.cursor()
+
+        self._cursor.execute(sql, values)
+        return self
+
+    def commit(self):
+        """Commit the transaction."""
+        self._conn.commit()
+
+    def rollback(self):
+        """Rollback the transaction."""
+        self._conn.rollback()
+
+    def close(self):
+        """Close the connection."""
+        self._conn.close()
+
+
+def get_connection() -> ConnectionWrapper:
     """Get a database connection with row factory."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    if USE_POSTGRES:
+        conn = psycopg2.connect(config.DATABASE_URL)
+        return ConnectionWrapper(conn, is_postgres=True)
+    else:
+        config.SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(config.SQLITE_PATH), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return ConnectionWrapper(conn, is_postgres=False)
 
 
 @contextmanager
@@ -59,70 +216,56 @@ def get_db():
         conn.close()
 
 
-def get_schema_version(conn: sqlite3.Connection) -> int:
-    """Get current schema version."""
+def _schema_exists(conn: ConnectionWrapper) -> bool:
+    """Check if the database schema already exists."""
     try:
-        row = conn.execute("SELECT version FROM schema_version").fetchone()
-        return row["version"] if row else 0
+        conn.execute("SELECT 1 FROM conversations LIMIT 1")
+        return True
     except sqlite3.OperationalError:
-        return 0
+        return False
+    except Exception as e:
+        if USE_POSTGRES:
+            error_code = getattr(e, "pgcode", None)
+            if error_code == "42P01":  # undefined_table
+                conn.rollback()
+                return False
+        raise
 
 
 def init_db():
-    """Initialize or migrate database schema."""
+    """Initialize database schema if needed."""
     with get_db() as conn:
-        current_version = get_schema_version(conn)
-
-        if current_version < 1:
-            _create_schema_v1(conn)
-
-        if current_version < 2:
-            _migrate_to_v2(conn)
-
-        if current_version < 3:
-            _migrate_to_v3(conn)
-
-        if current_version < 4:
-            _migrate_to_v4(conn)
-
-        if current_version < 5:
-            _migrate_to_v5(conn)
-
-        if current_version < 6:
-            _migrate_to_v6(conn)
-
-        if current_version < 7:
-            _migrate_to_v7(conn)
-
-        if current_version < 8:
-            _migrate_to_v8(conn)
-
-        if current_version < 9:
-            _migrate_to_v9(conn)
-
-        if current_version < 10:
-            _migrate_to_v10(conn)
+        if not _schema_exists(conn):
+            _create_schema(conn)
+            _seed_tags(conn)
 
 
-def _create_schema_v1(conn: sqlite3.Connection):
-    """Create initial schema (v1 - legacy)."""
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER PRIMARY KEY
-        );
+def _create_schema(conn: ConnectionWrapper):
+    """Create the complete database schema."""
+    # Use SERIAL for PostgreSQL, INTEGER PRIMARY KEY AUTOINCREMENT for SQLite
+    serial_pk = "SERIAL PRIMARY KEY" if conn.is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
+    conn.executescript(f"""
         CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             title TEXT,
             session_id TEXT,
+            conv_type TEXT DEFAULT 'exploration',
+            file_path TEXT,
+            status TEXT DEFAULT 'active',
+            pr_url TEXT,
+            forked_from TEXT,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {serial_pk},
             conversation_id TEXT NOT NULL,
+            type TEXT,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             raw_events TEXT,
@@ -130,106 +273,8 @@ def _create_schema_v1(conn: sqlite3.Connection):
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_messages_conversation
-            ON messages(conversation_id);
-
-        CREATE INDEX IF NOT EXISTS idx_conversations_updated
-            ON conversations(updated_at DESC);
-
-        INSERT OR REPLACE INTO schema_version (version) VALUES (1);
-    """)
-
-
-def _migrate_to_v2(conn: sqlite3.Connection):
-    """Migrate to v2 schema: add type to messages, add reports table."""
-    # Check if we need to migrate messages
-    cursor = conn.execute("PRAGMA table_info(messages)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "type" not in columns:
-        # Add type column, rename role to type
-        conn.execute("ALTER TABLE messages ADD COLUMN type TEXT")
-        conn.execute("UPDATE messages SET type = role")
-        # Note: SQLite doesn't support DROP COLUMN easily, keep role for now
-
-    # Create reports table
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conversation_id TEXT NOT NULL,
-            message_id INTEGER,
-            title TEXT NOT NULL,
-            website TEXT,
-            category TEXT,
-            tags TEXT,
-            original_query TEXT,
-            version INTEGER DEFAULT 1,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-            FOREIGN KEY (message_id) REFERENCES messages(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_reports_conversation
-            ON reports(conversation_id);
-
-        CREATE INDEX IF NOT EXISTS idx_reports_updated
-            ON reports(updated_at DESC);
-
-        UPDATE schema_version SET version = 2;
-    """)
-
-
-def _migrate_to_v3(conn: sqlite3.Connection):
-    """Migrate to v3 schema: add type, file_path, status to conversations for knowledge editing."""
-    cursor = conn.execute("PRAGMA table_info(conversations)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "conv_type" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN conv_type TEXT DEFAULT 'exploration'")
-
-    if "file_path" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN file_path TEXT")
-
-    if "status" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN status TEXT DEFAULT 'active'")
-
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_conversations_type_status
-            ON conversations(conv_type, status)
-    """)
-
-    conn.execute("UPDATE schema_version SET version = 3")
-
-
-def _migrate_to_v4(conn: sqlite3.Connection):
-    """Migrate to v4: add columns to reports (partial migration, see v5)."""
-    cursor = conn.execute("PRAGMA table_info(reports)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "content" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN content TEXT")
-
-    if "source_conversation_id" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN source_conversation_id TEXT")
-
-    if "user_id" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN user_id TEXT")
-
-    conn.execute("UPDATE schema_version SET version = 4")
-
-
-def _migrate_to_v5(conn: sqlite3.Connection):
-    """Migrate to v5: recreate reports table with nullable conversation_id."""
-    # Recreate table with new schema (conversation_id nullable)
-    # Disable FK checks temporarily for table recreation
-    conn.executescript("""
-        PRAGMA foreign_keys = OFF;
-
-        DROP TABLE IF EXISTS reports_new;
-
-        CREATE TABLE reports_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {serial_pk},
             title TEXT NOT NULL,
             content TEXT,
             website TEXT,
@@ -239,169 +284,98 @@ def _migrate_to_v5(conn: sqlite3.Connection):
             source_conversation_id TEXT,
             user_id TEXT,
             version INTEGER DEFAULT 1,
+            archived INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            -- Legacy columns (nullable for backwards compat)
             conversation_id TEXT,
             message_id INTEGER
         );
 
-        INSERT INTO reports_new (id, title, content, website, category, tags, original_query,
-                                 source_conversation_id, user_id, version, created_at, updated_at,
-                                 conversation_id, message_id)
-        SELECT id, title, content, website, category, tags, original_query,
-               source_conversation_id, user_id, version, created_at, updated_at,
-               conversation_id, message_id
-        FROM reports;
-
-        DROP TABLE reports;
-
-        ALTER TABLE reports_new RENAME TO reports;
-
-        CREATE INDEX IF NOT EXISTS idx_reports_updated
-            ON reports(updated_at DESC);
-
-        UPDATE schema_version SET version = 5;
-
-        PRAGMA foreign_keys = ON;
-    """)
-
-
-def _migrate_to_v6(conn: sqlite3.Connection):
-    """Migrate to v6: add archived column to reports."""
-    cursor = conn.execute("PRAGMA table_info(reports)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "archived" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN archived INTEGER DEFAULT 0")
-
-    conn.execute("UPDATE schema_version SET version = 6")
-
-
-def _migrate_to_v7(conn: sqlite3.Connection):
-    """Migrate to v7: add pr_url column to conversations for GitHub PR tracking."""
-    cursor = conn.execute("PRAGMA table_info(conversations)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "pr_url" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN pr_url TEXT")
-
-    conn.execute("UPDATE schema_version SET version = 7")
-
-
-def _migrate_to_v8(conn: sqlite3.Connection):
-    """Migrate to v8: add forked_from column to conversations for fork tracking."""
-    cursor = conn.execute("PRAGMA table_info(conversations)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "forked_from" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN forked_from TEXT")
-
-    conn.execute("UPDATE schema_version SET version = 8")
-
-
-def _migrate_to_v9(conn: sqlite3.Connection):
-    """Migrate to v9: add tags system with normalized tables."""
-    # Create tags table
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS tags (
-            id INTEGER PRIMARY KEY,
+            id {serial_pk},
             name TEXT NOT NULL UNIQUE,
             type TEXT NOT NULL,
             label TEXT NOT NULL
-        )
-    """)
+        );
 
-    # Create join tables
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS conversation_tags (
             conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
             tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
             PRIMARY KEY (conversation_id, tag_id)
-        )
-    """)
+        );
 
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS report_tags (
             report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
             tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
             PRIMARY KEY (report_id, tag_id)
-        )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_conversations_type_status ON conversations(conv_type, status);
+        CREATE INDEX IF NOT EXISTS idx_reports_updated ON reports(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tags_type ON tags(type);
+        CREATE INDEX IF NOT EXISTS idx_conversation_tags_conv ON conversation_tags(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag ON conversation_tags(tag_id);
+        CREATE INDEX IF NOT EXISTS idx_report_tags_report ON report_tags(report_id);
+        CREATE INDEX IF NOT EXISTS idx_report_tags_tag ON report_tags(tag_id);
     """)
 
-    # Create indexes for efficient filtering
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_type ON tags(type)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_tags_conv ON conversation_tags(conversation_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag ON conversation_tags(tag_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_tags_report ON report_tags(report_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_tags_tag ON report_tags(tag_id)")
 
-    # Pre-populate with our taxonomy
-    _seed_tags(conn)
-
-    conn.execute("UPDATE schema_version SET version = 9")
-
-
-def _seed_tags(conn: sqlite3.Connection):
-    """Seed the tags table with our taxonomy."""
-    tags = [
-        # Produits (9)
-        ("emplois", "product", "Emplois"),
-        ("dora", "product", "Dora"),
-        ("marche", "product", "Marché"),
-        ("communaute", "product", "Communauté"),
-        ("pilotage", "product", "Pilotage"),
-        ("plateforme", "product", "Plateforme"),
-        ("rdv-insertion", "product", "RDV-Insertion"),
-        ("mon-recap", "product", "Mon Récap"),
-        ("multi", "product", "Multi-produits"),
-        # Sources (3)
-        ("matomo", "source", "Matomo"),
-        ("stats", "source", "Metabase stats"),
-        ("datalake", "source", "Metabase datalake"),
-        # Thèmes - Acteurs (6)
-        ("candidats", "theme", "Candidats"),
-        ("prescripteurs", "theme", "Prescripteurs"),
-        ("employeurs", "theme", "Employeurs"),
-        ("structures", "theme", "Structures / SIAE"),
-        ("acheteurs", "theme", "Acheteurs"),
-        ("fournisseurs", "theme", "Fournisseurs"),
-        # Thèmes - Concepts métier (5)
-        ("iae", "theme", "IAE"),
-        ("orientation", "theme", "Orientation"),
-        ("depot-de-besoin", "theme", "Dépôt de besoin"),
-        ("demande-de-devis", "theme", "Demande de devis"),
-        ("commandes", "theme", "Commandes"),
-        # Thèmes - Métriques (4)
-        ("trafic", "theme", "Trafic"),
-        ("conversions", "theme", "Conversions"),
-        ("retention", "theme", "Rétention"),
-        ("geographique", "theme", "Géographique"),
-        # Types de demande (4)
-        ("extraction", "type_demande", "Extraction"),
-        ("analyse", "type_demande", "Analyse"),
-        ("appli", "type_demande", "Appli"),
-        ("meta", "type_demande", "Meta"),
-    ]
-
-    conn.executemany(
-        "INSERT OR IGNORE INTO tags (name, type, label) VALUES (?, ?, ?)",
-        tags
-    )
+# Tag taxonomy
+TAGS = [
+    # Produits (9)
+    ("emplois", "product", "Emplois"),
+    ("dora", "product", "Dora"),
+    ("marche", "product", "Marché"),
+    ("communaute", "product", "Communauté"),
+    ("pilotage", "product", "Pilotage"),
+    ("plateforme", "product", "Plateforme"),
+    ("rdv-insertion", "product", "RDV-Insertion"),
+    ("mon-recap", "product", "Mon Récap"),
+    ("multi", "product", "Multi-produits"),
+    # Sources (3)
+    ("matomo", "source", "Matomo"),
+    ("stats", "source", "Metabase stats"),
+    ("datalake", "source", "Metabase datalake"),
+    # Thèmes - Acteurs (6)
+    ("candidats", "theme", "Candidats"),
+    ("prescripteurs", "theme", "Prescripteurs"),
+    ("employeurs", "theme", "Employeurs"),
+    ("structures", "theme", "Structures / SIAE"),
+    ("acheteurs", "theme", "Acheteurs"),
+    ("fournisseurs", "theme", "Fournisseurs"),
+    # Thèmes - Concepts métier (5)
+    ("iae", "theme", "IAE"),
+    ("orientation", "theme", "Orientation"),
+    ("depot-de-besoin", "theme", "Dépôt de besoin"),
+    ("demande-de-devis", "theme", "Demande de devis"),
+    ("commandes", "theme", "Commandes"),
+    # Thèmes - Métriques (4)
+    ("trafic", "theme", "Trafic"),
+    ("conversions", "theme", "Conversions"),
+    ("retention", "theme", "Rétention"),
+    ("geographique", "theme", "Géographique"),
+    # Types de demande (4)
+    ("extraction", "type_demande", "Extraction"),
+    ("analyse", "type_demande", "Analyse"),
+    ("appli", "type_demande", "Appli"),
+    ("meta", "type_demande", "Meta"),
+]
 
 
-def _migrate_to_v10(conn: sqlite3.Connection):
-    """Migrate to v10: add token tracking columns to conversations."""
-    cursor = conn.execute("PRAGMA table_info(conversations)")
-    columns = {row["name"] for row in cursor.fetchall()}
-
-    if "input_tokens" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN input_tokens INTEGER DEFAULT 0")
-
-    if "output_tokens" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN output_tokens INTEGER DEFAULT 0")
-
-    conn.execute("UPDATE schema_version SET version = 10")
+def _seed_tags(conn: ConnectionWrapper):
+    """Seed the tags table with taxonomy."""
+    if conn.is_postgres:
+        conn.executemany(
+            "INSERT INTO tags (name, type, label) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING",
+            TAGS
+        )
+    else:
+        conn.executemany(
+            "INSERT OR IGNORE INTO tags (name, type, label) VALUES (?, ?, ?)",
+            TAGS
+        )
 
 
 # =============================================================================
@@ -867,12 +841,11 @@ class ConversationStore:
                 return None
 
             # Insert message
-            cursor = conn.execute(
+            msg.id = conn.insert_and_get_id(
                 """INSERT INTO messages (conversation_id, type, role, content, timestamp)
                    VALUES (?, ?, ?, ?, ?)""",
                 (conv_id, type, type, content, msg.created_at.isoformat())
             )
-            msg.id = cursor.lastrowid
 
             # Update conversation timestamp
             now = datetime.now().isoformat()
@@ -965,7 +938,7 @@ class ConversationStore:
         )
 
         with get_db() as conn:
-            cursor = conn.execute(
+            report.id = conn.insert_and_get_id(
                 """INSERT INTO reports
                    (title, content, website, category, tags, original_query,
                     source_conversation_id, user_id, version, created_at, updated_at)
@@ -975,7 +948,6 @@ class ConversationStore:
                  source_conversation_id, user_id,
                  1, report.created_at.isoformat(), report.updated_at.isoformat())
             )
-            report.id = cursor.lastrowid
 
         return report
 
@@ -1204,8 +1176,9 @@ class ConversationStore:
                     "SELECT id FROM tags WHERE name = ?", (tag_name,)
                 ).fetchone()
                 if tag_row:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO conversation_tags (conversation_id, tag_id) VALUES (?, ?)",
+                    conn.insert_ignore(
+                        "conversation_tags",
+                        ["conversation_id", "tag_id"],
                         (conv_id, tag_row["id"])
                     )
 
@@ -1244,8 +1217,9 @@ class ConversationStore:
                     "SELECT id FROM tags WHERE name = ?", (tag_name,)
                 ).fetchone()
                 if tag_row:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO report_tags (report_id, tag_id) VALUES (?, ?)",
+                    conn.insert_ignore(
+                        "report_tags",
+                        ["report_id", "tag_id"],
                         (report_id, tag_row["id"])
                     )
 

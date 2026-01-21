@@ -1,9 +1,8 @@
 """Matometa web application - Flask server with SSE streaming."""
 
 import logging
-from pathlib import Path
 
-from flask import Flask, g, request, send_from_directory, abort
+from flask import Flask, g, request, send_from_directory, abort, redirect
 
 from . import config
 from .routes import (
@@ -14,16 +13,13 @@ from .routes import (
     html_bp,
     rapports_bp,
     query_bp,
+    auth_bp,
 )
 
-# Configure logging
+# Configure logging (stdout only)
 logging.basicConfig(
     level=logging.DEBUG if config.DEBUG else logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler(),
-    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -59,28 +55,52 @@ app.register_blueprint(reports_bp)
 app.register_blueprint(knowledge_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(query_bp)
+app.register_blueprint(auth_bp)
 
 
 # =============================================================================
-# Static files: /interactive (served from data/interactive/)
+# Static files: /interactive (served from S3 or local data/interactive/)
 # =============================================================================
-
-INTERACTIVE_DIR = config.BASE_DIR / "data" / "interactive"
 
 
 @app.route("/interactive/")
 @app.route("/interactive/<path:filename>")
 def serve_interactive(filename=""):
-    """Serve static files from the data/interactive directory."""
-    if not INTERACTIVE_DIR.exists():
-        INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
+    """Serve static files from S3 or local data/interactive directory.
 
-    # If path is a directory, serve index.html
-    full_path = INTERACTIVE_DIR / filename
+    When S3 is enabled, tries S3 first then falls back to local filesystem.
+    This allows the agent to write files locally while still serving from S3 when available.
+    Content is proxied (not redirected) to avoid exposing internal S3 endpoints.
+    """
+    from flask import Response
+    import mimetypes
+
+    # Handle directory requests - try index.html
+    if not filename or filename.endswith("/"):
+        filename = filename + "index.html"
+
+    # Try S3 first if configured
+    if config.USE_S3:
+        from . import s3
+
+        content = s3.download_file(filename)
+        if content is not None:
+            # Guess content type
+            mime_type, _ = mimetypes.guess_type(filename)
+            return Response(content, mimetype=mime_type or "application/octet-stream")
+
+    # Fallback to local filesystem (always, even when S3 is enabled)
+    if not config.INTERACTIVE_DIR.exists():
+        config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
+
+    full_path = config.INTERACTIVE_DIR / filename
     if full_path.is_dir():
-        filename = str((full_path / "index.html").relative_to(INTERACTIVE_DIR))
+        filename = str((full_path / "index.html").relative_to(config.INTERACTIVE_DIR))
 
-    return send_from_directory(INTERACTIVE_DIR, filename)
+    if (config.INTERACTIVE_DIR / filename).exists():
+        return send_from_directory(config.INTERACTIVE_DIR, filename)
+
+    abort(404)
 
 
 # =============================================================================
@@ -92,6 +112,15 @@ def main():
     print(f"Starting Matometa web server at http://{config.HOST}:{config.PORT}")
     print(f"Agent backend: {config.AGENT_BACKEND}")
     print(f"Working directory: {config.BASE_DIR}")
+
+    # Restore Claude credentials from S3 if available
+    from . import claude_credentials
+    claude_credentials.restore_credentials_from_s3()
+
+    # Start S3 sync watcher for interactive files
+    from . import sync_to_s3
+    sync_to_s3.start_sync_watcher()
+
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)
 
 
