@@ -31,14 +31,110 @@ result = api.execute_sql("SELECT * FROM pdi_base_unique_tous_les_pros LIMIT 10",
 
 ## Key Tables (Database 2: Datalake)
 
-### Cross-Product User Data
+### stats_pdi_data
+### stats_pdi_dedup
+### stats_nps_gip
 
-| Table | Rows | Description |
-|-------|------|-------------|
-| `pdi_base_unique_tous_les_pros` | ~225k | Unified professional user base across all products |
-| `statsretention_cohortes_gip` | ~4.5k | Retention cohort analysis |
-| `statsretention_gip` | ~330 | Retention metrics |
-| `statsretention_historisation` | ~58k | Historical retention data |
+
+### statsretention_cohortes_gip
+**Volumétrie :** ~4 500 lignes  
+**Mise à jour :** mensuelle via n8n  
+**Clé commune :** produit + mois (identifiant avec les autres tables stats_pdi ou statsretention)
+
+### statsretention_gip
+**Volumétrie :** ~330 lignes  
+**Mise à jour :** mensuelle via n8n  
+**Clé commune :** produit + mois (identifiant avec les autres tables stats_pdi ou statsretention)
+
+
+### pdi_base_unique_tous_les_pros
+
+**Volumétrie :** ~225 000 lignes  
+**Mise à jour :** Quotidienne via n8n  
+**Clé commune :** `email` (identifiant unique cross-services)
+
+Base unifiée des utilisateurs professionnels de tous les services de la Plateforme de l'inclusion.
+
+#### Sources de données
+
+Les données sont agrégées depuis :
+- Les Emplois
+- Mon Recap
+- Pilotage
+- GPS (Mon Suivi)
+- Le Marché
+- Dora
+- RDV-Insertion (bientôt)
+
+#### Colonnes principales
+
+| Colonne | Description |
+|---------|-------------|
+| `email` | **Clé primaire cross-services.** Permet de relier un utilisateur entre différents services. |
+| `source` | Service d'origine de l'enregistrement |
+| `id_source` | ID de l'utilisateur dans la base source |
+| `date_inscription` | Date d'inscription au service |
+| `date_derniere_connexion` | Dernière activité |
+| `type_utilisateur` | Type principal dans le service source (voir ci-dessous) |
+| `type_utilisateur_detail` | Granularité plus fine du type (en cours d'enrichissement) |
+| `nom_structure` | Organisation de rattachement (entreprise, service public, association...) |
+| `type_structure` | Type de structure (voir acronymes ci-dessous) |
+| `departement_structure` | Localisation — utile pour matcher des structures entre services |
+| `admin` | `true` si l'utilisateur peut gérer sa structure (ajouter membres, modifier infos) |
+
+#### Types d'utilisateurs
+
+Les types ne sont **pas harmonisés entre services**. Concepts récurrents :
+- **Prescripteur** : professionnel qui oriente des candidats (parfois avec habilitations légales)
+- **Accompagnateur** : similaire au prescripteur, mais sans dimension légale/habilitation
+- **Employeur** : représentant d'une structure qui embauche
+
+#### Types de structures (acronymes)
+
+**Structures IAE (employeurs) :**
+
+| Acronyme | Signification | Description |
+|----------|---------------|-------------|
+| ACI | Atelier et Chantier d'Insertion | Production de biens/services |
+| AI | Association Intermédiaire | Mise à disposition de personnel |
+| EI | Entreprise d'Insertion | Entreprise classique avec mission sociale |
+| ETTI | Entreprise de Travail Temporaire d'Insertion | Intérim d'insertion |
+| EITI | Entreprise d'Insertion par le Travail Indépendant | Travail indépendant |
+| GEIQ | Groupement d'Employeurs pour l'Insertion et la Qualification | Contrats en alternance |
+
+**Prescripteurs / Accompagnateurs :**
+
+| Acronyme | Signification | Description |
+|----------|---------------|-------------|
+| FT | France Travail | Ex Pôle Emploi, service public de l'emploi |
+| PE | Pôle Emploi | Ancien nom de France Travail |
+| ML | Mission Locale | Accompagnement des jeunes 16-25 ans |
+| CAP EMPLOI | Cap Emploi | Service pour travailleurs handicapés |
+| SPIP | Service Pénitentiaire d'Insertion et de Probation | Accompagnement des personnes sous main de justice |
+| DEPT | Conseil Départemental | Services sociaux du département |
+| ODC | Organisme Délégataire de Convention | Délégataire des conseils départementaux pour l'accompagnement des bénéficiaires du RSA |
+| CCAS | Centre Communal d'Action Sociale | Action sociale municipale |
+| CHRS | Centre d'Hébergement et de Réinsertion Sociale | Hébergement et accompagnement social |
+| PLIE | Plan Local pour l'Insertion et l'Emploi | Dispositif territorial d'insertion |
+| ASSO | Association | Structure associative (générique) |
+
+#### Jointures
+
+- **Pas de jointure directe** avec d'autres tables du Datalake
+- **Jointure possible** via `email` si une autre table contient des adresses mail
+- **Matching de structures** : utiliser `nom_structure` + `departement_structure` pour rapprocher des structures entre services (les noms peuvent différer légèrement)
+
+#### Exemple de requête
+
+```sql
+-- Utilisateurs actifs sur plusieurs services
+SELECT email, COUNT(DISTINCT source) as nb_services, 
+       ARRAY_AGG(DISTINCT source) as services
+FROM pdi_base_unique_tous_les_pros
+WHERE date_derniere_connexion > CURRENT_DATE - INTERVAL '30 days'
+GROUP BY email
+HAVING COUNT(DISTINCT source) > 1
+ORDER BY nb_services DESC;
 
 ### Product-Specific Data
 
