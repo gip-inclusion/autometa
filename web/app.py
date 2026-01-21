@@ -107,6 +107,11 @@ def main():
     print(f"Starting Matometa web server at http://{config.HOST}:{config.PORT}")
     print(f"Agent backend: {config.AGENT_BACKEND}")
     print(f"Working directory: {config.BASE_DIR}")
+
+    # Start S3 sync watcher for interactive files
+    from . import sync_to_s3
+    sync_to_s3.start_sync_watcher()
+
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)
 
 
