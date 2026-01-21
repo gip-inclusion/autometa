@@ -23,7 +23,6 @@ _s3_client = None
 if config.USE_S3:
     import boto3
     from botocore.config import Config as BotoConfig
-    from botocore.exceptions import ClientError
 
     _s3_client = boto3.client(
         "s3",

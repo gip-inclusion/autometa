@@ -86,6 +86,9 @@ def serve_interactive(filename=""):
             url = s3.get_file_url(filename)
             if url:
                 return redirect(url)
+            # File exists but presigned URL generation failed
+            logger.error(f"Failed to generate presigned URL for existing file: {filename}")
+            abort(500)
 
         # File not found
         abort(404)
