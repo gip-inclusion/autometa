@@ -13,6 +13,7 @@ from .routes import (
     html_bp,
     rapports_bp,
     query_bp,
+    auth_bp,
 )
 
 # Configure logging (stdout only)
@@ -54,6 +55,7 @@ app.register_blueprint(reports_bp)
 app.register_blueprint(knowledge_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(query_bp)
+app.register_blueprint(auth_bp)
 
 
 # =============================================================================
