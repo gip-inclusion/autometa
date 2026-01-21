@@ -43,5 +43,7 @@ boto3==1.35.0
 pexpect==4.9.0
 
 # Data analysis
-pandas==2.2.3
-scikit-learn==1.6.1
+numpy>=1.26.0
+scipy>=1.11.0
+pandas>=2.0.0
+scikit-learn>=1.4.0
