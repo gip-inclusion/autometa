@@ -26,18 +26,13 @@ VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "statu
 VALID_REPORT_COLUMNS = frozenset({"title", "website", "category", "tags", "original_query", "content", "updated_at"})
 
 
-def _placeholder(n: int = 1) -> str:
-    """Return the appropriate placeholder(s) for the database type."""
-    ph = "%s" if USE_POSTGRES else "?"
-    return ", ".join([ph] * n)
-
-
 def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, list]:
     """
     Build a safe UPDATE SET clause from a dict of updates.
 
     Validates all keys against valid_columns to prevent SQL injection.
     Returns (set_clause, values) for use in parameterized query.
+    Uses ? placeholders (ConnectionWrapper converts to %s for PostgreSQL).
 
     Raises ValueError if any key is not in valid_columns.
     """
@@ -45,8 +40,7 @@ def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, 
         if key not in valid_columns:
             raise ValueError(f"Invalid column name: {key}")
 
-    ph = "%s" if USE_POSTGRES else "?"
-    set_clause = ", ".join(f"{k} = {ph}" for k in updates)
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values())
     return set_clause, values
 
@@ -64,12 +58,23 @@ class DictRowWrapper:
 
 
 class ConnectionWrapper:
-    """Wrapper to normalize sqlite3 and psycopg2 connection interfaces."""
+    """Wrapper to normalize sqlite3 and psycopg2 connection interfaces.
+
+    Provides a unified interface for both SQLite and PostgreSQL:
+    - Automatic placeholder conversion (? to %s for PostgreSQL)
+    - Consistent row factory (dict-like access)
+    - Helper methods for common patterns (insert_and_get_id, insert_ignore)
+    """
 
     def __init__(self, conn, is_postgres: bool):
         self._conn = conn
         self._is_postgres = is_postgres
         self._cursor = None
+
+    @property
+    def is_postgres(self) -> bool:
+        """Check if this is a PostgreSQL connection."""
+        return self._is_postgres
 
     def execute(self, sql: str, params: tuple = ()) -> "ConnectionWrapper":
         """Execute a query, converting placeholders if needed."""
@@ -140,9 +145,50 @@ class ConnectionWrapper:
             return 0
         return self._cursor.rowcount
 
+    def insert_and_get_id(self, sql: str, params: tuple = ()) -> Optional[int]:
+        """Execute an INSERT and return the new row's ID.
+
+        For PostgreSQL, appends RETURNING id to the query.
+        For SQLite, uses lastrowid.
+        """
+        if self._is_postgres:
+            sql = sql.replace("?", "%s")
+            if "RETURNING" not in sql.upper():
+                sql = sql.rstrip().rstrip(";") + " RETURNING id"
+            self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
+            self._cursor.execute(sql, params)
+            row = self._cursor.fetchone()
+            return row["id"] if row else None
+        else:
+            self._cursor = self._conn.cursor()
+            self._cursor.execute(sql, params)
+            return self._cursor.lastrowid
+
+    def insert_ignore(self, table: str, columns: list[str], values: tuple) -> "ConnectionWrapper":
+        """Execute an INSERT that ignores conflicts (duplicate keys).
+
+        Uses INSERT OR IGNORE for SQLite, INSERT ... ON CONFLICT DO NOTHING for PostgreSQL.
+        """
+        placeholders = ", ".join(["%s" if self._is_postgres else "?"] * len(values))
+        cols = ", ".join(columns)
+
+        if self._is_postgres:
+            sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+            self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            sql = f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})"
+            self._cursor = self._conn.cursor()
+
+        self._cursor.execute(sql, values)
+        return self
+
     def commit(self):
         """Commit the transaction."""
         self._conn.commit()
+
+    def rollback(self):
+        """Rollback the transaction."""
+        self._conn.rollback()
 
     def close(self):
         """Close the connection."""
@@ -186,15 +232,16 @@ def get_schema_version(conn: ConnectionWrapper) -> int:
         if USE_POSTGRES:
             error_code = getattr(e, "pgcode", None)
             if error_code == "42P01":  # undefined_table
+                conn.rollback()  # Clear aborted transaction state
                 return 0
         raise
 
 
 def _get_table_columns(conn: ConnectionWrapper, table_name: str) -> set[str]:
     """Get column names for a table (works with both SQLite and PostgreSQL)."""
-    if USE_POSTGRES:
+    if conn.is_postgres:
         rows = conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
             (table_name,)
         ).fetchall()
         return {row["column_name"] for row in rows}
@@ -241,7 +288,7 @@ def init_db():
 
 def _create_schema_v1(conn: ConnectionWrapper):
     """Create initial schema (v1 - legacy)."""
-    if USE_POSTGRES:
+    if conn.is_postgres:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY
@@ -322,7 +369,7 @@ def _migrate_to_v2(conn: ConnectionWrapper):
         # Note: SQLite doesn't support DROP COLUMN easily, keep role for now
 
     # Create reports table
-    if USE_POSTGRES:
+    if conn.is_postgres:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS reports (
                 id SERIAL PRIMARY KEY,
@@ -415,7 +462,7 @@ def _migrate_to_v4(conn: ConnectionWrapper):
 
 def _migrate_to_v5(conn: ConnectionWrapper):
     """Migrate to v5: recreate reports table with nullable conversation_id."""
-    if USE_POSTGRES:
+    if conn.is_postgres:
         # PostgreSQL: ALTER TABLE to drop NOT NULL constraint is simpler
         # Check if conversation_id has NOT NULL constraint and remove it
         conn.executescript("""
@@ -501,7 +548,7 @@ def _migrate_to_v8(conn: ConnectionWrapper):
 
 def _migrate_to_v9(conn: ConnectionWrapper):
     """Migrate to v9: add tags system with normalized tables."""
-    if USE_POSTGRES:
+    if conn.is_postgres:
         # Create tags table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tags (
@@ -593,7 +640,7 @@ def _seed_tags(conn: ConnectionWrapper):
         ("meta", "type_demande", "Meta"),
     ]
 
-    if USE_POSTGRES:
+    if conn.is_postgres:
         conn.executemany(
             "INSERT INTO tags (name, type, label) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING",
             tags
@@ -1081,21 +1128,11 @@ class ConversationStore:
                 return None
 
             # Insert message
-            if USE_POSTGRES:
-                cursor = conn.execute(
-                    """INSERT INTO messages (conversation_id, type, role, content, timestamp)
-                       VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-                    (conv_id, type, type, content, msg.created_at.isoformat())
-                )
-                row = cursor.fetchone()
-                msg.id = row["id"] if row else None
-            else:
-                cursor = conn.execute(
-                    """INSERT INTO messages (conversation_id, type, role, content, timestamp)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (conv_id, type, type, content, msg.created_at.isoformat())
-                )
-                msg.id = cursor.lastrowid
+            msg.id = conn.insert_and_get_id(
+                """INSERT INTO messages (conversation_id, type, role, content, timestamp)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (conv_id, type, type, content, msg.created_at.isoformat())
+            )
 
             # Update conversation timestamp
             now = datetime.now().isoformat()
@@ -1188,31 +1225,16 @@ class ConversationStore:
         )
 
         with get_db() as conn:
-            if USE_POSTGRES:
-                cursor = conn.execute(
-                    """INSERT INTO reports
-                       (title, content, website, category, tags, original_query,
-                        source_conversation_id, user_id, version, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-                    (title, content, website, category,
-                     json.dumps(tags) if tags else None, original_query,
-                     source_conversation_id, user_id,
-                     1, report.created_at.isoformat(), report.updated_at.isoformat())
-                )
-                row = cursor.fetchone()
-                report.id = row["id"] if row else None
-            else:
-                cursor = conn.execute(
-                    """INSERT INTO reports
-                       (title, content, website, category, tags, original_query,
-                        source_conversation_id, user_id, version, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (title, content, website, category,
-                     json.dumps(tags) if tags else None, original_query,
-                     source_conversation_id, user_id,
-                     1, report.created_at.isoformat(), report.updated_at.isoformat())
-                )
-                report.id = cursor.lastrowid
+            report.id = conn.insert_and_get_id(
+                """INSERT INTO reports
+                   (title, content, website, category, tags, original_query,
+                    source_conversation_id, user_id, version, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (title, content, website, category,
+                 json.dumps(tags) if tags else None, original_query,
+                 source_conversation_id, user_id,
+                 1, report.created_at.isoformat(), report.updated_at.isoformat())
+            )
 
         return report
 
@@ -1441,16 +1463,11 @@ class ConversationStore:
                     "SELECT id FROM tags WHERE name = ?", (tag_name,)
                 ).fetchone()
                 if tag_row:
-                    if USE_POSTGRES:
-                        conn.execute(
-                            "INSERT INTO conversation_tags (conversation_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                            (conv_id, tag_row["id"])
-                        )
-                    else:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO conversation_tags (conversation_id, tag_id) VALUES (?, ?)",
-                            (conv_id, tag_row["id"])
-                        )
+                    conn.insert_ignore(
+                        "conversation_tags",
+                        ["conversation_id", "tag_id"],
+                        (conv_id, tag_row["id"])
+                    )
 
             # Update conversation timestamp
             if update_timestamp:
@@ -1487,16 +1504,11 @@ class ConversationStore:
                     "SELECT id FROM tags WHERE name = ?", (tag_name,)
                 ).fetchone()
                 if tag_row:
-                    if USE_POSTGRES:
-                        conn.execute(
-                            "INSERT INTO report_tags (report_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                            (report_id, tag_row["id"])
-                        )
-                    else:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO report_tags (report_id, tag_id) VALUES (?, ?)",
-                            (report_id, tag_row["id"])
-                        )
+                    conn.insert_ignore(
+                        "report_tags",
+                        ["report_id", "tag_id"],
+                        (report_id, tag_row["id"])
+                    )
 
             # Update report timestamp
             if update_timestamp:
