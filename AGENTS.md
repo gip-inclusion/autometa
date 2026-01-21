@@ -247,20 +247,20 @@ Use the `Skill` tool to invoke these skills before querying:
 | Import | Purpose |
 |--------|---------|
 | `lib.query` | Unified query interface for Matomo/Metabase |
-| `lib._sources` | Get configured API clients (`get_metabase()`, `get_matomo()`) |
 
 Example using pandas with Metabase:
 ```python
-from dotenv import load_dotenv
-load_dotenv()
-
 import pandas as pd
-from lib._sources import get_metabase
+from lib.query import execute_metabase_query, CallerType
 
-api = get_metabase(instance='dora')
-result = api.execute_sql("SELECT * FROM stats_searchview LIMIT 1000")
-df = pd.DataFrame(result.rows, columns=result.columns)
-df.to_csv('/tmp/export.csv', index=False)
+result = execute_metabase_query(
+    instance='dora',
+    caller=CallerType.AGENT,
+    sql="SELECT * FROM stats_searchview LIMIT 1000",
+)
+if result.success:
+    df = pd.DataFrame(result.data['rows'], columns=result.data['columns'])
+    df.to_csv('/tmp/export.csv', index=False)
 ```
 
 **Prefer Python over curl** — The clients handle auth automatically and curl
