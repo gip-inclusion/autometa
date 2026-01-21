@@ -111,6 +111,10 @@ def main():
     print(f"Agent backend: {config.AGENT_BACKEND}")
     print(f"Working directory: {config.BASE_DIR}")
 
+    # Restore Claude credentials from S3 if available
+    from . import claude_credentials
+    claude_credentials.restore_credentials_from_s3()
+
     # Start S3 sync watcher for interactive files
     from . import sync_to_s3
     sync_to_s3.start_sync_watcher()
