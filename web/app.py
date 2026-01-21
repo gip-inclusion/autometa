@@ -64,36 +64,38 @@ app.register_blueprint(query_bp)
 @app.route("/interactive/")
 @app.route("/interactive/<path:filename>")
 def serve_interactive(filename=""):
-    """Serve static files from S3 or local data/interactive directory."""
+    """Serve static files from S3 or local data/interactive directory.
+
+    When S3 is enabled, tries S3 first then falls back to local filesystem.
+    This allows the agent to write files locally while still serving from S3 when available.
+    """
+    # Handle directory requests - try index.html
+    if not filename or filename.endswith("/"):
+        filename = filename + "index.html"
+
+    # Try S3 first if configured
     if config.USE_S3:
         from . import s3
 
-        # Handle directory requests - try index.html
-        if not filename or filename.endswith("/"):
-            filename = filename + "index.html"
-
-        # Check if file exists and redirect to presigned URL
         if s3.file_exists(filename):
             url = s3.get_file_url(filename)
             if url:
                 return redirect(url)
-            # File exists but presigned URL generation failed
             logger.error(f"Failed to generate presigned URL for existing file: {filename}")
             abort(500)
 
-        # File not found
-        abort(404)
-    else:
-        # Local filesystem fallback
-        if not config.INTERACTIVE_DIR.exists():
-            config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
+    # Fallback to local filesystem (always, even when S3 is enabled)
+    if not config.INTERACTIVE_DIR.exists():
+        config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
 
-        # If path is a directory, serve index.html
-        full_path = config.INTERACTIVE_DIR / filename
-        if full_path.is_dir():
-            filename = str((full_path / "index.html").relative_to(config.INTERACTIVE_DIR))
+    full_path = config.INTERACTIVE_DIR / filename
+    if full_path.is_dir():
+        filename = str((full_path / "index.html").relative_to(config.INTERACTIVE_DIR))
 
+    if (config.INTERACTIVE_DIR / filename).exists():
         return send_from_directory(config.INTERACTIVE_DIR, filename)
+
+    abort(404)
 
 
 # =============================================================================
