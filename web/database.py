@@ -178,13 +178,15 @@ def get_schema_version(conn: ConnectionWrapper) -> int:
     try:
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         return row["version"] if row else 0
-    except (sqlite3.OperationalError, Exception) as e:
-        # Table doesn't exist yet
-        if "schema_version" in str(e).lower() or "does not exist" in str(e).lower():
-            return 0
-        # For PostgreSQL, check if it's a "relation does not exist" error
-        if USE_POSTGRES and "psycopg2" in str(type(e).__module__):
-            return 0
+    except sqlite3.OperationalError:
+        # SQLite: table doesn't exist yet
+        return 0
+    except Exception as e:
+        # PostgreSQL: check for "undefined table" error (SQLSTATE 42P01)
+        if USE_POSTGRES:
+            error_code = getattr(e, "pgcode", None)
+            if error_code == "42P01":  # undefined_table
+                return 0
         raise
 
 

@@ -23,6 +23,7 @@ _s3_client = None
 if config.USE_S3:
     import boto3
     from botocore.config import Config as BotoConfig
+    from botocore.exceptions import ClientError
 
     _s3_client = boto3.client(
         "s3",
@@ -123,8 +124,11 @@ def download_file(path: str) -> Optional[bytes]:
             key = _get_s3_key(path)
             response = _s3_client.get_object(Bucket=config.S3_BUCKET, Key=key)
             return response["Body"].read()
-        except _s3_client.exceptions.NoSuchKey:
-            logger.debug(f"S3 file not found: {path}")
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                logger.debug(f"S3 file not found: {path}")
+                return None
+            logger.error(f"S3 download failed for {path}: {e}")
             return None
         except Exception as e:
             logger.error(f"S3 download failed for {path}: {e}")
@@ -184,7 +188,10 @@ def file_exists(path: str) -> bool:
             key = _get_s3_key(path)
             _s3_client.head_object(Bucket=config.S3_BUCKET, Key=key)
             return True
-        except Exception:
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                return False
+            logger.error(f"S3 head_object failed for {path}: {e}")
             return False
     else:
         return _get_local_path(path).exists()
