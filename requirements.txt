@@ -30,3 +30,6 @@ pydantic-settings==2.12.0
 
 # Type hints
 typing_extensions==4.15.0
+
+# CLI interaction for OAuth flow
+pexpect==4.9.0

@@ -14,6 +14,7 @@ from .routes import (
     html_bp,
     rapports_bp,
     query_bp,
+    auth_bp,
 )
 
 # Configure logging
@@ -59,6 +60,7 @@ app.register_blueprint(reports_bp)
 app.register_blueprint(knowledge_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(query_bp)
+app.register_blueprint(auth_bp)
 
 
 # =============================================================================
@@ -92,6 +94,11 @@ def main():
     print(f"Starting Matometa web server at http://{config.HOST}:{config.PORT}")
     print(f"Agent backend: {config.AGENT_BACKEND}")
     print(f"Working directory: {config.BASE_DIR}")
+
+    # Restore Claude credentials from S3 if available (for CLI backend)
+    from . import claude_credentials
+    claude_credentials.restore_credentials_from_s3()
+
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)
 
 
