@@ -143,9 +143,9 @@ scalingo create matometa
 scalingo addons-add postgresql postgresql-starter-512
 
 # Configurer les variables d'environnement
-scalingo env-set MATOMO_TOKEN=xxx
-scalingo env-set METABASE_USER=xxx
-scalingo env-set METABASE_PASSWORD=xxx
+scalingo env-set MATOMO_API_KEY=xxx
+scalingo env-set METABASE_STATS_API_KEY=xxx
+scalingo env-set METABASE_DATALAKE_API_KEY=xxx
 scalingo env-set ANTHROPIC_API_KEY=xxx
 scalingo env-set ADMIN_USERS=user@example.com
 

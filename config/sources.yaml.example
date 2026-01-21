@@ -37,6 +37,12 @@ metabase:
       21: null  # Recherche de contacts et structures
       24: null  # Utilisateurs Communs Emplois - Dora
 
+  dora:
+    url: https://metabase.dora.inclusion.gouv.fr
+    api_key: ${env.METABASE_DORA_API_KEY}
+    knowledge_path: knowledge/dora/
+    dashboards: {}
+
 matomo:
   _default: inclusion
 
