@@ -600,6 +600,21 @@ body.has-sidebar {
    View modes (segmented control)
    ========================================================================== */
 
+/* Prevent scroll jumps when hiding/showing elements */
+.event-tool_use,
+.event-tool_result,
+.event-assistant:not(.event-report):not(.event-final-answer) {
+  overflow-anchor: none;
+}
+
+/* Anchor element at bottom to stabilize scroll */
+.chat-output::after {
+  content: '';
+  display: block;
+  overflow-anchor: auto;
+  height: 1px;
+}
+
 /* Minimal: Only reports and final answers */
 .chat-output.view-minimal .event-tool_use,
 .chat-output.view-minimal .event-tool_result,

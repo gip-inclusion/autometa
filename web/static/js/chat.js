@@ -169,6 +169,11 @@ function initChat() {
       const mode = btn.dataset.mode;
       const label = btn.dataset.label;
 
+      // Find anchor element and its position before mode change (Safari fallback)
+      // Use the last user message as anchor since it's always visible
+      const anchorEl = findScrollAnchor(chatOutput);
+      const anchorOffset = anchorEl ? anchorEl.getBoundingClientRect().top : null;
+
       // Update active button
       viewModeControl.querySelectorAll('.segmented-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -180,6 +185,17 @@ function initChat() {
       // Ensure final answers are marked for minimal mode
       if (mode === 'minimal') {
         markFinalAnswersInConversation();
+      }
+
+      // Restore scroll position (Safari fallback - Chrome/Firefox use overflow-anchor)
+      if (anchorEl && anchorOffset !== null) {
+        const newOffset = anchorEl.getBoundingClientRect().top;
+        const scrollParent = chatOutput.closest('.chat-container') || chatOutput.parentElement;
+        if (scrollParent && scrollParent.scrollTop !== undefined) {
+          scrollParent.scrollTop += (newOffset - anchorOffset);
+        } else {
+          window.scrollBy(0, newOffset - anchorOffset);
+        }
       }
 
       // Update label
@@ -1131,6 +1147,20 @@ function hideLoading() {
 function hideEmptyState() {
   const emptyState = document.getElementById('emptyState');
   if (emptyState) emptyState.style.display = 'none';
+}
+
+/**
+ * Find a scroll anchor element (for Safari which lacks overflow-anchor support)
+ * Returns the last user message or first visible event block
+ */
+function findScrollAnchor(chatOutput) {
+  // Prefer last user message as anchor (always visible in all modes)
+  const userMessages = chatOutput.querySelectorAll('.event-user');
+  if (userMessages.length > 0) {
+    return userMessages[userMessages.length - 1];
+  }
+  // Fallback to first event block
+  return chatOutput.querySelector('.event-block');
 }
 
 /**

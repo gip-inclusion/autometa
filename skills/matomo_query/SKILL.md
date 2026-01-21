@@ -42,44 +42,66 @@ else:
     print(f"Error: {result.error}")
 ```
 
-### Using the API class directly
-
-For high-level convenience methods:
+### Common query patterns
 
 ```python
-from lib._sources import get_matomo
-
-api = get_matomo(instance='inclusion')
+from lib.query import execute_matomo_query, CallerType
 
 # Get visit summary
-summary = api.get_visits(site_id=117, period="month", date="2025-12-01")
-print(f"Unique visitors: {summary['nb_uniq_visitors']}")
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='VisitsSummary.get',
+    params={'idSite': 117, 'period': 'month', 'date': '2025-12-01'},
+)
 
 # Get custom dimension breakdown (e.g., UserKind)
-user_types = api.get_dimension(site_id=117, dimension_id=1, period="month", date="2025-12-01")
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='CustomDimensions.getCustomDimension',
+    params={'idSite': 117, 'idDimension': 1, 'period': 'month', 'date': '2025-12-01'},
+)
 
 # Query with URL segment
-gps_visits = api.get_visits(site_id=117, period="month", date="2025-12-01", segment="pageUrl=@/gps/")
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='VisitsSummary.get',
+    params={'idSite': 117, 'period': 'month', 'date': '2025-12-01', 'segment': 'pageUrl=@/gps/'},
+)
 
 # Get events
-events = api.get_event_categories(site_id=117, period="month", date="2025-12-01")
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='Events.getCategory',
+    params={'idSite': 117, 'period': 'month', 'date': '2025-12-01'},
+)
 
 # Get entry/exit pages
-landing = api.get_entry_pages(site_id=117, period="month", date="2025-12-01")
-exits = api.get_exit_pages(site_id=117, period="month", date="2025-12-01")
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='Actions.getEntryPageUrls',
+    params={'idSite': 117, 'period': 'month', 'date': '2025-12-01'},
+)
 
-# Get page flow (what happens before/after a page)
-flow = api.get_transitions(site_id=117, period="month", date="2025-12-01", page_url="/gps/groups/list")
-
-# Get temporal patterns
-by_hour = api.get_visits_by_hour(site_id=117, period="month", date="2025-12-01")
-by_day = api.get_visits_by_day_of_week(site_id=117, period="month", date="2025-12-01")
+# Get page flow (transitions)
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='Transitions.getTransitionsForPageUrl',
+    params={'idSite': 117, 'period': 'month', 'date': '2025-12-01', 'pageUrl': '/gps/groups/list'},
+)
 
 # Get traffic sources
-referrers = api.get_referrers(site_id=117, period="month", date="2025-12-01")
-
-# Raw API call for any method
-events = api.request("Events.getName", idSite=211, period="month", date="2025-12-01")
+result = execute_matomo_query(
+    instance='inclusion',
+    caller=CallerType.AGENT,
+    method='Referrers.getAll',
+    params={'idSite': 117, 'period': 'month', 'date': '2025-12-01'},
+)
 ```
 
 ## CRITICAL: Timeout Prevention
