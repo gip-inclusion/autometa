@@ -72,7 +72,7 @@ def get_report(report_id: int):
         "updated_at": report.updated_at.isoformat(),
         "links": {
             "self": f"/api/reports/{report.id}",
-            "view": f"/rapports?id={report.id}",
+            "view": f"/rapports/{report.id}",
         },
     })
 
@@ -133,7 +133,7 @@ def create_report():
         "title": report.title,
         "links": {
             "self": f"/api/reports/{report.id}",
-            "view": f"/rapports?id={report.id}",
+            "view": f"/rapports/{report.id}",
         }
     }), 201
 

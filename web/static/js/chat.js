@@ -1289,7 +1289,7 @@ function startFreshConversation() {
 function formatReportCard(data) {
   const reportId = data.report_id || data.id;
   const title = data.title || 'Rapport';
-  const viewUrl = `/rapports?id=${reportId}`;
+  const viewUrl = `/rapports/${reportId}`;
 
   return `
     <div class="report-card-inline">

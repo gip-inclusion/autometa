@@ -3,7 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, redirect, render_template, request, url_for
 
 from ..storage import store
 from .html import get_sidebar_data
@@ -120,9 +120,27 @@ def scan_interactive_apps():
 
 @bp.route("/rapports")
 def rapports():
-    """Rapports section - saved reports browser with optional filtering."""
-    data = get_sidebar_data()
+    """Rapports section - saved reports browser with optional filtering.
+
+    Legacy ?id= parameter redirects to canonical /rapports/:id URL.
+    """
+    # Redirect old ?id= URLs to canonical /rapports/:id
     report_id = request.args.get("id", type=int)
+    if report_id:
+        return redirect(url_for("rapports.rapport_detail", report_id=report_id), code=301)
+
+    return _render_rapports_page()
+
+
+@bp.route("/rapports/<int:report_id>")
+def rapport_detail(report_id: int):
+    """View a specific report."""
+    return _render_rapports_page(report_id=report_id)
+
+
+def _render_rapports_page(report_id: int | None = None):
+    """Render the rapports page, optionally showing a specific report."""
+    data = get_sidebar_data()
 
     current_report = None
     current_report_tags = []

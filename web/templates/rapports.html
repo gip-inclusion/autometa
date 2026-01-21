@@ -138,8 +138,8 @@
         <div class="col-12 col-md-6 col-lg-4 filterable-card" id="report-{{ report.id }}"
              data-search="{{ report.title|lower }} {{ (report.website or '')|lower }} {{ (report.category or '')|lower }} {% for tag in report.tag_objects %}{{ tag.label|lower }} {{ tag.name|lower }} {% endfor %}">
           <div class="card report-card h-100">
-            <a href="/rapports?id={{ report.id }}" class="card-body text-decoration-none d-flex flex-column"
-               hx-get="/rapports?id={{ report.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <a href="/rapports/{{ report.id }}" class="card-body text-decoration-none d-flex flex-column"
+               hx-get="/rapports/{{ report.id }}" hx-target="#main" hx-select="#main > *" hx-push-url="true">
               <h6 class="card-title mb-2">{{ report.title }}</h6>
               <div class="report-badges">
                 {% if report.tag_objects %}
