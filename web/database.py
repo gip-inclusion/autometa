@@ -18,9 +18,6 @@ if USE_POSTGRES:
     import psycopg2
     from psycopg2.extras import RealDictCursor
 
-# Schema version for migrations
-SCHEMA_VERSION = 10
-
 # Valid column names for dynamic updates (security: prevents SQL injection)
 VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "status", "pr_url", "updated_at"})
 VALID_REPORT_COLUMNS = frozenset({"title", "website", "category", "tags", "original_query", "content", "updated_at"})
@@ -219,450 +216,166 @@ def get_db():
         conn.close()
 
 
-def get_schema_version(conn: ConnectionWrapper) -> int:
-    """Get current schema version."""
+def _schema_exists(conn: ConnectionWrapper) -> bool:
+    """Check if the database schema already exists."""
     try:
-        row = conn.execute("SELECT version FROM schema_version").fetchone()
-        return row["version"] if row else 0
+        conn.execute("SELECT 1 FROM conversations LIMIT 1")
+        return True
     except sqlite3.OperationalError:
-        # SQLite: table doesn't exist yet
-        return 0
+        return False
     except Exception as e:
-        # PostgreSQL: check for "undefined table" error (SQLSTATE 42P01)
         if USE_POSTGRES:
             error_code = getattr(e, "pgcode", None)
             if error_code == "42P01":  # undefined_table
-                conn.rollback()  # Clear aborted transaction state
-                return 0
+                conn.rollback()
+                return False
         raise
 
 
-def _get_table_columns(conn: ConnectionWrapper, table_name: str) -> set[str]:
-    """Get column names for a table (works with both SQLite and PostgreSQL)."""
-    if conn.is_postgres:
-        rows = conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
-            (table_name,)
-        ).fetchall()
-        return {row["column_name"] for row in rows}
-    else:
-        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-        return {row["name"] for row in rows}
-
-
 def init_db():
-    """Initialize or migrate database schema."""
+    """Initialize database schema if needed."""
     with get_db() as conn:
-        current_version = get_schema_version(conn)
+        if not _schema_exists(conn):
+            _create_schema(conn)
+            _seed_tags(conn)
+
+
+def _create_schema(conn: ConnectionWrapper):
+    """Create the complete database schema."""
+    # Use SERIAL for PostgreSQL, INTEGER PRIMARY KEY AUTOINCREMENT for SQLite
+    serial_pk = "SERIAL PRIMARY KEY" if conn.is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+    conn.executescript(f"""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            title TEXT,
+            session_id TEXT,
+            conv_type TEXT DEFAULT 'exploration',
+            file_path TEXT,
+            status TEXT DEFAULT 'active',
+            pr_url TEXT,
+            forked_from TEXT,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+            id {serial_pk},
+            conversation_id TEXT NOT NULL,
+            type TEXT,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            raw_events TEXT,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS reports (
+            id {serial_pk},
+            title TEXT NOT NULL,
+            content TEXT,
+            website TEXT,
+            category TEXT,
+            tags TEXT,
+            original_query TEXT,
+            source_conversation_id TEXT,
+            user_id TEXT,
+            version INTEGER DEFAULT 1,
+            archived INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            conversation_id TEXT,
+            message_id INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS tags (
+            id {serial_pk},
+            name TEXT NOT NULL UNIQUE,
+            type TEXT NOT NULL,
+            label TEXT NOT NULL
+        );
 
-        if current_version < 1:
-            _create_schema_v1(conn)
-
-        if current_version < 2:
-            _migrate_to_v2(conn)
-
-        if current_version < 3:
-            _migrate_to_v3(conn)
-
-        if current_version < 4:
-            _migrate_to_v4(conn)
-
-        if current_version < 5:
-            _migrate_to_v5(conn)
-
-        if current_version < 6:
-            _migrate_to_v6(conn)
-
-        if current_version < 7:
-            _migrate_to_v7(conn)
-
-        if current_version < 8:
-            _migrate_to_v8(conn)
-
-        if current_version < 9:
-            _migrate_to_v9(conn)
-
-        if current_version < 10:
-            _migrate_to_v10(conn)
-
-
-def _create_schema_v1(conn: ConnectionWrapper):
-    """Create initial schema (v1 - legacy)."""
-    if conn.is_postgres:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY
-            );
-
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                title TEXT,
-                session_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id SERIAL PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                raw_events TEXT,
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation
-                ON messages(conversation_id);
-
-            CREATE INDEX IF NOT EXISTS idx_conversations_updated
-                ON conversations(updated_at DESC);
-
-            INSERT INTO schema_version (version) VALUES (1)
-                ON CONFLICT (version) DO UPDATE SET version = 1;
-        """)
-    else:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY
-            );
-
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                title TEXT,
-                session_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                conversation_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                raw_events TEXT,
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation
-                ON messages(conversation_id);
-
-            CREATE INDEX IF NOT EXISTS idx_conversations_updated
-                ON conversations(updated_at DESC);
-
-            INSERT OR REPLACE INTO schema_version (version) VALUES (1);
-        """)
-
-
-def _migrate_to_v2(conn: ConnectionWrapper):
-    """Migrate to v2 schema: add type to messages, add reports table."""
-    # Check if we need to migrate messages
-    columns = _get_table_columns(conn, "messages")
-
-    if "type" not in columns:
-        # Add type column, rename role to type
-        conn.execute("ALTER TABLE messages ADD COLUMN type TEXT")
-        conn.execute("UPDATE messages SET type = role")
-        # Note: SQLite doesn't support DROP COLUMN easily, keep role for now
-
-    # Create reports table
-    if conn.is_postgres:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS reports (
-                id SERIAL PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                message_id INTEGER,
-                title TEXT NOT NULL,
-                website TEXT,
-                category TEXT,
-                tags TEXT,
-                original_query TEXT,
-                version INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-                FOREIGN KEY (message_id) REFERENCES messages(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_reports_conversation
-                ON reports(conversation_id);
-
-            CREATE INDEX IF NOT EXISTS idx_reports_updated
-                ON reports(updated_at DESC);
-
-            UPDATE schema_version SET version = 2;
-        """)
-    else:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS reports (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                conversation_id TEXT NOT NULL,
-                message_id INTEGER,
-                title TEXT NOT NULL,
-                website TEXT,
-                category TEXT,
-                tags TEXT,
-                original_query TEXT,
-                version INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-                FOREIGN KEY (message_id) REFERENCES messages(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_reports_conversation
-                ON reports(conversation_id);
-
-            CREATE INDEX IF NOT EXISTS idx_reports_updated
-                ON reports(updated_at DESC);
-
-            UPDATE schema_version SET version = 2;
-        """)
-
-
-def _migrate_to_v3(conn: ConnectionWrapper):
-    """Migrate to v3 schema: add type, file_path, status to conversations for knowledge editing."""
-    columns = _get_table_columns(conn, "conversations")
-
-    if "conv_type" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN conv_type TEXT DEFAULT 'exploration'")
-
-    if "file_path" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN file_path TEXT")
-
-    if "status" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN status TEXT DEFAULT 'active'")
-
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_conversations_type_status
-            ON conversations(conv_type, status)
-    """)
-
-    conn.execute("UPDATE schema_version SET version = 3")
-
-
-def _migrate_to_v4(conn: ConnectionWrapper):
-    """Migrate to v4: add columns to reports (partial migration, see v5)."""
-    columns = _get_table_columns(conn, "reports")
-
-    if "content" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN content TEXT")
-
-    if "source_conversation_id" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN source_conversation_id TEXT")
-
-    if "user_id" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN user_id TEXT")
-
-    conn.execute("UPDATE schema_version SET version = 4")
-
-
-def _migrate_to_v5(conn: ConnectionWrapper):
-    """Migrate to v5: recreate reports table with nullable conversation_id."""
-    if conn.is_postgres:
-        # PostgreSQL: ALTER TABLE to drop NOT NULL constraint is simpler
-        # Check if conversation_id has NOT NULL constraint and remove it
-        conn.executescript("""
-            ALTER TABLE reports ALTER COLUMN conversation_id DROP NOT NULL;
-            UPDATE schema_version SET version = 5;
-        """)
-    else:
-        # SQLite: Recreate table with new schema (conversation_id nullable)
-        # Disable FK checks temporarily for table recreation
-        conn.executescript("""
-            PRAGMA foreign_keys = OFF;
-
-            DROP TABLE IF EXISTS reports_new;
-
-            CREATE TABLE reports_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                content TEXT,
-                website TEXT,
-                category TEXT,
-                tags TEXT,
-                original_query TEXT,
-                source_conversation_id TEXT,
-                user_id TEXT,
-                version INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                -- Legacy columns (nullable for backwards compat)
-                conversation_id TEXT,
-                message_id INTEGER
-            );
-
-            INSERT INTO reports_new (id, title, content, website, category, tags, original_query,
-                                     source_conversation_id, user_id, version, created_at, updated_at,
-                                     conversation_id, message_id)
-            SELECT id, title, content, website, category, tags, original_query,
-                   source_conversation_id, user_id, version, created_at, updated_at,
-                   conversation_id, message_id
-            FROM reports;
-
-            DROP TABLE reports;
-
-            ALTER TABLE reports_new RENAME TO reports;
-
-            CREATE INDEX IF NOT EXISTS idx_reports_updated
-                ON reports(updated_at DESC);
-
-            UPDATE schema_version SET version = 5;
-
-            PRAGMA foreign_keys = ON;
-        """)
-
-
-def _migrate_to_v6(conn: ConnectionWrapper):
-    """Migrate to v6: add archived column to reports."""
-    columns = _get_table_columns(conn, "reports")
-
-    if "archived" not in columns:
-        conn.execute("ALTER TABLE reports ADD COLUMN archived INTEGER DEFAULT 0")
-
-    conn.execute("UPDATE schema_version SET version = 6")
-
-
-def _migrate_to_v7(conn: ConnectionWrapper):
-    """Migrate to v7: add pr_url column to conversations for GitHub PR tracking."""
-    columns = _get_table_columns(conn, "conversations")
-
-    if "pr_url" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN pr_url TEXT")
-
-    conn.execute("UPDATE schema_version SET version = 7")
-
-
-def _migrate_to_v8(conn: ConnectionWrapper):
-    """Migrate to v8: add forked_from column to conversations for fork tracking."""
-    columns = _get_table_columns(conn, "conversations")
-
-    if "forked_from" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN forked_from TEXT")
-
-    conn.execute("UPDATE schema_version SET version = 8")
-
-
-def _migrate_to_v9(conn: ConnectionWrapper):
-    """Migrate to v9: add tags system with normalized tables."""
-    if conn.is_postgres:
-        # Create tags table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tags (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                type TEXT NOT NULL,
-                label TEXT NOT NULL
-            )
-        """)
-    else:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tags (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                type TEXT NOT NULL,
-                label TEXT NOT NULL
-            )
-        """)
-
-    # Create join tables (same syntax for both)
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS conversation_tags (
             conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
             tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
             PRIMARY KEY (conversation_id, tag_id)
-        )
-    """)
+        );
 
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS report_tags (
             report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
             tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
             PRIMARY KEY (report_id, tag_id)
-        )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_conversations_type_status ON conversations(conv_type, status);
+        CREATE INDEX IF NOT EXISTS idx_reports_updated ON reports(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tags_type ON tags(type);
+        CREATE INDEX IF NOT EXISTS idx_conversation_tags_conv ON conversation_tags(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag ON conversation_tags(tag_id);
+        CREATE INDEX IF NOT EXISTS idx_report_tags_report ON report_tags(report_id);
+        CREATE INDEX IF NOT EXISTS idx_report_tags_tag ON report_tags(tag_id);
     """)
 
-    # Create indexes for efficient filtering
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_type ON tags(type)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_tags_conv ON conversation_tags(conversation_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag ON conversation_tags(tag_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_tags_report ON report_tags(report_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_tags_tag ON report_tags(tag_id)")
 
-    # Pre-populate with our taxonomy
-    _seed_tags(conn)
-
-    conn.execute("UPDATE schema_version SET version = 9")
+# Tag taxonomy
+TAGS = [
+    # Produits (9)
+    ("emplois", "product", "Emplois"),
+    ("dora", "product", "Dora"),
+    ("marche", "product", "Marché"),
+    ("communaute", "product", "Communauté"),
+    ("pilotage", "product", "Pilotage"),
+    ("plateforme", "product", "Plateforme"),
+    ("rdv-insertion", "product", "RDV-Insertion"),
+    ("mon-recap", "product", "Mon Récap"),
+    ("multi", "product", "Multi-produits"),
+    # Sources (3)
+    ("matomo", "source", "Matomo"),
+    ("stats", "source", "Metabase stats"),
+    ("datalake", "source", "Metabase datalake"),
+    # Thèmes - Acteurs (6)
+    ("candidats", "theme", "Candidats"),
+    ("prescripteurs", "theme", "Prescripteurs"),
+    ("employeurs", "theme", "Employeurs"),
+    ("structures", "theme", "Structures / SIAE"),
+    ("acheteurs", "theme", "Acheteurs"),
+    ("fournisseurs", "theme", "Fournisseurs"),
+    # Thèmes - Concepts métier (5)
+    ("iae", "theme", "IAE"),
+    ("orientation", "theme", "Orientation"),
+    ("depot-de-besoin", "theme", "Dépôt de besoin"),
+    ("demande-de-devis", "theme", "Demande de devis"),
+    ("commandes", "theme", "Commandes"),
+    # Thèmes - Métriques (4)
+    ("trafic", "theme", "Trafic"),
+    ("conversions", "theme", "Conversions"),
+    ("retention", "theme", "Rétention"),
+    ("geographique", "theme", "Géographique"),
+    # Types de demande (4)
+    ("extraction", "type_demande", "Extraction"),
+    ("analyse", "type_demande", "Analyse"),
+    ("appli", "type_demande", "Appli"),
+    ("meta", "type_demande", "Meta"),
+]
 
 
 def _seed_tags(conn: ConnectionWrapper):
-    """Seed the tags table with our taxonomy."""
-    tags = [
-        # Produits (9)
-        ("emplois", "product", "Emplois"),
-        ("dora", "product", "Dora"),
-        ("marche", "product", "Marché"),
-        ("communaute", "product", "Communauté"),
-        ("pilotage", "product", "Pilotage"),
-        ("plateforme", "product", "Plateforme"),
-        ("rdv-insertion", "product", "RDV-Insertion"),
-        ("mon-recap", "product", "Mon Récap"),
-        ("multi", "product", "Multi-produits"),
-        # Sources (3)
-        ("matomo", "source", "Matomo"),
-        ("stats", "source", "Metabase stats"),
-        ("datalake", "source", "Metabase datalake"),
-        # Thèmes - Acteurs (6)
-        ("candidats", "theme", "Candidats"),
-        ("prescripteurs", "theme", "Prescripteurs"),
-        ("employeurs", "theme", "Employeurs"),
-        ("structures", "theme", "Structures / SIAE"),
-        ("acheteurs", "theme", "Acheteurs"),
-        ("fournisseurs", "theme", "Fournisseurs"),
-        # Thèmes - Concepts métier (5)
-        ("iae", "theme", "IAE"),
-        ("orientation", "theme", "Orientation"),
-        ("depot-de-besoin", "theme", "Dépôt de besoin"),
-        ("demande-de-devis", "theme", "Demande de devis"),
-        ("commandes", "theme", "Commandes"),
-        # Thèmes - Métriques (4)
-        ("trafic", "theme", "Trafic"),
-        ("conversions", "theme", "Conversions"),
-        ("retention", "theme", "Rétention"),
-        ("geographique", "theme", "Géographique"),
-        # Types de demande (4)
-        ("extraction", "type_demande", "Extraction"),
-        ("analyse", "type_demande", "Analyse"),
-        ("appli", "type_demande", "Appli"),
-        ("meta", "type_demande", "Meta"),
-    ]
-
+    """Seed the tags table with taxonomy."""
     if conn.is_postgres:
         conn.executemany(
             "INSERT INTO tags (name, type, label) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING",
-            tags
+            TAGS
         )
     else:
         conn.executemany(
             "INSERT OR IGNORE INTO tags (name, type, label) VALUES (?, ?, ?)",
-            tags
+            TAGS
         )
-
-
-def _migrate_to_v10(conn: ConnectionWrapper):
-    """Migrate to v10: add token tracking columns to conversations."""
-    columns = _get_table_columns(conn, "conversations")
-
-    if "input_tokens" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN input_tokens INTEGER DEFAULT 0")
-
-    if "output_tokens" not in columns:
-        conn.execute("ALTER TABLE conversations ADD COLUMN output_tokens INTEGER DEFAULT 0")
-
-    conn.execute("UPDATE schema_version SET version = 10")
 
 
 # =============================================================================
