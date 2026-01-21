@@ -43,9 +43,8 @@ ADMIN_USERS = [
     if email.strip()
 ]
 
-# Database backend: "sqlite" (default) or "postgres"
-DB_BACKEND = os.getenv("DB_BACKEND", "sqlite")
-DATABASE_URL = os.getenv("DATABASE_URL")  # Required when DB_BACKEND=postgres
+# Database: uses PostgreSQL if DATABASE_URL is set, otherwise SQLite
+DATABASE_URL = os.getenv("DATABASE_URL")
 SQLITE_PATH = BASE_DIR / "data" / "matometa.db"
 
 # Interactive files directory (agent-generated exports, dashboards)

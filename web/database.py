@@ -11,8 +11,8 @@ import os
 
 from . import config
 
-# Database backend from config
-USE_POSTGRES = config.DB_BACKEND == "postgres"
+# Database backend detection from DATABASE_URL
+USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 if USE_POSTGRES:
     import psycopg2
