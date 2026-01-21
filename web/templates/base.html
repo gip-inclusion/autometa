@@ -246,6 +246,16 @@
   <!-- App JS -->
   <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 
+  <!-- Allow cmd/ctrl+click to open links in new tabs (bypass htmx) -->
+  <script>
+  document.body.addEventListener('htmx:beforeRequest', function(e) {
+    const evt = e.detail.triggeringEvent;
+    if (evt && (evt.metaKey || evt.ctrlKey)) {
+      e.preventDefault();
+    }
+  });
+  </script>
+
   <!-- Sidebar active state management -->
   <script>
   function updateSidebarActive() {
