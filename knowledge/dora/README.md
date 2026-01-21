@@ -4,6 +4,19 @@
 - **Database:** `dora-analytics` (PostgreSQL)
 - **Instance name:** `dora`
 
+## Related Knowledge
+
+Dora has two knowledge files:
+
+| File | Content |
+|------|---------|
+| **This file** (`knowledge/dora/README.md`) | Metabase database: structures, services, orientations, search data, SQL queries |
+| `knowledge/sites/dora.md` | Matomo web analytics: traffic baselines, events, funnels, segments |
+
+**Use this file** for: querying the database, understanding the domain model, search analytics by organization, content freshness.
+
+**Use `knowledge/sites/dora.md`** for: visitor counts, bounce rates, event tracking, user journeys, Matomo segments.
+
 ## Access
 
 The API key (`METABASE_DORA_API_KEY`) has database query access but limited collection permissions:

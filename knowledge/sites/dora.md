@@ -5,6 +5,19 @@
 - Tag Manager: yes (container ID: `1y35glgB`)
 - GitHub: https://github.com/gip-inclusion/dora
 
+## Related Knowledge
+
+Dora has two knowledge files:
+
+| File | Content |
+|------|---------|
+| **This file** (`knowledge/sites/dora.md`) | Matomo web analytics: traffic baselines, events, funnels, segments |
+| `knowledge/dora/README.md` | Metabase database: structures, services, orientations, search data, SQL queries |
+
+**Use this file** for: visitor counts, bounce rates, event tracking, user journeys, Matomo segments.
+
+**Use `knowledge/dora/`** for: querying the database, understanding the domain model (Structure → Service → Orientation), search analytics by organization, content freshness metrics.
+
 ## Traffic Baselines (2025)
 
 Data retrieved 2026-01-06 via Matomo API.
