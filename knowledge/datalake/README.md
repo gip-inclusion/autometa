@@ -32,8 +32,77 @@ result = api.execute_sql("SELECT * FROM pdi_base_unique_tous_les_pros LIMIT 10",
 ## Key Tables (Database 2: Datalake)
 
 ### stats_pdi_data
+
+**Volumétrie :** ~161 lignes  
+**Mise à jour :** mensuelle via n8n  
+**Clé commune :** `produit` + `mois` (identifiant avec les autres tables stats_pdi ou statsretention)
+
+Indicateurs macro mensuels par produit. Chaque ligne = un produit pour un mois donné.
+
+#### Colonnes principales
+
+| Colonne | Description |
+|---------|-------------|
+| `produit` | Nom du service (Emplois, Dora, GPS, etc.) |
+| `mois` | Mois de référence (format YYYY-MM) |
+| `axe` | Axe stratégique : Expérience professionnelle, Accompagnement, Connaissance |
+| `actifs_accompagnateurs` | Utilisateurs accompagnateurs ayant eu au moins une action dans le mois |
+| `engages_accompagnateurs` | Accompagnateurs avec engagement significatif (critères spécifiques par produit) |
+| `promoteurs_accompagnateurs` | Accompagnateurs ayant donné un NPS de 8 à 10 |
+| `actifs_employeurs` | Employeurs actifs dans le mois |
+| `engages_employeurs` | Employeurs engagés |
+| `promoteurs_employeurs` | Employeurs NPS 8-10 |
+| `actifs_beneficiaires` | Bénéficiaires (candidats) actifs |
+| `engages_beneficiaires` | Bénéficiaires engagés |
+| `satisfaits_beneficiaires` | Bénéficiaires satisfaits (mesure de satisfaction, pas NPS) |
+
+**Note :** Pour les bénéficiaires, on utilise `satisfaits` au lieu de `promoteurs` car la mesure de satisfaction diffère du NPS utilisé pour les professionnels.
+
 ### stats_pdi_dedup
+
+**Volumétrie :** ~50-100 lignes  
+**Mise à jour :** mensuelle via n8n  
+**Clé commune :** `mois`
+
+Ratios de déduplication pour calculer le nombre d'utilisateurs uniques cross-produits.
+
+#### Colonnes principales
+
+| Colonne | Description |
+|---------|-------------|
+| `mois` | Mois de référence |
+| `ratio_dedup_accompagnateurs` | Ratio de déduplication pour les accompagnateurs |
+| `ratio_dedup_employeurs` | Ratio de déduplication pour les employeurs |
+| `ratio_dedup_beneficiaires` | Ratio de déduplication pour les bénéficiaires |
+
+#### Utilisation
+
+Pour obtenir le nombre d'utilisateurs uniques sur l'ensemble des produits :
+
+```sql
+-- Exemple : utilisateurs uniques actifs tous produits confondus
+SELECT 
+    d.mois,
+    SUM(s.actifs_accompagnateurs) * d.ratio_dedup_accompagnateurs as accompagnateurs_uniques,
+    SUM(s.actifs_employeurs) * d.ratio_dedup_employeurs as employeurs_uniques,
+    SUM(s.actifs_beneficiaires) * d.ratio_dedup_beneficiaires as beneficiaires_uniques
+FROM stats_pdi_data s
+JOIN stats_pdi_dedup d ON s.mois = d.mois
+GROUP BY d.mois, d.ratio_dedup_accompagnateurs, d.ratio_dedup_employeurs, d.ratio_dedup_beneficiaires;
+
 ### stats_nps_gip
+Regroupe les NPS (net promoteur score) de chaque produit, mois par mois
+
+### statsgps_logs_groupes
+Do not use this table, instead use the data in the **stats** database
+### monrecap_barometre
+Do not use this table, instead use the data in the **stats** database
+### monrecap_contacts
+Do not use this table, instead use the data in the **stats** database
+### monrecap_commandes
+Do not use this table, instead use the data in the **stats** database
+### monrecap_starmetrics
+Do not use this table, instead use the data in the **stats** database
 
 
 ### statsretention_cohortes_gip
