@@ -5,6 +5,7 @@
 
 let currentConversationId = null;
 let eventSource = null;
+let eventSourceConversationId = null;  // Track which conversation the eventSource belongs to
 let progressIndicator = null;
 let progressDots = '';
 let retryCount = 0;
@@ -38,6 +39,11 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     const path = window.location.pathname;
     const convMatch = path.match(/^\/explorations\/([a-f0-9-]+)$/);
     const previousConvId = currentConversationId;
+
+    // Close EventSource when navigating away from a conversation
+    if (previousConvId && (!convMatch || convMatch[1] !== previousConvId)) {
+      closeEventSource();
+    }
 
     // Set currentConversationId BEFORE initChat (needed for fork button)
     if (convMatch) {
@@ -430,10 +436,24 @@ async function sendToAgent(message) {
 }
 
 /**
+ * Close any existing EventSource connection
+ */
+function closeEventSource() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+    eventSourceConversationId = null;
+  }
+}
+
+/**
  * Start SSE streaming for the current conversation
  */
 function startStream() {
   if (!currentConversationId) return;
+
+  // Close any existing connection first
+  closeEventSource();
 
   setStreamingState(true);
 
@@ -442,6 +462,7 @@ function startStream() {
 
   // Connect to SSE endpoint
   eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream`);
+  eventSourceConversationId = currentConversationId;
 
   // Handle different event types
   const eventTypes = ['assistant', 'tool_use', 'tool_result', 'system', 'error'];
@@ -461,6 +482,7 @@ function startStream() {
   eventSource.addEventListener('done', async () => {
     eventSource.close();
     eventSource = null;
+    eventSourceConversationId = null;
     setStreamingState(false);
     hideLoading();
     removeProgressIndicator();
@@ -472,6 +494,7 @@ function startStream() {
     console.error('SSE error:', e);
     eventSource.close();
     eventSource = null;
+    eventSourceConversationId = null;
 
     // Try to retry if we haven't exceeded max retries
     if (retryCount < MAX_RETRIES && lastUserMessage) {
@@ -1184,6 +1207,9 @@ function scrollToBottom() {
  * Load an existing conversation by ID
  */
 async function loadConversation(convId) {
+  // Close any existing EventSource before loading new conversation
+  closeEventSource();
+
   try {
     const response = await fetch(`/api/conversations/${convId}`);
     if (!response.ok) {
@@ -1254,6 +1280,7 @@ async function loadConversation(convId) {
  * Start a fresh conversation (clear current state)
  */
 function startFreshConversation() {
+  closeEventSource();
   currentConversationId = null;
   lastUserMessage = null;
   retryCount = 0;
