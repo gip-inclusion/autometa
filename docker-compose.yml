@@ -3,6 +3,7 @@ services:
     build: .
     restart: always
     hostname: matometa
+    init: true  # Use tini to reap zombie processes from Claude CLI tool calls
     # Container hardening
     security_opt:
       - no-new-privileges:true

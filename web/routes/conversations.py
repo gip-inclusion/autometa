@@ -22,6 +22,34 @@ bp = Blueprint("conversations", __name__, url_prefix="/api/conversations")
 # Global agent instance
 _agent = None
 
+# Persistent event loop for async operations (avoids "Future attached to different loop" errors)
+_async_loop = None
+_async_thread = None
+_loop_lock = threading.Lock()
+
+
+def _get_async_loop():
+    """Get or create a persistent event loop running in a background thread."""
+    global _async_loop, _async_thread
+
+    with _loop_lock:
+        if _async_loop is not None and _async_loop.is_running():
+            return _async_loop
+
+        _async_loop = asyncio.new_event_loop()
+        started = threading.Event()
+
+        def run_loop():
+            asyncio.set_event_loop(_async_loop)
+            _async_loop.call_soon(started.set)  # Signal we're running
+            _async_loop.run_forever()
+
+        _async_thread = threading.Thread(target=run_loop, daemon=True)
+        _async_thread.start()
+        started.wait(timeout=5)  # Wait until loop is actually running
+
+    return _async_loop
+
 
 def get_agent_instance():
     """Get or create the agent backend instance."""
@@ -556,67 +584,73 @@ User request: """
         event_queue = queue.Queue()
         error_holder = [None]
 
-        def run_async():
-            # Storage state - lives in the async thread, independent of SSE
-            assistant_text_parts = []
-            assistant_msg_id = None
+        # Storage state - lives in the async context, independent of SSE
+        assistant_text_parts = []
+        assistant_msg_id = None
 
-            async def collect_events():
-                nonlocal assistant_text_parts, assistant_msg_id
+        async def collect_events():
+            nonlocal assistant_text_parts, assistant_msg_id
 
-                try:
-                    async for event in agent.send_message(
-                        conversation_id=conv_id,
-                        message=last_message,
-                        history=history,
-                        session_id=conv.session_id,
-                    ):
-                        # Store to database FIRST (survives client disconnect)
-                        if event.type == "assistant":
-                            assistant_text_parts.append(str(event.content))
-                            full_text = "\n".join(assistant_text_parts)
-                            if assistant_msg_id is None:
-                                msg = store.add_message(conv_id, "assistant", full_text)
-                                assistant_msg_id = msg.id if msg else None
-                            else:
-                                store.update_message(assistant_msg_id, full_text)
+            try:
+                async for event in agent.send_message(
+                    conversation_id=conv_id,
+                    message=last_message,
+                    history=history,
+                    session_id=conv.session_id,
+                ):
+                    # Store to database FIRST (survives client disconnect)
+                    if event.type == "assistant":
+                        assistant_text_parts.append(str(event.content))
+                        full_text = "\n".join(assistant_text_parts)
+                        if assistant_msg_id is None:
+                            msg = store.add_message(conv_id, "assistant", full_text)
+                            assistant_msg_id = msg.id if msg else None
+                        else:
+                            store.update_message(assistant_msg_id, full_text)
 
-                        if event.type in ("tool_use", "tool_result"):
-                            # Finalize current assistant message so next text creates a new one
-                            if event.type == "tool_use":
-                                assistant_msg_id = None
-                                assistant_text_parts = []
+                    if event.type in ("tool_use", "tool_result"):
+                        # Finalize current assistant message so next text creates a new one
+                        if event.type == "tool_use":
+                            assistant_msg_id = None
+                            assistant_text_parts = []
 
-                            content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
-                            store.add_message(conv_id, event.type, content)
+                        content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
+                        store.add_message(conv_id, event.type, content)
 
-                        if event.type == "system":
-                            # Handle session ID from init event
-                            if event.raw.get("subtype") == "init":
-                                new_session_id = event.raw.get("session_id")
-                                if new_session_id:
-                                    store.update_conversation(conv_id, session_id=new_session_id)
+                    if event.type == "system":
+                        # Handle session ID from init event
+                        if event.raw.get("subtype") == "init":
+                            new_session_id = event.raw.get("session_id")
+                            if new_session_id:
+                                store.update_conversation(conv_id, session_id=new_session_id)
 
-                            # Extract and store token usage from result event
-                            if event.raw.get("usage"):
-                                usage = event.raw["usage"]
-                                input_tokens = usage.get("input_tokens", 0)
-                                output_tokens = usage.get("output_tokens", 0)
-                                if input_tokens or output_tokens:
-                                    store.accumulate_tokens(conv_id, input_tokens, output_tokens)
+                        # Extract and store token usage from result event
+                        if event.raw.get("usage"):
+                            usage = event.raw["usage"]
+                            input_tokens = usage.get("input_tokens", 0)
+                            output_tokens = usage.get("output_tokens", 0)
+                            if input_tokens or output_tokens:
+                                store.accumulate_tokens(conv_id, input_tokens, output_tokens)
 
-                        # Then queue for SSE (may fail if client disconnected - that's OK)
-                        event_queue.put(("event", event))
+                    # Then queue for SSE (may fail if client disconnected - that's OK)
+                    event_queue.put(("event", event))
 
-                except Exception as e:
-                    error_holder[0] = e
-                finally:
-                    event_queue.put(("done", None))
+            except Exception as e:
+                error_holder[0] = e
+            finally:
+                event_queue.put(("done", None))
 
-            asyncio.run(collect_events())
+        # Submit to persistent event loop (avoids "Future attached to different loop" errors)
+        loop = _get_async_loop()
+        if not loop.is_running():
+            logger.error("Event loop not running, cannot process conversation")
+            yield f"event: error\n"
+            yield f"data: {json.dumps({'error': 'Internal error: event loop not available'})}\n\n"
+            yield "event: done\n"
+            yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
+            return
 
-        thread = threading.Thread(target=run_async, daemon=True)
-        thread.start()
+        future = asyncio.run_coroutine_threadsafe(collect_events(), loop)
 
         while True:
             try:
@@ -646,7 +680,18 @@ User request: """
             yield f"event: error\n"
             yield f"data: {json.dumps({'error': str(error_holder[0])})}\n\n"
 
-        thread.join(timeout=5)
+        # Wait for the async task to fully complete (cleanup subprocess handles, etc.)
+        try:
+            future.result(timeout=5)
+        except asyncio.CancelledError:
+            logger.warning(f"Conversation {conv_id} was cancelled")
+        except asyncio.InvalidStateError:
+            logger.error(f"Conversation {conv_id}: event loop died mid-execution")
+        except Exception as e:
+            if error_holder[0] is None:
+                error_holder[0] = e
+                yield f"event: error\n"
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         yield "event: done\n"
         yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
@@ -662,7 +707,9 @@ User request: """
 def cancel_conversation(conv_id: str):
     """Cancel a running conversation."""
     agent = get_agent_instance()
-    cancelled = asyncio.run(agent.cancel(conv_id))
+    loop = _get_async_loop()
+    future = asyncio.run_coroutine_threadsafe(agent.cancel(conv_id), loop)
+    cancelled = future.result(timeout=10)
 
     if cancelled:
         return jsonify({"status": "cancelled"})
