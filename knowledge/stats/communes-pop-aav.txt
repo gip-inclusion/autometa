@@ -1,0 +1,147 @@
+# Communes avec Population et Aires d'Attraction des Villes
+
+## Description
+
+La table `bac_a_sable.communes_pop_aav` centralise les données de référence sur les communes françaises :
+- **Aires d'Attraction des Villes (AAV)** — Classification INSEE de l'urbanité
+- **Population 2021** — Données démographiques
+- **Coordonnées GPS** — Pour cartographie et calculs de distance
+
+**Sources :**
+- [INSEE - AAV 2020](https://www.insee.fr/fr/statistiques/4803954) (géographie au 01/01/2025)
+- [INSEE - Population 2021](https://www.insee.fr/fr/statistiques/)
+
+## Schéma
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `code_commune` | VARCHAR(5) | Code INSEE (clé primaire) |
+| `libelle_commune` | VARCHAR(100) | Nom de la commune |
+| `dept` | VARCHAR(3) | Code département |
+| `region` | VARCHAR(2) | Code région |
+| `code_aav` | VARCHAR(3) | Code AAV (`000` = hors AAV) |
+| `libelle_aav` | VARCHAR(100) | Nom de l'AAV (Paris, Lyon, etc.) |
+| `cateaav` | VARCHAR(2) | Code catégorie commune |
+| `cateaav_label` | VARCHAR(30) | Libellé catégorie |
+| `taav` | VARCHAR(1) | Code tranche taille AAV |
+| `taav_label` | VARCHAR(20) | Libellé tranche |
+| `population` | INTEGER | Population 2021 |
+| `latitude` | DOUBLE | Latitude WGS84 |
+| `longitude` | DOUBLE | Longitude WGS84 |
+
+## Classifications
+
+### Catégorie de commune dans l'AAV (cateaav)
+
+| Code | Libellé | Description |
+|------|---------|-------------|
+| `11` | Pôle principal | Commune centre de l'AAV |
+| `12` | Pôle secondaire | Commune appartenant au pôle mais pas le centre |
+| `20` | Couronne | ≥15% des actifs travaillent dans le pôle |
+| `30` | Hors attraction | Commune isolée |
+
+### Tranche de taille d'AAV (taav)
+
+| Code | Libellé | Population de l'AAV |
+|------|---------|---------------------|
+| `0` | Hors AAV | N/A |
+| `1` | AAV < 50k | < 50 000 habitants |
+| `2` | AAV 50k-200k | 50 000 - 200 000 |
+| `3` | AAV 200k-700k | 200 000 - 700 000 |
+| `4` | AAV 700k+ | > 700 000 habitants |
+| `5` | Paris | Aire de Paris uniquement |
+
+## Statistiques
+
+**34 875 communes** avec couverture complète (AAV + population + coordonnées).
+
+| Catégorie commune | Nb communes | Population |
+|-------------------|-------------|------------|
+| Couronne | 24 236 | 29.0M |
+| Hors attraction | 8 897 | 4.4M |
+| Pôle secondaire | 1 017 | 14.9M |
+| Pôle principal | 692 | 18.8M |
+
+| Tranche AAV | Nb communes | Population |
+|-------------|-------------|------------|
+| Paris | 1 926 | 13.2M |
+| AAV 700k+ | 2 732 | 13.7M |
+| AAV 200k-700k | 5 685 | 16.0M |
+| AAV 50k-200k | 7 810 | 12.4M |
+| AAV < 50k | 7 825 | 8.1M |
+| Hors AAV | 8 897 | 4.4M |
+
+## Exemples d'utilisation
+
+### Jointure basique
+
+```sql
+-- Enrichir des données avec localisation
+SELECT
+    t.*,
+    c.libelle_commune,
+    c.dept,
+    c.taav_label as type_territoire,
+    c.population
+FROM ma_table t
+JOIN bac_a_sable.communes_pop_aav c ON t.code_commune = c.code_commune;
+```
+
+### Classification urbain / périurbain / rural
+
+```sql
+-- Regroupement en 3 catégories
+SELECT
+    CASE
+        WHEN c.cateaav IN ('11', '12') THEN 'Urbain (pôle)'
+        WHEN c.cateaav = '20' THEN 'Périurbain (couronne)'
+        ELSE 'Rural (hors AAV)'
+    END as urbanite,
+    COUNT(*) as nb
+FROM ma_table t
+JOIN bac_a_sable.communes_pop_aav c ON t.code_commune = c.code_commune
+GROUP BY 1;
+```
+
+### Analyse par taille de métropole
+
+```sql
+-- Focus grandes métropoles vs reste
+SELECT
+    CASE
+        WHEN c.taav = '5' THEN 'Paris'
+        WHEN c.taav = '4' THEN 'Grande métropole (700k+)'
+        WHEN c.taav IN ('2', '3') THEN 'Ville moyenne (50k-700k)'
+        WHEN c.taav = '1' THEN 'Petite ville (<50k)'
+        ELSE 'Rural'
+    END as taille_agglo,
+    COUNT(*) as nb,
+    SUM(c.population) as pop_totale
+FROM bac_a_sable.communes_pop_aav c
+GROUP BY 1
+ORDER BY 3 DESC;
+```
+
+### Calcul de distance (approximatif)
+
+```sql
+-- Distance en km entre deux points (formule de Haversine simplifiée)
+SELECT
+    c1.libelle_commune as origine,
+    c2.libelle_commune as destination,
+    111.045 * SQRT(
+        POWER(c2.latitude - c1.latitude, 2) +
+        POWER((c2.longitude - c1.longitude) * COS(RADIANS(c1.latitude)), 2)
+    ) as distance_km
+FROM bac_a_sable.communes_pop_aav c1
+CROSS JOIN bac_a_sable.communes_pop_aav c2
+WHERE c1.code_commune = '75056'  -- Paris
+  AND c2.code_commune = '69123'; -- Lyon
+```
+
+## Notes
+
+- **Clé de jointure** : `code_commune` = code INSEE 5 caractères (avec zéro initial)
+- **Coordonnées** : Centre approximatif de la commune (pas le centroïde exact)
+- **Population** : Recensement 2021
+- Remplace `communes_population_2021` pour les cas d'usage nécessitant des données d'urbanité

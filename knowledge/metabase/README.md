@@ -47,35 +47,34 @@ Structures d'insertion avec coordonnées GPS. Inclut SIAE et autres structures.
 
 Voir [documentation détaillée des structures](../stats/structures.md) pour les typologies et effectifs.
 
-### public.communes
+### bac_a_sable.communes_pop_aav
 
-Communes françaises avec coordonnées GPS (centroïdes).
+Voir [documentation détaillée de la table](../stats/communes-pop-aav.md) pour le schéma et les bonnes pratiques.
+
+Communes françaises avec population, classification d'urbanité (AAV INSEE) et coordonnées GPS.
 
 | Colonne | Description |
 |---------|-------------|
-| code_insee | Code INSEE |
-| nom | Nom de la commune |
+| code_commune | Code INSEE (clé primaire) |
+| libelle_commune | Nom de la commune |
+| dept, region | Codes département et région |
+| code_aav, libelle_aav | Aire d'attraction des villes |
+| cateaav, cateaav_label | Catégorie : Pôle principal/secondaire, Couronne, Hors attraction |
+| taav, taav_label | Tranche : Paris, 700k+, 200-700k, 50-200k, <50k, Hors AAV |
+| population | Population municipale 2021 |
 | latitude, longitude | Centroïde GPS |
-| statut_zrr | Zone de Revitalisation Rurale |
 
-**Volumétrie:** 35 014 communes.
+**Volumétrie:** 34 875 communes avec couverture complète.
 
-**Note:** Cette table ne contient pas la population. Utiliser `bac_a_sable.communes_population_2021` pour les analyses nécessitant la population.
-
-### bac_a_sable.communes_population_2021
-
-Communes françaises avec population (données INSEE 2021, via geo.api.gouv.fr).
-
-| Colonne | Description |
-|---------|-------------|
-| code_insee | Code INSEE (clé primaire) |
-| nom | Nom de la commune |
-| population | Population municipale |
-| longitude, latitude | Centroïde GPS |
-
-**Volumétrie:** 34,969 communes dont 34,953 avec population.
-
-**Communes < 20k habitants:** 34,464 (98.6%)
+**Classification urbain/rural simplifiée :**
+```sql
+SELECT
+    CASE
+        WHEN cateaav IN ('11', '12') THEN 'Urbain (pôle)'
+        WHEN cateaav = '20' THEN 'Périurbain (couronne)'
+        ELSE 'Rural (hors AAV)'
+    END as urbanite
+FROM bac_a_sable.communes_pop_aav;
 
 ### Extensions PostgreSQL
 
@@ -96,19 +95,19 @@ Exemple : communes < 20k habitants avec au moins N SIAE dans un rayon de X km.
 
 ```sql
 -- IMPORTANT: utiliser un bounding box pour éviter les timeouts
-SELECT c.code_insee, c.nom, c.population, COUNT(s.id) as nb_siae
-FROM bac_a_sable.communes_population_2021 c
+SELECT c.code_commune, c.libelle_commune, c.population, c.taav_label, COUNT(s.id) as nb_siae
+FROM bac_a_sable.communes_pop_aav c
 JOIN data_inclusion.structures_v0 s
   ON s.latitude BETWEEN c.latitude - 0.1 AND c.latitude + 0.1
  AND s.longitude BETWEEN c.longitude - 0.15 AND c.longitude + 0.15
  AND earth_distance(
        ll_to_earth(c.latitude, c.longitude),
        ll_to_earth(s.latitude, s.longitude)
-     ) <= 10000  -- 10km en mètres
+     ) <= 10000
 WHERE c.population < 20000
-  AND c.code_insee >= '35000' AND c.code_insee < '36000'  -- filtrer par dept
+  AND c.code_commune >= '35000' AND c.code_commune < '36000'
   AND s.latitude IS NOT NULL
-GROUP BY c.code_insee, c.nom, c.population
+GROUP BY c.code_commune, c.libelle_commune, c.population, c.taav_label
 HAVING COUNT(s.id) >= 3
 ORDER BY nb_siae DESC;
 ```
