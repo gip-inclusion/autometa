@@ -210,7 +210,15 @@ User: {message}"""
                 raw["usage"] = {
                     "input_tokens": getattr(usage, 'input_tokens', 0),
                     "output_tokens": getattr(usage, 'output_tokens', 0),
+                    "cache_creation_input_tokens": getattr(usage, 'cache_creation_input_tokens', 0),
+                    "cache_read_input_tokens": getattr(usage, 'cache_read_input_tokens', 0),
                 }
+                # Include service tier if present
+                if hasattr(usage, 'service_tier') and usage.service_tier:
+                    raw["usage"]["service_tier"] = usage.service_tier
+                # Include server tool usage if present
+                if hasattr(usage, 'server_tool_use') and usage.server_tool_use:
+                    raw["usage"]["web_search_requests"] = getattr(usage.server_tool_use, 'web_search_requests', 0)
             messages.append(AgentMessage(
                 type="system",
                 content=f"Completed: {getattr(sdk_message, 'subtype', 'done')}",

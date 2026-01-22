@@ -14,6 +14,9 @@ from . import config
 # Database backend detection from DATABASE_URL
 USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
+# Schema version - increment when adding migrations
+SCHEMA_VERSION = 11
+
 if USE_POSTGRES:
     import psycopg2
     from psycopg2.extras import RealDictCursor
@@ -216,28 +219,110 @@ def get_db():
         conn.close()
 
 
-def _schema_exists(conn: ConnectionWrapper) -> bool:
-    """Check if the database schema already exists."""
+def _get_schema_version(conn: ConnectionWrapper) -> int:
+    """Get current schema version, or 0 if no schema exists."""
     try:
-        conn.execute("SELECT 1 FROM conversations LIMIT 1")
-        return True
+        row = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1").fetchone()
+        return row["version"] if row else 0
     except sqlite3.OperationalError:
-        return False
+        return 0
     except Exception as e:
         if USE_POSTGRES:
             error_code = getattr(e, "pgcode", None)
             if error_code == "42P01":  # undefined_table
                 conn.rollback()
-                return False
+                return 0
         raise
 
 
+def _set_schema_version(conn: ConnectionWrapper, version: int):
+    """Set the schema version."""
+    if conn.is_postgres:
+        conn.execute(
+            "INSERT INTO schema_version (version) VALUES (%s) ON CONFLICT (version) DO UPDATE SET version = %s",
+            (version, version)
+        )
+    else:
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?)", (version,))
+
+
+def _get_table_columns(conn: ConnectionWrapper, table_name: str) -> set[str]:
+    """Get column names for a table."""
+    if conn.is_postgres:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table_name,)
+        ).fetchall()
+        return {row['column_name'] for row in rows}
+    else:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {row['name'] for row in rows}
+
+
 def init_db():
-    """Initialize database schema if needed."""
+    """Initialize or migrate database schema."""
     with get_db() as conn:
-        if not _schema_exists(conn):
-            _create_schema(conn)
-            _seed_tags(conn)
+        current_version = _get_schema_version(conn)
+
+        if current_version < 11:
+            # Fresh install or pre-versioned database
+            if current_version == 0:
+                _create_schema(conn)
+                _seed_tags(conn)
+            else:
+                # Migrate from v10 (old token columns) to v11 (usage_ prefix)
+                _migrate_to_v11(conn)
+
+            _set_schema_version(conn, SCHEMA_VERSION)
+
+
+def _migrate_to_v11(conn: ConnectionWrapper):
+    """Migrate to v11: rename token columns to usage_ prefix, add cache/backend columns."""
+    columns = _get_table_columns(conn, "conversations")
+
+    # Skip if already migrated
+    if "usage_input_tokens" in columns:
+        return
+
+    has_old_columns = "input_tokens" in columns
+
+    if conn.is_postgres:
+        # PostgreSQL supports RENAME COLUMN
+        if has_old_columns:
+            conn.execute("ALTER TABLE conversations RENAME COLUMN input_tokens TO usage_input_tokens")
+            conn.execute("ALTER TABLE conversations RENAME COLUMN output_tokens TO usage_output_tokens")
+        else:
+            conn.execute("ALTER TABLE conversations ADD COLUMN usage_input_tokens INTEGER DEFAULT 0")
+            conn.execute("ALTER TABLE conversations ADD COLUMN usage_output_tokens INTEGER DEFAULT 0")
+
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_cache_creation_tokens INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_cache_read_tokens INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_backend TEXT")
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_extra TEXT")
+    else:
+        # SQLite: RENAME COLUMN supported since 3.25.0
+        if has_old_columns and sqlite3.sqlite_version_info >= (3, 25, 0):
+            conn.execute("ALTER TABLE conversations RENAME COLUMN input_tokens TO usage_input_tokens")
+            conn.execute("ALTER TABLE conversations RENAME COLUMN output_tokens TO usage_output_tokens")
+        elif has_old_columns:
+            # Old SQLite: add new columns and copy data
+            conn.execute("ALTER TABLE conversations ADD COLUMN usage_input_tokens INTEGER DEFAULT 0")
+            conn.execute("ALTER TABLE conversations ADD COLUMN usage_output_tokens INTEGER DEFAULT 0")
+            conn.execute("UPDATE conversations SET usage_input_tokens = input_tokens, usage_output_tokens = output_tokens")
+        else:
+            conn.execute("ALTER TABLE conversations ADD COLUMN usage_input_tokens INTEGER DEFAULT 0")
+            conn.execute("ALTER TABLE conversations ADD COLUMN usage_output_tokens INTEGER DEFAULT 0")
+
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_cache_creation_tokens INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_cache_read_tokens INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_backend TEXT")
+        conn.execute("ALTER TABLE conversations ADD COLUMN usage_extra TEXT")
+
+    # Ensure schema_version table exists for older databases
+    if conn.is_postgres:
+        conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
 
 
 def _create_schema(conn: ConnectionWrapper):
@@ -246,6 +331,10 @@ def _create_schema(conn: ConnectionWrapper):
     serial_pk = "SERIAL PRIMARY KEY" if conn.is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
     conn.executescript(f"""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER PRIMARY KEY
+        );
+
         CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
             user_id TEXT,
@@ -256,8 +345,12 @@ def _create_schema(conn: ConnectionWrapper):
             status TEXT DEFAULT 'active',
             pr_url TEXT,
             forked_from TEXT,
-            input_tokens INTEGER DEFAULT 0,
-            output_tokens INTEGER DEFAULT 0,
+            usage_input_tokens INTEGER DEFAULT 0,
+            usage_output_tokens INTEGER DEFAULT 0,
+            usage_cache_creation_tokens INTEGER DEFAULT 0,
+            usage_cache_read_tokens INTEGER DEFAULT 0,
+            usage_backend TEXT,
+            usage_extra TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -439,8 +532,13 @@ class Conversation:
     forked_from: Optional[str] = None  # ID of source conversation if forked
     messages: list[Message] = field(default_factory=list)
     report: Optional[Report] = None
-    input_tokens: int = 0  # cumulative input tokens used
-    output_tokens: int = 0  # cumulative output tokens used
+    # Usage tracking (cumulative per conversation)
+    usage_input_tokens: int = 0
+    usage_output_tokens: int = 0
+    usage_cache_creation_tokens: int = 0
+    usage_cache_read_tokens: int = 0
+    usage_backend: Optional[str] = None  # 'cli', 'sdk', ...
+    usage_extra: Optional[dict] = None  # web_search_requests, service_tier, ...
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -460,8 +558,12 @@ class Conversation:
             "status": self.status,
             "pr_url": self.pr_url,
             "has_report": self.has_report,
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
+            "usage_input_tokens": self.usage_input_tokens,
+            "usage_output_tokens": self.usage_output_tokens,
+            "usage_cache_creation_tokens": self.usage_cache_creation_tokens,
+            "usage_cache_read_tokens": self.usage_cache_read_tokens,
+            "usage_backend": self.usage_backend,
+            "usage_extra": self.usage_extra,
             "messages": [
                 {
                     "id": m.id,
@@ -581,6 +683,11 @@ class ConversationStore:
                     message_id=report_row["message_id"],
                 )
 
+            # Parse usage_extra JSON if present
+            usage_extra = None
+            if "usage_extra" in row.keys() and row["usage_extra"]:
+                usage_extra = json.loads(row["usage_extra"])
+
             return Conversation(
                 id=row["id"],
                 user_id=row["user_id"],
@@ -593,8 +700,12 @@ class ConversationStore:
                 forked_from=row["forked_from"] if "forked_from" in row.keys() else None,
                 messages=messages,
                 report=report,
-                input_tokens=row["input_tokens"] if "input_tokens" in row.keys() else 0,
-                output_tokens=row["output_tokens"] if "output_tokens" in row.keys() else 0,
+                usage_input_tokens=row["usage_input_tokens"] if "usage_input_tokens" in row.keys() else 0,
+                usage_output_tokens=row["usage_output_tokens"] if "usage_output_tokens" in row.keys() else 0,
+                usage_cache_creation_tokens=row["usage_cache_creation_tokens"] if "usage_cache_creation_tokens" in row.keys() else 0,
+                usage_cache_read_tokens=row["usage_cache_read_tokens"] if "usage_cache_read_tokens" in row.keys() else 0,
+                usage_backend=row["usage_backend"] if "usage_backend" in row.keys() else None,
+                usage_extra=usage_extra,
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
             )
@@ -783,27 +894,62 @@ class ConversationStore:
             )
             return cursor.rowcount > 0
 
-    def update_conversation_tokens(self, conv_id: str, input_tokens: int, output_tokens: int) -> bool:
-        """Set token counts on a conversation (overwrites existing values)."""
+    def update_conversation_usage(
+        self,
+        conv_id: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        backend: Optional[str] = None,
+        extra: Optional[dict] = None,
+    ) -> bool:
+        """Set usage data on a conversation (overwrites existing values)."""
+        extra_json = json.dumps(extra) if extra else None
         with get_db() as conn:
             cursor = conn.execute(
                 """UPDATE conversations
-                   SET input_tokens = ?, output_tokens = ?, updated_at = ?
+                   SET usage_input_tokens = ?,
+                       usage_output_tokens = ?,
+                       usage_cache_creation_tokens = ?,
+                       usage_cache_read_tokens = ?,
+                       usage_backend = COALESCE(?, usage_backend),
+                       usage_extra = ?,
+                       updated_at = ?
                    WHERE id = ?""",
-                (input_tokens, output_tokens, datetime.now().isoformat(), conv_id)
+                (input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+                 backend, extra_json, datetime.now().isoformat(), conv_id)
             )
             return cursor.rowcount > 0
 
-    def accumulate_tokens(self, conv_id: str, input_tokens: int, output_tokens: int) -> bool:
-        """Add tokens to existing counts (for incremental updates)."""
+    def accumulate_usage(
+        self,
+        conv_id: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        backend: Optional[str] = None,
+        extra: Optional[dict] = None,
+    ) -> bool:
+        """Add usage to existing counts (for incremental updates).
+
+        Note: extra dict is replaced, not merged.
+        """
+        extra_json = json.dumps(extra) if extra else None
         with get_db() as conn:
             cursor = conn.execute(
                 """UPDATE conversations
-                   SET input_tokens = COALESCE(input_tokens, 0) + ?,
-                       output_tokens = COALESCE(output_tokens, 0) + ?,
+                   SET usage_input_tokens = COALESCE(usage_input_tokens, 0) + ?,
+                       usage_output_tokens = COALESCE(usage_output_tokens, 0) + ?,
+                       usage_cache_creation_tokens = COALESCE(usage_cache_creation_tokens, 0) + ?,
+                       usage_cache_read_tokens = COALESCE(usage_cache_read_tokens, 0) + ?,
+                       usage_backend = COALESCE(?, usage_backend),
+                       usage_extra = COALESCE(?, usage_extra),
                        updated_at = ?
                    WHERE id = ?""",
-                (input_tokens, output_tokens, datetime.now().isoformat(), conv_id)
+                (input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+                 backend, extra_json, datetime.now().isoformat(), conv_id)
             )
             return cursor.rowcount > 0
 

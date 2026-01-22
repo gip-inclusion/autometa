@@ -627,10 +627,22 @@ User request: """
                         # Extract and store token usage from result event
                         if event.raw.get("usage"):
                             usage = event.raw["usage"]
-                            input_tokens = usage.get("input_tokens", 0)
-                            output_tokens = usage.get("output_tokens", 0)
-                            if input_tokens or output_tokens:
-                                store.accumulate_tokens(conv_id, input_tokens, output_tokens)
+                            # Build extra dict for non-core usage fields
+                            extra = {}
+                            if usage.get("service_tier"):
+                                extra["service_tier"] = usage["service_tier"]
+                            if usage.get("web_search_requests"):
+                                extra["web_search_requests"] = usage["web_search_requests"]
+
+                            store.accumulate_usage(
+                                conv_id,
+                                input_tokens=usage.get("input_tokens", 0),
+                                output_tokens=usage.get("output_tokens", 0),
+                                cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+                                cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+                                backend=config.AGENT_BACKEND,
+                                extra=extra if extra else None,
+                            )
 
                     # Then queue for SSE (may fail if client disconnected - that's OK)
                     event_queue.put(("event", event))
