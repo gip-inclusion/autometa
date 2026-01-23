@@ -85,7 +85,8 @@ due to database size.
 
 ### Geo data
 Matomo's geo data is very unprecise, as it often relies on IP address. A lot of our users being professionnals, they often use shared IP range that will not give an accurate representation of their location.
-As much as possible, when in need with geo data, use Metabase (Dora, Stats or Datalake). You may not get data for all products/services, and only for logged-in users, but the geo data is accurate, and may serve as a proxy.
+As much as possible, when in need with geo data, use Metabase (Dora, Stats or Datalake). You may not get data for all products/services, and only for logged-in users, but the geo data is accurate, and may serve as a proxy. The table pdi_base_unique_tous_les_pros in datalake has accurate logged-in geo data by department (departement_structure). Although it only gives last connexion info per service, it is a good representation of products usage (again, for logged-in users)
+
 
 ## Python Client Quick Reference
 
