@@ -194,7 +194,7 @@ pageUrl=@/gps/;dimension1==employer
 Include source URLs in reports using `format_data_source()`:
 
 ```python
-from skills.matomo_query.scripts.ui_mapping import format_data_source
+from lib._matomo_ui import format_data_source
 
 source = format_data_source(
     base_url="matomo.inclusion.beta.gouv.fr",

@@ -10,8 +10,8 @@ Migration:
 
 The new location provides automatic query logging and conversation tracking.
 
-Note: format_data_source is still available from the ui_mapping module:
-    from skills.matomo_query.scripts.ui_mapping import format_data_source
+Note: format_data_source is available from:
+    from lib._matomo_ui import format_data_source
 """
 
 raise ImportError(
@@ -24,5 +24,5 @@ raise ImportError(
     "    from lib.query import execute_matomo_query, CallerType\n"
     "    result = execute_matomo_query(instance='inclusion', caller=CallerType.AGENT, method='VisitsSummary.get', params={...})\n\n"
     "For format_data_source, use:\n"
-    "    from skills.matomo_query.scripts.ui_mapping import format_data_source\n"
+    "    from lib._matomo_ui import format_data_source\n"
 )

@@ -20,7 +20,7 @@ from unittest.mock import patch, MagicMock
 
 from lib.query import MatomoAPI, MatomoError
 from lib._sources import get_matomo
-from skills.matomo_query.scripts.ui_mapping import (
+from lib._matomo_ui import (
     UI_MAPPING,
     get_ui_url,
     format_data_source,
@@ -42,10 +42,10 @@ def test_matomo_module_imports():
 
 def test_ui_mapping_module_imports():
     """UI mapping module imports without errors."""
-    from skills.matomo_query.scripts import ui_mapping
-    assert hasattr(ui_mapping, 'UI_MAPPING')
-    assert hasattr(ui_mapping, 'get_ui_url')
-    assert hasattr(ui_mapping, 'format_data_source')
+    from lib import _matomo_ui
+    assert hasattr(_matomo_ui, 'UI_MAPPING')
+    assert hasattr(_matomo_ui, 'get_ui_url')
+    assert hasattr(_matomo_ui, 'format_data_source')
 
 
 def test_ui_mapping_is_dict():

@@ -17,11 +17,8 @@ from typing import Any, Optional
 from ._audit import log_query, get_conversation_id
 from .api_signals import emit_api_signal
 
-# Import UI URL builder (optional - graceful fallback if not available)
-try:
-    from skills.matomo_query.scripts.ui_mapping import get_ui_url
-except ImportError:
-    get_ui_url = None
+# Import UI URL builder
+from ._matomo_ui import get_ui_url
 
 
 class MatomoError(Exception):
