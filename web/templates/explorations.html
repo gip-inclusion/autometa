@@ -10,7 +10,7 @@
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div class="d-flex align-items-center gap-3">
           {% if current_conv or is_new %}
-          <a href="/explorations" class="btn btn-link p-0 me-2" hx-get="/explorations" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+          <a href="/explorations" class="btn btn-link p-0 me-2" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-arrow-left-line ri-xl"></i>
           </a>
           {% endif %}
@@ -83,25 +83,6 @@
     </div>
   </div>
 
-  <!-- Warning banner for background running conversations -->
-  {% if running_ids %}
-  {% set background_running = running_ids | reject('equalto', current_conv.id if current_conv else '') | list %}
-  {% if background_running %}
-  <div class="container mt-3" id="background-running-alert">
-    <div class="alert alert-warning d-flex align-items-center gap-2 mb-0" role="alert">
-      <i class="ri-loader-4-line ri-spin"></i>
-      <span>Un agent est en cours d'exécution en arrière-plan.</span>
-      <div class="ms-auto d-flex gap-2">
-        <a href="/explorations/{{ background_running[0] }}" class="alert-link">Voir</a>
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="killAgent('{{ background_running[0] }}', this.closest('#background-running-alert'))">
-          <i class="ri-stop-circle-line"></i> Arrêter
-        </button>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-  {% endif %}
-
   <!-- Main content area -->
   <div class="section-body" style="padding: 0; max-width: none;">
     {% if current_conv %}
@@ -117,6 +98,14 @@
       <aside class="actions-sidebar" id="actionsSidebar">
         <div class="actions-sidebar-header">
           <span class="actions-sidebar-title">Actions</span>
+          <div class="actions-filter-toggle" id="actionsFilterToggle">
+            <button type="button" class="actions-filter-btn active" data-filter="data" title="Données">
+              <i class="ri-database-2-line"></i>
+            </button>
+            <button type="button" class="actions-filter-btn" data-filter="detailed" title="Détaillé">
+              <i class="ri-list-check"></i>
+            </button>
+          </div>
           <button type="button" class="actions-sidebar-toggle" id="sidebarToggle" title="Réduire">
             <i class="ri-arrow-right-s-line"></i>
           </button>
@@ -151,6 +140,14 @@
       <aside class="actions-sidebar" id="actionsSidebar">
         <div class="actions-sidebar-header">
           <span class="actions-sidebar-title">Actions</span>
+          <div class="actions-filter-toggle" id="actionsFilterToggle">
+            <button type="button" class="actions-filter-btn active" data-filter="data" title="Données">
+              <i class="ri-database-2-line"></i>
+            </button>
+            <button type="button" class="actions-filter-btn" data-filter="detailed" title="Détaillé">
+              <i class="ri-list-check"></i>
+            </button>
+          </div>
           <button type="button" class="actions-sidebar-toggle" id="sidebarToggle" title="Réduire">
             <i class="ri-arrow-right-s-line"></i>
           </button>
