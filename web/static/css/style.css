@@ -4,7 +4,7 @@
   --sidebar-width: 280px;
   --sidebar-bg: #f8f9fa;
   --sidebar-border: #e9ecef;
-  --section-header-height: 108px;
+  --section-header-height: 88px;
 }
 
 /* ==========================================================================
@@ -905,7 +905,7 @@ body.has-sidebar {
    ========================================================================== */
 @media (max-width: 767.98px) {
   .section-header {
-    padding: 1rem 0;
+    padding: 0.75rem 0;
   }
 
   .section-header .container {
@@ -913,9 +913,15 @@ body.has-sidebar {
     overflow: hidden;
   }
 
-  .section-header .d-flex {
+  .conv-header-row {
     min-width: 0;
     overflow: hidden;
+    gap: 0.5rem;
+  }
+
+  /* Hide compass icon on mobile */
+  .conv-header-icon {
+    display: none;
   }
 
   .section-header h1 {
@@ -923,10 +929,27 @@ body.has-sidebar {
     max-width: 100%;
   }
 
-  .section-header .conv-title-wrapper p {
+  /* Compact meta row on mobile */
+  .conv-meta-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    margin-bottom: 0.125rem;
+  }
+
+  .conv-meta-row p {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .conv-actions {
+    gap: 0.5rem;
+  }
+
+  .conv-action-btn span {
+    display: none;
   }
 
   .section-body {
@@ -1107,10 +1130,42 @@ body.has-sidebar {
   color: var(--bs-danger) !important;
 }
 
-/* Title editing */
+/* Conversation header row */
+.conv-header-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.conv-back-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  text-decoration: none;
+  padding: 0.25rem;
+}
+
+.conv-back-link:hover {
+  color: var(--bs-primary);
+}
+
+.conv-header-icon {
+  flex-shrink: 0;
+}
+
+/* Title wrapper */
 .conv-title-wrapper {
   flex: 1;
   min-width: 0;
+}
+
+.conv-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
 }
 
 .conv-title-display {
@@ -1127,7 +1182,7 @@ body.has-sidebar {
 .conv-actions {
   display: flex;
   gap: 0.75rem;
-  margin-top: 0.25rem;
+  flex-shrink: 0;
 }
 
 .conv-action-btn {

@@ -7,16 +7,16 @@
   <!-- Sticky section header -->
   <div class="section-header">
     <div class="container">
-      <div class="d-flex align-items-center justify-content-between gap-3">
-        <div class="d-flex align-items-center gap-3">
-          {% if current_conv or is_new %}
-          <a href="/explorations" class="btn btn-link p-0 me-2" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <i class="ri-arrow-left-line ri-xl"></i>
-          </a>
-          {% endif %}
-          <i class="ri-compass-discover-line ri-2x text-primary"></i>
-          <div class="conv-title-wrapper">
-            <p class="text-muted mb-1 small">
+      <div class="conv-header-row">
+        {% if current_conv or is_new %}
+        <a href="/explorations" class="conv-back-link" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+          <i class="ri-arrow-left-line ri-xl"></i>
+        </a>
+        {% endif %}
+        <i class="ri-compass-discover-line ri-2x text-primary conv-header-icon"></i>
+        <div class="conv-title-wrapper">
+          <div class="conv-meta-row">
+            <p class="text-muted mb-0 small">
               {% if current_conv %}
                 {% if is_shared %}
                   <i class="ri-user-shared-line"></i> Conversation de {{ owner_email }}
@@ -40,20 +40,6 @@
                 Toutes les conversations
               {% endif %}
             </p>
-            <div class="conv-title-display" id="convTitleDisplay">
-              <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Sans titre' }}{% elif is_new %}Posez vos questions sur les données{% else %}Explorations{% endif %}</h1>
-            </div>
-            {% if current_conv and not is_shared %}
-            <div class="conv-title-edit d-none" id="convTitleEdit">
-              <input type="text" class="form-control form-control-sm" id="convTitleInput" value="{{ current_conv.title or '' }}" placeholder="Titre de la conversation">
-              <button type="button" class="btn btn-sm btn-primary ms-2" id="saveTitleBtn">
-                <i class="ri-check-line"></i>
-              </button>
-              <button type="button" class="btn btn-sm btn-link text-muted" id="cancelTitleBtn">
-                <i class="ri-close-line"></i>
-              </button>
-            </div>
-            {% endif %}
             {% if current_conv %}
             <div class="conv-actions" id="convActions">
               {% if not is_shared %}
@@ -70,6 +56,20 @@
             </div>
             {% endif %}
           </div>
+          <div class="conv-title-display" id="convTitleDisplay">
+            <h1 class="mb-0">{% if current_conv %}{{ current_conv.title or 'Sans titre' }}{% elif is_new %}Posez vos questions sur les données{% else %}Explorations{% endif %}</h1>
+          </div>
+          {% if current_conv and not is_shared %}
+          <div class="conv-title-edit d-none" id="convTitleEdit">
+            <input type="text" class="form-control form-control-sm" id="convTitleInput" value="{{ current_conv.title or '' }}" placeholder="Titre de la conversation">
+            <button type="button" class="btn btn-sm btn-primary ms-2" id="saveTitleBtn">
+              <i class="ri-check-line"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-link text-muted" id="cancelTitleBtn">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+          {% endif %}
         </div>
         {% if current_conv %}
         <!-- Mobile toggle for actions sidebar -->
