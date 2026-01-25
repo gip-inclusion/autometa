@@ -19,9 +19,85 @@ let isPopState = false;
 // Actions sidebar state
 let actionIndex = 0;
 let actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, icon}
-let pendingToolUse = null; // Temporary storage for tool_use waiting for its result
+let pendingToolUses = []; // Queue for tool_use waiting for their results (supports parallel calls)
 let lastAssistantBlock = null; // Track last assistant block for footnotes
 let currentTurnActions = []; // Actions in current turn (for footnotes)
+let actionsFilterMode = 'data'; // 'data' or 'detailed'
+
+/**
+ * Check if an action is a "data" type (knowledge read or has API calls)
+ */
+function isDataAction(toolUse, toolResult) {
+  // Knowledge reads
+  if (toolUse.category === 'Read: knowledge') return true;
+  // Any action with API calls (Matomo, Metabase queries)
+  if (toolResult?.api_calls?.length > 0) return true;
+  return false;
+}
+
+/**
+ * Apply the current filter to all pills (visibility + label updates)
+ */
+function applyActionsFilter() {
+  const pills = document.querySelectorAll('.action-pill');
+  pills.forEach(pill => {
+    const idx = parseInt(pill.dataset.actionIndex);
+    const action = actionsMap.get(idx);
+    if (!action) return;
+
+    const isData = isDataAction(action.toolUse, action.toolResult);
+    if (actionsFilterMode === 'data' && !isData) {
+      pill.classList.add('filtered-out');
+    } else {
+      pill.classList.remove('filtered-out');
+    }
+
+    // Update label (main/sub may swap based on filter mode)
+    const label = extractPillLabel(action.toolUse, action.toolResult);
+    const labelEl = pill.querySelector('.action-pill-label');
+    if (labelEl) {
+      const mainLabel = typeof label === 'object' ? label.main : label;
+      const subLabel = typeof label === 'object' ? label.sub : null;
+      let labelHtml = `<span class="action-pill-label-main">${escapeHtml(mainLabel)}</span>`;
+      if (subLabel) {
+        labelHtml += `<span class="action-pill-label-sub">${escapeHtml(subLabel)}</span>`;
+      }
+      labelEl.innerHTML = labelHtml;
+    }
+  });
+}
+
+/**
+ * Initialize filter toggle listeners
+ */
+function initActionsFilterToggle() {
+  const toggle = document.getElementById('actionsFilterToggle');
+  if (!toggle) return;
+
+  // Remove existing listeners by cloning
+  const newToggle = toggle.cloneNode(true);
+  toggle.replaceWith(newToggle);
+
+  // Sync UI with current filter mode
+  newToggle.querySelectorAll('.actions-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === actionsFilterMode);
+  });
+
+  newToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('.actions-filter-btn');
+    if (!btn) return;
+
+    const filter = btn.dataset.filter;
+    if (filter === actionsFilterMode) return;
+
+    // Update active state
+    newToggle.querySelectorAll('.actions-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    actionsFilterMode = filter;
+    applyActionsFilter();
+  });
+}
 
 /**
  * Icon mapping for tool categories
@@ -43,6 +119,66 @@ const CATEGORY_ICONS = {
 };
 
 /**
+ * French translations for tool categories
+ */
+const CATEGORY_TRANSLATIONS = {
+  // API
+  'API: Matomo': 'API Matomo',
+  'API: Metabase': 'API Metabase',
+  'API: Matomo + Metabase': 'API Matomo + Metabase',
+  'API: Matomo (curl)': 'API Matomo (curl)',
+  'API: GitHub': 'API GitHub',
+  'API: GitHub (clone)': 'API GitHub (clone)',
+  'API: curl': 'API curl',
+  // Read
+  'Read: knowledge': 'Lecture de la base de connaissances',
+  'Read: skill definition': 'Lecture d\'une définition de skill',
+  'Read: skill code': 'Lecture du code d\'un skill',
+  'Read: code': 'Lecture du code',
+  'Read: docs': 'Lecture de la documentation',
+  'Read: temp': 'Lecture d\'un fichier temporaire',
+  'Read: other': 'Lecture d\'un fichier',
+  // Write
+  'Write: temp': 'Écriture d\'un fichier temporaire',
+  'Write: interactive': 'Écriture d\'une appli',
+  'Write: script': 'Rédaction d\'un programme',
+  'Write: knowledge': 'Écriture dans la base de connaissances',
+  'Write: other': 'Écriture d\'un fichier',
+  // Edit
+  'Edit: knowledge': 'Modification de la base de connaissances',
+  'Edit: skill': 'Modification d\'un skill',
+  'Edit: code': 'Modification du code',
+  'Edit: other': 'Modification d\'un fichier',
+  // Execute
+  'Execute: script': 'Exécution d\'un programme',
+  // Query
+  'Query: SQLite': 'Requête SQLite',
+  // Search
+  'Search: codebase': 'Recherche dans le code',
+  // System
+  'Thinking: todo': 'Réflexion',
+  'System: task': 'Liste de tâches',
+  'Web: fetch': 'Requête web',
+  'Interaction: ask user': 'Interaction',
+};
+
+/**
+ * Translate a category to French
+ */
+function translateCategory(category) {
+  if (!category) return 'Action';
+  // Exact match
+  if (CATEGORY_TRANSLATIONS[category]) {
+    return CATEGORY_TRANSLATIONS[category];
+  }
+  // Shell, Skill, Other: keep as-is
+  if (category.startsWith('Shell: ') || category.startsWith('Skill: ') || category.startsWith('Other: ')) {
+    return category;
+  }
+  return category;
+}
+
+/**
  * Get icon class for a category
  */
 function getIconForCategory(category) {
@@ -55,26 +191,52 @@ function getIconForCategory(category) {
 
 /**
  * Extract a short label for a pill based on tool data
+ * Returns { main: string, sub?: string } for potential two-line display
  */
 function extractPillLabel(toolUse, toolResult) {
   const category = toolUse.category || '';
+  let main = translateCategory(category) || toolUse.tool || 'Action';
+  let sub = null;
 
   // For Read operations, show the filename
   if (category.startsWith('Read:') && toolUse.input?.file_path) {
     const path = toolUse.input.file_path;
-    const filename = path.split('/').pop();
-    return filename;
+    main = path.split('/').pop();
   }
 
-  // For API calls with api_calls in result, show the method
+  // For direct API calls, show the method
   if (category.startsWith('API:') && toolResult?.api_calls?.length > 0) {
     const call = toolResult.api_calls[0];
-    if (call.method) return call.method;
-    if (call.sql) return 'SQL query';
+    if (call.method) main = call.method;
+    else if (call.sql) main = 'Requête SQL';
   }
 
-  // Default: use the category
-  return category || toolUse.tool || 'Action';
+  // If there are API calls (from scripts, etc.), build the API count label
+  if (toolResult?.api_calls?.length > 0 && !category.startsWith('API:')) {
+    // Count calls by source
+    const counts = {};
+    for (const call of toolResult.api_calls) {
+      const source = call.source || 'API';
+      counts[source] = (counts[source] || 0) + 1;
+    }
+    // Format: "3 requêtes Matomo" or "16 requêtes Matomo, 2 requêtes Metabase"
+    const parts = Object.entries(counts).map(([source, count]) => {
+      const name = source.charAt(0).toUpperCase() + source.slice(1);
+      return `${count} requête${count > 1 ? 's' : ''} ${name}`;
+    });
+    const apiLabel = parts.join(', ');
+
+    // In data mode: API count is main, category is sub
+    // In detailed mode: category is main, API count is sub
+    if (actionsFilterMode === 'data') {
+      sub = main;
+      main = apiLabel;
+    } else {
+      sub = apiLabel;
+    }
+  }
+
+  return { main, sub };
 }
 
 /**
@@ -83,7 +245,7 @@ function extractPillLabel(toolUse, toolResult) {
 function resetActionsState() {
   actionIndex = 0;
   actionsMap.clear();
-  pendingToolUse = null;
+  pendingToolUses = [];
   lastAssistantBlock = null;
   currentTurnActions = [];
 
@@ -136,19 +298,24 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     initChat();
     initKnowledge();
 
-    // Scroll to top on new navigation, unless it's a back/forward
-    if (!isPopState) {
-      window.scrollTo(0, 0);
-    }
-    isPopState = false;
-
     // Load conversation if navigated to a different one
     if (convMatch && convMatch[1] !== previousConvId) {
-      loadConversation(convMatch[1]);
-    } else if (path === '/explorations/new') {
-      const input = document.getElementById('chatInput');
-      if (input) input.focus();
+      // Don't scroll to top yet - loadConversation will handle scroll for running convs
+      loadConversation(convMatch[1]).then(() => {
+        // Only scroll to top for non-running conversations
+        // (running convs are scrolled to bottom in loadConversation)
+      });
+    } else {
+      // Scroll to top on new navigation, unless it's a back/forward
+      if (!isPopState) {
+        window.scrollTo(0, 0);
+      }
+      if (path === '/explorations/new') {
+        const input = document.getElementById('chatInput');
+        if (input) input.focus();
+      }
     }
+    isPopState = false;
   }
 });
 
@@ -266,6 +433,9 @@ function initActionsSidebar() {
       chatWithSidebar.classList.toggle('sidebar-collapsed');
     });
   }
+
+  // Initialize filter toggle (data/detailed)
+  initActionsFilterToggle();
 }
 
 /**
@@ -789,16 +959,17 @@ function appendEvent(type, data) {
 
   // Tool events: add to sidebar instead of main chat
   if (type === 'tool_use') {
-    pendingToolUse = data.content;
+    // Queue tool_use - supports parallel tool calls
+    pendingToolUses.push(data.content);
     return;
   }
 
   if (type === 'tool_result') {
-    if (pendingToolUse) {
-      // Pair tool_use with result and create pill
+    if (pendingToolUses.length > 0) {
+      // Pair with first queued tool_use (FIFO order)
+      const toolUse = pendingToolUses.shift();
       const toolResult = data.content;
-      createAndAppendAction(pendingToolUse, toolResult);
-      pendingToolUse = null;
+      createAndAppendAction(toolUse, toolResult);
     }
     return;
   }
@@ -871,6 +1042,12 @@ function createAndAppendAction(toolUse, toolResult) {
   // Create pill element
   const pill = createActionPill(idx, icon, label, toolUse, toolResult);
 
+  // Apply filter
+  const isData = isDataAction(toolUse, toolResult);
+  if (actionsFilterMode === 'data' && !isData) {
+    pill.classList.add('filtered-out');
+  }
+
   // Append to sidebar
   const actionsContent = document.getElementById('actionsContent');
   if (actionsContent) {
@@ -899,9 +1076,19 @@ function createActionPill(idx, icon, label, toolUse, toolResult) {
 
   const header = document.createElement('div');
   header.className = 'action-pill-header';
+
+  // Handle { main, sub } label format
+  const mainLabel = typeof label === 'object' ? label.main : label;
+  const subLabel = typeof label === 'object' ? label.sub : null;
+
+  let labelHtml = `<span class="action-pill-label-main">${escapeHtml(mainLabel)}</span>`;
+  if (subLabel) {
+    labelHtml += `<span class="action-pill-label-sub">${escapeHtml(subLabel)}</span>`;
+  }
+
   header.innerHTML = `
     <i class="${icon}"></i>
-    <span class="action-pill-label">${escapeHtml(label)}</span>
+    <div class="action-pill-label">${labelHtml}</div>
   `;
 
   const content = document.createElement('div');
@@ -942,11 +1129,29 @@ function attachPillListeners(pill, idx) {
 function formatPillContent(toolUse, toolResult) {
   let html = '';
   const category = toolUse.category || '';
+  let hasKnowledgeLink = false;
 
-  // API calls: show clickable links
-  if (category.startsWith('API:') && toolResult?.api_calls?.length > 0) {
+  // Knowledge files: show link to open in connaissances section
+  if (category === 'Read: knowledge' && toolUse.input?.file_path) {
+    const fullPath = toolUse.input.file_path;
+    const match = fullPath.match(/\/knowledge\/(.+)$/);
+    if (match) {
+      hasKnowledgeLink = true;
+      const relativePath = match[1];
+      const fileName = relativePath.split('/').pop();
+      html += `<a href="/connaissances/${escapeHtml(relativePath)}" target="_blank" class="action-knowledge-link">
+        <i class="ri-book-open-line"></i>
+        <span>Ouvrir ${escapeHtml(fileName)}</span>
+        <i class="ri-external-link-line"></i>
+      </a>`;
+    }
+  }
+
+  // API calls: show clickable links (regardless of category - scripts can make API calls)
+  if (toolResult?.api_calls?.length > 0) {
+    html += '<div class="action-api-links">';
     for (const call of toolResult.api_calls) {
-      const linkText = call.method || call.sql?.substring(0, 50) + '...' || 'View';
+      const linkText = call.method || (call.sql?.replace(/^[\s\\n]+/, '').substring(0, 50) + '...') || 'View';
       const icon = call.source === 'matomo' ? 'ri-bar-chart-line' : 'ri-database-2-line';
       html += `<a href="${escapeHtml(call.url)}" target="_blank" class="action-api-link">
         <i class="${icon}"></i>
@@ -954,23 +1159,48 @@ function formatPillContent(toolUse, toolResult) {
         <i class="ri-external-link-line"></i>
       </a>`;
     }
+    html += '</div>';
   }
 
-  // Read operations: show file path
-  if (category.startsWith('Read:') && toolUse.input?.file_path) {
-    html += `<div class="action-file-name">
-      <i class="ri-file-line"></i>
-      ${escapeHtml(toolUse.input.file_path)}
+  // Show input as key-value pairs
+  if (toolUse.input && typeof toolUse.input === 'object') {
+    html += '<div class="action-kv-list">';
+    // Sort keys with "description" first
+    const entries = Object.entries(toolUse.input).sort(([a], [b]) => {
+      if (a === 'description') return -1;
+      if (b === 'description') return 1;
+      return 0;
+    });
+    for (const [key, value] of entries) {
+      // Skip file_path if we already show a knowledge link
+      if (key === 'file_path' && hasKnowledgeLink) continue;
+
+      const displayValue = typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+      const truncated = displayValue.length > 500
+        ? displayValue.substring(0, 500) + '...'
+        : displayValue;
+
+      // Description: no header, different styling
+      if (key === 'description') {
+        html += `<div class="action-description">${escapeHtml(truncated)}</div>`;
+      } else {
+        html += `<div class="action-kv">
+          <div class="action-kv-key">${escapeHtml(key.toUpperCase())}</div>
+          <div class="action-kv-value">${escapeHtml(truncated)}</div>
+        </div>`;
+      }
+    }
+    html += '</div>';
+  } else if (toolUse.input) {
+    // Fallback for non-object input
+    html += `<div class="action-kv-list">
+      <div class="action-kv">
+        <div class="action-kv-key">INPUT</div>
+        <div class="action-kv-value">${escapeHtml(String(toolUse.input))}</div>
+      </div>
     </div>`;
-  }
-
-  // Show input preview for other cases
-  if (!html && toolUse.input) {
-    const inputStr = typeof toolUse.input === 'object'
-      ? JSON.stringify(toolUse.input, null, 2)
-      : String(toolUse.input);
-    const truncated = inputStr.length > 500 ? inputStr.substring(0, 500) + '...' : inputStr;
-    html += `<pre><code>${escapeHtml(truncated)}</code></pre>`;
   }
 
   return html || '<em>No details available</em>';
@@ -1036,9 +1266,34 @@ function highlightFootnote(idx, highlight) {
 }
 
 /**
+ * Switch to detailed filter mode if needed
+ */
+function switchToDetailedMode() {
+  if (actionsFilterMode === 'detailed') return;
+
+  actionsFilterMode = 'detailed';
+
+  // Update toggle UI
+  const toggle = document.getElementById('actionsFilterToggle');
+  if (toggle) {
+    toggle.querySelectorAll('.actions-filter-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.filter === 'detailed');
+    });
+  }
+
+  applyActionsFilter();
+}
+
+/**
  * Scroll to a pill and expand it
  */
 function scrollToPillAndExpand(idx) {
+  // Check if pill is filtered out - switch to detailed mode
+  const pill = document.querySelector(`#actionsContent .action-pill[data-action-index="${idx}"]`);
+  if (pill && pill.classList.contains('filtered-out')) {
+    switchToDetailedMode();
+  }
+
   // On mobile, open offcanvas first
   const offcanvas = document.getElementById('actionsOffcanvas');
   if (offcanvas && window.innerWidth < 992) {
@@ -1047,15 +1302,14 @@ function scrollToPillAndExpand(idx) {
 
     // Wait for offcanvas to open, then scroll
     setTimeout(() => {
-      const pill = offcanvas.querySelector(`.action-pill[data-action-index="${idx}"]`);
-      if (pill) {
-        pill.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        pill.classList.add('expanded');
+      const mobilePill = offcanvas.querySelector(`.action-pill[data-action-index="${idx}"]`);
+      if (mobilePill) {
+        mobilePill.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        mobilePill.classList.add('expanded');
       }
     }, 300);
   } else {
     // Desktop: scroll in sidebar
-    const pill = document.querySelector(`#actionsContent .action-pill[data-action-index="${idx}"]`);
     if (pill) {
       pill.scrollIntoView({ behavior: 'smooth', block: 'center' });
       pill.classList.add('expanded');
@@ -1559,9 +1813,15 @@ async function loadConversation(convId) {
     // Update URL without reload
     window.history.replaceState({}, '', `/explorations/${convId}`);
 
-    // If conversation is running, resume the stream
+    // If conversation is running, resume the stream and scroll to bottom
     if (conv.is_running) {
       console.log('Conversation is running, resuming stream...');
+      // Delay scroll to ensure DOM is fully laid out after HTMX swap
+      setTimeout(() => {
+        scrollToBottom();
+        // Also scroll window to show the chat input area
+        window.scrollTo(0, document.body.scrollHeight);
+      }, 50);
       startStream();
     }
 
