@@ -72,20 +72,12 @@
           </div>
         </div>
         {% if current_conv %}
-        <div class="view-mode-wrapper">
-          <div class="segmented-control" id="viewModeControl">
-            <button type="button" class="segmented-btn" data-mode="minimal" data-label="Rapports et réponses" title="Rapports et réponses finales">
-              <i class="ri-file-text-line"></i>
-            </button>
-            <button type="button" class="segmented-btn active" data-mode="normal" data-label="Réponses et rapports" title="Réponses et rapports">
-              <i class="ri-chat-3-line"></i>
-            </button>
-            <button type="button" class="segmented-btn" data-mode="verbose" data-label="Tout afficher" title="Tout afficher">
-              <i class="ri-code-line"></i>
-            </button>
-          </div>
-          <div class="view-mode-label" id="viewModeLabel">Réponses et rapports</div>
-        </div>
+        <!-- Mobile toggle for actions sidebar -->
+        <button type="button" class="actions-sidebar-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#actionsOffcanvas" aria-controls="actionsOffcanvas">
+          <i class="ri-tools-line"></i>
+          <span>Actions</span>
+          <span class="badge bg-secondary" id="actionCountBadge">0</span>
+        </button>
         {% endif %}
       </div>
     </div>
@@ -111,21 +103,62 @@
   {% endif %}
 
   <!-- Main content area -->
-  <div class="container section-body">
+  <div class="section-body" style="padding: 0; max-width: none;">
     {% if current_conv %}
-    <!-- Conversation detail view -->
-    <div class="chat-output view-normal" id="chatOutput">
-      <div class="loading-indicator" id="loadingConversation">
-        <div class="spinner"></div> Chargement...
+    <!-- Conversation detail view with sidebar -->
+    <div class="chat-with-sidebar" id="chatWithSidebar">
+      <div class="chat-main">
+        <div class="chat-output" id="chatOutput">
+          <div class="loading-indicator" id="loadingConversation">
+            <div class="spinner"></div> Chargement...
+          </div>
+        </div>
+      </div>
+      <aside class="actions-sidebar" id="actionsSidebar">
+        <div class="actions-sidebar-header">
+          <span class="actions-sidebar-title">Actions</span>
+          <button type="button" class="actions-sidebar-toggle" id="sidebarToggle" title="Réduire">
+            <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+        <div class="actions-sidebar-content" id="actionsContent">
+          <!-- Pills will be inserted here by JS -->
+        </div>
+      </aside>
+    </div>
+
+    <!-- Mobile offcanvas for actions -->
+    <div class="offcanvas offcanvas-end actions-offcanvas" tabindex="-1" id="actionsOffcanvas" aria-labelledby="actionsOffcanvasLabel">
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="actionsOffcanvasLabel">Actions</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
+      </div>
+      <div class="offcanvas-body" id="actionsOffcanvasContent">
+        <!-- Pills will be cloned here for mobile -->
       </div>
     </div>
     {% elif is_new %}
-    <!-- New conversation - empty chat -->
-    <div class="chat-output view-normal" id="chatOutput">
-      <div class="empty-state" id="emptyState">
-        <i class="ri-chat-3-line ri-4x text-disabled mb-3"></i>
-        <p class="mb-0 text-muted">Posez une question pour commencer</p>
+    <!-- New conversation - empty chat (no sidebar needed) -->
+    <div class="chat-with-sidebar">
+      <div class="chat-main">
+        <div class="chat-output" id="chatOutput">
+          <div class="empty-state" id="emptyState">
+            <i class="ri-chat-3-line ri-4x text-disabled mb-3"></i>
+            <p class="mb-0 text-muted">Posez une question pour commencer</p>
+          </div>
+        </div>
       </div>
+      <aside class="actions-sidebar" id="actionsSidebar">
+        <div class="actions-sidebar-header">
+          <span class="actions-sidebar-title">Actions</span>
+          <button type="button" class="actions-sidebar-toggle" id="sidebarToggle" title="Réduire">
+            <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+        <div class="actions-sidebar-content" id="actionsContent">
+          <!-- Empty for new conversations -->
+        </div>
+      </aside>
     </div>
     {% else %}
     <!-- Conversation list view -->

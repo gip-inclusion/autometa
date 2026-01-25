@@ -16,6 +16,87 @@ const RETRY_DELAY_MS = 1000;
 // Scroll position management for htmx navigation
 let isPopState = false;
 
+// Actions sidebar state
+let actionIndex = 0;
+let actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, icon}
+let pendingToolUse = null; // Temporary storage for tool_use waiting for its result
+let lastAssistantBlock = null; // Track last assistant block for footnotes
+let currentTurnActions = []; // Actions in current turn (for footnotes)
+
+/**
+ * Icon mapping for tool categories
+ */
+const CATEGORY_ICONS = {
+  'API:': 'ri-cloud-line',
+  'Read:': 'ri-file-text-line',
+  'Write:': 'ri-file-add-line',
+  'Edit:': 'ri-edit-line',
+  'Search:': 'ri-search-line',
+  'Execute:': 'ri-play-line',
+  'Query:': 'ri-database-2-line',
+  'Shell:': 'ri-terminal-line',
+  'Skill:': 'ri-magic-line',
+  'Thinking:': 'ri-lightbulb-line',
+  'System:': 'ri-settings-3-line',
+  'Web:': 'ri-global-line',
+  'Interaction:': 'ri-question-line',
+};
+
+/**
+ * Get icon class for a category
+ */
+function getIconForCategory(category) {
+  if (!category) return 'ri-tools-line';
+  for (const [prefix, icon] of Object.entries(CATEGORY_ICONS)) {
+    if (category.startsWith(prefix)) return icon;
+  }
+  return 'ri-tools-line';
+}
+
+/**
+ * Extract a short label for a pill based on tool data
+ */
+function extractPillLabel(toolUse, toolResult) {
+  const category = toolUse.category || '';
+
+  // For Read operations, show the filename
+  if (category.startsWith('Read:') && toolUse.input?.file_path) {
+    const path = toolUse.input.file_path;
+    const filename = path.split('/').pop();
+    return filename;
+  }
+
+  // For API calls with api_calls in result, show the method
+  if (category.startsWith('API:') && toolResult?.api_calls?.length > 0) {
+    const call = toolResult.api_calls[0];
+    if (call.method) return call.method;
+    if (call.sql) return 'SQL query';
+  }
+
+  // Default: use the category
+  return category || toolUse.tool || 'Action';
+}
+
+/**
+ * Reset actions state for new conversation
+ */
+function resetActionsState() {
+  actionIndex = 0;
+  actionsMap.clear();
+  pendingToolUse = null;
+  lastAssistantBlock = null;
+  currentTurnActions = [];
+
+  // Clear sidebar content
+  const actionsContent = document.getElementById('actionsContent');
+  if (actionsContent) actionsContent.innerHTML = '';
+
+  const offcanvasContent = document.getElementById('actionsOffcanvasContent');
+  if (offcanvasContent) offcanvasContent.innerHTML = '';
+
+  updateActionCountBadge();
+}
+
 // Hide public warning banner if previously dismissed - runs on every htmx load
 document.body.addEventListener('htmx:afterSettle', () => {
   if (localStorage.getItem('publicWarningDismissed') === 'true') {
@@ -129,8 +210,6 @@ function initChat() {
   const input = document.getElementById('chatInput');
   const sendBtn = document.getElementById('chatSendBtn');
   const cancelBtn = document.getElementById('chatCancelBtn');
-  const viewModeControl = document.getElementById('viewModeControl');
-  const chatOutput = document.getElementById('chatOutput');
 
   if (!input || !sendBtn) return;
 
@@ -164,55 +243,29 @@ function initChat() {
     cancelBtn.addEventListener('click', () => cancelStream());
   }
 
-  // View mode segmented control
-  if (viewModeControl && chatOutput) {
-    const viewModeLabel = document.getElementById('viewModeLabel');
-
-    viewModeControl.addEventListener('click', (e) => {
-      const btn = e.target.closest('.segmented-btn');
-      if (!btn) return;
-
-      const mode = btn.dataset.mode;
-      const label = btn.dataset.label;
-
-      // Find anchor element and its position before mode change (Safari fallback)
-      // Use the last user message as anchor since it's always visible
-      const anchorEl = findScrollAnchor(chatOutput);
-      const anchorOffset = anchorEl ? anchorEl.getBoundingClientRect().top : null;
-
-      // Update active button
-      viewModeControl.querySelectorAll('.segmented-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      // Update chat output class
-      chatOutput.classList.remove('view-minimal', 'view-normal', 'view-verbose');
-      chatOutput.classList.add(`view-${mode}`);
-
-      // Ensure final answers are marked for minimal mode
-      if (mode === 'minimal') {
-        markFinalAnswersInConversation();
-      }
-
-      // Restore scroll position (Safari fallback - Chrome/Firefox use overflow-anchor)
-      if (anchorEl && anchorOffset !== null) {
-        const newOffset = anchorEl.getBoundingClientRect().top;
-        const scrollParent = chatOutput.closest('.chat-container') || chatOutput.parentElement;
-        if (scrollParent && scrollParent.scrollTop !== undefined) {
-          scrollParent.scrollTop += (newOffset - anchorOffset);
-        } else {
-          window.scrollBy(0, newOffset - anchorOffset);
-        }
-      }
-
-      // Update label
-      if (viewModeLabel) {
-        viewModeLabel.textContent = label;
-      }
-    });
-  }
+  // Actions sidebar toggle
+  initActionsSidebar();
 
   // Title editing
   initTitleEditing();
+}
+
+/**
+ * Initialize actions sidebar toggle and interactions
+ */
+function initActionsSidebar() {
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  const chatWithSidebar = document.getElementById('chatWithSidebar');
+
+  if (sidebarToggle && chatWithSidebar) {
+    // Remove existing listener to prevent duplicates
+    sidebarToggle.replaceWith(sidebarToggle.cloneNode(true));
+    const newToggle = document.getElementById('sidebarToggle');
+
+    newToggle.addEventListener('click', () => {
+      chatWithSidebar.classList.toggle('sidebar-collapsed');
+    });
+  }
 }
 
 /**
@@ -734,14 +787,33 @@ function appendEvent(type, data) {
     return;
   }
 
-  // Tool events: update progress indicator if tools are hidden
-  if (type === 'tool_use' || type === 'tool_result') {
-    updateProgressIndicator();
+  // Tool events: add to sidebar instead of main chat
+  if (type === 'tool_use') {
+    pendingToolUse = data.content;
+    return;
   }
 
-  // When assistant speaks, remove progress indicator
+  if (type === 'tool_result') {
+    if (pendingToolUse) {
+      // Pair tool_use with result and create pill
+      const toolResult = data.content;
+      createAndAppendAction(pendingToolUse, toolResult);
+      pendingToolUse = null;
+    }
+    return;
+  }
+
+  // When user speaks, add footnotes to previous assistant message and reset turn
+  if (type === 'user') {
+    addFootnotesToLastAssistant();
+    currentTurnActions = [];
+    lastAssistantBlock = null;
+  }
+
+  // When assistant speaks, track the block for footnotes
   if (type === 'assistant') {
-    removeProgressIndicator();
+    // Add footnotes to previous assistant block if any
+    addFootnotesToLastAssistant();
   }
 
   const block = document.createElement('div');
@@ -760,15 +832,13 @@ function appendEvent(type, data) {
     } else {
       block.innerHTML = formatAssistantContent(data.content);
     }
+    // Track for footnotes
+    lastAssistantBlock = block;
     // Render mermaid diagrams and options after adding to DOM
     setTimeout(() => {
       renderMermaid(block);
       renderOptions(block);
     }, 0);
-  } else if (type === 'tool_use') {
-    block.innerHTML = formatToolUse(data.content);
-  } else if (type === 'tool_result') {
-    block.innerHTML = formatToolResult(data.content);
   } else if (type === 'error') {
     block.innerHTML = escapeHtml(data.content || '');
   } else if (type === 'report') {
@@ -785,15 +855,232 @@ function appendEvent(type, data) {
 }
 
 /**
+ * Create an action pill and append to sidebar
+ */
+function createAndAppendAction(toolUse, toolResult) {
+  actionIndex++;
+  const idx = actionIndex;
+  const category = toolUse.category || `Other: ${toolUse.tool}`;
+  const icon = getIconForCategory(category);
+  const label = extractPillLabel(toolUse, toolResult);
+
+  // Store in map
+  actionsMap.set(idx, { toolUse, toolResult, category, icon, label });
+  currentTurnActions.push(idx);
+
+  // Create pill element
+  const pill = createActionPill(idx, icon, label, toolUse, toolResult);
+
+  // Append to sidebar
+  const actionsContent = document.getElementById('actionsContent');
+  if (actionsContent) {
+    actionsContent.appendChild(pill);
+  }
+
+  // Also append to mobile offcanvas
+  const offcanvasContent = document.getElementById('actionsOffcanvasContent');
+  if (offcanvasContent) {
+    offcanvasContent.appendChild(pill.cloneNode(true));
+    // Re-attach event listeners to cloned element
+    const clonedPill = offcanvasContent.lastElementChild;
+    attachPillListeners(clonedPill, idx);
+  }
+
+  updateActionCountBadge();
+}
+
+/**
+ * Create a pill element for an action
+ */
+function createActionPill(idx, icon, label, toolUse, toolResult) {
+  const pill = document.createElement('div');
+  pill.className = 'action-pill';
+  pill.dataset.actionIndex = idx;
+
+  const header = document.createElement('div');
+  header.className = 'action-pill-header';
+  header.innerHTML = `
+    <i class="${icon}"></i>
+    <span class="action-pill-label">${escapeHtml(label)}</span>
+  `;
+
+  const content = document.createElement('div');
+  content.className = 'action-pill-content';
+  content.innerHTML = formatPillContent(toolUse, toolResult);
+
+  pill.appendChild(header);
+  pill.appendChild(content);
+
+  attachPillListeners(pill, idx);
+
+  return pill;
+}
+
+/**
+ * Attach event listeners to a pill
+ */
+function attachPillListeners(pill, idx) {
+  const header = pill.querySelector('.action-pill-header');
+
+  // Click to expand/collapse
+  header.addEventListener('click', () => {
+    pill.classList.toggle('expanded');
+  });
+
+  // Hover to highlight footnote
+  pill.addEventListener('mouseenter', () => {
+    highlightFootnote(idx, true);
+  });
+  pill.addEventListener('mouseleave', () => {
+    highlightFootnote(idx, false);
+  });
+}
+
+/**
+ * Format the expanded content of a pill
+ */
+function formatPillContent(toolUse, toolResult) {
+  let html = '';
+  const category = toolUse.category || '';
+
+  // API calls: show clickable links
+  if (category.startsWith('API:') && toolResult?.api_calls?.length > 0) {
+    for (const call of toolResult.api_calls) {
+      const linkText = call.method || call.sql?.substring(0, 50) + '...' || 'View';
+      const icon = call.source === 'matomo' ? 'ri-bar-chart-line' : 'ri-database-2-line';
+      html += `<a href="${escapeHtml(call.url)}" target="_blank" class="action-api-link">
+        <i class="${icon}"></i>
+        <span>${escapeHtml(linkText)}</span>
+        <i class="ri-external-link-line"></i>
+      </a>`;
+    }
+  }
+
+  // Read operations: show file path
+  if (category.startsWith('Read:') && toolUse.input?.file_path) {
+    html += `<div class="action-file-name">
+      <i class="ri-file-line"></i>
+      ${escapeHtml(toolUse.input.file_path)}
+    </div>`;
+  }
+
+  // Show input preview for other cases
+  if (!html && toolUse.input) {
+    const inputStr = typeof toolUse.input === 'object'
+      ? JSON.stringify(toolUse.input, null, 2)
+      : String(toolUse.input);
+    const truncated = inputStr.length > 500 ? inputStr.substring(0, 500) + '...' : inputStr;
+    html += `<pre><code>${escapeHtml(truncated)}</code></pre>`;
+  }
+
+  return html || '<em>No details available</em>';
+}
+
+/**
+ * Add footnotes to the last assistant block
+ */
+function addFootnotesToLastAssistant() {
+  if (!lastAssistantBlock || currentTurnActions.length === 0) return;
+
+  const footnotes = document.createElement('div');
+  footnotes.className = 'action-footnotes';
+
+  for (const idx of currentTurnActions) {
+    const action = actionsMap.get(idx);
+    if (!action) continue;
+
+    const footnote = document.createElement('span');
+    footnote.className = 'action-footnote';
+    footnote.dataset.actionIndex = idx;
+    footnote.innerHTML = `<i class="${action.icon}"></i>`;
+    footnote.title = action.label;
+
+    // Click to scroll to pill and expand
+    footnote.addEventListener('click', () => {
+      scrollToPillAndExpand(idx);
+    });
+
+    // Hover to highlight pill
+    footnote.addEventListener('mouseenter', () => {
+      highlightPill(idx, true);
+    });
+    footnote.addEventListener('mouseleave', () => {
+      highlightPill(idx, false);
+    });
+
+    footnotes.appendChild(footnote);
+  }
+
+  lastAssistantBlock.appendChild(footnotes);
+  currentTurnActions = [];
+}
+
+/**
+ * Highlight a pill by index
+ */
+function highlightPill(idx, highlight) {
+  const pills = document.querySelectorAll(`.action-pill[data-action-index="${idx}"]`);
+  pills.forEach(pill => {
+    pill.classList.toggle('highlighted', highlight);
+  });
+}
+
+/**
+ * Highlight a footnote by index
+ */
+function highlightFootnote(idx, highlight) {
+  const footnotes = document.querySelectorAll(`.action-footnote[data-action-index="${idx}"]`);
+  footnotes.forEach(fn => {
+    fn.classList.toggle('highlighted', highlight);
+  });
+}
+
+/**
+ * Scroll to a pill and expand it
+ */
+function scrollToPillAndExpand(idx) {
+  // On mobile, open offcanvas first
+  const offcanvas = document.getElementById('actionsOffcanvas');
+  if (offcanvas && window.innerWidth < 992) {
+    const bsOffcanvas = bootstrap.Offcanvas.getOrCreateInstance(offcanvas);
+    bsOffcanvas.show();
+
+    // Wait for offcanvas to open, then scroll
+    setTimeout(() => {
+      const pill = offcanvas.querySelector(`.action-pill[data-action-index="${idx}"]`);
+      if (pill) {
+        pill.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        pill.classList.add('expanded');
+      }
+    }, 300);
+  } else {
+    // Desktop: scroll in sidebar
+    const pill = document.querySelector(`#actionsContent .action-pill[data-action-index="${idx}"]`);
+    if (pill) {
+      pill.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pill.classList.add('expanded');
+    }
+  }
+}
+
+/**
+ * Update the action count badge
+ */
+function updateActionCountBadge() {
+  const badge = document.getElementById('actionCountBadge');
+  if (badge) {
+    const count = actionsMap.size;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? '' : 'none';
+  }
+}
+
+/**
  * Update or create progress indicator for hidden tool activity
  */
 function updateProgressIndicator() {
   const chatOutput = document.getElementById('chatOutput');
-
-  // Only show progress indicator if tools are hidden (not in verbose mode)
-  if (!chatOutput || chatOutput.classList.contains('view-verbose')) {
-    return;
-  }
+  if (!chatOutput) return;
 
   progressDots += '.';
   if (progressDots.length > 20) {
@@ -827,6 +1114,9 @@ function removeProgressIndicator() {
  * Called when streaming completes
  */
 function markFinalAnswer() {
+  // Add footnotes to the last assistant message
+  addFootnotesToLastAssistant();
+
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
 
@@ -1210,6 +1500,9 @@ async function loadConversation(convId) {
   // Close any existing EventSource before loading new conversation
   closeEventSource();
 
+  // Reset actions sidebar state
+  resetActionsState();
+
   try {
     const response = await fetch(`/api/conversations/${convId}`);
     if (!response.ok) {
@@ -1258,8 +1551,9 @@ async function loadConversation(convId) {
           appendEvent('report', { content: msg.content });
         }
       }
-      // Mark final answers for minimal view mode
-      markFinalAnswersInConversation();
+
+      // Add footnotes to the last assistant message
+      addFootnotesToLastAssistant();
     }
 
     // Update URL without reload
@@ -1284,6 +1578,9 @@ function startFreshConversation() {
   currentConversationId = null;
   lastUserMessage = null;
   retryCount = 0;
+
+  // Reset actions sidebar
+  resetActionsState();
 
   // Deselect active conversation in sidebar
   document.querySelectorAll('.nav-sublink.active').forEach(el => el.classList.remove('active'));

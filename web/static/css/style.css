@@ -2089,3 +2089,310 @@ body.has-sidebar {
 .auth-banner:not(.d-none) ~ .app-main {
   padding-top: 3.5rem;
 }
+
+/* ==========================================================================
+   Actions Sidebar - Layout
+   ========================================================================== */
+:root {
+  --actions-sidebar-width: 280px;
+  --actions-sidebar-collapsed-width: 48px;
+}
+
+.chat-with-sidebar {
+  display: grid;
+  grid-template-columns: 1fr var(--actions-sidebar-width);
+  grid-template-rows: 1fr;
+  height: calc(100vh - var(--section-header-height) - 90px);
+  overflow: hidden;
+}
+
+.chat-with-sidebar.sidebar-collapsed {
+  grid-template-columns: 1fr var(--actions-sidebar-collapsed-width);
+}
+
+.chat-main {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0; /* critical for grid child scroll */
+}
+
+.actions-sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--bs-border-color);
+  background: var(--sidebar-bg);
+  transition: width 0.2s ease;
+}
+
+.actions-sidebar-header {
+  flex-shrink: 0;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.actions-sidebar-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--bs-gray-700);
+}
+
+.actions-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--bs-gray-600);
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: background 0.15s, color 0.15s;
+}
+
+.actions-sidebar-toggle:hover {
+  background: var(--bs-gray-200);
+  color: var(--bs-gray-800);
+}
+
+.actions-sidebar-toggle i {
+  transition: transform 0.2s;
+}
+
+.sidebar-collapsed .actions-sidebar-toggle i {
+  transform: rotate(180deg);
+}
+
+.actions-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0; /* critical for flex child scroll */
+  padding: 0.5rem;
+}
+
+/* Collapsed state - hide content, show only toggle */
+.sidebar-collapsed .actions-sidebar-header {
+  justify-content: center;
+  padding: 0.75rem 0.5rem;
+}
+
+.sidebar-collapsed .actions-sidebar-title {
+  display: none;
+}
+
+.sidebar-collapsed .actions-sidebar-content {
+  display: none;
+}
+
+/* Mobile: hide sidebar, use offcanvas */
+@media (max-width: 991.98px) {
+  .chat-with-sidebar {
+    grid-template-columns: 1fr;
+    height: calc(100vh - var(--section-header-height) - 90px - 56px); /* account for mobile header */
+  }
+
+  .actions-sidebar {
+    display: none;
+  }
+
+  .actions-sidebar-mobile-toggle {
+    display: flex;
+  }
+}
+
+@media (min-width: 992px) {
+  .actions-sidebar-mobile-toggle {
+    display: none;
+  }
+}
+
+/* Mobile toggle button in header */
+.actions-sidebar-mobile-toggle {
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.375rem;
+  background: white;
+  color: var(--bs-gray-700);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.actions-sidebar-mobile-toggle:hover {
+  border-color: var(--bs-primary);
+}
+
+.actions-sidebar-mobile-toggle .badge {
+  font-size: 0.7rem;
+  padding: 0.2em 0.45em;
+}
+
+/* Offcanvas for mobile sidebar */
+.actions-offcanvas {
+  width: 320px !important;
+  max-width: 85vw;
+}
+
+.actions-offcanvas .offcanvas-header {
+  border-bottom: 1px solid var(--bs-border-color);
+}
+
+.actions-offcanvas .offcanvas-body {
+  padding: 0.5rem;
+  overflow-y: auto;
+}
+
+/* ==========================================================================
+   Actions Sidebar - Pills
+   ========================================================================== */
+.action-pill {
+  background: white;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.375rem;
+  margin-bottom: 0.375rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.action-pill:hover {
+  border-color: var(--bs-gray-400);
+}
+
+.action-pill.highlighted {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 2px rgba(0, 0, 145, 0.15);
+}
+
+.action-pill-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.action-pill-header i {
+  font-size: 1rem;
+  color: var(--bs-gray-600);
+  flex-shrink: 0;
+}
+
+.action-pill-label {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--bs-gray-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-pill-content {
+  display: none;
+  padding: 0.5rem 0.625rem;
+  padding-top: 0;
+  font-size: 0.8125rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+.action-pill.expanded .action-pill-content {
+  display: block;
+}
+
+.action-pill-content pre {
+  margin: 0;
+  padding: 0.5rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.action-pill-content code {
+  font-size: 0.75rem;
+}
+
+/* API call links inside pill content */
+.action-api-link {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  margin-top: 0.375rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.25rem;
+  text-decoration: none;
+  color: var(--bs-gray-700);
+  font-size: 0.8125rem;
+  transition: background 0.15s, color 0.15s;
+}
+
+.action-api-link:hover {
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary);
+}
+
+.action-api-link i {
+  font-size: 0.875rem;
+  color: var(--bs-primary);
+}
+
+.action-file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.25rem;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.75rem;
+  color: var(--bs-gray-700);
+}
+
+/* ==========================================================================
+   Actions Sidebar - Footnotes
+   ========================================================================== */
+.action-footnotes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.action-footnote {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: var(--bs-gray-100);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.25rem;
+  color: var(--bs-gray-600);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.action-footnote:hover {
+  background: var(--bs-primary-bg-subtle);
+  border-color: var(--bs-primary);
+  color: var(--bs-primary);
+}
+
+.action-footnote.highlighted {
+  background: var(--bs-primary-bg-subtle);
+  border-color: var(--bs-primary);
+  color: var(--bs-primary);
+}
