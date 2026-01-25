@@ -15,6 +15,13 @@ import urllib.parse
 from typing import Any, Optional
 
 from ._audit import log_query, get_conversation_id
+from .api_signals import emit_api_signal
+
+# Import UI URL builder (optional - graceful fallback if not available)
+try:
+    from skills.matomo_query.scripts.ui_mapping import get_ui_url
+except ImportError:
+    get_ui_url = None
 
 
 class MatomoError(Exception):
@@ -88,6 +95,26 @@ class MatomoAPI:
                     error=None,
                     execution_time_ms=execution_time_ms,
                     row_count=row_count,
+                )
+
+                # Emit signal for observability sidebar
+                # Try to build a human-friendly UI URL, fallback to API URL
+                ui_url = None
+                if get_ui_url and all(k in params for k in ("idSite", "period", "date")):
+                    ui_url = get_ui_url(
+                        base_url=self.url,
+                        method=method,
+                        site_id=params["idSite"],
+                        period=params["period"],
+                        date=params["date"],
+                        segment=params.get("segment"),
+                        dimension_id=params.get("idDimension"),
+                    )
+                emit_api_signal(
+                    source="matomo",
+                    instance=self.instance,
+                    method=method,
+                    url=ui_url or self.get_api_url(method, params),
                 )
 
                 return data

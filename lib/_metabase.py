@@ -9,6 +9,7 @@ Usage:
     print(result.to_markdown())
 """
 
+import base64
 import json
 import time
 import urllib.request
@@ -17,6 +18,39 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ._audit import log_query
+from .api_signals import emit_api_signal
+
+
+def build_sql_url(base_url: str, database_id: int, sql: str) -> str:
+    """Build a shareable Metabase URL for a SQL query.
+
+    Args:
+        base_url: Metabase instance URL (e.g., "https://stats.inclusion.gouv.fr")
+        database_id: Database ID to query
+        sql: SQL query text
+
+    Returns:
+        URL with base64-encoded query that opens in Metabase
+    """
+    query_obj = {
+        "dataset_query": {
+            "lib/type": "mbql/query",
+            "database": database_id,
+            "stages": [
+                {
+                    "native": sql,
+                    "lib/type": "mbql.stage/native",
+                    "template-tags": {},
+                }
+            ],
+        },
+        "display": "table",
+        "parameters": [],
+        "visualization_settings": {},
+        "type": "question",
+    }
+    encoded = base64.b64encode(json.dumps(query_obj).encode()).decode()
+    return f"{base_url}/question#{encoded}"
 
 
 @dataclass
@@ -215,7 +249,17 @@ class MetabaseAPI:
             "native": {"query": sql},
         }
         result_data = self._request("POST", "/api/dataset", data, timeout=timeout, query_type="sql")
-        return self._parse_result(result_data)
+        result = self._parse_result(result_data)
+
+        # Emit signal for observability sidebar with shareable URL
+        emit_api_signal(
+            source="metabase",
+            instance=self.instance,
+            sql=sql,
+            url=build_sql_url(self.url, self.database_id, sql),
+        )
+
+        return result
 
     def execute_card(self, card_id: int, timeout: int = 60) -> QueryResult:
         """
@@ -231,7 +275,17 @@ class MetabaseAPI:
         result_data = self._request(
             "POST", f"/api/card/{card_id}/query", {}, timeout=timeout, query_type="card"
         )
-        return self._parse_result(result_data)
+        result = self._parse_result(result_data)
+
+        # Emit signal for observability sidebar
+        emit_api_signal(
+            source="metabase",
+            instance=self.instance,
+            card_id=card_id,
+            url=f"{self.url}/question/{card_id}",
+        )
+
+        return result
 
     def get_card(self, card_id: int) -> dict:
         """Get card metadata."""
