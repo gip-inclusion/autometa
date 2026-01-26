@@ -37,7 +37,7 @@ def get_db_connection(db_path: str):
         return sqlite3.connect(db_path), "sqlite"
 
 
-def backfill(db_path: str, dry_run: bool = False):
+def backfill(db_path: str, dry_run: bool = False, force: bool = False):
     """Backfill tool_use messages with categories."""
     conn, db_type = get_db_connection(db_path)
     cur = conn.cursor()
@@ -55,8 +55,8 @@ def backfill(db_path: str, dry_run: bool = False):
         try:
             data = json.loads(content)
 
-            # Skip if already has category
-            if "category" in data:
+            # Skip if already has category (unless --force)
+            if "category" in data and not force:
                 skipped += 1
                 continue
 
@@ -110,13 +110,19 @@ def main():
         action="store_true",
         help="Show what would be updated without making changes",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-classify all messages, even those already tagged",
+    )
     args = parser.parse_args()
 
     print(f"Database: {args.db}")
     print(f"Dry run: {args.dry_run}")
+    print(f"Force: {args.force}")
     print()
 
-    updated, skipped, errors = backfill(args.db, args.dry_run)
+    updated, skipped, errors = backfill(args.db, args.dry_run, args.force)
 
     print()
     print(f"Updated: {updated}")
