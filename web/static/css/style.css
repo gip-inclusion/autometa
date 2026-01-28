@@ -344,7 +344,7 @@ body.has-sidebar {
   flex: 1;
   padding: 0.875rem 1.25rem;
   border: 2px solid #dee2e6;
-  border-radius: 2rem;
+  border-radius: 1rem;
   font-size: 1rem;
   resize: none;
   max-height: 150px;
