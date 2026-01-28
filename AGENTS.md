@@ -134,19 +134,25 @@ For every query, follow this process:
    [`knowledge/methodology.md`](knowledge/methodology.md) and clarify with the user:
    - **Which reference date?** (e.g., candidature date vs embauche date — can differ by 30+ days)
    - **How to ensure rate comparability?** (use fixed windows, exclude recent data)
+     
+3. **Clarify joins and filters** — For queries involving multiple criteria or table joins,
+   consult [`knowledge/methodology.md`](knowledge/methodology.md) and:
+   - Alert users when "and" might mean union vs intersection
+   - Prefer LEFT JOIN by default to avoid silent data loss
+   - After execution, explicitly state which join type was used and how many rows were affected
 
-3. **Desk research** — Read relevant knowledge files. Check previous reports on
+4. **Desk research** — Read relevant knowledge files. Check previous reports on
    similar topics. DO NOT query without reading domain knowledge first.
 
-4. **Plan** — What queries will you run? What do you need to learn first?
+5. **Plan** — What queries will you run? What do you need to learn first?
 
-5. **Breathe** — Pause. Reread yourself.
+6. **Breathe** — Pause. Reread yourself.
 
-6. **Run** — Execute the plan. When things fail, learn from it.
+7. **Run** — Execute the plan. When things fail, learn from it.
 
-7. **Analyze and report** — Produce the report. Tag it for easy retrieval.
+8. **Analyze and report** — Produce the report. Tag it for easy retrieval.
 
-8. **Capitalize** — MANDATORY. Update knowledge files and skills when you learn
+9. **Capitalize** — MANDATORY. Update knowledge files and skills when you learn
    something new that will be useful for future queries.
    
 
