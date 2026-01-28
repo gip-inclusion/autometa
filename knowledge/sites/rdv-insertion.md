@@ -204,3 +204,95 @@ Description: Configuration page view tracking.
 - Event names often include `Clic sur *******` with masked values
 - The `_mtm` array is used instead of `_paq` for Matomo Tag Manager
 - Tracking requires agent login and consent
+
+## Identifiants départements (API)
+
+**Attention :** L'API RDV-Insertion utilise des **identifiants internes**, pas les codes INSEE. Ces identifiants sont utilisés dans les URL des pages sur matomo.
+
+Par exemple, `/departments/28/users` concerne **Loire-Atlantique (44)**, pas l'Eure-et-Loir.
+
+### Table de correspondance
+
+| ID | Département | Code |
+|----|-------------|------|
+| 1 | Ardennes | 08 |
+| 2 | Drôme | 26 |
+| 3 | Yonne | 89 |
+| 4 | Finistère | 29 |
+| 5 | Pyrénées-Atlantiques | 64 |
+| 6 | Bouches-du-Rhône | 13 |
+| 7 | Manche | 50 |
+| 8 | Aude | 11 |
+| 9 | Aveyron | 12 |
+| 10 | Oise | 60 |
+| 11 | Aisne | 02 |
+| 12 | Meuse | 55 |
+| 13 | Seine-Saint-Denis | 93 |
+| 14 | Vaucluse | 84 |
+| 15 | Haute-Savoie | 74 |
+| 16 | Ain | 01 |
+| 17 | Lozère | 48 |
+| 18 | Meurthe-et-Moselle | 54 |
+| 19 | Loiret | 45 |
+| 20 | Puy-de-Dôme | 63 |
+| 21 | Var | 83 |
+| 22 | Landes | 40 |
+| 23 | Haute-Garonne | 31 |
+| 24 | Guadeloupe | 971 |
+| 25 | Cantal | 15 |
+| 26 | Creuse | 23 |
+| 27 | Eure | 27 |
+| 28 | Loire-Atlantique | 44 |
+| 29 | Vosges | 88 |
+| 30 | Rhône | 69 |
+| 31 | Hauts-de-Seine | 92 |
+| 32 | Bas-Rhin | 67 |
+| 33 | Calvados | 14 |
+| 34 | Charente-Maritime | 17 |
+| 35 | Deux-Sèvres | 79 |
+| 36 | Moselle | 57 |
+| 37 | Paris | 75 |
+| 38 | Allier - TZI | 03 |
+| 39 | Lot-et-Garonne | 47 |
+| 40 | Yvelines | 78 |
+| 41 | Nièvre | 58 |
+| 42 | Tarn | 81 |
+| 43 | Alpes-Maritimes | 06 |
+| 44 | Ardèche | 07 |
+| 45 | Isère | 38 |
+| 46 | Hérault | 34 |
+| 47 | Maine-et-Loire | 49 |
+| 48 | Haute-Marne | 52 |
+| 49 | Nord | 59 |
+| 50 | Haute-Corse | 2B |
+| 51 | Vendée | 85 |
+| 52 | Haut-Rhin | 68 |
+| 53 | Gard | 30 |
+| 54 | Pas-de-Calais | 62 |
+| 55 | Gers | 32 |
+| 56 | Val d'Oise | 95 |
+| 57 | Val-de-Marne | 94 |
+| 58 | Seine-et-Marne | 77 |
+| 59 | Gironde | 33 |
+| 60 | Côte d'Or | 21 |
+| 61 | Loir-et-Cher | 41 |
+| 62 | Marne | 51 |
+| 63 | Réunion | 974 |
+| 64 | Ille-et-Vilaine | 35 |
+| 65 | Dordogne | 24 |
+| 66 | Eure-et-Loir | 28 |
+| 67 | Seine-Maritime | 76 |
+| 68 | Essonne | 91 |
+| 69 | Pyrénées-Orientales | 66 |
+| 70 | Ariège | 09 |
+| 71 | Saône-et-Loire | 71 |
+| 72 | Sarthe | 72 |
+| 73 | Allier - RSA | 03 |
+| 74 | Haute-Loire | 43 |
+| 75 | Territoire de Belfort | 90 |
+| 76 | Morbihan | 56 |
+| 109 | Alpes-de-Haute-Provence | 04 |
+| 110 | Martinique | 972 |
+| 111 | Charente | 16 |
+
+**Note :** L'Allier a deux entrées (IDs 38 et 73) correspondant à des dispositifs différents (TZI et RSA).
