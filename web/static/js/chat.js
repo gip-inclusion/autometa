@@ -24,6 +24,11 @@ let lastAssistantBlock = null; // Track last assistant block for footnotes
 let currentTurnActions = []; // Actions in current turn (for footnotes)
 let actionsFilterMode = 'data'; // 'data' or 'detailed'
 
+// TOC (table of contents) state
+let tocEntries = []; // Array of {userBlock, text, timestamp}
+let lastMessageWasAssistant = false; // Track for section detection
+let currentSidebarTab = 'toc'; // 'toc' or 'actions'
+
 /**
  * Check if an action is a "data" type (knowledge read or has API calls)
  */
@@ -97,6 +102,156 @@ function initActionsFilterToggle() {
     actionsFilterMode = filter;
     applyActionsFilter();
   });
+}
+
+/**
+ * Initialize sidebar tab toggle (TOC / Actions)
+ */
+function initSidebarTabToggle() {
+  const toggle = document.getElementById('sidebarTabToggle');
+  const sidebar = document.getElementById('actionsSidebar');
+  if (!toggle || !sidebar) return;
+
+  // Remove existing listeners by cloning
+  const newToggle = toggle.cloneNode(true);
+  toggle.replaceWith(newToggle);
+
+  // Sync UI with current tab
+  newToggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === currentSidebarTab);
+  });
+  sidebar.dataset.activeTab = currentSidebarTab;
+
+  // Show/hide tab contents
+  const tocContent = document.getElementById('tocContent');
+  const actionsContent = document.getElementById('actionsContent');
+  if (tocContent) tocContent.classList.toggle('active', currentSidebarTab === 'toc');
+  if (actionsContent) actionsContent.classList.toggle('active', currentSidebarTab === 'actions');
+
+  newToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('.sidebar-tab-btn');
+    if (!btn) return;
+
+    const tab = btn.dataset.tab;
+    if (tab === currentSidebarTab) return;
+
+    // Update active state
+    newToggle.querySelectorAll('.sidebar-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    currentSidebarTab = tab;
+    sidebar.dataset.activeTab = tab;
+
+    // Toggle content visibility
+    if (tocContent) tocContent.classList.toggle('active', tab === 'toc');
+    if (actionsContent) actionsContent.classList.toggle('active', tab === 'actions');
+  });
+}
+
+/**
+ * Add a TOC entry for a user message (new section)
+ */
+function addTocEntry(userBlock, content, timestamp) {
+  const tocContent = document.getElementById('tocContent');
+  if (!tocContent) return;
+
+  // Remove empty state if present
+  const emptyState = tocContent.querySelector('.toc-empty');
+  if (emptyState) emptyState.remove();
+
+  // Create entry
+  const entry = document.createElement('div');
+  entry.className = 'toc-entry';
+
+  // Truncate text to ~60 chars
+  const truncatedText = content.length > 60 ? content.substring(0, 60) + '…' : content;
+
+  // Format timestamp (just time if today, date otherwise)
+  let timeDisplay = '';
+  if (timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    timeDisplay = isToday
+      ? date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  entry.innerHTML = `
+    <div class="toc-entry-icon"><i class="ri-chat-1-line"></i></div>
+    <div class="toc-entry-content">
+      <div class="toc-entry-text">${escapeHtml(truncatedText)}</div>
+      ${timeDisplay ? `<div class="toc-entry-time">${timeDisplay}</div>` : ''}
+    </div>
+  `;
+
+  // Click to scroll to the user message and update URL
+  entry.addEventListener('click', () => {
+    if (userBlock && userBlock.id) {
+      // Update URL hash for shareable link
+      history.replaceState(null, '', `#${userBlock.id}`);
+      userBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  tocContent.appendChild(entry);
+
+  // Store entry for reference
+  tocEntries.push({ userBlock, text: content, timestamp, element: entry });
+}
+
+/**
+ * Switch to a specific sidebar tab
+ */
+function switchSidebarTab(tab) {
+  if (tab === currentSidebarTab) return;
+
+  const toggle = document.getElementById('sidebarTabToggle');
+  const sidebar = document.getElementById('actionsSidebar');
+  if (!toggle || !sidebar) return;
+
+  // Update button states
+  toggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+
+  currentSidebarTab = tab;
+  sidebar.dataset.activeTab = tab;
+
+  // Toggle content visibility
+  const tocContent = document.getElementById('tocContent');
+  const actionsContent = document.getElementById('actionsContent');
+  if (tocContent) tocContent.classList.toggle('active', tab === 'toc');
+  if (actionsContent) actionsContent.classList.toggle('active', tab === 'actions');
+}
+
+/**
+ * Scroll to URL hash section on page load
+ */
+function scrollToHashSection() {
+  const hash = window.location.hash;
+  if (!hash || !hash.startsWith('#section-')) return;
+
+  const element = document.getElementById(hash.substring(1));
+  if (element) {
+    // Delay to ensure DOM is ready
+    setTimeout(() => {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }
+}
+
+/**
+ * Reset TOC state for new conversation
+ */
+function resetTocState() {
+  tocEntries = [];
+  lastMessageWasAssistant = false;
+
+  const tocContent = document.getElementById('tocContent');
+  if (tocContent) {
+    tocContent.innerHTML = '<div class="toc-empty">Aucune section</div>';
+  }
 }
 
 /**
@@ -249,6 +404,9 @@ function resetActionsState() {
   lastAssistantBlock = null;
   currentTurnActions = [];
 
+  // Reset TOC state
+  resetTocState();
+
   // Clear sidebar content
   const actionsContent = document.getElementById('actionsContent');
   if (actionsContent) actionsContent.innerHTML = '';
@@ -256,7 +414,6 @@ function resetActionsState() {
   const offcanvasContent = document.getElementById('actionsOffcanvasContent');
   if (offcanvasContent) offcanvasContent.innerHTML = '';
 
-  updateActionCountBadge();
 }
 
 // Hide public warning banner if previously dismissed - runs on every htmx load
@@ -433,6 +590,9 @@ function initActionsSidebar() {
       chatWithSidebar.classList.toggle('sidebar-collapsed');
     });
   }
+
+  // Initialize tab toggle (TOC / Actions)
+  initSidebarTabToggle();
 
   // Initialize filter toggle (data/detailed)
   initActionsFilterToggle();
@@ -1002,6 +1162,15 @@ function appendEvent(type, data) {
 
   if (type === 'user') {
     block.innerHTML = escapeHtml(data.content);
+
+    // Add TOC entry if this is a new section (user speaks after assistant)
+    // Also add for the first user message
+    if (lastMessageWasAssistant || tocEntries.length === 0) {
+      const sectionId = `section-${tocEntries.length + 1}`;
+      block.id = sectionId;
+      addTocEntry(block, data.content, data.timestamp || new Date().toISOString());
+    }
+    lastMessageWasAssistant = false;
   } else if (type === 'assistant') {
     // Store raw markdown for report creation
     block.dataset.rawContent = data.content;
@@ -1015,6 +1184,8 @@ function appendEvent(type, data) {
     }
     // Track for footnotes
     lastAssistantBlock = block;
+    // Track for TOC section detection
+    lastMessageWasAssistant = true;
     // Render mermaid diagrams and options after adding to DOM
     setTimeout(() => {
       renderMermaid(block);
@@ -1077,7 +1248,6 @@ function createAndAppendAction(toolUse, toolResult) {
     attachPillListeners(clonedPill, idx);
   }
 
-  updateActionCountBadge();
 }
 
 /**
@@ -1302,6 +1472,9 @@ function switchToDetailedMode() {
  * Scroll to a pill and expand it
  */
 function scrollToPillAndExpand(idx) {
+  // Switch to Actions tab first
+  switchSidebarTab('actions');
+
   // Check if pill is filtered out - switch to detailed mode
   const pill = document.querySelector(`#actionsContent .action-pill[data-action-index="${idx}"]`);
   if (pill && pill.classList.contains('filtered-out')) {
@@ -1328,18 +1501,6 @@ function scrollToPillAndExpand(idx) {
       pill.scrollIntoView({ behavior: 'smooth', block: 'center' });
       pill.classList.add('expanded');
     }
-  }
-}
-
-/**
- * Update the action count badge
- */
-function updateActionCountBadge() {
-  const badge = document.getElementById('actionCountBadge');
-  if (badge) {
-    const count = actionsMap.size;
-    badge.textContent = count;
-    badge.style.display = count > 0 ? '' : 'none';
   }
 }
 
@@ -1769,9 +1930,10 @@ function showError(message) {
  * Scroll chat to bottom
  */
 function scrollToBottom() {
-  const chatOutput = document.getElementById('chatOutput');
-  if (chatOutput) {
-    chatOutput.scrollTop = chatOutput.scrollHeight;
+  // Scroll container is .chat-main, not .chat-output
+  const chatMain = document.querySelector('.chat-main');
+  if (chatMain) {
+    chatMain.scrollTop = chatMain.scrollHeight;
   }
 }
 
@@ -1812,7 +1974,7 @@ async function loadConversation(convId) {
 
       for (const msg of conv.messages) {
         if (msg.type === 'user') {
-          appendEvent('user', { content: msg.content });
+          appendEvent('user', { content: msg.content, timestamp: msg.timestamp });
         } else if (msg.type === 'assistant') {
           appendEvent('assistant', { content: msg.content });
         } else if (msg.type === 'tool_use') {
@@ -1841,16 +2003,25 @@ async function loadConversation(convId) {
       markFinalAnswersInConversation();
     }
 
-    // Update URL without reload
-    window.history.replaceState({}, '', `/explorations/${convId}`);
+    // Update URL without reload (preserve hash if present)
+    const hash = window.location.hash;
+    window.history.replaceState({}, '', `/explorations/${convId}${hash}`);
 
-    // Scroll to bottom after loading messages
-    // Delay to ensure DOM is fully laid out after HTMX swap
+    // Scroll handling: if URL has a section hash, scroll to it; otherwise scroll to bottom
+    // Use longer delay to ensure DOM is fully rendered
     setTimeout(() => {
+      if (hash && hash.startsWith('#section-')) {
+        const element = document.getElementById(hash.substring(1));
+        if (element) {
+          // Instant scroll on page load (no smooth)
+          element.scrollIntoView({ block: 'start' });
+          return;
+        }
+      }
+      // Default: scroll to bottom
       scrollToBottom();
-      // Also scroll window to show the chat input area
       window.scrollTo(0, document.body.scrollHeight);
-    }, 50);
+    }, 100);
 
     // If conversation is running, resume the stream
     if (conv.is_running) {
