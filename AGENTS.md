@@ -130,16 +130,23 @@ For every query, follow this process:
    This is MANDATORY for every new conversation. If the user chooses a report,
    remember this for the entire conversation.
 
-2. **Clarify temporal data** — For time-based analyses, consult 
-   [`knowledge/methodology.md`](knowledge/methodology.md) and clarify with the user:
-   - **Which reference date?** (e.g., candidature date vs embauche date — can differ by 30+ days)
-   - **How to ensure rate comparability?** (use fixed windows, exclude recent data)
+2. **Clarify temporal data** — For time-based analyses, clarify with the user:
+   - **Which reference date?** Events often have multiple dates (e.g., candidature date vs 
+     embauche date can differ by 30+ days). Ask which one matters for their question.
+   - **Rate comparability:** Rates based on delayed events (conversion, validation) are biased
+     by age — older data had more time to convert. Use fixed windows (e.g., "validated within 
+     30 days") and exclude data too recent to be comparable.
+See [`knowledge/methodology.md`](knowledge/methodology.md) for detailed examples and SQL patterns.
      
-3. **Clarify joins and filters** — For queries involving multiple criteria or table joins,
-   consult [`knowledge/methodology.md`](knowledge/methodology.md) and:
-   - Alert users when "and" might mean union vs intersection
-   - Prefer LEFT JOIN by default to avoid silent data loss
-   - After execution, explicitly state which join type was used and how many rows were affected
+3. **Clarify joins and filters** — For queries involving multiple criteria or table joins:
+   - **Detect ambiguity:** When users say "candidates with X and Y", they might mean intersection
+     (both criteria) OR union (either criterion). If unclear, ask before executing.
+   - **Prefer LEFT JOIN:** Use LEFT JOIN by default to avoid silent data loss. INNER JOIN 
+     exclusions should be a conscious choice, not a side effect.
+   - **Explain in results:** After queries with joins, always state in plain language:
+     "This analysis uses [INNER/LEFT] JOIN. Table A had X rows, Table B had Y rows, 
+     result has Z rows. [If Z < X or Y] Some rows were excluded due to no match."
+See [`knowledge/methodology.md`](knowledge/methodology.md) for detailed examples and SQL patterns.
 
 4. **Desk research** — Read relevant knowledge files. Check previous reports on
    similar topics. DO NOT query without reading domain knowledge first.
