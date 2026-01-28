@@ -761,6 +761,9 @@ function appendRecoveryMessage() {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
 
+  // Check scroll position BEFORE modifying DOM
+  const wasAtBottom = isAtBottom();
+
   const block = document.createElement('div');
   block.className = 'event-block event-error';
   block.innerHTML = `
@@ -774,7 +777,11 @@ function appendRecoveryMessage() {
   `;
 
   chatOutput.appendChild(block);
-  scrollToBottom();
+
+  // Only scroll if user was at bottom
+  if (wasAtBottom) {
+    scrollToBottom();
+  }
 }
 
 /**
@@ -974,6 +981,9 @@ function appendEvent(type, data) {
     return;
   }
 
+  // Check scroll position BEFORE adding content (for smart auto-scroll)
+  const wasAtBottom = isAtBottom();
+
   // When user speaks, add footnotes to previous assistant message and reset turn
   if (type === 'user') {
     addFootnotesToLastAssistant();
@@ -1022,7 +1032,11 @@ function appendEvent(type, data) {
   }
 
   chatOutput.appendChild(block);
-  scrollToBottom();
+
+  // Only auto-scroll if user was already at bottom (preserves scroll position if reading history)
+  if (wasAtBottom) {
+    scrollToBottom();
+  }
 }
 
 /**
@@ -1336,6 +1350,9 @@ function updateProgressIndicator() {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
 
+  // Check scroll position BEFORE modifying DOM
+  const wasAtBottom = isAtBottom();
+
   progressDots += '.';
   if (progressDots.length > 20) {
     progressDots = '.';
@@ -1349,7 +1366,11 @@ function updateProgressIndicator() {
   }
 
   progressIndicator.innerHTML = `<span class="dots">${progressDots}</span>`;
-  scrollToBottom();
+
+  // Only scroll if user was at bottom
+  if (wasAtBottom) {
+    scrollToBottom();
+  }
 }
 
 /**
@@ -1688,6 +1709,9 @@ function showLoading() {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
 
+  // Check scroll position BEFORE modifying DOM
+  const wasAtBottom = isAtBottom();
+
   // Remove existing loading
   hideLoading();
 
@@ -1697,7 +1721,11 @@ function showLoading() {
   loading.innerHTML = '<div class="spinner"></div> Matometa réfléchit…';
 
   chatOutput.appendChild(loading);
-  scrollToBottom();
+
+  // Only scroll if user was at bottom
+  if (wasAtBottom) {
+    scrollToBottom();
+  }
 }
 
 /**
@@ -1717,17 +1745,17 @@ function hideEmptyState() {
 }
 
 /**
- * Find a scroll anchor element (for Safari which lacks overflow-anchor support)
- * Returns the last user message or first visible event block
+ * Check if chat output is scrolled to (or near) the bottom
+ * Used to decide whether to auto-scroll when new content arrives
  */
-function findScrollAnchor(chatOutput) {
-  // Prefer last user message as anchor (always visible in all modes)
-  const userMessages = chatOutput.querySelectorAll('.event-user');
-  if (userMessages.length > 0) {
-    return userMessages[userMessages.length - 1];
-  }
-  // Fallback to first event block
-  return chatOutput.querySelector('.event-block');
+function isAtBottom() {
+  const chatOutput = document.getElementById('chatOutput');
+  if (!chatOutput) return true;
+
+  // Consider "at bottom" if within 100px of the bottom
+  // This accounts for small variations and provides better UX
+  const threshold = 100;
+  return chatOutput.scrollHeight - chatOutput.scrollTop - chatOutput.clientHeight < threshold;
 }
 
 /**
@@ -1808,20 +1836,25 @@ async function loadConversation(convId) {
 
       // Add footnotes to the last assistant message
       addFootnotesToLastAssistant();
+
+      // Mark final answers
+      markFinalAnswersInConversation();
     }
 
     // Update URL without reload
     window.history.replaceState({}, '', `/explorations/${convId}`);
 
-    // If conversation is running, resume the stream and scroll to bottom
+    // Scroll to bottom after loading messages
+    // Delay to ensure DOM is fully laid out after HTMX swap
+    setTimeout(() => {
+      scrollToBottom();
+      // Also scroll window to show the chat input area
+      window.scrollTo(0, document.body.scrollHeight);
+    }, 50);
+
+    // If conversation is running, resume the stream
     if (conv.is_running) {
       console.log('Conversation is running, resuming stream...');
-      // Delay scroll to ensure DOM is fully laid out after HTMX swap
-      setTimeout(() => {
-        scrollToBottom();
-        // Also scroll window to show the chat input area
-        window.scrollTo(0, document.body.scrollHeight);
-      }, 50);
       startStream();
     }
 

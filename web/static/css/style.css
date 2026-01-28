@@ -659,19 +659,12 @@ body.has-sidebar {
    View modes (segmented control)
    ========================================================================== */
 
-/* Prevent scroll jumps when hiding/showing elements */
-.event-tool_use,
-.event-tool_result,
-.event-assistant:not(.event-report):not(.event-final-answer) {
-  overflow-anchor: none;
-}
-
-/* Anchor element at bottom to stabilize scroll */
-.chat-output::after {
-  content: '';
-  display: block;
+/* Scroll anchoring (CSS approach for Chrome/Firefox, JS handles Safari)
+   When new content arrives, keep scroll position stable if user was at bottom.
+   Primary implementation is in chat.js isAtBottom() + conditional scrollToBottom().
+   CSS overflow-anchor provides additional stability for supporting browsers. */
+.chat-output {
   overflow-anchor: auto;
-  height: 1px;
 }
 
 /* Minimal: Only reports and final answers */
