@@ -26,12 +26,11 @@ let actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, ic
 let pendingToolUses = []; // Queue for tool_use waiting for their results (supports parallel calls)
 let lastAssistantBlock = null; // Track last assistant block for footnotes
 let currentTurnActions = []; // Actions in current turn (for footnotes)
-let actionsFilterMode = 'data'; // 'data' or 'detailed'
+let actionsFilterMode = localStorage.getItem('actionsFilterMode') || 'data';
 
 // TOC (table of contents) state
-let tocEntries = []; // Array of {userBlock, text, timestamp}
-let lastMessageWasAssistant = false; // Track for section detection
-let currentSidebarTab = 'toc'; // 'toc' or 'actions'
+let tocEntries = []; // Array of {headingElement, text, element}
+let currentSidebarTab = localStorage.getItem('sidebarTab') || 'toc';
 
 /**
  * Check if an action is a "data" type (knowledge read or has API calls)
@@ -104,6 +103,7 @@ function initActionsFilterToggle() {
     btn.classList.add('active');
 
     actionsFilterMode = filter;
+    localStorage.setItem('actionsFilterMode', filter);
     applyActionsFilter();
   });
 }
@@ -144,6 +144,7 @@ function initSidebarTabToggle() {
     btn.classList.add('active');
 
     currentSidebarTab = tab;
+    localStorage.setItem('sidebarTab', tab);
     sidebar.dataset.activeTab = tab;
 
     // Toggle content visibility
@@ -153,9 +154,9 @@ function initSidebarTabToggle() {
 }
 
 /**
- * Add a TOC entry for a user message (new section)
+ * Add a TOC entry for an <h2> heading from an assistant message
  */
-function addTocEntry(userBlock, content, timestamp) {
+function addTocEntry(headingElement, text) {
   const tocContent = document.getElementById('tocContent');
   if (!tocContent) return;
 
@@ -163,45 +164,64 @@ function addTocEntry(userBlock, content, timestamp) {
   const emptyState = tocContent.querySelector('.toc-empty');
   if (emptyState) emptyState.remove();
 
-  // Create entry
   const entry = document.createElement('div');
   entry.className = 'toc-entry';
 
-  // Truncate text to ~60 chars
-  const truncatedText = content.length > 60 ? content.substring(0, 60) + '…' : content;
-
-  // Format timestamp (just time if today, date otherwise)
-  let timeDisplay = '';
-  if (timestamp) {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    timeDisplay = isToday
-      ? date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-      : date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  }
-
   entry.innerHTML = `
-    <div class="toc-entry-icon"><i class="ri-chat-1-line"></i></div>
     <div class="toc-entry-content">
-      <div class="toc-entry-text">${escapeHtml(truncatedText)}</div>
-      ${timeDisplay ? `<div class="toc-entry-time">${timeDisplay}</div>` : ''}
+      <div class="toc-entry-text">${escapeHtml(text)}</div>
     </div>
   `;
 
-  // Click to scroll to the user message and update URL
+  // Click to scroll to the heading and update URL hash
   entry.addEventListener('click', () => {
-    if (userBlock && userBlock.id) {
-      // Update URL hash for shareable link
-      history.replaceState(null, '', `#${userBlock.id}`);
-      userBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (headingElement && headingElement.id) {
+      history.replaceState(null, '', `#${headingElement.id}`);
+      headingElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
 
   tocContent.appendChild(entry);
+  tocEntries.push({ headingElement, text, element: entry });
+}
 
-  // Store entry for reference
-  tocEntries.push({ userBlock, text: content, timestamp, element: entry });
+/**
+ * Scan an assistant message block for <h2> headings and add them to the TOC
+ */
+function scanHeadingsForToc(block) {
+  const headings = block.querySelectorAll('h2');
+  for (const h2 of headings) {
+    const text = h2.textContent.trim();
+    if (!text) continue;
+
+    const slug = generateSlug(text);
+    h2.id = ensureUniqueId(slug);
+    addTocEntry(h2, text);
+  }
+}
+
+/**
+ * Generate a URL-friendly slug from text
+ */
+function generateSlug(text) {
+  return text
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 60) || 'section';
+}
+
+/**
+ * Ensure an element ID is unique in the document
+ */
+function ensureUniqueId(baseId) {
+  if (!document.getElementById(baseId)) return baseId;
+  let counter = 2;
+  while (document.getElementById(`${baseId}-${counter}`)) {
+    counter++;
+  }
+  return `${baseId}-${counter}`;
 }
 
 /**
@@ -220,6 +240,7 @@ function switchSidebarTab(tab) {
   });
 
   currentSidebarTab = tab;
+  localStorage.setItem('sidebarTab', tab);
   sidebar.dataset.activeTab = tab;
 
   // Toggle content visibility
@@ -234,7 +255,7 @@ function switchSidebarTab(tab) {
  */
 function scrollToHashSection() {
   const hash = window.location.hash;
-  if (!hash || !hash.startsWith('#section-')) return;
+  if (!hash) return;
 
   const element = document.getElementById(hash.substring(1));
   if (element) {
@@ -250,7 +271,6 @@ function scrollToHashSection() {
  */
 function resetTocState() {
   tocEntries = [];
-  lastMessageWasAssistant = false;
 
   const tocContent = document.getElementById('tocContent');
   if (tocContent) {
@@ -1381,15 +1401,6 @@ function appendEvent(type, data) {
 
   if (type === 'user') {
     block.innerHTML = formatUserContent(data.content);
-
-    // Add TOC entry if this is a new section (user speaks after assistant)
-    // Also add for the first user message
-    if (lastMessageWasAssistant || tocEntries.length === 0) {
-      const sectionId = `section-${tocEntries.length + 1}`;
-      block.id = sectionId;
-      addTocEntry(block, data.content, data.timestamp || new Date().toISOString());
-    }
-    lastMessageWasAssistant = false;
   } else if (type === 'assistant') {
     // Store raw markdown for report creation
     block.dataset.rawContent = data.content;
@@ -1403,8 +1414,6 @@ function appendEvent(type, data) {
     }
     // Track for footnotes
     lastAssistantBlock = block;
-    // Track for TOC section detection
-    lastMessageWasAssistant = true;
     // Render mermaid diagrams and options after adding to DOM
     setTimeout(() => {
       renderMermaid(block);
@@ -1422,6 +1431,11 @@ function appendEvent(type, data) {
   }
 
   chatOutput.appendChild(block);
+
+  // Scan assistant messages for <h2> headings to populate TOC
+  if (type === 'assistant') {
+    scanHeadingsForToc(block);
+  }
 
   // Only auto-scroll if user was already at bottom (preserves scroll position if reading history)
   if (wasAtBottom) {
@@ -2296,7 +2310,7 @@ async function loadConversation(convId) {
     // Scroll handling: if URL has a section hash, scroll to it; otherwise scroll to bottom
     // Use longer delay to ensure DOM is fully rendered
     setTimeout(() => {
-      if (hash && hash.startsWith('#section-')) {
+      if (hash) {
         const element = document.getElementById(hash.substring(1));
         if (element) {
           // Instant scroll on page load (no smooth)
