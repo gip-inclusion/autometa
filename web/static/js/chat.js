@@ -552,8 +552,9 @@ async function initKnowledge() {
  * Initialize the chat interface
  */
 function initChat() {
-  // Fork button works on all conversation pages (including readonly)
+  // Fork button and sidebar work on all conversation pages (including readonly)
   initForkButton();
+  initActionsSidebar();
 
   const input = document.getElementById('chatInput');
   const sendBtn = document.getElementById('chatSendBtn');
@@ -593,9 +594,6 @@ function initChat() {
 
   // File upload handling
   initFileUpload();
-
-  // Actions sidebar toggle
-  initActionsSidebar();
 
   // Title editing
   initTitleEditing();
