@@ -43,4 +43,4 @@ jobs:
             --exclude='auth/allowed_emails.txt' \
             ./ matometa@ljt.cc:/srv/matometa/
 
-          ssh matometa@ljt.cc 'cd /srv/matometa && docker compose up -d --build'
+          ssh matometa@ljt.cc 'cd /srv/matometa && docker compose up -d --build && docker image prune -f'
