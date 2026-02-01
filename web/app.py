@@ -108,6 +108,8 @@ def serve_interactive(filename=""):
 
     full_path = config.INTERACTIVE_DIR / filename
     if full_path.is_dir():
+        if not request.path.endswith("/"):
+            return redirect(request.path + "/", code=301)
         filename = str((full_path / "index.html").relative_to(config.INTERACTIVE_DIR))
 
     if (config.INTERACTIVE_DIR / filename).exists():
