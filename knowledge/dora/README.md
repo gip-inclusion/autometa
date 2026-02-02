@@ -10,7 +10,7 @@ Dora has two knowledge files:
 
 | File | Content |
 |------|---------|
-| **This file** (`knowledge/dora/README.md`) | Metabase database: structures, services, orientations, search data, SQL queries |
+| **This file** (`knowledge/dora/README.md`) | Metabase database: structures, services, orientations, iMER, search data, SQL queries |
 | `knowledge/sites/dora.md` | Matomo web analytics: traffic baselines, events, funnels, segments |
 
 **Use this file** for: querying the database, understanding the domain model, search analytics by organization, content freshness.
@@ -96,12 +96,16 @@ User (50,947)
 
 **Service:** A specific offering from a structure. Has categories/themes, location, criteria, and can accept orientations. Services are searchable by location + theme + subtheme.
 
-**Orientation:** The main conversion event. A prescriber orients a beneficiary towards a service. Statuses:
+**Orientation:** A formal request from a prescriber to orient a beneficiary towards a service. Statuses:
 - `VALIDEE` (5,020) - Accepted
 - `EXPIREE` (4,907) - Expired without response
 - `REFUSEE` (709) - Rejected
 - `OUVERTE` (367) - Open/pending
 - `MODERATION_*` - In moderation
+
+> **IMPORTANT:** Orientations are only ONE component of the broader **iMER** indicator.
+> When a user asks about Dora's impact or activity, always present iMER (not just
+> orientations). See "Key Metrics" below for the full definition.
 
 **User:** Platform users with main activities:
 - `accompagnateur` (17,407) - Prescribers who orient beneficiaries
@@ -111,17 +115,173 @@ User (50,947)
 
 ### Key Metrics
 
-**iMER (Intention de Mise en Relation):** A strong engagement signal when a user shows interest in a service or structure. Tracked in `int_iMER` table.
+#### iMER — Dora's primary impact indicator
 
-iMER kinds:
-- `mobilisation` (52,692) - Interest shown (weaker signal)
-- `orientation` (10,636) - Actual orientation sent (strongest signal)
+**iMER (Intention de Mise en Relation)** is the key metric used by the Dora team to
+measure service impact. It captures ALL meaningful interactions between users and
+services/structures — not just formal orientations.
+
+> **CRITICAL: When a user asks about Dora activity, usage, or impact, ALWAYS use iMER
+> as the primary indicator.** Orientations alone undercount actual usage by a factor
+> of ~11x. Always clarify this distinction to the user and ask which indicator they
+> need before querying.
+
+#### Orientations vs iMER
+
+| Indicator | What it measures | Count | Use when |
+|-----------|-----------------|------:|----------|
+| **Orientations** | Formal requests sent via Dora | 11,533 | Analyzing the orientation workflow (validation rates, response times) |
+| **iMER** | All meaningful intent signals | 128,799 | Measuring Dora's overall impact and usage (**preferred**) |
+
+Orientations represent only **9%** of total iMER. The remaining 91% are mobilisations
+(interest clicks) and structure info views (contact page consultations — phone, email).
+
+#### The 5 components of iMER
+
+As of Jan 2026 — 128,799 total:
+
+| # | Component | Source table | Count | % | Description |
+|---|-----------|-------------|------:|--:|-------------|
+| 1 | Mobilisations (connected) | `stats_mobilisationevent` | 32,537 | 25% | "Je suis intéressé" clicks by logged-in users |
+| 2 | Orientations | `orientations_orientation` | 11,533 | 9% | Formal orientation requests |
+| 3 | Structure info views (connected) | `stats_structureinfosview` | 6,275 | 5% | Contact page views by logged-in users |
+| 4 | Mobilisations (anonymous) | `stats_mobilisationevent` | 29,697 | 23% | "Je suis intéressé" clicks by anonymous visitors |
+| 5 | Structure info views (anonymous) | `stats_structureinfosview` | 48,757 | 38% | Contact page views by anonymous visitors |
+
+**Why structure info views matter:** `stats_structureinfosview` tracks when a user
+accesses a structure's contact information (phone number, email, address). This is a
+strong intent signal — the user is looking to contact the structure directly, bypassing
+the formal orientation process. These views represent **43%** of all iMER.
+
+**Connected vs anonymous breakdown:**
+- Connected users: 50,345 (39%)
+- Anonymous visitors: 78,454 (61%)
+
+#### Filters applied per component
+
+| Component | Filter |
+|-----------|--------|
+| Mobilisations (connected) | `user_id IS NOT NULL`, `is_staff = FALSE`, `user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur')` |
+| Orientations | All orientations (no filter) |
+| Structure info views (connected) | `is_logged = TRUE`, `is_staff = FALSE`, `is_structure_member = FALSE`, `is_structure_admin = FALSE`, `user_kind != 'autre' OR user_kind IS NULL` |
+| Mobilisations (anonymous) | `user_id IS NULL` |
+| Structure info views (anonymous) | `is_logged = FALSE`, same staff/member/admin exclusions |
+
+The reference Metabase question for iMER is **question #295** (not accessible via our
+API key — SQL definition documented below in "Computing iMER").
+
+#### ⚠️ Limitation of the int_iMER intermediate table
+
+The pre-computed table `public_intermediate."int_iMER"` only contains **components 1
+and 2** (mobilisations + orientations by connected users). It does NOT include:
+- Structure info views (components 3 and 5) — 43% of total iMER
+- Anonymous mobilisations (component 4) — 23% of total iMER
+
+**For full iMER counts, query the source tables directly** using the SQL below.
+Use `int_iMER` only for quick breakdowns of connected-user mobilisations/orientations.
+
+#### Computing iMER
+
+**All components (no category filter):**
+```sql
+-- Component 1: Mobilisations by connected users
+SELECT COUNT(DISTINCT me.id)
+FROM stats_mobilisationevent me
+WHERE me.user_id IS NOT NULL
+AND me.is_staff = FALSE
+AND me.user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur');
+
+-- Component 2: Orientations
+SELECT COUNT(DISTINCT o.id) FROM orientations_orientation o;
+
+-- Component 3: Structure info views (connected)
+SELECT COUNT(DISTINCT siv.id)
+FROM stats_structureinfosview siv
+WHERE siv.is_staff = FALSE
+AND siv.is_structure_member = FALSE
+AND siv.is_structure_admin = FALSE
+AND (siv.user_kind != 'autre' OR siv.user_kind IS NULL)
+AND siv.is_logged = TRUE;
+
+-- Component 4: Mobilisations by anonymous users
+SELECT COUNT(DISTINCT me.id)
+FROM stats_mobilisationevent me
+WHERE me.user_id IS NULL;
+
+-- Component 5: Structure info views (anonymous)
+SELECT COUNT(DISTINCT siv.id)
+FROM stats_structureinfosview siv
+WHERE siv.is_staff = FALSE
+AND siv.is_structure_member = FALSE
+AND siv.is_structure_admin = FALSE
+AND (siv.user_kind != 'autre' OR siv.user_kind IS NULL)
+AND siv.is_logged = FALSE;
+```
+
+#### With geographic filter (e.g., Île-de-France):
+-- For mobilisations:
+```sql
+AND me.structure_department IN ('75','77','78','91','92','93','94','95')
+```
+
+-- For orientations (join prescriber structure):
+```sql
+JOIN structures_structure ps ON o.prescriber_structure_id = ps.id
+... AND ps.department IN ('75','77','78','91','92','93','94','95')
+```
+
+-- For structure info views:
+```sql
+AND siv.structure_department IN ('75','77','78','91','92','93','94','95')
+```
+
+#### With category filter (e.g., "freins périphériques"):
+-- For mobilisations: add JOINs to service categories
+```sql
+SELECT COUNT(DISTINCT me.id)
+FROM stats_mobilisationevent me
+JOIN services_service_categories ssc ON me.service_id = ssc.service_id
+JOIN services_servicecategory sc ON ssc.servicecategory_id = sc.id
+WHERE sc.value IN ('mobilite', 'famille', 'logement-hebergement',
+                   'equipement-et-alimentation', 'difficultes-financieres',
+                   'sante', 'numerique')
+AND me.user_id IS NOT NULL
+AND me.is_staff = FALSE
+AND me.user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur');
+```
+
+-- For orientations: same pattern
+```sql
+SELECT COUNT(DISTINCT o.id)
+FROM orientations_orientation o
+JOIN services_service_categories ssc ON o.service_id = ssc.service_id
+JOIN services_servicecategory sc ON ssc.servicecategory_id = sc.id
+WHERE sc.value IN (...);
+```
+
+-- For structure info views: join via structure → service → category
+```sql
+SELECT COUNT(DISTINCT siv.id)
+FROM stats_structureinfosview siv
+JOIN services_service s ON siv.structure_id = s.structure_id
+JOIN services_service_categories ssc ON s.id = ssc.service_id
+JOIN services_servicecategory sc ON ssc.servicecategory_id = sc.id
+WHERE sc.value IN (...)
+AND siv.is_staff = FALSE
+AND siv.is_structure_member = FALSE
+AND siv.is_structure_admin = FALSE
+AND (siv.user_kind != 'autre' OR siv.user_kind IS NULL)
+AND siv.is_logged = TRUE;  -- or FALSE for anonymous
+```
 
 **Conversion funnel:**
 1. Search (634,827 search views)
 2. Service view (1,767,429 service views)
-3. Mobilisation/iMER (71,128 events)
-4. Orientation (11,220 total, ~700/month in 2025)
+3. iMER (128,799 intent signals) — of which:
+    - Mobilisations: 62,234 (connected + anonymous)
+    - Structure info views: 55,032 (connected + anonymous)
+    - Orientations: 11,533
+4. Orientation validated (5,020 VALIDEE)
 
 ### Content Freshness
 
@@ -164,9 +324,10 @@ Key date fields on `services_service`: `creation_date`, `modification_date`, `pu
 | `structures_structure` | 25,298 | Organizations providing services |
 | `services_service` | 37,514 | Service offerings |
 | `users_user` | 50,947 | Platform users |
-| `orientations_orientation` | 11,220 | Orientation requests |
+| `orientations_orientation` | 11,533 | Orientation requests (1 of 5 iMER components) |
 | `services_servicecategory` | 23 | Service themes/categories |
-| `stats_mobilisationevent` | 71,128 | Mobilisation/interest events |
+| `stats_mobilisationevent` | 71,128 | Mobilisation/interest events (2 of 5 iMER components: connected + anonymous) |
+| `stats_structureinfosview` | ~55,000 | Structure contact page views — phone, email, address (2 of 5 iMER components: connected + anonymous) |
 | `stats_serviceview` | 1,767,429 | Service page views |
 | `stats_searchview` | 634,827 | Search events |
 | `stats_pageview` | 6,858,377 | General page views |
@@ -177,7 +338,7 @@ Pre-computed tables for dashboards:
 
 | Table | Description |
 |-------|-------------|
-| `int_iMER` | All iMER events (63,328 records, 2023-06 to present) |
+| `int_iMER` | **Partial** iMER data: only mobilisations + orientations by connected users (63,328 records). See "⚠️ Limitation" above. |
 | `int_monthly_user_iMER` | Monthly iMER aggregations per user |
 | `int_monthly_user_orientations` | Monthly orientations per user |
 | `int_monthly_user_mobilisations` | Monthly mobilisations per user |
