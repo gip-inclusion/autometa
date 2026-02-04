@@ -258,16 +258,16 @@ def _render_rapports_page(report_id: int | None = None):
         # Group by date
         grouped_items = _group_items_by_date(items)
 
-    # Get only tags that are actually used by reports + add "appli" for apps
-    all_tags = store.get_used_report_tags_by_type()
-    # Ensure "appli" type is available if we have apps
+    # Build tag list from the actual displayed items (so only tags with items show)
+    all_tags: dict[str, list] = {}
     if not current_report:
-        appli_tag = store.get_tag_by_name("appli")
-        if appli_tag:
-            if "type_demande" not in all_tags:
-                all_tags["type_demande"] = []
-            if appli_tag not in all_tags["type_demande"]:
-                all_tags["type_demande"].append(appli_tag)
+        seen_tags = set()
+        for item in items:
+            if item["type"] == "report":
+                for tag in item["report"].tag_objects:
+                    if tag.name not in seen_tags:
+                        seen_tags.add(tag.name)
+                        all_tags.setdefault(tag.type, []).append(tag)
 
     return render_template(
         "rapports.html",
