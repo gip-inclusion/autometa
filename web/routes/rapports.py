@@ -1,12 +1,13 @@
 """Rapports HTML routes."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import OrderedDict
 from pathlib import Path
 
 from flask import Blueprint, redirect, render_template, request, url_for
 
 from ..storage import store
-from .html import get_sidebar_data
+from .html import get_sidebar_data, format_relative_date
 from .. import config
 
 bp = Blueprint("rapports", __name__)
@@ -118,6 +119,55 @@ def scan_interactive_apps():
     return apps
 
 
+def _group_items_by_date(items):
+    """Group report/app items by relative date periods (like conversations)."""
+    now = datetime.now()
+    today = now.date()
+
+    groups = OrderedDict()
+    groups["aujourd'hui"] = []
+    groups["hier"] = []
+    groups["plus tôt cette semaine"] = []
+    groups["la semaine dernière"] = []
+    groups["plus tôt ce mois-ci"] = []
+
+    yesterday = today - timedelta(days=1)
+    days_since_monday = today.weekday()
+    this_week_start = today - timedelta(days=days_since_monday)
+    last_week_start = this_week_start - timedelta(days=7)
+    last_week_end = this_week_start - timedelta(days=1)
+    this_month_start = today.replace(day=1)
+
+    month_names = {
+        1: "janvier", 2: "février", 3: "mars", 4: "avril",
+        5: "mai", 6: "juin", 7: "juillet", 8: "août",
+        9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+    }
+
+    for item in items:
+        item_date = item["updated"].date() if item["updated"] else today
+
+        if item_date == today:
+            groups["aujourd'hui"].append(item)
+        elif item_date == yesterday:
+            groups["hier"].append(item)
+        elif this_week_start <= item_date < today:
+            groups["plus tôt cette semaine"].append(item)
+        elif last_week_start <= item_date <= last_week_end:
+            groups["la semaine dernière"].append(item)
+        elif this_month_start <= item_date < this_week_start:
+            groups["plus tôt ce mois-ci"].append(item)
+        else:
+            month_key = month_names[item_date.month]
+            if item_date.year < today.year:
+                month_key = f"{month_key} {item_date.year}"
+            if month_key not in groups:
+                groups[month_key] = []
+            groups[month_key].append(item)
+
+    return OrderedDict((k, v) for k, v in groups.items() if v)
+
+
 @bp.route("/rapports")
 def rapports():
     """Rapports section - saved reports browser with optional filtering.
@@ -193,6 +243,18 @@ def _render_rapports_page(report_id: int | None = None):
         # Sort combined list by date (newest first)
         items.sort(key=lambda x: x["updated"], reverse=True)
 
+        # Enrich items with formatted dates and icons
+        for item in items:
+            dt = item["updated"]
+            item["formatted_date"] = format_relative_date(dt) if dt and dt != datetime.min else ""
+            if item["type"] == "report":
+                item["icon"] = "ri-file-text-line"
+            else:
+                item["icon"] = "ri-window-fill"
+
+        # Group by date
+        grouped_items = _group_items_by_date(items)
+
     # Get only tags that are actually used by reports + add "appli" for apps
     all_tags = store.get_used_report_tags_by_type()
     # Ensure "appli" type is available if we have apps
@@ -210,6 +272,7 @@ def _render_rapports_page(report_id: int | None = None):
         current_report=current_report,
         current_report_tags=current_report_tags,
         items=items,
+        grouped_items=grouped_items if not current_report else {},
         all_tags=all_tags,
         active_tags=tag_params,
         **data

@@ -625,9 +625,19 @@
       await sendToAgent(pendingMessage);
     }
     {% elif is_new %}
-    // New conversation mode - focus input
+    // New conversation mode - prefill input if param present, then focus
     const input = document.getElementById('chatInput');
-    if (input) input.focus();
+    if (input) {
+      const prefill = new URLSearchParams(window.location.search).get('prefill');
+      if (prefill) {
+        input.value = prefill;
+        // Clean URL without reloading
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('prefill');
+        history.replaceState({}, '', cleanUrl.toString());
+      }
+      input.focus();
+    }
     {% endif %}
 
   });

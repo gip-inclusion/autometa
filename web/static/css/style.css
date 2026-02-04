@@ -1690,17 +1690,14 @@ body.has-sidebar {
 .conv-item-row {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .conv-item-title {
   font-size: 1rem;
   font-weight: 400;
   color: #212529;
-  flex: 1;
   min-width: 0;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1710,6 +1707,7 @@ body.has-sidebar {
   font-size: 0.875rem;
   color: #6c757d;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .conv-item-author-row {
@@ -1745,6 +1743,44 @@ body.has-sidebar {
 
 .conv-item-delete-btn:hover {
   color: #dc3545;
+}
+
+.conv-item-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #6c757d;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.conv-list-item:hover .conv-item-action-btn {
+  opacity: 1;
+}
+
+.conv-item-action-btn:hover {
+  color: #dc3545;
+}
+
+.conv-item-external-link:hover {
+  color: #006ADC;
+}
+
+.conv-list-item-app .conv-item-icon {
+  color: #006ADC;
+}
+
+.conv-item-description {
+  color: #6c757d;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Mobile adjustments for list view */

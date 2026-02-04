@@ -16,7 +16,11 @@
           {% endif %}
           <i class="ri-file-text-line ri-2x text-primary"></i>
           <div>
-            <p class="text-muted mb-1 small">{% if current_report %}Rapport{% if current_report.website %} · {{ current_report.website }}{% endif %}{% if current_report.category %} · {{ current_report.category }}{% endif %}{% else %}Analyses et rapports sauvegardés{% endif %}</p>
+            <p class="text-muted mb-1 small">
+              {% if current_report %}Rapport{% if current_report.website %} · {{ current_report.website }}{% endif %}{% if current_report.category %} · {{ current_report.category }}{% endif %}
+              <button type="button" class="conv-action-btn" id="continueExplorationBtn" data-report-id="{{ current_report.id }}" data-report-title="{{ current_report.title }}"><i class="ri-chat-follow-up-line"></i> Poursuivre l'exploration</button>
+              {% else %}Analyses et rapports sauvegardés{% endif %}
+            </p>
             <h1 class="mb-0">{% if current_report %}{{ current_report.title }}{% else %}Rapports{% endif %}</h1>
           </div>
         </div>
@@ -25,8 +29,9 @@
   </div>
 
   <!-- Main content area -->
-  <div class="container section-body">
+  <div class="section-body" style="padding: 0; max-width: none;">
     {% if current_report %}
+    <div class="container" style="padding-top: 1.5rem;">
     <!-- Report detail view -->
     <div class="report-content" id="reportContent">
       <div class="event-block event-report">
@@ -43,191 +48,217 @@
       </div>
       <script type="text/plain" id="reportRawContent">{{ current_report.content|replace('</script>', '<\\/script>')|safe }}</script>
     </div>
+    </div><!-- /.container -->
     {% else %}
     <!-- Reports list view -->
-    <div id="filterContent">
-    <!-- Filter bar -->
+    <div id="filterContent" class="filter-list-container">
+    <!-- Filter sidebar -->
     {% if all_tags %}
-    <div class="filter-bar mb-4" id="filterBar">
-      {% if all_tags.get('product') %}
-      {% set product_count = active_tags|select('in', all_tags.get('product', [])|map(attribute='name')|list)|list|length %}
-      <div class="filter-dropdown">
-        <button class="filter-dropdown-btn {% if product_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-          Produit{% if product_count %} <span class="filter-count">{{ product_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="dropdown-menu filter-dropdown-menu">
-          {% for tag in all_tags.get('product', []) %}
-          <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-            <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                   onchange="toggleFilter('{{ tag.name }}')">
-            {{ tag.label }}
-          </label>
-          {% endfor %}
+    <aside class="filter-sidebar" id="filterSidebar">
+      <!-- Mobile filter bar (dropdowns) -->
+      <div class="filter-bar-mobile">
+        {% if all_tags.get('product') %}
+        {% set product_count = active_tags|select('in', all_tags.get('product', [])|map(attribute='name')|list)|list|length %}
+        <div class="filter-dropdown">
+          <button class="filter-dropdown-btn {% if product_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            Produit{% if product_count %} <span class="filter-count">{{ product_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+          </button>
+          <div class="dropdown-menu filter-dropdown-menu">
+            {% for tag in all_tags.get('product', []) %}
+            <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+              <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                     onchange="toggleFilter('{{ tag.name }}', this)">
+              {{ tag.label }}
+            </label>
+            {% endfor %}
+          </div>
         </div>
+        {% endif %}
+
+        {% if all_tags.get('theme') %}
+        {% set theme_count = active_tags|select('in', all_tags.get('theme', [])|map(attribute='name')|list)|list|length %}
+        <div class="filter-dropdown">
+          <button class="filter-dropdown-btn {% if theme_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            Thème{% if theme_count %} <span class="filter-count">{{ theme_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+          </button>
+          <div class="dropdown-menu filter-dropdown-menu">
+            {% for tag in all_tags.get('theme', []) %}
+            <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+              <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                     onchange="toggleFilter('{{ tag.name }}', this)">
+              {{ tag.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if all_tags.get('type_demande') %}
+        {% set type_count = active_tags|select('in', all_tags.get('type_demande', [])|map(attribute='name')|list)|list|length %}
+        <div class="filter-dropdown">
+          <button class="filter-dropdown-btn {% if type_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            Type{% if type_count %} <span class="filter-count">{{ type_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+          </button>
+          <div class="dropdown-menu filter-dropdown-menu">
+            {% for tag in all_tags.get('type_demande', []) %}
+            <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+              <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                     onchange="toggleFilter('{{ tag.name }}', this)">
+              {{ tag.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if active_tags %}
+        <button class="filter-reset" onclick="resetFilters()">
+          <i class="ri-close-line"></i> Effacer
+        </button>
+        {% endif %}
+
+        <div class="filter-search">
+          <i class="ri-search-line"></i>
+          <input type="text" id="filterSearchInput" placeholder="Rechercher..." oninput="filterByText(this.value)">
+        </div>
+      </div>
+
+      <!-- Desktop expanded filters -->
+      <div class="filter-search mb-3">
+        <i class="ri-search-line"></i>
+        <input type="text" id="filterSearchInputDesktop" placeholder="Rechercher..." oninput="filterByText(this.value)">
+      </div>
+
+      {% if all_tags.get('product') and all_tags.get('product')|length > 0 %}
+      <div class="filter-section">
+        <div class="filter-section-title">Produit</div>
+        {% for tag in all_tags.get('product', []) %}
+        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                 onchange="toggleFilter('{{ tag.name }}', this)">
+          <span class="filter-label">{{ tag.label }}</span>
+        </label>
+        {% endfor %}
       </div>
       {% endif %}
 
-      {% if all_tags.get('theme') %}
-      {% set theme_count = active_tags|select('in', all_tags.get('theme', [])|map(attribute='name')|list)|list|length %}
-      <div class="filter-dropdown">
-        <button class="filter-dropdown-btn {% if theme_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-          Thème{% if theme_count %} <span class="filter-count">{{ theme_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="dropdown-menu filter-dropdown-menu">
-          {% for tag in all_tags.get('theme', []) %}
-          <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-            <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                   onchange="toggleFilter('{{ tag.name }}')">
-            {{ tag.label }}
-          </label>
-          {% endfor %}
-        </div>
+      {% if all_tags.get('theme') and all_tags.get('theme')|length > 0 %}
+      <div class="filter-section">
+        <div class="filter-section-title">Thème</div>
+        {% for tag in all_tags.get('theme', []) %}
+        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                 onchange="toggleFilter('{{ tag.name }}', this)">
+          <span class="filter-label">{{ tag.label }}</span>
+        </label>
+        {% endfor %}
       </div>
       {% endif %}
 
-      {% if all_tags.get('type_demande') %}
-      {% set type_count = active_tags|select('in', all_tags.get('type_demande', [])|map(attribute='name')|list)|list|length %}
-      <div class="filter-dropdown">
-        <button class="filter-dropdown-btn {% if type_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-          Type{% if type_count %} <span class="filter-count">{{ type_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="dropdown-menu filter-dropdown-menu">
-          {% for tag in all_tags.get('type_demande', []) %}
-          <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-            <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                   onchange="toggleFilter('{{ tag.name }}')">
-            {{ tag.label }}
-          </label>
-          {% endfor %}
-        </div>
+      {% if all_tags.get('type_demande') and all_tags.get('type_demande')|length > 0 %}
+      <div class="filter-section">
+        <div class="filter-section-title">Type</div>
+        {% for tag in all_tags.get('type_demande', []) %}
+        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                 onchange="toggleFilter('{{ tag.name }}', this)">
+          <span class="filter-label">{{ tag.label }}</span>
+        </label>
+        {% endfor %}
       </div>
       {% endif %}
 
       {% if active_tags %}
-      <button class="filter-reset" onclick="resetFilters()">
-        <i class="ri-close-line"></i> Effacer
+      <button class="filter-reset mt-3" onclick="resetFilters()">
+        <i class="ri-close-line"></i> Effacer les filtres
       </button>
       {% endif %}
-
-      <div class="filter-search">
-        <i class="ri-search-line"></i>
-        <input type="text" id="filterSearchInput" placeholder="Rechercher..." oninput="filterByText(this.value)">
-      </div>
-    </div>
-    {% if active_tags %}
-    <div class="active-filters mt-2">
-      {% for tag_type, tags in all_tags.items() %}
-        {% for tag in tags %}
-          {% if tag.name in active_tags %}
-          <span class="badge badge-tag badge-{{ tag_type }} active-filter-pill" onclick="removeFilter('{{ tag.name }}')">
-            {{ tag.label }} <i class="ri-close-line"></i>
-          </span>
-          {% endif %}
-        {% endfor %}
-      {% endfor %}
-    </div>
-    {% endif %}
+    </aside>
     {% endif %}
 
-    <div class="reports-list" id="reportsList">
-      {% if items %}
-      <div class="row g-3">
-        {% for item in items %}
-        {% if item.type == 'report' %}
-        {% set report = item.report %}
-        <div class="col-12 col-md-6 col-lg-4 filterable-card" id="report-{{ report.id }}"
-             data-search="{{ report.title|lower }} {{ (report.website or '')|lower }} {{ (report.category or '')|lower }} {% for tag in report.tag_objects %}{{ tag.label|lower }} {{ tag.name|lower }} {% endfor %}">
-          <div class="card report-card h-100">
-            <a href="/rapports/{{ report.id }}" class="card-body text-decoration-none d-flex flex-column"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <h6 class="card-title mb-2">{{ report.title }}</h6>
-              <div class="report-badges">
-                {% if report.tag_objects %}
-                  {% for tag in report.tag_objects %}
-                  <span class="badge badge-tag badge-{{ tag.type }}">{{ tag.label }}</span>
-                  {% endfor %}
-                {% else %}
-                  {% if report.website %}<span class="badge text-bg-secondary">{{ report.website }}</span>{% endif %}
-                  {% if report.category %}<span class="badge text-bg-info">{{ report.category }}</span>{% endif %}
-                {% endif %}
-              </div>
-            </a>
-            <div class="card-footer d-flex align-items-center justify-content-between py-2 px-3">
-              <small class="text-muted">{{ report.updated_at.strftime('%d/%m/%Y') }}</small>
-              <button class="btn btn-link btn-sm text-muted p-0" title="Archiver"
-                      hx-post="/api/reports/{{ report.id }}/archive"
-                      hx-target="#report-{{ report.id }}"
-                      hx-swap="outerHTML"
-                      hx-confirm="Archiver ce rapport ?">
-                <i class="ri-archive-line"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-        {% elif item.type == 'app' %}
-        {% set app = item.app %}
-        <div class="col-12 col-md-6 col-lg-4 filterable-card"
-             data-search="{{ app.title|lower }} {{ (app.description or '')|lower }} {{ (app.website or '')|lower }} {{ (app.category or '')|lower }} appli {% for t in app.tags %}{{ t|lower }} {% endfor %}{% for a in app.authors %}{{ a|lower }} {% endfor %}">
-          <div class="card report-card app-card h-100">
-            <a href="{{ app.url }}" target="_blank" class="text-decoration-none d-flex flex-column h-100">
-              <div class="app-card-header">
-                <i class="ri-external-link-line"></i>
-                {{ app.title }}
-              </div>
-              <div class="card-body d-flex flex-column">
-                {% if app.description %}
-                <p class="card-text small text-muted mb-2">{{ app.description }}</p>
-                {% endif %}
-                <div class="report-badges">
-                  {% if app.website %}<span class="badge badge-tag badge-product">{{ app.website }}</span>{% endif %}
-                  {% if app.category %}<span class="badge badge-tag badge-theme">{{ app.category }}</span>{% endif %}
-                  {% for tag in app.tags %}<span class="badge badge-tag badge-source">{{ tag }}</span>{% endfor %}
+    <div class="conversation-list-wrapper">
+    <div class="conversation-list" id="reportsList">
+      {% if grouped_items %}
+        {% for group_name, group_items in grouped_items.items() %}
+        <div class="conv-group">
+          <div class="conv-group-header">{{ group_name }}</div>
+          <div class="conv-group-items">
+            {% for item in group_items %}
+            {% if item.type == 'report' %}
+            {% set report = item.report %}
+            <a href="/rapports/{{ report.id }}"
+               class="conv-list-item filterable-card"
+               id="report-{{ report.id }}"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
+               data-search="{{ report.title|lower }} {{ (report.website or '')|lower }} {{ (report.category or '')|lower }} {% for tag in report.tag_objects %}{{ tag.label|lower }} {{ tag.name|lower }} {% endfor %}">
+              <div class="conv-item-main">
+                <div class="conv-item-icon-wrapper">
+                  <i class="{{ item.icon }} conv-item-icon"></i>
+                </div>
+                <div class="conv-item-content">
+                  <div class="conv-item-row">
+                    <span class="conv-item-title">{{ report.title }}</span>
+                    {% for tag in report.tag_objects if tag.type == 'product' %}
+                    <span class="badge badge-tag badge-product">{{ tag.label }}</span>
+                    {% endfor %}
+                    {% if not report.tag_objects|selectattr('type', 'eq', 'product')|list and report.website %}
+                    <span class="badge badge-tag badge-product">{{ report.website }}</span>
+                    {% endif %}
+                    <span class="conv-item-date">{{ item.formatted_date }}</span>
+                  </div>
+                  <div class="conv-item-author-row">
+                    <button class="conv-item-action-btn" title="Archiver"
+                            onclick="event.preventDefault(); event.stopPropagation();"
+                            hx-post="/api/reports/{{ report.id }}/archive"
+                            hx-target="#report-{{ report.id }}"
+                            hx-swap="outerHTML"
+                            hx-confirm="Archiver ce rapport ?">
+                      <i class="ri-archive-line"></i> Archiver
+                    </button>
+                  </div>
                 </div>
               </div>
             </a>
-            <div class="card-footer d-flex align-items-center justify-content-between py-2 px-3">
-              <small class="text-muted">{% if app.updated %}{{ app.updated.strftime('%d/%m/%Y') }}{% else %}-{% endif %}</small>
-              {% if app.conversation_id %}
-              <a href="/explorations?conv={{ app.conversation_id }}" class="btn btn-link btn-sm text-muted p-0" title="Conversation d'origine">
-                <i class="ri-chat-3-line"></i>
-              </a>
-              {% else %}
-              <span></span>
-              {% endif %}
-            </div>
+            {% elif item.type == 'app' %}
+            {% set app = item.app %}
+            <a href="{{ app.url }}" target="_blank"
+               class="conv-list-item conv-list-item-app filterable-card"
+               data-search="{{ app.title|lower }} {{ (app.description or '')|lower }} {{ (app.website or '')|lower }} {{ (app.category or '')|lower }} appli {% for t in app.tags %}{{ t|lower }} {% endfor %}{% for a in app.authors %}{{ a|lower }} {% endfor %}">
+              <div class="conv-item-main">
+                <div class="conv-item-icon-wrapper">
+                  <i class="{{ item.icon }} conv-item-icon"></i>
+                </div>
+                <div class="conv-item-content">
+                  <div class="conv-item-row">
+                    <span class="conv-item-title">{{ app.title }}</span>
+                    {% if app.website %}<span class="badge badge-tag badge-product">{{ app.website }}</span>{% endif %}
+                    <span class="conv-item-date">{{ item.formatted_date }}</span>
+                  </div>
+                  <div class="conv-item-author-row">
+                    {% if app.description %}<span class="conv-item-description">{{ app.description }}</span>{% endif %}
+                    <span class="conv-item-action-btn conv-item-external-link"><i class="ri-external-link-line"></i> Ouvrir</span>
+                  </div>
+                </div>
+              </div>
+            </a>
+            {% endif %}
+            {% endfor %}
           </div>
         </div>
-        {% endif %}
         {% endfor %}
-      </div>
       {% else %}
-      <div class="empty-state">
+      <div class="empty-state" id="emptyState">
         <i class="ri-file-text-line ri-4x text-disabled mb-3"></i>
         <p class="mb-0 text-muted">Aucun rapport</p>
         <p class="small text-muted">{% if active_tags %}Aucun resultat pour ces filtres{% else %}Demandez a l'agent de sauvegarder un rapport{% endif %}</p>
       </div>
       {% endif %}
     </div>
+    </div><!-- /.conversation-list-wrapper -->
     </div><!-- /#filterContent -->
     {% endif %}
   </div>
 
-  <!-- Fixed chat bar at bottom -->
-  <div class="chat-bar-container">
-    <div class="container">
-      <div class="chat-bar">
-        <textarea
-          class="chat-input"
-          id="chatInput"
-          placeholder="Posez une question pour creer une nouvelle exploration..."
-          rows="1"
-        ></textarea>
-        <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
-          <i class="ri-send-plane-fill"></i>
-        </button>
-      </div>
-    </div>
-  </div>
 </section>
 {% endblock %}
 
@@ -238,16 +269,28 @@ function buildFilterUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete('tag');
 
-  // Collect all checked tags
-  document.querySelectorAll('.filter-checkbox-item input:checked').forEach(cb => {
-    const tagName = cb.closest('label').dataset.tag;
-    if (tagName) url.searchParams.append('tag', tagName);
-  });
+  // Get all checkboxes from visible filter sections
+  const desktopFilters = document.querySelectorAll('.filter-sidebar > .filter-section .filter-checkbox-item[data-tag] input[type="checkbox"]');
+  if (desktopFilters.length > 0 && window.getComputedStyle(desktopFilters[0].closest('.filter-section')).display !== 'none') {
+    desktopFilters.forEach(cb => {
+      if (cb.checked) {
+        const tag = cb.closest('label').dataset.tag;
+        if (tag) url.searchParams.append('tag', tag);
+      }
+    });
+  } else {
+    document.querySelectorAll('.filter-bar-mobile .filter-checkbox-item[data-tag] input[type="checkbox"]').forEach(cb => {
+      if (cb.checked) {
+        const tag = cb.closest('label').dataset.tag;
+        if (tag) url.searchParams.append('tag', tag);
+      }
+    });
+  }
 
   return url.toString();
 }
 
-function toggleFilter(tagName) {
+function toggleFilter(tagName, checkbox) {
   const url = buildFilterUrl();
   history.pushState({}, '', url);
   htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
@@ -261,10 +304,8 @@ function resetFilters() {
 }
 
 function removeFilter(tagName) {
-  // Uncheck the checkbox
   const checkbox = document.querySelector(`.filter-checkbox-item[data-tag="${tagName}"] input`);
   if (checkbox) checkbox.checked = false;
-  // Rebuild URL and refresh
   const url = buildFilterUrl();
   history.pushState({}, '', url);
   htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
@@ -282,21 +323,22 @@ function filterByText(query) {
     if (matches) visibleCount++;
   });
 
+  // Sync both search inputs
+  document.querySelectorAll('#filterSearchInput, #filterSearchInputDesktop').forEach(input => {
+    if (input.value !== query) {
+      input.value = query;
+    }
+  });
+
   // Show/hide empty state
-  const cardContainer = document.querySelector('.reports-list .row');
-  let emptyState = document.querySelector('.reports-list .empty-state');
-  if (cardContainer) {
+  const emptyState = document.getElementById('emptyState');
+  const convGroups = document.querySelectorAll('.conv-group');
+  if (convGroups.length > 0) {
     if (visibleCount === 0 && cards.length > 0) {
-      cardContainer.style.display = 'none';
-      if (!emptyState) {
-        emptyState = document.createElement('div');
-        emptyState.className = 'empty-state';
-        emptyState.innerHTML = '<i class="ri-file-text-line ri-4x text-disabled mb-3"></i><p class="mb-0 text-muted">Aucun rapport</p><p class="small text-muted">Aucun résultat pour cette recherche</p>';
-        cardContainer.parentNode.appendChild(emptyState);
-      }
-      emptyState.style.display = '';
+      convGroups.forEach(g => g.style.display = 'none');
+      if (emptyState) emptyState.style.display = '';
     } else {
-      cardContainer.style.display = '';
+      convGroups.forEach(g => g.style.display = '');
       if (emptyState) emptyState.style.display = 'none';
     }
   }
@@ -379,36 +421,21 @@ function renderReportContent() {
   reportBody.dataset.rendered = 'true';
 }
 
-// Run on initial load and HTMX swaps
+// Run on initial load and after HTMX settles
 document.addEventListener('DOMContentLoaded', renderReportContent);
-document.body.addEventListener('htmx:afterSwap', renderReportContent);
+document.body.addEventListener('htmx:afterSettle', renderReportContent);
+renderReportContent();
 
-(function() {
-  // Also run immediately in case DOM is already ready
-  renderReportContent();
-
-  // Chat bar creates new exploration
-  const chatInput = document.getElementById('chatInput');
-  const chatSendBtn = document.getElementById('chatSendBtn');
-
-  if (chatInput && chatSendBtn) {
-    chatSendBtn.addEventListener('click', async () => {
-      const message = chatInput.value.trim();
-      if (!message) return;
-
-      // Create new conversation and redirect to explorations with message
-      const resp = await fetch('/api/conversations', { method: 'POST' });
-      const data = await resp.json();
-      window.location.href = `/explorations?conv=${data.id}&message=${encodeURIComponent(message)}`;
-    });
-
-    chatInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        chatSendBtn.click();
-      }
-    });
-  }
-})();
+// "Poursuivre l'exploration" button (event delegation — survives HTMX swaps)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#continueExplorationBtn');
+  if (!btn) return;
+  const title = btn.dataset.reportTitle || '';
+  const id = btn.dataset.reportId || '';
+  const prefill = encodeURIComponent(
+    'Suite du rapport \u00ab ' + title + ' \u00bb (/rapports/' + id + ') : '
+  );
+  window.location.href = '/explorations/new?prefill=' + prefill;
+});
 </script>
 {% endblock %}
