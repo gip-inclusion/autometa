@@ -201,44 +201,47 @@ def _render_rapports_page(report_id: int | None = None):
 
     # Filter params
     tag_params = request.args.getlist("tag")
+    type_filter = request.args.get("type", "")  # "apps" to show only apps
 
     # Get reports with tags (only when not viewing a specific report)
     items = []
     if not current_report:
-        reports_with_tags = store.list_reports_with_tags(
-            tag_names=tag_params if tag_params else None,
-            limit=100,
-        )
-        for report, tags in reports_with_tags:
-            report.tag_objects = tags
-            items.append({
-                "type": "report",
-                "report": report,
-                "updated": report.updated_at,
-            })
+        if type_filter != "apps":
+            reports_with_tags = store.list_reports_with_tags(
+                tag_names=tag_params if tag_params else None,
+                limit=100,
+            )
+            for report, tags in reports_with_tags:
+                report.tag_objects = tags
+                items.append({
+                    "type": "report",
+                    "report": report,
+                    "updated": report.updated_at,
+                })
 
         # Get interactive apps and filter by tags if needed
-        interactive_apps = scan_interactive_apps()
-        for app in interactive_apps:
-            # Apps implicitly have type_demande "appli"
-            app["type_demande"] = "appli"
+        if type_filter != "reports":
+            interactive_apps = scan_interactive_apps()
+            for app in interactive_apps:
+                # Apps implicitly have type_demande "appli"
+                app["type_demande"] = "appli"
 
-            # Check if app matches tag filters
-            if tag_params:
-                app_tags = set(app.get("tags", []))
-                app_tags.add(app.get("website", ""))
-                app_tags.add(app.get("category", ""))
-                app_tags.add("appli")  # type_demande
+                # Check if app matches tag filters
+                if tag_params:
+                    app_tags = set(app.get("tags", []))
+                    app_tags.add(app.get("website", ""))
+                    app_tags.add(app.get("category", ""))
+                    app_tags.add("appli")  # type_demande
 
-                # All tag_params must match
-                if not all(t in app_tags for t in tag_params):
-                    continue
+                    # All tag_params must match
+                    if not all(t in app_tags for t in tag_params):
+                        continue
 
-            items.append({
-                "type": "app",
-                "app": app,
-                "updated": app.get("updated") or datetime.min,
-            })
+                items.append({
+                    "type": "app",
+                    "app": app,
+                    "updated": app.get("updated") or datetime.min,
+                })
 
         # Sort combined list by date (newest first)
         items.sort(key=lambda x: x["updated"], reverse=True)
@@ -275,5 +278,6 @@ def _render_rapports_page(report_id: int | None = None):
         grouped_items=grouped_items if not current_report else {},
         all_tags=all_tags,
         active_tags=tag_params,
+        type_filter=type_filter,
         **data
     )

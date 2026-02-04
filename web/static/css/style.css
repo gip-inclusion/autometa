@@ -210,8 +210,22 @@ body.has-sidebar {
   height: 100vh;
 }
 
+/* Rapports uses grid: header / body (no chat-bar) */
+#section-rapports {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+
+#section-rapports .section-body {
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+}
+
 @media (max-width: 991.98px) {
-  #section-explorations {
+  #section-explorations,
+  #section-rapports {
     height: calc(100vh - 56px);
   }
 }

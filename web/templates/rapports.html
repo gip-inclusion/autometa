@@ -29,9 +29,9 @@
   </div>
 
   <!-- Main content area -->
-  <div class="section-body" style="padding: 0; max-width: none;">
+  <div class="section-body">
     {% if current_report %}
-    <div class="container" style="padding-top: 1.5rem;">
+    <div class="container" style="padding-top: 1.5rem; overflow-y: auto;">
     <!-- Report detail view -->
     <div class="report-content" id="reportContent">
       <div class="event-block event-report">
@@ -57,6 +57,12 @@
     <aside class="filter-sidebar" id="filterSidebar">
       <!-- Mobile filter bar (dropdowns) -->
       <div class="filter-bar-mobile">
+        <button class="filter-toggle {% if type_filter == 'apps' %}active{% endif %}"
+                onclick="toggleTypeFilter(this, 'apps')"
+                data-active="{{ 'true' if type_filter == 'apps' else 'false' }}">
+          <i class="ri-window-fill"></i> Applications
+        </button>
+
         {% if all_tags.get('product') %}
         {% set product_count = active_tags|select('in', all_tags.get('product', [])|map(attribute='name')|list)|list|length %}
         <div class="filter-dropdown">
@@ -93,25 +99,7 @@
         </div>
         {% endif %}
 
-        {% if all_tags.get('type_demande') %}
-        {% set type_count = active_tags|select('in', all_tags.get('type_demande', [])|map(attribute='name')|list)|list|length %}
-        <div class="filter-dropdown">
-          <button class="filter-dropdown-btn {% if type_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-            Type{% if type_count %} <span class="filter-count">{{ type_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-          </button>
-          <div class="dropdown-menu filter-dropdown-menu">
-            {% for tag in all_tags.get('type_demande', []) %}
-            <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-              <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                     onchange="toggleFilter('{{ tag.name }}', this)">
-              {{ tag.label }}
-            </label>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if active_tags %}
+        {% if active_tags or type_filter %}
         <button class="filter-reset" onclick="resetFilters()">
           <i class="ri-close-line"></i> Effacer
         </button>
@@ -128,6 +116,12 @@
         <i class="ri-search-line"></i>
         <input type="text" id="filterSearchInputDesktop" placeholder="Rechercher..." oninput="filterByText(this.value)">
       </div>
+
+      <button class="filter-toggle-btn {% if type_filter == 'apps' %}active{% endif %} mb-3"
+              onclick="toggleTypeFilter(this, 'apps')"
+              data-active="{{ 'true' if type_filter == 'apps' else 'false' }}">
+        <i class="ri-window-fill"></i> Applications
+      </button>
 
       {% if all_tags.get('product') and all_tags.get('product')|length > 0 %}
       <div class="filter-section">
@@ -155,20 +149,7 @@
       </div>
       {% endif %}
 
-      {% if all_tags.get('type_demande') and all_tags.get('type_demande')|length > 0 %}
-      <div class="filter-section">
-        <div class="filter-section-title">Type</div>
-        {% for tag in all_tags.get('type_demande', []) %}
-        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                 onchange="toggleFilter('{{ tag.name }}', this)">
-          <span class="filter-label">{{ tag.label }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if active_tags %}
+      {% if active_tags or type_filter %}
       <button class="filter-reset mt-3" onclick="resetFilters()">
         <i class="ri-close-line"></i> Effacer les filtres
       </button>
@@ -268,6 +249,7 @@
 function buildFilterUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete('tag');
+  url.searchParams.delete('type');
 
   // Get all checkboxes from visible filter sections
   const desktopFilters = document.querySelectorAll('.filter-sidebar > .filter-section .filter-checkbox-item[data-tag] input[type="checkbox"]');
@@ -287,6 +269,13 @@ function buildFilterUrl() {
     });
   }
 
+  // Check type toggle (desktop or mobile)
+  const typeBtn = document.querySelector('.filter-toggle-btn[onclick*="toggleTypeFilter"]') ||
+                  document.querySelector('.filter-bar-mobile .filter-toggle[onclick*="toggleTypeFilter"]');
+  if (typeBtn && typeBtn.classList.contains('active')) {
+    url.searchParams.set('type', 'apps');
+  }
+
   return url.toString();
 }
 
@@ -296,9 +285,18 @@ function toggleFilter(tagName, checkbox) {
   htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
 }
 
+function toggleTypeFilter(btn, type) {
+  btn.classList.toggle('active');
+  btn.dataset.active = btn.classList.contains('active') ? 'true' : 'false';
+  const url = buildFilterUrl();
+  history.pushState({}, '', url);
+  htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
+}
+
 function resetFilters() {
   const url = new URL(window.location.href);
   url.searchParams.delete('tag');
+  url.searchParams.delete('type');
   history.pushState({}, '', url.toString());
   htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
 }
