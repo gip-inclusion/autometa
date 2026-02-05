@@ -1,6 +1,13 @@
 """Tests for knowledge_sync skill."""
 
 import pytest
+
+# Skip entire module - skill was renamed/removed
+pytest.skip(
+    "skills.knowledge_sync module no longer exists (renamed to sync_sites skill)",
+    allow_module_level=True,
+)
+
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch

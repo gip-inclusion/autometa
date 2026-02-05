@@ -15,12 +15,10 @@ from skills.metabase_query.scripts.cards_db import CardsDB, Card, TOPICS
 @pytest.fixture
 def temp_db():
     """Create a temporary database for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test_cards.db"
-        db = CardsDB(db_path)
-        db.init_schema()
-        yield db
-        db.close()
+    db = CardsDB(in_memory=True)
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -205,6 +203,7 @@ class TestTopicsTaxonomy:
 
     def test_expected_topics_exist(self):
         """Key topics are defined."""
-        expected = ["file-active", "candidatures", "demographie", "autre"]
+        # Note: "autre" was deliberately removed - all cards must be categorized
+        expected = ["file-active", "candidatures", "demographie"]
         for topic in expected:
             assert topic in TOPICS

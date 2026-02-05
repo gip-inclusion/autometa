@@ -15,12 +15,20 @@ To add new test cases:
 3. Add to KNOWN_ANSWERS below
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional, Union
 import pytest
 
-from skills.metabase_query.scripts.metabase import MetabaseAPI
+from lib.query import get_metabase
 from skills.metabase_query.scripts.cards_db import load_cards_db
+
+# Check if we have credentials for integration tests
+_HAS_CREDENTIALS = bool(os.environ.get("METABASE_STATS_API_KEY"))
+requires_credentials = pytest.mark.skipif(
+    not _HAS_CREDENTIALS,
+    reason="Integration test requires METABASE_STATS_API_KEY"
+)
 
 
 @dataclass
@@ -81,9 +89,10 @@ KNOWN_ANSWERS = [
 @pytest.fixture(scope="module")
 def api():
     """Create API client for all tests."""
-    return MetabaseAPI()
+    return get_metabase(instance="stats")
 
 
+@requires_credentials
 class TestKnownAnswers:
     """Test that cards return expected results."""
 
@@ -142,6 +151,7 @@ class TestCardDiscovery:
         assert len(cards) > 0, "Should find cards using this table"
 
 
+@requires_credentials
 class TestEndToEnd:
     """
     End-to-end tests simulating agent workflow.

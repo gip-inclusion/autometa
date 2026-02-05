@@ -258,26 +258,27 @@ class TestSDKBackendTokenExtraction:
 
     def test_normalize_result_message_extracts_tokens(self):
         """SDK backend extracts tokens from ResultMessage."""
-        from web.agents.sdk import SDKBackend
         from unittest.mock import MagicMock
+
+        # Import SDK backend - it will use the classes from claude_agent_sdk
+        from web.agents.sdk import SDKBackend, ResultMessage
 
         backend = SDKBackend()
 
-        # Create a mock ResultMessage with usage attribute
-        mock_result = MagicMock()
-        mock_result.__class__.__name__ = 'ResultMessage'
-        mock_result.subtype = 'success'
-        mock_result.usage = MagicMock()
-        mock_result.usage.input_tokens = 2000
-        mock_result.usage.output_tokens = 1000
-        mock_result.usage.cache_creation_input_tokens = 100
-        mock_result.usage.cache_read_input_tokens = 500
-        mock_result.usage.service_tier = None  # Not set
-        mock_result.usage.server_tool_use = None  # Not set
+        # Create a subclass that isinstance will recognize
+        class MockResultMessage(ResultMessage):
+            def __init__(self):
+                # Don't call super().__init__() - just set attributes
+                self.subtype = 'success'
+                self.usage = MagicMock()
+                self.usage.input_tokens = 2000
+                self.usage.output_tokens = 1000
+                self.usage.cache_creation_input_tokens = 100
+                self.usage.cache_read_input_tokens = 500
+                self.usage.service_tier = None
+                self.usage.server_tool_use = None
 
-        # Need to make isinstance check work
-        from claude_agent_sdk import ResultMessage
-        mock_result.__class__ = ResultMessage
+        mock_result = MockResultMessage()
 
         messages = backend._normalize_message(mock_result)
         assert len(messages) >= 1
