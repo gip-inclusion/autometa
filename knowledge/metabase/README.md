@@ -116,7 +116,7 @@ ORDER BY nb_siae DESC;
 
 ### public.utilisateurs_v0
 
-Utilisateurs du service Emplois.
+Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspecteurs).
 
 | Colonne | Description |
 |---------|-------------|
@@ -125,8 +125,39 @@ Utilisateurs du service Emplois.
 | type | Type: `employer`, `prescriber`, `labor_inspector` |
 | prenom, nom | Prénom et nom |
 | dernière_connexion | Dernière connexion |
-| id_structure | FK vers structures (employeurs) |
-| id_organisation | FK vers organisations (prescripteurs) |
+| id_structure | FK vers `structures_v0` (pour les employeurs) |
+| id_organisation | FK vers `organisations_v0` (pour les prescripteurs) |
+| id_institution | FK vers `institutions` (pour certains prescripteurs institutionnels) |
+
+**Volumétrie:** ~91 000 utilisateurs.
+
+**⚠️ Utilisateurs pros uniquement.** Les candidats (demandeurs d'emploi) ne sont pas dans cette table — ils sont dans `public.candidats` (voir section dédiée).
+
+**Note:** Pas de lien direct au département. Utiliser `tmp_utilisateurs_avec_departement` pour les analyses géographiques.
+
+#### Jointures selon le type d'utilisateur
+
+Un utilisateur se joint à une table différente selon son type :
+
+| Type utilisateur | Table à joindre | Clé de jointure |
+|------------------|-----------------|-----------------|
+| `employer` | `structures_v0` | `utilisateurs.id_structure = structures.ID` |
+| `prescriber` | `organisations_v0` | `utilisateurs.id_organisation = organisations.id` |
+| `prescriber` (institutionnel) | `institutions` | `utilisateurs.id_institution = institutions.id` |
+
+```sql
+-- Exemple : utilisateurs employeurs avec leur structure
+SELECT u.*, s.nom as structure_nom, s.département
+FROM public.utilisateurs_v0 u
+LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
+WHERE u.type = 'employer';
+
+-- Exemple : utilisateurs prescripteurs avec leur organisation
+SELECT u.*, o.nom as organisation_nom
+FROM public.utilisateurs_v0 u
+LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id
+WHERE u.type = 'prescriber';
+```
 
 **Volumétrie:** ~91 000 utilisateurs (aucun candidat, ils n'ont pas de compte).
 
@@ -167,6 +198,31 @@ Organisations prescriptrices.
 
 **Volumétrie:** ~9 750 organisations.
 
+
+### public.institutions
+
+Institutions (prescripteurs institutionnels comme Pôle Emploi, conseils départementaux).
+
+| Colonne | Description |
+|---------|-------------|
+| id | Identifiant unique |
+| nom | Nom de l'institution |
+
+**Volumétrie:** 345 institutions.
+
+**Usage:** Les utilisateurs de type institutionnels (type inspection du travail, direction de l'emploi du travail et des solidarités, Direction générale de l'emploi et de la formation professionnelle...) sont rattachés à une institution plutôt qu'à une organisation. Vérifier `id_institution` dans `utilisateurs_v0` ou `utilisateurs`.
+
+### public.candidats
+
+Candidats (demandeurs d'emploi) du service Emplois.
+
+| Colonne | Description |
+|---------|-------------|
+| id | Identifiant unique |
+| ... | (à documenter) |
+
+**⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs_v0`.
+
 ### suivi_utilisateurs_tb_prive_semaine
 
 Utilisateurs du service Pilotage (tableaux de bord privés).
@@ -186,8 +242,8 @@ Logs d'activité de l'application GPS (Mon Suivi), importés depuis Datadog.
 
 | Colonne | Description |
 |---------|-------------|
-| Orga | Identifiant de l'organisation ou structure à laquelle appartient l'utilisateur, correspond à l'organisation ID ou structure ID dans les tables "Emploi" (= c2-itou-metabase-db/public/Utilisateurs ou encore c2-itou-metabase-db/public/Organisations et c2-itou-metabase-db/public/Structures |
-| User ID | Identifiant de l'utilisateur, correspond à l'ID dans la table c2-itou-metabase-db/public/Utilisateurs |
+| Orga | Identifiant de l'organisation/structure/institution. Correspond à `id` dans `organisations_v0` ou `ID` dans `structures_v0` ou `ID` dans `institutions`  selon le type d'utilisateur |
+| User ID | Identifiant de l'utilisateur. **FK vers `utilisateurs_v0.id` ou `utilisateurs.id`** — permet de joindre avec la table utilisateurs pour enrichir les analyses |
 | Path | L'URL où a été enregistré le log - est traduit en action (List, membership...) |
 | Message | Tout le message du log, pourra contenir des infos supplémentaires interessantes en cas d'exploration |
 | Current User Type | desc |
@@ -220,6 +276,43 @@ Voir [documentation détaillée des CLPE](../stats/clpe.md).
 ### public.offre_demande_clpe
 
 Données offre/demande par CLPE. Voir [documentation CLPE](../stats/clpe.md).
+
+## Tables recommandées pour analyses détaillées (Emplois)
+
+Pour des analyses qui dépassent les tables "courantes" (candidatures, structures), voici les tables de référence et leurs jointures :
+
+### Schéma relationnel simplifié
+candidats (demandeurs d'emploi)
+↓ candidatures
+utilisateurs_v0 (pros)
+├── id_structure → structures_v0 (employeurs SIAE)
+├── id_organisation → organisations_v0 (prescripteurs)
+└── id_institution → institutions (prescripteurs institutionnels)
+
+### Tables prioritaires
+
+| Besoin | Table | Jointure depuis utilisateurs |
+|--------|-------|------------------------------|
+| Infos employeur SIAE | `structures_v0` | `ON u.id_structure = s."ID"` |
+| Infos prescripteur | `organisations_v0` | `ON u.id_organisation = o.id` |
+| Infos institution | `institutions` | `ON u.id_institution = i.id` |
+| Infos candidat | `candidats` | Table séparée (pas de FK directe) |
+| Logs GPS enrichis | `utilisateurs_v0` | `ON gps.user_id = u.id` |
+
+### Exemple : enrichir les logs GPS avec infos utilisateur
+
+```sql
+SELECT 
+    gps.*,
+    u.type as user_type,
+    u.email,
+    COALESCE(s.nom, o.nom) as entite_nom,
+    COALESCE(s.département, 'N/A') as departement
+FROM gps_logs gps
+LEFT JOIN public.utilisateurs_v0 u ON gps."User ID" = u.id
+LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
+LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id;
+```
 
 ## Limites de l'API Metabase
 
