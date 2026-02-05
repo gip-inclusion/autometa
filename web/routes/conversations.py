@@ -667,7 +667,14 @@ User request: """
                             event._sse_content = enriched
                         # Parse API signals from tool_result events
                         elif event.type == "tool_result":
-                            raw_content = str(event.content) if not isinstance(event.content, str) else event.content
+                            # Extract the output string from dict (CLI backend) or use content directly
+                            # Using str(dict) breaks JSON parsing because Python escapes ' as \'
+                            if isinstance(event.content, dict) and 'output' in event.content:
+                                raw_content = event.content['output']
+                            elif isinstance(event.content, str):
+                                raw_content = event.content
+                            else:
+                                raw_content = str(event.content)
                             api_calls = parse_api_signals(raw_content)
                             if api_calls:
                                 enriched = {
