@@ -130,10 +130,10 @@ Les données sont agrégées depuis :
 - Les Emplois
 - Mon Recap
 - Pilotage
-- GPS (Mon Suivi)
+- GPS (Mon Suivi ou réseau d'intervenant)
 - Le Marché
 - Dora
-- RDV-Insertion (bientôt)
+- RDV-Insertion (rdv-i)
 
 #### Colonnes principales
 
