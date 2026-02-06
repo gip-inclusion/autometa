@@ -56,10 +56,13 @@ services:
         condition: service_healthy
       minio-setup:
         condition: service_completed_successfully
+      ollama:
+        condition: service_started
     environment:
-      - AGENT_BACKEND=cli
-      # Note: ANTHROPIC_API_KEY intentionally not set for CLI backend
-      # CLI uses OAuth credentials from ~/.claude/.credentials.json
+      - AGENT_BACKEND=ollama
+      - LLM_BACKEND=ollama
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3-coder-next
       - GITHUB_PR_TOKEN=${GITHUB_PR_TOKEN}
       - GITHUB_REPO=${GITHUB_REPO}
       - NOTION_TOKEN=${NOTION_TOKEN}
@@ -88,6 +91,15 @@ services:
       # Local data directory for agent-created files (fallback when S3 miss)
       - ./data:/app/data
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
 volumes:
   postgres_data:
   minio_data:
+  ollama_data:
