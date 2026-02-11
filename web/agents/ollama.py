@@ -24,6 +24,8 @@ class OllamaBackend(AgentBackend):
         self._running: set[str] = set()
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._system_prompt: Optional[str] = None
+        self._client = httpx.AsyncClient(timeout=config.OLLAMA_REQUEST_TIMEOUT)
+        self._last_usage: Optional[dict] = None
 
     async def send_message(
         self,
@@ -144,6 +146,12 @@ class OllamaBackend(AgentBackend):
 
             if not did_stream:
                 yield AgentMessage(type="assistant", content=assistant_text)
+            if self._last_usage:
+                yield AgentMessage(
+                    type="system",
+                    content="usage",
+                    raw={"usage": self._last_usage},
+                )
             return
 
         yield AgentMessage(
@@ -153,27 +161,22 @@ class OllamaBackend(AgentBackend):
         )
 
     async def _chat_once(self, messages: list[dict]) -> str:
-        base_url = config.OLLAMA_BASE_URL.rstrip("/")
-        url = f"{base_url}/api/chat"
-
-        options = {
-            "temperature": config.OLLAMA_TEMPERATURE,
-        }
-        if config.OLLAMA_NUM_CTX > 0:
-            options["num_ctx"] = config.OLLAMA_NUM_CTX
-
+        url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
         payload = {
             "model": config.OLLAMA_MODEL,
             "messages": messages,
             "stream": False,
-            "options": options,
+            "options": self._build_options(),
         }
 
-        timeout = config.OLLAMA_REQUEST_TIMEOUT
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        response = await self._client.post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+        self._last_usage = {
+            "prompt_tokens": data.get("prompt_eval_count", 0),
+            "completion_tokens": data.get("eval_count", 0),
+        }
 
         message = data.get("message") or {}
         content = message.get("content", "")
@@ -184,46 +187,46 @@ class OllamaBackend(AgentBackend):
         messages: list[dict],
         cancel_event: asyncio.Event,
     ) -> AsyncIterator[str]:
-        base_url = config.OLLAMA_BASE_URL.rstrip("/")
-        url = f"{base_url}/api/chat"
-
-        options = {
-            "temperature": config.OLLAMA_TEMPERATURE,
-        }
-        if config.OLLAMA_NUM_CTX > 0:
-            options["num_ctx"] = config.OLLAMA_NUM_CTX
-
+        url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
         payload = {
             "model": config.OLLAMA_MODEL,
             "messages": messages,
             "stream": True,
-            "options": options,
+            "options": self._build_options(),
         }
 
-        timeout = config.OLLAMA_REQUEST_TIMEOUT
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", url, json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if cancel_event.is_set():
-                        return
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
+        async with self._client.stream("POST", url, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if cancel_event.is_set():
+                    return
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-                    if "error" in data:
-                        raise RuntimeError(data["error"])
+                if "error" in data:
+                    raise RuntimeError(data["error"])
 
-                    message = data.get("message") or {}
-                    content = message.get("content")
-                    if content:
-                        yield content
+                message = data.get("message") or {}
+                content = message.get("content")
+                if content:
+                    yield content
 
-                    if data.get("done"):
-                        return
+                if data.get("done"):
+                    self._last_usage = {
+                        "prompt_tokens": data.get("prompt_eval_count", 0),
+                        "completion_tokens": data.get("eval_count", 0),
+                    }
+                    return
+
+    def _build_options(self) -> dict:
+        options: dict = {"temperature": config.OLLAMA_TEMPERATURE}
+        if config.OLLAMA_NUM_CTX > 0:
+            options["num_ctx"] = config.OLLAMA_NUM_CTX
+        return options
 
     def _build_messages(self, message: str, history: list[dict]) -> list[dict]:
         system_prompt = self._load_system_prompt()

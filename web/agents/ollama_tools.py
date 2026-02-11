@@ -21,9 +21,9 @@ def tool_protocol() -> str:
         "Outils disponibles (repondez UNIQUEMENT avec un objet JSON sur une seule ligne):\n"
         "- Read: {\"tool\": \"Read\", \"input\": {\"file_path\": \"...\"}}\n"
         "- Write: {\"tool\": \"Write\", \"input\": {\"file_path\": \"...\", \"content\": \"...\"}}\n"
-        "- Edit: {\"tool\": \"Edit\", \"input\": {\"file_path\": \"...\", \"content\": \"...\"}}\n"
+        "- Edit: {\"tool\": \"Edit\", \"input\": {\"file_path\": \"...\", \"old_string\": \"...\", \"new_string\": \"...\"}}\n"
         "- Glob: {\"tool\": \"Glob\", \"input\": {\"pattern\": \"...\"}}\n"
-        "- Grep: {\"tool\": \"Grep\", \"input\": {\"pattern\": \"...\", \"path\": \"...\"}}\n"
+        "- Grep: {\"tool\": \"Grep\", \"input\": {\"pattern\": \"regex\", \"path\": \"...\"}}\n"
         "- Bash: {\"tool\": \"Bash\", \"input\": {\"command\": \"...\"}}\n"
         "- Skill: {\"tool\": \"Skill\", \"input\": {\"skill\": \"nom_du_skill\"}}\n"
         "\n"
@@ -136,16 +136,28 @@ def _write_file(tool_input: dict) -> str:
 
 def _edit_file(tool_input: dict) -> str:
     file_path = tool_input.get("file_path")
-    content = tool_input.get("content", "")
+    old_string = tool_input.get("old_string")
+    new_string = tool_input.get("new_string")
     if not file_path:
         return "Missing file_path"
+    if old_string is None or new_string is None:
+        return "Missing old_string or new_string"
 
     path = _resolve_path(file_path)
     allowed_roots = [config.BASE_DIR, config.DATA_DIR, Path("/tmp")]
     if not _is_within(path, allowed_roots):
         return f"Edit blocked: {path} is outside allowed roots"
+    if not path.exists():
+        return f"File not found: {path}"
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    content = path.read_text(encoding="utf-8")
+    count = content.count(old_string)
+    if count == 0:
+        return f"old_string not found in {path}"
+    if count > 1:
+        return f"old_string matches {count} times in {path} — must be unique"
+
+    content = content.replace(old_string, new_string, 1)
     path.write_text(content, encoding="utf-8")
     return f"Edited {path}"
 
@@ -163,9 +175,14 @@ def _glob_files(tool_input: dict) -> str:
 
 def _grep_files(tool_input: dict) -> str:
     pattern = tool_input.get("pattern")
-    path_str = tool_input.get("path")
-    if not pattern or not path_str:
-        return "Missing pattern or path"
+    path_str = tool_input.get("path", ".")
+    if not pattern:
+        return "Missing pattern"
+
+    try:
+        regex = re.compile(pattern)
+    except re.error as exc:
+        return f"Invalid regex: {exc}"
 
     root = _resolve_path(path_str)
     if not root.exists():
@@ -187,7 +204,7 @@ def _grep_files(tool_input: dict) -> str:
         except OSError:
             continue
         for idx, line in enumerate(lines, 1):
-            if pattern in line:
+            if regex.search(line):
                 rel_path = str(path.relative_to(config.BASE_DIR)) if _is_within(path, [config.BASE_DIR]) else str(path)
                 results.append(f"{rel_path}:{idx}: {line}")
                 if len(results) >= 200:
@@ -224,17 +241,28 @@ def _run_bash(tool_input: dict) -> str:
 
 
 def _bash_allowed(command: str) -> bool:
-    patterns = _extract_bash_patterns(config.ALLOWED_TOOLS or "")
+    allowed_tools = config.ALLOWED_TOOLS or ""
+
+    # Bare "Bash" (not followed by "(") means all commands allowed
+    if re.search(r"\bBash\b(?!\()", allowed_tools):
+        return True
+
+    # Extract Bash(prefix:glob) patterns — Claude CLI format
+    patterns = re.findall(r"Bash\(([^)]+)\)", allowed_tools)
     if not patterns:
         return False
-    return any(fnmatch.fnmatch(command, pattern) for pattern in patterns)
 
-
-def _extract_bash_patterns(allowed_tools: str) -> list[str]:
-    patterns = re.findall(r"Bash\(([^)]+)\)", allowed_tools)
-    if "Bash" in allowed_tools:
-        patterns.append("*")
-    return patterns
+    for pattern in patterns:
+        if ":" in pattern:
+            prefix, arg_glob = pattern.split(":", 1)
+            if command.startswith(prefix):
+                rest = command[len(prefix):]
+                if fnmatch.fnmatch(rest, arg_glob):
+                    return True
+        else:
+            if fnmatch.fnmatch(command, pattern):
+                return True
+    return False
 
 
 def _read_skill(tool_input: dict) -> str:
