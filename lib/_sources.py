@@ -45,10 +45,10 @@ def _substitute_env_vars(value: Any, strict: bool = False) -> Any:
         return re.sub(pattern, replacer, value)
 
     elif isinstance(value, dict):
-        return {k: _substitute_env_vars(v) for k, v in value.items()}
+        return {k: _substitute_env_vars(v, strict=strict) for k, v in value.items()}
 
     elif isinstance(value, list):
-        return [_substitute_env_vars(item) for item in value]
+        return [_substitute_env_vars(item, strict=strict) for item in value]
 
     return value
 

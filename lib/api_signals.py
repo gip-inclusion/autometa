@@ -52,7 +52,7 @@ def emit_api_signal(
     if sql:
         # Truncate SQL for display
         signal["sql"] = sql[:100] + "..." if len(sql) > 100 else sql
-    if card_id:
+    if card_id is not None:
         signal["card_id"] = card_id
 
     # Print to stdout (will be captured in tool_result)

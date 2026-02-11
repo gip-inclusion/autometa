@@ -120,7 +120,7 @@ class MetabaseAPI:
         """
         self.url = url.rstrip("/")
         self.api_key = api_key
-        self.database_id = database_id or 2
+        self.database_id = database_id if database_id is not None else 2
         self.instance = instance
         self.caller = caller
 
@@ -138,7 +138,8 @@ class MetabaseAPI:
 
         # Determine query type from endpoint if not provided
         if query_type is None:
-            query_type = endpoint.split("/")[2] if endpoint.startswith("/api/") else "request"
+            raw_type = endpoint.split("/")[2] if endpoint.startswith("/api/") else "request"
+            query_type = raw_type.split("?")[0]
 
         query_details = {"endpoint": endpoint, "method": method}
         if data:
@@ -217,6 +218,8 @@ class MetabaseAPI:
         # Check for query errors (Metabase returns 202 with error in body)
         if data.get("error"):
             raise MetabaseError(data.get("error"))
+        if data.get("status") == "failed":
+            raise MetabaseError(data.get("error") or "Query failed")
 
         cols = data.get("data", {}).get("cols", [])
         rows = data.get("data", {}).get("rows", [])
