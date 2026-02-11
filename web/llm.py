@@ -72,7 +72,7 @@ def _ollama_generate(
 ) -> str:
     base_url = config.OLLAMA_BASE_URL.rstrip("/")
     url = f"{base_url}/api/generate"
-    timeout = timeout or config.OLLAMA_REQUEST_TIMEOUT
+    timeout = timeout if timeout is not None else config.OLLAMA_REQUEST_TIMEOUT
 
     payload = {
         "model": model,

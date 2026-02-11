@@ -109,91 +109,67 @@ tool_protocol = _tools_mod.tool_protocol
 
 
 # ===================================================================
-# SECTION 1: Bug-finding tests (xfail — confirmed defects)
+# SECTION 1: Regression tests for fixed Ollama bugs
 # ===================================================================
 
 
 class TestBashAllowedPrefixBoundary:
-    """Bug: Bash(python:*) matches python3 commands because
-    "python3 x".startswith("python") is True.
+    """Fixed: prefix match now enforces a word boundary (space or end)."""
 
-    The prefix check doesn't enforce a word boundary. If someone only
-    allows Bash(python:*) without Bash(python3:*), python3 commands
-    still pass. This erodes the security intent of the allowlist.
-    """
-
-    @pytest.mark.xfail(
-        reason="Bug: Bash(python:*) prefix matches python3 (no word boundary)",
-        strict=True,
-    )
     def test_python_prefix_does_not_match_python3(self, monkeypatch):
         monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(python:*)")
-        # Should NOT match — "python3" is a different binary
         assert _bash_allowed("python3 evil.py") is False
 
-    @pytest.mark.xfail(
-        reason="Bug: Bash(curl:*) prefix matches curly or curl2",
-        strict=True,
-    )
     def test_curl_prefix_does_not_match_curly(self, monkeypatch):
         monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(curl:*evil.com*)")
-        # "curly https://evil.com" starts with "curl", rest is "y https://evil.com"
         assert _bash_allowed("curly https://evil.com") is False
+
+    def test_python_prefix_still_matches_python(self, monkeypatch):
+        monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(python:*)")
+        assert _bash_allowed("python script.py") is True
+
+    def test_exact_prefix_no_args(self, monkeypatch):
+        """Command that IS the prefix with no trailing args."""
+        monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(python:)")
+        assert _bash_allowed("python") is True
 
 
 class TestTrimHistoryEdgeCases:
-    """Bug: _trim_history returns empty list when the most recent message
-    alone exceeds max_chars.
+    """Fixed: oversized single message is now truncated instead of dropped."""
 
-    If the last user message is 60k chars and max_chars is 50k, the model
-    gets zero history context — not even a truncated version of it.
-    """
-
-    @pytest.mark.xfail(
-        reason="Bug: single oversized message yields empty history",
-        strict=True,
-    )
-    def test_single_oversized_message_returns_something(self):
+    def test_single_oversized_message_returns_truncated(self):
         history = [
             {"role": "user", "content": "x" * 60000},
         ]
         result = _trim_history(history, max_chars=50000)
-        # Should return at least one message (possibly truncated),
-        # not an empty list that strips all context
-        assert len(result) > 0
+        assert len(result) == 1
+        assert len(result[0]["content"]) == 50000
+
+    def test_oversized_only_drops_old_not_recent(self):
+        history = [
+            {"role": "user", "content": "old " * 10000},      # 40k
+            {"role": "assistant", "content": "recent " * 10000},  # 70k
+        ]
+        result = _trim_history(history, max_chars=50000)
+        # Should keep the most recent message (truncated), drop the old one
+        assert len(result) >= 1
+        assert result[-1]["role"] == "assistant"
 
 
 class TestOllamaGenerateTimeoutZero:
-    """Bug: _ollama_generate treats timeout=0 as falsy, replacing it
-    with config.OLLAMA_REQUEST_TIMEOUT.
+    """Fixed: timeout=0 is preserved (was treated as falsy)."""
 
-    llm.py line 75: timeout = timeout or config.OLLAMA_REQUEST_TIMEOUT
-    Same falsy pattern as the database_id bug.
-    """
-
-    @pytest.mark.xfail(
-        reason="Bug: timeout=0 treated as falsy, replaced by config default",
-        strict=True,
-    )
     def test_timeout_zero_is_preserved(self, monkeypatch):
         monkeypatch.setattr(config, "OLLAMA_REQUEST_TIMEOUT", 120)
         monkeypatch.setattr(config, "OLLAMA_BASE_URL", "http://fake:11434")
 
-        # We need to capture what timeout is used
         captured = {}
 
-        def fake_post(url, json=None, **kw):
+        def fake_post(self_or_url, *a, **kw):
             resp = MagicMock()
             resp.json.return_value = {"response": "ok", "done": True}
             resp.raise_for_status = MagicMock()
             return resp
-
-        mock_client = MagicMock()
-        mock_client.post = fake_post
-        mock_client.close = MagicMock()
-
-        # Call with timeout=0
-        original_init = _httpx_stub.Client.__init__
 
         def capture_init(self, *a, **kw):
             captured["timeout"] = kw.get("timeout")
@@ -210,38 +186,71 @@ class TestOllamaGenerateTimeoutZero:
                 model="test",
                 max_tokens=10,
                 temperature=0.2,
-                timeout=0,  # Should mean "no timeout", not "use config default"
+                timeout=0,
                 client=None,
             )
         finally:
             _httpx_stub.Client = type("Client", (), {"__init__": lambda *a, **kw: None})
 
-        # timeout=0 should NOT have been replaced by 120
-        assert captured.get("timeout") == 0, (
-            f"timeout=0 was replaced by {captured.get('timeout')}"
-        )
+        assert captured.get("timeout") == 0
+
+    def test_timeout_none_uses_config_default(self, monkeypatch):
+        monkeypatch.setattr(config, "OLLAMA_REQUEST_TIMEOUT", 99)
+        monkeypatch.setattr(config, "OLLAMA_BASE_URL", "http://fake:11434")
+
+        captured = {}
+
+        def fake_post(self_or_url, *a, **kw):
+            resp = MagicMock()
+            resp.json.return_value = {"response": "ok", "done": True}
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        def capture_init(self, *a, **kw):
+            captured["timeout"] = kw.get("timeout")
+
+        _httpx_stub.Client = type("Client", (), {
+            "__init__": capture_init,
+            "post": fake_post,
+            "close": lambda self: None,
+        })
+
+        try:
+            _llm_mod._ollama_generate(
+                "test",
+                model="test",
+                max_tokens=10,
+                temperature=0.2,
+                timeout=None,
+                client=None,
+            )
+        finally:
+            _httpx_stub.Client = type("Client", (), {"__init__": lambda *a, **kw: None})
+
+        assert captured.get("timeout") == 99
 
 
 class TestWriteFileEmptyContent:
-    """Bug: _write_file silently creates empty files when content is not
-    provided in tool_input (defaults to "").
+    """Fixed: _write_file now returns 'Missing content' when content is omitted."""
 
-    The model might have forgotten the content field — we should warn,
-    not silently write an empty file.
-    """
-
-    @pytest.mark.xfail(
-        reason="Bug: _write_file creates empty files without warning when content is omitted",
-        strict=True,
-    )
-    def test_missing_content_field_warns(self, tmp_path):
+    def test_missing_content_field_returns_error(self, tmp_path):
         path = tmp_path / "target.txt"
         result = _write_file({
             "file_path": str(path),
             # "content" intentionally omitted
         })
-        # Should warn about missing/empty content, not silently succeed
-        assert "Missing" in result or "0 chars" not in result or not path.exists()
+        assert "Missing" in result
+        assert not path.exists()
+
+    def test_explicit_empty_content_still_works(self, tmp_path):
+        """Explicitly passing content="" is intentional — should succeed."""
+        path = tmp_path / "target.txt"
+        result = _write_file({
+            "file_path": str(path),
+            "content": "",
+        })
+        assert "Wrote" in result
+        assert path.exists()
 
 
 # ===================================================================
@@ -509,12 +518,15 @@ class TestBashAllowedEdgeCases:
         monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(python:*)")
         assert _bash_allowed("") is False
 
-    def test_command_with_semicolons(self, monkeypatch):
-        """Chained commands — only the first is checked by prefix."""
+    def test_command_with_semicolons_blocked(self, monkeypatch):
+        """python; is not python — semicolons don't count as word boundary."""
         monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(python:*)")
-        # "python; rm -rf /" starts with "python" → matches prefix
-        # This is by design (security = container), but worth documenting
-        assert _bash_allowed("python; rm -rf /") is True
+        assert _bash_allowed("python; rm -rf /") is False
+
+    def test_command_with_space_then_semicolons(self, monkeypatch):
+        """python <space>; ... is allowed — space is a valid boundary."""
+        monkeypatch.setattr(config, "ALLOWED_TOOLS", "Bash(python:*)")
+        assert _bash_allowed("python ; rm -rf /") is True
 
     def test_multiple_bash_patterns(self, monkeypatch):
         monkeypatch.setattr(

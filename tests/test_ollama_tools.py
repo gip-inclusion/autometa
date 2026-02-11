@@ -89,9 +89,9 @@ class TestBashAllowed:
     def test_qualified_patterns_block_unmatched(self, monkeypatch):
         monkeypatch.setattr(
             config, "ALLOWED_TOOLS",
-            "Read,Bash(python:*),Bash(curl:*inclusion.gouv.fr*)",
+            "Read,Bash(python:*),Bash(python3:*),Bash(curl:*inclusion.gouv.fr*)",
         )
-        # python prefix matches
+        # python/python3 prefix matches (separate patterns)
         assert _bash_allowed("python3 script.py") is True
         assert _bash_allowed("python run.py --flag") is True
         # curl to allowed domain matches

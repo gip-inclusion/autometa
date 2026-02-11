@@ -320,9 +320,14 @@ def _trim_history(history: list[dict], max_chars: int) -> list[dict]:
     trimmed = []
     for msg in reversed(history):
         content = msg.get("content", "")
-        total += len(content)
-        if total > max_chars:
+        msg_len = len(content)
+        if total + msg_len > max_chars:
+            # If nothing kept yet, include this message truncated to fit
+            if not trimmed:
+                content = content[:max_chars]
+                trimmed.append({"role": msg.get("role", "user"), "content": content})
             break
+        total += msg_len
         trimmed.append({"role": msg.get("role", "user"), "content": content})
     return list(reversed(trimmed))
 

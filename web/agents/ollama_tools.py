@@ -120,9 +120,11 @@ def _read_file(tool_input: dict) -> str:
 
 def _write_file(tool_input: dict) -> str:
     file_path = tool_input.get("file_path")
-    content = tool_input.get("content", "")
+    content = tool_input.get("content")
     if not file_path:
         return "Missing file_path"
+    if content is None:
+        return "Missing content"
 
     path = _resolve_path(file_path)
     allowed_roots = [config.BASE_DIR, config.DATA_DIR, Path("/tmp")]
@@ -257,6 +259,9 @@ def _bash_allowed(command: str) -> bool:
             prefix, arg_glob = pattern.split(":", 1)
             if command.startswith(prefix):
                 rest = command[len(prefix):]
+                # Enforce word boundary: rest must start with space or be empty
+                if rest and not rest[0].isspace():
+                    continue
                 if fnmatch.fnmatch(rest, arg_glob):
                     return True
         else:
