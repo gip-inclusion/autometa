@@ -1,21 +1,67 @@
-# Plan: Add Ollama as Agent Backend
+# Plan: Add Open-Weight Model Backend (via Ollama)
 
 ## Goal
 
-Add an Ollama backend as a fourth option alongside Claude CLI, SDK, and (planned)
-ADK backends, enabling open-source models (Qwen3, Llama 3.3, DeepSeek, Mistral,
-etc.) to power the Matometa agent with the same web UI and tool ecosystem.
+Add a self-hosted, open-weight model backend as a fourth option alongside Claude
+CLI, SDK, and (planned) ADK backends, enabling models like Qwen3, Llama 3.3,
+DeepSeek, and Mistral to power the Matometa agent with the same web UI and tool
+ecosystem — with no external API calls for inference.
 
-## Why Ollama
+## Why Self-Hosted Open-Weight Models
 
-- **Open source models**: Run agents with no proprietary API keys. Useful for
-  testing, development, cost control, and environments where data cannot leave
-  the network.
-- **Self-hosted**: Ollama runs locally or on an internal server. No external API
-  calls for model inference.
-- **Tool calling support**: Ollama v0.4+ supports function/tool calling with
-  streaming, compatible with models like Qwen3, Llama 3.1/3.3, Mistral, and
-  DeepSeek-R1.
+- **Data sovereignty**: Inference runs on infrastructure we control. No data
+  leaves the network.
+- **No API keys**: No per-token cost, no rate limits, no vendor dependency for
+  the inference layer.
+- **Model choice**: Swap models freely — try Qwen3 for tool calling, DeepSeek
+  for reasoning, Llama for general use — without changing code.
+- **Development & testing**: Run a lightweight model locally for rapid iteration
+  without burning API credits.
+
+## Serving Infrastructure: Landscape
+
+The open-weight model ecosystem has matured significantly. All major serving
+tools now expose an **OpenAI-compatible API** (`/v1/chat/completions`), which is
+the de facto standard. They differ in target use case and operational complexity.
+
+### Comparison
+
+| Server | Best For | Tool Calling | Streaming | Setup | GPU Req | Notes |
+|--------|----------|-------------|-----------|-------|---------|-------|
+| **[Ollama](https://ollama.com)** | Dev, small teams, single-GPU | Yes (native + `/v1/`) | Yes | `curl \| sh` | Optional | Go binary wrapping llama.cpp. One-command install, model management built in. |
+| **[vLLM](https://docs.vllm.ai)** | Production, high throughput | Yes (`--enable-auto-tool-choice`) | Yes | pip + CLI | Required (NVIDIA) | PagedAttention, continuous batching, 2-4x throughput vs others at scale. Steeper setup. |
+| **[llama.cpp server](https://github.com/ggml-org/llama.cpp)** | Edge, CPU-only, minimal deps | Yes (OpenAI-compat + Anthropic-compat) | Yes | Build from source or download binary | Optional | Zero dependencies, runs on anything. Now supports Anthropic Messages API too. |
+| **[LocalAI](https://localai.io)** | Universal API gateway | Yes (OpenAI functions + MCP) | Yes | Docker | Optional | Drop-in OpenAI replacement, routes to multiple backends, native MCP support. |
+| **[LM Studio](https://lmstudio.ai)** | Prototyping, GUI exploration | Yes (basic) | Yes | Desktop app | Optional | Nice GUI, but no streaming tool calls or parallel invocation. Desktop-only. |
+| **[SGLang](https://github.com/sgl-project/sglang)** | Multi-turn, KV cache reuse | Partial (built-in tools only) | Yes | pip + CLI | Required (NVIDIA) | Faster than vLLM for multi-turn conversations (RadixAttention). User-defined tool calling still maturing. |
+
+### Key Observations
+
+1. **All expose `/v1/chat/completions`** — any backend we write against one
+   server's OpenAI-compatible API would work with the others.
+2. **Tool calling maturity varies** — Ollama and vLLM have the most mature
+   function calling. SGLang and LM Studio are catching up.
+3. **Operational profiles differ** — Ollama is "install and run"; vLLM needs
+   GPU orchestration but delivers production throughput; llama.cpp runs anywhere.
+
+### Recommended Path
+
+**Start with Ollama, design for portability.**
+
+- Ollama is the simplest to get running and has the most complete tool calling
+  support for a single-server setup.
+- The agent loop and tool execution code we write is server-agnostic — it
+  consumes chat completions and produces tool results, regardless of which
+  server runs the model.
+- If throughput or scaling needs grow, switching to vLLM or llama.cpp server
+  requires only changing the server URL and possibly the model name format.
+  The backend code stays the same.
+
+A future enhancement (see "Future Enhancements") could add an `openai`-library
+variant that targets the `/v1/` endpoint directly, making the backend work with
+*any* OpenAI-compatible server without the `ollama` dependency. This is not
+needed for v1 — the native `ollama` library gives us the best developer
+experience for the initial implementation.
 
 ## Architecture Overview
 
@@ -24,7 +70,7 @@ AgentBackend (abstract base class)
 ├── CLIBackend   → spawns `claude` CLI process
 ├── SDKBackend   → uses claude-agent-sdk Python package
 ├── ADKBackend   → (planned) uses google-adk Python package
-└── OllamaBackend → NEW: uses ollama Python package
+└── OllamaBackend → NEW: uses ollama Python package (self-hosted open-weight models)
 ```
 
 All backends yield `AgentMessage` objects, streamed to the frontend via SSE.
@@ -37,16 +83,21 @@ All backends yield `AgentMessage` objects, streamed to the frontend via SSE.
 
 | Library | Pros | Cons |
 |---------|------|------|
-| `ollama` (native) | Direct async support, auto-schema from Python functions, best feature coverage, minimal deps | No built-in agent loop |
-| `litellm` | Unified API across providers, OpenAI-compatible | Known bugs with Ollama streaming+tools+async (2025), extra abstraction layer |
-| `openai` (compat endpoint) | Familiar API, could share code with future OpenAI backend | Ollama's `/v1/` endpoint has incomplete streaming tool call support |
+| **`ollama`** (native) | Direct async support, auto-schema from Python functions, best feature coverage, minimal deps | Tied to Ollama server; no built-in agent loop |
+| `openai` (compat endpoint) | Works with any `/v1/`-compatible server (vLLM, llama.cpp, LocalAI), familiar API | Ollama's `/v1/` streaming tool calls still incomplete (late 2025); manual JSON schema for tools |
+| `litellm` | Unified API across 100+ providers, could share code with cloud backends | Known bugs with Ollama streaming+tools+async (2025), heavy dependency tree, extra abstraction |
 
-The native `ollama` library is the best fit because:
+The native `ollama` library is the best fit for v1 because:
 1. It auto-generates tool schemas from Python function signatures + docstrings
-   (same approach as ADK's `FunctionTool`)
+   (same approach as ADK's `FunctionTool`) — no manual JSON schema authoring
 2. `AsyncClient` supports `chat()` with `tools=` and `stream=True`
-3. Minimal dependency footprint
+3. Minimal dependency footprint (one package)
 4. Most direct path — no translation layers
+5. Ollama is the most likely first server users will run
+
+**Portability note**: The agent loop, tool registry, and event mapping are all
+server-agnostic. If we later add an `openai`-library variant, 90% of the code
+(everything except the `client.chat()` call and response parsing) is reusable.
 
 ## Design Decisions
 
@@ -803,14 +854,21 @@ handles missing usage gracefully (checks `if event.raw.get("usage")`).
 
 ## Future Enhancements
 
-1. **Token counting**: Ollama responses include `eval_count` and
-   `prompt_eval_count` — map these to `input_tokens`/`output_tokens`
-2. **Model health check**: Add `/api/health` endpoint that checks Ollama
-   connectivity and model availability
-3. **Shared tool registry**: Extract common tool definitions into a shared
-   module used by both ADK and Ollama backends
-4. **OpenAI compatibility mode**: Alternative to native `ollama` library,
-   use Ollama's `/v1/chat/completions` endpoint via the `openai` library
-   for providers that expose an OpenAI-compatible API (vLLM, LM Studio, etc.)
+1. **OpenAI-compatible variant** (highest value): Add a sibling backend class
+   (`OpenAICompatBackend`) that uses the `openai` Python library with a
+   configurable `base_url`. This would work with **any** OpenAI-compatible
+   server — vLLM, llama.cpp, LocalAI, LM Studio, SGLang, or even commercial
+   APIs. The agent loop, tool registry, and event mapping would be shared with
+   the Ollama backend; only the client call and response parsing would differ.
+   This is the natural second step once the Ollama backend is validated.
+2. **Token counting**: Ollama responses include `eval_count` and
+   `prompt_eval_count` — map these to `input_tokens`/`output_tokens` for the
+   usage tracking system.
+3. **Model health check**: Add `/api/health` endpoint that checks server
+   connectivity and model availability before accepting conversations.
+4. **Shared tool registry**: Extract common tool definitions into a shared
+   module used by both ADK and Ollama backends.
 5. **Parallel tool calls**: Execute multiple tool calls concurrently when the
-   model requests them in the same response
+   model requests them in the same response (via `asyncio.gather`).
+6. **vLLM production deployment guide**: Document Docker Compose setup with
+   vLLM as the inference server for teams needing higher throughput.
