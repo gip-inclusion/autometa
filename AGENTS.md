@@ -626,8 +626,14 @@ Files in `/app/data/interactive/` are publicly served at `/interactive/`.
 ```python
 # Export CSV for user download
 df.to_csv('/app/data/interactive/export.csv', index=False)
-# User can download at: https://matometa.../interactive/export.csv
+# User can download at: /interactive/export.csv
 ```
+
+**IMPORTANT: Always use relative URLs** (starting with `/`) when linking to files
+or interactive apps. Never invent or guess absolute URLs. Relative URLs work
+correctly in the web UI regardless of deployment host.
+
+Example: `/interactive/my-app/`, not `https://matometa.example.com/interactive/my-app/`.
 
 ### Using /tmp for Scratch Work
 

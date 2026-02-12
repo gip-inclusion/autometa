@@ -546,7 +546,11 @@ Minimal starter:
 Apps are served at `/interactive/{folder-name}/`. No build step required.
 
 ```
-https://matometa.ljt.cc/interactive/my-app/
+/interactive/my-app/
 ```
 
 The Flask app serves files directly from `data/interactive/`.
+
+**Always use relative URLs** (starting with `/`) when linking to apps or files.
+The `PUBLIC_URL` environment variable provides the absolute base URL when needed
+(e.g., for sharing links outside the app), but relative URLs are the default.
