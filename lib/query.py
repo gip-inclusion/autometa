@@ -79,7 +79,7 @@ def execute_metabase_query(
         # Override caller for logging consistency
         api.caller = caller.value
 
-        if sql and database_id is not None:
+        if sql:
             result = api.execute_sql(sql, timeout=timeout)
             data = {
                 "columns": result.columns,

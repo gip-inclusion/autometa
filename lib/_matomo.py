@@ -116,8 +116,19 @@ class MatomoAPI:
 
                 return data
 
-        except MatomoError:
+        except MatomoError as e:
             execution_time_ms = int((time.time() - start_time) * 1000)
+            log_query(
+                source="matomo",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,
+                query_type=method,
+                query_details=query_details,
+                success=False,
+                error=str(e),
+                execution_time_ms=execution_time_ms,
+            )
             raise
 
         except Exception as e:

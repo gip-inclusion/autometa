@@ -2,16 +2,34 @@
 
 from .base import AgentBackend, AgentMessage
 from .cli import CLIBackend
+from .cli_ollama import CLIOllamaBackend
+from .ollama import OllamaBackend
 from .sdk import SDKBackend
 
-__all__ = ["AgentBackend", "AgentMessage", "CLIBackend", "SDKBackend", "get_agent"]
+__all__ = [
+    "AgentBackend",
+    "AgentMessage",
+    "CLIBackend",
+    "CLIOllamaBackend",
+    "SDKBackend",
+    "OllamaBackend",
+    "get_agent",
+]
 
 
 def get_agent() -> AgentBackend:
     """Get the configured agent backend."""
     from .. import config
 
-    if config.AGENT_BACKEND == "sdk":
+    backend = config.AGENT_BACKEND
+
+    if backend == "ollama":
+        return OllamaBackend()
+    if backend == "sdk":
         return SDKBackend()
-    else:
+    if backend == "cli":
         return CLIBackend()
+    if backend == "cli-ollama":
+        return CLIOllamaBackend()
+
+    raise ValueError(f"Unknown AGENT_BACKEND: {backend}")
