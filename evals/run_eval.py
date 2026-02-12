@@ -21,6 +21,9 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 from web import config
 from web.agents.base import AgentMessage
 from web.agents.cli import CLIBackend
