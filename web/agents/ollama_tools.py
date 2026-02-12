@@ -12,7 +12,7 @@ from typing import Iterable, Optional
 
 from .. import config
 
-MAX_OUTPUT_CHARS = 12000
+MAX_OUTPUT_CHARS = int(config.OLLAMA_MAX_OUTPUT_CHARS)
 
 
 def tool_protocol() -> str:
@@ -56,6 +56,8 @@ def parse_tool_call(text: str) -> Optional[tuple[str, dict]]:
 
 def execute_tool(tool_name: str, tool_input: dict) -> str:
     """Execute a tool and return its output as text."""
+    if not isinstance(tool_input, dict):
+        return f"Invalid tool input: expected dict, got {type(tool_input).__name__}"
     if tool_name == "Read":
         return _read_file(tool_input)
     if tool_name == "Write":
@@ -88,9 +90,10 @@ def _resolve_path(path_str: str) -> Path:
 
 
 def _is_within(path: Path, roots: Iterable[Path]) -> bool:
+    resolved = path.resolve()
     for root in roots:
         try:
-            path.relative_to(root)
+            resolved.relative_to(root.resolve())
             return True
         except ValueError:
             continue
@@ -230,7 +233,7 @@ def _run_bash(tool_input: dict) -> str:
             cwd=str(config.BASE_DIR),
             text=True,
             capture_output=True,
-            timeout=300,
+            timeout=config.OLLAMA_BASH_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return "Bash command timed out"

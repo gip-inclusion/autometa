@@ -18,6 +18,7 @@ from .ollama_tools import execute_tool, parse_tool_call, tool_protocol
 logger = logging.getLogger(__name__)
 
 _TOOL_RESULT_PREFIX = "TOOL_RESULT"
+_MAX_CONSECUTIVE_JSON_ERRORS = 5
 
 
 class OllamaBackend(AgentBackend):
@@ -27,6 +28,7 @@ class OllamaBackend(AgentBackend):
         self._running: set[str] = set()
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._client = httpx.AsyncClient(timeout=config.OLLAMA_REQUEST_TIMEOUT)
+        self._client_lock = asyncio.Lock()
         self._last_usage: Optional[dict] = None
 
     async def send_message(
@@ -236,6 +238,7 @@ class OllamaBackend(AgentBackend):
         client = await self._ensure_client()
         async with client.stream("POST", url, json=payload) as response:
             response.raise_for_status()
+            consecutive_errors = 0
             async for line in response.aiter_lines():
                 if cancel_event.is_set():
                     return
@@ -243,8 +246,12 @@ class OllamaBackend(AgentBackend):
                     continue
                 try:
                     data = json.loads(line)
+                    consecutive_errors = 0
                 except json.JSONDecodeError:
-                    logger.warning("Malformed JSON in Ollama stream: %s", line[:200])
+                    consecutive_errors += 1
+                    logger.warning("Malformed JSON in Ollama stream (%d): %s", consecutive_errors, line[:200])
+                    if consecutive_errors >= _MAX_CONSECUTIVE_JSON_ERRORS:
+                        raise RuntimeError(f"Ollama stream corrupted: {consecutive_errors} consecutive malformed lines")
                     continue
 
                 if "error" in data:
@@ -270,11 +277,12 @@ class OllamaBackend(AgentBackend):
 
     async def _reset_client(self) -> None:
         """Close and recreate the client after a connection failure."""
-        try:
-            await self._client.aclose()
-        except Exception:
-            pass
-        self._client = httpx.AsyncClient(timeout=config.OLLAMA_REQUEST_TIMEOUT)
+        async with self._client_lock:
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
+            self._client = httpx.AsyncClient(timeout=config.OLLAMA_REQUEST_TIMEOUT)
 
     def _build_options(self) -> dict:
         options: dict = {"temperature": config.OLLAMA_TEMPERATURE}
@@ -330,14 +338,6 @@ def _trim_history(history: list[dict], max_chars: int) -> list[dict]:
         total += msg_len
         trimmed.append({"role": msg.get("role", "user"), "content": content})
     return list(reversed(trimmed))
-
-
-def _chunk_text(text: str, size: int) -> list[str]:
-    if text == "":
-        return [""]
-    if size <= 0:
-        return [text]
-    return [text[i:i + size] for i in range(0, len(text), size)]
 
 
 def _should_stream_text(text: str) -> Optional[bool]:
