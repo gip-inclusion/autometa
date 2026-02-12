@@ -261,8 +261,8 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
                         "duration_ms": row["duration_ms"],
                         "trigger": row["trigger"],
                     })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
     return runs
 
 
@@ -290,7 +290,8 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
                 }
                 for row in rows
             ]
-    except Exception:
+    except Exception as e:
+        print(f"Warning: failed to read app runs: {e}", file=sys.stderr)
         return []
 
 

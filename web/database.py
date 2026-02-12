@@ -286,6 +286,9 @@ def init_db():
 
             _set_schema_version(conn, SCHEMA_VERSION)
 
+        # Safety: ensure cron_runs exists even if version was already bumped
+        _migrate_to_v15(conn)
+
 
 def _migrate_to_v11(conn: ConnectionWrapper):
     """Migrate to v11: rename token columns to usage_ prefix, add cache/backend columns."""

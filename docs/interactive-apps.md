@@ -376,19 +376,15 @@ async function loadData() {
 }
 ```
 
-Include regeneration instructions in the UI:
+If the app has a `cron.py`, the data will be refreshed automatically
+(see [Scheduled Data Refresh](#scheduled-data-refresh-cron)).
+Otherwise, include regeneration instructions in the UI:
+
 ```html
 <p class="data-note">
     Données statiques du 2026-01-15.
     <a href="#" onclick="showRegenInstructions()">Régénérer</a>
 </p>
-```
-
-And document the regeneration command:
-```markdown
-## Regenerating data
-
-Ask Claude: "Regenerate data.json for the my-app interactive app"
 ```
 
 ### Caching and Debouncing
@@ -562,6 +558,43 @@ The script runs as a regular Python process with `PYTHONPATH` set to the
 project root. It can import `lib.query` to call Matomo/Metabase APIs.
 Its working directory is the app folder, so `open('data.json', 'w')` writes
 to the right place.
+
+### data.json convention
+
+The `cron.py` script **must** include a `metadata.generated_at` field
+(ISO date `YYYY-MM-DD`) in `data.json` so the frontend can show when the
+data was last refreshed:
+
+```json
+{
+  "metadata": {
+    "generated_at": "2026-02-12",
+    "source": "Matomo API - VisitsSummary.get"
+  },
+  "2025": { ... }
+}
+```
+
+The frontend should read this field and display it, for example in the
+page footer or near the data:
+
+```javascript
+const data = await fetch('data.json').then(r => r.json());
+const generatedAt = data.metadata?.generated_at;
+if (generatedAt) {
+    document.querySelector('footer').textContent =
+        `Données mises à jour le ${generatedAt}`;
+}
+```
+
+```html
+<footer>
+    <p>Données mises à jour le <span id="generated-at">…</span></p>
+</footer>
+```
+
+This gives users immediate visibility on data freshness without having
+to check the `/cron` page.
 
 ### APP.md field
 
