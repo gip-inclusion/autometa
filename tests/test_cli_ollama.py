@@ -61,31 +61,44 @@ class TestCLIBackendHooks:
 
 
 class TestGetAgent:
-    def test_get_agent_cli_ollama(self):
-        from web.agents import get_agent
-        from web.agents.cli_ollama import CLIOllamaBackend
+    """Every registered backend must return the right class."""
 
-        with patch("web.config.AGENT_BACKEND", "cli-ollama"):
+    @pytest.mark.parametrize("name,cls_name", [
+        ("ollama", "OllamaBackend"),
+        ("cli", "CLIBackend"),
+        ("cli-ollama", "CLIOllamaBackend"),
+        ("sdk", "SDKBackend"),
+    ])
+    def test_get_agent_returns_correct_class(self, name, cls_name):
+        from web.agents import get_agent
+
+        with patch("web.config.AGENT_BACKEND", name):
             agent = get_agent()
 
-        assert isinstance(agent, CLIOllamaBackend)
+        assert type(agent).__name__ == cls_name
 
-    def test_get_agent_cli_still_works(self):
+    def test_get_agent_unknown_raises(self):
         from web.agents import get_agent
-        from web.agents.cli import CLIBackend
 
-        with patch("web.config.AGENT_BACKEND", "cli"):
-            agent = get_agent()
-
-        assert isinstance(agent, CLIBackend)
+        with patch("web.config.AGENT_BACKEND", "nope"):
+            with pytest.raises(ValueError, match="Unknown"):
+                get_agent()
 
 
 class TestLLMRouting:
-    def test_cli_ollama_routes_to_ollama_generate(self):
-        with patch("web.llm._get_llm_backend", return_value="cli-ollama"), \
-             patch("web.llm._ollama_generate", return_value="title") as mock_gen:
+    """LLM short-prompt routing for every backend."""
+
+    @pytest.mark.parametrize("backend,expected_fn", [
+        ("ollama", "_ollama_generate"),
+        ("cli-ollama", "_ollama_generate"),
+        ("cli", "_claude_cli_generate"),
+        ("sdk", "_anthropic_generate"),
+    ])
+    def test_routes_to_correct_generator(self, backend, expected_fn):
+        with patch("web.llm._get_llm_backend", return_value=backend), \
+             patch(f"web.llm.{expected_fn}", return_value="ok") as mock_gen:
             from web.llm import generate_text
-            result = generate_text("Generate a title")
+            result = generate_text("test")
 
         mock_gen.assert_called_once()
-        assert result == "title"
+        assert result == "ok"
