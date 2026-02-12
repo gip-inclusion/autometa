@@ -118,10 +118,7 @@
       {% endif %}
     </div>
   </div>
-</section>
-{% endblock %}
 
-{% block scripts %}
 <script>
 async function runCron(slug) {
   const btn = document.getElementById('run-btn-' + slug);
@@ -204,4 +201,6 @@ async function showLogs(slug) {
   }
 }
 </script>
+
+</section>
 {% endblock %}

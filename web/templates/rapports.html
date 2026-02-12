@@ -254,10 +254,6 @@
     {% endif %}
   </div>
 
-</section>
-{% endblock %}
-
-{% block scripts %}
 <script>
 // Filter functions with HTMX
 function buildFilterUrl() {
@@ -424,4 +420,6 @@ document.addEventListener('click', (e) => {
   window.location.href = '/explorations/new?prefill=' + prefill;
 });
 </script>
+
+</section>
 {% endblock %}
