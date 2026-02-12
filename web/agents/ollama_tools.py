@@ -33,24 +33,51 @@ def tool_protocol() -> str:
 
 
 def parse_tool_call(text: str) -> Optional[tuple[str, dict]]:
-    """Parse a tool call from the model output."""
+    """Parse a tool call from the model output.
+
+    Handles: pure JSON, code-fenced JSON, and prose followed by a JSON
+    block (common pattern: "Je vais analyser…\n```json\n{…}\n```").
+    """
     cleaned = text.strip()
     if not cleaned:
         return None
 
-    if cleaned.startswith("```"):
-        cleaned = _strip_code_fence(cleaned)
+    # Try 1: entire text is a code fence or raw JSON
+    candidate = _strip_code_fence(cleaned) if cleaned.startswith("```") else cleaned
+    result = _try_parse_tool_json(candidate)
+    if result:
+        return result
 
+    # Try 2: extract last code fence from mixed prose + ```json … ```
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", cleaned, re.DOTALL)
+    if fence_match:
+        result = _try_parse_tool_json(fence_match.group(1).strip())
+        if result:
+            return result
+
+    # Try 3: trailing JSON object after prose — scan forward for first valid tool JSON
+    start = 0
+    while True:
+        brace = cleaned.find("{", start)
+        if brace < 0:
+            break
+        result = _try_parse_tool_json(cleaned[brace:])
+        if result:
+            return result
+        start = brace + 1
+
+    return None
+
+
+def _try_parse_tool_json(s: str) -> Optional[tuple[str, dict]]:
     try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError:
+        payload = json.loads(s)
+    except (json.JSONDecodeError, ValueError):
         return None
-
     if isinstance(payload, dict) and "tool" in payload and "input" in payload:
-        tool_name = str(payload.get("tool"))
         tool_input = payload.get("input")
         if isinstance(tool_input, dict):
-            return tool_name, tool_input
+            return str(payload["tool"]), tool_input
     return None
 
 

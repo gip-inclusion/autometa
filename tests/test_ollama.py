@@ -118,6 +118,10 @@ OllamaBackend = _ollama_mod.OllamaBackend
         ('{"tool": "Read", "input": {"file_path": "/tmp/x"}}', ("Read", {"file_path": "/tmp/x"})),
         ('```json\n{"tool": "Glob", "input": {"pattern": "*.py"}}\n```', ("Glob", {"pattern": "*.py"})),
         ('{"tool": "Read", "input": {"file_path": "/tmp/x"}, "reasoning": "ok"}', ("Read", {"file_path": "/tmp/x"})),
+        # Prose + code fence (common Ollama pattern)
+        ('Je vais lire le fichier.\n\n```json\n{"tool": "Read", "input": {"file_path": "/tmp/x"}}\n```', ("Read", {"file_path": "/tmp/x"})),
+        # Prose + trailing JSON (no fence)
+        ('Voici mon analyse.\n{"tool": "Bash", "input": {"command": "echo hi"}}', ("Bash", {"command": "echo hi"})),
         ("Hello, I'll help you with that.", None),
         ("", None),
         ("   ", None),
@@ -130,6 +134,8 @@ OllamaBackend = _ollama_mod.OllamaBackend
         "valid_json",
         "code_fence",
         "extra_fields_ignored",
+        "prose_then_code_fence",
+        "prose_then_trailing_json",
         "prose",
         "empty",
         "whitespace",
