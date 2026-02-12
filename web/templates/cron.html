@@ -8,7 +8,7 @@
     <div class="container">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div>
-          <p class="text-muted mb-1 small">Taches planifiees de rafraichissement des donnees</p>
+          <p class="text-muted mb-1 small">Tâches planifiées de rafraîchissement des données</p>
           <h1 class="mb-0"><i class="ri-time-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Cron</h1>
         </div>
       </div>
@@ -23,8 +23,8 @@
           <tr>
             <th>Application</th>
             <th>Statut</th>
-            <th>Derniere execution</th>
-            <th>Duree</th>
+            <th>Dernière exécution</th>
+            <th>Durée</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -37,17 +37,17 @@
             </td>
             <td>
               {% if not task.enabled %}
-              <span class="badge bg-secondary">desactive</span>
+              <span class="badge bg-secondary">désactivé</span>
               {% elif task.last_run %}
                 {% if task.last_run.status == 'success' %}
                 <span class="badge bg-success">OK</span>
                 {% elif task.last_run.status == 'timeout' %}
                 <span class="badge bg-warning text-dark">timeout</span>
                 {% else %}
-                <span class="badge bg-danger">echec</span>
+                <span class="badge bg-danger">échec</span>
                 {% endif %}
               {% else %}
-              <span class="badge bg-light text-muted">jamais execute</span>
+              <span class="badge bg-light text-muted">jamais exécuté</span>
               {% endif %}
             </td>
             <td>
@@ -67,13 +67,13 @@
             </td>
             <td>
               <div class="d-flex gap-1 flex-wrap">
-                <button class="btn btn-sm btn-outline-primary" onclick="runCron('{{ task.slug }}')" title="Executer maintenant" id="run-btn-{{ task.slug }}">
+                <button class="btn btn-sm btn-outline-primary" onclick="runCron('{{ task.slug }}')" title="Exécuter maintenant" id="run-btn-{{ task.slug }}">
                   <i class="ri-play-line"></i>
                 </button>
 
                 <button class="btn btn-sm {% if task.enabled %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
                         onclick="toggleCron('{{ task.slug }}', {{ 'false' if task.enabled else 'true' }})"
-                        title="{{ 'Desactiver' if task.enabled else 'Activer' }}"
+                        title="{{ 'Désactiver' if task.enabled else 'Activer' }}"
                         id="toggle-btn-{{ task.slug }}">
                   <i class="{% if task.enabled %}ri-pause-line{% else %}ri-play-circle-line{% endif %}"></i>
                 </button>
@@ -112,7 +112,7 @@
       {% else %}
       <div class="text-center py-5">
         <i class="ri-time-line ri-4x text-muted mb-3" style="display: block;"></i>
-        <p class="text-muted mb-1">Aucune tache cron</p>
+        <p class="text-muted mb-1">Aucune tâche cron</p>
         <p class="small text-muted">Ajoutez un fichier <code>cron.py</code> dans un dossier d'application interactive pour commencer.</p>
       </div>
       {% endif %}
@@ -176,7 +176,7 @@ async function showLogs(slug) {
         ? '<span class="badge bg-success">OK</span>'
         : run.status === 'timeout'
           ? '<span class="badge bg-warning text-dark">timeout</span>'
-          : '<span class="badge bg-danger">echec</span>';
+          : '<span class="badge bg-danger">échec</span>';
 
       const duration = (run.duration_ms / 1000).toFixed(1) + 's';
       const date = new Date(run.started_at).toLocaleString('fr-FR');
