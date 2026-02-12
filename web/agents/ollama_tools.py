@@ -17,6 +17,7 @@ MAX_OUTPUT_CHARS = int(config.OLLAMA_MAX_OUTPUT_CHARS)
 
 def tool_protocol() -> str:
     """Return instructions for the JSON tool-call protocol."""
+    bash_section = _bash_protocol()
     return (
         "Outils disponibles (repondez UNIQUEMENT avec un objet JSON sur une seule ligne):\n"
         "- Read: {\"tool\": \"Read\", \"input\": {\"file_path\": \"...\"}}\n"
@@ -24,11 +25,43 @@ def tool_protocol() -> str:
         "- Edit: {\"tool\": \"Edit\", \"input\": {\"file_path\": \"...\", \"old_string\": \"...\", \"new_string\": \"...\"}}\n"
         "- Glob: {\"tool\": \"Glob\", \"input\": {\"pattern\": \"...\"}}\n"
         "- Grep: {\"tool\": \"Grep\", \"input\": {\"pattern\": \"regex\", \"path\": \"...\"}}\n"
-        "- Bash: {\"tool\": \"Bash\", \"input\": {\"command\": \"...\"}}\n"
+        f"{bash_section}"
         "- Skill: {\"tool\": \"Skill\", \"input\": {\"skill\": \"nom_du_skill\"}}\n"
         "\n"
         "Si vous devez utiliser un outil, repondez uniquement avec l'objet JSON.\n"
         "Sinon, repondez normalement."
+    )
+
+
+def _bash_protocol() -> str:
+    """Build the Bash tool description including allowlist restrictions."""
+    allowed = config.ALLOWED_TOOLS or ""
+
+    # Bare Bash — no restrictions
+    if re.search(r"\bBash\b(?!\()", allowed):
+        return "- Bash: {\"tool\": \"Bash\", \"input\": {\"command\": \"...\"}}\n"
+
+    patterns = re.findall(r"Bash\(([^)]+)\)", allowed)
+    if not patterns:
+        return ""  # Bash not available at all
+
+    prefixes = []
+    for p in patterns:
+        if ":" in p:
+            prefix, glob = p.split(":", 1)
+            if glob == "*":
+                prefixes.append(prefix)
+            else:
+                prefixes.append(f"{prefix} (restreint a: {glob})")
+        else:
+            prefixes.append(p)
+
+    allowed_list = ", ".join(prefixes)
+    return (
+        f"- Bash: {{\"tool\": \"Bash\", \"input\": {{\"command\": \"...\"}}}}\n"
+        f"  RESTRICTIONS: seules ces commandes sont autorisees: {allowed_list}.\n"
+        f"  N'utilisez PAS pip, apt, npm ou d'autres gestionnaires de paquets.\n"
+        f"  N'utilisez PAS source, export, ou des commandes chainees (&&, ||, ;).\n"
     )
 
 
