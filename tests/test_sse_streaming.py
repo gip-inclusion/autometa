@@ -65,11 +65,12 @@ def client(app):
 
 @pytest.fixture
 def conversation(app):
-    """Create a conversation with one user message (no response yet)."""
+    """Create a conversation with one user message awaiting response."""
     from web.storage import store
     with app.test_request_context():
         conv = store.create_conversation(user_id="test@example.com")
         store.add_message(conv.id, "user", "Hello agent")
+        store.update_conversation(conv.id, needs_response=True)
         return conv
 
 
@@ -238,6 +239,94 @@ class TestWaitStream:
         assert "system" in types
         assert "done" in types
         assert "assistant" not in types  # Did not start a new run
+
+
+class TestNeedsResponse:
+    """needs_response column controls stream behavior."""
+
+    def test_needs_response_false_returns_done(self, app, client):
+        """Conversation with needs_response=False returns immediate done."""
+        from web.storage import store
+        with app.test_request_context():
+            conv = store.create_conversation(user_id="test@example.com")
+            store.add_message(conv.id, "user", "Hello")
+            store.add_message(conv.id, "assistant", "Hi there")
+            # needs_response defaults to False
+
+        mock = _make_mock_backend([])
+        with patch("web.routes.conversations.get_agent_instance", return_value=mock):
+            response = client.get(
+                f"/api/conversations/{conv.id}/stream",
+                headers={"X-Forwarded-Email": "test@example.com"},
+            )
+        events = _parse_sse_events(response.data)
+        assert len(events) == 1
+        assert events[0]["event"] == "done"
+
+    def test_needs_response_true_starts_agent(self, app, client):
+        """Conversation with needs_response=True starts the agent."""
+        from web.agents.base import AgentMessage
+        from web.storage import store
+        with app.test_request_context():
+            conv = store.create_conversation(user_id="test@example.com")
+            store.add_message(conv.id, "user", "Hello")
+            store.update_conversation(conv.id, needs_response=True)
+
+        events = [
+            AgentMessage(type="system", content="init", raw={"subtype": "init", "session_id": "s1"}),
+            AgentMessage(type="assistant", content="Response"),
+            AgentMessage(type="system", content="Completed: done", raw={"result": True}),
+        ]
+        response = _stream_with_mock(client, conv.id, _make_mock_backend(events))
+        sse_events = _parse_sse_events(response.data)
+        types = [e["event"] for e in sse_events]
+        assert "assistant" in types
+
+    def test_update_conversation_clears_needs_response(self, app):
+        """update_conversation(needs_response=False) works correctly."""
+        from web.storage import store
+        with app.test_request_context():
+            conv = store.create_conversation(user_id="test@example.com")
+            store.add_message(conv.id, "user", "Hello")
+            store.update_conversation(conv.id, needs_response=True)
+
+            updated = store.get_conversation(conv.id)
+            assert updated.needs_response is True
+
+            store.update_conversation(conv.id, needs_response=False)
+            updated = store.get_conversation(conv.id)
+            assert updated.needs_response is False
+
+    def test_wait_stream_sends_reload(self, app, client):
+        """wait_stream done event includes reload flag."""
+        from web.storage import store
+        with app.test_request_context():
+            conv = store.create_conversation(user_id="test@example.com")
+            store.add_message(conv.id, "user", "Hello")
+            store.update_conversation(conv.id, needs_response=True)
+
+        mock = _make_mock_backend([], running_ids=[conv.id])
+        call_count = [0]
+
+        def is_running_then_stop(conv_id):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                return True
+            mock._running.discard(conv_id)
+            return False
+
+        mock.is_running = is_running_then_stop
+
+        with patch("web.routes.conversations.get_agent_instance", return_value=mock):
+            response = client.get(
+                f"/api/conversations/{conv.id}/stream",
+                headers={"X-Forwarded-Email": "test@example.com"},
+            )
+
+        events = _parse_sse_events(response.data)
+        done_events = [e for e in events if e["event"] == "done"]
+        assert len(done_events) == 1
+        assert done_events[0]["data"]["reload"] is True
 
 
 # ---------------------------------------------------------------------------
