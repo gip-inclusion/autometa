@@ -114,9 +114,10 @@ ORDER BY nb_siae DESC;
 
 **Note:** Sans filtre par département, la requête timeout. Exécuter par région ou ajouter des index sur `latitude`/`longitude`.
 
-### public.utilisateurs_v0
+### public.utilisateurs
 
 Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspecteurs).
+**Préférer cette table à `utilisateurs_v0`** qui existe aussi mais contient moins de colonnes.
 
 | Colonne | Description |
 |---------|-------------|
@@ -135,6 +136,8 @@ Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspe
 
 **Note:** Pas de lien direct au département. Utiliser `tmp_utilisateurs_avec_departement` pour les analyses géographiques.
 
+Voir aussi [knowledge/stats/users.md](../stats/users.md) pour les requêtes courantes.
+
 #### Jointures selon le type d'utilisateur
 
 Un utilisateur se joint à une table différente selon son type :
@@ -148,13 +151,13 @@ Un utilisateur se joint à une table différente selon son type :
 ```sql
 -- Exemple : utilisateurs employeurs avec leur structure
 SELECT u.*, s.nom as structure_nom, s.département
-FROM public.utilisateurs_v0 u
+FROM public.utilisateurs u
 LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
 WHERE u.type = 'employer';
 
 -- Exemple : utilisateurs prescripteurs avec leur organisation
 SELECT u.*, o.nom as organisation_nom
-FROM public.utilisateurs_v0 u
+FROM public.utilisateurs u
 LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id
 WHERE u.type = 'prescriber';
 ```
@@ -181,20 +184,45 @@ Table enrichie liant les utilisateurs Emplois à leur département via leur stru
 
 ### public.structures_v0
 
-Structures SIAE du service Emplois.
+Structures SIAE du service Emplois. Aussi accessible via `public.structures`.
 
 | Colonne | Description |
 |---------|-------------|
 | ID | Identifiant unique |
 | Siret | SIRET |
 | Nom | Nom de la structure |
+| type | Type SIAE : ACI, AI, EI, EITI, ETTI, GEIQ |
+| source | Origine : Export ASP, Export EA+EATT, Export GEIQ, Utilisateur (OPCS), Staff Itou |
+| date_inscription | Date d'inscription sur la plateforme |
+| total_membres | Nombre de membres rattachés |
+| adresse_ligne_1 | Adresse |
+| ville | Ville |
+| code_postal | Code postal |
 | département | Code département |
+| nom_département | Nom du département |
+| région | Région |
 
 **Volumétrie:** ~7 500 structures.
 
 ### public.organisations_v0
 
-Organisations prescriptrices.
+Organisations prescriptrices. Aussi accessible via `public.organisations`.
+
+| Colonne | Description |
+|---------|-------------|
+| id | Identifiant unique |
+| nom | Nom de l'organisation |
+| type | Type court : FT, ML, CAP_EMPLOI, DEPT, PLIE, etc. |
+| type_complet | Type détaillé |
+| habilitée | Prescripteur habilité (peut valider l'éligibilité IAE) |
+| date_inscription | Date d'inscription sur la plateforme |
+| total_membres | Nombre de membres rattachés |
+| adresse_ligne_1 | Adresse |
+| ville | Ville |
+| code_postal | Code postal |
+| département | Code département |
+| nom_département | Nom du département |
+| région | Région |
 
 **Volumétrie:** ~9 750 organisations.
 
@@ -210,7 +238,7 @@ Institutions (prescripteurs institutionnels comme Pôle Emploi, conseils départ
 
 **Volumétrie:** 345 institutions.
 
-**Usage:** Les utilisateurs de type institutionnels (type inspection du travail, direction de l'emploi du travail et des solidarités, Direction générale de l'emploi et de la formation professionnelle...) sont rattachés à une institution plutôt qu'à une organisation. Vérifier `id_institution` dans `utilisateurs_v0` ou `utilisateurs`.
+**Usage:** Les utilisateurs de type institutionnels (type inspection du travail, direction de l'emploi du travail et des solidarités, Direction générale de l'emploi et de la formation professionnelle...) sont rattachés à une institution plutôt qu'à une organisation. Vérifier `id_institution` dans `utilisateurs`.
 
 ### public.candidats
 
@@ -219,9 +247,17 @@ Candidats (demandeurs d'emploi) du service Emplois.
 | Colonne | Description |
 |---------|-------------|
 | id | Identifiant unique |
-| ... | (à documenter) |
+| date_diagnostic | Date du diagnostic d'éligibilité IAE |
+| total_embauches | Nombre total d'embauches |
+| type_structure_dernière_embauche | Type SIAE de la dernière embauche (ACI, AI, EI, EITI, ETTI) |
+| département | Département du candidat |
+| critère_n1_bénéficiaire_du_rsa | Critère niveau 1 : bénéficiaire RSA |
+| critère_n1_detld_plus_de_24_mois | Critère niveau 1 : DETLD +24 mois |
+| critère_n2_deld_12_à_24_mois | Critère niveau 2 : DELD 12-24 mois |
+| critère_n2_jeune_moins_de_26_ans | Critère niveau 2 : jeune <26 ans |
+| critère_n2_résident_qpv | Critère niveau 2 : résident QPV |
 
-**⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs_v0`.
+**⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs`.
 
 ### suivi_utilisateurs_tb_prive_semaine
 
@@ -243,7 +279,7 @@ Logs d'activité de l'application GPS (Mon Suivi), importés depuis Datadog.
 | Colonne | Description |
 |---------|-------------|
 | Orga | Identifiant de l'organisation/structure/institution. Correspond à `id` dans `organisations_v0` ou `ID` dans `structures_v0` ou `ID` dans `institutions`  selon le type d'utilisateur |
-| User ID | Identifiant de l'utilisateur. **FK vers `utilisateurs_v0.id` ou `utilisateurs.id`** — permet de joindre avec la table utilisateurs pour enrichir les analyses |
+| User ID | Identifiant de l'utilisateur. **FK vers `utilisateurs.id`** — permet de joindre avec la table utilisateurs pour enrichir les analyses |
 | Path | L'URL où a été enregistré le log - est traduit en action (List, membership...) |
 | Message | Tout le message du log, pourra contenir des infos supplémentaires interessantes en cas d'exploration |
 | Current User Type | desc |
@@ -284,7 +320,7 @@ Pour des analyses qui dépassent les tables "courantes" (candidatures, structure
 ### Schéma relationnel simplifié
 candidats (demandeurs d'emploi)
 ↓ candidatures
-utilisateurs_v0 (pros)
+utilisateurs (pros)
 ├── id_structure → structures_v0 (employeurs SIAE)
 ├── id_organisation → organisations_v0 (prescripteurs)
 └── id_institution → institutions (prescripteurs institutionnels)
@@ -297,7 +333,7 @@ utilisateurs_v0 (pros)
 | Infos prescripteur | `organisations_v0` | `ON u.id_organisation = o.id` |
 | Infos institution | `institutions` | `ON u.id_institution = i.id` |
 | Infos candidat | `candidats` | Table séparée (pas de FK directe) |
-| Logs GPS enrichis | `utilisateurs_v0` | `ON gps.user_id = u.id` |
+| Logs GPS enrichis | `utilisateurs` | `ON gps.user_id = u.id` |
 
 ### Exemple : enrichir les logs GPS avec infos utilisateur
 
@@ -309,7 +345,7 @@ SELECT
     COALESCE(s.nom, o.nom) as entite_nom,
     COALESCE(s.département, 'N/A') as departement
 FROM gps_logs gps
-LEFT JOIN public.utilisateurs_v0 u ON gps."User ID" = u.id
+LEFT JOIN public.utilisateurs u ON gps."User ID" = u.id
 LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
 LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id;
 ```

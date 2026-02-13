@@ -120,6 +120,12 @@ Analysis based on Dec 2025 data (`/gps/*`):
 - **Regional Concentration:** Département 59 (Nord) is the primary driver of GPS traffic.
 - **Engagement:** Very high (37+ actions/visit).
 
+## User Account Data (Metabase)
+
+For user-level data (accounts, last connection, user counts by type), query `public.utilisateurs` in the **stats** Metabase instance. See [knowledge/stats/users.md](../stats/users.md).
+
+For cross-product queries (users common to Emplois and Dora, multi-service presence), use the **datalake** instance. See [knowledge/datalake/README.md](../datalake/README.md#pdi_base_unique_tous_les_pros).
+
 ## Custom Dimensions
 
 | ID | Index | Scope  | Name                 | Notes                           |
