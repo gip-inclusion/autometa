@@ -3,8 +3,12 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Base directory (Matometa project root)
 BASE_DIR = Path(__file__).parent.parent.resolve()
+
+load_dotenv(BASE_DIR / ".env")
 
 # Data directory - can be overridden for local development with remote data
 # Default: ./data (relative to BASE_DIR)
