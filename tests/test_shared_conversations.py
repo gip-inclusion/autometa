@@ -129,7 +129,7 @@ class TestSharedConversationAccess:
             headers={"X-Forwarded-Email": "guest@example.com"},
         )
         assert response.status_code == 302
-        assert response.location == "/explorations"
+        assert response.location == "/rechercher?show=convos"
 
 
 class TestSharedConversationAPI:

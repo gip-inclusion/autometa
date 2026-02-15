@@ -1,8 +1,7 @@
 """Rapports HTML routes."""
 
 import re
-from datetime import datetime, timedelta
-from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 
 import markdown as md
@@ -12,7 +11,7 @@ from markupsafe import Markup
 from flask import g, jsonify
 
 from ..storage import store
-from .html import get_sidebar_data, format_relative_date
+from .html import get_sidebar_data
 from .. import config
 from ..config import ADMIN_USERS
 
@@ -125,67 +124,15 @@ def scan_interactive_apps():
     return apps
 
 
-def _group_items_by_date(items):
-    """Group report/app items by relative date periods (like conversations)."""
-    now = datetime.now()
-    today = now.date()
-
-    groups = OrderedDict()
-    groups["aujourd'hui"] = []
-    groups["hier"] = []
-    groups["plus tôt cette semaine"] = []
-    groups["la semaine dernière"] = []
-    groups["plus tôt ce mois-ci"] = []
-
-    yesterday = today - timedelta(days=1)
-    days_since_monday = today.weekday()
-    this_week_start = today - timedelta(days=days_since_monday)
-    last_week_start = this_week_start - timedelta(days=7)
-    last_week_end = this_week_start - timedelta(days=1)
-    this_month_start = today.replace(day=1)
-
-    month_names = {
-        1: "janvier", 2: "février", 3: "mars", 4: "avril",
-        5: "mai", 6: "juin", 7: "juillet", 8: "août",
-        9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
-    }
-
-    for item in items:
-        item_date = item["updated"].date() if item["updated"] else today
-
-        if item_date == today:
-            groups["aujourd'hui"].append(item)
-        elif item_date == yesterday:
-            groups["hier"].append(item)
-        elif this_week_start <= item_date < today:
-            groups["plus tôt cette semaine"].append(item)
-        elif last_week_start <= item_date <= last_week_end:
-            groups["la semaine dernière"].append(item)
-        elif this_month_start <= item_date < this_week_start:
-            groups["plus tôt ce mois-ci"].append(item)
-        else:
-            month_key = month_names[item_date.month]
-            if item_date.year < today.year:
-                month_key = f"{month_key} {item_date.year}"
-            if month_key not in groups:
-                groups[month_key] = []
-            groups[month_key].append(item)
-
-    return OrderedDict((k, v) for k, v in groups.items() if v)
-
 
 @bp.route("/rapports")
 def rapports():
-    """Rapports section - saved reports browser with optional filtering.
-
-    Legacy ?id= parameter redirects to canonical /rapports/:id URL.
-    """
-    # Redirect old ?id= URLs to canonical /rapports/:id
+    """Legacy rapports list — redirects to /rechercher."""
     report_id = request.args.get("id", type=int)
     if report_id:
         return redirect(url_for("rapports.rapport_detail", report_id=report_id), code=301)
 
-    return _render_rapports_page()
+    return redirect("/rechercher?show=reports", code=301)
 
 
 @bp.route("/rapports/<int:report_id>")
@@ -224,81 +171,16 @@ def _render_report_content(raw_content: str) -> tuple[dict, Markup]:
     return front_matter, Markup(html)
 
 
-def _render_rapports_page(report_id: int | None = None):
-    """Render the rapports page, optionally showing a specific report."""
+def _render_rapports_page(report_id: int):
+    """Render a specific report detail page."""
     data = get_sidebar_data()
 
-    current_report = None
-    current_report_tags = []
-    report_front_matter = {}
-    report_html = None
-    if report_id:
-        current_report = store.get_report(report_id)
-        if current_report:
-            current_report_tags = store.get_report_tags(report_id)
-            report_front_matter, report_html = _render_report_content(current_report.content)
-
-    # Filter params
-    tag_params = request.args.getlist("tag")
-    type_filter = request.args.get("type", "")  # "apps" to show only apps
-
-    # Get reports with tags (only when not viewing a specific report)
-    items = []
+    current_report = store.get_report(report_id)
     if not current_report:
-        if type_filter != "apps":
-            reports_with_tags = store.list_reports_with_tags(
-                tag_names=tag_params if tag_params else None,
-                limit=100,
-            )
-            for report, tags in reports_with_tags:
-                report.tag_objects = tags
-                items.append({
-                    "type": "report",
-                    "report": report,
-                    "updated": report.updated_at,
-                })
+        abort(404)
 
-        # Get interactive apps and filter by tags if needed
-        if type_filter != "reports":
-            interactive_apps = scan_interactive_apps()
-            for app in interactive_apps:
-                # Apps implicitly have type_demande "appli"
-                app["type_demande"] = "appli"
-
-                # Check if app matches tag filters
-                if tag_params:
-                    app_tags = set(app.get("tags", []))
-                    app_tags.add(app.get("website", ""))
-                    app_tags.add(app.get("category", ""))
-                    app_tags.add("appli")  # type_demande
-
-                    # All tag_params must match
-                    if not all(t in app_tags for t in tag_params):
-                        continue
-
-                items.append({
-                    "type": "app",
-                    "app": app,
-                    "updated": app.get("updated") or datetime.min,
-                })
-
-        # Sort combined list by date (newest first)
-        items.sort(key=lambda x: x["updated"], reverse=True)
-
-        # Enrich items with formatted dates and icons
-        for item in items:
-            dt = item["updated"]
-            item["formatted_date"] = format_relative_date(dt) if dt and dt != datetime.min else ""
-            if item["type"] == "report":
-                item["icon"] = "ri-file-text-line"
-            else:
-                item["icon"] = "ri-window-fill"
-
-        # Group by date
-        grouped_items = _group_items_by_date(items)
-
-    # Show all tags used by non-archived reports (stable across filter changes)
-    all_tags = store.get_used_report_tags_by_type() if not current_report else {}
+    current_report_tags = store.get_report_tags(report_id)
+    report_front_matter, report_html = _render_report_content(current_report.content)
 
     return render_template(
         "rapports.html",
@@ -307,11 +189,6 @@ def _render_rapports_page(report_id: int | None = None):
         current_report_tags=current_report_tags,
         report_front_matter=report_front_matter,
         report_html=report_html,
-        items=items,
-        grouped_items=grouped_items if not current_report else {},
-        all_tags=all_tags,
-        active_tags=tag_params,
-        type_filter=type_filter,
         **data
     )
 

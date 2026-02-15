@@ -68,69 +68,6 @@ def format_relative_date(dt):
         return dt.strftime("%d/%m/%Y à %H:%M")
 
 
-def group_conversations_by_date(conversations):
-    """Group conversations by relative date periods.
-
-    Returns OrderedDict with keys like 'aujourd'hui', 'hier', etc.
-    and values as lists of conversations.
-    """
-    now = datetime.now()
-    today = now.date()
-
-    groups = OrderedDict()
-    groups["aujourd'hui"] = []
-    groups["hier"] = []
-    groups["plus tôt cette semaine"] = []
-    groups["la semaine dernière"] = []
-    groups["plus tôt ce mois-ci"] = []
-
-    # Calculate date boundaries
-    yesterday = today - timedelta(days=1)
-
-    # Start of this week (Monday)
-    days_since_monday = today.weekday()
-    this_week_start = today - timedelta(days=days_since_monday)
-
-    # Last week boundaries
-    last_week_start = this_week_start - timedelta(days=7)
-    last_week_end = this_week_start - timedelta(days=1)
-
-    # Start of this month
-    this_month_start = today.replace(day=1)
-
-    # Track which months we've seen for older conversations
-    month_names = {
-        1: "janvier", 2: "février", 3: "mars", 4: "avril",
-        5: "mai", 6: "juin", 7: "juillet", 8: "août",
-        9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
-    }
-
-    for conv in conversations:
-        conv_date = conv.updated_at.date()
-
-        if conv_date == today:
-            groups["aujourd'hui"].append(conv)
-        elif conv_date == yesterday:
-            groups["hier"].append(conv)
-        elif this_week_start <= conv_date < today:
-            groups["plus tôt cette semaine"].append(conv)
-        elif last_week_start <= conv_date <= last_week_end:
-            groups["la semaine dernière"].append(conv)
-        elif this_month_start <= conv_date < this_week_start:
-            groups["plus tôt ce mois-ci"].append(conv)
-        else:
-            # Older conversations - group by month name
-            month_key = month_names[conv_date.month]
-            if conv_date.year < today.year:
-                month_key = f"{month_key} {conv_date.year}"
-
-            if month_key not in groups:
-                groups[month_key] = []
-            groups[month_key].append(conv)
-
-    # Remove empty groups
-    return OrderedDict((k, v) for k, v in groups.items() if v)
-
 
 def get_sidebar_data():
     """Get data for sidebar (recent conversations for current user)."""
@@ -442,76 +379,12 @@ def rechercher():
 
 @bp.route("/explorations")
 def explorations():
-    """Explorations section - conversation list with optional filtering."""
-    # Redirect old query param format to new path format
+    """Legacy explorations list — redirects to /rechercher."""
     if conv_id := request.args.get("conv"):
         return redirect(f"/explorations/{conv_id}", code=301)
 
-    user_email = getattr(g, "user_email", None)
-    agent = get_agent_instance()
-
-    # Filter params
-    mine_only = request.args.get("mine") == "1"
-    tag_params = request.args.getlist("tag")
-
-    # Get conversations with tags
-    filter_user = user_email if mine_only else None
-    conversations_with_tags = store.list_conversations_with_tags(
-        user_id=filter_user,
-        tag_names=tag_params if tag_params else None,
-        limit=100,
-    )
-
-    # Add runtime info and formatting
-    conversations = []
-    for conv, tags in conversations_with_tags:
-        if conv.title:
-            conv.title = humanize_title(conv.title)
-        conv.is_running = agent.is_running(conv.id)
-        conv.tags = tags
-
-        # Add formatted relative date
-        conv.formatted_date = format_relative_date(conv.updated_at)
-
-        # Determine icon based on type tag (use filled icons)
-        conv.icon = "ri-chat-3-fill"  # Default
-        for tag in tags:
-            if tag.name == "analyse":
-                conv.icon = "ri-chat-3-fill"
-                break
-            elif tag.name == "meta":
-                conv.icon = "ri-settings-3-fill"
-                break
-            elif tag.name == "appli":
-                conv.icon = "ri-window-fill"
-                break
-
-        # Check if author is current user
-        conv.is_mine = conv.user_id == user_email
-
-        conversations.append(conv)
-
-    # Get tags with counts based on current filters
-    all_tags = store.get_used_conversation_tags_by_type(
-        active_tag_names=tag_params if tag_params else None,
-        user_id=filter_user
-    )
-
-    # Group conversations by date
-    grouped_conversations = group_conversations_by_date(conversations)
-
-    data = get_sidebar_data()
-    return render_template(
-        "explorations.html",
-        section="explorations",
-        current_conv=None,
-        all_conversations=conversations,
-        grouped_conversations=grouped_conversations,
-        all_tags=all_tags,
-        active_tags=tag_params,
-        mine_only=mine_only,
-        **data
-    )
+    target = "/rechercher?show=mine" if request.args.get("mine") == "1" else "/rechercher?show=convos"
+    return redirect(target, code=301)
 
 
 @bp.route("/explorations/new")
@@ -542,7 +415,7 @@ def explorations_conversation(conv_id: str):
 
     if not current_conv:
         # Conversation not found
-        return redirect("/explorations")
+        return redirect("/rechercher?show=convos")
 
     # Check if this is a shared conversation (owned by someone else)
     is_shared = current_conv.user_id and current_conv.user_id != user_email

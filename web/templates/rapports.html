@@ -9,14 +9,12 @@
     <div class="container">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div class="d-flex align-items-center gap-3">
-          {% if current_report %}
-          <a href="/rapports" class="btn btn-link p-0 me-2" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+          <a href="/rechercher?show=reports" class="btn btn-link p-0 me-2" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-arrow-left-line ri-xl"></i>
           </a>
-          {% endif %}
           <div>
             <p class="text-muted mb-1 small">
-              {% if current_report %}Rapport{% if current_report.website %} · {{ current_report.website }}{% endif %}{% if current_report.category %} · {{ current_report.category }}{% endif %}
+              Rapport{% if current_report.website %} · {{ current_report.website }}{% endif %}{% if current_report.category %} · {{ current_report.category }}{% endif %}
               <button type="button" class="conv-action-btn" id="continueExplorationBtn" data-report-id="{{ current_report.id }}" data-report-title="{{ current_report.title }}"><i class="ri-chat-follow-up-line"></i> Poursuivre l'exploration</button>
               <a href="/rapports/{{ current_report.id }}.txt" class="conv-action-btn" target="_blank"><i class="ri-file-download-line"></i> Version exportable</a>
               {% if current_report.notion_url %}
@@ -24,9 +22,8 @@
               {% else %}
               <button type="button" class="conv-action-btn" id="notionBtn" data-report-id="{{ current_report.id }}"><i class="ri-notion-fill"></i> Exporter dans Notion</button>
               {% endif %}
-              {% else %}Analyses et rapports sauvegardés{% endif %}
             </p>
-            <h1 class="mb-0"><i class="ri-file-text-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>{% if current_report %}{{ current_report.title }}{% else %}Rapports{% endif %}</h1>
+            <h1 class="mb-0"><i class="ri-file-text-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>{{ current_report.title }}</h1>
           </div>
         </div>
       </div>
@@ -35,7 +32,6 @@
 
   <!-- Main content area -->
   <div class="section-body">
-    {% if current_report %}
     <div class="container" style="padding: 1.5rem; height: 100%; overflow-y: auto;">
     <!-- Report detail view (server-side rendered) -->
     <div class="report-content" id="reportContent">
@@ -55,7 +51,7 @@
       </div>
       <div class="report-footer text-muted small mt-3">
         {% if current_report.source_conversation_id %}
-        <a href="/explorations?conv={{ current_report.source_conversation_id }}">
+        <a href="/explorations/{{ current_report.source_conversation_id }}">
           <i class="ri-chat-3-line"></i> Voir la conversation d'origine
         </a> |
         {% endif %}
@@ -63,295 +59,9 @@
       </div>
     </div>
     </div><!-- /.container -->
-    {% else %}
-    <!-- Reports list view -->
-    <div id="filterContent" class="filter-list-container">
-    <!-- Filter sidebar -->
-    {% if all_tags %}
-    <aside class="filter-sidebar" id="filterSidebar">
-      <!-- Mobile filter bar (dropdowns) -->
-      <div class="filter-bar-mobile">
-        <button class="filter-toggle {% if type_filter == 'apps' %}active{% endif %}"
-                onclick="toggleTypeFilter(this, 'apps')"
-                data-active="{{ 'true' if type_filter == 'apps' else 'false' }}">
-          <i class="ri-window-fill"></i> Applications
-        </button>
-
-        {% if all_tags.get('product') %}
-        {% set product_count = active_tags|select('in', all_tags.get('product', [])|map(attribute='name')|list)|list|length %}
-        <div class="filter-dropdown">
-          <button class="filter-dropdown-btn {% if product_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-            Produit{% if product_count %} <span class="filter-count">{{ product_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-          </button>
-          <div class="dropdown-menu filter-dropdown-menu">
-            {% for tag in all_tags.get('product', []) %}
-            <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-              <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                     onchange="toggleFilter('{{ tag.name }}', this)">
-              {{ tag.label }}
-            </label>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if all_tags.get('theme') %}
-        {% set theme_count = active_tags|select('in', all_tags.get('theme', [])|map(attribute='name')|list)|list|length %}
-        <div class="filter-dropdown">
-          <button class="filter-dropdown-btn {% if theme_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-            Thème{% if theme_count %} <span class="filter-count">{{ theme_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-          </button>
-          <div class="dropdown-menu filter-dropdown-menu">
-            {% for tag in all_tags.get('theme', []) %}
-            <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-              <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                     onchange="toggleFilter('{{ tag.name }}', this)">
-              {{ tag.label }}
-            </label>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if active_tags or type_filter %}
-        <button class="filter-reset" onclick="resetFilters()">
-          <i class="ri-close-line"></i> Effacer
-        </button>
-        {% endif %}
-
-        <div class="filter-search">
-          <i class="ri-search-line"></i>
-          <input type="text" id="filterSearchInput" placeholder="Rechercher..." oninput="filterByText(this.value)">
-        </div>
-      </div>
-
-      <!-- Desktop expanded filters -->
-      <div class="filter-search mb-3">
-        <i class="ri-search-line"></i>
-        <input type="text" id="filterSearchInputDesktop" placeholder="Rechercher..." oninput="filterByText(this.value)">
-      </div>
-
-      <button class="filter-toggle-btn {% if type_filter == 'apps' %}active{% endif %} mb-3"
-              onclick="toggleTypeFilter(this, 'apps')"
-              data-active="{{ 'true' if type_filter == 'apps' else 'false' }}">
-        <i class="ri-window-fill"></i> Applications
-      </button>
-
-      {% if all_tags.get('product') and all_tags.get('product')|length > 0 %}
-      <div class="filter-section">
-        <div class="filter-section-title">Produit</div>
-        {% for tag in all_tags.get('product', []) %}
-        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                 onchange="toggleFilter('{{ tag.name }}', this)">
-          <span class="filter-label">{{ tag.label }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if all_tags.get('theme') and all_tags.get('theme')|length > 0 %}
-      <div class="filter-section">
-        <div class="filter-section-title">Thème</div>
-        {% for tag in all_tags.get('theme', []) %}
-        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                 onchange="toggleFilter('{{ tag.name }}', this)">
-          <span class="filter-label">{{ tag.label }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if active_tags or type_filter %}
-      <button class="filter-reset mt-3" onclick="resetFilters()">
-        <i class="ri-close-line"></i> Effacer les filtres
-      </button>
-      {% endif %}
-    </aside>
-    {% endif %}
-
-    <div class="conversation-list-wrapper">
-    <div class="conversation-list" id="reportsList">
-      {% if grouped_items %}
-        {% for group_name, group_items in grouped_items.items() %}
-        <div class="conv-group">
-          <div class="conv-group-header">{{ group_name }}</div>
-          <div class="conv-group-items">
-            {% for item in group_items %}
-            {% if item.type == 'report' %}
-            {% set report = item.report %}
-            <a href="/rapports/{{ report.id }}"
-               class="conv-list-item filterable-card"
-               id="report-{{ report.id }}"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
-               data-search="{{ report.title|lower }} {{ (report.website or '')|lower }} {{ (report.category or '')|lower }} {% for tag in report.tag_objects %}{{ tag.label|lower }} {{ tag.name|lower }} {% endfor %}">
-              <div class="conv-item-main">
-                <div class="conv-item-icon-wrapper">
-                  <i class="{{ item.icon }} conv-item-icon"></i>
-                </div>
-                <div class="conv-item-content">
-                  <div class="conv-item-row">
-                    <span class="conv-item-title">{{ report.title }}</span>
-                    {% for tag in report.tag_objects if tag.type == 'product' %}
-                    <span class="badge badge-tag badge-product">{{ tag.label }}</span>
-                    {% endfor %}
-                    {% if not report.tag_objects|selectattr('type', 'eq', 'product')|list and report.website %}
-                    <span class="badge badge-tag badge-product">{{ report.website }}</span>
-                    {% endif %}
-                    <span class="conv-item-date">{{ item.formatted_date }}</span>
-                  </div>
-                  <div class="conv-item-author-row">
-                    <button class="conv-item-action-btn" title="Archiver"
-                            onclick="event.preventDefault(); event.stopPropagation();"
-                            hx-post="/api/reports/{{ report.id }}/archive"
-                            hx-target="#report-{{ report.id }}"
-                            hx-swap="outerHTML"
-                            hx-confirm="Archiver ce rapport ?">
-                      <i class="ri-archive-line"></i> Archiver
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </a>
-            {% elif item.type == 'app' %}
-            {% set app = item.app %}
-            <a href="{{ app.url }}" target="_blank"
-               class="conv-list-item conv-list-item-app filterable-card"
-               data-search="{{ app.title|lower }} {{ (app.description or '')|lower }} {{ (app.website or '')|lower }} {{ (app.category or '')|lower }} appli {% for t in app.tags %}{{ t|lower }} {% endfor %}{% for a in app.authors %}{{ a|lower }} {% endfor %}">
-              <div class="conv-item-main">
-                <div class="conv-item-icon-wrapper">
-                  <i class="{{ item.icon }} conv-item-icon"></i>
-                </div>
-                <div class="conv-item-content">
-                  <div class="conv-item-row">
-                    <span class="conv-item-title">{{ app.title }}</span>
-                    {% if app.website %}<span class="badge badge-tag badge-product">{{ app.website }}</span>{% endif %}
-                    <span class="conv-item-date">{{ item.formatted_date }}</span>
-                  </div>
-                  <div class="conv-item-author-row">
-                    {% if app.description %}<span class="conv-item-description">{{ app.description }}</span>{% endif %}
-                    <span class="conv-item-action-btn conv-item-external-link"><i class="ri-external-link-line"></i> Ouvrir</span>
-                  </div>
-                </div>
-              </div>
-            </a>
-            {% endif %}
-            {% endfor %}
-          </div>
-        </div>
-        {% endfor %}
-      {% else %}
-      <div class="empty-state" id="emptyState">
-        <i class="ri-file-text-line ri-4x text-disabled mb-3"></i>
-        <p class="mb-0 text-muted">Aucun rapport</p>
-        <p class="small text-muted">{% if active_tags %}Aucun resultat pour ces filtres{% else %}Demandez a l'agent de sauvegarder un rapport{% endif %}</p>
-      </div>
-      {% endif %}
-    </div>
-    </div><!-- /.conversation-list-wrapper -->
-    </div><!-- /#filterContent -->
-    {% endif %}
   </div>
 
 <script>
-// Filter functions with HTMX
-function buildFilterUrl() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('tag');
-  url.searchParams.delete('type');
-
-  // Get all checkboxes from visible filter sections
-  const desktopFilters = document.querySelectorAll('.filter-sidebar > .filter-section .filter-checkbox-item[data-tag] input[type="checkbox"]');
-  if (desktopFilters.length > 0 && window.getComputedStyle(desktopFilters[0].closest('.filter-section')).display !== 'none') {
-    desktopFilters.forEach(cb => {
-      if (cb.checked) {
-        const tag = cb.closest('label').dataset.tag;
-        if (tag) url.searchParams.append('tag', tag);
-      }
-    });
-  } else {
-    document.querySelectorAll('.filter-bar-mobile .filter-checkbox-item[data-tag] input[type="checkbox"]').forEach(cb => {
-      if (cb.checked) {
-        const tag = cb.closest('label').dataset.tag;
-        if (tag) url.searchParams.append('tag', tag);
-      }
-    });
-  }
-
-  // Check type toggle (desktop or mobile)
-  const typeBtn = document.querySelector('.filter-toggle-btn[onclick*="toggleTypeFilter"]') ||
-                  document.querySelector('.filter-bar-mobile .filter-toggle[onclick*="toggleTypeFilter"]');
-  if (typeBtn && typeBtn.classList.contains('active')) {
-    url.searchParams.set('type', 'apps');
-  }
-
-  return url.toString();
-}
-
-function toggleFilter(tagName, checkbox) {
-  const url = buildFilterUrl();
-  history.pushState({}, '', url);
-  htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-}
-
-function toggleTypeFilter(btn, type) {
-  btn.classList.toggle('active');
-  btn.dataset.active = btn.classList.contains('active') ? 'true' : 'false';
-  const url = buildFilterUrl();
-  history.pushState({}, '', url);
-  htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-}
-
-function resetFilters() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('tag');
-  url.searchParams.delete('type');
-  history.pushState({}, '', url.toString());
-  htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-}
-
-function removeFilter(tagName) {
-  const checkbox = document.querySelector(`.filter-checkbox-item[data-tag="${tagName}"] input`);
-  if (checkbox) checkbox.checked = false;
-  const url = buildFilterUrl();
-  history.pushState({}, '', url);
-  htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-}
-
-function filterByText(query) {
-  const search = query.toLowerCase().trim();
-  const cards = document.querySelectorAll('.filterable-card');
-  let visibleCount = 0;
-
-  cards.forEach(card => {
-    const searchData = card.dataset.search || '';
-    const matches = !search || searchData.includes(search);
-    card.style.display = matches ? '' : 'none';
-    if (matches) visibleCount++;
-  });
-
-  // Sync both search inputs
-  document.querySelectorAll('#filterSearchInput, #filterSearchInputDesktop').forEach(input => {
-    if (input.value !== query) {
-      input.value = query;
-    }
-  });
-
-  // Show/hide empty state
-  const emptyState = document.getElementById('emptyState');
-  const convGroups = document.querySelectorAll('.conv-group');
-  if (convGroups.length > 0) {
-    if (visibleCount === 0 && cards.length > 0) {
-      convGroups.forEach(g => g.style.display = 'none');
-      if (emptyState) emptyState.style.display = '';
-    } else {
-      convGroups.forEach(g => g.style.display = '');
-      if (emptyState) emptyState.style.display = 'none';
-    }
-  }
-}
-
 // Mermaid progressive enhancement (code blocks → diagrams)
 function renderMermaidDiagrams() {
   if (typeof mermaid === 'undefined') return;

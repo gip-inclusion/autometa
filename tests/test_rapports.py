@@ -136,18 +136,17 @@ class TestRapportDetailView:
         assert b"Poursuivre l'exploration" in response.data
 
 
-class TestRapportsListView:
-    """Test the reports list view."""
+class TestRapportsListRedirect:
+    """Test that /rapports list redirects to /rechercher."""
 
-    def test_list_view_does_not_have_export_button(self, app, client, report):
-        """Reports list view does not show the export button."""
+    def test_list_redirects_to_rechercher(self, app, client, report):
+        """/rapports redirects to /rechercher?show=reports."""
         response = client.get(
             "/rapports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        assert response.status_code == 200
-        # The export button should only appear on detail view
-        assert b"Version exportable" not in response.data
+        assert response.status_code == 301
+        assert response.location == "/rechercher?show=reports"
 
 
 def _extract_main_content(html: str) -> str:
@@ -203,9 +202,9 @@ class TestRapportHtmxNavigation:
         )
 
     def test_report_list_items_use_htmx_boost(self, app, client, report):
-        """Report list links must have hx-boost for HTMX navigation."""
+        """Report list in /rechercher has hx-boost for HTMX navigation."""
         response = client.get(
-            "/rapports",
+            "/rechercher?show=reports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         html = response.data.decode("utf-8")
