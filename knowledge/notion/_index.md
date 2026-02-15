@@ -91,13 +91,4 @@ Pipeline :
 3. Rebuild les chunks (~400 car.), conserve les embeddings si le texte n'a pas changé (hash SHA-256)
 4. Embed les nouveaux chunks avec `sentence-transformers` (Qwen3-Embedding-0.6B, local)
 
-Bases Notion :
-
-| Clé | Notion ID |
-|-----|-----------|
-| entretiens | `28d5f321-b604-8101-a7e9-f2f705cbb2c3` |
-| thematiques | `28d5f321-b604-80dc-923a-dfad38e4592c` |
-| segments | `28d5f321-b604-8094-8a13-cbe09f2810bf` |
-| profils | `1885f321-b604-817a-ad43-d8ea18689279` |
-| hypotheses | `28d5f321-b604-81de-86db-eaf2ee71e29d` |
-| conclusions | `28d5f321-b604-80fb-aa4b-f92b13dd0993` |
+Les 6 database IDs sont définis dans `scripts/refresh_research.py` (dict `DATABASES`).
