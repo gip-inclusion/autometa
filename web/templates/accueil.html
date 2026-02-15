@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Accueil{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-accueil">
+  <!-- Sticky header with search -->
+  <div class="section-header">
+    <div class="container">
+      <div class="d-flex align-items-center gap-3">
+        <div class="me-auto">
+          <h1 class="mb-0">
+            <i class="ri-home-4-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
+            Accueil
+          </h1>
+        </div>
+        <!-- Universal search bar -->
+        <div class="accueil-search-wrapper">
+          <div class="accueil-search-input">
+            <i class="ri-search-line"></i>
+            <input type="text" id="universalSearchInput"
+                   placeholder="Rechercher conversations, rapports, applis..."
+                   autocomplete="off" oninput="universalSearch(this.value)">
+          </div>
+          <div class="accueil-search-results" id="searchResults"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="section-body">
+    <div class="accueil-content">
+      <!-- Navigation + Pinned side by side -->
+      <div class="accueil-grids">
+        <div class="accueil-grid-section">
+          <h3 class="accueil-grid-title">Navigation</h3>
+          <div class="accueil-button-grid">
+            <a href="/explorations" class="accueil-button"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-group-line"></i>
+              <span>Toutes les conversations</span>
+            </a>
+            <a href="/explorations?mine=1" class="accueil-button"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-user-line"></i>
+              <span>Mes conversations</span>
+            </a>
+            <a href="/rapports?type=apps" class="accueil-button"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-window-fill"></i>
+              <span>Applications</span>
+            </a>
+            <a href="/rapports" class="accueil-button"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-file-text-line"></i>
+              <span>Rapports</span>
+            </a>
+            <a href="/recherche" class="accueil-button"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-search-eye-line"></i>
+              <span>Terrain</span>
+            </a>
+            <a href="/cron" class="accueil-button"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-time-line"></i>
+              <span>Cron</span>
+            </a>
+          </div>
+        </div>
+
+        {% if pinned %}
+        <div class="accueil-grid-section">
+          <h3 class="accueil-grid-title">
+            <i class="ri-pushpin-line me-1"></i>Conversations épinglées
+          </h3>
+          <div class="accueil-starred">
+            {% for conv in pinned %}
+            <a href="/explorations/{{ conv.id }}" class="conv-list-item"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <div class="conv-item-main">
+                <div class="conv-item-icon-wrapper">
+                  <i class="ri-pushpin-line conv-item-icon"></i>
+                </div>
+                <div class="conv-item-content">
+                  <div class="conv-item-row">
+                    <span class="conv-item-title">{{ conv.pinned_label or conv.title or 'Sans titre' }}</span>
+                    <span class="conv-item-date">{{ conv.formatted_date }}</span>
+                  </div>
+                  {% if conv.user_id %}
+                  <div class="conv-item-author-row">
+                    <span class="conv-item-author">{{ conv.user_id.split('@')[0] }}</span>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Sources de données -->
+      <div>
+        <h3 class="accueil-grid-title">Sources de données</h3>
+        <div class="accueil-sources">
+          {% for group_name, items in knowledge_sections.items() %}
+          <div class="accueil-source-group">
+            <div class="accueil-source-group-title">{{ group_name }}</div>
+            {% for section in items %}
+            <a href="{{ section.url }}" class="accueil-source-link"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="{{ section.icon }}"></i>
+              <span>{{ section.name }}{% if section.count %} <span class="accueil-source-count">({{ section.count }})</span>{% endif %}</span>
+            </a>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Search index (preloaded JSON) -->
+<script type="application/json" id="searchIndex">{{ search_items | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let searchIndex = null;
+
+function getSearchIndex() {
+  if (!searchIndex) {
+    const el = document.getElementById('searchIndex');
+    if (el) searchIndex = JSON.parse(el.textContent);
+  }
+  return searchIndex || [];
+}
+
+function universalSearch(query) {
+  const results = document.getElementById('searchResults');
+  if (!results) return;
+
+  const search = query.toLowerCase().trim();
+  if (!search) {
+    results.style.display = 'none';
+    return;
+  }
+
+  const items = getSearchIndex();
+  const matches = items.filter(item => item.search.includes(search)).slice(0, 20);
+
+  if (!matches.length) {
+    results.innerHTML = '<div class="p-3 text-muted">Aucun résultat</div>';
+    results.style.display = 'block';
+    return;
+  }
+
+  results.innerHTML = matches.map(item => `
+    <a href="${item.url}" class="conv-list-item"
+       hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+      <div class="conv-item-main">
+        <div class="conv-item-icon-wrapper">
+          <i class="${item.icon} conv-item-icon"></i>
+        </div>
+        <div class="conv-item-content">
+          <div class="conv-item-row">
+            <span class="conv-item-title">${item.title}</span>
+            <span class="conv-item-date">${item.date}</span>
+          </div>
+        </div>
+      </div>
+    </a>
+  `).join('');
+  results.style.display = 'block';
+
+  // Enable htmx on dynamically inserted links
+  htmx.process(results);
+}
+
+// Close search results on click outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.accueil-search-wrapper')) {
+    const results = document.getElementById('searchResults');
+    if (results) results.style.display = 'none';
+  }
+});
+</script>
+{% endblock %}

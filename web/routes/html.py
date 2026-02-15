@@ -11,7 +11,7 @@ import time
 
 from ..config import FEATURE_KNOWLEDGE_CHAT, ADMIN_USERS
 from ..storage import store
-from ..helpers import validate_knowledge_path, list_knowledge_files, list_staged_files
+from ..helpers import validate_knowledge_path, list_knowledge_files, list_knowledge_sections, list_staged_files
 from .conversations import get_agent_instance
 from .research import get_corpus_stats, search_corpus, find_similar_pages, get_page
 
@@ -177,8 +177,81 @@ def get_sidebar_data():
 
 @bp.route("/")
 def index():
-    """Redirect to new conversation."""
-    return redirect("/explorations/new")
+    """Home page — dashboard with navigation, sources, starred items."""
+    data = get_sidebar_data()
+
+    # Pinned conversations (starred items)
+    pinned = store.list_pinned_conversations()
+    for p in pinned:
+        if p.title:
+            p.title = humanize_title(p.title)
+        p.formatted_date = format_relative_date(p.updated_at)
+        p.tags = store.get_conversation_tags(p.id)
+
+    # Knowledge sections (top-level folders only)
+    knowledge_sections = list_knowledge_sections()
+
+    # Search index: all conversations + reports + apps
+    search_items = []
+
+    conversations_with_tags = store.list_conversations_with_tags(limit=200)
+    for conv, tags in conversations_with_tags:
+        if conv.title:
+            conv.title = humanize_title(conv.title)
+        search_items.append({
+            "type": "conversation",
+            "title": conv.title or "Sans titre",
+            "url": f"/explorations/{conv.id}",
+            "icon": "ri-chat-3-fill",
+            "date": format_relative_date(conv.updated_at),
+            "search": " ".join(filter(None, [
+                (conv.title or "").lower(),
+                (conv.user_id or "").lower(),
+                " ".join(t.label.lower() for t in tags),
+            ])),
+        })
+
+    from .rapports import scan_interactive_apps
+
+    reports_with_tags = store.list_reports_with_tags(limit=200)
+    for report, tags in reports_with_tags:
+        search_items.append({
+            "type": "report",
+            "title": report.title,
+            "url": f"/rapports/{report.id}",
+            "icon": "ri-file-text-line",
+            "date": format_relative_date(report.updated_at),
+            "search": " ".join(filter(None, [
+                report.title.lower(),
+                (report.website or "").lower(),
+                (report.category or "").lower(),
+                " ".join(t.label.lower() for t in tags),
+            ])),
+        })
+
+    for app in scan_interactive_apps():
+        search_items.append({
+            "type": "app",
+            "title": app["title"],
+            "url": app["url"],
+            "icon": "ri-window-fill",
+            "date": "",
+            "search": " ".join(filter(None, [
+                app["title"].lower(),
+                (app.get("description") or "").lower(),
+                " ".join(t.lower() for t in app.get("tags", [])),
+            ])),
+        })
+
+    return render_template(
+        "accueil.html",
+        section="accueil",
+        current_conv=None,
+        pinned=pinned,
+        knowledge_sections=knowledge_sections,
+        search_items=search_items,
+        **data
+    )
 
 
 @bp.route("/explorations")
@@ -320,7 +393,13 @@ def connaissances():
         return redirect(f"/connaissances/{file_param}", code=301)
 
     data = get_sidebar_data()
+    section_filter = request.args.get("section")
     categories = list_knowledge_files()
+    if section_filter:
+        categories = {
+            k: v for k, v in categories.items()
+            if k == section_filter or k.startswith(section_filter + "/")
+        }
     active_conversations = store.list_active_knowledge_conversations()
     active_files = {c.file_path: c for c in active_conversations if c.file_path}
 

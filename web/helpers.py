@@ -103,3 +103,61 @@ def list_knowledge_files() -> dict[str, list[dict]]:
 
     # Sort sections by name, with top-level folders first
     return dict(sorted(sections.items(), key=lambda x: (x[0].count("/"), x[0])))
+
+
+def list_knowledge_sections() -> dict[str, list[dict]]:
+    """List top-level knowledge folders and root files, grouped by category."""
+    mb_icon = "ri-pie-chart-2-line"
+    meta = {
+        "README":      {"label": "README", "icon": "ri-file-text-line", "group": "Généralités"},
+        "methodology": {"label": "Méthodologie", "icon": "ri-file-text-line", "group": "Généralités"},
+        "metabase":    {"label": "Metabase API", "icon": "ri-book-open-line", "group": "Metabase", "order": 0},
+        "stats":       {"label": "Stats", "icon": mb_icon, "group": "Metabase"},
+        "datalake":    {"label": "Datalake", "icon": mb_icon, "group": "Metabase"},
+        "dora":        {"label": "Dora", "icon": mb_icon, "group": "Metabase"},
+        "rdvi":        {"label": "RDVI", "icon": mb_icon, "group": "Metabase"},
+        "matomo":      {"label": "Matomo API", "icon": "ri-line-chart-line", "group": "Matomo et sites"},
+        "sites":       {"label": "Sites", "icon": "ri-global-line", "group": "Matomo et sites"},
+        "notion":      {"label": "Notion API", "icon": "ri-booklet-line", "group": "Notion"},
+        "research":    {"label": "Recherche terrain", "icon": "ri-search-eye-line", "group": "Notion"},
+    }
+    skip: set[str] = set()
+
+    groups: dict[str, list[dict]] = {}
+
+    for f in sorted(KNOWLEDGE_ROOT.iterdir()):
+        if f.name.startswith("."):
+            continue
+        key = f.stem if f.is_file() else f.name
+
+        if key in skip:
+            continue
+
+        info = meta.get(key, {})
+        group = info.get("group", "Autres")
+
+        entry: dict = {
+            "name": info.get("label", key.capitalize()),
+            "icon": info.get("icon", "ri-folder-line"),
+            "_order": info.get("order", 1),
+        }
+
+        if f.is_file() and f.suffix == ".md":
+            entry["url"] = f"/connaissances/{f.name}"
+        elif f.is_dir():
+            md_files = list(f.rglob("*.md"))
+            if len(md_files) == 1:
+                rel = md_files[0].relative_to(KNOWLEDGE_ROOT)
+                entry["url"] = f"/connaissances/{rel}"
+            else:
+                entry["url"] = f"/connaissances?section={f.name}"
+                entry["count"] = len(md_files)
+        else:
+            continue
+
+        groups.setdefault(group, []).append(entry)
+
+    for items in groups.values():
+        items.sort(key=lambda e: e.pop("_order"))
+
+    return groups
