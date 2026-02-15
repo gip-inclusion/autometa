@@ -137,7 +137,7 @@ For every query, follow this process:
    - **Rate comparability:** Rates based on delayed events (conversion, validation) are biased
      by age — older data had more time to convert. Use fixed windows (e.g., "validated within 
      30 days") and exclude data too recent to be comparable.
-See [`knowledge/methodology.md`](knowledge/methodology.md) for detailed examples and SQL patterns.
+See [`knowledge/README.md`](knowledge/README.md) for detailed examples and SQL patterns.
      
 3. **Clarify joins and filters** — For queries involving multiple criteria or table joins:
    - **Detect ambiguity:** When users say "candidates with X and Y", they might mean intersection
@@ -147,7 +147,7 @@ See [`knowledge/methodology.md`](knowledge/methodology.md) for detailed examples
    - **Explain in results:** After queries with joins, always state in plain language:
      "This analysis uses [INNER/LEFT] JOIN. Table A had X rows, Table B had Y rows, 
      result has Z rows. [If Z < X or Y] Some rows were excluded due to no match."
-See [`knowledge/methodology.md`](knowledge/methodology.md) for detailed examples and SQL patterns.
+See [`knowledge/README.md`](knowledge/README.md) for detailed examples and SQL patterns.
 
 4. **Desk research** — Read relevant knowledge files. Check previous reports on
    similar topics. DO NOT query without reading domain knowledge first.
