@@ -31,78 +31,77 @@
   <!-- Body -->
   <div class="section-body">
     <div class="accueil-content">
-      <!-- Navigation + Pinned side by side -->
-      <div class="accueil-grids">
-        <div class="accueil-grid-section">
-          <h3 class="accueil-grid-title">Navigation</h3>
-          <div class="accueil-button-grid">
-            <a href="/explorations" class="accueil-button"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="ri-group-line"></i>
-              <span>Toutes les conversations</span>
-            </a>
-            <a href="/explorations?mine=1" class="accueil-button"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="ri-user-line"></i>
-              <span>Mes conversations</span>
-            </a>
-            <a href="/rapports?type=apps" class="accueil-button"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="ri-window-fill"></i>
-              <span>Applications</span>
-            </a>
-            <a href="/rapports" class="accueil-button"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="ri-file-text-line"></i>
-              <span>Rapports</span>
-            </a>
-            <a href="/recherche" class="accueil-button"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="ri-search-eye-line"></i>
-              <span>Terrain</span>
-            </a>
-            <a href="/cron" class="accueil-button"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="ri-time-line"></i>
-              <span>Cron</span>
-            </a>
-          </div>
+      <!-- Navigation -->
+      <div class="accueil-section">
+        <h3 class="accueil-grid-title">Navigation</h3>
+        <div class="accueil-button-grid">
+          <a href="/explorations" class="accueil-button"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-group-line"></i>
+            <span>Toutes les conversations</span>
+          </a>
+          <a href="/explorations?mine=1" class="accueil-button"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-user-line"></i>
+            <span>Mes conversations</span>
+          </a>
+          <a href="/rapports?type=apps" class="accueil-button"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-window-fill"></i>
+            <span>Applications</span>
+          </a>
+          <a href="/rapports" class="accueil-button"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-file-text-line"></i>
+            <span>Rapports</span>
+          </a>
+          <a href="/recherche" class="accueil-button"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-search-eye-line"></i>
+            <span>Terrain</span>
+          </a>
+          <a href="/cron" class="accueil-button"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-time-line"></i>
+            <span>Cron</span>
+          </a>
         </div>
-
-        {% if pinned %}
-        <div class="accueil-grid-section">
-          <h3 class="accueil-grid-title">
-            <i class="ri-pushpin-line me-1"></i>Conversations épinglées
-          </h3>
-          <div class="accueil-starred">
-            {% for conv in pinned %}
-            <a href="/explorations/{{ conv.id }}" class="conv-list-item"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <div class="conv-item-main">
-                <div class="conv-item-icon-wrapper">
-                  <i class="ri-pushpin-line conv-item-icon"></i>
-                </div>
-                <div class="conv-item-content">
-                  <div class="conv-item-row">
-                    <span class="conv-item-title">{{ conv.pinned_label or conv.title or 'Sans titre' }}</span>
-                    <span class="conv-item-date">{{ conv.formatted_date }}</span>
-                  </div>
-                  {% if conv.user_id %}
-                  <div class="conv-item-author-row">
-                    <span class="conv-item-author">{{ conv.user_id.split('@')[0] }}</span>
-                  </div>
-                  {% endif %}
-                </div>
-              </div>
-            </a>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
       </div>
 
+      <!-- Pinned conversations -->
+      {% if pinned %}
+      <div class="accueil-section">
+        <h3 class="accueil-grid-title">
+          <i class="ri-pushpin-line me-1"></i>Conversations épinglées
+        </h3>
+        <div class="accueil-starred">
+          {% for conv in pinned %}
+          <a href="/explorations/{{ conv.id }}" class="conv-list-item"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <div class="conv-item-main">
+              <div class="conv-item-icon-wrapper">
+                <i class="ri-pushpin-line conv-item-icon"></i>
+              </div>
+              <div class="conv-item-content">
+                <div class="conv-item-row">
+                  <span class="conv-item-title">{{ conv.pinned_label or conv.title or 'Sans titre' }}</span>
+                  <span class="conv-item-date">{{ conv.formatted_date }}</span>
+                </div>
+                {% if conv.user_id %}
+                <div class="conv-item-author-row">
+                  <span class="conv-item-author">{{ conv.user_id.split('@')[0] }}</span>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       <!-- Sources de données -->
-      <div>
+      <div class="accueil-section">
         <h3 class="accueil-grid-title">Sources de données</h3>
         <div class="accueil-sources">
           {% for group_name, items in knowledge_sections.items() %}
