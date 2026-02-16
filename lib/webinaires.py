@@ -274,6 +274,7 @@ def _extract_organisation(fields: list[dict]) -> str | None:
     """Try to extract organisation from various custom field names."""
     for field_id in (
         "company",
+        "votre_structure",
         "quel_est_le_nom_de_votre_structure",
         "nom_de_votre_structure",
         "structure",

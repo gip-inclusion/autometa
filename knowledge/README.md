@@ -52,6 +52,10 @@ Intégration Notion (API, authentification, fonctionnalités) :
 Corpus de recherche terrain (ethnographie « Connaissance du terrain ») :
 - `_index.md` : bases Notion, hiérarchie, schéma SQLite, requêtes, recherche vectorielle, correspondance segments/sites
 
+### `webinaires/`
+Données de participation aux webinaires (Livestorm historique + Grist actuel) :
+- `_index.md` : modèle de données, sources, requêtes, champs personnalisés, limites
+
 ## Règles d'édition
 
 1. **Pas de prose** : phrases courtes, listes, tableaux. L'agent doit trouver l'info vite.
