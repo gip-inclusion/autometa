@@ -111,6 +111,7 @@ def list_knowledge_sections() -> dict[str, list[dict]]:
     meta = {
         "README":      {"label": "README", "icon": "ri-file-text-line", "group": "Généralités"},
         "methodology": {"label": "Méthodologie", "icon": "ri-file-text-line", "group": "Généralités"},
+        "webinaires":  {"label": "Webinaires", "icon": "ri-live-line", "group": "Généralités"},
         "metabase":    {"label": "Metabase API", "icon": "ri-book-open-line", "group": "Metabase", "order": 0},
         "stats":       {"label": "Stats", "icon": mb_icon, "group": "Metabase"},
         "datalake":    {"label": "Datalake", "icon": mb_icon, "group": "Metabase"},
