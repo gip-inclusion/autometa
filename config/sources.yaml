@@ -55,3 +55,11 @@ matomo:
   inclusion:
     url: https://matomo.inclusion.beta.gouv.fr
     token: ${env.MATOMO_API_KEY}
+
+livestorm:
+  api_key: ${env.LIVESTORM_API_KEY}
+
+grist:
+  webinaires:
+    api_key: ${env.GRIST_API_KEY}
+    doc_id: ${env.GRIST_WEBINAIRES_DOC_ID}
