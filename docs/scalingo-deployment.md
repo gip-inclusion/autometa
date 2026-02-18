@@ -202,7 +202,7 @@ If you add a custom domain (e.g., `matometa.inclusion.gouv.fr`):
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `AGENT_BACKEND` | yes | `ollama` | Agent runtime: `sdk`, `ollama`, `cli` |
+| `AGENT_BACKEND` | yes | `ollama` | Agent runtime: `sdk`, `ollama`, `cli`, `cli-ollama` |
 | `ANTHROPIC_API_KEY` | if sdk | — | Anthropic API key (for `sdk` backend) |
 | `CLAUDE_MODEL` | no | `claude-sonnet-4-20250514` | Claude model to use |
 | `WEB_DEBUG` | no | `true` | Set to `false` for production |
@@ -259,6 +259,7 @@ https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview
 | `NOTION_WISHLIST_DB` | no | Notion database ID for wishlist |
 | `GITHUB_PR_TOKEN` | no | GitHub PAT for knowledge PRs |
 | `GITHUB_REPO` | no | Target repo (e.g., `gip-inclusion/Matometa`) |
+| `GITHUB_BRANCH` | no | Target branch for knowledge PRs (default: `main`) |
 | `LIVESTORM_API_KEY` | no | Livestorm API key |
 | `GRIST_API_KEY` | no | Grist API key |
 | `GRIST_WEBINAIRES_DOC_ID` | no | Grist document ID for webinaires |
