@@ -1,0 +1,7 @@
+# Allowed email addresses (one per line)
+# Users with emails ending in @inclusion.gouv.fr are allowed by default.
+# Add individual guest emails here for external collaborators.
+#
+# Example:
+# guest@example.com
+# partner@external.org
