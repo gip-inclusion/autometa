@@ -648,3 +648,140 @@ The Flask app serves files directly from `data/interactive/`.
 The `BASE_URL` environment variable (e.g., `BASE_URL=https://matometa.ljt.cc/`)
 provides the absolute base URL when needed (e.g., for sharing links outside the
 app), but relative URLs are the default.
+
+## Data Persistence (Datalake)
+
+Interactive apps are static frontends — they cannot modify the Flask backend.
+When an app needs to **read and write persistent data** (tracking, assignments,
+user notes, state), use the **datalake PostgreSQL** via the existing `/api/query`
+endpoint and `lib.query`.
+
+### Why Not Flask Routes?
+
+The `web/` directory is baked into the Docker image and NOT bind-mounted.
+Any files created or modified under `/app/web/` are written to the container's
+overlay filesystem and **vanish on the next restart or deploy**. Never create
+Flask routes, blueprints, or Python modules from within the container.
+
+### Architecture
+
+```
+Frontend (JS)  ──POST /api/query──▶  Flask /api/query  ──▶  Metabase API  ──▶  Datalake PostgreSQL
+                                     (already exists)       (native query)     (read + write)
+```
+
+The existing `/api/query` endpoint supports full SQL through the Metabase native
+query API. The datalake database user has write access, so INSERT, UPDATE, DELETE,
+and CREATE TABLE all work.
+
+### The `matometa` Schema
+
+All Matometa tables live in a dedicated `matometa` schema on the datalake,
+keeping them separate from the main datalake tables in `public`.
+
+The schema already exists. If you need to verify:
+
+```python
+execute_metabase_query(
+    instance="datalake", caller=CallerType.AGENT,
+    sql="SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'matometa'",
+    database_id=2,
+)
+```
+
+### Setup Pattern
+
+**1. Create your table** (agent-side, Python script):
+
+```python
+from lib.query import execute_metabase_query, CallerType
+
+# DDL runs successfully but Metabase reports a parse error (no ResultSet).
+# This is normal — ignore the error, the table IS created.
+execute_metabase_query(
+    instance="datalake",
+    caller=CallerType.AGENT,
+    sql="""
+        CREATE TABLE IF NOT EXISTS matometa.myapp_tracking (
+            id SERIAL PRIMARY KEY,
+            item_id TEXT NOT NULL,
+            assigned_to TEXT,
+            status TEXT DEFAULT 'pending',
+            note TEXT,
+            updated_by TEXT,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(item_id)
+        )
+    """,
+    database_id=2,
+)
+```
+
+**2. Read from the frontend** via `/api/query`:
+
+```javascript
+async function loadTracking() {
+    const response = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            source: 'metabase',
+            instance: 'datalake',
+            database_id: 2,
+            sql: 'SELECT * FROM matometa.myapp_tracking ORDER BY updated_at DESC'
+        })
+    });
+    const result = await response.json();
+    if (result.success) {
+        // result.data = { columns: [...], rows: [...], row_count: N }
+        return result.data;
+    }
+    throw new Error(result.error);
+}
+```
+
+**3. Write from the frontend** via the same endpoint:
+
+```javascript
+async function saveTracking(itemId, assignedTo, status, note, userName) {
+    const response = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            source: 'metabase',
+            instance: 'datalake',
+            database_id: 2,
+            sql: `INSERT INTO matometa.myapp_tracking (item_id, assigned_to, status, note, updated_by)
+                  VALUES ('${itemId}', '${assignedTo}', '${status}', '${note}', '${userName}')
+                  ON CONFLICT (item_id) DO UPDATE
+                  SET assigned_to = EXCLUDED.assigned_to,
+                      status = EXCLUDED.status,
+                      note = EXCLUDED.note,
+                      updated_by = EXCLUDED.updated_by,
+                      updated_at = NOW()
+                  RETURNING *`
+        })
+    });
+    return response.json();
+}
+```
+
+### Important Rules
+
+**Metabase ResultSet quirk:** DDL statements (CREATE TABLE, DROP TABLE, ALTER)
+and DML without RETURNING (plain INSERT, UPDATE, DELETE) execute successfully
+but Metabase returns an error because it expects a result set. The operation
+still completes. **Always use RETURNING** on INSERT/UPDATE/DELETE to get a
+proper response, or ignore the error for DDL.
+
+**Schema:** Always use the `matometa` schema (e.g., `matometa.myapp_tracking`,
+`matometa.deploy_calendar`). Never create tables in `public`.
+
+**SQL injection:** The example above uses string interpolation for clarity.
+In production, sanitize user inputs before embedding them in SQL strings.
+The `/api/query` endpoint does not support parameterized queries — validate
+and escape values in JavaScript before building the SQL string.
+
+**No schema changes from the frontend.** Only the agent (Python) should run
+CREATE TABLE / ALTER TABLE. The frontend should only do SELECT, INSERT, UPDATE,
+DELETE on existing tables.

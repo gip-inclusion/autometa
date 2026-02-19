@@ -623,6 +623,26 @@ When running in Docker (web UI mode):
 - **Temp files:** Write to `/tmp/` for scratch work
 - **Public files:** Write to `/app/data/interactive/` for user-downloadable files
 
+### Container File Persistence
+
+Only bind-mounted directories persist across container restarts:
+
+| Path | Writable | Persists |
+|------|----------|----------|
+| `/app/data/` | yes | yes |
+| `/app/knowledge/` | no (read-only mount) | yes |
+| `/app/skills/` | no (read-only mount) | yes |
+| `/app/web/`, `/app/lib/` | overlay only | **no** |
+| `/tmp/` | yes | **no** |
+
+**NEVER create or modify files under `/app/web/` or `/app/lib/`.** These directories
+are baked into the Docker image. The overlay filesystem lets writes appear to succeed,
+but everything is lost on the next restart or deploy. Do NOT create Flask routes,
+blueprints, or Python modules there.
+
+For apps that need server-side persistence, use the `matometa` schema on
+datalake PostgreSQL — see `docs/interactive-apps.md` "Data Persistence" section.
+
 ### Downloadable Files
 
 Files in `/app/data/interactive/` are publicly served at `/interactive/`.
