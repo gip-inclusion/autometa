@@ -74,7 +74,6 @@ The sync covers all dashboards visible on pilotage.inclusion.beta.gouv.fr:
 ## Prerequisites
 
 - `METABASE_BASE_URL` and `METABASE_API_KEY` in `.env`
-- `ANTHROPIC_API_KEY` in `.env` (for AI categorization)
 
 ## Topics
 

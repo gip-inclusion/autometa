@@ -92,19 +92,13 @@ def extract_table_references(sql: str) -> list[str]:
     return sorted(tables)
 
 
-def categorize_cards_with_claude(cards: list[dict], api_key: str) -> dict[int, tuple[str, str]]:
+def categorize_cards_with_llm(cards: list[dict]) -> dict[int, tuple[str, str]]:
     """
-    Categorize cards using Claude AI.
+    Categorize cards using the configured LLM backend.
 
     Returns dict of card_id -> (topic, reason)
     """
-    try:
-        from anthropic import Anthropic
-    except ImportError:
-        print("   ⚠️  anthropic package not installed, skipping AI categorization")
-        return {}
-
-    client = Anthropic(api_key=api_key)
+    from web.llm import generate_text, LLMError
 
     topic_list = "\n".join(f"- {topic}: {desc}" for topic, desc in TOPICS.items())
 
@@ -146,12 +140,7 @@ IMPORTANT:
 """
 
         try:
-            response = client.messages.create(
-                model="claude-3-5-haiku-20241022",
-                max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            result_text = response.content[0].text.strip()
+            result_text = generate_text(prompt, max_tokens=4000, timeout=120)
 
             # Extract JSON array from response (may be wrapped in text or code blocks)
             json_match = re.search(r'\[[\s\S]*\]', result_text)
@@ -622,32 +611,23 @@ def sync_instance(instance_name: str, args):
 
     # Step 3: Categorize with AI (optional)
     if not args.skip_categorize:
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        if anthropic_key:
-            print()
-            print("🤖 STEP 3: AI categorization...")
-            print("-" * 70)
+        print()
+        print("🤖 STEP 3: AI categorization...")
+        print("-" * 70)
 
-            start = time.time()
-            categorizations = categorize_cards_with_claude(all_cards, anthropic_key)
+        start = time.time()
+        categorizations = categorize_cards_with_llm(all_cards)
 
-            for card in all_cards:
-                topic, reason = categorizations.get(card["id"], (None, "not categorized"))
-                if not topic or topic not in TOPICS:
-                    # Fallback to table-based inference
-                    topic = infer_topic_from_tables(card.get("tables_referenced", []))
-                    if not topic:
-                        topic = "candidatures"  # Ultimate fallback
-                card["topic"] = topic
-
-            print(f"   Time: {time.time() - start:.1f}s")
-        else:
-            print()
-            print("⏭️  STEP 3: Skipping AI categorization (no ANTHROPIC_API_KEY)")
-            for card in all_cards:
-                # Use table-based inference when no API key
+        for card in all_cards:
+            topic, reason = categorizations.get(card["id"], (None, "not categorized"))
+            if not topic or topic not in TOPICS:
+                # Fallback to table-based inference
                 topic = infer_topic_from_tables(card.get("tables_referenced", []))
-                card["topic"] = topic if topic else "candidatures"
+                if not topic:
+                    topic = "candidatures"  # Ultimate fallback
+            card["topic"] = topic
+
+        print(f"   Time: {time.time() - start:.1f}s")
     else:
         print()
         print("⏭️  STEP 3: Skipping AI categorization (--skip-categorize)")
