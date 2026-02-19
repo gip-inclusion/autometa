@@ -253,6 +253,26 @@ function switchSidebarTab(tab) {
 }
 
 /**
+ * Force-sync sidebar tab visibility from localStorage.
+ * Fixes desync when htmx swaps fresh HTML with default active classes.
+ */
+function syncSidebarTabState() {
+  const tocContent = document.getElementById('tocContent');
+  const actionsContent = document.getElementById('actionsContent');
+  const sidebar = document.getElementById('actionsSidebar');
+  const toggle = document.getElementById('sidebarTabToggle');
+
+  if (tocContent) tocContent.classList.toggle('active', currentSidebarTab === 'toc');
+  if (actionsContent) actionsContent.classList.toggle('active', currentSidebarTab === 'actions');
+  if (sidebar) sidebar.dataset.activeTab = currentSidebarTab;
+  if (toggle) {
+    toggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === currentSidebarTab);
+    });
+  }
+}
+
+/**
  * Scroll to URL hash section on page load
  */
 function scrollToHashSection() {
@@ -442,6 +462,11 @@ function resetActionsState() {
   const offcanvasContent = document.getElementById('actionsOffcanvasContent');
   if (offcanvasContent) offcanvasContent.innerHTML = '';
 
+  // Reset expand data store
+  expandDataStore = [];
+
+  // Re-sync tab visibility from localStorage (fixes desync after htmx swap)
+  syncSidebarTabState();
 }
 
 // Hide public warning banner if previously dismissed - runs on every htmx load
@@ -1603,6 +1628,45 @@ function attachPillListeners(pill, idx) {
 }
 
 /**
+ * Open the detail modal with full content
+ */
+function openActionModal(title, content, isCode) {
+  const modal = document.getElementById('actionDetailModal');
+  if (!modal) return;
+
+  document.getElementById('actionDetailModalTitle').textContent = title;
+  const body = document.getElementById('actionDetailModalBody');
+  if (isCode) {
+    body.innerHTML = `<pre class="action-modal-pre"><code>${escapeHtml(content)}</code></pre>`;
+  } else {
+    body.innerHTML = `<div class="action-modal-text">${escapeHtml(content)}</div>`;
+  }
+  new bootstrap.Modal(modal).show();
+}
+
+// Store full values for expand buttons (indexed)
+let expandDataStore = [];
+
+/**
+ * Register a value for the expand button and return its index
+ */
+function registerExpandData(title, value, isCode) {
+  const idx = expandDataStore.length;
+  expandDataStore.push({ title, value, isCode });
+  return idx;
+}
+
+// Event delegation for expand buttons
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.action-expand-btn');
+  if (!btn) return;
+  const idx = parseInt(btn.dataset.expandIdx, 10);
+  if (isNaN(idx) || !expandDataStore[idx]) return;
+  const { title, value, isCode } = expandDataStore[idx];
+  openActionModal(title, value, isCode);
+});
+
+/**
  * Format the expanded content of a pill
  */
 function formatPillContent(toolUse, toolResult) {
@@ -1626,7 +1690,7 @@ function formatPillContent(toolUse, toolResult) {
     }
   }
 
-  // API calls: show clickable links (regardless of category - scripts can make API calls)
+  // API calls: show clickable links + SQL preview
   if (toolResult?.api_calls?.length > 0) {
     html += '<div class="action-api-links">';
     for (const call of toolResult.api_calls) {
@@ -1637,6 +1701,18 @@ function formatPillContent(toolUse, toolResult) {
         <span>${escapeHtml(linkText)}</span>
         <i class="ri-external-link-line"></i>
       </a>`;
+      // Show SQL preview for Metabase queries
+      if (call.sql) {
+        const sqlClean = call.sql.replace(/^[\s\\n]+/, '');
+        const sqlPreview = sqlClean.length > 200 ? sqlClean.substring(0, 200) + '...' : sqlClean;
+        html += `<pre class="action-sql-preview">${escapeHtml(sqlPreview)}</pre>`;
+        if (sqlClean.length > 200) {
+          const expandIdx = registerExpandData('SQL', sqlClean, true);
+          html += `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
+            <i class="ri-expand-diagonal-line"></i> Voir la requete complète
+          </button>`;
+        }
+      }
     }
     html += '</div>';
   }
@@ -1657,8 +1733,10 @@ function formatPillContent(toolUse, toolResult) {
       const displayValue = typeof value === 'object'
         ? JSON.stringify(value)
         : String(value);
-      const truncated = displayValue.length > 500
-        ? displayValue.substring(0, 500) + '...'
+      const MAX_INLINE = 500;
+      const needsTruncation = displayValue.length > MAX_INLINE;
+      const truncated = needsTruncation
+        ? displayValue.substring(0, MAX_INLINE) + '...'
         : displayValue;
 
       // Description: no header, different styling
@@ -1669,6 +1747,13 @@ function formatPillContent(toolUse, toolResult) {
           <div class="action-kv-key">${escapeHtml(key.toUpperCase())}</div>
           <div class="action-kv-value">${escapeHtml(truncated)}</div>
         </div>`;
+      }
+      if (needsTruncation) {
+        const isCode = key === 'command' || key === 'query' || key === 'content';
+        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode);
+        html += `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
+          <i class="ri-expand-diagonal-line"></i> Voir tout
+        </button>`;
       }
     }
     html += '</div>';

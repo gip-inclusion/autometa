@@ -77,7 +77,7 @@ class TestEmitApiSignal:
         old_stdout = sys.stdout
         sys.stdout = captured
 
-        long_sql = "SELECT " + "x, " * 100 + "y FROM table"
+        long_sql = "SELECT " + "x, " * 200 + "y FROM table"
         emit_api_signal(
             source="metabase",
             instance="stats",
@@ -88,9 +88,9 @@ class TestEmitApiSignal:
         sys.stdout = old_stdout
         output = captured.getvalue()
 
-        # SQL should be truncated to ~100 chars + "..."
+        # SQL should be truncated to ~500 chars + "..."
         assert "..." in output
-        assert len(output) < len(long_sql) + 100
+        assert len(output) < len(long_sql) + 200
 
 
 class TestParseApiSignals:
