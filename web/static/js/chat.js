@@ -122,17 +122,8 @@ function initSidebarTabToggle() {
   const newToggle = toggle.cloneNode(true);
   toggle.replaceWith(newToggle);
 
-  // Sync UI with current tab
-  newToggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.tab === currentSidebarTab);
-  });
-  sidebar.dataset.activeTab = currentSidebarTab;
-
-  // Show/hide tab contents
-  const tocContent = document.getElementById('tocContent');
-  const actionsContent = document.getElementById('actionsContent');
-  if (tocContent) tocContent.classList.toggle('active', currentSidebarTab === 'toc');
-  if (actionsContent) actionsContent.classList.toggle('active', currentSidebarTab === 'actions');
+  // Sync UI with current tab (CSS uses data-active-tab for content visibility)
+  syncSidebarTabState();
 
   newToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.sidebar-tab-btn');
@@ -141,17 +132,9 @@ function initSidebarTabToggle() {
     const tab = btn.dataset.tab;
     if (tab === currentSidebarTab) return;
 
-    // Update active state
-    newToggle.querySelectorAll('.sidebar-tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-
     currentSidebarTab = tab;
     localStorage.setItem('sidebarTab', tab);
-    sidebar.dataset.activeTab = tab;
-
-    // Toggle content visibility
-    if (tocContent) tocContent.classList.toggle('active', tab === 'toc');
-    if (actionsContent) actionsContent.classList.toggle('active', tab === 'actions');
+    syncSidebarTabState();
   });
 }
 
@@ -232,38 +215,19 @@ function ensureUniqueId(baseId) {
 function switchSidebarTab(tab) {
   if (tab === currentSidebarTab) return;
 
-  const toggle = document.getElementById('sidebarTabToggle');
-  const sidebar = document.getElementById('actionsSidebar');
-  if (!toggle || !sidebar) return;
-
-  // Update button states
-  toggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.tab === tab);
-  });
-
   currentSidebarTab = tab;
   localStorage.setItem('sidebarTab', tab);
-  sidebar.dataset.activeTab = tab;
-
-  // Toggle content visibility
-  const tocContent = document.getElementById('tocContent');
-  const actionsContent = document.getElementById('actionsContent');
-  if (tocContent) tocContent.classList.toggle('active', tab === 'toc');
-  if (actionsContent) actionsContent.classList.toggle('active', tab === 'actions');
+  syncSidebarTabState();
 }
 
 /**
  * Force-sync sidebar tab visibility from localStorage.
- * Fixes desync when htmx swaps fresh HTML with default active classes.
+ * CSS uses [data-active-tab] on the sidebar as single source of truth for content visibility.
  */
 function syncSidebarTabState() {
-  const tocContent = document.getElementById('tocContent');
-  const actionsContent = document.getElementById('actionsContent');
   const sidebar = document.getElementById('actionsSidebar');
   const toggle = document.getElementById('sidebarTabToggle');
 
-  if (tocContent) tocContent.classList.toggle('active', currentSidebarTab === 'toc');
-  if (actionsContent) actionsContent.classList.toggle('active', currentSidebarTab === 'actions');
   if (sidebar) sidebar.dataset.activeTab = currentSidebarTab;
   if (toggle) {
     toggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
@@ -1739,21 +1703,24 @@ function formatPillContent(toolUse, toolResult) {
         ? displayValue.substring(0, MAX_INLINE) + '...'
         : displayValue;
 
+      // Expand button before the value when truncated
+      let expandBtnHtml = '';
+      if (needsTruncation) {
+        const isCode = key === 'command' || key === 'query' || key === 'content';
+        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode);
+        expandBtnHtml = `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
+          <i class="ri-expand-diagonal-line"></i> Voir tout
+        </button>`;
+      }
+
       // Description: no header, different styling
       if (key === 'description') {
         html += `<div class="action-description">${escapeHtml(truncated)}</div>`;
       } else {
         html += `<div class="action-kv">
-          <div class="action-kv-key">${escapeHtml(key.toUpperCase())}</div>
+          <div class="action-kv-key">${escapeHtml(key.toUpperCase())}${expandBtnHtml}</div>
           <div class="action-kv-value">${escapeHtml(truncated)}</div>
         </div>`;
-      }
-      if (needsTruncation) {
-        const isCode = key === 'command' || key === 'query' || key === 'content';
-        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode);
-        html += `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
-          <i class="ri-expand-diagonal-line"></i> Voir tout
-        </button>`;
       }
     }
     html += '</div>';

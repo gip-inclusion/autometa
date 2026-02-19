@@ -2597,7 +2597,9 @@ body.has-sidebar {
   padding: 0.5rem;
 }
 
-.sidebar-tab-content.active {
+/* Show tab content based on sidebar data-active-tab (single source of truth) */
+.actions-sidebar[data-active-tab="toc"] #tocContent,
+.actions-sidebar[data-active-tab="actions"] #actionsContent {
   display: block;
 }
 
@@ -2938,6 +2940,9 @@ body.has-sidebar {
   color: var(--bs-gray-500);
   text-transform: uppercase;
   letter-spacing: 0.025em;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
 .action-kv-value {
