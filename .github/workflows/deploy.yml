@@ -28,11 +28,20 @@ jobs:
             exit 0
           fi
 
-          # Bind-mounted paths: rsync is enough, no Docker rebuild needed
-          CONTENT_ONLY="^(knowledge/|skills/|AGENTS\.md|\.claude/)"
+          # If the before SHA is missing (force push, first push), rebuild to be safe
+          if ! git cat-file -e ${{ github.event.before }} 2>/dev/null; then
+            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Paths that do NOT require a Docker rebuild:
+          #   - bind-mounted content (rsync is enough)
+          #   - files with no deployment impact
+          # Anything else (web/, lib/, docs/, config/, Dockerfile, etc.) needs a rebuild.
+          NO_REBUILD="^(knowledge/|skills/|AGENTS\.md|\.claude/|README|LICENSE|\.gitignore|tests/|evals/|\.github/|Makefile)"
           CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
 
-          if echo "$CHANGED" | grep -vqE "$CONTENT_ONLY"; then
+          if echo "$CHANGED" | grep -vqE "$NO_REBUILD"; then
             echo "needs_rebuild=true" >> $GITHUB_OUTPUT
           else
             echo "needs_rebuild=false" >> $GITHUB_OUTPUT
