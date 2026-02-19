@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from typing import Optional
 
@@ -43,13 +42,6 @@ def generate_text(
             temperature=temperature,
             timeout=timeout,
             client=client,
-        )
-
-    if backend == "sdk":
-        return _anthropic_generate(
-            prompt,
-            model=model or config.CLAUDE_MODEL,
-            max_tokens=max_tokens,
         )
 
     if backend == "cli":
@@ -99,28 +91,6 @@ def _ollama_generate(
     finally:
         if close_client:
             client.close()
-
-
-def _anthropic_generate(prompt: str, *, model: str, max_tokens: int) -> str:
-    try:
-        from anthropic import Anthropic
-    except ImportError as exc:
-        raise LLMError("anthropic package not installed") from exc
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise LLMError("ANTHROPIC_API_KEY not set")
-
-    client = Anthropic(api_key=api_key)
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text.strip()
-    except Exception as exc:
-        raise LLMError(f"Anthropic request failed: {exc}") from exc
 
 
 def _claude_cli_generate(prompt: str, *, timeout: Optional[float]) -> str:

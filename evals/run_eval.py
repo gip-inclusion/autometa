@@ -30,7 +30,6 @@ from web import config
 from web.agents.base import AgentMessage
 from web.agents.cli import CLIBackend
 from web.agents.cli_ollama import CLIOllamaBackend
-from web.agents.ollama import OllamaBackend
 
 from questions import PROMPT_TEMPLATE, QUESTIONS, BACKENDS
 from compare import extract_json_data, compare_results, format_comparison
@@ -39,7 +38,6 @@ from blind_eval import run_blind_eval, format_blind_eval
 
 BACKEND_CLASSES = {
     "cli": CLIBackend,
-    "ollama": OllamaBackend,
     "cli-ollama": CLIOllamaBackend,
 }
 

@@ -14,8 +14,8 @@ load_dotenv(BASE_DIR / ".env")
 # Default: ./data (relative to BASE_DIR)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 
-# Agent backend: "ollama", "cli" or "sdk"
-AGENT_BACKEND = os.getenv("AGENT_BACKEND", "ollama").lower()
+# Agent backend: "cli" or "cli-ollama"
+AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 
 # LLM backend for short prompts (titles, tags). Defaults to AGENT_BACKEND.
 LLM_BACKEND = os.getenv("LLM_BACKEND", "").strip().lower() or AGENT_BACKEND
@@ -40,20 +40,12 @@ ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
     "Bash(.venv/bin/python:*)"
 )
 
-# Ollama settings
+# Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder-next")
 OLLAMA_TITLE_MODEL = os.getenv("OLLAMA_TITLE_MODEL", OLLAMA_MODEL)
 OLLAMA_TAG_MODEL = os.getenv("OLLAMA_TAG_MODEL", OLLAMA_MODEL)
 OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "120"))
-OLLAMA_STREAM = os.getenv("OLLAMA_STREAM", "true").lower() == "true"
-OLLAMA_STREAM_CHUNK_SIZE = int(os.getenv("OLLAMA_STREAM_CHUNK_SIZE", "200"))
-OLLAMA_MAX_HISTORY_CHARS = int(os.getenv("OLLAMA_MAX_HISTORY_CHARS", "50000"))
-OLLAMA_TOOL_MAX_STEPS = min(int(os.getenv("OLLAMA_TOOL_MAX_STEPS", "6")), 20)
-OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "0"))
-OLLAMA_MAX_OUTPUT_CHARS = int(os.getenv("OLLAMA_MAX_OUTPUT_CHARS", "30000"))
-OLLAMA_BASH_TIMEOUT = int(os.getenv("OLLAMA_BASH_TIMEOUT", "300"))
 
 # Backend capability helpers
 USES_CLAUDE_CLI = AGENT_BACKEND == "cli" or LLM_BACKEND == "cli"

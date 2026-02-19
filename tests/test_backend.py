@@ -9,10 +9,8 @@ class TestGetAgent:
     """Every registered backend must return the right class."""
 
     @pytest.mark.parametrize("name,cls_name", [
-        ("ollama", "OllamaBackend"),
         ("cli", "CLIBackend"),
         ("cli-ollama", "CLIOllamaBackend"),
-        ("sdk", "SDKBackend"),
     ])
     def test_get_agent_returns_correct_class(self, name, cls_name):
         from web.agents import get_agent
@@ -34,10 +32,9 @@ class TestLLMRouting:
     """LLM short-prompt routing for every backend."""
 
     @pytest.mark.parametrize("backend,expected_fn", [
-        ("ollama", "_ollama_generate"),
         ("cli-ollama", "_ollama_generate"),
+        ("ollama", "_ollama_generate"),
         ("cli", "_claude_cli_generate"),
-        ("sdk", "_anthropic_generate"),
     ])
     def test_routes_to_correct_generator(self, backend, expected_fn):
         with patch("web.llm._get_llm_backend", return_value=backend), \

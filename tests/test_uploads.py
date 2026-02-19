@@ -20,9 +20,6 @@ _tmp_dir = tempfile.mkdtemp()
 os.environ["DATA_DIR"] = _tmp_dir
 os.environ["DATABASE_URL"] = ""  # Force SQLite
 
-# Mock the SDK module before it's imported
-sys.modules['claude_agent_sdk'] = MagicMock()
-
 # Now we can safely import
 from web.uploads import (
     _compute_sha256,
