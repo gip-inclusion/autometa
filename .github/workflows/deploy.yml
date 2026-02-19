@@ -17,35 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect what changed
-        id: changes
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # If the before SHA is missing (force push, first push), rebuild to be safe
-          if ! git cat-file -e ${{ github.event.before }} 2>/dev/null; then
-            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Paths that do NOT require a Docker rebuild:
-          #   - bind-mounted content (rsync is enough)
-          #   - files with no deployment impact
-          # Anything else (web/, lib/, docs/, config/, Dockerfile, etc.) needs a rebuild.
-          NO_REBUILD="^(knowledge/|skills/|AGENTS\.md|\.claude/|README|LICENSE|\.gitignore|tests/|evals/|\.github/|Makefile)"
-          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
-
-          if echo "$CHANGED" | grep -vqE "$NO_REBUILD"; then
-            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
-          else
-            echo "needs_rebuild=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Setup SSH
         env:
@@ -74,6 +45,5 @@ jobs:
             ./ matometa@ljt.cc:/srv/matometa/
 
       - name: Rebuild container
-        if: steps.changes.outputs.needs_rebuild == 'true'
         run: |
           ssh matometa@ljt.cc 'cd /srv/matometa && docker compose up -d --build && docker image prune -f'
