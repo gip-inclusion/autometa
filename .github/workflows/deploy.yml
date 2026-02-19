@@ -5,11 +5,11 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'knowledge/**'
-      - 'skills/**'
-      - 'docs/**'
-      - '*.md'
+      - 'README.md'
+      - 'LICENSE'
       - '.gitignore'
+      - 'tests/**'
+      - 'evals/**'
 
 jobs:
   deploy:
@@ -17,6 +17,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect what changed
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Bind-mounted paths: rsync is enough, no Docker rebuild needed
+          CONTENT_ONLY="^(knowledge/|skills/|AGENTS\.md|\.claude/)"
+          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+
+          if echo "$CHANGED" | grep -vqE "$CONTENT_ONLY"; then
+            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_rebuild=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup SSH
         env:
@@ -27,7 +47,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ljt.cc >> ~/.ssh/known_hosts
 
-      - name: Deploy
+      - name: Sync files
         run: |
           rsync -avz --delete \
             --exclude='.git' \
@@ -44,4 +64,7 @@ jobs:
             --exclude='auth/allowed_emails.txt' \
             ./ matometa@ljt.cc:/srv/matometa/
 
+      - name: Rebuild container
+        if: steps.changes.outputs.needs_rebuild == 'true'
+        run: |
           ssh matometa@ljt.cc 'cd /srv/matometa && docker compose up -d --build && docker image prune -f'
