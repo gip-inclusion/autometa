@@ -1,16 +1,54 @@
 """
 Tests for the Metabase API client.
 
-These are integration tests that require credentials.
-Run with: pytest tests/test_metabase_client.py -v -m integration
+Unit tests run without credentials.
+Integration tests require credentials: pytest tests/test_metabase_client.py -v -m integration
 """
+
+import base64
+import json
 
 import pytest
 from lib.query import MetabaseAPI, MetabaseError
-from lib._metabase import QueryResult
+from lib._metabase import QueryResult, build_sql_url
 from lib._sources import get_metabase
 
-# All tests in this file are integration tests
+
+class TestBuildSqlUrl:
+    """Test URL generation for shareable Metabase links."""
+
+    def test_uses_classic_format(self):
+        """URL must use classic format (type/native/query), not pMBQL (lib/type/stages)."""
+        url = build_sql_url("https://metabase.example.com", 2, "SELECT 1")
+        b64 = url.split("#")[1]
+        decoded = json.loads(base64.b64decode(b64))
+        dq = decoded["dataset_query"]
+        assert dq["type"] == "native"
+        assert dq["native"]["query"] == "SELECT 1"
+        assert dq["database"] == 2
+        assert "lib/type" not in dq
+        assert "stages" not in dq
+
+    def test_url_structure(self):
+        url = build_sql_url("https://stats.example.com", 3, "SELECT 1")
+        assert url.startswith("https://stats.example.com/question#eyJ")
+
+    def test_preserves_sql(self):
+        sql = "SELECT d.name, COUNT(*) FROM departments d GROUP BY d.name ORDER BY 2 DESC"
+        url = build_sql_url("https://example.com", 2, sql)
+        b64 = url.split("#")[1]
+        decoded = json.loads(base64.b64decode(b64))
+        assert decoded["dataset_query"]["native"]["query"] == sql
+
+    def test_special_characters_in_sql(self):
+        sql = "SELECT * FROM t WHERE name = 'l''inclusion' AND x > 0"
+        url = build_sql_url("https://example.com", 2, sql)
+        b64 = url.split("#")[1]
+        decoded = json.loads(base64.b64decode(b64))
+        assert decoded["dataset_query"]["native"]["query"] == sql
+
+
+# All tests below are integration tests
 pytestmark = pytest.mark.integration
 
 # Known collection IDs
