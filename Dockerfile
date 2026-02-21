@@ -44,10 +44,6 @@ COPY --chown=matometa:matometa . .
 RUN mkdir -p /app/data /app/data/uploads /app/data/modified \
     && chown matometa:matometa /app/data /app/data/uploads /app/data/modified
 
-# Entrypoint cleans stale SQLite WAL/SHM files left by other host users
-COPY --chown=matometa:matometa entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
 # Switch to non-root user
 USER matometa
 
@@ -59,5 +55,4 @@ ENV AGENT_BACKEND=sdk \
 
 EXPOSE 5000
 
-ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "-m", "web.app"]
