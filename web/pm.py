@@ -1,0 +1,175 @@
+"""Process Manager: runs agent subprocesses, persists events to database.
+
+Decoupled from the web process. Communicates via pm_commands table (input)
+and messages table (output). The web SSE handler tails the messages table.
+"""
+
+import asyncio
+import json
+import logging
+
+from . import config
+from .agents import get_agent
+from .agents.base import AgentBackend
+from .storage import store
+from .audit import audit_log
+from lib.tool_taxonomy import classify_tool
+from lib.api_signals import parse_api_signals
+
+logger = logging.getLogger(__name__)
+
+
+class ProcessManager:
+    def __init__(self):
+        self.backend: AgentBackend = get_agent()
+        self.running: dict[str, asyncio.Task] = {}
+
+    async def run(self):
+        """Main loop: poll for commands, execute them."""
+        logger.info("Process manager started")
+        while True:
+            try:
+                commands = await asyncio.to_thread(store.get_pending_pm_commands)
+                for cmd in commands:
+                    if cmd["command"] == "run":
+                        conv_id = cmd["conversation_id"]
+                        if conv_id in self.running:
+                            logger.warning(f"Agent already running for {conv_id}, skipping")
+                        else:
+                            task = asyncio.create_task(
+                                self._run_agent(conv_id, cmd["payload"])
+                            )
+                            self.running[conv_id] = task
+                    elif cmd["command"] == "cancel":
+                        await self._cancel_agent(cmd["conversation_id"])
+                    await asyncio.to_thread(store.mark_pm_command_processed, cmd["id"])
+            except Exception:
+                logger.exception("Error polling pm_commands")
+            await asyncio.sleep(0.5)
+
+    async def _run_agent(self, conversation_id: str, payload: dict):
+        """Run agent for a conversation, persist all events to DB."""
+        prompt = payload["prompt"]
+        history = payload.get("history", [])
+        session_id = payload.get("session_id")
+        user_email = payload.get("user_email")
+
+        assistant_text_parts: list[str] = []
+        assistant_msg_id: int | None = None
+
+        try:
+            async for event in self.backend.send_message(
+                conversation_id=conversation_id,
+                message=prompt,
+                history=history,
+                session_id=session_id,
+            ):
+                if event.type == "assistant":
+                    assistant_text_parts.append(str(event.content))
+                    append_mode = bool(getattr(event, "raw", {}).get("append"))
+                    full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
+                    if assistant_msg_id is None:
+                        msg = store.add_message(conversation_id, "assistant", full_text)
+                        assistant_msg_id = msg.id if msg else None
+                    else:
+                        store.update_message(assistant_msg_id, full_text)
+
+                elif event.type in ("tool_use", "tool_result"):
+                    if event.type == "tool_use":
+                        assistant_msg_id = None
+                        assistant_text_parts = []
+                    content = self._serialize_tool_event(event, conversation_id, user_email)
+                    store.add_message(conversation_id, event.type, content)
+
+                elif event.type == "system":
+                    if event.raw.get("subtype") == "init":
+                        new_session_id = event.raw.get("session_id")
+                        if new_session_id:
+                            store.update_conversation(conversation_id, session_id=new_session_id)
+                    if event.raw.get("usage"):
+                        self._persist_usage(conversation_id, event.raw["usage"])
+
+        except Exception:
+            logger.exception(f"Agent error for {conversation_id}")
+        finally:
+            store.update_conversation(conversation_id, needs_response=False)
+            self.running.pop(conversation_id, None)
+            logger.info(f"Agent finished for {conversation_id}")
+
+    def _serialize_tool_event(self, event, conversation_id: str, user_email: str | None) -> str:
+        """Serialize a tool_use or tool_result event for DB storage."""
+        if event.type == "tool_use" and isinstance(event.content, dict):
+            tool_name = event.content.get("tool", "")
+            tool_input = event.content.get("input", {})
+            category = classify_tool(tool_name, tool_input)
+            enriched = {**event.content, "category": category}
+
+            audit_log(
+                conversation_id=conversation_id,
+                user_email=user_email or "",
+                tool_name=tool_name,
+                tool_input=tool_input,
+            )
+            return json.dumps(enriched)
+
+        elif event.type == "tool_result":
+            if isinstance(event.content, dict) and "output" in event.content:
+                raw_content = event.content["output"]
+                if not isinstance(raw_content, str):
+                    raw_content = str(raw_content)
+            elif isinstance(event.content, str):
+                raw_content = event.content
+            else:
+                raw_content = str(event.content)
+
+            api_calls = parse_api_signals(raw_content)
+            if api_calls:
+                enriched = {"output": event.content, "api_calls": api_calls}
+                return json.dumps(enriched)
+
+        return json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
+
+    def _persist_usage(self, conversation_id: str, usage: dict):
+        """Persist token usage from a result event."""
+        extra = {}
+        if usage.get("service_tier"):
+            extra["service_tier"] = usage["service_tier"]
+        if usage.get("web_search_requests"):
+            extra["web_search_requests"] = usage["web_search_requests"]
+
+        store.accumulate_usage(
+            conversation_id,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+            cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+            backend=config.AGENT_BACKEND,
+            extra=extra if extra else None,
+        )
+
+    async def _cancel_agent(self, conversation_id: str):
+        """Cancel a running agent task."""
+        task = self.running.get(conversation_id)
+        if task:
+            await self.backend.cancel(conversation_id)
+            self.running.pop(conversation_id, None)
+            logger.info(f"Cancelled agent for {conversation_id}")
+
+    def is_running(self, conversation_id: str) -> bool:
+        """Check if an agent is running for a conversation."""
+        task = self.running.get(conversation_id)
+        return task is not None and not task.done()
+
+
+async def main():
+    """Entry point for the process manager."""
+    logging.basicConfig(
+        level=logging.DEBUG if config.DEBUG else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    pm = ProcessManager()
+    await pm.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

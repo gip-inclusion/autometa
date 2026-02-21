@@ -14,7 +14,6 @@ from ..config import FEATURE_KNOWLEDGE_CHAT, ADMIN_USERS
 from ..deps import get_current_user, templates
 from ..storage import store
 from ..helpers import validate_knowledge_path, list_knowledge_files, list_knowledge_sections, list_staged_files
-from .conversations import get_agent_instance
 from .research import get_corpus_stats, search_corpus, find_similar_pages, get_page
 
 logger = logging.getLogger(__name__)
@@ -69,13 +68,12 @@ def format_relative_date(dt):
 def get_sidebar_data(user_email: str | None):
     """Get data for sidebar (recent conversations for current user)."""
     conversations = store.list_conversations(limit=20, user_id=user_email)
-    agent = get_agent_instance()
 
     running_ids = []
     for conv in conversations:
         if conv.title:
             conv.title = humanize_title(conv.title)
-        conv.is_running = agent.is_running(conv.id)
+        conv.is_running = conv.needs_response
         if conv.is_running:
             running_ids.append(conv.id)
 
@@ -224,8 +222,6 @@ def rechercher(
     """Universal search page — combines conversations, reports, and apps."""
     from .rapports import scan_interactive_apps
 
-    agent = get_agent_instance()
-
     # Parse show param: single value, empty = all
     show_convos = show in ("", "convos", "mine")
     show_mine = show == "mine"
@@ -247,7 +243,7 @@ def rechercher(
         for conv, tags in conversations_with_tags:
             if conv.title:
                 conv.title = humanize_title(conv.title)
-            conv.is_running = agent.is_running(conv.id)
+            conv.is_running = conv.needs_response
             conv.tags = tags
             conv.is_mine = conv.user_id == user_email
 

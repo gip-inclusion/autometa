@@ -10,7 +10,6 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..deps import get_current_user
 from ..storage import store
-from ..agents import get_agent
 from .. import config
 from .. import llm
 from ..config import ADMIN_USERS
@@ -23,23 +22,10 @@ from ..uploads import (
     BlockedFileTypeError,
     AVScanFailedError,
 )
-from lib.tool_taxonomy import classify_tool
-from lib.api_signals import parse_api_signals
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations")
-
-# Global agent instance
-_agent = None
-
-
-def get_agent_instance():
-    """Get or create the agent backend instance."""
-    global _agent
-    if _agent is None:
-        _agent = get_agent()
-    return _agent
 
 
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
@@ -184,14 +170,13 @@ def create_conversation(user_email: str = Depends(get_current_user)):
 def list_conversations(user_email: str = Depends(get_current_user), limit: int = 20):
     """List recent conversations."""
     convs = store.list_conversations(limit=limit, user_id=user_email)
-    agent = get_agent_instance()
     return {
         "conversations": [
             {
                 "id": c.id,
                 "title": c.title,
                 "has_report": c.has_report,
-                "is_running": agent.is_running(c.id),
+                "is_running": c.needs_response,
                 "updated_at": c.updated_at.isoformat(),
                 "links": {"self": f"/api/conversations/{c.id}"},
             }
@@ -213,10 +198,9 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
 
     is_owner = conv.user_id == user_email or conv.user_id is None
 
-    agent = get_agent_instance()
     return {
         **conv.to_dict(),
-        "is_running": agent.is_running(conv_id),
+        "is_running": conv.needs_response,
         "is_owner": is_owner,
         "links": {
             "self": f"/api/conversations/{conv_id}",
@@ -386,9 +370,8 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         return JSONResponse({"error": "Missing 'content' field"}, status_code=400)
 
     content = data["content"]
-    agent = get_agent_instance()
 
-    if agent.is_running(conv_id):
+    if conv.needs_response:
         return JSONResponse({"error": "Conversation already running"}, status_code=409)
 
     is_first_message = len(conv.messages) == 0
@@ -399,84 +382,20 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         generate_conversation_title(content, conv_id)
         generate_conversation_tags(content, conv_id)
 
-    return {
-        "status": "started",
-        "links": {
-            "stream": f"/api/conversations/{conv_id}/stream",
-            "cancel": f"/api/conversations/{conv_id}/cancel",
-        },
-    }
-
-
-@router.get("/{conv_id}/stream")
-async def stream_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
-    """Stream agent responses via Server-Sent Events.
-
-    Allows streaming for shared conversations (read-only view of existing responses).
-    New agent runs are still restricted to the owner via send_message.
-    """
-    from ..helpers import get_staging_dir, KNOWLEDGE_ROOT
-    from ..audit import audit_log
-
-    conv = store.get_conversation(conv_id)
-    if not conv:
-        return JSONResponse({"error": "Conversation not found"}, status_code=404)
-
-    if not conv.messages:
-        return JSONResponse({"error": "No messages in conversation"}, status_code=400)
-
-    agent = get_agent_instance()
-
-    # Find the last user message content
-    last_user_msg = None
+    # Build history and prompt for the PM
+    history = []
     for msg in conv.messages:
-        if msg.type == "user":
-            last_user_msg = msg.content
+        if msg.type in ("user", "assistant"):
+            history.append({"role": msg.type, "content": msg.content})
 
-    # If no response needed and agent not running, nothing to stream
-    if not conv.needs_response and not agent.is_running(conv_id):
-        async def done_stream():
-            yield f"event: done\n"
-            yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
-
-        return StreamingResponse(
-            done_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    if agent.is_running(conv_id):
-        async def wait_stream():
-            yield f"event: system\n"
-            yield f"data: {json.dumps({'content': 'Agent already running, please wait...'})}\n\n"
-            for _ in range(60):
-                await asyncio.sleep(1)
-                if not agent.is_running(conv_id):
-                    yield f"event: done\n"
-                    yield f"data: {json.dumps({'conversation_id': conv_id, 'reload': True})}\n\n"
-                    return
-                yield ": keepalive\n\n"
-            yield f"event: error\n"
-            yield f"data: {json.dumps({'error': 'Timeout waiting for agent'})}\n\n"
-
-        return StreamingResponse(
-            wait_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    if not last_user_msg:
-        return JSONResponse({"error": "No user message to respond to"}, status_code=400)
-
-    last_message = last_user_msg
+    prompt = content
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:
-        staging_dir = get_staging_dir(conv.id)
+        from ..helpers import get_staging_dir, KNOWLEDGE_ROOT
+        staging_dir = get_staging_dir(conv_id)
         original_path = KNOWLEDGE_ROOT / conv.file_path
         staged_path = staging_dir / conv.file_path
-
-        is_first_message = not any(m.type == "user" for m in conv.messages[:-1])
 
         if is_first_message:
             if staged_path.exists():
@@ -505,135 +424,94 @@ User request: """
 
 User request: """
 
-        last_message = knowledge_context + last_message
+        prompt = knowledge_context + prompt
 
+    # Enqueue the run command for the process manager
+    store.enqueue_pm_command(conv_id, "run", {
+        "prompt": prompt,
+        "history": history,
+        "session_id": conv.session_id,
+        "user_email": user_email,
+    })
+
+    return {
+        "status": "started",
+        "links": {
+            "stream": f"/api/conversations/{conv_id}/stream",
+            "cancel": f"/api/conversations/{conv_id}/cancel",
+        },
+    }
+
+
+@router.get("/{conv_id}/stream")
+async def stream_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
+    """Stream agent responses via Server-Sent Events.
+
+    Tails the messages table for new events written by the process manager.
+    Decoupled from the agent subprocess — client disconnect does NOT kill
+    the agent.
+    """
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+
+    if not conv.messages:
+        return JSONResponse({"error": "No messages in conversation"}, status_code=400)
+
+    # If no response needed, nothing to stream
+    if not conv.needs_response:
+        async def done_stream():
+            yield f"event: done\n"
+            yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
+
+        return StreamingResponse(
+            done_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Tail the messages table: poll for new messages written by the PM
     async def generate():
-        history = []
-        for msg in conv.messages[:-1]:
-            if msg.type in ("user", "assistant"):
-                history.append({"role": msg.type, "content": msg.content})
+        # Start from the last message ID we already know about
+        last_msg_id = conv.messages[-1].id if conv.messages else 0
+        poll_count = 0
+        max_polls = 600  # 5 minutes at 0.5s intervals
 
-        # Storage state
-        assistant_text_parts = []
-        assistant_msg_id = None
-        error_holder = [None]
+        while poll_count < max_polls:
+            new_messages = await asyncio.to_thread(
+                store.get_messages_since, conv_id, last_msg_id
+            )
+            for msg in new_messages:
+                last_msg_id = msg.id
+                sse_data = {"type": msg.type, "content": msg.content}
 
-        try:
-            async for event in agent.send_message(
-                conversation_id=conv_id,
-                message=last_message,
-                history=history,
-                session_id=conv.session_id,
-            ):
-                # Store to database FIRST (survives client disconnect)
-                if event.type == "assistant":
-                    assistant_text_parts.append(str(event.content))
-                    append_mode = bool(getattr(event, "raw", {}).get("append"))
-                    if append_mode:
-                        full_text = "".join(assistant_text_parts)
-                    else:
-                        full_text = "\n".join(assistant_text_parts)
-                    if assistant_msg_id is None:
-                        msg = store.add_message(conv_id, "assistant", full_text)
-                        assistant_msg_id = msg.id if msg else None
-                    else:
-                        store.update_message(assistant_msg_id, full_text)
+                # Parse JSON content for tool events
+                if msg.type in ("tool_use", "tool_result"):
+                    try:
+                        sse_data["content"] = json.loads(msg.content)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
-                if event.type in ("tool_use", "tool_result"):
-                    # Finalize current assistant message so next text creates a new one
-                    if event.type == "tool_use":
-                        assistant_msg_id = None
-                        assistant_text_parts = []
-
-                    # Add taxonomy category to tool_use events
-                    if event.type == "tool_use" and isinstance(event.content, dict):
-                        tool_name = event.content.get("tool", "")
-                        tool_input = event.content.get("input", {})
-                        category = classify_tool(tool_name, tool_input)
-                        enriched = {**event.content, "category": category}
-                        content = json.dumps(enriched)
-                        # Attach enriched content for SSE
-                        event._sse_content = enriched
-
-                        # Audit log tool usage
-                        audit_log(
-                            conversation_id=conv_id,
-                            user_email=user_email,
-                            tool_name=tool_name,
-                            tool_input=tool_input,
-                        )
-                    # Parse API signals from tool_result events
-                    elif event.type == "tool_result":
-                        if isinstance(event.content, dict) and 'output' in event.content:
-                            raw_content = event.content['output']
-                            if not isinstance(raw_content, str):
-                                raw_content = str(raw_content)
-                        elif isinstance(event.content, str):
-                            raw_content = event.content
-                        else:
-                            raw_content = str(event.content)
-                        api_calls = parse_api_signals(raw_content)
-                        if api_calls:
-                            enriched = {
-                                "output": event.content,
-                                "api_calls": api_calls,
-                            }
-                            content = json.dumps(enriched)
-                            event._sse_content = enriched
-                        else:
-                            content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
-                    else:
-                        content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
-
-                    store.add_message(conv_id, event.type, content)
-
-                if event.type == "system":
-                    # Handle session ID from init event
-                    if event.raw.get("subtype") == "init":
-                        new_session_id = event.raw.get("session_id")
-                        if new_session_id:
-                            store.update_conversation(conv_id, session_id=new_session_id)
-
-                    # Extract and store token usage from result event
-                    if event.raw.get("usage"):
-                        usage = event.raw["usage"]
-                        extra = {}
-                        if usage.get("service_tier"):
-                            extra["service_tier"] = usage["service_tier"]
-                        if usage.get("web_search_requests"):
-                            extra["web_search_requests"] = usage["web_search_requests"]
-
-                        store.accumulate_usage(
-                            conv_id,
-                            input_tokens=usage.get("input_tokens", 0),
-                            output_tokens=usage.get("output_tokens", 0),
-                            cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
-                            cache_read_tokens=usage.get("cache_read_input_tokens", 0),
-                            backend=config.AGENT_BACKEND,
-                            extra=extra if extra else None,
-                        )
-
-                # Yield SSE data
-                if hasattr(event, '_sse_content'):
-                    sse_data = {"type": event.type, "content": event._sse_content}
-                else:
-                    sse_data = event.to_dict()
-
-                yield f"event: {event.type}\n"
+                yield f"event: {msg.type}\n"
                 yield f"data: {json.dumps(sse_data)}\n\n"
 
-        except Exception as e:
-            logger.error(f"Stream error for {conv_id}: {e}", exc_info=True)
-            error_holder[0] = e
-        finally:
-            store.update_conversation(conv_id, needs_response=False)
+            # Check if the PM has finished (needs_response cleared)
+            updated = await asyncio.to_thread(
+                store.get_conversation, conv_id, False
+            )
+            if updated and not updated.needs_response:
+                yield f"event: done\n"
+                yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
+                return
 
-        if error_holder[0]:
-            yield f"event: error\n"
-            yield f"data: {json.dumps({'error': str(error_holder[0])})}\n\n"
+            poll_count += 1
+            # Keepalive comment to prevent proxy/browser timeout
+            if poll_count % 6 == 0:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(0.5)
 
-        yield "event: done\n"
-        yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
+        yield f"event: error\n"
+        yield f"data: {json.dumps({'error': 'Timeout waiting for agent'})}\n\n"
 
     return StreamingResponse(
         generate(),
@@ -643,21 +521,22 @@ User request: """
 
 
 @router.post("/{conv_id}/cancel")
-async def cancel_conversation(conv_id: str):
-    """Cancel a running conversation."""
-    agent = get_agent_instance()
-    cancelled = await agent.cancel(conv_id)
+def cancel_conversation(conv_id: str):
+    """Cancel a running conversation via the process manager."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv or not conv.needs_response:
+        return {"status": "not_running"}
 
-    if cancelled:
-        return {"status": "cancelled"}
-    return {"status": "not_running"}
+    store.enqueue_pm_command(conv_id, "cancel")
+    return {"status": "cancelled"}
 
 
 @router.get("/running")
 def get_running():
-    """Get list of currently running conversation IDs."""
-    agent = get_agent_instance()
-    running_ids = list(agent._running) if hasattr(agent, '_running') else []
+    """Get list of currently running conversation IDs (needs_response=True)."""
+    # Query conversations with needs_response=True
+    pending = store.get_pending_pm_commands()
+    running_ids = list({cmd["conversation_id"] for cmd in pending if cmd["command"] == "run"})
     return {"running": running_ids}
 
 

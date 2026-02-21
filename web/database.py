@@ -15,7 +15,7 @@ from . import config
 USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 # Schema version - increment when adding migrations
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 if USE_POSTGRES:
     import psycopg2
@@ -287,12 +287,15 @@ def init_db():
                     _migrate_to_v16(conn)
                 if current_version < 17:
                     _migrate_to_v17(conn)
+                if current_version < 18:
+                    _migrate_to_v18(conn)
 
             _set_schema_version(conn, SCHEMA_VERSION)
 
         # Safety: ensure tables exist even if version was already bumped
         _migrate_to_v15(conn)
         _migrate_to_v17(conn)
+        _migrate_to_v18(conn)
 
 
 def _migrate_to_v11(conn: ConnectionWrapper):
@@ -436,6 +439,26 @@ def _migrate_to_v17(conn: ConnectionWrapper):
     """)
 
 
+def _migrate_to_v18(conn: ConnectionWrapper):
+    """Migrate to v18: add pm_commands table for process manager coordination."""
+    serial_pk = "SERIAL PRIMARY KEY" if conn.is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS pm_commands (
+            id {serial_pk},
+            conversation_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            payload TEXT,
+            created_at TEXT NOT NULL,
+            processed_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pm_commands_pending
+        ON pm_commands(processed_at) WHERE processed_at IS NULL
+    """)
+
+
 def _create_schema(conn: ConnectionWrapper):
     """Create the complete database schema."""
     # Use SERIAL for PostgreSQL, INTEGER PRIMARY KEY AUTOINCREMENT for SQLite
@@ -563,10 +586,20 @@ def _create_schema(conn: ConnectionWrapper):
             UNIQUE(item_type, item_id)
         );
 
+        CREATE TABLE IF NOT EXISTS pm_commands (
+            id {serial_pk},
+            conversation_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            payload TEXT,
+            created_at TEXT NOT NULL,
+            processed_at TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_uploaded_files_conversation ON uploaded_files(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_uploaded_files_hash ON uploaded_files(sha256_hash);
         CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
         CREATE INDEX IF NOT EXISTS idx_cron_runs_slug_started ON cron_runs(app_slug, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_pm_commands_pending ON pm_commands(processed_at) WHERE processed_at IS NULL;
     """)
 
 
@@ -2007,6 +2040,73 @@ class ConversationStore:
         with get_db() as conn:
             cursor = conn.execute(
                 "DELETE FROM uploaded_files WHERE id = ?", (file_id,)
+            )
+            return cursor.rowcount > 0
+
+
+    # =========================================================================
+    # Process Manager commands
+    # =========================================================================
+
+    def get_messages_since(self, conv_id: str, after_id: int) -> list[Message]:
+        """Get messages with id > after_id for a conversation."""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT id, conversation_id, COALESCE(type, role) as type, content, timestamp
+                   FROM messages
+                   WHERE conversation_id = ? AND id > ?
+                   ORDER BY id""",
+                (conv_id, after_id)
+            ).fetchall()
+
+            return [
+                Message(
+                    id=m["id"],
+                    conversation_id=m["conversation_id"],
+                    type=m["type"],
+                    content=m["content"],
+                    created_at=datetime.fromisoformat(m["timestamp"]),
+                )
+                for m in rows
+            ]
+
+    def enqueue_pm_command(self, conversation_id: str, command: str, payload: Optional[dict] = None) -> int:
+        """Queue a command for the process manager. Returns the command ID."""
+        with get_db() as conn:
+            return conn.insert_and_get_id(
+                """INSERT INTO pm_commands (conversation_id, command, payload, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (conversation_id, command, json.dumps(payload) if payload else None,
+                 datetime.now().isoformat())
+            )
+
+    def get_pending_pm_commands(self) -> list[dict]:
+        """Get unprocessed PM commands."""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT id, conversation_id, command, payload, created_at
+                   FROM pm_commands
+                   WHERE processed_at IS NULL
+                   ORDER BY id"""
+            ).fetchall()
+
+            return [
+                {
+                    "id": r["id"],
+                    "conversation_id": r["conversation_id"],
+                    "command": r["command"],
+                    "payload": json.loads(r["payload"]) if r["payload"] else None,
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+
+    def mark_pm_command_processed(self, command_id: int) -> bool:
+        """Mark a PM command as processed."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE pm_commands SET processed_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), command_id)
             )
             return cursor.rowcount > 0
 

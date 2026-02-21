@@ -9,10 +9,9 @@ import importlib
 import json
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
-from typing import AsyncIterator, Optional
-from unittest.mock import patch
 
 import pytest
 
@@ -24,8 +23,6 @@ import pytest
 @pytest.fixture(scope="module")
 def app():
     """Module-scoped FastAPI app with fresh database."""
-    import web.routes.conversations as conv_mod
-
     db_fd, db_path = tempfile.mkstemp()
 
     from web import config
@@ -37,13 +34,9 @@ def app():
     from web import storage
     importlib.reload(storage)
 
-    conv_mod._agent = None
-
     from web.app import app as fastapi_app
 
     yield fastapi_app
-
-    conv_mod._agent = None
 
     config.SQLITE_PATH = original_path
     os.close(db_fd)
@@ -76,34 +69,6 @@ def responded_conversation(app):
     return conv
 
 
-def _make_mock_backend(events, running_ids=None):
-    """Create a mock agent backend that yields predetermined events."""
-    from web.agents.base import AgentBackend, AgentMessage
-
-    class MockBackend(AgentBackend):
-        def __init__(self):
-            self._running = set(running_ids or [])
-
-        async def send_message(
-            self, conversation_id, message, history, session_id=None,
-        ) -> AsyncIterator[AgentMessage]:
-            self._running.add(conversation_id)
-            try:
-                for evt in events:
-                    yield evt
-            finally:
-                self._running.discard(conversation_id)
-
-        async def cancel(self, conversation_id):
-            self._running.discard(conversation_id)
-            return True
-
-        def is_running(self, conversation_id):
-            return conversation_id in self._running
-
-    return MockBackend()
-
-
 def _parse_sse_events(response_data: bytes) -> list[dict]:
     """Parse SSE event stream into a list of {event, data} dicts."""
     events = []
@@ -129,31 +94,42 @@ def _parse_sse_events(response_data: bytes) -> list[dict]:
     return events
 
 
-def _stream_with_mock(client, conv_id, mock):
-    """Run a stream request with a mock backend."""
-    with patch("web.routes.conversations.get_agent_instance", return_value=mock):
-        with patch("web.routes.conversations.generate_conversation_title"):
-            with patch("web.routes.conversations.generate_conversation_tags"):
-                return client.get(
-                    f"/api/conversations/{conv_id}/stream",
-                    headers={"X-Forwarded-Email": "test@example.com"},
-                )
+def _simulate_pm(conv_id, messages, delay=0.1):
+    """Simulate the process manager writing messages then clearing needs_response.
+
+    Runs in a background thread so the SSE handler can poll concurrently.
+    """
+    def _run():
+        time.sleep(delay)
+        from web.storage import store
+        for msg_type, content in messages:
+            store.add_message(
+                conv_id, msg_type,
+                content if isinstance(content, str) else json.dumps(content),
+            )
+        store.update_conversation(conv_id, needs_response=False)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
 
 
 # ---------------------------------------------------------------------------
-# Tests: SSE endpoint behavior (deterministic, no DB checks)
+# Tests: SSE endpoint behavior (DB-tail architecture)
+#
+# The SSE handler polls the messages table for new entries written by the
+# Process Manager. These tests use _simulate_pm() to insert messages in a
+# background thread, simulating the PM writing to the database.
 # ---------------------------------------------------------------------------
 
 
 class TestDoneStream:
     def test_already_responded_returns_done(self, app, client, responded_conversation):
         """Completed conversations get an immediate done event."""
-        mock = _make_mock_backend([])
-        with patch("web.routes.conversations.get_agent_instance", return_value=mock):
-            response = client.get(
-                f"/api/conversations/{responded_conversation.id}/stream",
-                headers={"X-Forwarded-Email": "test@example.com"},
-            )
+        response = client.get(
+            f"/api/conversations/{responded_conversation.id}/stream",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
         events = _parse_sse_events(response.content)
         assert len(events) == 1
         assert events[0]["event"] == "done"
@@ -162,74 +138,46 @@ class TestDoneStream:
 class TestSSEFormat:
     def test_stream_ends_with_done(self, app, client, conversation):
         """SSE stream must end with a done event."""
-        from web.agents.base import AgentMessage
-        events = [
-            AgentMessage(type="system", content="init", raw={"subtype": "init", "session_id": "s1", "data": {"session_id": "s1"}}),
-            AgentMessage(type="assistant", content="Hello"),
-            AgentMessage(type="system", content="Completed: done", raw={"result": True}),
-        ]
-        response = _stream_with_mock(client, conversation.id, _make_mock_backend(events))
-        assert response.headers["content-type"].startswith("text/event-stream")
-        sse_events = _parse_sse_events(response.content)
-        assert sse_events[-1]["event"] == "done"
+        t = _simulate_pm(conversation.id, [("assistant", "Hello")])
+        response = client.get(
+            f"/api/conversations/{conversation.id}/stream",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
+        t.join()
+        events = _parse_sse_events(response.content)
+        assert events[-1]["event"] == "done"
 
     def test_assistant_event_has_content(self, app, client, conversation):
         """Assistant SSE events include the content field."""
-        from web.agents.base import AgentMessage
-        events = [
-            AgentMessage(type="system", content="init", raw={"subtype": "init", "session_id": "s1", "data": {"session_id": "s1"}}),
-            AgentMessage(type="assistant", content="My response"),
-            AgentMessage(type="system", content="Completed: done", raw={"result": True}),
-        ]
-        response = _stream_with_mock(client, conversation.id, _make_mock_backend(events))
-        sse_events = _parse_sse_events(response.content)
-        assistant = [e for e in sse_events if e["event"] == "assistant"]
+        t = _simulate_pm(conversation.id, [("assistant", "My response")])
+        response = client.get(
+            f"/api/conversations/{conversation.id}/stream",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
+        t.join()
+        events = _parse_sse_events(response.content)
+        assistant = [e for e in events if e["event"] == "assistant"]
         assert len(assistant) == 1
         assert assistant[0]["data"]["content"] == "My response"
 
     def test_tool_events_in_sse(self, app, client, conversation):
         """Tool use and result events appear in SSE stream."""
-        from web.agents.base import AgentMessage
-        events = [
-            AgentMessage(type="system", content="init", raw={"subtype": "init", "session_id": "s1", "data": {"session_id": "s1"}}),
-            AgentMessage(type="tool_use", content={"tool": "Read", "input": {"file_path": "x"}}, raw={"block_type": "tool_use", "id": "tu_1"}),
-            AgentMessage(type="tool_result", content={"tool": "Read", "output": "data"}, raw={"block_type": "tool_result", "tool_use_id": "tu_1"}),
-            AgentMessage(type="assistant", content="Done"),
-            AgentMessage(type="system", content="Completed: done", raw={"result": True}),
+        messages = [
+            ("tool_use", json.dumps({"tool": "Read", "input": {"file_path": "x"}, "category": "read"})),
+            ("tool_result", json.dumps({"output": "data"})),
+            ("assistant", "Done"),
         ]
-        response = _stream_with_mock(client, conversation.id, _make_mock_backend(events))
-        sse_events = _parse_sse_events(response.content)
-        types = [e["event"] for e in sse_events]
+        t = _simulate_pm(conversation.id, messages)
+        response = client.get(
+            f"/api/conversations/{conversation.id}/stream",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
+        t.join()
+        events = _parse_sse_events(response.content)
+        types = [e["event"] for e in events]
         assert "tool_use" in types
         assert "tool_result" in types
         assert "assistant" in types
-
-
-class TestWaitStream:
-    def test_running_agent_gets_wait_then_done(self, app, client, conversation):
-        """If agent is_running, stream waits then sends done."""
-        mock = _make_mock_backend([], running_ids=[conversation.id])
-        call_count = [0]
-
-        def is_running_then_stop(conv_id):
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                return True
-            mock._running.discard(conv_id)
-            return False
-
-        mock.is_running = is_running_then_stop
-
-        with patch("web.routes.conversations.get_agent_instance", return_value=mock):
-            response = client.get(
-                f"/api/conversations/{conversation.id}/stream",
-                headers={"X-Forwarded-Email": "test@example.com"},
-            )
-
-        types = [e["event"] for e in _parse_sse_events(response.content)]
-        assert "system" in types
-        assert "done" in types
-        assert "assistant" not in types  # Did not start a new run
 
 
 class TestNeedsResponse:
@@ -243,32 +191,29 @@ class TestNeedsResponse:
         store.add_message(conv.id, "assistant", "Hi there")
         # needs_response defaults to False
 
-        mock = _make_mock_backend([])
-        with patch("web.routes.conversations.get_agent_instance", return_value=mock):
-            response = client.get(
-                f"/api/conversations/{conv.id}/stream",
-                headers={"X-Forwarded-Email": "test@example.com"},
-            )
+        response = client.get(
+            f"/api/conversations/{conv.id}/stream",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
         events = _parse_sse_events(response.content)
         assert len(events) == 1
         assert events[0]["event"] == "done"
 
-    def test_needs_response_true_starts_agent(self, app, client):
-        """Conversation with needs_response=True starts the agent."""
-        from web.agents.base import AgentMessage
+    def test_needs_response_true_streams_messages(self, app, client):
+        """Conversation with needs_response=True streams PM messages."""
         from web.storage import store
         conv = store.create_conversation(user_id="test@example.com")
         store.add_message(conv.id, "user", "Hello")
         store.update_conversation(conv.id, needs_response=True)
 
-        events = [
-            AgentMessage(type="system", content="init", raw={"subtype": "init", "session_id": "s1"}),
-            AgentMessage(type="assistant", content="Response"),
-            AgentMessage(type="system", content="Completed: done", raw={"result": True}),
-        ]
-        response = _stream_with_mock(client, conv.id, _make_mock_backend(events))
-        sse_events = _parse_sse_events(response.content)
-        types = [e["event"] for e in sse_events]
+        t = _simulate_pm(conv.id, [("assistant", "Response")])
+        response = client.get(
+            f"/api/conversations/{conv.id}/stream",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
+        t.join()
+        events = _parse_sse_events(response.content)
+        types = [e["event"] for e in events]
         assert "assistant" in types
 
     def test_update_conversation_clears_needs_response(self, app):
@@ -284,36 +229,6 @@ class TestNeedsResponse:
         store.update_conversation(conv.id, needs_response=False)
         updated = store.get_conversation(conv.id)
         assert updated.needs_response is False
-
-    def test_wait_stream_sends_reload(self, app, client):
-        """wait_stream done event includes reload flag."""
-        from web.storage import store
-        conv = store.create_conversation(user_id="test@example.com")
-        store.add_message(conv.id, "user", "Hello")
-        store.update_conversation(conv.id, needs_response=True)
-
-        mock = _make_mock_backend([], running_ids=[conv.id])
-        call_count = [0]
-
-        def is_running_then_stop(conv_id):
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                return True
-            mock._running.discard(conv_id)
-            return False
-
-        mock.is_running = is_running_then_stop
-
-        with patch("web.routes.conversations.get_agent_instance", return_value=mock):
-            response = client.get(
-                f"/api/conversations/{conv.id}/stream",
-                headers={"X-Forwarded-Email": "test@example.com"},
-            )
-
-        events = _parse_sse_events(response.content)
-        done_events = [e for e in events if e["event"] == "done"]
-        assert len(done_events) == 1
-        assert done_events[0]["data"]["reload"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -440,105 +355,56 @@ class TestAssistantTextReset:
 # ---------------------------------------------------------------------------
 # Tests: Client disconnect must NOT kill the agent
 #
-# Regression test for the FastAPI migration. When the SSE client disconnects
-# (page reload, navigation), Starlette cancels the StreamingResponse async
-# generator. If the agent iteration is directly inside that generator,
-# CancelledError propagates into _run_cli() → finally → SIGTERM → agent dies.
-#
-# Phase 2 (Process Manager) will fix this by decoupling the agent subprocess
-# from the SSE connection. Until then, these tests document the bug.
+# With the Process Manager architecture, the SSE handler is a DB tail —
+# it polls for new messages written by the PM. Closing the SSE connection
+# simply stops the polling loop; the PM continues running independently.
 # ---------------------------------------------------------------------------
-
-
-def _make_slow_mock_backend():
-    """Create a mock backend where send_message sleeps to simulate work.
-
-    Yields one event immediately, then blocks on asyncio.sleep(). The
-    ``cancelled`` flag tracks whether the generator was interrupted by
-    CancelledError / GeneratorExit (i.e. client disconnect killed it).
-    """
-    from web.agents.base import AgentBackend, AgentMessage
-
-    class SlowMockBackend(AgentBackend):
-        def __init__(self):
-            self._running = set()
-            self.cancelled = False
-            self.completed = False
-
-        async def send_message(
-            self, conversation_id, message, history, session_id=None,
-        ) -> AsyncIterator[AgentMessage]:
-            self._running.add(conversation_id)
-            try:
-                yield AgentMessage(
-                    type="system", content="init",
-                    raw={"subtype": "init", "session_id": "s1",
-                         "data": {"session_id": "s1"}},
-                )
-                # Simulate agent doing work (long enough for disconnect)
-                await asyncio.sleep(5)
-                yield AgentMessage(type="assistant", content="Final answer")
-                yield AgentMessage(
-                    type="system", content="Completed: done",
-                    raw={"result": True},
-                )
-                self.completed = True
-            except (asyncio.CancelledError, GeneratorExit):
-                self.cancelled = True
-                raise
-            finally:
-                self._running.discard(conversation_id)
-
-        async def cancel(self, conversation_id):
-            self._running.discard(conversation_id)
-            return True
-
-        def is_running(self, conversation_id):
-            return conversation_id in self._running
-
-    return SlowMockBackend()
 
 
 class TestClientDisconnect:
     """Client disconnect (page reload/navigation) must not kill the agent.
 
     When uvicorn detects TCP close, it calls aclose() on the
-    StreamingResponse async generator. This test does the same thing
-    directly — simulating a mid-stream client disconnect.
-
-    NOTE: Starlette's TestClient does NOT cancel ASGI tasks on disconnect,
-    so this must be tested at the generator level, not through HTTP.
+    StreamingResponse async generator. With the PM architecture, this
+    just stops the DB polling — no agent subprocess is affected.
     """
 
     def test_agent_survives_client_disconnect(self, app, conversation):
         """Agent must keep running after client disconnects mid-stream."""
         from web.routes.conversations import stream_conversation
+        from web.storage import store
 
-        mock = _make_slow_mock_backend()
+        # Insert a message so the SSE handler has something to stream
+        store.add_message(conversation.id, "assistant", "Working on it...")
 
         async def _run():
-            with patch("web.routes.conversations.get_agent_instance", return_value=mock):
-                with patch("web.routes.conversations.generate_conversation_title"):
-                    with patch("web.routes.conversations.generate_conversation_tags"):
-                        response = await stream_conversation(
-                            conv_id=conversation.id,
-                            user_email="test@example.com",
-                        )
-                        # Read partially then disconnect (aclose = uvicorn TCP close)
-                        gen = response.body_iterator
-                        chunks_read = 0
-                        async for chunk in gen:
-                            chunks_read += 1
-                            if chunks_read >= 2:
-                                break
-                        await gen.aclose()
-                        await asyncio.sleep(0.1)
+            response = await stream_conversation(
+                conv_id=conversation.id,
+                user_email="test@example.com",
+            )
+            gen = response.body_iterator
+            chunks_read = 0
+            async for chunk in gen:
+                chunks_read += 1
+                if chunks_read >= 2:
+                    break
+            # Simulate client disconnect (uvicorn calls aclose on TCP close)
+            await gen.aclose()
+            await asyncio.sleep(0.1)
 
-            return mock.cancelled
+        asyncio.run(_run())
 
-        cancelled = asyncio.run(_run())
-
-        assert not cancelled, (
-            "Agent was cancelled by client disconnect! "
-            "The agent must be decoupled from the SSE generator."
+        # After disconnect: needs_response must still be True
+        conv = store.get_conversation(conversation.id, include_messages=False)
+        assert conv.needs_response, (
+            "Agent was stopped by client disconnect! "
+            "The SSE handler must not cancel the agent when client disconnects."
         )
+
+        # No cancel command should have been enqueued
+        pending = store.get_pending_pm_commands()
+        cancel_cmds = [
+            c for c in pending
+            if c["conversation_id"] == conversation.id and c["command"] == "cancel"
+        ]
+        assert not cancel_cmds, "Client disconnect enqueued a cancel command!"
