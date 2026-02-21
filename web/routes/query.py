@@ -4,11 +4,14 @@ Provides CORS-protected access to Metabase and Matomo queries
 for static HTML/JS apps served from /interactive.
 """
 
-from flask import Blueprint, g, jsonify, request
+import asyncio
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, Response
 
 from lib.query import CallerType, execute_query
 
-bp = Blueprint("query", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api")
 
 # Allowed origins for CORS
 ALLOWED_ORIGINS = {
@@ -29,8 +32,8 @@ def _cors_headers(origin: str | None) -> dict:
     return headers
 
 
-@bp.route("/query", methods=["POST", "OPTIONS"])
-def query():
+@router.api_route("/query", methods=["POST", "OPTIONS"])
+async def query(request: Request):
     """
     Execute a query against Metabase or Matomo.
 
@@ -59,37 +62,40 @@ def query():
 
     # Handle preflight
     if request.method == "OPTIONS":
-        return "", 204, cors
+        return Response(status_code=204, headers=cors)
 
     # Check origin
     if origin and origin not in ALLOWED_ORIGINS:
-        return jsonify({"error": "Origin not allowed"}), 403, cors
+        return JSONResponse({"error": "Origin not allowed"}, status_code=403, headers=cors)
 
-    # Parse request
-    data = request.get_json()
+    try:
+        data = await request.json()
+    except Exception:
+        data = None
+
     if not data:
-        return jsonify({"error": "JSON body required"}), 400, cors
+        return JSONResponse({"error": "JSON body required"}, status_code=400, headers=cors)
 
     source = data.get("source")
     instance = data.get("instance")
 
     if not source or not instance:
-        return jsonify({"error": "source and instance are required"}), 400, cors
+        return JSONResponse(
+            {"error": "source and instance are required"}, status_code=400, headers=cors
+        )
 
-    # Execute query
-    result = execute_query(
+    # execute_query is synchronous — run in threadpool
+    result = await asyncio.to_thread(
+        execute_query,
         source=source,
         instance=instance,
         caller=CallerType.APP,
         conversation_id=data.get("conversation_id"),
-        # Metabase params
         sql=data.get("sql"),
         database_id=data.get("database_id"),
         card_id=data.get("card_id"),
-        # Matomo params
         method=data.get("method"),
         params=data.get("params"),
-        # Common
         timeout=data.get("timeout", 60),
     )
 
@@ -101,4 +107,4 @@ def query():
     }
 
     status = 200 if result.success else 500
-    return jsonify(response), status, cors
+    return JSONResponse(response, status_code=status, headers=cors)

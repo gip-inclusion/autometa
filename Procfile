@@ -1,1 +1,1 @@
-web: gunicorn --worker-class gevent --workers 2 --bind 0.0.0.0:$PORT web.app:app
+web: uvicorn web.app:app --host 0.0.0.0 --port $PORT

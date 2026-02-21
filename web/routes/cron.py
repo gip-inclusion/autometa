@@ -1,17 +1,21 @@
 """Cron task management routes."""
 
-from flask import Blueprint, render_template, request, jsonify, abort
+from pathlib import Path
 
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
+
+from ..deps import get_current_user, templates
 from ..cron import discover_cron_tasks, find_task, run_cron_task, get_last_runs, get_app_runs, set_cron_enabled
 from .html import get_sidebar_data, format_relative_date
 
-bp = Blueprint("cron", __name__)
+router = APIRouter()
 
 
-@bp.route("/cron")
-def cron_page():
+@router.get("/cron")
+def cron_page(request: Request, user_email: str = Depends(get_current_user)):
     """Cron task dashboard — shows all cron-eligible tasks with status."""
-    data = get_sidebar_data()
+    data = get_sidebar_data(user_email)
     tasks = discover_cron_tasks()
     last_runs = get_last_runs(limit_per_app=1)
 
@@ -26,51 +30,52 @@ def cron_page():
             except (ValueError, TypeError):
                 task["last_run"]["formatted_date"] = task["last_run"]["started_at"]
 
-    return render_template(
-        "cron.html",
-        section="cron",
-        tasks=tasks,
+    return templates.TemplateResponse(request, "cron.html", {
+        "section": "cron",
+        "tasks": tasks,
         **data,
-    )
+    })
 
 
-@bp.route("/api/cron/<slug>/run", methods=["POST"])
-def run_task(slug):
+@router.post("/api/cron/{slug}/run")
+def run_task(slug: str):
     """Trigger a manual cron run."""
     task = find_task(slug)
     if not task:
-        abort(404)
+        return JSONResponse({"error": "Task not found"}, status_code=404)
 
     result = run_cron_task(slug, trigger="manual")
-    return jsonify(result)
+    return result
 
 
-@bp.route("/api/cron/<slug>/toggle", methods=["POST"])
-def toggle_task(slug):
+@router.post("/api/cron/{slug}/toggle")
+async def toggle_task(slug: str, request: Request):
     """Enable or disable a cron task by updating its metadata file."""
-    data = request.get_json(silent=True) or {}
+    body = await request.body()
+    data = (await request.json()) if body else {}
     enabled = data.get("enabled", True)
 
     if not set_cron_enabled(slug, enabled):
-        abort(404)
+        return JSONResponse({"error": "Task not found"}, status_code=404)
 
-    return jsonify({"slug": slug, "enabled": enabled})
+    return {"slug": slug, "enabled": enabled}
 
 
-@bp.route("/api/cron/<slug>/script")
-def view_script(slug):
+@router.get("/api/cron/{slug}/script")
+def view_script(slug: str):
     """Return the cron.py source code for auditing."""
     task = find_task(slug)
     if not task:
-        abort(404)
+        return JSONResponse({"error": "Task not found"}, status_code=404)
 
-    from pathlib import Path
-    return Path(task["cron_path"]).read_text(), 200, {"Content-Type": "text/plain; charset=utf-8"}
+    return PlainTextResponse(
+        Path(task["cron_path"]).read_text(),
+        media_type="text/plain; charset=utf-8",
+    )
 
 
-@bp.route("/api/cron/<slug>/logs")
-def task_logs(slug):
+@router.get("/api/cron/{slug}/logs")
+def task_logs(slug: str, limit: int = Query(default=20)):
     """Return recent runs for a task as JSON."""
-    limit = request.args.get("limit", 20, type=int)
     runs = get_app_runs(slug, limit=limit)
-    return jsonify(runs)
+    return runs

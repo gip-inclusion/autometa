@@ -27,7 +27,7 @@ Matometa combine les APIs **Matomo** (analytics web) et **Metabase** (données m
 │   ├── save_report/     # Sauvegarde de rapports
 │   └── sync_*/          # Synchronisation des données de référence
 │
-├── web/                 # Application web Flask
+├── web/                 # Application web FastAPI
 │   ├── agents/          # Backends agent (cli, cli-ollama)
 │   ├── routes/          # Endpoints API et pages HTML
 │   ├── templates/       # Templates Jinja2
@@ -180,7 +180,7 @@ git push scalingo main
 - `PORT` : port d'écoute (utilisé par le Procfile)
 
 **Fichiers de configuration :**
-- `Procfile` : commande de démarrage gunicorn
+- `Procfile` : commande de démarrage uvicorn
 - `runtime.txt` : version Python (3.11)
 
 ## Développement

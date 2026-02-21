@@ -4,12 +4,14 @@ import re
 from datetime import datetime, timedelta
 from collections import OrderedDict
 
-from flask import Blueprint, render_template, request, g, redirect, abort
-
 import logging
 import time
 
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import RedirectResponse
+
 from ..config import FEATURE_KNOWLEDGE_CHAT, ADMIN_USERS
+from ..deps import get_current_user, templates
 from ..storage import store
 from ..helpers import validate_knowledge_path, list_knowledge_files, list_knowledge_sections, list_staged_files
 from .conversations import get_agent_instance
@@ -17,7 +19,7 @@ from .research import get_corpus_stats, search_corpus, find_similar_pages, get_p
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("html", __name__)
+router = APIRouter()
 
 
 def humanize_title(title: str) -> str:
@@ -35,10 +37,10 @@ def humanize_title(title: str) -> str:
 def format_relative_date(dt):
     """Format a datetime as a relative date string.
 
-    - If today: just time → "14:32"
-    - If yesterday: → "hier, 12:45"
-    - If this week (not today/yesterday): → "mercredi 11:11"
-    - If older: → "23/01/2026 à 22:00"
+    - If today: just time -> "14:32"
+    - If yesterday: -> "hier, 12:45"
+    - If this week (not today/yesterday): -> "mercredi 11:11"
+    - If older: -> "23/01/2026 a 22:00"
     """
     now = datetime.now()
     today = now.date()
@@ -54,24 +56,18 @@ def format_relative_date(dt):
     this_week_start = today - timedelta(days=days_since_monday)
 
     if dt_date == today:
-        # Today: just time
         return dt.strftime("%H:%M")
     elif dt_date == today - timedelta(days=1):
-        # Yesterday
         return f"hier, {dt.strftime('%H:%M')}"
     elif this_week_start <= dt_date < today:
-        # Earlier this week
         day_name = day_names[dt_date.weekday()]
         return f"{day_name} {dt.strftime('%H:%M')}"
     else:
-        # Older: full date with time
         return dt.strftime("%d/%m/%Y à %H:%M")
 
 
-
-def get_sidebar_data():
+def get_sidebar_data(user_email: str | None):
     """Get data for sidebar (recent conversations for current user)."""
-    user_email = getattr(g, "user_email", None)
     conversations = store.list_conversations(limit=20, user_id=user_email)
     agent = get_agent_instance()
 
@@ -112,10 +108,10 @@ def get_sidebar_data():
     }
 
 
-@bp.route("/")
-def index():
+@router.get("/")
+def index(request: Request, user_email: str = Depends(get_current_user)):
     """Home page — dashboard with navigation, sources, starred items."""
-    data = get_sidebar_data()
+    data = get_sidebar_data(user_email)
 
     # Pinned items (conversations, reports, apps)
     from .rapports import scan_interactive_apps
@@ -159,14 +155,13 @@ def index():
     # Knowledge sections (top-level folders only)
     knowledge_sections = list_knowledge_sections()
 
-    return render_template(
-        "accueil.html",
-        section="accueil",
-        current_conv=None,
-        pinned=pinned,
-        knowledge_sections=knowledge_sections,
-        **data
-    )
+    return templates.TemplateResponse(request, "accueil.html", {
+        "section": "accueil",
+        "current_conv": None,
+        "pinned": pinned,
+        "knowledge_sections": knowledge_sections,
+        **data,
+    })
 
 
 def _group_items_by_date(items):
@@ -218,23 +213,26 @@ def _group_items_by_date(items):
     return OrderedDict((k, v) for k, v in groups.items() if v)
 
 
-@bp.route("/rechercher")
-def rechercher():
+@router.get("/rechercher")
+def rechercher(
+    request: Request,
+    user_email: str = Depends(get_current_user),
+    show: str = Query(default=""),
+    q: str = Query(default=""),
+    tag: list[str] = Query(default=[]),
+):
     """Universal search page — combines conversations, reports, and apps."""
     from .rapports import scan_interactive_apps
 
-    user_email = getattr(g, "user_email", None)
     agent = get_agent_instance()
 
     # Parse show param: single value, empty = all
-    show = request.args.get("show", "")
     show_convos = show in ("", "convos", "mine")
     show_mine = show == "mine"
     show_reports = show in ("", "reports")
     show_apps = show in ("", "apps")
 
-    tag_params = request.args.getlist("tag")
-    q = request.args.get("q", "")
+    tag_params = tag
 
     items = []
 
@@ -255,14 +253,14 @@ def rechercher():
 
             # Determine icon
             conv.icon = "ri-chat-3-fill"
-            for tag in tags:
-                if tag.name == "analyse":
+            for tag_obj in tags:
+                if tag_obj.name == "analyse":
                     conv.icon = "ri-chat-3-fill"
                     break
-                elif tag.name == "meta":
+                elif tag_obj.name == "meta":
                     conv.icon = "ri-settings-3-fill"
                     break
-                elif tag.name == "appli":
+                elif tag_obj.name == "appli":
                     conv.icon = "ri-window-fill"
                     break
 
@@ -345,79 +343,77 @@ def rechercher():
         )
         for tag_type, tag_list in conv_tags.items():
             all_tags.setdefault(tag_type, {})
-            for tag in tag_list:
-                if tag.name in all_tags[tag_type]:
-                    all_tags[tag_type][tag.name].count += tag.count
+            for tag_obj in tag_list:
+                if tag_obj.name in all_tags[tag_type]:
+                    all_tags[tag_type][tag_obj.name].count += tag_obj.count
                 else:
-                    all_tags[tag_type][tag.name] = tag
+                    all_tags[tag_type][tag_obj.name] = tag_obj
 
     if show_reports:
         report_tags = store.get_used_report_tags_by_type()
         for tag_type, tag_list in report_tags.items():
             all_tags.setdefault(tag_type, {})
-            for tag in tag_list:
-                if tag.name not in all_tags[tag_type]:
-                    all_tags[tag_type][tag.name] = tag
+            for tag_obj in tag_list:
+                if tag_obj.name not in all_tags[tag_type]:
+                    all_tags[tag_type][tag_obj.name] = tag_obj
 
     # Convert from {type: {name: Tag}} to {type: [Tag]}
     all_tags = {k: sorted(v.values(), key=lambda t: t.label) for k, v in all_tags.items()}
 
     pinned_ids = store.get_pinned_ids()
 
-    data = get_sidebar_data()
-    return render_template(
-        "rechercher.html",
-        section="rechercher",
-        current_conv=None,
-        grouped_items=grouped_items,
-        all_tags=all_tags,
-        active_tags=tag_params,
-        pinned_ids=pinned_ids,
-        show=show,
-        q=q,
-        **data
-    )
+    data = get_sidebar_data(user_email)
+    return templates.TemplateResponse(request, "rechercher.html", {
+        "section": "rechercher",
+        "current_conv": None,
+        "grouped_items": grouped_items,
+        "all_tags": all_tags,
+        "active_tags": tag_params,
+        "pinned_ids": pinned_ids,
+        "show": show,
+        "q": q,
+        **data,
+    })
 
 
-@bp.route("/explorations")
-def explorations():
+@router.get("/explorations")
+def explorations(
+    conv: str | None = Query(default=None),
+    mine: str | None = Query(default=None),
+):
     """Legacy explorations list — redirects to /rechercher."""
-    if conv_id := request.args.get("conv"):
-        return redirect(f"/explorations/{conv_id}", code=301)
+    if conv:
+        return RedirectResponse(f"/explorations/{conv}", status_code=301)
 
-    target = "/rechercher?show=mine" if request.args.get("mine") == "1" else "/rechercher?show=convos"
-    return redirect(target, code=301)
+    target = "/rechercher?show=mine" if mine == "1" else "/rechercher?show=convos"
+    return RedirectResponse(target, status_code=301)
 
 
-@bp.route("/explorations/new")
-def explorations_new():
+@router.get("/explorations/new")
+def explorations_new(request: Request, user_email: str = Depends(get_current_user)):
     """Start a new conversation - empty chat UI."""
-    data = get_sidebar_data()
-    return render_template(
-        "explorations.html",
-        section="explorations",
-        current_conv=None,
-        is_new=True,
-        can_upload=True,  # New conversations can have uploads
-        **data
-    )
+    data = get_sidebar_data(user_email)
+    return templates.TemplateResponse(request, "explorations.html", {
+        "section": "explorations",
+        "current_conv": None,
+        "is_new": True,
+        "can_upload": True,
+        **data,
+    })
 
 
-@bp.route("/explorations/<conv_id>")
-def explorations_conversation(conv_id: str):
+@router.get("/explorations/{conv_id}")
+def explorations_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """View a specific conversation.
 
     Allows viewing conversations owned by other users (shared via UUID link).
     The owner's email is shown in the header for shared conversations.
     """
-    user_email = getattr(g, "user_email", None)
-
     # Try to get conversation without user filter (allow shared access)
     current_conv = store.get_conversation(conv_id, include_messages=False)
 
     if not current_conv:
-        # Conversation not found
-        return redirect("/rechercher?show=convos")
+        return RedirectResponse("/rechercher?show=convos", status_code=302)
 
     # Check if this is a shared conversation (owned by someone else)
     is_shared = current_conv.user_id and current_conv.user_id != user_email
@@ -427,34 +423,35 @@ def explorations_conversation(conv_id: str):
         current_conv.title = humanize_title(current_conv.title)
 
     # Determine if file uploads are allowed for this conversation
-    # Only allow for exploration conversations that the user owns
     can_upload = (
         not is_shared and
         current_conv.conv_type in ('exploration', None)
     )
 
-    data = get_sidebar_data()
-    return render_template(
-        "explorations.html",
-        section="explorations",
-        current_conv=current_conv,
-        is_shared=is_shared,
-        owner_email=owner_email,
-        can_upload=can_upload,
-        **data
-    )
+    data = get_sidebar_data(user_email)
+    return templates.TemplateResponse(request, "explorations.html", {
+        "section": "explorations",
+        "current_conv": current_conv,
+        "is_shared": is_shared,
+        "owner_email": owner_email,
+        "can_upload": can_upload,
+        **data,
+    })
 
 
-@bp.route("/connaissances")
-def connaissances():
+@router.get("/connaissances")
+def connaissances(
+    request: Request,
+    user_email: str = Depends(get_current_user),
+    file: str | None = Query(default=None),
+    section_filter: str | None = Query(default=None, alias="section"),
+):
     """Connaissances section - knowledge file browser (index)."""
     # Redirect old ?file= pattern to RESTful URL
-    file_param = request.args.get("file")
-    if file_param:
-        return redirect(f"/connaissances/{file_param}", code=301)
+    if file:
+        return RedirectResponse(f"/connaissances/{file}", status_code=301)
 
-    data = get_sidebar_data()
-    section_filter = request.args.get("section")
+    data = get_sidebar_data(user_email)
     categories = list_knowledge_files()
     if section_filter:
         categories = {
@@ -464,45 +461,47 @@ def connaissances():
     active_conversations = store.list_active_knowledge_conversations()
     active_files = {c.file_path: c for c in active_conversations if c.file_path}
 
-    return render_template(
-        "connaissances.html",
-        section="connaissances",
-        categories=categories,
-        current_file=None,
-        file_content=None,
-        current_conv=None,
-        staged_files=[],
-        active_files=active_files,
-        active_conversations=active_conversations,
-        feature_knowledge_chat=FEATURE_KNOWLEDGE_CHAT,
-        **data
-    )
+    return templates.TemplateResponse(request, "connaissances.html", {
+        "section": "connaissances",
+        "categories": categories,
+        "current_file": None,
+        "file_content": None,
+        "current_conv": None,
+        "staged_files": [],
+        "active_files": active_files,
+        "active_conversations": active_conversations,
+        "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+        **data,
+    })
 
 
-@bp.route("/connaissances/<path:file_path>")
-def connaissances_file(file_path):
+@router.get("/connaissances/{file_path:path}")
+def connaissances_file(
+    file_path: str,
+    request: Request,
+    user_email: str = Depends(get_current_user),
+    conv: str | None = Query(default=None),
+):
     """Connaissances section - view a specific knowledge file."""
-    data = get_sidebar_data()
-    conv_id = request.args.get("conv")
+    data = get_sidebar_data(user_email)
 
     validated_path = validate_knowledge_path(file_path)
     if not validated_path:
-        return render_template(
-            "connaissances.html",
-            section="connaissances",
-            error="Fichier non trouvé",
-            categories=list_knowledge_files(),
-            active_conversations=store.list_active_knowledge_conversations(),
-            feature_knowledge_chat=FEATURE_KNOWLEDGE_CHAT,
-            **data
-        )
+        return templates.TemplateResponse(request, "connaissances.html", {
+            "section": "connaissances",
+            "error": "Fichier non trouvé",
+            "categories": list_knowledge_files(),
+            "active_conversations": store.list_active_knowledge_conversations(),
+            "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+            **data,
+        })
 
     file_content = validated_path.read_text()
     current_conv = None
     staged_files = []
 
-    if conv_id:
-        current_conv = store.get_conversation(conv_id, include_messages=False)
+    if conv:
+        current_conv = store.get_conversation(conv, include_messages=False)
     else:
         current_conv = store.get_active_knowledge_conversation(file_path)
 
@@ -513,31 +512,36 @@ def connaissances_file(file_path):
     active_conversations = store.list_active_knowledge_conversations()
     active_files = {c.file_path: c for c in active_conversations if c.file_path}
 
-    return render_template(
-        "connaissances.html",
-        section="connaissances",
-        categories=categories,
-        current_file=file_path,
-        file_content=file_content,
-        current_conv=current_conv,
-        staged_files=staged_files,
-        active_files=active_files,
-        active_conversations=active_conversations,
-        feature_knowledge_chat=FEATURE_KNOWLEDGE_CHAT,
-        **data
-    )
+    return templates.TemplateResponse(request, "connaissances.html", {
+        "section": "connaissances",
+        "categories": categories,
+        "current_file": file_path,
+        "file_content": file_content,
+        "current_conv": current_conv,
+        "staged_files": staged_files,
+        "active_files": active_files,
+        "active_conversations": active_conversations,
+        "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+        **data,
+    })
 
 
-@bp.route("/recherche")
-def recherche():
+@router.get("/recherche")
+def recherche(
+    request: Request,
+    user_email: str = Depends(get_current_user),
+    q: str = Query(default=""),
+    similar: int | None = Query(default=None),
+    db: list[str] = Query(default=[]),
+    type: list[str] = Query(default=[]),
+):
     """Recherche terrain - semantic search across the Notion research corpus."""
-    data = get_sidebar_data()
+    data = get_sidebar_data(user_email)
     corpus_stats = get_corpus_stats()
 
-    q = request.args.get("q", "").strip()
-    similar_id = request.args.get("similar", type=int)
-    db_filter = set(request.args.getlist("db")) or {"entretiens"}
-    type_filter = set(request.args.getlist("type"))
+    q = q.strip()
+    db_filter = set(db) or {"entretiens"}
+    type_filter = set(type)
 
     results = None
     similar_source = None
@@ -552,40 +556,39 @@ def recherche():
         except Exception as e:
             logger.exception("Research search failed")
             error = str(e)
-    elif similar_id:
+    elif similar:
         try:
             t0 = time.monotonic()
-            results, similar_source = find_similar_pages(similar_id, limit=20)
+            results, similar_source = find_similar_pages(similar, limit=20)
             elapsed = round(time.monotonic() - t0, 1)
         except Exception as e:
             logger.exception("Research similar failed")
             error = str(e)
 
-    return render_template(
-        "recherche.html",
-        section="recherche",
-        current_conv=None,
-        current_page=None,
-        corpus_stats=corpus_stats,
-        query=q,
-        results=results,
-        similar_id=similar_id,
-        similar_source=similar_source,
-        elapsed=elapsed,
-        error=error,
-        active_dbs=db_filter,
-        active_types=type_filter,
-        **data
-    )
+    return templates.TemplateResponse(request, "recherche.html", {
+        "section": "recherche",
+        "current_conv": None,
+        "current_page": None,
+        "corpus_stats": corpus_stats,
+        "query": q,
+        "results": results,
+        "similar_id": similar,
+        "similar_source": similar_source,
+        "elapsed": elapsed,
+        "error": error,
+        "active_dbs": db_filter,
+        "active_types": type_filter,
+        **data,
+    })
 
 
-@bp.route("/recherche/<page_id>")
-def recherche_page(page_id):
+@router.get("/recherche/{page_id}")
+def recherche_page(page_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """Recherche terrain - page detail view."""
-    data = get_sidebar_data()
+    data = get_sidebar_data(user_email)
     page = get_page(page_id)
     if not page:
-        return redirect("/recherche")
+        return RedirectResponse("/recherche", status_code=302)
 
     # Filter properties for display (skip internal ones)
     skip_props = {"Type", "Date", "Date calculee", "Nom", "Name", "title"}
@@ -603,18 +606,16 @@ def recherche_page(page_id):
             continue
         visible_props[k] = v
 
-    return render_template(
-        "recherche.html",
-        section="recherche",
-        current_conv=None,
-        current_page=page,
-        visible_props=visible_props,
-        corpus_stats=None,
-        **data
-    )
+    return templates.TemplateResponse(request, "recherche.html", {
+        "section": "recherche",
+        "current_conv": None,
+        "current_page": page,
+        "visible_props": visible_props,
+        "corpus_stats": None,
+        **data,
+    })
 
 
-def is_admin() -> bool:
-    """Check if current user is an admin."""
-    user_email = getattr(g, "user_email", None)
+def is_admin(user_email: str | None) -> bool:
+    """Check if a user is an admin."""
     return user_email in ADMIN_USERS

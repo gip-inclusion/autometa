@@ -14,13 +14,14 @@ import threading
 
 import numpy as np
 import requests
-from flask import Blueprint, jsonify, request as flask_request
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
 from .. import config
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("research", __name__, url_prefix="/api/research")
+router = APIRouter(prefix="/api/research")
 
 DEEPINFRA_URL = "https://api.deepinfra.com/v1/openai/embeddings"
 EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
@@ -404,8 +405,13 @@ def get_page(page_id):
 # ---------------------------------------------------------------------------
 
 
-@bp.route("/search")
-def search():
+@router.get("/search")
+def search(
+    q: str = Query(default=""),
+    limit: int = Query(default=20),
+    db: list[str] = Query(default=[]),
+    type: list[str] = Query(default=[]),
+):
     """Semantic search across the research corpus.
 
     Query params:
@@ -414,24 +420,24 @@ def search():
         db: database_key filter (repeatable)
         type: page Type filter (repeatable, e.g. "Verbatim", "Observation")
     """
-    q = flask_request.args.get("q", "").strip()
+    q = q.strip()
     if not q:
-        return jsonify({"error": "Missing query parameter 'q'"}), 400
+        return JSONResponse({"error": "Missing query parameter 'q'"}, status_code=400)
 
-    limit = min(int(flask_request.args.get("limit", 20)), 50)
-    db_filter = set(flask_request.args.getlist("db"))
-    type_filter = set(flask_request.args.getlist("type"))
+    limit = min(limit, 50)
+    db_filter = set(db)
+    type_filter = set(type)
 
     conn = _get_db()
     if not conn:
-        return jsonify({"error": "Research database not found"}), 404
+        return JSONResponse({"error": "Research database not found"}, status_code=404)
 
     try:
         query_vec = _embed_query(q)
         chunks, embeddings = _get_embeddings(conn)
         pages = _get_pages(conn)
         if len(chunks) == 0:
-            return jsonify({"results": [], "query": q})
+            return {"results": [], "query": q}
 
         scores = _cosine_scores(query_vec, embeddings)
         top_indices = np.argsort(scores)[::-1]
@@ -451,23 +457,23 @@ def search():
 
         results = _dedupe_by_page(raw_results)[:limit]
 
-        return jsonify({
+        return {
             "results": results,
             "query": q,
             "total_chunks": len(chunks),
-        })
+        }
     finally:
         conn.close()
 
 
-@bp.route("/similar/<int:chunk_id>")
-def similar(chunk_id):
+@router.get("/similar/{chunk_id}")
+def similar(chunk_id: int, limit: int = Query(default=15)):
     """Find chunks similar to a given chunk (deduplicated by page)."""
-    limit = min(int(flask_request.args.get("limit", 15)), 30)
+    limit = min(limit, 30)
 
     conn = _get_db()
     if not conn:
-        return jsonify({"error": "Research database not found"}), 404
+        return JSONResponse({"error": "Research database not found"}, status_code=404)
 
     try:
         chunks, embeddings = _get_embeddings(conn)
@@ -479,7 +485,7 @@ def similar(chunk_id):
                 target_idx = i
                 break
         if target_idx is None:
-            return jsonify({"error": "Chunk not found"}), 404
+            return JSONResponse({"error": "Chunk not found"}, status_code=404)
 
         source_page_id = chunks[target_idx]["page_id"]
         target_vec = embeddings[target_idx]
@@ -499,28 +505,28 @@ def similar(chunk_id):
 
         results = _dedupe_by_page(raw_results)[:limit]
 
-        return jsonify({
+        return {
             "results": results,
             "source_chunk_id": chunk_id,
             "source_page_id": source_page_id,
-        })
+        }
     finally:
         conn.close()
 
 
-@bp.route("/pages/<page_id>")
-def page_detail(page_id):
+@router.get("/pages/{page_id}")
+def page_detail(page_id: str):
     """Full page details: properties, blocks, relations, chunks."""
     conn = _get_db()
     if not conn:
-        return jsonify({"error": "Research database not found"}), 404
+        return JSONResponse({"error": "Research database not found"}, status_code=404)
 
     try:
         page = conn.execute(
             "SELECT * FROM pages WHERE id = ?", (page_id,)
         ).fetchone()
         if not page:
-            return jsonify({"error": "Page not found"}), 404
+            return JSONResponse({"error": "Page not found"}, status_code=404)
 
         props = json.loads(page["properties_json"]) if page["properties_json"] else {}
 
@@ -554,7 +560,7 @@ def page_detail(page_id):
             (page_id,),
         ).fetchall()
 
-        return jsonify({
+        return {
             "id": page["id"],
             "title": page["title"],
             "database_key": page["database_key"],
@@ -569,17 +575,17 @@ def page_detail(page_id):
             ],
             "relations": relations,
             "chunk_ids": [c["id"] for c in chunks],
-        })
+        }
     finally:
         conn.close()
 
 
-@bp.route("/stats")
+@router.get("/stats")
 def stats():
     """Corpus statistics, including type breakdown for entretiens."""
     conn = _get_db()
     if not conn:
-        return jsonify({"error": "Research database not found"}), 404
+        return JSONResponse({"error": "Research database not found"}, status_code=404)
 
     try:
         pages_n = conn.execute("SELECT COUNT(*) as n FROM pages").fetchone()["n"]
@@ -611,7 +617,7 @@ def stats():
         for row in conn.execute("SELECT key, value FROM sync_meta").fetchall():
             meta[row["key"]] = row["value"]
 
-        return jsonify({
+        return {
             "pages": pages_n,
             "blocks": blocks_n,
             "chunks": chunks_n,
@@ -626,6 +632,6 @@ def stats():
             ],
             "types": type_counts,
             "sync_meta": meta,
-        })
+        }
     finally:
         conn.close()

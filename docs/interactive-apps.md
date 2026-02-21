@@ -642,7 +642,7 @@ Apps are served at `/interactive/{folder-name}/`. No build step required.
 /interactive/my-app/
 ```
 
-The Flask app serves files directly from `data/interactive/`.
+The FastAPI app serves files directly from `data/interactive/`.
 
 **Always use relative URLs** (starting with `/`) when linking to apps or files.
 The `BASE_URL` environment variable (e.g., `BASE_URL=https://matometa.ljt.cc/`)
@@ -651,23 +651,23 @@ app), but relative URLs are the default.
 
 ## Data Persistence (Datalake)
 
-Interactive apps are static frontends — they cannot modify the Flask backend.
+Interactive apps are static frontends — they cannot modify the FastAPI backend.
 When an app needs to **read and write persistent data** (tracking, assignments,
 user notes, state), use the **datalake PostgreSQL** via the existing `/api/query`
 endpoint and `lib.query`.
 
-### Why Not Flask Routes?
+### Why Not FastAPI Routes?
 
 The `web/` directory is baked into the Docker image and NOT bind-mounted.
 Any files created or modified under `/app/web/` are written to the container's
 overlay filesystem and **vanish on the next restart or deploy**. Never create
-Flask routes, blueprints, or Python modules from within the container.
+FastAPI routes, routers, or Python modules from within the container.
 
 ### Architecture
 
 ```
-Frontend (JS)  ──POST /api/query──▶  Flask /api/query  ──▶  Metabase API  ──▶  Datalake PostgreSQL
-                                     (already exists)       (native query)     (read + write)
+Frontend (JS)  ──POST /api/query──▶  FastAPI /api/query  ──▶  Metabase API  ──▶  Datalake PostgreSQL
+                                      (already exists)       (native query)     (read + write)
 ```
 
 The existing `/api/query` endpoint supports full SQL through the Metabase native

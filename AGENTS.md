@@ -637,8 +637,8 @@ Only bind-mounted directories persist across container restarts:
 
 **NEVER create or modify files under `/app/web/` or `/app/lib/`.** These directories
 are baked into the Docker image. The overlay filesystem lets writes appear to succeed,
-but everything is lost on the next restart or deploy. Do NOT create Flask routes,
-blueprints, or Python modules there.
+but everything is lost on the next restart or deploy. Do NOT create FastAPI routes,
+routers, or Python modules there.
 
 For apps that need server-side persistence, use the `matometa` schema on
 datalake PostgreSQL — see `docs/interactive-apps.md` "Data Persistence" section.

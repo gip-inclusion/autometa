@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
-  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.png" type="image/png">
 
   <!-- Itou Theme CSS -->
   <link rel="stylesheet" href="https://emplois.inclusion.beta.gouv.fr/static/css/itou.css">
@@ -16,7 +16,7 @@
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
 
   <!-- App styles -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="/static/css/style.css">
 
   {% block head %}{% endblock %}
 </head>
@@ -232,7 +232,7 @@
   <script>mermaid.initialize({ startOnLoad: false, theme: 'default' });</script>
 
   <!-- App JS -->
-  <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+  <script src="/static/js/chat.js"></script>
 
   <!-- Allow cmd/ctrl+click to open links in new tabs (bypass htmx) -->
   <script>

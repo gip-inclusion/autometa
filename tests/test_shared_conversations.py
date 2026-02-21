@@ -14,13 +14,15 @@ import pytest
 @pytest.fixture
 def owner_client(app):
     """Create a test client with owner user header."""
-    return app.test_client()
+    from starlette.testclient import TestClient
+    return TestClient(app)
 
 
 @pytest.fixture
 def guest_client(app):
     """Create a test client with guest user header."""
-    return app.test_client()
+    from starlette.testclient import TestClient
+    return TestClient(app)
 
 
 @pytest.fixture
@@ -29,11 +31,10 @@ def conversation(app, owner_client):
     from web.storage import store
 
     # Create conversation as owner
-    with app.test_request_context():
-        conv = store.create_conversation(user_id="owner@example.com")
-        store.add_message(conv.id, "user", "Hello, this is a test message")
-        store.add_message(conv.id, "assistant", "Hello! I'm here to help.")
-        return conv
+    conv = store.create_conversation(user_id="owner@example.com")
+    store.add_message(conv.id, "user", "Hello, this is a test message")
+    store.add_message(conv.id, "assistant", "Hello! I'm here to help.")
+    return conv
 
 
 class TestSharedConversationAccess:
@@ -46,7 +47,7 @@ class TestSharedConversationAccess:
             headers={"X-Forwarded-Email": "owner@example.com"},
         )
         assert response.status_code == 200
-        assert b"owner@example.com" not in response.data  # Not shown as "Conversation de" for owner
+        assert b"owner@example.com" not in response.content  # Not shown as "Conversation de" for owner
 
     def test_guest_can_view_shared_conversation(self, app, guest_client, conversation):
         """Guest can view a conversation owned by someone else."""
@@ -56,8 +57,8 @@ class TestSharedConversationAccess:
         )
         assert response.status_code == 200
         # Should show owner's email
-        assert b"owner@example.com" in response.data
-        assert b"Conversation de" in response.data
+        assert b"owner@example.com" in response.content
+        assert b"Conversation de" in response.content
 
     def test_guest_sees_readonly_chat_bar(self, app, guest_client, conversation):
         """Guest sees read-only chat bar instead of input."""
@@ -66,8 +67,8 @@ class TestSharedConversationAccess:
             headers={"X-Forwarded-Email": "guest@example.com"},
         )
         assert response.status_code == 200
-        assert b"Consultation seule" in response.data
-        assert b'id="chatInput"' not in response.data
+        assert b"Consultation seule" in response.content
+        assert b'id="chatInput"' not in response.content
 
     def test_owner_sees_chat_input(self, app, owner_client, conversation):
         """Owner sees the chat input, not read-only bar."""
@@ -76,17 +77,18 @@ class TestSharedConversationAccess:
             headers={"X-Forwarded-Email": "owner@example.com"},
         )
         assert response.status_code == 200
-        assert b"Consultation seule" not in response.data
-        assert b'id="chatInput"' in response.data
+        assert b"Consultation seule" not in response.content
+        assert b'id="chatInput"' in response.content
 
     def test_nonexistent_conversation_redirects(self, app, guest_client):
         """Accessing a non-existent conversation redirects to list."""
         response = guest_client.get(
             "/explorations/nonexistent-uuid",
             headers={"X-Forwarded-Email": "guest@example.com"},
+            follow_redirects=False,
         )
         assert response.status_code == 302
-        assert response.location == "/rechercher?show=convos"
+        assert response.headers["location"] == "/rechercher?show=convos"
 
 
 class TestSharedConversationAPI:
@@ -99,7 +101,7 @@ class TestSharedConversationAPI:
             headers={"X-Forwarded-Email": "owner@example.com"},
         )
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert data["id"] == conversation.id
         assert data["is_owner"] is True
 
@@ -110,7 +112,7 @@ class TestSharedConversationAPI:
             headers={"X-Forwarded-Email": "guest@example.com"},
         )
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert data["id"] == conversation.id
         assert data["is_owner"] is False
 
@@ -125,7 +127,7 @@ class TestSharedConversationAPI:
             },
         )
         assert response.status_code == 403
-        data = response.get_json()
+        data = response.json()
         assert "appartient" in data["error"]  # French error message
 
     def test_owner_can_send_message(self, app, owner_client, conversation):
@@ -148,7 +150,7 @@ class TestSharedConversationAPI:
             headers={"X-Forwarded-Email": "guest@example.com"},
         )
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert len(data["messages"]) == 2
         assert data["messages"][0]["content"] == "Hello, this is a test message"
         assert data["messages"][1]["content"] == "Hello! I'm here to help."

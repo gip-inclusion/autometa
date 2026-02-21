@@ -59,7 +59,7 @@ def segment():
 
 @pytest.fixture
 def app():
-    """Create a Flask test app with a temporary database."""
+    """Create a FastAPI test app with a temporary database."""
     db_fd, db_path = tempfile.mkstemp()
 
     from web import config
@@ -72,10 +72,9 @@ def app():
     from web import storage
     importlib.reload(storage)
 
-    from web.app import app as flask_app
-    flask_app.config["TESTING"] = True
+    from web.app import app as fastapi_app
 
-    yield flask_app
+    yield fastapi_app
 
     config.SQLITE_PATH = original_path
     os.close(db_fd)
@@ -85,4 +84,5 @@ def app():
 @pytest.fixture
 def client(app):
     """Create a test client."""
-    return app.test_client()
+    from starlette.testclient import TestClient
+    return TestClient(app)

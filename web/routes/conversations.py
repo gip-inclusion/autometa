@@ -3,10 +3,12 @@
 import asyncio
 import json
 import logging
-import queue
 import threading
-from flask import Blueprint, Response, jsonify, request, g
 
+from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+
+from ..deps import get_current_user
 from ..storage import store
 from ..agents import get_agent
 from .. import config
@@ -26,38 +28,10 @@ from lib.api_signals import parse_api_signals
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("conversations", __name__, url_prefix="/api/conversations")
+router = APIRouter(prefix="/api/conversations")
 
 # Global agent instance
 _agent = None
-
-# Persistent event loop for async operations (avoids "Future attached to different loop" errors)
-_async_loop = None
-_async_thread = None
-_loop_lock = threading.Lock()
-
-
-def _get_async_loop():
-    """Get or create a persistent event loop running in a background thread."""
-    global _async_loop, _async_thread
-
-    with _loop_lock:
-        if _async_loop is not None and _async_loop.is_running():
-            return _async_loop
-
-        _async_loop = asyncio.new_event_loop()
-        started = threading.Event()
-
-        def run_loop():
-            asyncio.set_event_loop(_async_loop)
-            _async_loop.call_soon(started.set)  # Signal we're running
-            _async_loop.run_forever()
-
-        _async_thread = threading.Thread(target=run_loop, daemon=True)
-        _async_thread.start()
-        started.wait(timeout=5)  # Wait until loop is actually running
-
-    return _async_loop
 
 
 def get_agent_instance():
@@ -93,8 +67,6 @@ def generate_conversation_tags(user_message: str, conv_id: str) -> None:
     assign relevant tags from the predefined taxonomy.
     Runs in a background thread.
     """
-    import subprocess
-
     # Tag taxonomy (must match database _seed_tags)
     TAG_TAXONOMY = """
 ## Produits (choisir 1 seul, obligatoire)
@@ -194,28 +166,26 @@ Exemple: emplois, candidats, trafic, analyse"""
     threading.Thread(target=_generate, daemon=True).start()
 
 
-@bp.route("", methods=["POST"])
-def create_conversation():
+@router.post("")
+def create_conversation(user_email: str = Depends(get_current_user)):
     """Create a new conversation."""
-    user_email = getattr(g, "user_email", None)
     conv = store.create_conversation(user_id=user_email)
-    return jsonify({
+    return {
         "id": conv.id,
         "links": {
             "self": f"/api/conversations/{conv.id}",
             "messages": f"/api/conversations/{conv.id}/messages",
             "stream": f"/api/conversations/{conv.id}/stream",
         },
-    })
+    }
 
 
-@bp.route("", methods=["GET"])
-def list_conversations():
+@router.get("")
+def list_conversations(user_email: str = Depends(get_current_user), limit: int = 20):
     """List recent conversations."""
-    limit = request.args.get("limit", 20, type=int)
-    convs = store.list_conversations(limit=limit, user_id=g.user_email)
+    convs = store.list_conversations(limit=limit, user_id=user_email)
     agent = get_agent_instance()
-    return jsonify({
+    return {
         "conversations": [
             {
                 "id": c.id,
@@ -227,26 +197,24 @@ def list_conversations():
             }
             for c in convs
         ]
-    })
+    }
 
 
-@bp.route("/<conv_id>", methods=["GET"])
-def get_conversation(conv_id: str):
+@router.get("/{conv_id}")
+def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Get a conversation with all messages.
 
     Allows read-only access to any conversation (shared via UUID link).
     Returns is_owner flag to indicate if current user owns the conversation.
     """
-    # Allow read-only access to any conversation (no user_id filter)
     conv = store.get_conversation(conv_id)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
-    user_email = getattr(g, "user_email", None)
     is_owner = conv.user_id == user_email or conv.user_id is None
 
     agent = get_agent_instance()
-    return jsonify({
+    return {
         **conv.to_dict(),
         "is_running": agent.is_running(conv_id),
         "is_owner": is_owner,
@@ -255,80 +223,77 @@ def get_conversation(conv_id: str):
             "messages": f"/api/conversations/{conv_id}/messages",
             "stream": f"/api/conversations/{conv_id}/stream",
         },
-    })
+    }
 
 
-@bp.route("/<conv_id>", methods=["DELETE"])
-def delete_conversation(conv_id: str):
+@router.delete("/{conv_id}")
+def delete_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Delete a conversation. User must be owner or admin."""
-    user_email = getattr(g, "user_email", None)
     conv = store.get_conversation(conv_id)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
-    # Check permission: must be owner or admin
     is_admin = user_email in ADMIN_USERS
     is_owner = conv.user_id == user_email
     if not is_admin and not is_owner:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     if store.delete_conversation(conv_id):
-        return "", 200
-    return jsonify({"error": "Failed to delete"}), 500
+        return Response(status_code=200)
+    return JSONResponse({"error": "Failed to delete"}, status_code=500)
 
 
-@bp.route("/<conv_id>/pin", methods=["POST"])
-def pin_conversation(conv_id: str):
+@router.post("/{conv_id}/pin")
+async def pin_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """Pin a conversation to the sidebar. Admin only."""
-    user_email = getattr(g, "user_email", None)
     if user_email not in ADMIN_USERS:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
-    data = request.get_json() or {}
+    body = await request.body()
+    data = (await request.json()) if body else {}
     label = data.get("label", "").strip() or conv.title or "Sans titre"
 
     if store.pin_conversation(conv_id, label):
-        return jsonify({"ok": True, "label": label}), 200
-    return jsonify({"error": "Failed to pin"}), 500
+        return {"ok": True, "label": label}
+    return JSONResponse({"error": "Failed to pin"}, status_code=500)
 
 
-@bp.route("/<conv_id>/pin", methods=["DELETE"])
-def unpin_conversation(conv_id: str):
+@router.delete("/{conv_id}/pin")
+def unpin_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Unpin a conversation from the sidebar. Admin only."""
-    user_email = getattr(g, "user_email", None)
     if user_email not in ADMIN_USERS:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     if store.unpin_conversation(conv_id):
-        return jsonify({"ok": True}), 200
-    return jsonify({"error": "Failed to unpin"}), 500
+        return {"ok": True}
+    return JSONResponse({"error": "Failed to unpin"}, status_code=500)
 
 
-@bp.route("/<conv_id>", methods=["PATCH"])
-def update_conversation(conv_id: str):
+@router.patch("/{conv_id}")
+async def update_conversation(conv_id: str, request: Request):
     """Update conversation (title, etc.)."""
-    data = request.get_json()
+    data = await request.json()
     if not data:
-        return jsonify({"error": "No data provided"}), 400
+        return JSONResponse({"error": "No data provided"}, status_code=400)
 
     title = data.get("title")
     if title is not None:
         store.update_conversation(conv_id, title=title)
-        return jsonify({"title": title})
+        return {"title": title}
 
-    return jsonify({"error": "No valid fields to update"}), 400
+    return JSONResponse({"error": "No valid fields to update"}, status_code=400)
 
 
-@bp.route("/<conv_id>/generate-title", methods=["POST"])
+@router.post("/{conv_id}/generate-title")
 def generate_title(conv_id: str):
     """Generate a title for a conversation using LLM."""
     conv = store.get_conversation(conv_id)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     user_messages = []
     last_assistant_msg = None
@@ -346,7 +311,7 @@ def generate_title(conv_id: str):
             user_messages.append(conv.report.title)
 
     if not user_messages:
-        return jsonify({"error": "No user message to generate title from"}), 400
+        return JSONResponse({"error": "No user message to generate title from"}, status_code=400)
 
     context_parts = []
     for i, um in enumerate(user_messages, 1):
@@ -364,68 +329,67 @@ def generate_title(conv_id: str):
         )
         title = llm.generate_text(prompt, model=model, max_tokens=50).strip().strip('"\'')[:100]
         store.update_conversation(conv_id, title=title)
-        return jsonify({"title": title})
+        return {"title": title}
 
     except Exception as exc:
         logger.error(f"Failed to generate title: {exc}")
-        return jsonify({"error": str(exc)}), 500
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@bp.route("/<conv_id>/fork", methods=["POST"])
-def fork_conversation(conv_id: str):
+@router.post("/{conv_id}/fork")
+def fork_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Fork (deep copy) a conversation.
 
     Creates a new conversation owned by the current user with all messages copied.
     The original conversation is unchanged.
     """
-    user_email = getattr(g, "user_email", None)
     if not user_email:
-        return jsonify({"error": "Authentication required"}), 401
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
 
-    # Check source conversation exists
     source = store.get_conversation(conv_id, include_messages=False)
     if not source:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
-    # Fork the conversation
     new_conv = store.fork_conversation(conv_id, user_email)
     if not new_conv:
-        return jsonify({"error": "Failed to fork conversation"}), 500
+        return JSONResponse({"error": "Failed to fork conversation"}, status_code=500)
 
-    return jsonify({
+    return {
         "id": new_conv.id,
         "forked_from": conv_id,
         "links": {
             "self": f"/api/conversations/{new_conv.id}",
             "view": f"/explorations/{new_conv.id}",
         },
-    })
+    }
 
 
-@bp.route("/<conv_id>/messages", methods=["POST"])
-def send_message(conv_id: str):
+@router.post("/{conv_id}/messages")
+async def send_message(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """Send a message to start agent processing.
 
     Only the conversation owner can send messages. Shared conversations are read-only.
     """
     conv = store.get_conversation(conv_id)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     # Check ownership - only owner can send messages
-    user_email = getattr(g, "user_email", None)
     if conv.user_id and conv.user_id != user_email:
-        return jsonify({"error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."}), 403
+        return JSONResponse(
+            {"error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."},
+            status_code=403,
+        )
 
-    data = request.get_json()
+    data = await request.json()
     if not data or "content" not in data:
-        return jsonify({"error": "Missing 'content' field"}), 400
+        return JSONResponse({"error": "Missing 'content' field"}, status_code=400)
 
     content = data["content"]
     agent = get_agent_instance()
 
     if agent.is_running(conv_id):
-        return jsonify({"error": "Conversation already running"}), 409
+        return JSONResponse({"error": "Conversation already running"}, status_code=409)
 
     is_first_message = len(conv.messages) == 0
     store.add_message(conv_id, "user", content)
@@ -435,17 +399,17 @@ def send_message(conv_id: str):
         generate_conversation_title(content, conv_id)
         generate_conversation_tags(content, conv_id)
 
-    return jsonify({
+    return {
         "status": "started",
         "links": {
             "stream": f"/api/conversations/{conv_id}/stream",
             "cancel": f"/api/conversations/{conv_id}/cancel",
         },
-    })
+    }
 
 
-@bp.route("/<conv_id>/stream", methods=["GET"])
-def stream_conversation(conv_id: str):
+@router.get("/{conv_id}/stream")
+async def stream_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Stream agent responses via Server-Sent Events.
 
     Allows streaming for shared conversations (read-only view of existing responses).
@@ -454,16 +418,14 @@ def stream_conversation(conv_id: str):
     from ..helpers import get_staging_dir, KNOWLEDGE_ROOT
     from ..audit import audit_log
 
-    # Allow streaming for any conversation (read-only access to existing messages)
     conv = store.get_conversation(conv_id)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     if not conv.messages:
-        return jsonify({"error": "No messages in conversation"}), 400
+        return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
     agent = get_agent_instance()
-    user_email = getattr(g, "user_email", None)
 
     # Find the last user message content
     last_user_msg = None
@@ -473,22 +435,22 @@ def stream_conversation(conv_id: str):
 
     # If no response needed and agent not running, nothing to stream
     if not conv.needs_response and not agent.is_running(conv_id):
-        def done_stream():
+        async def done_stream():
             yield f"event: done\n"
             yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
-        return Response(
+
+        return StreamingResponse(
             done_stream(),
-            mimetype="text/event-stream",
+            media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     if agent.is_running(conv_id):
-        def wait_stream():
+        async def wait_stream():
             yield f"event: system\n"
             yield f"data: {json.dumps({'content': 'Agent already running, please wait...'})}\n\n"
-            import time
             for _ in range(60):
-                time.sleep(1)
+                await asyncio.sleep(1)
                 if not agent.is_running(conv_id):
                     yield f"event: done\n"
                     yield f"data: {json.dumps({'conversation_id': conv_id, 'reload': True})}\n\n"
@@ -497,14 +459,14 @@ def stream_conversation(conv_id: str):
             yield f"event: error\n"
             yield f"data: {json.dumps({'error': 'Timeout waiting for agent'})}\n\n"
 
-        return Response(
+        return StreamingResponse(
             wait_stream(),
-            mimetype="text/event-stream",
+            media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     if not last_user_msg:
-        return jsonify({"error": "No user message to respond to"}), 400
+        return JSONResponse({"error": "No user message to respond to"}, status_code=400)
 
     last_message = last_user_msg
 
@@ -545,247 +507,193 @@ User request: """
 
         last_message = knowledge_context + last_message
 
-    def generate():
+    async def generate():
         history = []
         for msg in conv.messages[:-1]:
             if msg.type in ("user", "assistant"):
                 history.append({"role": msg.type, "content": msg.content})
 
-        event_queue = queue.Queue()
-        error_holder = [None]
-
-        # Storage state - lives in the async context, independent of SSE
+        # Storage state
         assistant_text_parts = []
         assistant_msg_id = None
+        error_holder = [None]
 
-        async def collect_events():
-            nonlocal assistant_text_parts, assistant_msg_id
+        try:
+            async for event in agent.send_message(
+                conversation_id=conv_id,
+                message=last_message,
+                history=history,
+                session_id=conv.session_id,
+            ):
+                # Store to database FIRST (survives client disconnect)
+                if event.type == "assistant":
+                    assistant_text_parts.append(str(event.content))
+                    append_mode = bool(getattr(event, "raw", {}).get("append"))
+                    if append_mode:
+                        full_text = "".join(assistant_text_parts)
+                    else:
+                        full_text = "\n".join(assistant_text_parts)
+                    if assistant_msg_id is None:
+                        msg = store.add_message(conv_id, "assistant", full_text)
+                        assistant_msg_id = msg.id if msg else None
+                    else:
+                        store.update_message(assistant_msg_id, full_text)
 
-            try:
-                async for event in agent.send_message(
-                    conversation_id=conv_id,
-                    message=last_message,
-                    history=history,
-                    session_id=conv.session_id,
-                ):
-                    # Store to database FIRST (survives client disconnect)
-                    if event.type == "assistant":
-                        assistant_text_parts.append(str(event.content))
-                        append_mode = bool(getattr(event, "raw", {}).get("append"))
-                        if append_mode:
-                            full_text = "".join(assistant_text_parts)
-                        else:
-                            full_text = "\n".join(assistant_text_parts)
-                        if assistant_msg_id is None:
-                            msg = store.add_message(conv_id, "assistant", full_text)
-                            assistant_msg_id = msg.id if msg else None
-                        else:
-                            store.update_message(assistant_msg_id, full_text)
-
-                    if event.type in ("tool_use", "tool_result"):
-                        # Finalize current assistant message so next text creates a new one
-                        if event.type == "tool_use":
-                            assistant_msg_id = None
-                            assistant_text_parts = []
-
-                        # Add taxonomy category to tool_use events
-                        if event.type == "tool_use" and isinstance(event.content, dict):
-                            tool_name = event.content.get("tool", "")
-                            tool_input = event.content.get("input", {})
-                            category = classify_tool(tool_name, tool_input)
-                            enriched = {**event.content, "category": category}
-                            content = json.dumps(enriched)
-                            # Attach enriched content for SSE
-                            event._sse_content = enriched
-                        # Parse API signals from tool_result events
-                        elif event.type == "tool_result":
-                            # Extract the output string from dict (CLI backend) or use content directly
-                            # Using str(dict) breaks JSON parsing because Python escapes ' as \'
-                            if isinstance(event.content, dict) and 'output' in event.content:
-                                raw_content = event.content['output']
-                                if not isinstance(raw_content, str):
-                                    raw_content = str(raw_content)
-                            elif isinstance(event.content, str):
-                                raw_content = event.content
-                            else:
-                                raw_content = str(event.content)
-                            api_calls = parse_api_signals(raw_content)
-                            if api_calls:
-                                enriched = {
-                                    "output": event.content,
-                                    "api_calls": api_calls,
-                                }
-                                content = json.dumps(enriched)
-                                # Attach enriched content for SSE
-                                event._sse_content = enriched
-                            else:
-                                content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
-                        else:
-                            content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
-
-                        store.add_message(conv_id, event.type, content)
-
-                    if event.type == "system":
-                        # Handle session ID from init event
-                        if event.raw.get("subtype") == "init":
-                            new_session_id = event.raw.get("session_id")
-                            if new_session_id:
-                                store.update_conversation(conv_id, session_id=new_session_id)
-
-                        # Extract and store token usage from result event
-                        if event.raw.get("usage"):
-                            usage = event.raw["usage"]
-                            # Build extra dict for non-core usage fields
-                            extra = {}
-                            if usage.get("service_tier"):
-                                extra["service_tier"] = usage["service_tier"]
-                            if usage.get("web_search_requests"):
-                                extra["web_search_requests"] = usage["web_search_requests"]
-
-                            store.accumulate_usage(
-                                conv_id,
-                                input_tokens=usage.get("input_tokens", 0),
-                                output_tokens=usage.get("output_tokens", 0),
-                                cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
-                                cache_read_tokens=usage.get("cache_read_input_tokens", 0),
-                                backend=config.AGENT_BACKEND,
-                                extra=extra if extra else None,
-                            )
-
-                    # Then queue for SSE (may fail if client disconnected - that's OK)
-                    event_queue.put(("event", event))
-
-            except Exception as e:
-                logger.error(f"collect_events error for {conv_id}: {e}", exc_info=True)
-                error_holder[0] = e
-            finally:
-                store.update_conversation(conv_id, needs_response=False)
-                event_queue.put(("done", None))
-
-        # Submit to persistent event loop (avoids "Future attached to different loop" errors)
-        loop = _get_async_loop()
-        if not loop.is_running():
-            logger.error("Event loop not running, cannot process conversation")
-            yield f"event: error\n"
-            yield f"data: {json.dumps({'error': 'Internal error: event loop not available'})}\n\n"
-            yield "event: done\n"
-            yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
-            return
-
-        future = asyncio.run_coroutine_threadsafe(collect_events(), loop)
-
-        while True:
-            try:
-                msg_type, event = event_queue.get(timeout=120)
-
-                if msg_type == "done":
-                    break
-
-                if event:
-                    # Audit log tool usage (still in generator for now)
+                if event.type in ("tool_use", "tool_result"):
+                    # Finalize current assistant message so next text creates a new one
                     if event.type == "tool_use":
-                        tool_data = event.content if isinstance(event.content, dict) else {}
+                        assistant_msg_id = None
+                        assistant_text_parts = []
+
+                    # Add taxonomy category to tool_use events
+                    if event.type == "tool_use" and isinstance(event.content, dict):
+                        tool_name = event.content.get("tool", "")
+                        tool_input = event.content.get("input", {})
+                        category = classify_tool(tool_name, tool_input)
+                        enriched = {**event.content, "category": category}
+                        content = json.dumps(enriched)
+                        # Attach enriched content for SSE
+                        event._sse_content = enriched
+
+                        # Audit log tool usage
                         audit_log(
                             conversation_id=conv_id,
                             user_email=user_email,
-                            tool_name=tool_data.get("tool", "unknown"),
-                            tool_input=tool_data.get("input", {}),
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                        )
+                    # Parse API signals from tool_result events
+                    elif event.type == "tool_result":
+                        if isinstance(event.content, dict) and 'output' in event.content:
+                            raw_content = event.content['output']
+                            if not isinstance(raw_content, str):
+                                raw_content = str(raw_content)
+                        elif isinstance(event.content, str):
+                            raw_content = event.content
+                        else:
+                            raw_content = str(event.content)
+                        api_calls = parse_api_signals(raw_content)
+                        if api_calls:
+                            enriched = {
+                                "output": event.content,
+                                "api_calls": api_calls,
+                            }
+                            content = json.dumps(enriched)
+                            event._sse_content = enriched
+                        else:
+                            content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
+                    else:
+                        content = json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
+
+                    store.add_message(conv_id, event.type, content)
+
+                if event.type == "system":
+                    # Handle session ID from init event
+                    if event.raw.get("subtype") == "init":
+                        new_session_id = event.raw.get("session_id")
+                        if new_session_id:
+                            store.update_conversation(conv_id, session_id=new_session_id)
+
+                    # Extract and store token usage from result event
+                    if event.raw.get("usage"):
+                        usage = event.raw["usage"]
+                        extra = {}
+                        if usage.get("service_tier"):
+                            extra["service_tier"] = usage["service_tier"]
+                        if usage.get("web_search_requests"):
+                            extra["web_search_requests"] = usage["web_search_requests"]
+
+                        store.accumulate_usage(
+                            conv_id,
+                            input_tokens=usage.get("input_tokens", 0),
+                            output_tokens=usage.get("output_tokens", 0),
+                            cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+                            cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+                            backend=config.AGENT_BACKEND,
+                            extra=extra if extra else None,
                         )
 
-                    # Use enriched content if available (tool_use with category, tool_result with api_calls)
-                    if hasattr(event, '_sse_content'):
-                        sse_data = {"type": event.type, "content": event._sse_content}
-                    else:
-                        sse_data = event.to_dict()
+                # Yield SSE data
+                if hasattr(event, '_sse_content'):
+                    sse_data = {"type": event.type, "content": event._sse_content}
+                else:
+                    sse_data = event.to_dict()
 
-                    yield f"event: {event.type}\n"
-                    yield f"data: {json.dumps(sse_data)}\n\n"
+                yield f"event: {event.type}\n"
+                yield f"data: {json.dumps(sse_data)}\n\n"
 
-            except queue.Empty:
-                yield ": keepalive\n\n"
+        except Exception as e:
+            logger.error(f"Stream error for {conv_id}: {e}", exc_info=True)
+            error_holder[0] = e
+        finally:
+            store.update_conversation(conv_id, needs_response=False)
 
         if error_holder[0]:
             yield f"event: error\n"
             yield f"data: {json.dumps({'error': str(error_holder[0])})}\n\n"
 
-        # Wait for the async task to fully complete (cleanup subprocess handles, etc.)
-        try:
-            future.result(timeout=5)
-        except asyncio.CancelledError:
-            logger.warning(f"Conversation {conv_id} was cancelled")
-        except asyncio.InvalidStateError:
-            logger.error(f"Conversation {conv_id}: event loop died mid-execution")
-        except Exception as e:
-            if error_holder[0] is None:
-                error_holder[0] = e
-                yield f"event: error\n"
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
         yield "event: done\n"
         yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
 
-    return Response(
+    return StreamingResponse(
         generate(),
-        mimetype="text/event-stream",
+        media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-@bp.route("/<conv_id>/cancel", methods=["POST"])
-def cancel_conversation(conv_id: str):
+@router.post("/{conv_id}/cancel")
+async def cancel_conversation(conv_id: str):
     """Cancel a running conversation."""
     agent = get_agent_instance()
-    loop = _get_async_loop()
-    future = asyncio.run_coroutine_threadsafe(agent.cancel(conv_id), loop)
-    cancelled = future.result(timeout=10)
+    cancelled = await agent.cancel(conv_id)
 
     if cancelled:
-        return jsonify({"status": "cancelled"})
-    else:
-        return jsonify({"status": "not_running"})
+        return {"status": "cancelled"}
+    return {"status": "not_running"}
 
 
-@bp.route("/running", methods=["GET"])
+@router.get("/running")
 def get_running():
     """Get list of currently running conversation IDs."""
     agent = get_agent_instance()
     running_ids = list(agent._running) if hasattr(agent, '_running') else []
-    return jsonify({"running": running_ids})
+    return {"running": running_ids}
 
 
-@bp.route("/<conv_id>/tags", methods=["GET"])
+@router.get("/{conv_id}/tags")
 def get_conversation_tags(conv_id: str):
     """Get tags for a conversation."""
     tags = store.get_conversation_tags(conv_id)
-    return jsonify({
+    return {
         "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    })
+    }
 
 
-@bp.route("/<conv_id>/tags", methods=["PUT"])
-def set_conversation_tags(conv_id: str):
+@router.put("/{conv_id}/tags")
+async def set_conversation_tags(conv_id: str, request: Request):
     """Set tags for a conversation (replaces existing)."""
-    data = request.get_json()
+    data = await request.json()
     if not data or "tags" not in data:
-        return jsonify({"error": "Missing 'tags' field"}), 400
+        return JSONResponse({"error": "Missing 'tags' field"}, status_code=400)
 
     tag_names = data["tags"]
     if not isinstance(tag_names, list):
-        return jsonify({"error": "'tags' must be a list"}), 400
+        return JSONResponse({"error": "'tags' must be a list"}, status_code=400)
 
     store.set_conversation_tags(conv_id, tag_names)
     tags = store.get_conversation_tags(conv_id)
-    return jsonify({
+    return {
         "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    })
+    }
 
 
 # =============================================================================
 # File Upload Endpoints
 # =============================================================================
 
-@bp.route("/<conv_id>/files", methods=["POST"])
-def upload_file(conv_id: str):
+@router.post("/{conv_id}/files")
+async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str = Depends(get_current_user)):
     """Upload a file to a conversation.
 
     Accepts multipart/form-data with 'file' field.
@@ -793,28 +701,22 @@ def upload_file(conv_id: str):
     """
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     # Check ownership
-    user_email = getattr(g, "user_email", None)
     if conv.user_id and conv.user_id != user_email:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
-    # Check conversation type - don't allow uploads on report conversations
-    # (Reports are read-only archived content)
+    # Check conversation type
     if conv.conv_type == "report":
-        return jsonify({"error": "Cannot upload files to report conversations"}), 400
+        return JSONResponse({"error": "Cannot upload files to report conversations"}, status_code=400)
 
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No file selected"}), 400
+    if not file.filename:
+        return JSONResponse({"error": "No file selected"}, status_code=400)
 
     try:
         uploaded_file, text_content = do_upload_file(
-            file_obj=file,
+            file_obj=file.file,
             filename=file.filename,
             conversation_id=conv_id,
             user_id=user_email,
@@ -826,70 +728,70 @@ def upload_file(conv_id: str):
             "text_content": text_content,
             "context_message": format_file_for_context(uploaded_file, text_content),
         }
-        return jsonify(response), 201
+        return JSONResponse(response, status_code=201)
 
     except FileTooLargeError as e:
-        return jsonify({"error": f"File too large: {e}"}), 413
+        return JSONResponse({"error": f"File too large: {e}"}, status_code=413)
     except BlockedFileTypeError as e:
-        return jsonify({"error": f"File type not allowed: {e}"}), 415
+        return JSONResponse({"error": f"File type not allowed: {e}"}, status_code=415)
     except AVScanFailedError as e:
-        return jsonify({"error": f"File failed security scan: {e}"}), 422
+        return JSONResponse({"error": f"File failed security scan: {e}"}, status_code=422)
     except Exception as e:
         logger.error(f"File upload failed: {e}")
-        return jsonify({"error": "Upload failed"}), 500
+        return JSONResponse({"error": "Upload failed"}, status_code=500)
 
 
-@bp.route("/<conv_id>/files", methods=["GET"])
+@router.get("/{conv_id}/files")
 def list_files(conv_id: str):
     """List all files uploaded to a conversation."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     files = store.get_conversation_files(conv_id)
-    return jsonify({
+    return {
         "files": [f.to_dict() for f in files]
-    })
+    }
 
 
-@bp.route("/<conv_id>/files/<int:file_id>", methods=["GET"])
+@router.get("/{conv_id}/files/{file_id}")
 def get_file(conv_id: str, file_id: int):
     """Get metadata for a specific uploaded file."""
     uploaded_file = store.get_uploaded_file(file_id)
     if not uploaded_file:
-        return jsonify({"error": "File not found"}), 404
+        return JSONResponse({"error": "File not found"}, status_code=404)
 
     if uploaded_file.conversation_id != conv_id:
-        return jsonify({"error": "File not in this conversation"}), 404
+        return JSONResponse({"error": "File not in this conversation"}, status_code=404)
 
-    return jsonify({"file": uploaded_file.to_dict()})
+    return {"file": uploaded_file.to_dict()}
 
 
-@bp.route("/<conv_id>/files/<int:file_id>/content", methods=["GET"])
+@router.get("/{conv_id}/files/{file_id}/content")
 def get_file_content_endpoint(conv_id: str, file_id: int):
     """Download the content of an uploaded file."""
     uploaded_file = store.get_uploaded_file(file_id)
     if not uploaded_file:
-        return jsonify({"error": "File not found"}), 404
+        return JSONResponse({"error": "File not found"}, status_code=404)
 
     if uploaded_file.conversation_id != conv_id:
-        return jsonify({"error": "File not in this conversation"}), 404
+        return JSONResponse({"error": "File not in this conversation"}, status_code=404)
 
     content = get_file_content(uploaded_file)
     if content is None:
-        return jsonify({"error": "File content not available"}), 404
+        return JSONResponse({"error": "File content not available"}, status_code=404)
 
     return Response(
-        content,
-        mimetype=uploaded_file.mime_type or "application/octet-stream",
+        content=content,
+        media_type=uploaded_file.mime_type or "application/octet-stream",
         headers={
             "Content-Disposition": f'attachment; filename="{uploaded_file.original_filename}"'
         }
     )
 
 
-@bp.route("/<conv_id>/files/<int:file_id>/copy", methods=["POST"])
-def copy_file(conv_id: str, file_id: int):
+@router.post("/{conv_id}/files/{file_id}/copy")
+async def copy_file(conv_id: str, file_id: int, request: Request, user_email: str = Depends(get_current_user)):
     """Create a writable copy of an uploaded file for modification.
 
     Used when the user asks the agent to modify a file.
@@ -897,25 +799,25 @@ def copy_file(conv_id: str, file_id: int):
     """
     uploaded_file = store.get_uploaded_file(file_id)
     if not uploaded_file:
-        return jsonify({"error": "File not found"}), 404
+        return JSONResponse({"error": "File not found"}, status_code=404)
 
     if uploaded_file.conversation_id != conv_id:
-        return jsonify({"error": "File not in this conversation"}), 404
+        return JSONResponse({"error": "File not in this conversation"}, status_code=404)
 
     # Check ownership
-    user_email = getattr(g, "user_email", None)
     conv = store.get_conversation(conv_id, include_messages=False)
     if conv and conv.user_id and conv.user_id != user_email:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
-    data = request.get_json() or {}
+    body = await request.body()
+    data = (await request.json()) if body else {}
     new_filename = data.get("filename")
 
     copy_path = copy_file_for_modification(uploaded_file, new_filename=new_filename)
     if copy_path is None:
-        return jsonify({"error": "Failed to create copy"}), 500
+        return JSONResponse({"error": "Failed to create copy"}, status_code=500)
 
-    return jsonify({
+    return {
         "copy_path": str(copy_path),
         "original_file": uploaded_file.to_dict(),
-    })
+    }

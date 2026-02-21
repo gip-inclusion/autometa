@@ -23,7 +23,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def app():
-    """Module-scoped Flask app with stable event loop."""
+    """Module-scoped FastAPI app with fresh database."""
     import web.routes.conversations as conv_mod
 
     db_fd, db_path = tempfile.mkstemp()
@@ -38,20 +38,12 @@ def app():
     importlib.reload(storage)
 
     conv_mod._agent = None
-    conv_mod._async_loop = None
-    conv_mod._async_thread = None
 
-    from web.app import app as flask_app
-    flask_app.config["TESTING"] = True
+    from web.app import app as fastapi_app
 
-    yield flask_app
+    yield fastapi_app
 
-    loop = conv_mod._async_loop
     conv_mod._agent = None
-    conv_mod._async_loop = None
-    conv_mod._async_thread = None
-    if loop and loop.is_running():
-        loop.call_soon_threadsafe(loop.stop)
 
     config.SQLITE_PATH = original_path
     os.close(db_fd)
@@ -60,29 +52,28 @@ def app():
 
 @pytest.fixture
 def client(app):
-    return app.test_client()
+    from starlette.testclient import TestClient
+    return TestClient(app)
 
 
 @pytest.fixture
 def conversation(app):
     """Create a conversation with one user message awaiting response."""
     from web.storage import store
-    with app.test_request_context():
-        conv = store.create_conversation(user_id="test@example.com")
-        store.add_message(conv.id, "user", "Hello agent")
-        store.update_conversation(conv.id, needs_response=True)
-        return conv
+    conv = store.create_conversation(user_id="test@example.com")
+    store.add_message(conv.id, "user", "Hello agent")
+    store.update_conversation(conv.id, needs_response=True)
+    return conv
 
 
 @pytest.fixture
 def responded_conversation(app):
     """Create a conversation with a user message and an assistant response."""
     from web.storage import store
-    with app.test_request_context():
-        conv = store.create_conversation(user_id="test@example.com")
-        store.add_message(conv.id, "user", "Hello agent")
-        store.add_message(conv.id, "assistant", "Hello! How can I help?")
-        return conv
+    conv = store.create_conversation(user_id="test@example.com")
+    store.add_message(conv.id, "user", "Hello agent")
+    store.add_message(conv.id, "assistant", "Hello! How can I help?")
+    return conv
 
 
 def _make_mock_backend(events, running_ids=None):
@@ -163,7 +154,7 @@ class TestDoneStream:
                 f"/api/conversations/{responded_conversation.id}/stream",
                 headers={"X-Forwarded-Email": "test@example.com"},
             )
-        events = _parse_sse_events(response.data)
+        events = _parse_sse_events(response.content)
         assert len(events) == 1
         assert events[0]["event"] == "done"
 
@@ -178,8 +169,8 @@ class TestSSEFormat:
             AgentMessage(type="system", content="Completed: done", raw={"result": True}),
         ]
         response = _stream_with_mock(client, conversation.id, _make_mock_backend(events))
-        assert response.content_type.startswith("text/event-stream")
-        sse_events = _parse_sse_events(response.data)
+        assert response.headers["content-type"].startswith("text/event-stream")
+        sse_events = _parse_sse_events(response.content)
         assert sse_events[-1]["event"] == "done"
 
     def test_assistant_event_has_content(self, app, client, conversation):
@@ -191,7 +182,7 @@ class TestSSEFormat:
             AgentMessage(type="system", content="Completed: done", raw={"result": True}),
         ]
         response = _stream_with_mock(client, conversation.id, _make_mock_backend(events))
-        sse_events = _parse_sse_events(response.data)
+        sse_events = _parse_sse_events(response.content)
         assistant = [e for e in sse_events if e["event"] == "assistant"]
         assert len(assistant) == 1
         assert assistant[0]["data"]["content"] == "My response"
@@ -207,7 +198,7 @@ class TestSSEFormat:
             AgentMessage(type="system", content="Completed: done", raw={"result": True}),
         ]
         response = _stream_with_mock(client, conversation.id, _make_mock_backend(events))
-        sse_events = _parse_sse_events(response.data)
+        sse_events = _parse_sse_events(response.content)
         types = [e["event"] for e in sse_events]
         assert "tool_use" in types
         assert "tool_result" in types
@@ -235,7 +226,7 @@ class TestWaitStream:
                 headers={"X-Forwarded-Email": "test@example.com"},
             )
 
-        types = [e["event"] for e in _parse_sse_events(response.data)]
+        types = [e["event"] for e in _parse_sse_events(response.content)]
         assert "system" in types
         assert "done" in types
         assert "assistant" not in types  # Did not start a new run
@@ -247,11 +238,10 @@ class TestNeedsResponse:
     def test_needs_response_false_returns_done(self, app, client):
         """Conversation with needs_response=False returns immediate done."""
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
-            store.add_message(conv.id, "assistant", "Hi there")
-            # needs_response defaults to False
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
+        store.add_message(conv.id, "assistant", "Hi there")
+        # needs_response defaults to False
 
         mock = _make_mock_backend([])
         with patch("web.routes.conversations.get_agent_instance", return_value=mock):
@@ -259,7 +249,7 @@ class TestNeedsResponse:
                 f"/api/conversations/{conv.id}/stream",
                 headers={"X-Forwarded-Email": "test@example.com"},
             )
-        events = _parse_sse_events(response.data)
+        events = _parse_sse_events(response.content)
         assert len(events) == 1
         assert events[0]["event"] == "done"
 
@@ -267,10 +257,9 @@ class TestNeedsResponse:
         """Conversation with needs_response=True starts the agent."""
         from web.agents.base import AgentMessage
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
-            store.update_conversation(conv.id, needs_response=True)
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
+        store.update_conversation(conv.id, needs_response=True)
 
         events = [
             AgentMessage(type="system", content="init", raw={"subtype": "init", "session_id": "s1"}),
@@ -278,32 +267,30 @@ class TestNeedsResponse:
             AgentMessage(type="system", content="Completed: done", raw={"result": True}),
         ]
         response = _stream_with_mock(client, conv.id, _make_mock_backend(events))
-        sse_events = _parse_sse_events(response.data)
+        sse_events = _parse_sse_events(response.content)
         types = [e["event"] for e in sse_events]
         assert "assistant" in types
 
     def test_update_conversation_clears_needs_response(self, app):
         """update_conversation(needs_response=False) works correctly."""
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
-            store.update_conversation(conv.id, needs_response=True)
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
+        store.update_conversation(conv.id, needs_response=True)
 
-            updated = store.get_conversation(conv.id)
-            assert updated.needs_response is True
+        updated = store.get_conversation(conv.id)
+        assert updated.needs_response is True
 
-            store.update_conversation(conv.id, needs_response=False)
-            updated = store.get_conversation(conv.id)
-            assert updated.needs_response is False
+        store.update_conversation(conv.id, needs_response=False)
+        updated = store.get_conversation(conv.id)
+        assert updated.needs_response is False
 
     def test_wait_stream_sends_reload(self, app, client):
         """wait_stream done event includes reload flag."""
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
-            store.update_conversation(conv.id, needs_response=True)
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
+        store.update_conversation(conv.id, needs_response=True)
 
         mock = _make_mock_backend([], running_ids=[conv.id])
         call_count = [0]
@@ -323,7 +310,7 @@ class TestNeedsResponse:
                 headers={"X-Forwarded-Email": "test@example.com"},
             )
 
-        events = _parse_sse_events(response.data)
+        events = _parse_sse_events(response.content)
         done_events = [e for e in events if e["event"] == "done"]
         assert len(done_events) == 1
         assert done_events[0]["data"]["reload"] is True
@@ -346,62 +333,60 @@ class TestAppendMode:
         from web.agents.base import AgentMessage
         from web.storage import store
 
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
 
-            # Simulate collect_events() logic
-            assistant_text_parts = []
-            assistant_msg_id = None
+        # Simulate collect_events() logic
+        assistant_text_parts = []
+        assistant_msg_id = None
 
-            for event in [
-                AgentMessage(type="assistant", content="Hello ", raw={"append": True}),
-                AgentMessage(type="assistant", content="world!", raw={"append": True}),
-            ]:
-                assistant_text_parts.append(str(event.content))
-                append_mode = bool(getattr(event, "raw", {}).get("append"))
-                full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
-                if assistant_msg_id is None:
-                    msg = store.add_message(conv.id, "assistant", full_text)
-                    assistant_msg_id = msg.id
-                else:
-                    store.update_message(assistant_msg_id, full_text)
+        for event in [
+            AgentMessage(type="assistant", content="Hello ", raw={"append": True}),
+            AgentMessage(type="assistant", content="world!", raw={"append": True}),
+        ]:
+            assistant_text_parts.append(str(event.content))
+            append_mode = bool(getattr(event, "raw", {}).get("append"))
+            full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
+            if assistant_msg_id is None:
+                msg = store.add_message(conv.id, "assistant", full_text)
+                assistant_msg_id = msg.id
+            else:
+                store.update_message(assistant_msg_id, full_text)
 
-            # Verify
-            conv = store.get_conversation(conv.id)
-            assistant_msgs = [m for m in conv.messages if m.type == "assistant"]
-            assert len(assistant_msgs) == 1
-            assert assistant_msgs[0].content == "Hello world!"
+        # Verify
+        conv = store.get_conversation(conv.id)
+        assistant_msgs = [m for m in conv.messages if m.type == "assistant"]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0].content == "Hello world!"
 
     def test_cli_joins_with_newlines(self, app):
         """CLI backend: no append flag → "\\n".join."""
         from web.agents.base import AgentMessage
         from web.storage import store
 
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
 
-            assistant_text_parts = []
-            assistant_msg_id = None
+        assistant_text_parts = []
+        assistant_msg_id = None
 
-            for event in [
-                AgentMessage(type="assistant", content="First paragraph"),
-                AgentMessage(type="assistant", content="Second paragraph"),
-            ]:
-                assistant_text_parts.append(str(event.content))
-                append_mode = bool(getattr(event, "raw", {}).get("append"))
-                full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
-                if assistant_msg_id is None:
-                    msg = store.add_message(conv.id, "assistant", full_text)
-                    assistant_msg_id = msg.id
-                else:
-                    store.update_message(assistant_msg_id, full_text)
+        for event in [
+            AgentMessage(type="assistant", content="First paragraph"),
+            AgentMessage(type="assistant", content="Second paragraph"),
+        ]:
+            assistant_text_parts.append(str(event.content))
+            append_mode = bool(getattr(event, "raw", {}).get("append"))
+            full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
+            if assistant_msg_id is None:
+                msg = store.add_message(conv.id, "assistant", full_text)
+                assistant_msg_id = msg.id
+            else:
+                store.update_message(assistant_msg_id, full_text)
 
-            conv = store.get_conversation(conv.id)
-            assistant_msgs = [m for m in conv.messages if m.type == "assistant"]
-            assert len(assistant_msgs) == 1
-            assert assistant_msgs[0].content == "First paragraph\nSecond paragraph"
+        conv = store.get_conversation(conv.id)
+        assistant_msgs = [m for m in conv.messages if m.type == "assistant"]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0].content == "First paragraph\nSecond paragraph"
 
 
 class TestAssistantTextReset:
@@ -412,42 +397,41 @@ class TestAssistantTextReset:
         from web.agents.base import AgentMessage
         from web.storage import store
 
-        with app.test_request_context():
-            conv = store.create_conversation(user_id="test@example.com")
-            store.add_message(conv.id, "user", "Hello")
+        conv = store.create_conversation(user_id="test@example.com")
+        store.add_message(conv.id, "user", "Hello")
 
-            # Simulate collect_events() logic
-            assistant_text_parts = []
-            assistant_msg_id = None
+        # Simulate collect_events() logic
+        assistant_text_parts = []
+        assistant_msg_id = None
 
-            events = [
-                AgentMessage(type="assistant", content="Let me check"),
-                AgentMessage(type="tool_use", content={"tool": "Read", "input": {}}, raw={}),
-                AgentMessage(type="tool_result", content={"output": "data"}, raw={}),
-                AgentMessage(type="assistant", content="Here is what I found"),
-            ]
+        events = [
+            AgentMessage(type="assistant", content="Let me check"),
+            AgentMessage(type="tool_use", content={"tool": "Read", "input": {}}, raw={}),
+            AgentMessage(type="tool_result", content={"output": "data"}, raw={}),
+            AgentMessage(type="assistant", content="Here is what I found"),
+        ]
 
-            for event in events:
-                if event.type == "assistant":
-                    assistant_text_parts.append(str(event.content))
-                    append_mode = bool(getattr(event, "raw", {}).get("append"))
-                    full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
-                    if assistant_msg_id is None:
-                        msg = store.add_message(conv.id, "assistant", full_text)
-                        assistant_msg_id = msg.id
-                    else:
-                        store.update_message(assistant_msg_id, full_text)
+        for event in events:
+            if event.type == "assistant":
+                assistant_text_parts.append(str(event.content))
+                append_mode = bool(getattr(event, "raw", {}).get("append"))
+                full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
+                if assistant_msg_id is None:
+                    msg = store.add_message(conv.id, "assistant", full_text)
+                    assistant_msg_id = msg.id
+                else:
+                    store.update_message(assistant_msg_id, full_text)
 
-                elif event.type in ("tool_use", "tool_result"):
-                    if event.type == "tool_use":
-                        # Reset accumulation (matches conversations.py logic)
-                        assistant_msg_id = None
-                        assistant_text_parts = []
-                    store.add_message(conv.id, event.type, json.dumps(event.content))
+            elif event.type in ("tool_use", "tool_result"):
+                if event.type == "tool_use":
+                    # Reset accumulation (matches conversations.py logic)
+                    assistant_msg_id = None
+                    assistant_text_parts = []
+                store.add_message(conv.id, event.type, json.dumps(event.content))
 
-            # Verify: two separate assistant messages
-            conv = store.get_conversation(conv.id)
-            assistant_msgs = [m for m in conv.messages if m.type == "assistant"]
-            assert len(assistant_msgs) == 2
-            assert assistant_msgs[0].content == "Let me check"
-            assert assistant_msgs[1].content == "Here is what I found"
+        # Verify: two separate assistant messages
+        conv = store.get_conversation(conv.id)
+        assistant_msgs = [m for m in conv.messages if m.type == "assistant"]
+        assert len(assistant_msgs) == 2
+        assert assistant_msgs[0].content == "Let me check"
+        assert assistant_msgs[1].content == "Here is what I found"

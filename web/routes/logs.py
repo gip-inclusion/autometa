@@ -3,17 +3,17 @@
 import json
 import time
 
-from flask import Blueprint, Response, jsonify, request
+from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 
 from .. import config
 
-bp = Blueprint("logs", __name__, url_prefix="/api/logs")
+router = APIRouter(prefix="/api/logs")
 
 
-@bp.route("")
-def stream_logs():
+@router.get("")
+def stream_logs(lines: int = Query(default=50)):
     """Stream agent logs via SSE (tail -f style)."""
-    lines = request.args.get("lines", 50, type=int)
 
     def generate():
         # First, send last N lines
@@ -39,20 +39,19 @@ def stream_logs():
         except GeneratorExit:
             pass
 
-    return Response(
+    return StreamingResponse(
         generate(),
-        mimetype="text/event-stream",
+        media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-@bp.route("/recent")
-def get_recent_logs():
+@router.get("/recent")
+def get_recent_logs(lines: int = Query(default=100)):
     """Get recent log lines (non-streaming)."""
-    lines = request.args.get("lines", 100, type=int)
     try:
         with open(config.LOG_FILE, "r") as f:
             all_lines = f.readlines()
-            return jsonify({"lines": [l.rstrip() for l in all_lines[-lines:]]})
+            return {"lines": [l.rstrip() for l in all_lines[-lines:]]}
     except FileNotFoundError:
-        return jsonify({"lines": []})
+        return {"lines": []}

@@ -11,15 +11,14 @@ def report(app):
     """Create a test report."""
     from web.storage import store
 
-    with app.test_request_context():
-        report = store.create_report(
-            title="Test Report",
-            content="---\ndate: 2026-01-01\nwebsite: test\n---\n\n# Test Report\n\nThis is **markdown** content.",
-            website="test",
-            category="testing",
-            user_id="test@example.com",
-        )
-        return report
+    report = store.create_report(
+        title="Test Report",
+        content="---\ndate: 2026-01-01\nwebsite: test\n---\n\n# Test Report\n\nThis is **markdown** content.",
+        website="test",
+        category="testing",
+        user_id="test@example.com",
+    )
+    return report
 
 
 @pytest.fixture
@@ -27,8 +26,7 @@ def conversation(app):
     """Create a test conversation to link to a report."""
     from web.storage import store
 
-    with app.test_request_context():
-        return store.create_conversation(user_id="test@example.com")
+    return store.create_conversation(user_id="test@example.com")
 
 
 @pytest.fixture
@@ -36,15 +34,14 @@ def report_with_source(app, conversation):
     """Create a report linked to a source conversation."""
     from web.storage import store
 
-    with app.test_request_context():
-        return store.create_report(
-            title="Linked Report",
-            content="# Linked\n\nContent.",
-            website="test",
-            category="testing",
-            user_id="test@example.com",
-            source_conversation_id=conversation.id,
-        )
+    return store.create_report(
+        title="Linked Report",
+        content="# Linked\n\nContent.",
+        website="test",
+        category="testing",
+        user_id="test@example.com",
+        source_conversation_id=conversation.id,
+    )
 
 
 class TestRapportTxtExport:
@@ -57,7 +54,7 @@ class TestRapportTxtExport:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert response.status_code == 200
-        assert response.content_type.startswith("text/plain")
+        assert response.headers["content-type"].startswith("text/plain")
 
     def test_txt_endpoint_returns_raw_markdown(self, app, client, report):
         """GET /rapports/<id>.txt returns the raw markdown content."""
@@ -66,7 +63,7 @@ class TestRapportTxtExport:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert response.status_code == 200
-        content = response.data.decode("utf-8")
+        content = response.content.decode("utf-8")
         assert "# Test Report" in content
         assert "**markdown**" in content
         assert "date: 2026-01-01" in content
@@ -83,21 +80,20 @@ class TestRapportTxtExport:
         """GET /rapports/<id>.txt handles UTF-8 content correctly."""
         from web.storage import store
 
-        with app.test_request_context():
-            report = store.create_report(
-                title="Rapport avec accents",
-                content="# Résumé\n\nCe rapport contient des caractères spéciaux: é, è, ê, ë, à, ç, ù.",
-                website="test",
-                category="testing",
-                user_id="test@example.com",
-            )
+        report = store.create_report(
+            title="Rapport avec accents",
+            content="# Résumé\n\nCe rapport contient des caractères spéciaux: é, è, ê, ë, à, ç, ù.",
+            website="test",
+            category="testing",
+            user_id="test@example.com",
+        )
 
         response = client.get(
             f"/rapports/{report.id}.txt",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert response.status_code == 200
-        content = response.data.decode("utf-8")
+        content = response.content.decode("utf-8")
         assert "Résumé" in content
         assert "é, è, ê, ë, à, ç, ù" in content
 
@@ -112,8 +108,8 @@ class TestRapportDetailView:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert response.status_code == 200
-        assert b"Version exportable" in response.data
-        assert f"/rapports/{report.id}.txt".encode() in response.data
+        assert b"Version exportable" in response.content
+        assert f"/rapports/{report.id}.txt".encode() in response.content
 
     def test_detail_view_has_continue_button(self, app, client, report):
         """Report detail view still includes the 'Poursuivre l'exploration' button."""
@@ -122,7 +118,7 @@ class TestRapportDetailView:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert response.status_code == 200
-        assert b"Poursuivre l'exploration" in response.data
+        assert b"Poursuivre l'exploration" in response.content
 
 
 class TestRapportsListRedirect:
@@ -133,9 +129,10 @@ class TestRapportsListRedirect:
         response = client.get(
             "/rapports",
             headers={"X-Forwarded-Email": "test@example.com"},
+            follow_redirects=False,
         )
         assert response.status_code == 301
-        assert response.location == "/rechercher?show=reports"
+        assert response.headers["location"] == "/rechercher?show=reports"
 
 
 def _extract_main_content(html: str) -> str:
@@ -182,7 +179,7 @@ class TestRapportHtmxNavigation:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert response.status_code == 200
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         main_content = _extract_main_content(html)
 
         assert _report_body_has_content(main_content), (
@@ -196,7 +193,7 @@ class TestRapportHtmxNavigation:
             "/rechercher?show=reports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         main_content = _extract_main_content(html)
 
         # Each report link should have the htmx attributes
@@ -210,7 +207,7 @@ class TestRapportHtmxNavigation:
             f"/rapports/{report.id}",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         main_content = _extract_main_content(html)
 
         # Rendered HTML (not raw markdown) must be present
@@ -248,7 +245,7 @@ class TestReportAuthorInSearch:
             "/rechercher?show=reports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         assert "conv-item-author" in html
         assert "test" in html  # test@example.com -> "test"
 
@@ -258,7 +255,7 @@ class TestReportAuthorInSearch:
             "/rechercher?show=reports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         assert f"/explorations/{conversation.id}" in html
         assert "Conversation" in html
 
@@ -268,7 +265,7 @@ class TestReportAuthorInSearch:
             "/rechercher?show=reports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         main_content = _extract_main_content(html)
         # No /explorations/ link inside the report item
         assert "/explorations/" not in main_content
@@ -279,7 +276,7 @@ class TestReportAuthorInSearch:
             "/rechercher?show=reports",
             headers={"X-Forwarded-Email": "test@example.com"},
         )
-        html = response.data.decode("utf-8")
+        html = response.content.decode("utf-8")
         assert 'data-search="' in html
         # user_id should be in the search string
         assert "test@example.com" in html

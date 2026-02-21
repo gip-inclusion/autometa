@@ -65,29 +65,27 @@ Fin du rapport.
 @pytest.fixture
 def report(app):
     from web.storage import store
-    with app.test_request_context():
-        return store.create_report(
-            title="Analyse des événements",
-            content=SAMPLE_REPORT,
-            website="emplois",
-            category="Event analysis",
-            user_id="test@example.com",
-        )
+    return store.create_report(
+        title="Analyse des événements",
+        content=SAMPLE_REPORT,
+        website="emplois",
+        category="Event analysis",
+        user_id="test@example.com",
+    )
 
 
 @pytest.fixture
 def report_with_db_query(app):
     """Report where DB original_query differs from frontmatter."""
     from web.storage import store
-    with app.test_request_context():
-        return store.create_report(
-            title="Test Report",
-            content=SAMPLE_REPORT,
-            website="emplois",
-            category="testing",
-            original_query="Generate a report about events",
-            user_id="test@example.com",
-        )
+    return store.create_report(
+        title="Test Report",
+        content=SAMPLE_REPORT,
+        website="emplois",
+        category="testing",
+        original_query="Generate a report about events",
+        user_id="test@example.com",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +280,7 @@ class TestPublishNotionEndpoint:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["url"] == "https://notion.so/My-Page-123"
 
         # Second call should return cached URL without calling publish again
@@ -292,7 +290,7 @@ class TestPublishNotionEndpoint:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert resp2.status_code == 200
-        assert resp2.get_json()["url"] == "https://notion.so/My-Page-123"
+        assert resp2.json()["url"] == "https://notion.so/My-Page-123"
         mock_publish.assert_not_called()
 
     @patch("web.notion.is_configured", return_value=True)
@@ -303,7 +301,7 @@ class TestPublishNotionEndpoint:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert resp.status_code == 500
-        assert "timeout" in resp.get_json()["error"]
+        assert "timeout" in resp.json()["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -320,9 +318,9 @@ class TestNotionButton:
         )
         assert resp.status_code == 200
         # The HTML button area (not the JS) should have the export button
-        assert b'id="notionBtn" data-report-id=' in resp.data
+        assert b'id="notionBtn" data-report-id=' in resp.content
         # Should NOT have an <a> link to Notion (only appears after publish)
-        assert b'href="https://notion.so' not in resp.data
+        assert b'href="https://notion.so' not in resp.content
 
     @patch("web.notion.is_configured", return_value=True)
     @patch("web.notion.publish_report")
@@ -339,5 +337,5 @@ class TestNotionButton:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert resp.status_code == 200
-        assert "Lien Notion".encode() in resp.data
-        assert b"https://notion.so/Page-123" in resp.data
+        assert "Lien Notion".encode() in resp.content
+        assert b"https://notion.so/Page-123" in resp.content

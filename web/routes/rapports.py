@@ -2,20 +2,19 @@
 
 import re
 from datetime import datetime
-from pathlib import Path
 
 import markdown as md
-from flask import Blueprint, redirect, render_template, request, url_for, Response, abort
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from markupsafe import Markup
 
-from flask import g, jsonify
-
+from ..deps import get_current_user, templates
 from ..storage import store
 from .html import get_sidebar_data
 from .. import config
 from ..config import ADMIN_USERS
 
-bp = Blueprint("rapports", __name__)
+router = APIRouter()
 
 
 def _parse_app_md(content: str, folder_name: str) -> dict | None:
@@ -50,10 +49,8 @@ def _parse_app_md(content: str, folder_name: str) -> dict | None:
     if "tags" in fm:
         raw_tags = fm["tags"]
         if raw_tags.startswith("[") and raw_tags.endswith("]"):
-            # YAML list syntax: [tag1, tag2]
             tags = [t.strip() for t in raw_tags[1:-1].split(",") if t.strip()]
         else:
-            # Comma-separated
             tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
     # Parse authors (comma-separated)
@@ -91,7 +88,6 @@ def scan_interactive_apps():
         # List directories in S3
         directories = s3.list_directories()
         for folder_name in directories:
-            # Try to download APP.md
             app_md_content = s3.download_file(f"{folder_name}/APP.md")
             if app_md_content:
                 try:
@@ -102,7 +98,6 @@ def scan_interactive_apps():
                 except UnicodeDecodeError:
                     continue
     else:
-        # Local filesystem
         if not config.INTERACTIVE_DIR.exists():
             return []
 
@@ -124,30 +119,28 @@ def scan_interactive_apps():
     return apps
 
 
-
-@bp.route("/rapports")
-def rapports():
+@router.get("/rapports")
+def rapports(report_id: int | None = Query(default=None, alias="id")):
     """Legacy rapports list — redirects to /rechercher."""
-    report_id = request.args.get("id", type=int)
     if report_id:
-        return redirect(url_for("rapports.rapport_detail", report_id=report_id), code=301)
+        return RedirectResponse(f"/rapports/{report_id}", status_code=301)
 
-    return redirect("/rechercher?show=reports", code=301)
-
-
-@bp.route("/rapports/<int:report_id>")
-def rapport_detail(report_id: int):
-    """View a specific report."""
-    return _render_rapports_page(report_id=report_id)
+    return RedirectResponse("/rechercher?show=reports", status_code=301)
 
 
-@bp.route("/rapports/<int:report_id>.txt")
+@router.get("/rapports/{report_id}.txt")
 def rapport_txt(report_id: int):
     """Return raw markdown content of a report as text/plain."""
     report = store.get_report(report_id)
     if not report:
-        abort(404)
-    return Response(report.content, mimetype="text/plain; charset=utf-8")
+        return JSONResponse({"error": "Report not found"}, status_code=404)
+    return PlainTextResponse(report.content, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/rapports/{report_id}")
+def rapport_detail(report_id: int, request: Request, user_email: str = Depends(get_current_user)):
+    """View a specific report."""
+    return _render_rapports_page(request, user_email, report_id=report_id)
 
 
 def _render_report_content(raw_content: str) -> tuple[dict, Markup]:
@@ -171,53 +164,51 @@ def _render_report_content(raw_content: str) -> tuple[dict, Markup]:
     return front_matter, Markup(html)
 
 
-def _render_rapports_page(report_id: int):
+def _render_rapports_page(request: Request, user_email: str, report_id: int):
     """Render a specific report detail page."""
-    data = get_sidebar_data()
+    data = get_sidebar_data(user_email)
 
     current_report = store.get_report(report_id)
     if not current_report:
-        abort(404)
+        return JSONResponse({"error": "Report not found"}, status_code=404)
 
     current_report_tags = store.get_report_tags(report_id)
     report_front_matter, report_html = _render_report_content(current_report.content)
 
-    return render_template(
-        "rapports.html",
-        section="rapports",
-        current_report=current_report,
-        current_report_tags=current_report_tags,
-        report_front_matter=report_front_matter,
-        report_html=report_html,
-        **data
-    )
+    return templates.TemplateResponse(request, "rapports.html", {
+        "section": "rapports",
+        "current_report": current_report,
+        "current_report_tags": current_report_tags,
+        "report_front_matter": report_front_matter,
+        "report_html": report_html,
+        **data,
+    })
 
 
-@bp.route("/api/apps/<slug>/pin", methods=["POST"])
-def pin_app(slug: str):
+@router.post("/api/apps/{slug}/pin")
+async def pin_app(slug: str, request: Request, user_email: str = Depends(get_current_user)):
     """Pin an app. Admin only."""
-    user_email = getattr(g, "user_email", None)
     if user_email not in ADMIN_USERS:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     # Verify app exists
     apps = {a["slug"]: a for a in scan_interactive_apps()}
     app = apps.get(slug)
     if not app:
-        return jsonify({"error": "App not found"}), 404
+        return JSONResponse({"error": "App not found"}, status_code=404)
 
-    data = request.get_json() or {}
+    body = await request.body()
+    data = (await request.json()) if body else {}
     label = data.get("label", "").strip() or app["title"]
     store.pin_item("app", slug, label)
-    return jsonify({"ok": True, "label": label}), 200
+    return {"ok": True, "label": label}
 
 
-@bp.route("/api/apps/<slug>/pin", methods=["DELETE"])
-def unpin_app(slug: str):
+@router.delete("/api/apps/{slug}/pin")
+def unpin_app(slug: str, user_email: str = Depends(get_current_user)):
     """Unpin an app. Admin only."""
-    user_email = getattr(g, "user_email", None)
     if user_email not in ADMIN_USERS:
-        return jsonify({"error": "Permission denied"}), 403
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     store.unpin_item("app", slug)
-    return jsonify({"ok": True}), 200
+    return {"ok": True}

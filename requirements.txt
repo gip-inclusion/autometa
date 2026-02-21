@@ -1,6 +1,8 @@
 # Web framework
-Flask==3.1.2
-Werkzeug==3.1.4
+fastapi==0.129.2
+uvicorn[standard]==0.40.0
+sse-starlette==3.1.2
+python-multipart==0.0.21
 
 # Claude Agent SDK
 anthropic==0.75.0
@@ -31,9 +33,7 @@ pydantic-settings==2.12.0
 # Type hints
 typing_extensions==4.15.0
 
-# Production server
-gunicorn==23.0.0
-gevent==24.11.1
+# Production server (uvicorn already listed above)
 
 # Database
 psycopg2-binary==2.9.10

@@ -1,13 +1,14 @@
 """API routes for Claude authentication."""
 
-from flask import Blueprint, jsonify, request
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from .. import claude_auth, claude_credentials, config
 
-bp = Blueprint("auth", __name__, url_prefix="/api/auth")
+router = APIRouter(prefix="/api/auth")
 
 
-@bp.route("/status", methods=["GET"])
+@router.get("/status")
 def status():
     """Get current authentication status.
 
@@ -18,83 +19,85 @@ def status():
 
     # Non-CLI backends do not require interactive auth
     if not config.USES_CLAUDE_CLI:
-        return jsonify({
+        return {
             "backend": backend,
             "auth_required": False,
             "authenticated": True,
-        })
+        }
 
     # CLI backend - check credentials
     creds_info = claude_credentials.get_credentials_info()
 
     if creds_info:
-        return jsonify({
+        return {
             "backend": backend,
             "auth_required": True,
             "authenticated": True,
             "subscription_type": creds_info.get("subscription_type"),
             "expires_at": creds_info.get("expires_at"),
-        })
+        }
 
     # Check if there's an active auth session
     session_status = claude_auth.get_auth_status()
     if session_status["status"] != "no_session":
-        return jsonify({
+        return {
             "backend": backend,
             "auth_required": True,
             "authenticated": False,
             "auth_in_progress": True,
             "session_status": session_status["status"],
             "oauth_url": session_status.get("oauth_url"),
-        })
+        }
 
-    return jsonify({
+    return {
         "backend": backend,
         "auth_required": True,
         "authenticated": False,
         "auth_in_progress": False,
-    })
+    }
 
 
-@bp.route("/start", methods=["POST"])
-def start():
+@router.post("/start")
+async def start(request: Request):
     """Start a new authentication session.
 
     Returns the OAuth URL to open in the browser.
 
     JSON body (optional): {"force": true} to re-authenticate even if already logged in.
     """
-    data = request.get_json(silent=True) or {}
+    body = await request.body()
+    data = (await request.json()) if body else {}
     force = data.get("force", False)
-    result = claude_auth.start_auth(force=force)
-    return jsonify(result)
+    return claude_auth.start_auth(force=force)
 
 
-@bp.route("/complete", methods=["POST"])
-def complete():
+@router.post("/complete")
+async def complete(request: Request):
     """Complete authentication with the code from OAuth.
 
     Expects JSON body: {"code": "..."}
     """
-    data = request.get_json()
+    data = await request.json()
     if not data or "code" not in data:
-        return jsonify({"status": "error", "error": "Missing 'code' in request body"}), 400
+        return JSONResponse(
+            {"status": "error", "error": "Missing 'code' in request body"},
+            status_code=400,
+        )
+    return claude_auth.complete_auth(data["code"])
 
-    result = claude_auth.complete_auth(data["code"])
-    return jsonify(result)
 
-
-@bp.route("/cancel", methods=["POST"])
+@router.post("/cancel")
 def cancel():
     """Cancel any active auth session."""
-    result = claude_auth.cancel_auth()
-    return jsonify(result)
+    return claude_auth.cancel_auth()
 
 
-@bp.route("/backup", methods=["POST"])
+@router.post("/backup")
 def backup():
     """Manually backup credentials to S3."""
     success = claude_credentials.backup_credentials_to_s3()
     if success:
-        return jsonify({"status": "ok"})
-    return jsonify({"status": "error", "error": "Backup failed"}), 500
+        return {"status": "ok"}
+    return JSONResponse(
+        {"status": "error", "error": "Backup failed"}, status_code=500
+    )

@@ -3,8 +3,10 @@
 import shutil
 
 import markdown
-from flask import Blueprint, g, jsonify, request
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from ..deps import get_current_user
 from ..storage import store
 from ..helpers import (
     validate_knowledge_path,
@@ -14,40 +16,40 @@ from ..helpers import (
 )
 from ..github import GitHubClient, GitHubError
 
-bp = Blueprint("knowledge", __name__, url_prefix="/api/knowledge")
+router = APIRouter(prefix="/api/knowledge")
 
 
-@bp.route("", methods=["GET"])
+@router.get("")
 def list_knowledge():
     """List all knowledge files."""
     categories = list_knowledge_files()
-    return jsonify({"categories": categories})
+    return {"categories": categories}
 
 
-@bp.route("/files/<path:file_path>", methods=["GET"])
+@router.get("/files/{file_path:path}")
 def get_knowledge_file(file_path: str):
     """Get a knowledge file's content."""
     validated_path = validate_knowledge_path(file_path)
     if not validated_path:
-        return jsonify({"error": "Invalid or non-existent file path"}), 404
+        return JSONResponse({"error": "Invalid or non-existent file path"}, status_code=404)
 
-    return jsonify({
+    return {
         "path": file_path,
         "content": validated_path.read_text(),
         "modified": validated_path.stat().st_mtime,
-    })
+    }
 
 
-@bp.route("/files/<path:file_path>/conversation", methods=["POST"])
-def start_knowledge_conversation(file_path: str):
+@router.post("/files/{file_path:path}/conversation")
+def start_knowledge_conversation(file_path: str, user_email: str = Depends(get_current_user)):
     """Start or resume a knowledge editing conversation."""
     validated_path = validate_knowledge_path(file_path)
     if not validated_path:
-        return jsonify({"error": "Invalid or non-existent file path"}), 404
+        return JSONResponse({"error": "Invalid or non-existent file path"}, status_code=404)
 
-    existing = store.get_active_knowledge_conversation(file_path, user_id=g.user_email)
+    existing = store.get_active_knowledge_conversation(file_path, user_id=user_email)
     if existing:
-        return jsonify({
+        return {
             "id": existing.id,
             "resumed": True,
             "staged_files": list_staged_files(existing.id),
@@ -57,9 +59,9 @@ def start_knowledge_conversation(file_path: str):
                 "commit": f"/api/knowledge/conversations/{existing.id}/commit",
                 "abandon": f"/api/knowledge/conversations/{existing.id}/abandon",
             },
-        })
+        }
 
-    conv = store.create_conversation(conv_type="knowledge", file_path=file_path, user_id=g.user_email)
+    conv = store.create_conversation(conv_type="knowledge", file_path=file_path, user_id=user_email)
 
     staging_dir = get_staging_dir(conv.id)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +70,7 @@ def start_knowledge_conversation(file_path: str):
     staged_file.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(validated_path, staged_file)
 
-    return jsonify({
+    return {
         "id": conv.id,
         "resumed": False,
         "staged_files": [file_path],
@@ -78,15 +80,15 @@ def start_knowledge_conversation(file_path: str):
             "commit": f"/api/knowledge/conversations/{conv.id}/commit",
             "abandon": f"/api/knowledge/conversations/{conv.id}/abandon",
         },
-    })
+    }
 
 
-@bp.route("/conversations/<conv_id>/files", methods=["GET"])
+@router.get("/conversations/{conv_id}/files")
 def get_staged_files(conv_id: str):
     """Get list of staged files for a knowledge conversation."""
     conv = store.get_conversation(conv_id, include_messages=True)
     if not conv or conv.conv_type != "knowledge":
-        return jsonify({"error": "Knowledge conversation not found"}), 404
+        return JSONResponse({"error": "Knowledge conversation not found"}, status_code=404)
 
     first_user_message = None
     for msg in conv.messages:
@@ -94,32 +96,33 @@ def get_staged_files(conv_id: str):
             first_user_message = msg.content[:200]
             break
 
-    return jsonify({
+    return {
         "files": list_staged_files(conv_id),
         "conversation_id": conv_id,
         "first_user_message": first_user_message,
-    })
+    }
 
 
-@bp.route("/conversations/<conv_id>/commit", methods=["POST"])
-def commit_knowledge_changes(conv_id: str):
+@router.post("/conversations/{conv_id}/commit")
+async def commit_knowledge_changes(conv_id: str, request: Request):
     """Create GitHub PR with staged changes."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv or conv.conv_type != "knowledge":
-        return jsonify({"error": "Knowledge conversation not found"}), 404
+        return JSONResponse({"error": "Knowledge conversation not found"}, status_code=404)
 
     if conv.status != "active":
-        return jsonify({"error": "Conversation is not active"}), 400
+        return JSONResponse({"error": "Conversation is not active"}, status_code=400)
 
     staging_dir = get_staging_dir(conv_id)
     if not staging_dir.exists():
-        return jsonify({"error": "No staged files"}), 400
+        return JSONResponse({"error": "No staged files"}, status_code=400)
 
     staged_files = list_staged_files(conv_id)
     if not staged_files:
-        return jsonify({"error": "No staged files"}), 400
+        return JSONResponse({"error": "No staged files"}, status_code=400)
 
-    data = request.get_json() or {}
+    body = await request.body()
+    data = (await request.json()) if body else {}
     summary = data.get("summary", "Knowledge update")
 
     # Collect file contents
@@ -140,7 +143,7 @@ def commit_knowledge_changes(conv_id: str):
             conversation_id=conv_id,
         )
     except GitHubError as e:
-        return jsonify({"error": f"GitHub PR creation failed: {e}"}), 500
+        return JSONResponse({"error": f"GitHub PR creation failed: {e}"}, status_code=500)
 
     # Clean up staging
     shutil.rmtree(staging_dir, ignore_errors=True)
@@ -153,51 +156,51 @@ def commit_knowledge_changes(conv_id: str):
         content=f"Changes submitted as pull request: {pr_url}",
     )
 
-    return jsonify({
+    return {
         "status": "committed",
         "files": list(files.keys()),
         "conversation_id": conv_id,
         "pr_url": pr_url,
-    })
+    }
 
 
-@bp.route("/conversations/<conv_id>/abandon", methods=["POST"])
+@router.post("/conversations/{conv_id}/abandon")
 def abandon_knowledge_changes(conv_id: str):
     """Abandon staged changes and close conversation."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv or conv.conv_type != "knowledge":
-        return jsonify({"error": "Knowledge conversation not found"}), 404
+        return JSONResponse({"error": "Knowledge conversation not found"}, status_code=404)
 
     if conv.status != "active":
-        return jsonify({"error": "Conversation is not active"}), 400
+        return JSONResponse({"error": "Conversation is not active"}, status_code=400)
 
     staging_dir = get_staging_dir(conv_id)
     shutil.rmtree(staging_dir, ignore_errors=True)
     store.update_conversation(conv_id, status="abandoned")
 
-    return jsonify({
+    return {
         "status": "abandoned",
         "conversation_id": conv_id,
-    })
+    }
 
 
-@bp.route("/conversations/<conv_id>/preview/<path:file_path>")
+@router.get("/conversations/{conv_id}/preview/{file_path:path}")
 def preview_staged_file(conv_id: str, file_path: str):
     """Preview a staged file as rendered HTML."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv or conv.conv_type != "knowledge":
-        return "Knowledge conversation not found", 404
+        return HTMLResponse("Knowledge conversation not found", status_code=404)
 
     staging_dir = get_staging_dir(conv_id)
     staged_file = staging_dir / file_path
 
     if not staged_file.exists():
-        return "Staged file not found", 404
+        return HTMLResponse("Staged file not found", status_code=404)
 
     content = staged_file.read_text()
     html_content = markdown.markdown(content, extensions=["fenced_code", "tables", "toc"])
 
-    return f"""<!DOCTYPE html>
+    return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="utf-8">
@@ -219,4 +222,4 @@ def preview_staged_file(conv_id: str, file_path: str):
         {html_content}
     </article>
 </body>
-</html>"""
+</html>""")
