@@ -435,3 +435,110 @@ class TestAssistantTextReset:
         assert len(assistant_msgs) == 2
         assert assistant_msgs[0].content == "Let me check"
         assert assistant_msgs[1].content == "Here is what I found"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Client disconnect must NOT kill the agent
+#
+# Regression test for the FastAPI migration. When the SSE client disconnects
+# (page reload, navigation), Starlette cancels the StreamingResponse async
+# generator. If the agent iteration is directly inside that generator,
+# CancelledError propagates into _run_cli() → finally → SIGTERM → agent dies.
+#
+# Phase 2 (Process Manager) will fix this by decoupling the agent subprocess
+# from the SSE connection. Until then, these tests document the bug.
+# ---------------------------------------------------------------------------
+
+
+def _make_slow_mock_backend():
+    """Create a mock backend where send_message sleeps to simulate work.
+
+    Yields one event immediately, then blocks on asyncio.sleep(). The
+    ``cancelled`` flag tracks whether the generator was interrupted by
+    CancelledError / GeneratorExit (i.e. client disconnect killed it).
+    """
+    from web.agents.base import AgentBackend, AgentMessage
+
+    class SlowMockBackend(AgentBackend):
+        def __init__(self):
+            self._running = set()
+            self.cancelled = False
+            self.completed = False
+
+        async def send_message(
+            self, conversation_id, message, history, session_id=None,
+        ) -> AsyncIterator[AgentMessage]:
+            self._running.add(conversation_id)
+            try:
+                yield AgentMessage(
+                    type="system", content="init",
+                    raw={"subtype": "init", "session_id": "s1",
+                         "data": {"session_id": "s1"}},
+                )
+                # Simulate agent doing work (long enough for disconnect)
+                await asyncio.sleep(5)
+                yield AgentMessage(type="assistant", content="Final answer")
+                yield AgentMessage(
+                    type="system", content="Completed: done",
+                    raw={"result": True},
+                )
+                self.completed = True
+            except (asyncio.CancelledError, GeneratorExit):
+                self.cancelled = True
+                raise
+            finally:
+                self._running.discard(conversation_id)
+
+        async def cancel(self, conversation_id):
+            self._running.discard(conversation_id)
+            return True
+
+        def is_running(self, conversation_id):
+            return conversation_id in self._running
+
+    return SlowMockBackend()
+
+
+class TestClientDisconnect:
+    """Client disconnect (page reload/navigation) must not kill the agent.
+
+    When uvicorn detects TCP close, it calls aclose() on the
+    StreamingResponse async generator. This test does the same thing
+    directly — simulating a mid-stream client disconnect.
+
+    NOTE: Starlette's TestClient does NOT cancel ASGI tasks on disconnect,
+    so this must be tested at the generator level, not through HTTP.
+    """
+
+    def test_agent_survives_client_disconnect(self, app, conversation):
+        """Agent must keep running after client disconnects mid-stream."""
+        from web.routes.conversations import stream_conversation
+
+        mock = _make_slow_mock_backend()
+
+        async def _run():
+            with patch("web.routes.conversations.get_agent_instance", return_value=mock):
+                with patch("web.routes.conversations.generate_conversation_title"):
+                    with patch("web.routes.conversations.generate_conversation_tags"):
+                        response = await stream_conversation(
+                            conv_id=conversation.id,
+                            user_email="test@example.com",
+                        )
+                        # Read partially then disconnect (aclose = uvicorn TCP close)
+                        gen = response.body_iterator
+                        chunks_read = 0
+                        async for chunk in gen:
+                            chunks_read += 1
+                            if chunks_read >= 2:
+                                break
+                        await gen.aclose()
+                        await asyncio.sleep(0.1)
+
+            return mock.cancelled
+
+        cancelled = asyncio.run(_run())
+
+        assert not cancelled, (
+            "Agent was cancelled by client disconnect! "
+            "The agent must be decoupled from the SSE generator."
+        )
