@@ -55,4 +55,4 @@ ENV AGENT_BACKEND=sdk \
 
 EXPOSE 5000
 
-CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["./entrypoint.sh"]
