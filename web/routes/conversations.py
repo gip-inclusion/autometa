@@ -473,6 +473,7 @@ async def stream_conversation(
     # connect), we flush unseen messages before sending done.
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
+        logger.debug(f"SSE stream start: conv={conv_id}, after={after}, watermark={last_msg_id}")
         poll_count = 0
         max_polls = 600  # 5 minutes at 0.5s intervals
 
@@ -480,6 +481,8 @@ async def stream_conversation(
             new_messages = await asyncio.to_thread(
                 store.get_messages_since, conv_id, last_msg_id
             )
+            if new_messages:
+                logger.debug(f"SSE poll {poll_count}: {len(new_messages)} new msgs: {[(m.id, m.type, m.content[:60]) for m in new_messages]}")
             for msg in new_messages:
                 last_msg_id = msg.id
                 sse_data = {"type": msg.type, "content": msg.content}
