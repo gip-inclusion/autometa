@@ -217,6 +217,36 @@ class TestRaceCondition:
         # The first assistant message must be the one written before connect
         assert assistant[0]["data"]["content"] == "Fast response"
 
+    def test_pm_finishes_before_sse_connect(self, app, client):
+        """PM finishes entirely before SSE connect — messages must still arrive.
+
+        If the PM is fast enough, needs_response is already False when the
+        SSE handler connects.  The handler must still flush unseen messages
+        before sending done.
+        """
+        from web.storage import store
+
+        conv = store.create_conversation(user_id="test@example.com")
+        user_msg = store.add_message(conv.id, "user", "Hello")
+        store.update_conversation(conv.id, needs_response=True)
+
+        # PM writes response AND finishes before SSE connects
+        store.add_message(conv.id, "assistant", "Instant answer")
+        store.update_conversation(conv.id, needs_response=False)
+
+        response = client.get(
+            f"/api/conversations/{conv.id}/stream?after={user_msg.id}",
+            headers={"X-Forwarded-Email": "test@example.com"},
+        )
+        events = _parse_sse_events(response.content)
+        assistant = [e for e in events if e["event"] == "assistant"]
+
+        assert len(assistant) == 1, (
+            "PM finished before SSE connect but assistant message was lost!"
+        )
+        assert assistant[0]["data"]["content"] == "Instant answer"
+        assert events[-1]["event"] == "done"
+
 
 class TestNeedsResponse:
     """needs_response column controls stream behavior."""

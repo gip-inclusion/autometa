@@ -468,21 +468,10 @@ async def stream_conversation(
     if after == 0 and not conv.messages:
         return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
-    # If no response needed, nothing to stream
-    if not conv.needs_response:
-        async def done_stream():
-            yield f"event: done\n"
-            yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
-
-        return StreamingResponse(
-            done_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    # Tail the messages table: poll for new messages written by the PM
+    # Tail the messages table: poll for new messages written by the PM.
+    # Even when needs_response is already False (PM finished before SSE
+    # connect), we flush unseen messages before sending done.
     async def generate():
-        # Use client-provided watermark, or fall back to last known message
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
         poll_count = 0
         max_polls = 600  # 5 minutes at 0.5s intervals
