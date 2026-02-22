@@ -150,17 +150,10 @@ function applyActionsFilter() {
       pill.classList.remove('filtered-out');
     }
 
-    // Update label (main/sub may swap based on filter mode)
-    const label = extractPillLabel(action.toolUse, action.toolResult);
+    // Re-render label (main/sub swap depends on filter mode)
     const labelEl = pill.querySelector('.action-pill-label');
     if (labelEl) {
-      const mainLabel = typeof label === 'object' ? label.main : label;
-      const subLabel = typeof label === 'object' ? label.sub : null;
-      let labelHtml = `<span class="action-pill-label-main">${escapeHtml(mainLabel)}</span>`;
-      if (subLabel) {
-        labelHtml += `<span class="action-pill-label-sub">${escapeHtml(subLabel)}</span>`;
-      }
-      labelEl.innerHTML = labelHtml;
+      labelEl.innerHTML = pillLabelHtml(action.pillData);
     }
   });
 }
@@ -384,53 +377,54 @@ function resetTocState() {
 // =============================================================================
 
 /**
- * Extract a short label for a pill based on tool data
- * Returns { main: string, sub?: string } for potential two-line display
+ * Extract label data for a pill (pure data, no presentation logic)
+ * Returns { label: string, apiSummary: string|null }
  */
-function extractPillLabel(toolUse, toolResult) {
+function extractPillData(toolUse, toolResult) {
   const category = toolUse.category || '';
-  let main = translateCategory(category) || toolUse.tool || 'Action';
-  let sub = null;
+  let label = translateCategory(category) || toolUse.tool || 'Action';
+  let apiSummary = null;
 
   // For Read operations, show the filename
   if (category.startsWith('Read:') && toolUse.input?.file_path) {
-    const path = toolUse.input.file_path;
-    main = path.split('/').pop();
+    label = toolUse.input.file_path.split('/').pop();
   }
 
   // For direct API calls, show the method
   if (category.startsWith('API:') && toolResult?.api_calls?.length > 0) {
     const call = toolResult.api_calls[0];
-    if (call.method) main = call.method;
-    else if (call.sql) main = 'Requête SQL';
+    if (call.method) label = call.method;
+    else if (call.sql) label = 'Requête SQL';
   }
 
-  // If there are API calls (from scripts, etc.), build the API count label
+  // Summarize API calls from non-API tools (scripts, etc.)
   if (toolResult?.api_calls?.length > 0 && !category.startsWith('API:')) {
-    // Count calls by source
     const counts = {};
     for (const call of toolResult.api_calls) {
       const source = call.source || 'API';
       counts[source] = (counts[source] || 0) + 1;
     }
-    // Format: "3 requêtes Matomo" or "16 requêtes Matomo, 2 requêtes Metabase"
-    const parts = Object.entries(counts).map(([source, count]) => {
-      const name = source.charAt(0).toUpperCase() + source.slice(1);
-      return `${count} requête${count > 1 ? 's' : ''} ${name}`;
-    });
-    const apiLabel = parts.join(', ');
-
-    // In data mode: API count is main, category is sub
-    // In detailed mode: category is main, API count is sub
-    if (actionsFilterMode === 'data') {
-      sub = main;
-      main = apiLabel;
-    } else {
-      sub = apiLabel;
-    }
+    apiSummary = Object.entries(counts)
+      .map(([source, count]) => {
+        const name = source.charAt(0).toUpperCase() + source.slice(1);
+        return `${count} requête${count > 1 ? 's' : ''} ${name}`;
+      })
+      .join(', ');
   }
 
-  return { main, sub };
+  return { label, apiSummary };
+}
+
+/**
+ * Render pill label HTML from pill data.
+ * In data mode: API summary is prominent. In detailed mode: tool label is prominent.
+ */
+function pillLabelHtml({ label, apiSummary }) {
+  const main = (actionsFilterMode === 'data' && apiSummary) ? apiSummary : label;
+  const sub = (actionsFilterMode === 'data' && apiSummary) ? label : apiSummary;
+  let html = `<span class="action-pill-label-main">${escapeHtml(main)}</span>`;
+  if (sub) html += `<span class="action-pill-label-sub">${escapeHtml(sub)}</span>`;
+  return html;
 }
 
 // =============================================================================
@@ -445,14 +439,14 @@ function createAndAppendAction(toolUse, toolResult) {
   const idx = actionIndex;
   const category = toolUse.category || `Other: ${toolUse.tool}`;
   const icon = getIconForCategory(category);
-  const label = extractPillLabel(toolUse, toolResult);
+  const pillData = extractPillData(toolUse, toolResult);
 
   // Store in map
-  actionsMap.set(idx, { toolUse, toolResult, category, icon, label });
+  actionsMap.set(idx, { toolUse, toolResult, category, icon, pillData });
   currentTurnActions.push(idx);
 
   // Create pill element
-  const pill = createActionPill(idx, icon, label, toolUse, toolResult);
+  const pill = createActionPill(idx, icon, pillData, toolUse, toolResult);
 
   // Apply filter
   const isData = isDataAction(toolUse, toolResult);
@@ -483,19 +477,8 @@ function createAndAppendAction(toolUse, toolResult) {
       footnotes.className = 'action-footnotes';
       lastAssistantBlock.appendChild(footnotes);
     }
-
-    const action = actionsMap.get(idx);
-    const footnote = document.createElement('span');
-    footnote.className = 'action-footnote';
-    footnote.dataset.actionIndex = idx;
-    footnote.innerHTML = `<i class="${action.icon}"></i>`;
-    footnote.title = typeof action.label === 'object' ? action.label.main : action.label;
-
-    footnote.addEventListener('click', () => { scrollToPillAndExpand(idx); });
-    footnote.addEventListener('mouseenter', () => { highlightPill(idx, true); });
-    footnote.addEventListener('mouseleave', () => { highlightPill(idx, false); });
-
-    footnotes.appendChild(footnote);
+    const footnote = createFootnoteIcon(idx);
+    if (footnote) footnotes.appendChild(footnote);
   }
 
 }
@@ -503,7 +486,7 @@ function createAndAppendAction(toolUse, toolResult) {
 /**
  * Create a pill element for an action
  */
-function createActionPill(idx, icon, label, toolUse, toolResult) {
+function createActionPill(idx, icon, pillData, toolUse, toolResult) {
   const pill = document.createElement('div');
   pill.className = 'action-pill';
   pill.dataset.actionIndex = idx;
@@ -511,18 +494,9 @@ function createActionPill(idx, icon, label, toolUse, toolResult) {
   const header = document.createElement('div');
   header.className = 'action-pill-header';
 
-  // Handle { main, sub } label format
-  const mainLabel = typeof label === 'object' ? label.main : label;
-  const subLabel = typeof label === 'object' ? label.sub : null;
-
-  let labelHtml = `<span class="action-pill-label-main">${escapeHtml(mainLabel)}</span>`;
-  if (subLabel) {
-    labelHtml += `<span class="action-pill-label-sub">${escapeHtml(subLabel)}</span>`;
-  }
-
   header.innerHTML = `
     <i class="${icon}"></i>
-    <div class="action-pill-label">${labelHtml}</div>
+    <div class="action-pill-label">${pillLabelHtml(pillData)}</div>
   `;
 
   const content = document.createElement('div');
@@ -709,7 +683,25 @@ document.addEventListener('click', (e) => {
 // =============================================================================
 
 /**
- * Add footnotes to the last assistant block
+ * Create a single footnote icon element for an action
+ */
+function createFootnoteIcon(idx) {
+  const action = actionsMap.get(idx);
+  if (!action) return null;
+
+  const footnote = document.createElement('span');
+  footnote.className = 'action-footnote';
+  footnote.dataset.actionIndex = idx;
+  footnote.innerHTML = `<i class="${action.icon}"></i>`;
+  footnote.title = action.pillData.label;
+  footnote.addEventListener('click', () => scrollToPillAndExpand(idx));
+  footnote.addEventListener('mouseenter', () => highlightPill(idx, true));
+  footnote.addEventListener('mouseleave', () => highlightPill(idx, false));
+  return footnote;
+}
+
+/**
+ * Add footnotes to the last assistant block (batch, for loaded conversations)
  */
 function addFootnotesToLastAssistant() {
   if (!lastAssistantBlock || currentTurnActions.length === 0) return;
@@ -724,29 +716,8 @@ function addFootnotesToLastAssistant() {
   footnotes.className = 'action-footnotes';
 
   for (const idx of currentTurnActions) {
-    const action = actionsMap.get(idx);
-    if (!action) continue;
-
-    const footnote = document.createElement('span');
-    footnote.className = 'action-footnote';
-    footnote.dataset.actionIndex = idx;
-    footnote.innerHTML = `<i class="${action.icon}"></i>`;
-    footnote.title = action.label;
-
-    // Click to scroll to pill and expand
-    footnote.addEventListener('click', () => {
-      scrollToPillAndExpand(idx);
-    });
-
-    // Hover to highlight pill
-    footnote.addEventListener('mouseenter', () => {
-      highlightPill(idx, true);
-    });
-    footnote.addEventListener('mouseleave', () => {
-      highlightPill(idx, false);
-    });
-
-    footnotes.appendChild(footnote);
+    const footnote = createFootnoteIcon(idx);
+    if (footnote) footnotes.appendChild(footnote);
   }
 
   lastAssistantBlock.appendChild(footnotes);
