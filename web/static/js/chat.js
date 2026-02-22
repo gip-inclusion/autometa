@@ -403,12 +403,10 @@ function updatePendingFilesUI() {
   if (pendingFiles.length === 0) {
     container.innerHTML = '';
     container.style.display = 'none';
-    if (input) input.classList.remove('has-pending-files');
     return;
   }
 
   container.style.display = 'flex';
-  if (input) input.classList.add('has-pending-files');
   container.innerHTML = pendingFiles.map((file, index) => `
     <div class="pending-file" data-index="${index}">
       <i class="ri-file-line"></i>

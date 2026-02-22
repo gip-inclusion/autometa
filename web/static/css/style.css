@@ -356,21 +356,71 @@ body.has-sidebar {
   align-items: center;
 }
 
+/* The wrapper IS the rounded rectangle border — holds pending files + input row */
+.chat-input-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid #dee2e6;
+  border-radius: 1rem;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.chat-input-wrapper:focus-within {
+  border-color: #000091;
+  box-shadow: 0 0 0 3px rgba(0, 0, 145, 0.1);
+}
+
+/* Row holding attach button + textarea */
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Attach button: left section of the rounded rect */
+.chat-upload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  flex-shrink: 0;
+  align-self: stretch;
+  background: transparent;
+  border: none;
+  border-right: 2px solid #dee2e6;
+  color: #495057;
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.chat-upload-btn:hover {
+  color: #000091;
+  background: rgba(0, 0, 145, 0.05);
+}
+
+.chat-upload-btn:active {
+  background: rgba(0, 0, 145, 0.1);
+}
+
+.chat-bar[data-upload-disabled] .chat-upload-btn {
+  display: none;
+}
+
 .chat-input {
   flex: 1;
   padding: 0.875rem 1.25rem;
-  border: 2px solid #dee2e6;
-  border-radius: 1rem;
+  border: none;
+  border-radius: 0;
   font-size: 1rem;
   resize: none;
   max-height: 150px;
-  transition: all 0.2s;
+  background: transparent;
 }
 
 .chat-input:focus {
   outline: none;
-  border-color: #000091;
-  box-shadow: 0 0 0 3px rgba(0, 0, 145, 0.1);
 }
 
 .chat-input::placeholder {
@@ -379,8 +429,8 @@ body.has-sidebar {
 
 .chat-send-btn,
 .chat-cancel-btn {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -388,9 +438,10 @@ body.has-sidebar {
   border: none;
   border-radius: 50%;
   color: white;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   cursor: pointer;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .chat-send-btn:hover {
@@ -410,62 +461,14 @@ body.has-sidebar {
   background: #c82333;
 }
 
-/* File upload button - same size as send button */
-.chat-upload-btn {
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 2px solid #dee2e6;
-  border-radius: 50%;
-  color: #495057;
-  font-size: 1.25rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-
-.chat-upload-btn:hover {
-  border-color: #000091;
-  color: #000091;
-  background: rgba(0, 0, 145, 0.05);
-}
-
-.chat-upload-btn:active {
-  transform: scale(0.95);
-}
-
-/* Hide upload button when not appropriate */
-.chat-bar[data-upload-disabled] .chat-upload-btn {
-  display: none;
-}
-
-/* Chat input wrapper (holds pending files + textarea) */
-.chat-input-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-/* Pending files display */
+/* Pending files: top section of the rounded rect */
 .chat-pending-files {
   display: none;
   flex-wrap: wrap;
   gap: 0.5rem;
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem;
   background: #f8f9fa;
-  border-radius: 1rem 1rem 0 0;
-  border: 2px solid #dee2e6;
-  border-bottom: none;
-  margin-bottom: -0.5rem;
-}
-
-.chat-input.has-pending-files {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  border-bottom: 2px solid #dee2e6;
 }
 
 .pending-file {
@@ -1136,8 +1139,8 @@ body.has-sidebar {
 
   .chat-send-btn,
   .chat-cancel-btn {
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
   }
 }
 
