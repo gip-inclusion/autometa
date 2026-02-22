@@ -7,6 +7,7 @@ from web.database import (
     VALID_CONVERSATION_COLUMNS,
     VALID_REPORT_COLUMNS,
 )
+from web.storage import store
 
 
 class TestBuildUpdateClause:
@@ -74,3 +75,51 @@ class TestBuildUpdateClause:
         clause, values = _build_update_clause({}, VALID_CONVERSATION_COLUMNS)
         assert clause == ""
         assert values == []
+
+
+class TestClearAllNeedsResponse:
+    """Tests for the PM startup reconciliation method."""
+
+    def test_clears_stuck_conversations(self, client):
+        """Conversations with needs_response=True are cleared."""
+        conv = store.create_conversation(user_id="test@test.com")
+        store.update_conversation(conv.id, needs_response=True)
+
+        cleared_ids = store.clear_all_needs_response()
+
+        assert cleared_ids == [conv.id]
+        updated = store.get_conversation(conv.id, include_messages=False)
+        assert not updated.needs_response
+
+    def test_noop_when_nothing_stuck(self, client):
+        """Returns empty list when no conversations are stuck."""
+        store.create_conversation(user_id="test@test.com")
+        assert store.clear_all_needs_response() == []
+
+
+class TestCancelUnstick:
+    """Tests for the cancel endpoint force-clearing stuck conversations."""
+
+    def test_cancel_unsticks_zombie_conversation(self, client):
+        """Cancel clears needs_response when no pending run command exists."""
+        conv = store.create_conversation(user_id="test@test.com")
+        store.update_conversation(conv.id, needs_response=True)
+
+        resp = client.post(f"/api/conversations/{conv.id}/cancel")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+        updated = store.get_conversation(conv.id, include_messages=False)
+        assert not updated.needs_response
+
+    def test_cancel_keeps_needs_response_when_pending(self, client):
+        """Cancel does NOT clear needs_response when a run command is pending."""
+        conv = store.create_conversation(user_id="test@test.com")
+        store.update_conversation(conv.id, needs_response=True)
+        store.enqueue_pm_command(conv.id, "run", {"prompt": "test"})
+
+        resp = client.post(f"/api/conversations/{conv.id}/cancel")
+
+        assert resp.status_code == 200
+        updated = store.get_conversation(conv.id, include_messages=False)
+        assert updated.needs_response

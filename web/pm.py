@@ -26,6 +26,11 @@ class ProcessManager:
 
     async def run(self):
         """Main loop: poll for commands, execute them."""
+        cleared_ids = await asyncio.to_thread(store.clear_all_needs_response)
+        if cleared_ids:
+            for conv_id in cleared_ids:
+                store.add_message(conv_id, "assistant", "*Interrompu (redémarrage serveur).*")
+            logger.info(f"Cleared {len(cleared_ids)} stuck needs_response flags on startup")
         logger.info("Process manager started")
         while True:
             try:

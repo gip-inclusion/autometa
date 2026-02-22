@@ -535,12 +535,28 @@ async def stream_conversation(
 
 @router.post("/{conv_id}/cancel")
 def cancel_conversation(conv_id: str):
-    """Cancel a running conversation via the process manager."""
+    """Cancel a running conversation via the process manager.
+
+    If no pending run command exists for this conversation (PM already picked it
+    up or crashed), force-clear needs_response so the conversation unsticks.
+    """
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv or not conv.needs_response:
         return {"status": "not_running"}
 
     store.enqueue_pm_command(conv_id, "cancel")
+
+    # If there's no pending run command, the PM either already finished
+    # (and failed to clear the flag) or crashed. Force-clear to unstick.
+    pending = store.get_pending_pm_commands()
+    has_pending_run = any(
+        cmd["conversation_id"] == conv_id and cmd["command"] == "run"
+        for cmd in pending
+    )
+    if not has_pending_run:
+        store.update_conversation(conv_id, needs_response=False)
+        store.add_message(conv_id, "assistant", "*Interrompu.*")
+
     return {"status": "cancelled"}
 
 

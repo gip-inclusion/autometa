@@ -1207,6 +1207,18 @@ class ConversationStore:
                 for row in rows
             ]
 
+    def clear_all_needs_response(self) -> list[str]:
+        """Clear needs_response for all conversations. Used on PM startup to unstick zombies.
+
+        Returns list of conversation IDs that were cleared.
+        """
+        with get_db() as conn:
+            rows = conn.execute("SELECT id FROM conversations WHERE needs_response = 1").fetchall()
+            ids = [r["id"] for r in rows]
+            if ids:
+                conn.execute("UPDATE conversations SET needs_response = 0 WHERE needs_response = 1")
+            return ids
+
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
         """Update conversation fields."""
         allowed = {"title", "session_id", "user_id", "status", "pr_url", "needs_response"}
