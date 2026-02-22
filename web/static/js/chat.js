@@ -11,56 +11,43 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;  // 200 MB
 // Scroll position management for htmx navigation
 let isPopState = false;
 
+function parseConversationId(path) {
+  const match = path.match(/^\/explorations\/([a-f0-9-]+)$/);
+  return match ? match[1] : null;
+}
+
 // Save scroll position before htmx request
 document.body.addEventListener('htmx:beforeRequest', (e) => {
   if (e.detail.target.id === 'main' && !isPopState) {
-    // Save current scroll position in history state
     const state = { scrollY: window.scrollY, ...history.state };
     history.replaceState(state, '');
   }
 });
 
-// htmx integration - only add listener once
+// htmx navigation handler
 document.body.addEventListener('htmx:afterSwap', (e) => {
-  if (e.detail.target.id === 'main') {
-    const path = window.location.pathname;
-    const convMatch = path.match(/^\/explorations\/([a-f0-9-]+)$/);
-    const previousConvId = currentConversationId;
+  if (e.detail.target.id !== 'main') return;
 
-    // Close EventSource when navigating away from a conversation
-    if (previousConvId && (!convMatch || convMatch[1] !== previousConvId)) {
-      closeEventSource();
+  const path = window.location.pathname;
+  const convId = parseConversationId(path);
+  const navigatedAway = currentConversationId && convId !== currentConversationId;
+
+  if (navigatedAway) closeEventSource();
+  currentConversationId = convId;
+
+  initChat();
+  initKnowledge();
+
+  if (convId && navigatedAway) {
+    loadConversation(convId);
+  } else if (!isPopState) {
+    window.scrollTo(0, 0);
+    if (path === '/explorations/new') {
+      document.getElementById('chatInput')?.focus();
     }
-
-    // Set currentConversationId BEFORE initChat (needed for fork button)
-    if (convMatch) {
-      currentConversationId = convMatch[1];
-    } else if (path === '/explorations' || path === '/explorations/new') {
-      currentConversationId = null;
-    }
-
-    initChat();
-    initKnowledge();
-
-    // Load conversation if navigated to a different one
-    if (convMatch && convMatch[1] !== previousConvId) {
-      // Don't scroll to top yet - loadConversation will handle scroll for running convs
-      loadConversation(convMatch[1]).then(() => {
-        // Only scroll to top for non-running conversations
-        // (running convs are scrolled to bottom in loadConversation)
-      });
-    } else {
-      // Scroll to top on new navigation, unless it's a back/forward
-      if (!isPopState) {
-        window.scrollTo(0, 0);
-      }
-      if (path === '/explorations/new') {
-        const input = document.getElementById('chatInput');
-        if (input) input.focus();
-      }
-    }
-    isPopState = false;
   }
+
+  isPopState = false;
 });
 
 // Restore scroll position on back/forward

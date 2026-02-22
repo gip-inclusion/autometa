@@ -53,6 +53,7 @@ def client(app):
 def conversation(app):
     """Create a conversation with one user message awaiting response."""
     from web.storage import store
+    store.update_pm_heartbeat()  # Simulate PM being alive
     conv = store.create_conversation(user_id="test@example.com")
     store.add_message(conv.id, "user", "Hello agent")
     store.update_conversation(conv.id, needs_response=True)

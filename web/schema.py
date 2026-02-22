@@ -8,7 +8,7 @@ import sqlite3
 from .db import ConnectionWrapper, get_db, USE_POSTGRES
 
 # Schema version - increment when adding migrations
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 def _get_schema_version(conn: ConnectionWrapper) -> int:
@@ -78,6 +78,8 @@ def init_db():
                     _migrate_to_v17(conn)
                 if current_version < 18:
                     _migrate_to_v18(conn)
+                if current_version < 19:
+                    _migrate_to_v19(conn)
 
             _set_schema_version(conn, SCHEMA_VERSION)
 
@@ -85,6 +87,7 @@ def init_db():
         _migrate_to_v15(conn)
         _migrate_to_v17(conn)
         _migrate_to_v18(conn)
+        _migrate_to_v19(conn)
 
 
 # =============================================================================
@@ -252,6 +255,16 @@ def _migrate_to_v18(conn: ConnectionWrapper):
     """)
 
 
+def _migrate_to_v19(conn: ConnectionWrapper):
+    """Migrate to v19: add pm_heartbeat table for PM liveness detection."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pm_heartbeat (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_seen TEXT NOT NULL
+        )
+    """)
+
+
 # =============================================================================
 # Full schema creation
 # =============================================================================
@@ -397,6 +410,11 @@ def _create_schema(conn: ConnectionWrapper):
         CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
         CREATE INDEX IF NOT EXISTS idx_cron_runs_slug_started ON cron_runs(app_slug, started_at DESC);
         CREATE INDEX IF NOT EXISTS idx_pm_commands_pending ON pm_commands(processed_at) WHERE processed_at IS NULL;
+
+        CREATE TABLE IF NOT EXISTS pm_heartbeat (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_seen TEXT NOT NULL
+        );
     """)
 
 

@@ -34,6 +34,7 @@ class ProcessManager:
         logger.info("Process manager started")
         while True:
             try:
+                await asyncio.to_thread(store.update_pm_heartbeat)
                 commands = await asyncio.to_thread(store.get_pending_pm_commands)
                 for cmd in commands:
                     if cmd["command"] == "run":

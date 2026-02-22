@@ -576,6 +576,31 @@ class ConversationStore:
                 conn.execute("UPDATE conversations SET needs_response = 0 WHERE needs_response = 1")
             return ids
 
+    def update_pm_heartbeat(self):
+        """Update the PM heartbeat timestamp. Called each PM poll loop iteration."""
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            if conn.is_postgres:
+                conn.execute(
+                    "INSERT INTO pm_heartbeat (id, last_seen) VALUES (1, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET last_seen = %s",
+                    (now, now)
+                )
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO pm_heartbeat (id, last_seen) VALUES (1, ?)",
+                    (now,)
+                )
+
+    def is_pm_alive(self, max_age_seconds: int = 15) -> bool:
+        """Check if the PM has sent a heartbeat recently."""
+        with get_db() as conn:
+            row = conn.execute("SELECT last_seen FROM pm_heartbeat WHERE id = 1").fetchone()
+            if not row:
+                return False
+            last_seen = datetime.fromisoformat(row["last_seen"])
+            return (datetime.now() - last_seen).total_seconds() < max_age_seconds
+
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
         """Update conversation fields."""
         allowed = {"title", "session_id", "user_id", "status", "pr_url", "needs_response"}

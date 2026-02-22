@@ -518,13 +518,19 @@ async def stream_conversation(
                 yield _sse_event("done", {"conversation_id": conv_id})
                 return
 
+            # PM liveness check: if PM is dead and needs_response is stuck, stop waiting
+            if not await asyncio.to_thread(store.is_pm_alive):
+                yield _sse_event("error", {"content": "L'agent est indisponible"})
+                yield _sse_event("done", {"conversation_id": conv_id})
+                return
+
             poll_count += 1
-            # Keepalive comment to prevent proxy/browser timeout
+            # Named heartbeat event (resets client retry counter, keeps proxies alive)
             if poll_count % 6 == 0:
-                yield ": keepalive\n\n"
+                yield _sse_event("heartbeat", {})
             await asyncio.sleep(0.5)
 
-        yield _sse_event("error", {"error": "Timeout waiting for agent"})
+        yield _sse_event("error", {"content": "Timeout waiting for agent"})
 
     return StreamingResponse(
         generate(),

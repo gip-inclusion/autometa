@@ -176,21 +176,33 @@ function startStream(afterMsgId = 0) {
   eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream${afterParam}`);
   eventSourceConversationId = currentConversationId;
 
-  // Handle different event types
-  const eventTypes = ['assistant', 'tool_use', 'tool_result', 'system', 'error'];
-  eventTypes.forEach(type => {
+  // Content events — reset retry counter (agent is alive and producing output)
+  ['assistant', 'tool_use', 'tool_result', 'system'].forEach(type => {
     eventSource.addEventListener(type, (e) => {
+      retryCount = 0;
       const data = JSON.parse(e.data);
       appendEvent(type, data);
 
-      // Only hide loading when we get actual content (assistant response or error)
-      if (type === 'assistant' || type === 'error') {
+      if (type === 'assistant') {
         hideLoading();
       }
     });
   });
 
-  // Handle completion
+  // Server error events — display but do NOT reset retryCount
+  // (resetting would prevent onerror from ever reaching MAX_RETRIES)
+  eventSource.addEventListener('error', (e) => {
+    const data = JSON.parse(e.data);
+    appendEvent('error', data);
+    hideLoading();
+  });
+
+  // Server heartbeat — resets retry counter during quiet periods (long tool calls)
+  eventSource.addEventListener('heartbeat', () => {
+    retryCount = 0;
+  });
+
+  // Completion — server sends this when agent finishes (needs_response cleared)
   eventSource.addEventListener('done', async (e) => {
     eventSource.close();
     eventSource = null;
@@ -199,21 +211,15 @@ function startStream(afterMsgId = 0) {
     hideLoading();
     removeProgressIndicator();
 
-    // Check if server says to reload (e.g., after wait_stream reconnection)
-    let shouldReload = retryCount > 0;
-    try {
-      const data = JSON.parse(e.data || '{}');
-      if (data.reload) shouldReload = true;
-    } catch {}
-
-    if (shouldReload && currentConversationId) {
+    // Reload if we reconnected mid-stream (may have missed events)
+    if (retryCount > 0 && currentConversationId) {
       await loadConversation(currentConversationId, { autoStream: false });
     }
 
     markFinalAnswer();
   });
 
-  // Handle errors — flat logic, no counter reset
+  // Connection lost — just reconnect. The server handles liveness logic.
   eventSource.onerror = async () => {
     eventSource.close();
     eventSource = null;
@@ -230,37 +236,15 @@ function startStream(afterMsgId = 0) {
     retryCount++;
     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
 
-    // Check conversation status
-    let conv;
-    try {
-      const resp = await fetch(`/api/conversations/${currentConversationId}`);
-      if (!resp.ok) {
-        setStreamingState(false);
-        hideLoading();
-        removeProgressIndicator();
-        appendRecoveryMessage();
-        return;
-      }
-      conv = await resp.json();
-    } catch {
+    // Reload conversation to catch missed messages, then reconnect
+    const reloaded = await loadConversation(currentConversationId, { autoStream: false });
+    if (reloaded) {
+      startStream(lastLoadedMsgId(reloaded));
+    } else {
       setStreamingState(false);
       hideLoading();
       removeProgressIndicator();
       appendRecoveryMessage();
-      return;
-    }
-
-    // Reload conversation to catch missed messages
-    const reloaded = await loadConversation(currentConversationId, { autoStream: false });
-
-    if (conv.is_running) {
-      startStream(lastLoadedMsgId(reloaded));
-    } else {
-      // Agent finished while we were disconnected
-      setStreamingState(false);
-      hideLoading();
-      removeProgressIndicator();
-      markFinalAnswer();
     }
   };
 }
