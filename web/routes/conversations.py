@@ -185,6 +185,12 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
     }
 
 
+@router.get("/running")
+def get_running():
+    """Get list of currently running conversation IDs (needs_response=True)."""
+    return {"running": store.get_running_conversation_ids()}
+
+
 @router.get("/{conv_id}")
 def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Get a conversation with all messages.
@@ -565,14 +571,6 @@ def cancel_conversation(conv_id: str):
 
     return {"status": "cancelled"}
 
-
-@router.get("/running")
-def get_running():
-    """Get list of currently running conversation IDs (needs_response=True)."""
-    # Query conversations with needs_response=True
-    pending = store.get_pending_pm_commands()
-    running_ids = list({cmd["conversation_id"] for cmd in pending if cmd["command"] == "run"})
-    return {"running": running_ids}
 
 
 @router.get("/{conv_id}/tags")

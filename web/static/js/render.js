@@ -99,6 +99,11 @@ function appendEvent(type, data) {
     streamingBlock.dataset.rawContent = streamingText;
     streamingBlock.innerHTML = formatAssistantContent(streamingText);
     lastAssistantBlock = streamingBlock;
+    // Keep loading indicator below the streaming block
+    const loadingEl = document.getElementById('loadingIndicator');
+    if (loadingEl) {
+      chatOutput.appendChild(loadingEl);
+    }
     // Scroll if needed
     if (isAtBottom()) {
       chatOutput.scrollTop = chatOutput.scrollHeight;
@@ -144,6 +149,12 @@ function appendEvent(type, data) {
   }
 
   chatOutput.appendChild(block);
+
+  // Keep the loading indicator at the bottom (appendChild moves existing elements)
+  const loadingEl = document.getElementById('loadingIndicator');
+  if (loadingEl) {
+    chatOutput.appendChild(loadingEl);
+  }
 
   // Scan assistant messages for <h2> headings to populate TOC
   if (type === 'assistant') {

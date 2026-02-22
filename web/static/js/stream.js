@@ -15,6 +15,9 @@ let lastUserMessage = null;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+// Track which conversation has the sidebar spinner active
+let _sidebarSpinnerConvId = null;
+
 // =============================================================================
 // Sending messages
 // =============================================================================
@@ -182,10 +185,6 @@ function startStream(afterMsgId = 0) {
       retryCount = 0;
       const data = JSON.parse(e.data);
       appendEvent(type, data);
-
-      if (type === 'assistant') {
-        hideLoading();
-      }
     });
   });
 
@@ -217,6 +216,9 @@ function startStream(afterMsgId = 0) {
     }
 
     markFinalAnswer();
+
+    // Reconcile all sidebar spinners (catches background conversations that finished)
+    reconcileSidebarSpinners();
   });
 
   // Connection lost — just reconnect. The server handles liveness logic.
@@ -389,7 +391,7 @@ async function killAgent(convId, alertElement, cardElement) {
 // =============================================================================
 
 /**
- * Show/hide streaming state
+ * Show/hide streaming state (send/cancel buttons, input, sidebar spinner)
  */
 function setStreamingState(streaming) {
   const sendBtn = document.getElementById('chatSendBtn');
@@ -400,12 +402,88 @@ function setStreamingState(streaming) {
   if (cancelBtn) cancelBtn.style.display = streaming ? 'flex' : 'none';
   if (input) input.disabled = streaming;
 
+  // Manage sidebar spinner
+  if (streaming && currentConversationId) {
+    setSidebarSpinner(currentConversationId, true);
+  } else if (!streaming) {
+    setSidebarSpinner(_sidebarSpinnerConvId, false);
+  }
+
   // Finalize streaming block when streaming ends
   if (!streaming && streamingBlock) {
     renderMermaid(streamingBlock);
     renderOptions(streamingBlock);
     streamingBlock = null;
     streamingText = '';
+  }
+}
+
+/**
+ * Show or hide the spinner icon on a sidebar conversation link.
+ * Stores the original icon class in data-icon so it can be restored.
+ */
+function setSidebarSpinner(convId, spinning) {
+  if (!convId) return;
+  const link = document.querySelector(`a.nav-link-conversation[href="/explorations/${convId}"]`);
+  if (!link) return;
+  const icon = link.querySelector('i');
+  if (!icon) return;
+
+  if (spinning) {
+    // Save original icon class before replacing (skip if already a spinner)
+    if (!icon.dataset.icon && !icon.classList.contains('ri-spin')) {
+      icon.dataset.icon = icon.className;
+    }
+    icon.className = 'ri-loader-4-line ri-spin';
+    _sidebarSpinnerConvId = convId;
+  } else {
+    // Restore original icon (fallback to chat icon for server-rendered spinners)
+    icon.className = icon.dataset.icon || 'ri-chat-3-line';
+    delete icon.dataset.icon;
+    if (_sidebarSpinnerConvId === convId) _sidebarSpinnerConvId = null;
+  }
+}
+
+/**
+ * Reconcile sidebar spinners with actual server state.
+ * Clears spinners for conversations that are no longer running.
+ */
+let _spinnerPollTimer = null;
+
+async function reconcileSidebarSpinners() {
+  try {
+    const resp = await fetch('/api/conversations/running');
+    if (!resp.ok) return;
+    const { running } = await resp.json();
+    const runningSet = new Set(running);
+
+    // Find all sidebar links that currently show a spinner
+    document.querySelectorAll('a.nav-link-conversation i.ri-loader-4-line.ri-spin').forEach(icon => {
+      const link = icon.closest('a');
+      if (!link) return;
+      const href = link.getAttribute('href');
+      const match = href && href.match(/\/explorations\/(.+)/);
+      if (!match) return;
+      const convId = match[1];
+      if (!runningSet.has(convId)) {
+        setSidebarSpinner(convId, false);
+      }
+    });
+  } catch {
+    // Silently ignore — this is best-effort
+  }
+
+  // Keep polling while any sidebar spinner is still visible
+  _scheduleSpinnerPoll();
+}
+
+function _scheduleSpinnerPoll() {
+  clearTimeout(_spinnerPollTimer);
+  _spinnerPollTimer = null;
+
+  const hasSpinners = document.querySelector('a.nav-link-conversation i.ri-loader-4-line.ri-spin');
+  if (hasSpinners) {
+    _spinnerPollTimer = setTimeout(reconcileSidebarSpinners, 5000);
   }
 }
 
@@ -545,6 +623,9 @@ async function loadConversation(convId, { autoStream = true } = {}) {
       scrollActionsToBottom();
     });
 
+    // Reconcile sidebar spinners on every conversation load
+    reconcileSidebarSpinners();
+
     // If conversation is running, resume the stream (unless caller handles it)
     if (autoStream && conv.is_running) {
       console.log('Conversation is running, resuming stream...');
@@ -595,3 +676,6 @@ function startFreshConversation() {
     input.focus();
   }
 }
+
+// Start polling for sidebar spinner reconciliation if any spinners are server-rendered
+document.addEventListener('DOMContentLoaded', _scheduleSpinnerPoll);

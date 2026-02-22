@@ -564,6 +564,12 @@ class ConversationStore:
                 for row in rows
             ]
 
+    def get_running_conversation_ids(self) -> list[str]:
+        """Return IDs of conversations where needs_response is True."""
+        with get_db() as conn:
+            rows = conn.execute("SELECT id FROM conversations WHERE needs_response = 1").fetchall()
+            return [r["id"] for r in rows]
+
     def clear_all_needs_response(self) -> list[str]:
         """Clear needs_response for all conversations. Used on PM startup to unstick zombies.
 
