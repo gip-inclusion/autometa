@@ -77,7 +77,7 @@ def start_auth(force: bool = False) -> dict:
             env['LINES'] = '40'
 
             child = pexpect.spawn(
-                'claude',
+                config.CLAUDE_CLI,
                 encoding='utf-8',
                 timeout=60,
                 env=env,
@@ -135,6 +135,8 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
             return ''
         return str(val)
 
+    import time as time_module
+
     try:
         # Step 1: Wait for theme selection, press Enter
         logger.info("Waiting for theme selection...")
@@ -143,7 +145,6 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
 
         if index == 0:
             logger.info("Theme selection found, pressing Enter")
-            import time as time_module
             time_module.sleep(0.5)  # Wait for UI to stabilize
             child.send('\r')  # Press Enter to select default theme
             time_module.sleep(0.5)

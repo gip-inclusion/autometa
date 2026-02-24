@@ -228,11 +228,19 @@ def _migrate_to_v17(conn: ConnectionWrapper):
     """)
 
     # Migrate existing pinned conversations
-    conn.execute("""
-        INSERT OR IGNORE INTO pinned_items (item_type, item_id, label, pinned_at)
-        SELECT 'conversation', id, pinned_label, pinned_at
-        FROM conversations WHERE pinned_at IS NOT NULL
-    """)
+    if conn.is_postgres:
+        conn.execute("""
+            INSERT INTO pinned_items (item_type, item_id, label, pinned_at)
+            SELECT 'conversation', id, pinned_label, pinned_at
+            FROM conversations WHERE pinned_at IS NOT NULL
+            ON CONFLICT (item_type, item_id) DO NOTHING
+        """)
+    else:
+        conn.execute("""
+            INSERT OR IGNORE INTO pinned_items (item_type, item_id, label, pinned_at)
+            SELECT 'conversation', id, pinned_label, pinned_at
+            FROM conversations WHERE pinned_at IS NOT NULL
+        """)
 
 
 def _migrate_to_v18(conn: ConnectionWrapper):

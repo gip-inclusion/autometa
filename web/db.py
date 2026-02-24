@@ -37,7 +37,8 @@ def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, 
             raise ValueError(f"Invalid column name: {key}")
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values())
+    # Convert Python bools to ints for SQLite/PG INTEGER column compatibility
+    values = [int(v) if isinstance(v, bool) else v for v in updates.values()]
     return set_clause, values
 
 

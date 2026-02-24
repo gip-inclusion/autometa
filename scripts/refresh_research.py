@@ -650,9 +650,19 @@ def rebuild_and_embed(conn, changed_page_ids, full=False):
 
     # Embed new chunks
     if to_embed:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            print(f"\n  sentence-transformers not installed, skipping embedding for {len(to_embed)} chunks")
+            print("  Install with: pip install sentence-transformers")
+            print("  (chunks will be stored without embeddings)")
+            for chunk in to_embed:
+                chunk["embedding_blob"] = None
+            to_embed = []  # skip the embedding loop below
+
+    if to_embed:
         print(f"\nLoading {MODEL_NAME}...")
         t1 = time.time()
-        from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(MODEL_NAME)
         print(f"  Model loaded in {time.time() - t1:.1f}s")
 

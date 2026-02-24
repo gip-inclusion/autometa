@@ -1,0 +1,29 @@
+#!/bin/bash
+# Scalingo post-compile hook: install Claude Code CLI
+#
+# The installer creates a symlink with an absolute path to the build dir,
+# which won't survive into the runtime container. So we resolve it and
+# copy the actual binary to a path that persists.
+
+echo "-----> Installing Claude Code CLI"
+curl -fsSL https://claude.ai/install.sh | bash 2>&1
+
+# Find the real binary (resolve the broken-at-runtime symlink)
+CLAUDE_BIN=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)
+
+if [ -x "$CLAUDE_BIN" ]; then
+    mkdir -p "$HOME/bin"
+    cp "$CLAUDE_BIN" "$HOME/bin/claude"
+    chmod +x "$HOME/bin/claude"
+    echo "-----> Claude Code CLI copied to \$HOME/bin/claude ($HOME/bin/claude)"
+    "$HOME/bin/claude" --version 2>/dev/null || true
+else
+    echo "-----> WARNING: Could not find Claude Code binary"
+    ls -la "$HOME/.local/bin/claude" 2>/dev/null
+fi
+
+# Mark onboarding as complete so the CLI skips the interactive setup wizard
+# (theme selection, login method) which doesn't work in non-interactive terminals.
+# Auth is handled via CLAUDE_CODE_OAUTH_TOKEN env var instead.
+echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
+echo "-----> Created ~/.claude.json (onboarding bypass)"

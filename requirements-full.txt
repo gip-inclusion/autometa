@@ -49,9 +49,8 @@ pandas>=2.0.0
 scikit-learn>=1.4.0
 hmmlearn>=0.3.0
 
-# Embeddings (research corpus) — heavy (~4GB with PyTorch/CUDA)
-# Only in requirements-full.txt for local/self-hosted use
-# sentence-transformers>=3.0.0
+# Embeddings (research corpus)
+sentence-transformers>=3.0.0
 
 # File format support
 openpyxl>=3.1.0      # Excel .xlsx

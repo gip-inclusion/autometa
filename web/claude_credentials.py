@@ -84,7 +84,10 @@ def backup_credentials_to_s3() -> bool:
 
 
 def credentials_exist() -> bool:
-    """Check if Claude credentials exist locally."""
+    """Check if Claude credentials exist (file or env var)."""
+    import os
+    if os.getenv("CLAUDE_CODE_OAUTH_TOKEN"):
+        return True
     return CREDENTIALS_FILE.exists()
 
 
@@ -96,6 +99,10 @@ def get_credentials_info() -> dict | None:
     authenticated through their own setup.
     """
     import os
+
+    # CLAUDE_CODE_OAUTH_TOKEN env var = authenticated via long-lived token
+    if os.getenv("CLAUDE_CODE_OAUTH_TOKEN"):
+        return {"authenticated": True, "oauth_token": True}
 
     if not CREDENTIALS_FILE.exists():
         # Local dev outside container: assume CLI is authenticated
