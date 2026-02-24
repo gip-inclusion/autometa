@@ -55,7 +55,8 @@ docker exec -u git "$GITEA_CONTAINER" gitea admin user create \
 # Enforce expected password so reruns stay deterministic.
 docker exec -u git "$GITEA_CONTAINER" gitea admin user change-password \
     --username "$EXPERT_ADMIN_USER" \
-    --password "$EXPERT_ADMIN_PASS" >/dev/null 2>&1 || true
+    --password "$EXPERT_ADMIN_PASS" \
+    --must-change-password=false >/dev/null 2>&1 || true
 
 # ── 3. Create API token ────────────────────────────────────────────
 echo "Creating API token..."
