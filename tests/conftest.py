@@ -83,6 +83,43 @@ def app():
 
 @pytest.fixture
 def client(app):
-    """Create a test client."""
+    """Create a test client with Flask-like response compatibility."""
     from starlette.testclient import TestClient
-    return TestClient(app)
+
+    class _CompatResponse:
+        def __init__(self, response):
+            self._response = response
+
+        @property
+        def data(self):
+            return self._response.content
+
+        def get_json(self):
+            return self._response.json()
+
+        def __getattr__(self, name):
+            return getattr(self._response, name)
+
+    class _CompatClient:
+        def __init__(self, base_client):
+            self._base_client = base_client
+
+        def get(self, *args, **kwargs):
+            return _CompatResponse(self._base_client.get(*args, **kwargs))
+
+        def post(self, *args, **kwargs):
+            return _CompatResponse(self._base_client.post(*args, **kwargs))
+
+        def patch(self, *args, **kwargs):
+            return _CompatResponse(self._base_client.patch(*args, **kwargs))
+
+        def put(self, *args, **kwargs):
+            return _CompatResponse(self._base_client.put(*args, **kwargs))
+
+        def delete(self, *args, **kwargs):
+            return _CompatResponse(self._base_client.delete(*args, **kwargs))
+
+        def __getattr__(self, name):
+            return getattr(self._base_client, name)
+
+    return _CompatClient(TestClient(app))

@@ -5,11 +5,14 @@ import logging
 import mimetypes
 from contextlib import asynccontextmanager
 
+from flask import Flask, g as flask_g, request as flask_request
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.wsgi import WSGIMiddleware
 
 from . import config
+from .deps import templates
 
 # Configure logging (stdout only)
 logging.basicConfig(
@@ -138,6 +141,7 @@ def serve_interactive(request: Request, filename: str = ""):
 # =============================================================================
 
 from .routes import query, auth, logs, cron, knowledge, reports, rapports, research, html, conversations  # noqa: E402
+from .routes.expert import bp as expert_blueprint  # noqa: E402
 
 app.include_router(query.router)
 app.include_router(auth.router)
@@ -150,6 +154,32 @@ app.include_router(conversations.router)
 app.include_router(rapports.router)
 app.include_router(cron.router)
 app.include_router(html.router)
+
+
+# =============================================================================
+# Legacy Flask Expert Mode (mounted under WSGI)
+# =============================================================================
+
+expert_flask_app = Flask("matometa-expert", template_folder="web/templates")
+expert_flask_app.register_blueprint(expert_blueprint)
+
+
+@expert_flask_app.before_request
+def _inject_user_into_flask_g():
+    """Bridge oauth2-proxy headers into Flask g for expert routes."""
+    flask_g.user_email = flask_request.headers.get("X-Forwarded-Email") or config.DEFAULT_USER
+
+
+# Reuse the same cache-busted static helper as FastAPI templates.
+expert_flask_app.jinja_env.globals["static_url"] = templates.env.globals.get(
+    "static_url", lambda path: f"/static/{path}"
+)
+
+# Keep Flask-only expert endpoints working while the rest of the app is FastAPI.
+app.mount("/", WSGIMiddleware(expert_flask_app))
+
+# Test compatibility helper expected by legacy expert tests.
+app.test_request_context = expert_flask_app.test_request_context
 
 
 # =============================================================================

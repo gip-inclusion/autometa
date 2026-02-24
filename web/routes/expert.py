@@ -80,7 +80,7 @@ def _publicize_deploy_url(url: str | None) -> str | None:
     target_host = config.EXPERT_DEPLOY_PUBLIC_HOST or ""
     if not target_host:
         req_host = (request.host or "").split(":", 1)[0].strip()
-        if req_host and req_host not in {"localhost", "127.0.0.1"}:
+        if req_host and req_host not in {"localhost", "127.0.0.1", "testserver"}:
             target_host = req_host
 
     if not target_host:
@@ -531,10 +531,12 @@ def _ensure_production_application(project, coolify):
     return app_uuid, deploy_url
 
 
-def _get_expert_sidebar_data():
+def _get_expert_sidebar_data(user_email=None):
     """Get sidebar data for expert mode pages."""
     from .html import get_sidebar_data
-    return get_sidebar_data()
+    if user_email is None:
+        user_email = getattr(g, "user_email", None)
+    return get_sidebar_data(user_email)
 
 
 # =============================================================================
