@@ -18,5 +18,6 @@ knowledge-drafts/
 tests/
 evals/
 docker-compose.local.yml
+docker-compose.expert.yml
 AGENTS.local.md
 auth/allowed_emails.txt
