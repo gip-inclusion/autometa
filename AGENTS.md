@@ -687,7 +687,7 @@ Do NOT use WebFetch or WebSearch — they are disabled for security.
 | Communauté | `gip-inclusion/la-communaute` |
 | Pilotage | `gip-inclusion/pilotage` |
 | Dora | `gip-inclusion/dora` |
-| RDV-Insertion | `betagouv/rdv-insertion` |
+| RDV-Insertion | `gip-inclusion/rdv-insertion` |
 
 ### Fetch Raw File Content
 
