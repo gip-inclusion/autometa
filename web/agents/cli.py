@@ -117,8 +117,11 @@ class CLIBackend(AgentBackend):
             agents_content = f"Aujourd'hui, nous sommes le {today}.\n\n{agents_content}"
             cmd.extend(["--system-prompt", agents_content])
 
-        # Whitelist safe tools only
-        if config.ALLOWED_TOOLS:
+        # In a container, skip permission checks (container is the security boundary).
+        # Outside containers, restrict tools to a whitelist.
+        if os.getenv("CONTAINER_ENV"):
+            cmd.append("--dangerously-skip-permissions")
+        elif config.ALLOWED_TOOLS:
             cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])
 
         cmd.extend(["-p", prompt])
