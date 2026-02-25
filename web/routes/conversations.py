@@ -8,7 +8,7 @@ import threading
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from ..deps import get_current_user
+from ..deps import get_current_user, get_current_user_name
 from ..storage import store
 from .. import config
 from .. import llm
@@ -606,6 +606,7 @@ async def trigger_planning_welcome(conv_id: str, user_email: str = Depends(get_c
         "Confirm you are ready to start plan mode, ask what they want to build, "
         "and mention you will draft a specification before implementation."
     )
+
     prompt = _build_project_prompt(
         project=project,
         content=welcome_prompt,
@@ -637,6 +638,7 @@ async def stream_conversation(
     conv_id: str,
     after: int = Query(default=0),
     user_email: str = Depends(get_current_user),
+    user_name: str | None = Depends(get_current_user_name),
 ):
     """Stream agent responses via Server-Sent Events.
 
@@ -702,6 +704,40 @@ async def stream_conversation(
                 )
                 for msg in final:
                     yield _format_msg(msg)
+
+                # Expert-mode post-run hook: commit/push staged changes and trigger staging deploy.
+                if updated.conv_type == "project" and updated.project_id:
+                    try:
+                        project = await asyncio.to_thread(store.get_project, updated.project_id)
+                        if project:
+                            commit_result = await asyncio.to_thread(
+                                commit_and_push_staging_if_changed,
+                                project,
+                                conv_id,
+                                author_name=user_name or user_email,
+                                author_email=user_email,
+                            )
+                            deploy_triggered = False
+                            # Staging is expected to auto-redeploy on push via Gitea webhook.
+                            if commit_result:
+                                deploy_triggered = True
+
+                            if commit_result:
+                                yield _sse_event(
+                                    "system",
+                                    {
+                                        "type": "system",
+                                        "content": {
+                                            "subtype": "auto_commit",
+                                            "branch": commit_result["branch"],
+                                            "commit": commit_result["commit"],
+                                            "files_changed": len(commit_result["files"]),
+                                            "staging_deploy_triggered": deploy_triggered,
+                                        },
+                                    },
+                                )
+                    except Exception as exc:
+                        logger.warning("Expert auto-commit failed for conversation %s: %s", conv_id, exc)
 
                 yield _sse_event("done", {"conversation_id": conv_id})
                 return

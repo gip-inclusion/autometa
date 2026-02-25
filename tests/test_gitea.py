@@ -5,6 +5,7 @@ Run with: pytest tests/test_gitea.py -m integration
 """
 
 import pytest
+import requests
 import uuid
 
 from web import config
@@ -19,7 +20,13 @@ def gitea_client():
 
     from lib.gitea import GiteaClient
 
-    return GiteaClient()
+    client = GiteaClient()
+    try:
+        client.version()
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        pytest.skip(f"Gitea server is unreachable: {exc}")
+
+    return client
 
 
 @pytest.fixture
