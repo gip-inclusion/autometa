@@ -64,8 +64,8 @@
           </a>
         </li>
 
-        {% if config.EXPERT_MODE_ENABLED and section != 'accueil' %}
-        <li class="nav-item">
+        {% if config.EXPERT_MODE_ENABLED %}
+        <li class="nav-item expert-nav-item {% if section == 'accueil' %}d-none{% endif %}">
           <a href="/expert" class="nav-link {% if section == 'expert' %}active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-code-s-slash-line" aria-hidden="true"></i>
@@ -138,8 +138,8 @@
               <i class="ri-add-line me-2"></i>Nouvelle conversation
             </a>
           </li>
-          {% if config.EXPERT_MODE_ENABLED and section != 'accueil' %}
-          <li class="nav-item">
+          {% if config.EXPERT_MODE_ENABLED %}
+          <li class="nav-item expert-nav-item {% if section == 'accueil' %}d-none{% endif %}">
             <a href="/expert" class="nav-link {% if section == 'expert' %}active{% endif %}">
               <i class="ri-code-s-slash-line me-2"></i>Expert
             </a>
@@ -274,6 +274,12 @@
   <script>
   function updateSidebarActive() {
     const path = window.location.pathname;
+    const hideExpertOnLanding = path === '/';
+
+    document.querySelectorAll('.expert-nav-item').forEach(item => {
+      item.classList.toggle('d-none', hideExpertOnLanding);
+    });
+
     document.querySelectorAll('.sidebar-nav .nav-link, .offcanvas .nav-link').forEach(link => {
       const href = link.getAttribute('href');
       const isActive = path === href ||

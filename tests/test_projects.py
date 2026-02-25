@@ -270,7 +270,8 @@ class TestExpertAPI:
         try:
             resp = client.get("/")
             assert resp.status_code == 200
-            assert b'href="/expert"' not in resp.data
+            assert b'href="/expert"' in resp.data
+            assert b'expert-nav-item d-none' in resp.data
         finally:
             config.EXPERT_MODE_ENABLED = original
 
