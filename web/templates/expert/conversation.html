@@ -140,6 +140,45 @@
 
 {% block scripts %}
 <script>
+  async function triggerPlanningWelcome(convId) {
+    try {
+      const res = await fetch(`/api/conversations/${convId}/welcome`, { method: 'POST' });
+      if (res.status === 202 || res.ok) {
+        startStream(0);
+        return;
+      }
+
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        if (data.status === 'already_running') {
+          startStream(0);
+        }
+      }
+    } catch (err) {
+      console.warn('Planning welcome trigger failed', err);
+    }
+  }
+
+  async function getConversationState(convId) {
+    let conv = await loadConversation(convId);
+    if (conv && Array.isArray(conv.messages)) {
+      return conv;
+    }
+
+    // Defensive fallback: if loadConversation stops returning payload,
+    // keep the planning auto-welcome behavior intact.
+    try {
+      const res = await fetch(`/api/conversations/${convId}`);
+      if (res.ok) {
+        conv = await res.json();
+      }
+    } catch (err) {
+      console.warn('Fallback conversation fetch failed', err);
+    }
+
+    return conv;
+  }
+
   document.addEventListener('DOMContentLoaded', async () => {
     // Render spec markdown in sidebar
     const specEl = document.getElementById('sidebarSpec');
@@ -156,7 +195,24 @@
     initChat();
 
     {% if current_conv %}
-    await loadConversation('{{ current_conv.id }}');
+    const conv = await getConversationState('{{ current_conv.id }}');
+    const isPlanningPhase =
+      {% if project.workflow_phase is defined %}
+      '{{ project.workflow_phase }}' === 'planning';
+      {% else %}
+      '{{ project.status }}' === 'draft';
+      {% endif %}
+
+    const shouldAutoWelcome =
+      isPlanningPhase &&
+      conv &&
+      Array.isArray(conv.messages) &&
+      conv.messages.length === 0 &&
+      !conv.is_running;
+
+    if (shouldAutoWelcome) {
+      await triggerPlanningWelcome('{{ current_conv.id }}');
+    }
     {% endif %}
 
     // Focus input

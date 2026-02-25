@@ -28,6 +28,61 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/conversations")
 
 
+def _project_in_planning(project) -> bool:
+    """Return True when a project is in planning mode.
+
+    Supports both the newer workflow_phase model and legacy status-only model.
+    """
+    workflow_phase = getattr(project, "workflow_phase", None)
+    if workflow_phase:
+        return workflow_phase == "planning"
+    return getattr(project, "status", None) == "draft"
+
+
+def _build_project_prompt(*, project, content: str, workdir: str, is_first_project_message: bool) -> str:
+    """Build the expert-mode prompt with project context."""
+    if _project_in_planning(project) and is_first_project_message:
+        project_context = (
+            "You are in MODE EXPERT - plan mode.\n\n"
+            "IMPORTANT: Enter plan mode (/plan) to design the app spec with the user.\n\n"
+            "Help the user describe what they want to build. In your plan, include:\n"
+            "- App name and description\n"
+            "- Architecture (backend framework, frontend, database)\n"
+            "- API endpoints or pages\n"
+            "- Data model\n"
+            "- Docker setup\n\n"
+            "Once the plan is approved, save it as the project spec and proceed to implementation.\n\n"
+            f"Project: {project.name}\n"
+            f"Working directory: {workdir}/\n\n"
+            "User request: "
+        )
+    elif project.spec:
+        project_context = (
+            f"You are in MODE EXPERT working on \"{project.name}\".\n\n"
+            f"Working directory: {workdir}/\n"
+            f"Gitea: {project.gitea_url or 'not yet created'}\n"
+            f"Deploy URL: {project.deploy_url or 'not yet deployed'}\n"
+            f"Status: {project.status}\n\n"
+            "SPEC:\n"
+            "---\n"
+            f"{project.spec}\n"
+            "---\n\n"
+            "All code goes in the working directory.\n"
+            "Important: Matometa automatically commits and pushes code changes to the staging branch\n"
+            "after each response. Do not run git commit/push yourself unless explicitly requested.\n\n"
+            "User request: "
+        )
+    else:
+        project_context = (
+            f"You are in MODE EXPERT working on \"{project.name}\".\n"
+            f"Working directory: {workdir}/\n"
+            f"Status: {project.status}\n\n"
+            "User request: "
+        )
+
+    return project_context + content
+
+
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
     """Generate a smart title for a conversation (async, in background)."""
     def _generate():
@@ -447,51 +502,12 @@ User request: """
                 logger.warning("Failed to prepare expert branches for project %s: %s", project.id, exc)
 
             is_first_project_message = not any(m.type == "user" for m in conv.messages[:-1])
-
-            if project.status == "draft" and is_first_project_message:
-                project_context = f"""You are in MODE EXPERT — plan mode.
-
-IMPORTANT: Enter plan mode (/plan) to design the app spec with the user.
-
-Help the user describe what they want to build. In your plan, include:
-- App name and description
-- Architecture (backend framework, frontend, database)
-- API endpoints or pages
-- Data model
-- Docker setup
-
-Once the plan is approved, save it as the project spec and proceed to implementation.
-
-Project: {project.name}
-Working directory: {workdir}/
-
-User request: """
-            elif project.spec:
-                project_context = f"""You are in MODE EXPERT working on "{project.name}".
-
-Working directory: {workdir}/
-Gitea: {project.gitea_url or 'not yet created'}
-Deploy URL: {project.deploy_url or 'not yet deployed'}
-Status: {project.status}
-
-SPEC:
----
-{project.spec}
----
-
-All code goes in the working directory.
-Important: Matometa automatically commits and pushes code changes to the staging branch
-after each response. Do not run git commit/push yourself unless explicitly requested.
-
-User request: """
-            else:
-                project_context = f"""You are in MODE EXPERT working on "{project.name}".
-Working directory: {workdir}/
-Status: {project.status}
-
-User request: """
-
-            prompt = project_context + prompt
+            prompt = _build_project_prompt(
+                project=project,
+                content=prompt,
+                workdir=str(workdir),
+                is_first_project_message=is_first_project_message,
+            )
 
     # Enqueue the run command for the process manager
     store.enqueue_pm_command(conv_id, "run", {
@@ -550,6 +566,70 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
     })
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
+
+
+@router.post("/{conv_id}/welcome")
+async def trigger_planning_welcome(conv_id: str, user_email: str = Depends(get_current_user)):
+    """Auto-trigger the first assistant welcome for empty planning conversations."""
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+
+    if conv.user_id and conv.user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
+    if conv.conv_type != "project" or not conv.project_id:
+        return JSONResponse({"error": "Not a project conversation"}, status_code=400)
+
+    project = store.get_project(conv.project_id)
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    if not _project_in_planning(project):
+        return JSONResponse({"status": "not_planning"}, status_code=409)
+
+    if conv.needs_response:
+        return JSONResponse({"status": "already_running"}, status_code=409)
+
+    if conv.messages:
+        return JSONResponse({"status": "already_initialized"}, status_code=409)
+
+    workdir = config.PROJECTS_DIR / project.id
+    try:
+        from lib.expert_git import ensure_project_branches
+        ensure_project_branches(project)
+    except Exception as exc:
+        logger.warning("Failed to prepare expert branches for welcome on %s: %s", project.id, exc)
+
+    welcome_prompt = (
+        "Welcome the user in French with 3-4 sentences. "
+        "Confirm you are ready to start plan mode, ask what they want to build, "
+        "and mention you will draft a specification before implementation."
+    )
+    prompt = _build_project_prompt(
+        project=project,
+        content=welcome_prompt,
+        workdir=str(workdir),
+        is_first_project_message=True,
+    )
+
+    store.update_conversation(conv_id, needs_response=True)
+    store.enqueue_pm_command(conv_id, "run", {
+        "prompt": prompt,
+        "history": [],
+        "session_id": conv.session_id,
+        "user_email": user_email,
+        "project_workdir": str(workdir),
+    })
+
+    return JSONResponse({
+        "status": "started",
+        "after_id": 0,
+        "links": {
+            "stream": f"/api/conversations/{conv_id}/stream",
+            "cancel": f"/api/conversations/{conv_id}/cancel",
+        },
+    }, status_code=202)
 
 
 @router.get("/{conv_id}/stream")

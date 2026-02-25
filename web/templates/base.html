@@ -64,7 +64,7 @@
           </a>
         </li>
 
-        {% if config.EXPERT_MODE_ENABLED %}
+        {% if config.EXPERT_MODE_ENABLED and section != 'accueil' %}
         <li class="nav-item">
           <a href="/expert" class="nav-link {% if section == 'expert' %}active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
@@ -138,7 +138,7 @@
               <i class="ri-add-line me-2"></i>Nouvelle conversation
             </a>
           </li>
-          {% if config.EXPERT_MODE_ENABLED %}
+          {% if config.EXPERT_MODE_ENABLED and section != 'accueil' %}
           <li class="nav-item">
             <a href="/expert" class="nav-link {% if section == 'expert' %}active{% endif %}">
               <i class="ri-code-s-slash-line me-2"></i>Expert

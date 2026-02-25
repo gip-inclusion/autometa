@@ -238,6 +238,91 @@ class TestExpertAPI:
         finally:
             config.EXPERT_MODE_ENABLED = original
 
+    def test_expert_nav_visible_on_non_landing_pages(self, app, client, project):
+        from web import config
+        from web.storage import store
+
+        conv = store.create_conversation(
+            conv_type="project",
+            project_id=project.id,
+            user_id="dev@example.com",
+        )
+
+        original = config.EXPERT_MODE_ENABLED
+        config.EXPERT_MODE_ENABLED = True
+        try:
+            for path in (
+                "/rechercher",
+                f"/expert/{project.slug}",
+                f"/expert/{project.slug}/{conv.id}",
+            ):
+                resp = client.get(path, headers={"X-Forwarded-Email": "dev@example.com"})
+                assert resp.status_code == 200
+                assert b'href="/expert"' in resp.data
+        finally:
+            config.EXPERT_MODE_ENABLED = original
+
+    def test_expert_nav_hidden_on_landing_page(self, client):
+        from web import config
+
+        original = config.EXPERT_MODE_ENABLED
+        config.EXPERT_MODE_ENABLED = True
+        try:
+            resp = client.get("/")
+            assert resp.status_code == 200
+            assert b'href="/expert"' not in resp.data
+        finally:
+            config.EXPERT_MODE_ENABLED = original
+
+    def test_project_welcome_endpoint_is_idempotent(self, app, client, project):
+        from web import config
+        from web.storage import store
+
+        conv = store.create_conversation(
+            conv_type="project",
+            project_id=project.id,
+            user_id="dev@example.com",
+        )
+
+        original = config.EXPERT_MODE_ENABLED
+        config.EXPERT_MODE_ENABLED = True
+        try:
+            first = client.post(
+                f"/api/conversations/{conv.id}/welcome",
+                headers={"X-Forwarded-Email": "dev@example.com"},
+            )
+            assert first.status_code == 202
+
+            pending = [
+                cmd
+                for cmd in store.get_pending_pm_commands()
+                if cmd["conversation_id"] == conv.id and cmd["command"] == "run"
+            ]
+            assert len(pending) == 1
+            payload = pending[0]["payload"]
+            assert payload["project_workdir"] == str(config.PROJECTS_DIR / project.id)
+            assert "MODE EXPERT - plan mode" in payload["prompt"]
+
+            # Simulate completion: assistant has responded and run is finished.
+            store.add_message(conv.id, "assistant", "Bienvenue, on peut commencer le plan.")
+            store.update_conversation(conv.id, needs_response=False)
+
+            second = client.post(
+                f"/api/conversations/{conv.id}/welcome",
+                headers={"X-Forwarded-Email": "dev@example.com"},
+            )
+            assert second.status_code == 409
+            assert second.get_json()["status"] == "already_initialized"
+
+            pending_after = [
+                cmd
+                for cmd in store.get_pending_pm_commands()
+                if cmd["conversation_id"] == conv.id and cmd["command"] == "run"
+            ]
+            assert len(pending_after) == 1
+        finally:
+            config.EXPERT_MODE_ENABLED = original
+
     def test_project_preview_route_proxies_staging(self, app, client, project, monkeypatch):
         from web import config
         from web.storage import store

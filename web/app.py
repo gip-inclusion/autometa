@@ -174,6 +174,12 @@ def _inject_user_into_flask_g():
 expert_flask_app.jinja_env.globals["static_url"] = templates.env.globals.get(
     "static_url", lambda path: f"/static/{path}"
 )
+# Ensure Flask-rendered expert pages use the same config object as FastAPI
+# templates so `config.EXPERT_MODE_ENABLED` resolves consistently.
+expert_flask_app.jinja_env.globals["config"] = config
+
+# Defensive parity: keep `config` available in the shared template env too.
+templates.env.globals.setdefault("config", config)
 
 # Keep Flask-only expert endpoints working while the rest of the app is FastAPI.
 app.mount("/", WSGIMiddleware(expert_flask_app))
