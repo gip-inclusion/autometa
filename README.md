@@ -120,15 +120,18 @@ make dev-ollama    # Backend cli-ollama (ollama doit tourner)
 
 ### Configuration
 
-Variables d'environnement principales (voir `.env.example`) :
+Toutes les variables sont documentées dans `.env.example`. Voici les groupes principaux :
 
-| Variable | Description |
-|----------|-------------|
-| `AGENT_BACKEND` | `cli` (défaut) ou `cli-ollama` |
-| `MATOMO_TOKEN` | Token API Matomo |
-| `METABASE_USER` | Email utilisateur Metabase |
-| `METABASE_PASSWORD` | Mot de passe Metabase |
-| `ADMIN_USERS` | Emails des admins (séparés par virgules) |
+| Groupe | Variables | Requis |
+|--------|-----------|--------|
+| **Agent** | `AGENT_BACKEND`, `CLAUDE_CODE_OAUTH_TOKEN` | Oui |
+| **Web** | `ADMIN_USERS`, `BASE_URL` | Oui |
+| **Base de données** | `DATABASE_URL` | Non (SQLite par défaut) |
+| **S3** | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Non (fichiers locaux) |
+| **Sources de données** | `MATOMO_API_KEY`, `METABASE_*_API_KEY`, `NOTION_TOKEN`, `GRIST_API_KEY` | Selon `config/sources.yaml` |
+| **Claude CLI** | `CLAUDE_CLI`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY` | Quand `AGENT_BACKEND=cli` |
+| **Conteneur** | `CONTAINER_ENV` | Scalingo / PaaS |
+| **OAuth2-Proxy** | `OAUTH2_PROXY_*` | Quand on utilise le buildpack oauth2-proxy |
 
 ## Déploiement
 
@@ -146,11 +149,9 @@ make down           # Tout arrêter
 
 Le conteneur Ollama est géré via un profil Docker Compose. Il ne démarre que lorsqu'il est explicitement demandé (`make up-ollama` ou `COMPOSE_PROFILES=ollama`).
 
-Le conteneur utilise OAuth2-Proxy pour l'authentification. L'email de l'utilisateur est passé via le header `X-Forwarded-Email`.
-
 ### Scalingo
 
-L'application est prête pour un déploiement sur Scalingo avec PostgreSQL.
+L'application tourne sur Scalingo dans un seul conteneur web (le process manager tourne en background dans le même process).
 
 ```bash
 # Créer l'application
@@ -159,29 +160,41 @@ scalingo create matometa
 # Ajouter PostgreSQL
 scalingo addons-add postgresql postgresql-starter-512
 
-# Configurer les variables d'environnement (voir config/sources.yaml)
-scalingo env-set MATOMO_API_KEY=xxx
-scalingo env-set METABASE_<INSTANCE>_API_KEY=xxx  # une par instance Metabase
-scalingo env-set ANTHROPIC_API_KEY=xxx
+# Variables obligatoires
+scalingo env-set AGENT_BACKEND=cli
+scalingo env-set CLAUDE_CODE_OAUTH_TOKEN=xxx
 scalingo env-set ADMIN_USERS=user@example.com
+scalingo env-set CONTAINER_ENV=1
 
-# (Optionnel) Stockage S3 pour les fichiers interactifs
-scalingo env-set S3_BUCKET=matometa-files
+# Sources de données (selon config/sources.yaml)
+scalingo env-set MATOMO_API_KEY=xxx
+scalingo env-set METABASE_STATS_API_KEY=xxx
+scalingo env-set METABASE_DATALAKE_API_KEY=xxx
+
+# Stockage S3 (recommandé — le filesystem Scalingo est éphémère)
+scalingo env-set S3_BUCKET=matometa
 scalingo env-set S3_ENDPOINT=https://s3.fr-par.scw.cloud
 scalingo env-set S3_ACCESS_KEY=xxx
 scalingo env-set S3_SECRET_KEY=xxx
+
+# OAuth2-Proxy (optionnel — auth Google)
+scalingo env-set OAUTH2_PROXY_PROVIDER=google
+scalingo env-set OAUTH2_PROXY_CLIENT_ID=xxx
+scalingo env-set OAUTH2_PROXY_CLIENT_SECRET=xxx
+# ... voir .env.example pour la liste complète
 
 # Déployer
 git push scalingo main
 ```
 
 **Variables automatiques Scalingo :**
-- `DATABASE_URL` : fournie automatiquement par l'addon PostgreSQL
-- `PORT` : port d'écoute (utilisé par le Procfile)
+- `DATABASE_URL` : fournie par l'addon PostgreSQL
+- `PORT` : port d'écoute (utilisé par oauth2-proxy)
 
 **Fichiers de configuration :**
-- `Procfile` : commande de démarrage uvicorn
-- `runtime.txt` : version Python (3.11)
+- `Procfile` : uvicorn derrière oauth2-proxy
+- `.buildpacks` : Python + oauth2-proxy
+- `runtime.txt` : version Python
 
 ## Développement
 
