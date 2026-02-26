@@ -86,23 +86,27 @@ make the worker container ~50MB instead of ~500MB.
 2 concurrent agents comfortably. If you need 4+, separate the worker first
 as-is (accepting the duplicate deps), then optimize the image later.
 
-### 2.5 Lighter agent backend (Claude Agent SDK)
+### 2.5 Agent SDK vs CLI — measured, no difference
 
-The current backend spawns the Claude Code CLI (Node.js, ~200MB/process) as a
-subprocess. The Claude Agent SDK (`claude-agent-sdk`) is the programmatic
-alternative — same tool ecosystem, MCP support, conversation management.
+Spike results (local, single "reply SPIKE_OK" prompt):
 
-**Open question: does it actually use less memory?** The Agent SDK may still
-spawn the Claude Code Node.js runtime under the hood. If so, memory savings
-would be zero. This needs a spike to measure before committing to a migration.
+| | CLI (current) | Agent SDK |
+|---|---|---|
+| Memory (children RSS) | **316 MB** | **299 MB** |
+| Time | 3.4s | 2.5s |
 
-**OAuth token compatibility.** The app authenticates via `CLAUDE_CODE_OAUTH_TOKEN`
-(Max/Team subscription). The Agent SDK's support for OAuth tokens is unclear —
-Anthropic's stance on programmatic use of Max tokens outside the CLI has been
-inconsistent. This could break without warning.
+The Agent SDK spawns the same CLI binary as a subprocess (`subprocess_cli.py`).
+No memory savings. The ~16MB difference is noise.
 
-**Next step**: spike to test (a) whether the Agent SDK works with the OAuth token,
-and (b) what its actual memory footprint is per conversation compared to the CLI.
+**OAuth token**: works fine with `CLAUDE_CODE_OAUTH_TOKEN`.
+
+**Conclusion**: switching to the Agent SDK gives a cleaner Python API and slightly
+less startup overhead, but does not reduce memory. The only way to cut per-agent
+memory is to bypass the CLI entirely and call the Messages API directly — which
+means reimplementing tool dispatch and losing session resume, MCP, etc.
+
+Not worth pursuing for concurrency. Scale via container size or separate worker
+dyno instead.
 
 ---
 
@@ -287,6 +291,6 @@ external sharing. Presigned URLs (4.1) give 90% of the benefit.
 | 7 | Message pagination | Medium | L | Planned |
 | 8 | Static cache headers | Low | S | Planned |
 | 9 | LISTEN/NOTIFY for SSE | Medium | L | Exploration |
-| 10 | Lighter agent (SDK) | High | XL | Needs API key |
+| 10 | Lighter agent (SDK) | None | — | **Measured: no savings** |
 | 11 | Separate PM worker | Medium | M | Deferred |
 | 12 | CDN | Low | M | Not needed |
