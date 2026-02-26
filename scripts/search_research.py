@@ -253,7 +253,7 @@ def format_citation(result):
     attribution = " · ".join(parts) if parts else result.get("database_name", "")
 
     # Links
-    link_parts = [f"[Explorer](/recherche?page={page_id})"]
+    link_parts = [f"[Explorer](/terrain?page={page_id})"]
     if page_url:
         link_parts.append(f"[Notion]({page_url})")
     links_str = " · ".join(link_parts)

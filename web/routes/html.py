@@ -527,7 +527,19 @@ def connaissances_file(
 
 
 @router.get("/recherche")
-def recherche(
+@router.get("/recherche/{page_id}")
+def recherche_redirect(request: Request, page_id: str = ""):
+    """Legacy redirect: /recherche → /terrain."""
+    target = "/terrain"
+    if page_id:
+        target += f"/{page_id}"
+    if request.url.query:
+        target += f"?{request.url.query}"
+    return RedirectResponse(target, status_code=301)
+
+
+@router.get("/terrain")
+def terrain(
     request: Request,
     user_email: str = Depends(get_current_user),
     q: str = Query(default=""),
@@ -535,7 +547,7 @@ def recherche(
     db: list[str] = Query(default=[]),
     type: list[str] = Query(default=[]),
 ):
-    """Recherche terrain - semantic search across the Notion research corpus."""
+    """Terrain - semantic search across the Notion research corpus."""
     data = get_sidebar_data(user_email)
     corpus_stats = get_corpus_stats()
 
@@ -565,8 +577,8 @@ def recherche(
             logger.exception("Research similar failed")
             error = str(e)
 
-    return templates.TemplateResponse(request, "recherche.html", {
-        "section": "recherche",
+    return templates.TemplateResponse(request, "terrain.html", {
+        "section": "terrain",
         "current_conv": None,
         "current_page": None,
         "corpus_stats": corpus_stats,
@@ -582,13 +594,13 @@ def recherche(
     })
 
 
-@router.get("/recherche/{page_id}")
-def recherche_page(page_id: str, request: Request, user_email: str = Depends(get_current_user)):
-    """Recherche terrain - page detail view."""
+@router.get("/terrain/{page_id}")
+def terrain_page(page_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    """Terrain - page detail view."""
     data = get_sidebar_data(user_email)
     page = get_page(page_id)
     if not page:
-        return RedirectResponse("/recherche", status_code=302)
+        return RedirectResponse("/terrain", status_code=302)
 
     # Filter properties for display (skip internal ones)
     skip_props = {"Type", "Date", "Date calculee", "Nom", "Name", "title"}
@@ -606,8 +618,8 @@ def recherche_page(page_id: str, request: Request, user_email: str = Depends(get
             continue
         visible_props[k] = v
 
-    return templates.TemplateResponse(request, "recherche.html", {
-        "section": "recherche",
+    return templates.TemplateResponse(request, "terrain.html", {
+        "section": "terrain",
         "current_conv": None,
         "current_page": page,
         "visible_props": visible_props,

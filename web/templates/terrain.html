@@ -9,7 +9,7 @@
     <div class="container">
       <div class="d-flex align-items-center gap-3">
         {% if current_page %}
-        <a href="/recherche{% if query %}?q={{ query | urlencode }}{% for db in active_dbs %}&db={{ db | urlencode }}{% endfor %}{% for t in active_types %}&type={{ t | urlencode }}{% endfor %}{% endif %}"
+        <a href="/terrain{% if query %}?q={{ query | urlencode }}{% for db in active_dbs %}&db={{ db | urlencode }}{% endfor %}{% for t in active_types %}&type={{ t | urlencode }}{% endfor %}{% endif %}"
            class="btn btn-link p-0 me-2"
            hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
           <i class="ri-arrow-left-line ri-xl"></i>
@@ -33,8 +33,8 @@
           </h1>
         </div>
         <!-- Search bar in header -->
-        <form id="searchForm" action="/recherche" method="GET" class="recherche-header-search"
-              hx-get="/recherche" hx-target="#main" hx-select="#main > *"
+        <form id="searchForm" action="/terrain" method="GET" class="recherche-header-search"
+              hx-get="/terrain" hx-target="#main" hx-select="#main > *"
               hx-swap="innerHTML" hx-push-url="true">
           <div class="recherche-search-input">
             <i class="ri-search-line"></i>
@@ -83,7 +83,7 @@
           <strong class="small text-muted">{{ prop }}</strong>
           <div>
             {% for r in targets %}
-            <a class="relation-tag" href="/recherche/{{ r.page_id }}"
+            <a class="relation-tag" href="/terrain/{{ r.page_id }}"
                hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
               {{ r.title or r.page_id }}
             </a>
@@ -108,7 +108,7 @@
       {% if current_page.chunk_ids %}
       <div class="page-section">
         <h3>Pages similaires</h3>
-        <a href="/recherche?similar={{ current_page.chunk_ids[0] }}" class="btn btn-sm btn-outline-primary"
+        <a href="/terrain?similar={{ current_page.chunk_ids[0] }}" class="btn btn-sm btn-outline-primary"
            hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
           <i class="ri-links-line"></i> Voir les pages similaires
         </a>
@@ -168,7 +168,7 @@
         <div class="conversation-list">
           {% if results %}
             {% for r in results %}
-            <a href="/recherche/{{ r.page_id }}" class="conv-list-item result-item"
+            <a href="/terrain/{{ r.page_id }}" class="conv-list-item result-item"
                hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
               <div class="conv-item-main">
                 <div class="conv-item-icon-wrapper">
@@ -187,7 +187,7 @@
                   {% if r.body %}<div class="result-body">{{ r.body[:300] }}</div>{% endif %}
                   <div class="result-actions">
                     <span class="result-similar-link"
-                          onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/recherche?similar={{ r.chunk_id }}';">
+                          onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/terrain?similar={{ r.chunk_id }}';">
                       <i class="ri-links-line"></i> Résultats similaires
                     </span>
                   </div>
