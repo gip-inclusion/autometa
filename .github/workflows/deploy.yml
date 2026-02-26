@@ -17,33 +17,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup SSH
         env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KEY: ${{ secrets.SCALINGO_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ljt.cc >> ~/.ssh/known_hosts
+          ssh-keyscan -H ssh.osc-fr1.scalingo.com >> ~/.ssh/known_hosts
 
-      - name: Sync files
+      - name: Deploy
         run: |
-          rsync -avz --delete \
-            --exclude='.git' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='.pytest_cache' \
-            --exclude='.DS_Store' \
-            --exclude='data/' \
-            --exclude='.env' \
-            --exclude='.venv' \
-            --exclude='reports/' \
-            --exclude='claude-credentials/' \
-            --exclude='.claude/skills' \
-            --exclude='auth/allowed_emails.txt' \
-            ./ matometa@ljt.cc:/srv/matometa/
-
-      - name: Rebuild container
-        run: |
-          ssh matometa@ljt.cc 'cd /srv/matometa && docker compose up -d --build && docker image prune -f'
+          git remote add scalingo git@ssh.osc-fr1.scalingo.com:matometa.git
+          git push scalingo main --force
