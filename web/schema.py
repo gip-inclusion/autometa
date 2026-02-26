@@ -8,7 +8,7 @@ import sqlite3
 from .db import ConnectionWrapper, get_db, USE_POSTGRES
 
 # Schema version - increment when adding migrations
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 def _get_schema_version(conn: ConnectionWrapper) -> int:
@@ -80,6 +80,8 @@ def init_db():
                     _migrate_to_v18(conn)
                 if current_version < 19:
                     _migrate_to_v19(conn)
+                if current_version < 20:
+                    _migrate_to_v20(conn)
 
             _set_schema_version(conn, SCHEMA_VERSION)
 
@@ -88,6 +90,7 @@ def init_db():
         _migrate_to_v17(conn)
         _migrate_to_v18(conn)
         _migrate_to_v19(conn)
+        _migrate_to_v20(conn)
 
 
 # =============================================================================
@@ -424,6 +427,18 @@ def _create_schema(conn: ConnectionWrapper):
             last_seen TEXT NOT NULL
         );
     """)
+
+
+def _migrate_to_v20(conn: ConnectionWrapper):
+    """Migrate to v20: add compound indexes for hot queries.
+
+    - messages(conversation_id, id): SSE polling query
+    - conversations(user_id, updated_at): list conversations by user
+    - conversations(needs_response): running conversations check
+    """
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user_updated ON conversations(user_id, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_needs_response ON conversations(needs_response) WHERE needs_response = 1")
 
 
 # =============================================================================

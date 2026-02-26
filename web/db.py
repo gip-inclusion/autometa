@@ -4,11 +4,14 @@ Low-level connection management, query helpers, and column validation.
 Business logic lives in web/database.py.
 """
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from typing import Optional, Any
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 # Database backend detection from DATABASE_URL
 USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswith(("postgres://", "postgresql://"))
@@ -16,6 +19,20 @@ USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswit
 if USE_POSTGRES:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from psycopg2.pool import ThreadedConnectionPool
+
+    _pg_pool: Optional[ThreadedConnectionPool] = None
+
+    def _get_pg_pool() -> ThreadedConnectionPool:
+        global _pg_pool
+        if _pg_pool is None or _pg_pool.closed:
+            _pg_pool = ThreadedConnectionPool(
+                minconn=1,
+                maxconn=10,
+                dsn=config.DATABASE_URL,
+            )
+            logger.info("PostgreSQL connection pool created (max=10)")
+        return _pg_pool
 
 # Valid column names for dynamic updates (security: prevents SQL injection)
 VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "status", "pr_url", "updated_at", "pinned_at", "pinned_label", "needs_response"})
@@ -195,7 +212,8 @@ class ConnectionWrapper:
 def get_connection() -> ConnectionWrapper:
     """Get a database connection with row factory."""
     if USE_POSTGRES:
-        conn = psycopg2.connect(config.DATABASE_URL)
+        pool = _get_pg_pool()
+        conn = pool.getconn()
         return ConnectionWrapper(conn, is_postgres=True)
     else:
         config.SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -216,4 +234,8 @@ def get_db():
         yield conn
         conn.commit()
     finally:
-        conn.close()
+        if USE_POSTGRES:
+            pool = _get_pg_pool()
+            pool.putconn(conn._conn)
+        else:
+            conn.close()
