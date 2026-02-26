@@ -53,7 +53,7 @@ USES_CLAUDE_CLI = AGENT_BACKEND == "cli" or LLM_BACKEND == "cli"
 # Web server settings
 HOST = os.getenv("WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("WEB_PORT", "5000"))
-DEBUG = os.getenv("WEB_DEBUG", "true").lower() == "true"
+DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 
 # Base URL for generating absolute links (e.g. BASE_URL=https://matometa.ljt.cc/)
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.

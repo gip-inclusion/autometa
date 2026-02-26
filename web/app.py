@@ -16,6 +16,9 @@ logging.basicConfig(
     level=logging.DEBUG if config.DEBUG else logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+# Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
+for _logger_name in ("botocore", "boto3", "urllib3", "s3transfer"):
+    logging.getLogger(_logger_name).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

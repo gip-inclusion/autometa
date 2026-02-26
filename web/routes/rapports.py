@@ -1,6 +1,7 @@
 """Rapports HTML routes."""
 
 import re
+import time
 from datetime import datetime
 
 import markdown as md
@@ -73,13 +74,35 @@ def _parse_app_md(content: str, folder_name: str) -> dict | None:
     }
 
 
+_apps_cache: list[dict] | None = None
+_apps_cache_time: float = 0
+_APPS_CACHE_TTL = 300  # 5 minutes
+
+
 def scan_interactive_apps():
     """
     Scan /data/interactive/ for valid apps (S3 or local filesystem).
 
     An app is valid if it has an APP.md file with YAML front-matter.
     Returns list of dicts matching report structure where possible.
+
+    Results are cached for 5 minutes to avoid repeated S3 roundtrips
+    (each app requires a separate S3 GET for its APP.md).
     """
+    global _apps_cache, _apps_cache_time
+
+    now = time.monotonic()
+    if _apps_cache is not None and (now - _apps_cache_time) < _APPS_CACHE_TTL:
+        return _apps_cache
+
+    apps = _scan_interactive_apps_uncached()
+    _apps_cache = apps
+    _apps_cache_time = now
+    return apps
+
+
+def _scan_interactive_apps_uncached():
+    """Fetch interactive apps from S3 or local filesystem (no cache)."""
     apps = []
 
     if config.USE_S3:
