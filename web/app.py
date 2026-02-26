@@ -34,6 +34,11 @@ async def lifespan(app: FastAPI):
     from . import sync_to_s3
     sync_to_s3.start_sync_watcher()
 
+    # Warm the interactive apps cache (avoids N+1 S3 calls on first request)
+    if config.USE_S3:
+        from .routes.rapports import scan_interactive_apps
+        await asyncio.to_thread(scan_interactive_apps)
+
     # Run process manager in-process (no separate container needed)
     from .pm import ProcessManager
     pm = ProcessManager()
