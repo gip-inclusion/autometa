@@ -15,6 +15,8 @@ router = APIRouter(prefix="/api")
 
 # Allowed origins for CORS
 ALLOWED_ORIGINS = {
+    "https://matometa.osc-fr1.scalingo.io",
+    "https://matometa.inclusion.gouv.fr",
     "https://matometa.ljt.cc",
     "http://localhost:5000",
     "http://127.0.0.1:5000",
