@@ -89,7 +89,7 @@ cd Matometa
 # Environnement Python
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 
 # Variables d'environnement
 cp .env.example .env
@@ -194,7 +194,8 @@ git push scalingo main
 **Fichiers de configuration :**
 - `Procfile` : uvicorn derrière oauth2-proxy
 - `.buildpacks` : Python + oauth2-proxy
-- `runtime.txt` : version Python
+- `.python-version` : version Python
+- `pyproject.toml` / `uv.lock` : dépendances (uv)
 
 ## Développement
 
