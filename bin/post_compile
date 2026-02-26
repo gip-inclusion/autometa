@@ -4,22 +4,40 @@
 # The installer creates a symlink with an absolute path to the build dir,
 # which won't survive into the runtime container. So we resolve it and
 # copy the actual binary to a path that persists.
+#
+# Uses the buildpack CACHE_DIR to avoid re-downloading on every deploy.
 
-echo "-----> Installing Claude Code CLI"
-curl -fsSL https://claude.ai/install.sh | bash 2>&1
+CLAUDE_CACHE="${CACHE_DIR:+$CACHE_DIR/claude-cli}"
 
-# Find the real binary (resolve the broken-at-runtime symlink)
-CLAUDE_BIN=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)
-
-if [ -x "$CLAUDE_BIN" ]; then
+if [ -n "$CLAUDE_CACHE" ] && [ -x "$CLAUDE_CACHE" ]; then
+    echo "-----> Using cached Claude Code CLI"
     mkdir -p "$HOME/bin"
-    cp "$CLAUDE_BIN" "$HOME/bin/claude"
+    cp "$CLAUDE_CACHE" "$HOME/bin/claude"
     chmod +x "$HOME/bin/claude"
-    echo "-----> Claude Code CLI copied to \$HOME/bin/claude ($HOME/bin/claude)"
     "$HOME/bin/claude" --version 2>/dev/null || true
 else
-    echo "-----> WARNING: Could not find Claude Code binary"
-    ls -la "$HOME/.local/bin/claude" 2>/dev/null
+    echo "-----> Installing Claude Code CLI (not cached)"
+    curl -fsSL https://claude.ai/install.sh | bash 2>&1
+
+    # Find the real binary (resolve the broken-at-runtime symlink)
+    CLAUDE_BIN=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)
+
+    if [ -x "$CLAUDE_BIN" ]; then
+        mkdir -p "$HOME/bin"
+        cp "$CLAUDE_BIN" "$HOME/bin/claude"
+        chmod +x "$HOME/bin/claude"
+        echo "-----> Claude Code CLI copied to \$HOME/bin/claude"
+        "$HOME/bin/claude" --version 2>/dev/null || true
+
+        # Cache for next deploy
+        if [ -n "$CACHE_DIR" ]; then
+            cp "$CLAUDE_BIN" "$CLAUDE_CACHE"
+            echo "-----> Cached Claude Code CLI for future deploys"
+        fi
+    else
+        echo "-----> WARNING: Could not find Claude Code binary"
+        ls -la "$HOME/.local/bin/claude" 2>/dev/null
+    fi
 fi
 
 # Mark onboarding as complete so the CLI skips the interactive setup wizard
