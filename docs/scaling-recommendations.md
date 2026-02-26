@@ -86,40 +86,23 @@ make the worker container ~50MB instead of ~500MB.
 2 concurrent agents comfortably. If you need 4+, separate the worker first
 as-is (accepting the duplicate deps), then optimize the image later.
 
-### 2.5 Lighter agent backend
+### 2.5 Lighter agent backend (Claude Agent SDK)
 
 The current backend spawns the Claude Code CLI (Node.js, ~200MB/process) as a
-subprocess. Two options to reduce this:
+subprocess. The Claude Agent SDK (`claude-agent-sdk`) is the programmatic
+alternative — same tool ecosystem, MCP support, conversation management.
 
-**Option A: Claude Agent SDK** (`claude-agent-sdk`)
+**Open question: does it actually use less memory?** The Agent SDK may still
+spawn the Claude Code Node.js runtime under the hood. If so, memory savings
+would be zero. This needs a spike to measure before committing to a migration.
 
-A Python framework for building agents with the Claude Code runtime — tool use,
-conversation management, MCP servers. It's the programmatic equivalent of the CLI
-but runs in-process (no Node.js subprocess), so memory drops to ~20-50MB per
-conversation. It supports the same tool ecosystem as the CLI.
+**OAuth token compatibility.** The app authenticates via `CLAUDE_CODE_OAUTH_TOKEN`
+(Max/Team subscription). The Agent SDK's support for OAuth tokens is unclear —
+Anthropic's stance on programmatic use of Max tokens outside the CLI has been
+inconsistent. This could break without warning.
 
-**Key concern: OAuth token compatibility.** The app authenticates via
-`CLAUDE_CODE_OAUTH_TOKEN` (Max/Team subscription). The Agent SDK's support for
-OAuth tokens is unclear — Anthropic's stance on programmatic use of Max tokens
-outside the CLI has been inconsistent. This could break without warning.
-
-**Option B: Anthropic Python SDK** (`anthropic`)
-
-A thin HTTP client for the Messages API. Much simpler — just streaming chat
-completions with tool definitions. No Claude Code runtime, no MCP, no filesystem
-tools. Memory ~10-20MB per conversation.
-
-This would require reimplementing tool dispatch: defining each tool (Matomo queries,
-Metabase queries, file operations) as a function and wiring them into the
-messages loop manually. The Agent SDK handles this automatically.
-
-Also requires a proper API key (`ANTHROPIC_API_KEY`, pay-per-use). Cannot use the
-Max subscription OAuth token.
-
-**Recommendation**: Agent SDK is the better fit (keeps tool compatibility), but
-only if the OAuth token situation is clarified. Worth a spike to test if the
-Agent SDK works with `CLAUDE_CODE_OAUTH_TOKEN`. If not, API key + SDK is the
-clean path — different billing, but reliable.
+**Next step**: spike to test (a) whether the Agent SDK works with the OAuth token,
+and (b) what its actual memory footprint is per conversation compared to the CLI.
 
 ---
 
