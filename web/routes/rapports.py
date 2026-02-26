@@ -1,7 +1,6 @@
 """Rapports HTML routes."""
 
 import re
-import time
 from datetime import datetime
 
 import markdown as md
@@ -75,8 +74,12 @@ def _parse_app_md(content: str, folder_name: str) -> dict | None:
 
 
 _apps_cache: list[dict] | None = None
-_apps_cache_time: float = 0
-_APPS_CACHE_TTL = 300  # 5 minutes
+
+
+def invalidate_apps_cache():
+    """Clear the cached app list (call when interactive files change)."""
+    global _apps_cache
+    _apps_cache = None
 
 
 def scan_interactive_apps():
@@ -86,18 +89,16 @@ def scan_interactive_apps():
     An app is valid if it has an APP.md file with YAML front-matter.
     Returns list of dicts matching report structure where possible.
 
-    Results are cached for 5 minutes to avoid repeated S3 roundtrips
-    (each app requires a separate S3 GET for its APP.md).
+    Results are cached and invalidated on write (when sync_to_s3 uploads
+    an APP.md file).
     """
-    global _apps_cache, _apps_cache_time
+    global _apps_cache
 
-    now = time.monotonic()
-    if _apps_cache is not None and (now - _apps_cache_time) < _APPS_CACHE_TTL:
+    if _apps_cache is not None:
         return _apps_cache
 
     apps = _scan_interactive_apps_uncached()
     _apps_cache = apps
-    _apps_cache_time = now
     return apps
 
 

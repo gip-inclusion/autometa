@@ -115,6 +115,9 @@ def _upload_file(local_path: Path, s3_module):
         success = s3_module.upload_file(str(relative_path), content, content_type)
         if success:
             logger.info(f"Synced to S3: {relative_path}")
+            if local_path.name == "APP.md":
+                from .routes.rapports import invalidate_apps_cache
+                invalidate_apps_cache()
         else:
             logger.error(f"Failed to sync to S3: {relative_path}")
 
