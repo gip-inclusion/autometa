@@ -87,16 +87,16 @@ class TestMatomoErrorLogged:
 
         api = MatomoAPI(url="fake.example.com", token="fake", instance="test")
 
-        error_response = json.dumps({"result": "error", "message": "Segment not valid"}).encode()
-
         mock_resp = MagicMock()
-        mock_resp.read.return_value = error_response
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Type": "application/json"}
+        mock_resp.text = json.dumps({"result": "error", "message": "Segment not valid"})
+        mock_resp.json.return_value = {"result": "error", "message": "Segment not valid"}
+        mock_resp.raise_for_status = MagicMock()
+        api._session.get = MagicMock(return_value=mock_resp)
 
-        with patch("urllib.request.urlopen", return_value=mock_resp):
-            with pytest.raises(MatomoError, match="Segment not valid"):
-                api._request("VisitsSummary.get", {"idSite": 1}, timeout=10)
+        with pytest.raises(MatomoError, match="Segment not valid"):
+            api._request("VisitsSummary.get", {"idSite": 1}, timeout=10)
 
         assert mock_log.called, "MatomoError was not logged to audit"
         call_kwargs = mock_log.call_args.kwargs
@@ -197,12 +197,12 @@ class TestMetabaseSearchQueryType:
         api = MetabaseAPI(url="https://fake.example.com", api_key="fake")
 
         mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({"data": []}).encode()
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"data": []}
+        mock_resp.raise_for_status = MagicMock()
+        api._session.request = MagicMock(return_value=mock_resp)
 
-        with patch("urllib.request.urlopen", return_value=mock_resp):
-            api.search_cards("revenue")
+        api.search_cards("revenue")
 
         assert mock_log.called
         logged_query_type = mock_log.call_args.kwargs["query_type"]

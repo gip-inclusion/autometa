@@ -8,17 +8,20 @@ Usage:
     summary = api.get_visits(site_id=117, period="month", date="2025-12-01")
 """
 
-import json
+import logging
 import time
 import urllib.parse
-import urllib.request
 from typing import Any, Optional
 
-from ._audit import log_query
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-# Import UI URL builder
+from ._audit import log_query
 from ._matomo_ui import get_ui_url
 from .api_signals import emit_api_signal
+
+logger = logging.getLogger(__name__)
 
 
 class MatomoError(Exception):
@@ -31,7 +34,12 @@ class MatomoAPI:
     """
     Client for querying the Matomo API.
 
-    All queries are automatically logged to the audit database.
+    Uses requests.Session for connection pooling (reuses TCP+TLS across calls).
+    Retries up to 2 times on 429/5xx errors with exponential backoff via
+    urllib3.util.retry.Retry. All queries are logged to the audit database.
+
+    Worst-case for a fully-failing request: ~9 min (3 attempts x ~180s read
+    timeout + backoff). Pass a lower timeout if tighter bounds are needed.
     """
 
     def __init__(
@@ -41,19 +49,31 @@ class MatomoAPI:
         instance: str = "inclusion",
         caller: str = "agent",
     ):
-        """
-        Initialize the API client.
-
-        Args:
-            url: Matomo hostname (without https://)
-            token: API authentication token
-            instance: Instance name for logging (default: "inclusion")
-            caller: Caller type for logging (default: "agent")
-        """
         self.url = url
         self.token = token
         self.instance = instance
         self.caller = caller
+
+        self._session = requests.Session()
+        retry = Retry(
+            total=2,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            respect_retry_after_header=True,
+        )
+        self._session.mount("https://", HTTPAdapter(max_retries=retry))
+        self._session.mount("http://", HTTPAdapter(max_retries=retry))
+
+    def close(self) -> None:
+        """Close the underlying HTTP session."""
+        self._session.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def _request(self, method: str, params: dict, timeout: int = 180) -> Any:
         """Make an API request with automatic logging."""
@@ -68,54 +88,61 @@ class MatomoAPI:
         }
         base_params.update(params)
 
-        query = urllib.parse.urlencode(base_params)
-        url = f"https://{self.url}/?{query}"
+        url = f"https://{self.url}/"
 
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as response:
-                data = json.loads(response.read().decode())
+            resp = self._session.get(url, params=base_params, timeout=(10, timeout))
+            resp.raise_for_status()
 
-                # Check for API errors
-                if isinstance(data, dict) and data.get("result") == "error":
-                    raise MatomoError(data.get("message", "Unknown error"))
-
-                execution_time_ms = int((time.time() - start_time) * 1000)
-                row_count = len(data) if isinstance(data, list) else None
-
-                log_query(
-                    source="matomo",
-                    instance=self.instance,
-                    caller=self.caller,
-                    conversation_id=None,  # Auto-read from env
-                    query_type=method,
-                    query_details=query_details,
-                    success=True,
-                    error=None,
-                    execution_time_ms=execution_time_ms,
-                    row_count=row_count,
+            # Matomo returns HTML instead of JSON on server-side timeouts.
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" in content_type or resp.text.lstrip().startswith("<!DOCTYPE"):
+                raise MatomoError(
+                    f"Matomo returned HTML instead of JSON (likely server-side timeout). "
+                    f"Response starts with: {resp.text[:200]}"
                 )
 
-                # Emit signal for observability sidebar
-                # Try to build a human-friendly UI URL, fallback to API URL
-                ui_url = None
-                if get_ui_url and all(k in params for k in ("idSite", "period", "date")):
-                    ui_url = get_ui_url(
-                        base_url=self.url,
-                        method=method,
-                        site_id=params["idSite"],
-                        period=params["period"],
-                        date=params["date"],
-                        segment=params.get("segment"),
-                        dimension_id=params.get("idDimension"),
-                    )
-                emit_api_signal(
-                    source="matomo",
-                    instance=self.instance,
+            data = resp.json()
+
+            if isinstance(data, dict) and data.get("result") == "error":
+                raise MatomoError(data.get("message", "Unknown error"))
+
+            execution_time_ms = int((time.time() - start_time) * 1000)
+            row_count = len(data) if isinstance(data, list) else None
+
+            log_query(
+                source="matomo",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,
+                query_type=method,
+                query_details=query_details,
+                success=True,
+                error=None,
+                execution_time_ms=execution_time_ms,
+                row_count=row_count,
+            )
+
+            # Emit signal for observability sidebar
+            ui_url = None
+            if get_ui_url and all(k in params for k in ("idSite", "period", "date")):
+                ui_url = get_ui_url(
+                    base_url=self.url,
                     method=method,
-                    url=ui_url or self.get_api_url(method, params),
+                    site_id=params["idSite"],
+                    period=params["period"],
+                    date=params["date"],
+                    segment=params.get("segment"),
+                    dimension_id=params.get("idDimension"),
                 )
+            emit_api_signal(
+                source="matomo",
+                instance=self.instance,
+                method=method,
+                url=ui_url or self.get_api_url(method, params),
+            )
 
-                return data
+            return data
 
         except MatomoError as e:
             execution_time_ms = int((time.time() - start_time) * 1000)
@@ -132,10 +159,11 @@ class MatomoAPI:
             )
             raise
 
-        except Exception as e:
+        except requests.RequestException as e:
             execution_time_ms = int((time.time() - start_time) * 1000)
-            error_msg = str(e)
-
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            body = getattr(getattr(e, "response", None), "text", str(e))
+            error_msg = f"HTTP {status}: {body}" if status else str(e)
             log_query(
                 source="matomo",
                 instance=self.instance,
@@ -147,10 +175,7 @@ class MatomoAPI:
                 error=error_msg,
                 execution_time_ms=execution_time_ms,
             )
-
-            if isinstance(e, urllib.error.URLError):
-                raise MatomoError(f"Request failed: {e}")
-            raise
+            raise MatomoError(f"Request failed: {error_msg}")
 
     def request(self, method: str, timeout: int = 180, **params) -> Any:
         """

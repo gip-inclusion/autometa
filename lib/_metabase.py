@@ -11,14 +11,20 @@ Usage:
 
 import base64
 import json
+import logging
 import time
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from ._audit import log_query
 from .api_signals import emit_api_signal
+
+logger = logging.getLogger(__name__)
 
 
 def build_sql_url(base_url: str, database_id: int, sql: str) -> str:
@@ -92,7 +98,12 @@ class MetabaseAPI:
     """
     Client for querying the Metabase API.
 
-    All queries are automatically logged to the audit database.
+    Uses requests.Session for connection pooling (reuses TCP+TLS across calls).
+    Retries up to 2 times on 429/5xx errors with exponential backoff via
+    urllib3.util.retry.Retry. All queries are logged to the audit database.
+
+    Worst-case for a fully-failing request: ~3 min (3 attempts x ~60s read
+    timeout + backoff). Pass a lower timeout if tighter bounds are needed.
     """
 
     def __init__(
@@ -103,21 +114,34 @@ class MetabaseAPI:
         instance: str = "stats",
         caller: str = "agent",
     ):
-        """
-        Initialize the API client.
-
-        Args:
-            url: Metabase base URL (e.g., "https://metabase.example.com")
-            api_key: API authentication key
-            database_id: Default database ID for SQL queries
-            instance: Instance name for logging (default: "stats")
-            caller: Caller type for logging (default: "agent")
-        """
         self.url = url.rstrip("/")
         self.api_key = api_key
         self.database_id = database_id if database_id is not None else 2
         self.instance = instance
         self.caller = caller
+
+        self._session = requests.Session()
+        self._session.headers["X-API-KEY"] = self.api_key
+        self._session.headers["Content-Type"] = "application/json"
+        retry = Retry(
+            total=2,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST"],
+            respect_retry_after_header=True,
+        )
+        self._session.mount("https://", HTTPAdapter(max_retries=retry))
+        self._session.mount("http://", HTTPAdapter(max_retries=retry))
+
+    def close(self) -> None:
+        """Close the underlying HTTP session."""
+        self._session.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def _request(
         self,
@@ -131,51 +155,42 @@ class MetabaseAPI:
         start_time = time.time()
         url = f"{self.url}{endpoint}"
 
-        # Determine query type from endpoint if not provided
         if query_type is None:
             raw_type = endpoint.split("/")[2] if endpoint.startswith("/api/") else "request"
             query_type = raw_type.split("?")[0]
 
         query_details = {"endpoint": endpoint, "method": method}
         if data:
-            # Truncate SQL if present
             if "native" in data and "query" in data.get("native", {}):
                 query_details["sql"] = data["native"]["query"][:500]
             else:
                 query_details["data"] = str(data)[:200]
 
-        headers = {
-            "X-API-KEY": self.api_key,
-            "Content-Type": "application/json",
-        }
-
-        request_data = json.dumps(data).encode() if data else None
-        req = urllib.request.Request(url, data=request_data, headers=headers, method=method)
-
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                result = json.loads(response.read().decode())
+            resp = self._session.request(method, url, json=data if data else None, timeout=(10, timeout))
+            resp.raise_for_status()
+            result = resp.json()
 
-                execution_time_ms = int((time.time() - start_time) * 1000)
-                log_query(
-                    source="metabase",
-                    instance=self.instance,
-                    caller=self.caller,
-                    conversation_id=None,
-                    query_type=query_type,
-                    query_details=query_details,
-                    success=True,
-                    error=None,
-                    execution_time_ms=execution_time_ms,
-                )
-
-                return result
-
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode() if e.fp else str(e)
             execution_time_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"HTTP {e.code}: {error_body}"
+            log_query(
+                source="metabase",
+                instance=self.instance,
+                caller=self.caller,
+                conversation_id=None,
+                query_type=query_type,
+                query_details=query_details,
+                success=True,
+                error=None,
+                execution_time_ms=execution_time_ms,
+            )
 
+            return result
+
+        except requests.RequestException as e:
+            execution_time_ms = int((time.time() - start_time) * 1000)
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            body = getattr(getattr(e, "response", None), "text", str(e))
+            error_msg = f"HTTP {status}: {body}" if status else str(e)
             log_query(
                 source="metabase",
                 instance=self.instance,
@@ -187,25 +202,6 @@ class MetabaseAPI:
                 error=error_msg,
                 execution_time_ms=execution_time_ms,
             )
-
-            raise MetabaseError(error_msg)
-
-        except urllib.error.URLError as e:
-            execution_time_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"Request failed: {e}"
-
-            log_query(
-                source="metabase",
-                instance=self.instance,
-                caller=self.caller,
-                conversation_id=None,
-                query_type=query_type,
-                query_details=query_details,
-                success=False,
-                error=error_msg,
-                execution_time_ms=execution_time_ms,
-            )
-
             raise MetabaseError(error_msg)
 
     def _parse_result(self, data: dict) -> QueryResult:

@@ -196,76 +196,43 @@ class TestMatomoAPIMocked:
         assert "REDACTED" in url
         assert "test_token" not in url
 
-    @patch("lib._audit.log_query")
-    @patch("urllib.request.urlopen")
-    def test_get_visits_returns_dict(self, mock_urlopen, mock_log, api):
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            {
-                "nb_visits": 100,
-                "nb_uniq_visitors": 80,
-            }
-        ).encode()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_response
+    def _mock_session_get(self, api, json_data):
+        """Helper: mock api._session.get to return a response with given JSON."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Type": "application/json"}
+        mock_resp.text = json.dumps(json_data)
+        mock_resp.json.return_value = json_data
+        mock_resp.raise_for_status = MagicMock()
+        api._session.get = MagicMock(return_value=mock_resp)
 
+    @patch("lib._audit.log_query")
+    def test_get_visits_returns_dict(self, mock_log, api):
+        self._mock_session_get(api, {"nb_visits": 100, "nb_uniq_visitors": 80})
         result = api.get_visits(site_id=117, period="month", date="2025-12-01")
         assert result["nb_visits"] == 100
         assert result["nb_uniq_visitors"] == 80
 
     @patch("lib._audit.log_query")
-    @patch("urllib.request.urlopen")
-    def test_get_pages_returns_list(self, mock_urlopen, mock_log, api):
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            [
-                {"label": "/home", "nb_visits": 50},
-                {"label": "/about", "nb_visits": 30},
-            ]
-        ).encode()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_response
-
+    def test_get_pages_returns_list(self, mock_log, api):
+        self._mock_session_get(api, [{"label": "/home", "nb_visits": 50}, {"label": "/about", "nb_visits": 30}])
         result = api.get_pages(site_id=117, period="month", date="2025-12-01")
         assert isinstance(result, list)
         assert len(result) == 2
         assert result[0]["label"] == "/home"
 
     @patch("lib._audit.log_query")
-    @patch("urllib.request.urlopen")
-    def test_api_error_raises_exception(self, mock_urlopen, mock_log, api):
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            {
-                "result": "error",
-                "message": "Invalid token",
-            }
-        ).encode()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_response
-
+    def test_api_error_raises_exception(self, mock_log, api):
+        self._mock_session_get(api, {"result": "error", "message": "Invalid token"})
         with pytest.raises(MatomoError, match="Invalid token"):
             api.get_visits(site_id=117, period="month", date="2025-12-01")
 
     @patch("lib._audit.log_query")
-    @patch("urllib.request.urlopen")
-    def test_get_visit_frequency_returns_dict(self, mock_urlopen, mock_log, api):
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            {
-                "nb_visits_returning": 500,
-                "nb_visits_new": 200,
-                "nb_actions_returning": 2500,
-                "bounce_rate_new": "45%",
-            }
-        ).encode()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_response
-
+    def test_get_visit_frequency_returns_dict(self, mock_log, api):
+        self._mock_session_get(
+            api,
+            {"nb_visits_returning": 500, "nb_visits_new": 200, "nb_actions_returning": 2500, "bounce_rate_new": "45%"},
+        )
         result = api.get_visit_frequency(site_id=117, period="month", date="2025-12-01")
         assert isinstance(result, dict)
         assert "nb_visits_returning" in result

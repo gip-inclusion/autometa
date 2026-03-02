@@ -105,6 +105,5 @@ markers = [
 [tool.bandit]
 exclude_dirs = ["tests", "evals", "data", "skills"]
 skips = [
-    "B310",  # urllib.request.urlopen — used for controlled internal API calls (Matomo, Metabase, Notion)
     "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]
