@@ -133,6 +133,40 @@ class DatalakeWriter:
         return f"'{s}'"
 
 
+def _escape_val(val):
+    """Escape a value for SQL embedding. Works for both SQLite and PostgreSQL."""
+    if val is None:
+        return "NULL"
+    if isinstance(val, bool):
+        return "TRUE" if val else "FALSE"
+    if isinstance(val, (int, float)):
+        return str(val)
+    s = str(val).replace("'", "''")
+    return f"'{s}'"
+
+
+def _batch_upsert(conn, insert_prefix, conflict_suffix, rows, batch_size=100):
+    """Execute batched multi-row INSERT with ON CONFLICT.
+
+    Args:
+        conn: Database connection (SQLite or DatalakeWriter)
+        insert_prefix: e.g. "INSERT INTO table (col1, col2) VALUES "
+        conflict_suffix: e.g. " ON CONFLICT(id) DO UPDATE SET col2=excluded.col2"
+        rows: list of tuples, one per row
+        batch_size: max rows per INSERT statement
+    """
+    if not rows:
+        return
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        values_clauses = []
+        for row in batch:
+            escaped = ", ".join(_escape_val(v) for v in row)
+            values_clauses.append(f"({escaped})")
+        sql = insert_prefix + ", ".join(values_clauses) + conflict_suffix
+        conn.execute(sql)
+
+
 # ---------------------------------------------------------------------------
 # Livestorm API client
 # ---------------------------------------------------------------------------
@@ -604,6 +638,7 @@ def sync_grist(conn, client: GristClient):
     webinaires = client.get_records("Webinaires")
     print(f"  {len(webinaires)} webinaires")
 
+    webinaire_rows = []
     for rec in webinaires:
         f = rec["fields"]
         event_id = f.get("event_id", "")
@@ -614,50 +649,52 @@ def sync_grist(conn, client: GristClient):
         title = f.get("titre", "")
         organizer_email = f.get("organizer_email")
 
-        conn.execute(
-            f"""INSERT INTO {T_WEBINAIRES}
-               (id, source, source_id, title, description, organizer_email,
-                product, status, started_at, ended_at, duration_minutes,
-                capacity, registrants_count, registration_url, webinar_url,
-                raw_json, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                   source=excluded.source,
-                   source_id=excluded.source_id,
-                   title=excluded.title,
-                   description=excluded.description,
-                   organizer_email=excluded.organizer_email,
-                   product=excluded.product,
-                   status=excluded.status,
-                   started_at=excluded.started_at,
-                   ended_at=excluded.ended_at,
-                   duration_minutes=excluded.duration_minutes,
-                   capacity=excluded.capacity,
-                   registrants_count=excluded.registrants_count,
-                   registration_url=excluded.registration_url,
-                   webinar_url=excluded.webinar_url,
-                   raw_json=excluded.raw_json,
-                   synced_at=excluded.synced_at""",
-            (
-                webinar_id,
-                "grist",
-                source_id,
-                title,
-                f.get("description"),
-                organizer_email,
-                infer_product(title, organizer_email),
-                "active" if f.get("status") else "inactive",
-                _grist_ts_to_iso(f.get("date_event")),
-                _grist_ts_to_iso(f.get("date_fin")),
-                _grist_duration_to_minutes(f.get("duree")),
-                f.get("capacite"),
-                f.get("nb_inscrits"),
-                f.get("form_inscription_url"),
-                f.get("lien_webinaire"),
-                json.dumps(rec, ensure_ascii=False),
-                now,
-            ),
-        )
+        webinaire_rows.append((
+            webinar_id,
+            "grist",
+            source_id,
+            title,
+            f.get("description"),
+            organizer_email,
+            infer_product(title, organizer_email),
+            "active" if f.get("status") else "inactive",
+            _grist_ts_to_iso(f.get("date_event")),
+            _grist_ts_to_iso(f.get("date_fin")),
+            _grist_duration_to_minutes(f.get("duree")),
+            f.get("capacite"),
+            f.get("nb_inscrits"),
+            f.get("form_inscription_url"),
+            f.get("lien_webinaire"),
+            json.dumps(rec, ensure_ascii=False),
+            now,
+        ))
+
+    _batch_upsert(
+        conn,
+        f"""INSERT INTO {T_WEBINAIRES}
+           (id, source, source_id, title, description, organizer_email,
+            product, status, started_at, ended_at, duration_minutes,
+            capacity, registrants_count, registration_url, webinar_url,
+            raw_json, synced_at) VALUES """,
+        f""" ON CONFLICT(id) DO UPDATE SET
+               source=excluded.source,
+               source_id=excluded.source_id,
+               title=excluded.title,
+               description=excluded.description,
+               organizer_email=excluded.organizer_email,
+               product=excluded.product,
+               status=excluded.status,
+               started_at=excluded.started_at,
+               ended_at=excluded.ended_at,
+               duration_minutes=excluded.duration_minutes,
+               capacity=excluded.capacity,
+               registrants_count=excluded.registrants_count,
+               registration_url=excluded.registration_url,
+               webinar_url=excluded.webinar_url,
+               raw_json=excluded.raw_json,
+               synced_at=excluded.synced_at""",
+        webinaire_rows,
+    )
     conn.commit()
 
     # Phase 2: Inscriptions
@@ -665,7 +702,7 @@ def sync_grist(conn, client: GristClient):
     inscriptions = client.get_records("Inscriptions")
     print(f"  {len(inscriptions)} inscriptions")
 
-    reg_count = 0
+    inscription_rows = []
     for rec in inscriptions:
         f = rec["fields"]
         email = f.get("email")
@@ -674,33 +711,37 @@ def sync_grist(conn, client: GristClient):
         event_id = f.get("event_id", "")
         webinar_id = f"grist:{event_id}" if event_id else None
 
-        conn.execute(
-            f"""INSERT INTO {T_INSCRIPTIONS}
-               (source, webinar_id, session_id, email, first_name, last_name,
-                organisation, registered, attended, registered_at, synced_at)
-               VALUES (?, ?, '', ?, ?, ?, ?, 1, ?, ?, ?)
-               ON CONFLICT(source, webinar_id, session_id, email)
-               DO UPDATE SET
-                   first_name=excluded.first_name,
-                   last_name=excluded.last_name,
-                   organisation=excluded.organisation,
-                   attended=excluded.attended,
-                   registered_at=excluded.registered_at,
-                   synced_at=excluded.synced_at""",
-            (
-                "grist",
-                webinar_id,
-                email.lower().strip(),
-                f.get("prenom"),
-                f.get("nom"),
-                f.get("entreprise"),
-                1 if f.get("a_participe") else 0,
-                _grist_ts_to_iso(f.get("date_inscription")),
-                now,
-            ),
-        )
-        reg_count += 1
+        inscription_rows.append((
+            "grist",
+            webinar_id,
+            "",
+            email.lower().strip(),
+            f.get("prenom"),
+            f.get("nom"),
+            f.get("entreprise"),
+            1,
+            1 if f.get("a_participe") else 0,
+            _grist_ts_to_iso(f.get("date_inscription")),
+            now,
+        ))
 
+    _batch_upsert(
+        conn,
+        f"""INSERT INTO {T_INSCRIPTIONS}
+           (source, webinar_id, session_id, email, first_name, last_name,
+            organisation, registered, attended, registered_at, synced_at) VALUES """,
+        f""" ON CONFLICT(source, webinar_id, session_id, email)
+           DO UPDATE SET
+               first_name=excluded.first_name,
+               last_name=excluded.last_name,
+               organisation=excluded.organisation,
+               attended=excluded.attended,
+               registered_at=excluded.registered_at,
+               synced_at=excluded.synced_at""",
+        inscription_rows,
+    )
     conn.commit()
+
+    reg_count = len(inscription_rows)
     print(f"  {reg_count} registrations synced ({client.request_count} API calls)")
     return len(webinaires), reg_count

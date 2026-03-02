@@ -12,6 +12,7 @@ from lib.webinaires import (
     T_SESSIONS,
     T_SYNC_META,
     T_WEBINAIRES,
+    _batch_upsert,
     _extract_organisation,
     _grist_duration_to_minutes,
     _ts_to_iso,
@@ -318,6 +319,73 @@ SAMPLE_INSCRIPTIONS = [
         },
     },
 ]
+
+
+# =============================================================================
+# Batch upsert
+# =============================================================================
+
+
+class TestBatchUpsert:
+    """Tests for _batch_upsert helper (multi-row INSERT)."""
+
+    INSERT_PREFIX = f"INSERT INTO {T_WEBINAIRES} (id, source, source_id, title) VALUES "
+    CONFLICT_SUFFIX = " ON CONFLICT(id) DO UPDATE SET title=excluded.title"
+
+    def test_inserts_all_rows(self, db):
+        """All rows are inserted across batches."""
+        rows = [(f"id-{i}", "grist", f"src-{i}", f"title-{i}") for i in range(250)]
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows, batch_size=100)
+        db.commit()
+        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+        assert count == 250
+
+    def test_upsert_on_conflict(self, db):
+        """ON CONFLICT updates existing rows."""
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX,
+                       [("id-1", "grist", "src-1", "old title")])
+        db.commit()
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX,
+                       [("id-1", "grist", "src-1", "new title")])
+        db.commit()
+        title = db.execute(
+            f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-1'"
+        ).fetchone()[0]
+        assert title == "new title"
+
+    def test_empty_rows(self, db):
+        """Empty row list is a no-op."""
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, [])
+        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+        assert count == 0
+
+    def test_handles_special_characters(self, db):
+        """Values with quotes and special chars are escaped properly."""
+        rows = [("id-quote", "grist", "src-q", "It's a \"test\" with 'quotes'")]
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows)
+        db.commit()
+        title = db.execute(
+            f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-quote'"
+        ).fetchone()[0]
+        assert title == "It's a \"test\" with 'quotes'"
+
+    def test_handles_none_values(self, db):
+        """None values are inserted as NULL."""
+        rows = [("id-null", "grist", "src-n", None)]
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows)
+        db.commit()
+        title = db.execute(
+            f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-null'"
+        ).fetchone()[0]
+        assert title is None
+
+    def test_exact_batch_boundary(self, db):
+        """Row count exactly equal to batch_size works."""
+        rows = [(f"id-{i}", "grist", f"src-{i}", f"t-{i}") for i in range(100)]
+        _batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows, batch_size=100)
+        db.commit()
+        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+        assert count == 100
 
 
 class TestGristSync:
