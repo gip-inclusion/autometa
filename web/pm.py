@@ -1,7 +1,8 @@
-"""Process Manager: runs agent subprocesses, persists events to database.
+"""Process Manager: runs agents, persists events to database.
 
-Decoupled from the web process. Communicates via pm_commands table (input)
-and messages table (output). The web SSE handler tails the messages table.
+Runs in-process as an asyncio task via FastAPI lifespan (web/app.py).
+Communicates with the SSE handler via in-memory signals (web/signals.py)
+and the pm_commands table (input).
 """
 
 import asyncio
@@ -15,6 +16,7 @@ from lib.tool_taxonomy import classify_tool
 from . import config
 from .agents import get_agent
 from .agents.base import AgentBackend
+from .signals import signals
 from .audit import audit_log
 from .storage import store
 
@@ -38,9 +40,17 @@ class ProcessManager:
                 store.add_message(conv_id, "assistant", "*Interrompu (redémarrage serveur).*")
             logger.info(f"Cleared {len(cleared_ids)} stuck needs_response flags on startup")
         logger.info(f"Process manager started (max_concurrent={MAX_CONCURRENT_AGENTS})")
+        await asyncio.to_thread(store.update_pm_heartbeat)
+        signals.update_pm_alive()
+        heartbeat_counter = 0
+        HEARTBEAT_EVERY = 10  # 10 x 0.5s = 5s
         while True:
             try:
-                await asyncio.to_thread(store.update_pm_heartbeat)
+                heartbeat_counter += 1
+                if heartbeat_counter >= HEARTBEAT_EVERY:
+                    await asyncio.to_thread(store.update_pm_heartbeat)
+                    signals.update_pm_alive()
+                    heartbeat_counter = 0
 
                 # Drain finished tasks and start queued ones
                 self._reap_finished()
@@ -112,6 +122,7 @@ class ProcessManager:
                         assistant_msg_id = msg.id if msg else None
                     else:
                         store.update_message(assistant_msg_id, full_text)
+                    signals.notify_message(conversation_id)
 
                 elif event.type in ("tool_use", "tool_result"):
                     if event.type == "tool_use":
@@ -119,6 +130,7 @@ class ProcessManager:
                         assistant_text_parts = []
                     content = self._serialize_tool_event(event, conversation_id, user_email)
                     store.add_message(conversation_id, event.type, content)
+                    signals.notify_message(conversation_id)
 
                 elif event.type == "system":
                     if event.raw.get("subtype") == "init":
@@ -132,6 +144,7 @@ class ProcessManager:
             logger.exception(f"Agent error for {conversation_id}")
         finally:
             store.update_conversation(conversation_id, needs_response=False)
+            signals.notify_finished(conversation_id)
             self.running.pop(conversation_id, None)
             logger.info(f"Agent finished for {conversation_id}")
 
@@ -200,15 +213,3 @@ class ProcessManager:
         return task is not None and not task.done()
 
 
-async def main():
-    """Entry point for the process manager."""
-    logging.basicConfig(
-        level=logging.DEBUG if config.DEBUG else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-    pm = ProcessManager()
-    await pm.run()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

@@ -26,11 +26,11 @@ if USE_POSTGRES:
         global _pg_pool
         if _pg_pool is None or _pg_pool.closed:
             _pg_pool = ThreadedConnectionPool(
-                minconn=1,
-                maxconn=10,
+                minconn=2,
+                maxconn=20,
                 dsn=config.DATABASE_URL,
             )
-            logger.info("PostgreSQL connection pool created (max=10)")
+            logger.info("PostgreSQL connection pool created (max=20)")
         return _pg_pool
 
 

@@ -57,8 +57,10 @@ def client(app):
 def conversation(app):
     """Create a conversation with one user message awaiting response."""
     from web.storage import store
+    from web.signals import signals
 
     store.update_pm_heartbeat()  # Simulate PM being alive
+    signals.update_pm_alive()
     conv = store.create_conversation(user_id="test@example.com")
     store.add_message(conv.id, "user", "Hello agent")
     store.update_conversation(conv.id, needs_response=True)
@@ -104,12 +106,17 @@ def _parse_sse_events(response_data: bytes) -> list[dict]:
 def _simulate_pm(conv_id, messages, delay=0.1):
     """Simulate the process manager writing messages then clearing needs_response.
 
-    Runs in a background thread so the SSE handler can poll concurrently.
+    Runs in a background thread so the SSE handler can stream concurrently.
+    Fires signals alongside DB writes (matching real PM behavior).
+
+    Note: asyncio.Event is not thread-safe, so we use the event loop's
+    call_soon_threadsafe to schedule signal notifications from this thread.
     """
 
     def _run():
         time.sleep(delay)
         from web.storage import store
+        from web.signals import signals
 
         for msg_type, content in messages:
             store.add_message(
@@ -117,7 +124,18 @@ def _simulate_pm(conv_id, messages, delay=0.1):
                 msg_type,
                 content if isinstance(content, str) else json.dumps(content),
             )
+            # Thread-safe signal: schedule on the event loop that owns the Event
+            try:
+                loop = asyncio.get_event_loop()
+                loop.call_soon_threadsafe(signals.notify_message, conv_id)
+            except RuntimeError:
+                signals.notify_message(conv_id)  # fallback if no loop
         store.update_conversation(conv_id, needs_response=False)
+        try:
+            loop = asyncio.get_event_loop()
+            loop.call_soon_threadsafe(signals.notify_finished, conv_id)
+        except RuntimeError:
+            signals.notify_finished(conv_id)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -125,11 +143,11 @@ def _simulate_pm(conv_id, messages, delay=0.1):
 
 
 # ---------------------------------------------------------------------------
-# Tests: SSE endpoint behavior (DB-tail architecture)
+# Tests: SSE endpoint behavior (signal-based architecture)
 #
-# The SSE handler polls the messages table for new entries written by the
-# Process Manager. These tests use _simulate_pm() to insert messages in a
-# background thread, simulating the PM writing to the database.
+# The SSE handler waits on in-memory signals fired by the Process Manager.
+# These tests use _simulate_pm() to insert messages and fire signals in a
+# background thread, simulating real PM behavior.
 # ---------------------------------------------------------------------------
 
 
@@ -202,6 +220,7 @@ class TestRaceCondition:
         the user message onward — catching anything the PM wrote in between.
         """
         from web.storage import store
+        from web.signals import signals
 
         conv = store.create_conversation(user_id="test@example.com")
         user_msg = store.add_message(conv.id, "user", "Hello")
@@ -209,6 +228,7 @@ class TestRaceCondition:
 
         # PM writes a response BEFORE the SSE handler connects
         store.add_message(conv.id, "assistant", "Fast response")
+        signals.notify_message(conv.id)
 
         # Then more messages arrive and PM finishes
         t = _simulate_pm(conv.id, [("assistant", "Second part")])
@@ -232,6 +252,7 @@ class TestRaceCondition:
         before sending done.
         """
         from web.storage import store
+        from web.signals import signals
 
         conv = store.create_conversation(user_id="test@example.com")
         user_msg = store.add_message(conv.id, "user", "Hello")
@@ -239,7 +260,9 @@ class TestRaceCondition:
 
         # PM writes response AND finishes before SSE connects
         store.add_message(conv.id, "assistant", "Instant answer")
+        signals.notify_message(conv.id)
         store.update_conversation(conv.id, needs_response=False)
+        signals.notify_finished(conv.id)
 
         response = client.get(
             f"/api/conversations/{conv.id}/stream?after={user_msg.id}",
@@ -431,9 +454,8 @@ class TestAssistantTextReset:
 # ---------------------------------------------------------------------------
 # Tests: Client disconnect must NOT kill the agent
 #
-# With the Process Manager architecture, the SSE handler is a DB tail —
-# it polls for new messages written by the PM. Closing the SSE connection
-# simply stops the polling loop; the PM continues running independently.
+# The SSE handler waits on signals — closing the connection just stops the
+# generator. The PM continues running independently.
 # ---------------------------------------------------------------------------
 
 
@@ -441,8 +463,8 @@ class TestClientDisconnect:
     """Client disconnect (page reload/navigation) must not kill the agent.
 
     When uvicorn detects TCP close, it calls aclose() on the
-    StreamingResponse async generator. With the PM architecture, this
-    just stops the DB polling — no agent subprocess is affected.
+    StreamingResponse async generator. This just stops the signal
+    listener — no agent task is affected.
     """
 
     def test_agent_survives_client_disconnect(self, app, conversation):

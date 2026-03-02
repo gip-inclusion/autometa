@@ -621,7 +621,7 @@ class ConversationStore:
             else:
                 conn.execute("INSERT OR REPLACE INTO pm_heartbeat (id, last_seen) VALUES (1, ?)", (now,))
 
-    def is_pm_alive(self, max_age_seconds: int = 15) -> bool:
+    def is_pm_alive(self, max_age_seconds: int = 30) -> bool:
         """Check if the PM has sent a heartbeat recently."""
         with get_db() as conn:
             row = conn.execute("SELECT last_seen FROM pm_heartbeat WHERE id = 1").fetchone()

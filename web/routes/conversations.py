@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -11,6 +12,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from .. import config, llm
 from ..config import ADMIN_USERS
 from ..deps import get_current_user
+from ..signals import signals
 from ..storage import store
 from ..uploads import (
     AVScanFailedError,
@@ -534,9 +536,9 @@ async def stream_conversation(
 ):
     """Stream agent responses via Server-Sent Events.
 
-    Tails the messages table for new events written by the process manager.
-    Decoupled from the agent subprocess — client disconnect does NOT kill
-    the agent.
+    Uses in-process signals (web/signals.py) for near-instant message
+    delivery, with a 5s DB fallback for robustness. Client disconnect
+    does NOT kill the agent.
 
     The ``after`` query parameter tells the handler where to start streaming
     from (the ID of the last message the client already has).  This prevents
@@ -550,9 +552,6 @@ async def stream_conversation(
     if after == 0 and not conv.messages:
         return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
-    # Tail the messages table: poll for new messages written by the PM.
-    # Even when needs_response is already False (PM finished before SSE
-    # connect), we flush unseen messages before sending done.
     def _sse_event(msg_type: str, data: dict) -> str:
         """Format a complete SSE event as a single string (avoids split-chunk buffering)."""
         return f"event: {msg_type}\ndata: {json.dumps(data)}\n\n"
@@ -570,45 +569,80 @@ async def stream_conversation(
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
         logger.debug(f"SSE stream start: conv={conv_id}, after={after}, watermark={last_msg_id}")
-        poll_count = 0
-        max_polls = 600  # 5 minutes at 0.5s intervals
+        max_seconds = 300
+        fallback_interval = 5  # safety-net DB poll every 5s
+        start = time.monotonic()
+        last_fallback = start
 
-        while poll_count < max_polls:
-            new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
-            if new_messages:
-                logger.debug(
-                    f"SSE poll {poll_count}: {len(new_messages)} new msgs, types={[m.type for m in new_messages]}"
+        try:
+            # Check if conversation is already complete (PM finished before
+            # SSE connects, or conversation was never running)
+            if signals.is_finished(conv_id) or not conv.needs_response:
+                final = await asyncio.to_thread(
+                    store.get_messages_since, conv_id, last_msg_id
                 )
-            for msg in new_messages:
-                last_msg_id = msg.id
-                yield _format_msg(msg)
-
-            # Check if the PM has finished (needs_response cleared)
-            updated = await asyncio.to_thread(store.get_conversation, conv_id, False)
-            if updated and not updated.needs_response:
-                # Final sweep: the PM commits all messages before clearing
-                # needs_response, so one last poll catches anything written
-                # between our message query and this status check.
-                final = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
                 for msg in final:
                     yield _format_msg(msg)
-
                 yield _sse_event("done", {"conversation_id": conv_id})
                 return
 
-            # PM liveness check: if PM is dead and needs_response is stuck, stop waiting
-            if not await asyncio.to_thread(store.is_pm_alive):
-                yield _sse_event("error", {"content": "L'agent est indisponible"})
-                yield _sse_event("done", {"conversation_id": conv_id})
-                return
+            while (time.monotonic() - start) < max_seconds:
+                signaled = await signals.wait_for_message(conv_id, timeout=3.0)
+                now = time.monotonic()
 
-            poll_count += 1
-            # Named heartbeat event (resets client retry counter, keeps proxies alive)
-            if poll_count % 6 == 0:
-                yield _sse_event("heartbeat", {})
-            await asyncio.sleep(0.5)
+                if signaled:
+                    new_messages = await asyncio.to_thread(
+                        store.get_messages_since, conv_id, last_msg_id
+                    )
+                    for msg in new_messages:
+                        last_msg_id = msg.id
+                        yield _format_msg(msg)
 
-        yield _sse_event("error", {"content": "Timeout waiting for agent"})
+                # Completion check: in-memory flag (0 queries)
+                if signals.is_finished(conv_id):
+                    final = await asyncio.to_thread(
+                        store.get_messages_since, conv_id, last_msg_id
+                    )
+                    for msg in final:
+                        yield _format_msg(msg)
+                    yield _sse_event("done", {"conversation_id": conv_id})
+                    return
+
+                # Safety-net fallback: check DB every 5s for missed signals
+                if not signaled and (now - last_fallback) >= fallback_interval:
+                    last_fallback = now
+                    new_messages = await asyncio.to_thread(
+                        store.get_messages_since, conv_id, last_msg_id
+                    )
+                    for msg in new_messages:
+                        last_msg_id = msg.id
+                        yield _format_msg(msg)
+
+                    updated = await asyncio.to_thread(
+                        store.get_conversation, conv_id, False
+                    )
+                    if updated and not updated.needs_response:
+                        final = await asyncio.to_thread(
+                            store.get_messages_since, conv_id, last_msg_id
+                        )
+                        for msg in final:
+                            yield _format_msg(msg)
+                        yield _sse_event("done", {"conversation_id": conv_id})
+                        return
+
+                # PM liveness: in-memory cache (0 queries)
+                if not signals.is_pm_alive():
+                    yield _sse_event("error", {"content": "L'agent est indisponible"})
+                    yield _sse_event("done", {"conversation_id": conv_id})
+                    return
+
+                # Heartbeat keeps proxies alive (only when idle — skip if we just yielded content)
+                if not signaled:
+                    yield _sse_event("heartbeat", {})
+
+            yield _sse_event("error", {"content": "Timeout waiting for agent"})
+        finally:
+            signals.cleanup(conv_id)
 
     return StreamingResponse(
         generate(),
