@@ -181,7 +181,8 @@ async function showLogs(slug) {
           : '<span class="badge bg-danger">échec</span>';
 
       const duration = (run.duration_ms / 1000).toFixed(1) + 's';
-      const date = new Date(run.started_at).toLocaleString('fr-FR');
+      const raw = run.started_at.endsWith('Z') || run.started_at.includes('+') ? run.started_at : run.started_at + 'Z';
+      const date = new Date(raw).toLocaleString('fr-FR');
       const runId = 'log-output-' + run.id;
 
       html += `

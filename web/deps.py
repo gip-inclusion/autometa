@@ -76,3 +76,12 @@ def _static_url(path: str) -> str:
 
 
 templates.env.globals["static_url"] = _static_url
+
+
+def _format_relative_date_global(dt):
+    """Lazy import to avoid circular dependency with routes.html."""
+    from .routes.html import format_relative_date
+    return format_relative_date(dt)
+
+
+templates.env.globals["format_relative_date"] = _format_relative_date_global

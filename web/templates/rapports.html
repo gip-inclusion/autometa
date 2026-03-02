@@ -55,7 +55,7 @@
           <i class="ri-chat-3-line"></i> Voir la conversation d'origine
         </a> |
         {% endif %}
-        <i class="ri-time-line"></i> Mis a jour le {{ current_report.updated_at.strftime('%d/%m/%Y %H:%M') }}
+        <i class="ri-time-line"></i> Mis a jour le {{ format_relative_date(current_report.updated_at) }}
       </div>
     </div>
     </div><!-- /.container -->

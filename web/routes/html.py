@@ -1,8 +1,9 @@
 """HTML page routes."""
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import OrderedDict
+from zoneinfo import ZoneInfo
 
 import logging
 import time
@@ -10,7 +11,7 @@ import time
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
-from ..config import FEATURE_KNOWLEDGE_CHAT, ADMIN_USERS
+from ..config import DISPLAY_TIMEZONE, FEATURE_KNOWLEDGE_CHAT, ADMIN_USERS
 from ..deps import get_current_user, templates
 from ..storage import store
 from ..helpers import validate_knowledge_path, list_knowledge_files, list_knowledge_sections, list_staged_files
@@ -33,15 +34,31 @@ def humanize_title(title: str) -> str:
     return title.strip()
 
 
+DISPLAY_TZ = ZoneInfo(DISPLAY_TIMEZONE)
+
+
+def _now_local():
+    """Current time in the display timezone (mockable for tests)."""
+    return datetime.now(DISPLAY_TZ)
+
+
+def _to_local(dt):
+    """Convert a naive-UTC datetime to the display timezone."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(DISPLAY_TZ)
+
+
 def format_relative_date(dt):
-    """Format a datetime as a relative date string.
+    """Format a datetime as a relative date string in Europe/Paris timezone.
 
     - If today: just time -> "14:32"
     - If yesterday: -> "hier, 12:45"
     - If this week (not today/yesterday): -> "mercredi 11:11"
     - If older: -> "23/01/2026 a 22:00"
     """
-    now = datetime.now()
+    now = _now_local()
+    dt = _to_local(dt)
     today = now.date()
     dt_date = dt.date()
 
@@ -168,7 +185,7 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
 
 def _group_items_by_date(items):
     """Group mixed items (conversations, reports, apps) by relative date periods."""
-    now = datetime.now()
+    now = _now_local()
     today = now.date()
 
     groups = OrderedDict()
@@ -192,7 +209,7 @@ def _group_items_by_date(items):
     }
 
     for item in items:
-        item_date = item["sort_date"].date()
+        item_date = _to_local(item["sort_date"]).date()
 
         if item_date == today:
             groups["aujourd'hui"].append(item)

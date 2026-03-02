@@ -50,6 +50,9 @@ OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "120"))
 # Backend capability helpers
 USES_CLAUDE_CLI = AGENT_BACKEND == "cli" or LLM_BACKEND == "cli"
 
+# Display timezone (IANA name, e.g. "Europe/Paris")
+DISPLAY_TIMEZONE = os.getenv("DISPLAY_TIMEZONE", "Europe/Paris")
+
 # Web server settings
 HOST = os.getenv("WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("WEB_PORT", "5000"))
