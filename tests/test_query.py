@@ -5,15 +5,11 @@ Run with: pytest tests/test_query.py -v
 Integration tests (require .env): pytest tests/test_query.py -v -m integration
 """
 
-import json
 import sqlite3
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # --- Structural tests ---
 
@@ -21,22 +17,24 @@ import pytest
 def test_query_module_imports():
     """Module imports without errors."""
     from lib import query
-    assert hasattr(query, 'execute_query')
-    assert hasattr(query, 'execute_metabase_query')
-    assert hasattr(query, 'execute_matomo_query')
-    assert hasattr(query, 'CallerType')
-    assert hasattr(query, 'QueryResult')
-    assert hasattr(query, 'get_query_stats')
+
+    assert hasattr(query, "execute_query")
+    assert hasattr(query, "execute_metabase_query")
+    assert hasattr(query, "execute_matomo_query")
+    assert hasattr(query, "CallerType")
+    assert hasattr(query, "QueryResult")
+    assert hasattr(query, "get_query_stats")
     # Re-exported classes
-    assert hasattr(query, 'MatomoAPI')
-    assert hasattr(query, 'MetabaseAPI')
-    assert hasattr(query, 'MatomoError')
-    assert hasattr(query, 'MetabaseError')
+    assert hasattr(query, "MatomoAPI")
+    assert hasattr(query, "MetabaseAPI")
+    assert hasattr(query, "MatomoError")
+    assert hasattr(query, "MetabaseError")
 
 
 def test_caller_type_enum():
     """CallerType enum has expected values."""
     from lib.query import CallerType
+
     assert CallerType.AGENT.value == "agent"
     assert CallerType.APP.value == "app"
 
@@ -44,6 +42,7 @@ def test_caller_type_enum():
 def test_query_result_dataclass():
     """QueryResult dataclass has expected fields."""
     from lib.query import QueryResult
+
     result = QueryResult(success=True, data={"test": 1}, execution_time_ms=100)
     assert result.success is True
     assert result.data == {"test": 1}
@@ -54,6 +53,7 @@ def test_query_result_dataclass():
 def test_sources_module_is_private():
     """lib._sources exists but is marked as private."""
     from lib import _sources
+
     # The module should have a docstring warning it's private
     assert "PRIVATE" in _sources.__doc__
 
@@ -61,21 +61,23 @@ def test_sources_module_is_private():
 def test_public_api_exports():
     """lib.query exports the public query functions."""
     from lib import query
+
     # These are the public API
-    assert hasattr(query, 'execute_query')
-    assert hasattr(query, 'execute_metabase_query')
-    assert hasattr(query, 'execute_matomo_query')
+    assert hasattr(query, "execute_query")
+    assert hasattr(query, "execute_metabase_query")
+    assert hasattr(query, "execute_matomo_query")
     # Classes are also re-exported
-    assert hasattr(query, 'MatomoAPI')
-    assert hasattr(query, 'MetabaseAPI')
+    assert hasattr(query, "MatomoAPI")
+    assert hasattr(query, "MetabaseAPI")
 
 
 def test_audit_module_exists():
     """lib._audit module exists and has expected exports."""
     from lib import _audit
-    assert hasattr(_audit, 'log_query')
-    assert hasattr(_audit, 'get_conversation_id')
-    assert hasattr(_audit, '_get_db_connection')
+
+    assert hasattr(_audit, "log_query")
+    assert hasattr(_audit, "get_conversation_id")
+    assert hasattr(_audit, "_get_db_connection")
 
 
 # --- Unit tests (mocked) ---
@@ -88,6 +90,7 @@ class TestExecuteMetabaseQuery:
     def mock_metabase_api(self):
         """Mock MetabaseAPI that returns a QueryResult-like object."""
         from lib._metabase import QueryResult as MetabaseQueryResult
+
         mock_result = MetabaseQueryResult(
             columns=["id", "name"],
             rows=[[1, "test"]],
@@ -100,10 +103,10 @@ class TestExecuteMetabaseQuery:
         mock_api.caller = "agent"
         return mock_api
 
-    @patch('lib._audit.log_query')
-    @patch('lib.query.get_metabase')
+    @patch("lib._audit.log_query")
+    @patch("lib.query.get_metabase")
     def test_executes_sql_query(self, mock_get_metabase, mock_log, mock_metabase_api):
-        from lib.query import execute_metabase_query, CallerType
+        from lib.query import CallerType, execute_metabase_query
 
         mock_get_metabase.return_value = mock_metabase_api
 
@@ -118,10 +121,10 @@ class TestExecuteMetabaseQuery:
         assert result.data["row_count"] == 1
         mock_metabase_api.execute_sql.assert_called_once()
 
-    @patch('lib._audit.log_query')
-    @patch('lib.query.get_metabase')
+    @patch("lib._audit.log_query")
+    @patch("lib.query.get_metabase")
     def test_executes_card_query(self, mock_get_metabase, mock_log, mock_metabase_api):
-        from lib.query import execute_metabase_query, CallerType
+        from lib.query import CallerType, execute_metabase_query
 
         mock_get_metabase.return_value = mock_metabase_api
 
@@ -134,10 +137,10 @@ class TestExecuteMetabaseQuery:
         assert result.success is True
         mock_metabase_api.execute_card.assert_called_once_with(123, timeout=60)
 
-    @patch('lib._audit.log_query')
-    @patch('lib.query.get_metabase')
+    @patch("lib._audit.log_query")
+    @patch("lib.query.get_metabase")
     def test_requires_sql_or_card_id(self, mock_get_metabase, mock_log, mock_metabase_api):
-        from lib.query import execute_metabase_query, CallerType
+        from lib.query import CallerType, execute_metabase_query
 
         mock_get_metabase.return_value = mock_metabase_api
 
@@ -162,10 +165,10 @@ class TestExecuteMatomoQuery:
         mock_api.caller = "agent"
         return mock_api
 
-    @patch('lib._audit.log_query')
-    @patch('lib.query.get_matomo')
+    @patch("lib._audit.log_query")
+    @patch("lib.query.get_matomo")
     def test_executes_matomo_query(self, mock_get_matomo, mock_log, mock_matomo_api):
-        from lib.query import execute_matomo_query, CallerType
+        from lib.query import CallerType, execute_matomo_query
 
         mock_get_matomo.return_value = mock_matomo_api
 
@@ -184,9 +187,9 @@ class TestExecuteMatomoQuery:
 class TestExecuteQuery:
     """Tests for the generic execute_query function."""
 
-    @patch('lib.query.execute_metabase_query')
+    @patch("lib.query.execute_metabase_query")
     def test_routes_to_metabase(self, mock_metabase):
-        from lib.query import execute_query, CallerType, QueryResult
+        from lib.query import CallerType, QueryResult, execute_query
 
         mock_metabase.return_value = QueryResult(success=True, data={})
 
@@ -200,9 +203,9 @@ class TestExecuteQuery:
 
         mock_metabase.assert_called_once()
 
-    @patch('lib.query.execute_matomo_query')
+    @patch("lib.query.execute_matomo_query")
     def test_routes_to_matomo(self, mock_matomo):
-        from lib.query import execute_query, CallerType, QueryResult
+        from lib.query import CallerType, QueryResult, execute_query
 
         mock_matomo.return_value = QueryResult(success=True, data={})
 
@@ -217,7 +220,7 @@ class TestExecuteQuery:
         mock_matomo.assert_called_once()
 
     def test_unknown_source_returns_error(self):
-        from lib.query import execute_query, CallerType
+        from lib.query import CallerType, execute_query
 
         result = execute_query(
             source="unknown",
@@ -264,7 +267,7 @@ class TestQueryLogging:
         conn.close()
 
         # Patch the db path
-        with patch('lib._audit.AUDIT_DB_PATH', temp_db):
+        with patch("lib._audit.AUDIT_DB_PATH", temp_db):
             log_query(
                 source="metabase",
                 instance="stats",
@@ -321,28 +324,28 @@ class TestGetQueryStats:
                 """INSERT INTO query_log
                    (timestamp, source, instance, caller, success, execution_time_ms)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (datetime.now(timezone.utc).isoformat(), "metabase", "stats", "agent", 1, 100)
+                (datetime.now(timezone.utc).isoformat(), "metabase", "stats", "agent", 1, 100),
             )
         for i in range(3):
             conn.execute(
                 """INSERT INTO query_log
                    (timestamp, source, instance, caller, success, execution_time_ms)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (datetime.now(timezone.utc).isoformat(), "matomo", "inclusion", "app", 1, 200)
+                (datetime.now(timezone.utc).isoformat(), "matomo", "inclusion", "app", 1, 200),
             )
         # One failed query
         conn.execute(
             """INSERT INTO query_log
                (timestamp, source, instance, caller, success, error, execution_time_ms)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (datetime.now(timezone.utc).isoformat(), "metabase", "stats", "agent", 0, "timeout", 5000)
+            (datetime.now(timezone.utc).isoformat(), "metabase", "stats", "agent", 0, "timeout", 5000),
         )
         conn.commit()
         conn.close()
         return db_path
 
     def test_returns_stats_dict(self, populated_db):
-        with patch('lib._audit.AUDIT_DB_PATH', populated_db):
+        with patch("lib._audit.AUDIT_DB_PATH", populated_db):
             from lib.query import get_query_stats
 
             stats = get_query_stats()
@@ -355,7 +358,7 @@ class TestGetQueryStats:
             assert stats["by_caller"]["app"] == 3
 
     def test_filters_by_source(self, populated_db):
-        with patch('lib._audit.AUDIT_DB_PATH', populated_db):
+        with patch("lib._audit.AUDIT_DB_PATH", populated_db):
             from lib.query import get_query_stats
 
             stats = get_query_stats(source="matomo")
@@ -367,11 +370,11 @@ class TestGetQueryStats:
 class TestConversationIdFromEnv:
     """Tests for auto-reading conversation_id from environment."""
 
-    @patch('lib._audit.log_query')
-    @patch('lib.query.get_metabase')
+    @patch("lib._audit.log_query")
+    @patch("lib.query.get_metabase")
     def test_reads_conversation_id_from_env(self, mock_get_metabase, mock_log):
-        from lib.query import execute_metabase_query, CallerType
         from lib._metabase import QueryResult as MetabaseQueryResult
+        from lib.query import CallerType, execute_metabase_query
 
         mock_result = MetabaseQueryResult(columns=["x"], rows=[[1]], row_count=1)
         mock_api = MagicMock()
@@ -379,8 +382,9 @@ class TestConversationIdFromEnv:
         mock_api.caller = "agent"
         mock_get_metabase.return_value = mock_api
 
-        with patch.dict('os.environ', {'MATOMETA_CONVERSATION_ID': 'env-conv-123'}):
-            from lib.query import execute_metabase_query, CallerType
+        with patch.dict("os.environ", {"MATOMETA_CONVERSATION_ID": "env-conv-123"}):
+            from lib.query import CallerType, execute_metabase_query
+
             result = execute_metabase_query(
                 instance="stats",
                 caller=CallerType.AGENT,
@@ -401,7 +405,7 @@ class TestQueryIntegration:
 
     def test_metabase_query_executes(self):
         """Real Metabase query executes successfully."""
-        from lib.query import execute_metabase_query, CallerType
+        from lib.query import CallerType, execute_metabase_query
 
         result = execute_metabase_query(
             instance="stats",
@@ -416,7 +420,7 @@ class TestQueryIntegration:
 
     def test_matomo_query_executes(self):
         """Real Matomo query executes successfully."""
-        from lib.query import execute_matomo_query, CallerType
+        from lib.query import CallerType, execute_matomo_query
 
         result = execute_matomo_query(
             instance="inclusion",

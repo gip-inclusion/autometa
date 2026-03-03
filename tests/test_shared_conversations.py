@@ -15,6 +15,7 @@ import pytest
 def owner_client(app):
     """Create a test client with owner user header."""
     from starlette.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -22,6 +23,7 @@ def owner_client(app):
 def guest_client(app):
     """Create a test client with guest user header."""
     from starlette.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -163,6 +165,7 @@ class TestRelaunchConversation:
     def stuck_conversation(self, app):
         """Create a conversation stuck on a user message (no agent response)."""
         from web.storage import store
+
         conv = store.create_conversation(user_id="owner@example.com")
         store.add_message(conv.id, "user", "Hello")
         store.add_message(conv.id, "assistant", "Hi there!")
@@ -228,6 +231,7 @@ class TestRelaunchConversation:
     def test_relaunch_api_denied_if_already_running(self, app, guest_client, stuck_conversation):
         """Cannot relaunch if conversation is already running."""
         from web.storage import store
+
         store.update_conversation(stuck_conversation.id, needs_response=True)
         response = guest_client.post(
             f"/api/conversations/{stuck_conversation.id}/relaunch",

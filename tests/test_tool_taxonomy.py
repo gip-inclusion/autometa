@@ -4,9 +4,7 @@ Tests for lib/tool_taxonomy.py - tool call classification.
 Run with: pytest tests/test_tool_taxonomy.py -v
 """
 
-import pytest
-
-from lib.tool_taxonomy import classify_tool, is_public_category, PUBLIC_CATEGORIES
+from lib.tool_taxonomy import PUBLIC_CATEGORIES, classify_tool, is_public_category
 
 
 class TestClassifyTool:
@@ -31,9 +29,9 @@ class TestClassifyTool:
         assert result == "API: Metabase"
 
     def test_bash_both_apis(self):
-        result = classify_tool("Bash", {
-            "command": "from lib._matomo import MatomoAPI; from lib._metabase import MetabaseAPI"
-        })
+        result = classify_tool(
+            "Bash", {"command": "from lib._matomo import MatomoAPI; from lib._metabase import MetabaseAPI"}
+        )
         assert result == "API: Matomo + Metabase"
 
     def test_bash_curl_matomo(self):

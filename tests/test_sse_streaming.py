@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def app():
@@ -26,12 +26,15 @@ def app():
     db_fd, db_path = tempfile.mkstemp()
 
     from web import config
+
     original_path = config.SQLITE_PATH
     config.SQLITE_PATH = Path(db_path)
 
     from web import database
+
     importlib.reload(database)
     from web import storage
+
     importlib.reload(storage)
 
     from web.app import app as fastapi_app
@@ -46,6 +49,7 @@ def app():
 @pytest.fixture
 def client(app):
     from starlette.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -53,6 +57,7 @@ def client(app):
 def conversation(app):
     """Create a conversation with one user message awaiting response."""
     from web.storage import store
+
     store.update_pm_heartbeat()  # Simulate PM being alive
     conv = store.create_conversation(user_id="test@example.com")
     store.add_message(conv.id, "user", "Hello agent")
@@ -64,6 +69,7 @@ def conversation(app):
 def responded_conversation(app):
     """Create a conversation with a user message and an assistant response."""
     from web.storage import store
+
     conv = store.create_conversation(user_id="test@example.com")
     store.add_message(conv.id, "user", "Hello agent")
     store.add_message(conv.id, "assistant", "Hello! How can I help?")
@@ -100,12 +106,15 @@ def _simulate_pm(conv_id, messages, delay=0.1):
 
     Runs in a background thread so the SSE handler can poll concurrently.
     """
+
     def _run():
         time.sleep(delay)
         from web.storage import store
+
         for msg_type, content in messages:
             store.add_message(
-                conv_id, msg_type,
+                conv_id,
+                msg_type,
                 content if isinstance(content, str) else json.dumps(content),
             )
         store.update_conversation(conv_id, needs_response=False)
@@ -211,10 +220,7 @@ class TestRaceCondition:
         events = _parse_sse_events(response.content)
         assistant = [e for e in events if e["event"] == "assistant"]
 
-        assert len(assistant) >= 1, (
-            "No assistant events in SSE stream! "
-            "Messages written before SSE connect were lost."
-        )
+        assert len(assistant) >= 1, "No assistant events in SSE stream! Messages written before SSE connect were lost."
         # The first assistant message must be the one written before connect
         assert assistant[0]["data"]["content"] == "Fast response"
 
@@ -242,9 +248,7 @@ class TestRaceCondition:
         events = _parse_sse_events(response.content)
         assistant = [e for e in events if e["event"] == "assistant"]
 
-        assert len(assistant) == 1, (
-            "PM finished before SSE connect but assistant message was lost!"
-        )
+        assert len(assistant) == 1, "PM finished before SSE connect but assistant message was lost!"
         assert assistant[0]["data"]["content"] == "Instant answer"
         assert events[-1]["event"] == "done"
 
@@ -255,6 +259,7 @@ class TestNeedsResponse:
     def test_needs_response_false_returns_done(self, app, client):
         """Conversation with needs_response=False returns immediate done."""
         from web.storage import store
+
         conv = store.create_conversation(user_id="test@example.com")
         store.add_message(conv.id, "user", "Hello")
         store.add_message(conv.id, "assistant", "Hi there")
@@ -271,6 +276,7 @@ class TestNeedsResponse:
     def test_needs_response_true_streams_messages(self, app, client):
         """Conversation with needs_response=True streams PM messages."""
         from web.storage import store
+
         conv = store.create_conversation(user_id="test@example.com")
         store.add_message(conv.id, "user", "Hello")
         store.update_conversation(conv.id, needs_response=True)
@@ -288,6 +294,7 @@ class TestNeedsResponse:
     def test_update_conversation_clears_needs_response(self, app):
         """update_conversation(needs_response=False) works correctly."""
         from web.storage import store
+
         conv = store.create_conversation(user_id="test@example.com")
         store.add_message(conv.id, "user", "Hello")
         store.update_conversation(conv.id, needs_response=True)
@@ -467,14 +474,10 @@ class TestClientDisconnect:
         # After disconnect: needs_response must still be True
         conv = store.get_conversation(conversation.id, include_messages=False)
         assert conv.needs_response, (
-            "Agent was stopped by client disconnect! "
-            "The SSE handler must not cancel the agent when client disconnects."
+            "Agent was stopped by client disconnect! The SSE handler must not cancel the agent when client disconnects."
         )
 
         # No cancel command should have been enqueued
         pending = store.get_pending_pm_commands()
-        cancel_cmds = [
-            c for c in pending
-            if c["conversation_id"] == conversation.id and c["command"] == "cancel"
-        ]
+        cancel_cmds = [c for c in pending if c["conversation_id"] == conversation.id and c["command"] == "cancel"]
         assert not cancel_cmds, "Client disconnect enqueued a cancel command!"

@@ -8,10 +8,8 @@ where not all dependencies are installed.
 import hashlib
 import io
 import os
-import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -21,20 +19,20 @@ os.environ["DATA_DIR"] = _tmp_dir
 os.environ["DATABASE_URL"] = ""  # Force SQLite
 
 # Now we can safely import
+from web import config
+from web.database import ConversationStore, UploadedFile, init_db
 from web.uploads import (
+    BLOCKED_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    BlockedFileTypeError,
+    FileTooLargeError,
     _compute_sha256,
+    _generate_stored_filename,
     _is_text_file,
     _sanitize_filename,
-    _generate_stored_filename,
-    upload_file,
     format_file_for_context,
-    FileTooLargeError,
-    BlockedFileTypeError,
-    TEXT_EXTENSIONS,
-    BLOCKED_EXTENSIONS,
+    upload_file,
 )
-from web.database import UploadedFile, ConversationStore, init_db
-from web import config
 
 # Configure for testing
 config.DATA_DIR = Path(_tmp_dir)
@@ -55,6 +53,7 @@ def setup_test_db(tmp_path):
     """Set up a fresh test database and uploads directory for each test."""
     # Override config paths
     import web.config as config
+
     config.SQLITE_PATH = tmp_path / "test.db"
     config.DATA_DIR = tmp_path
     config.UPLOADS_DIR = tmp_path / "uploads"
@@ -247,6 +246,7 @@ class TestUploadFile:
     def test_file_too_large_rejected(self, setup_test_db):
         """Files exceeding size limit are rejected."""
         import web.config as config
+
         config.MAX_UPLOAD_SIZE = 100  # Very small for testing
 
         content = b"x" * 200

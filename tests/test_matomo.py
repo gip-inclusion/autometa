@@ -15,37 +15,38 @@ Or edit conftest.py defaults.
 """
 
 import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from lib.query import MatomoAPI, MatomoError
-from lib._sources import get_matomo
+import pytest
+
 from lib._matomo_ui import (
     UI_MAPPING,
-    get_ui_url,
     format_data_source,
+    get_ui_url,
 )
-
+from lib._sources import get_matomo
+from lib.query import MatomoAPI, MatomoError
 
 # --- Structural tests ---
 
 
 def test_matomo_module_imports():
     """Module imports without errors."""
-    from lib import query
-    from lib import _matomo
-    assert hasattr(query, 'MatomoAPI')
-    assert hasattr(query, 'MatomoError')
-    assert hasattr(_matomo, 'MatomoAPI')
-    assert hasattr(_matomo, 'MatomoError')
+    from lib import _matomo, query
+
+    assert hasattr(query, "MatomoAPI")
+    assert hasattr(query, "MatomoError")
+    assert hasattr(_matomo, "MatomoAPI")
+    assert hasattr(_matomo, "MatomoError")
 
 
 def test_ui_mapping_module_imports():
     """UI mapping module imports without errors."""
     from lib import _matomo_ui
-    assert hasattr(_matomo_ui, 'UI_MAPPING')
-    assert hasattr(_matomo_ui, 'get_ui_url')
-    assert hasattr(_matomo_ui, 'format_data_source')
+
+    assert hasattr(_matomo_ui, "UI_MAPPING")
+    assert hasattr(_matomo_ui, "get_ui_url")
+    assert hasattr(_matomo_ui, "format_data_source")
 
 
 def test_ui_mapping_is_dict():
@@ -54,7 +55,7 @@ def test_ui_mapping_is_dict():
     assert len(UI_MAPPING) > 0
     for method, (category, subcategory) in UI_MAPPING.items():
         assert isinstance(method, str)
-        assert '.' in method, f"Method {method} should have Module.method format"
+        assert "." in method, f"Method {method} should have Module.method format"
         assert isinstance(category, str)
         assert subcategory is None or isinstance(subcategory, str)
 
@@ -62,25 +63,25 @@ def test_ui_mapping_is_dict():
 def test_matomo_api_class_has_expected_methods():
     """MatomoAPI class has all expected public methods."""
     expected_methods = [
-        'get_sites',
-        'get_visits',
-        'get_unique_visitors',
-        'get_pages',
-        'get_configured_dimensions',
-        'get_dimension',
-        'get_event_categories',
-        'get_event_actions',
-        'get_event_names',
-        'get_entry_pages',
-        'get_exit_pages',
-        'get_transitions',
-        'get_visits_by_hour',
-        'get_visits_by_day_of_week',
-        'get_referrers',
-        'get_referrer_websites',
-        'get_referrer_search_engines',
-        'get_referrer_socials',
-        'get_visit_frequency',
+        "get_sites",
+        "get_visits",
+        "get_unique_visitors",
+        "get_pages",
+        "get_configured_dimensions",
+        "get_dimension",
+        "get_event_categories",
+        "get_event_actions",
+        "get_event_names",
+        "get_entry_pages",
+        "get_exit_pages",
+        "get_transitions",
+        "get_visits_by_hour",
+        "get_visits_by_day_of_week",
+        "get_referrers",
+        "get_referrer_websites",
+        "get_referrer_search_engines",
+        "get_referrer_socials",
+        "get_visit_frequency",
     ]
     for method in expected_methods:
         assert hasattr(MatomoAPI, method), f"Missing method: {method}"
@@ -195,14 +196,16 @@ class TestMatomoAPIMocked:
         assert "REDACTED" in url
         assert "test_token" not in url
 
-    @patch('lib._audit.log_query')
-    @patch('urllib.request.urlopen')
+    @patch("lib._audit.log_query")
+    @patch("urllib.request.urlopen")
     def test_get_visits_returns_dict(self, mock_urlopen, mock_log, api):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps({
-            "nb_visits": 100,
-            "nb_uniq_visitors": 80,
-        }).encode()
+        mock_response.read.return_value = json.dumps(
+            {
+                "nb_visits": 100,
+                "nb_uniq_visitors": 80,
+            }
+        ).encode()
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
@@ -211,14 +214,16 @@ class TestMatomoAPIMocked:
         assert result["nb_visits"] == 100
         assert result["nb_uniq_visitors"] == 80
 
-    @patch('lib._audit.log_query')
-    @patch('urllib.request.urlopen')
+    @patch("lib._audit.log_query")
+    @patch("urllib.request.urlopen")
     def test_get_pages_returns_list(self, mock_urlopen, mock_log, api):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps([
-            {"label": "/home", "nb_visits": 50},
-            {"label": "/about", "nb_visits": 30},
-        ]).encode()
+        mock_response.read.return_value = json.dumps(
+            [
+                {"label": "/home", "nb_visits": 50},
+                {"label": "/about", "nb_visits": 30},
+            ]
+        ).encode()
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
@@ -228,14 +233,16 @@ class TestMatomoAPIMocked:
         assert len(result) == 2
         assert result[0]["label"] == "/home"
 
-    @patch('lib._audit.log_query')
-    @patch('urllib.request.urlopen')
+    @patch("lib._audit.log_query")
+    @patch("urllib.request.urlopen")
     def test_api_error_raises_exception(self, mock_urlopen, mock_log, api):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps({
-            "result": "error",
-            "message": "Invalid token",
-        }).encode()
+        mock_response.read.return_value = json.dumps(
+            {
+                "result": "error",
+                "message": "Invalid token",
+            }
+        ).encode()
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
@@ -243,16 +250,18 @@ class TestMatomoAPIMocked:
         with pytest.raises(MatomoError, match="Invalid token"):
             api.get_visits(site_id=117, period="month", date="2025-12-01")
 
-    @patch('lib._audit.log_query')
-    @patch('urllib.request.urlopen')
+    @patch("lib._audit.log_query")
+    @patch("urllib.request.urlopen")
     def test_get_visit_frequency_returns_dict(self, mock_urlopen, mock_log, api):
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps({
-            "nb_visits_returning": 500,
-            "nb_visits_new": 200,
-            "nb_actions_returning": 2500,
-            "bounce_rate_new": "45%",
-        }).encode()
+        mock_response.read.return_value = json.dumps(
+            {
+                "nb_visits_returning": 500,
+                "nb_visits_new": 200,
+                "nb_actions_returning": 2500,
+                "bounce_rate_new": "45%",
+            }
+        ).encode()
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
@@ -306,9 +315,7 @@ class TestMatomoAPIIntegration:
 
     def test_get_dimension_returns_list(self, api, site_id, period, date, dimension_id):
         """CustomDimensions.getCustomDimension returns list."""
-        result = api.get_dimension(
-            site_id=site_id, dimension_id=dimension_id, period=period, date=date
-        )
+        result = api.get_dimension(site_id=site_id, dimension_id=dimension_id, period=period, date=date)
         assert isinstance(result, list)
 
     def test_get_event_categories_returns_list(self, api, site_id, period, date):
@@ -346,9 +353,7 @@ class TestMatomoAPIIntegration:
     def test_segment_filter_works(self, api, site_id, period, date, segment):
         """Segment filters reduce the result set."""
         all_visits = api.get_visits(site_id=site_id, period=period, date=date)
-        filtered_visits = api.get_visits(
-            site_id=site_id, period=period, date=date, segment=segment
-        )
+        filtered_visits = api.get_visits(site_id=site_id, period=period, date=date, segment=segment)
         assert filtered_visits.get("nb_visits", 0) <= all_visits.get("nb_visits", 0)
 
     def test_get_visit_frequency_returns_dict(self, api, site_id, period, date):

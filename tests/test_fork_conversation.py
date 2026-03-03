@@ -28,10 +28,7 @@ class TestForkConversationDatabase:
         """Forking creates a new conversation with a new ID."""
         from web.storage import store
 
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         assert forked is not None
         assert forked.id != conversation_with_messages.id
@@ -41,10 +38,7 @@ class TestForkConversationDatabase:
         """Forked conversation has the same title."""
         from web.storage import store
 
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         assert forked.title == "Original conversation"
 
@@ -52,10 +46,7 @@ class TestForkConversationDatabase:
         """Forked conversation has copies of all messages."""
         from web.storage import store
 
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         assert len(forked.messages) == 4
         assert forked.messages[0].content == "First question"
@@ -68,10 +59,7 @@ class TestForkConversationDatabase:
         from web.storage import store
 
         original = store.get_conversation(conversation_with_messages.id)
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         # Message IDs should be different
         original_ids = {m.id for m in original.messages}
@@ -82,10 +70,7 @@ class TestForkConversationDatabase:
         """Forked conversation tracks its source via forked_from."""
         from web.storage import store
 
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         assert forked.forked_from == conversation_with_messages.id
 
@@ -94,15 +79,9 @@ class TestForkConversationDatabase:
         from web.storage import store
 
         # Set session_id on original
-        store.update_conversation(
-            conversation_with_messages.id,
-            session_id="original-session"
-        )
+        store.update_conversation(conversation_with_messages.id, session_id="original-session")
 
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         assert forked.session_id is None
 
@@ -110,10 +89,7 @@ class TestForkConversationDatabase:
         """Forking a non-existent conversation returns None."""
         from web.storage import store
 
-        result = store.fork_conversation(
-            "nonexistent-uuid",
-            "forker@example.com"
-        )
+        result = store.fork_conversation("nonexistent-uuid", "forker@example.com")
 
         assert result is None
 
@@ -122,10 +98,7 @@ class TestForkConversationDatabase:
         from web.storage import store
 
         # Fork it
-        store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         # Check original is unchanged
         original = store.get_conversation(conversation_with_messages.id)
@@ -137,10 +110,7 @@ class TestForkConversationDatabase:
         """Adding messages to fork does not affect original (no entanglement)."""
         from web.storage import store
 
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         # Add a message to the fork
         store.add_message(forked.id, "user", "New message in fork")
@@ -217,6 +187,7 @@ class TestForkConversationAPI:
 
         # Verify the fork belongs to the guest
         from web.storage import store
+
         forked = store.get_conversation(data["id"])
         assert forked.user_id == "guest@example.com"
 
@@ -261,10 +232,7 @@ class TestForkConversationUI:
         from web.storage import store
 
         # Create a fork
-        forked = store.fork_conversation(
-            conversation_with_messages.id,
-            "forker@example.com"
-        )
+        forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
         # View the fork
         response = client.get(

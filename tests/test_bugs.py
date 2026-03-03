@@ -8,11 +8,9 @@ Run with: pytest tests/test_bugs.py -v
 """
 
 import json
-import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixed: _substitute_env_vars now propagates strict= when recursing
@@ -37,11 +35,7 @@ class TestEnvSubstitutionStrictRecursion:
     def test_strict_mode_raises_on_deeply_nested(self):
         from lib._sources import _substitute_env_vars
 
-        deeply_nested = {
-            "level1": {
-                "level2": [{"level3": "${env.DEEP_MISSING_VAR}"}]
-            }
-        }
+        deeply_nested = {"level1": {"level2": [{"level3": "${env.DEEP_MISSING_VAR}"}]}}
         with pytest.raises(ValueError, match="DEEP_MISSING_VAR"):
             _substitute_env_vars(deeply_nested, strict=True)
 
@@ -61,16 +55,12 @@ class TestEnvSubstitutionStrictRecursion:
 class TestMetabaseQueryAcceptsSqlAlone:
     @patch("lib._audit.log_query")
     @patch("lib.query.get_metabase")
-    def test_sql_without_database_id_uses_api_default(
-        self, mock_get_metabase, mock_log
-    ):
+    def test_sql_without_database_id_uses_api_default(self, mock_get_metabase, mock_log):
         from lib._metabase import QueryResult as MQR
         from lib.query import CallerType, execute_metabase_query
 
         mock_api = MagicMock()
-        mock_api.execute_sql.return_value = MQR(
-            columns=["x"], rows=[[1]], row_count=1
-        )
+        mock_api.execute_sql.return_value = MQR(columns=["x"], rows=[[1]], row_count=1)
         mock_api.caller = "agent"
         mock_get_metabase.return_value = mock_api
 
@@ -97,9 +87,7 @@ class TestMatomoErrorLogged:
 
         api = MatomoAPI(url="fake.example.com", token="fake", instance="test")
 
-        error_response = json.dumps(
-            {"result": "error", "message": "Segment not valid"}
-        ).encode()
+        error_response = json.dumps({"result": "error", "message": "Segment not valid"}).encode()
 
         mock_resp = MagicMock()
         mock_resp.read.return_value = error_response
@@ -125,9 +113,7 @@ class TestMetabaseFailedStatusRaises:
     def test_status_failed_without_error_key(self):
         from lib._metabase import MetabaseAPI, MetabaseError
 
-        api = MetabaseAPI(
-            url="https://fake.example.com", api_key="fake", database_id=2
-        )
+        api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=2)
 
         failed_response = {
             "status": "failed",
@@ -140,9 +126,7 @@ class TestMetabaseFailedStatusRaises:
     def test_status_failed_with_error_key(self):
         from lib._metabase import MetabaseAPI, MetabaseError
 
-        api = MetabaseAPI(
-            url="https://fake.example.com", api_key="fake", database_id=2
-        )
+        api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=2)
 
         failed_response = {
             "status": "failed",
@@ -163,17 +147,13 @@ class TestMetabaseDatabaseIdZero:
     def test_database_id_zero_is_preserved(self):
         from lib._metabase import MetabaseAPI
 
-        api = MetabaseAPI(
-            url="https://fake.example.com", api_key="fake", database_id=0
-        )
+        api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=0)
         assert api.database_id == 0
 
     def test_database_id_none_defaults_to_2(self):
         from lib._metabase import MetabaseAPI
 
-        api = MetabaseAPI(
-            url="https://fake.example.com", api_key="fake", database_id=None
-        )
+        api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=None)
         assert api.database_id == 2
 
 
@@ -184,8 +164,9 @@ class TestMetabaseDatabaseIdZero:
 
 class TestApiSignalCardIdZero:
     def test_card_id_zero_is_included_in_signal(self):
-        from lib.api_signals import emit_api_signal
         import io
+
+        from lib.api_signals import emit_api_signal
 
         captured = io.StringIO()
         with patch("sys.stdout", captured):

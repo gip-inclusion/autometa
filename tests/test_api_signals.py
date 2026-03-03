@@ -7,9 +7,7 @@ Run with: pytest tests/test_api_signals.py -v
 import io
 import sys
 
-import pytest
-
-from lib.api_signals import emit_api_signal, parse_api_signals, strip_api_signals, SIGNAL_PATTERN
+from lib.api_signals import SIGNAL_PATTERN, emit_api_signal, parse_api_signals, strip_api_signals
 
 
 class TestEmitApiSignal:
@@ -191,7 +189,7 @@ class TestSignalPattern:
     """Tests for the regex pattern itself."""
 
     def test_matches_minimal_signal(self):
-        text = '[MATOMETA:API:{}]'
+        text = "[MATOMETA:API:{}]"
         match = SIGNAL_PATTERN.search(text)
         assert match is not None
 
@@ -203,9 +201,9 @@ class TestSignalPattern:
 
     def test_does_not_match_partial(self):
         # Should not match incomplete patterns
-        assert SIGNAL_PATTERN.search('[MATOMETA:API:') is None
-        assert SIGNAL_PATTERN.search('MATOMETA:API:{}') is None
-        assert SIGNAL_PATTERN.search('[MATOMETA:{}]') is None
+        assert SIGNAL_PATTERN.search("[MATOMETA:API:") is None
+        assert SIGNAL_PATTERN.search("MATOMETA:API:{}") is None
+        assert SIGNAL_PATTERN.search("[MATOMETA:{}]") is None
 
 
 class TestRoundTrip:
