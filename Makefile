@@ -1,4 +1,4 @@
-.PHONY: dev dev-ollama up up-ollama up-eval down test
+.PHONY: dev dev-ollama up up-ollama up-eval down test lint format security ci
 
 # --- Local development (venv) ---
 
@@ -32,7 +32,27 @@ up-eval:
 down:
 	docker compose --profile ollama down
 
+# --- Quality ---
+
+## Lint (ruff check + format check)
+lint:
+	uv run ruff check web/ lib/ scripts/
+	uv run ruff format --check web/ lib/ scripts/
+
+## Auto-format code
+format:
+	uv run ruff check --fix web/ lib/ scripts/
+	uv run ruff format web/ lib/ scripts/
+
+## Security checks (SAST + dependency audit)
+security:
+	uv run bandit -r web/ lib/ scripts/ -c pyproject.toml --severity-level medium --confidence-level high -q
+	uv run pip-audit -r <(uv export --frozen --no-hashes)
+
+## Run all CI checks locally
+ci: lint security test
+
 # --- Tests ---
 
 test:
-	.venv/bin/pytest tests/
+	uv run pytest tests/ -q --tb=short -m "not integration"
