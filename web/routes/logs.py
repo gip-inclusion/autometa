@@ -52,6 +52,6 @@ def get_recent_logs(lines: int = Query(default=100)):
     try:
         with open(config.LOG_FILE, "r") as f:
             all_lines = f.readlines()
-            return {"lines": [l.rstrip() for l in all_lines[-lines:]]}
+            return {"lines": [line.rstrip() for line in all_lines[-lines:]]}
     except FileNotFoundError:
         return {"lines": []}

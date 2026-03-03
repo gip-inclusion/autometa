@@ -5,9 +5,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from ..cron import discover_cron_tasks, find_task, get_app_runs, get_last_runs, run_cron_task, set_cron_enabled
 from ..deps import get_current_user, templates
-from ..cron import discover_cron_tasks, find_task, run_cron_task, get_last_runs, get_app_runs, set_cron_enabled
-from .html import get_sidebar_data, format_relative_date
+from .html import format_relative_date, get_sidebar_data
 
 router = APIRouter()
 
@@ -24,17 +24,22 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
         task["last_run"] = runs[0] if runs else None
         if task["last_run"] and task["last_run"]["started_at"]:
             from datetime import datetime
+
             try:
                 dt = datetime.fromisoformat(task["last_run"]["started_at"])
                 task["last_run"]["formatted_date"] = format_relative_date(dt)
             except (ValueError, TypeError):
                 task["last_run"]["formatted_date"] = task["last_run"]["started_at"]
 
-    return templates.TemplateResponse(request, "cron.html", {
-        "section": "cron",
-        "tasks": tasks,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "cron.html",
+        {
+            "section": "cron",
+            "tasks": tasks,
+            **data,
+        },
+    )
 
 
 @router.post("/api/cron/{slug}/run")

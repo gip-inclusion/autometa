@@ -86,6 +86,7 @@ def backup_credentials_to_s3() -> bool:
 def credentials_exist() -> bool:
     """Check if Claude credentials exist (file or env var)."""
     import os
+
     if os.getenv("CLAUDE_CODE_OAUTH_TOKEN"):
         return True
     return CREDENTIALS_FILE.exists()
@@ -151,13 +152,11 @@ def write_credentials(oauth_data: dict) -> bool:
 
 # Internal helpers using raw S3 client to bypass the interactive/ prefix
 
+
 def _download_credentials_from_s3(s3_module) -> bytes | None:
     """Download credentials directly from S3 bucket root."""
     try:
-        response = s3_module._s3_client.get_object(
-            Bucket=config.S3_BUCKET,
-            Key=S3_CREDENTIALS_KEY
-        )
+        response = s3_module._s3_client.get_object(Bucket=config.S3_BUCKET, Key=S3_CREDENTIALS_KEY)
         return response["Body"].read()
     except Exception as e:
         if "NoSuchKey" in str(e) or "404" in str(e):

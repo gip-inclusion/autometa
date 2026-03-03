@@ -9,9 +9,8 @@ Provides a unified interface for file storage that works with:
 
 import logging
 import mimetypes
-from io import BytesIO
 from pathlib import Path
-from typing import Optional, BinaryIO
+from typing import BinaryIO, Optional
 
 from . import config
 
@@ -248,12 +247,14 @@ def list_files(prefix: str = "") -> list[dict]:
             for page in paginator.paginate(Bucket=config.S3_BUCKET, Prefix=s3_prefix):
                 for obj in page.get("Contents", []):
                     # Remove the S3 prefix to get relative path
-                    rel_path = obj["Key"][len(config.S3_PREFIX):]
-                    files.append({
-                        "path": rel_path,
-                        "size": obj["Size"],
-                        "last_modified": obj["LastModified"],
-                    })
+                    rel_path = obj["Key"][len(config.S3_PREFIX) :]
+                    files.append(
+                        {
+                            "path": rel_path,
+                            "size": obj["Size"],
+                            "last_modified": obj["LastModified"],
+                        }
+                    )
         except Exception as e:
             logger.error(f"S3 list failed for prefix {prefix}: {e}")
     else:
@@ -264,11 +265,13 @@ def list_files(prefix: str = "") -> list[dict]:
                     if file_path.is_file():
                         rel_path = str(file_path.relative_to(config.INTERACTIVE_DIR))
                         stat = file_path.stat()
-                        files.append({
-                            "path": rel_path,
-                            "size": stat.st_size,
-                            "last_modified": stat.st_mtime,
-                        })
+                        files.append(
+                            {
+                                "path": rel_path,
+                                "size": stat.st_size,
+                                "last_modified": stat.st_mtime,
+                            }
+                        )
         except Exception as e:
             logger.error(f"Local list failed for prefix {prefix}: {e}")
 
@@ -298,7 +301,7 @@ def list_directories(prefix: str = "") -> list[str]:
             )
             for common_prefix in response.get("CommonPrefixes", []):
                 # Extract directory name from prefix
-                dir_path = common_prefix["Prefix"][len(config.S3_PREFIX):].rstrip("/")
+                dir_path = common_prefix["Prefix"][len(config.S3_PREFIX) :].rstrip("/")
                 if "/" in dir_path:
                     dir_name = dir_path.split("/")[-1]
                 else:

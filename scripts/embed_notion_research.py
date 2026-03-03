@@ -17,7 +17,6 @@ Usage:
 import argparse
 import json
 import sqlite3
-import struct
 import sys
 import time
 from pathlib import Path
@@ -112,9 +111,7 @@ def _split_text(text, max_chars):
 
 def build_chunks(conn):
     """Build embedding chunks from the database."""
-    pages = conn.execute(
-        "SELECT id, database_key, database_name, title, properties_json FROM pages"
-    ).fetchall()
+    pages = conn.execute("SELECT id, database_key, database_name, title, properties_json FROM pages").fetchall()
 
     chunks = []
     for page in pages:
@@ -135,12 +132,14 @@ def build_chunks(conn):
             for i, piece in enumerate(_split_text(body, body_budget)):
                 text = f"{header}\n{piece}".strip()
                 if text:
-                    chunks.append({
-                        "page_id": page_id,
-                        "chunk_index": i,
-                        "text": text,
-                        "database_key": page["database_key"],
-                    })
+                    chunks.append(
+                        {
+                            "page_id": page_id,
+                            "chunk_index": i,
+                            "text": text,
+                            "database_key": page["database_key"],
+                        }
+                    )
         else:
             # Long page: group blocks into chunks
             current_chunk_texts = []
@@ -154,24 +153,28 @@ def build_chunks(conn):
                     if current_chunk_texts:
                         body = "\n".join(current_chunk_texts)
                         text = f"{header}\n---\n{body}".strip()
-                        chunks.append({
-                            "page_id": page_id,
-                            "chunk_index": chunk_idx,
-                            "text": text,
-                            "database_key": page["database_key"],
-                        })
+                        chunks.append(
+                            {
+                                "page_id": page_id,
+                                "chunk_index": chunk_idx,
+                                "text": text,
+                                "database_key": page["database_key"],
+                            }
+                        )
                         chunk_idx += 1
                         current_chunk_texts = []
                         current_chars = 0
 
                     for piece in _split_text(block_text, body_budget):
                         text = f"{header}\n---\n{piece}".strip()
-                        chunks.append({
-                            "page_id": page_id,
-                            "chunk_index": chunk_idx,
-                            "text": text,
-                            "database_key": page["database_key"],
-                        })
+                        chunks.append(
+                            {
+                                "page_id": page_id,
+                                "chunk_index": chunk_idx,
+                                "text": text,
+                                "database_key": page["database_key"],
+                            }
+                        )
                         chunk_idx += 1
                     continue
 
@@ -181,12 +184,14 @@ def build_chunks(conn):
                 if current_chars >= CHUNK_TARGET_CHARS:
                     body = "\n".join(current_chunk_texts)
                     text = f"{header}\n---\n{body}".strip()
-                    chunks.append({
-                        "page_id": page_id,
-                        "chunk_index": chunk_idx,
-                        "text": text,
-                        "database_key": page["database_key"],
-                    })
+                    chunks.append(
+                        {
+                            "page_id": page_id,
+                            "chunk_index": chunk_idx,
+                            "text": text,
+                            "database_key": page["database_key"],
+                        }
+                    )
                     chunk_idx += 1
                     current_chunk_texts = []
                     current_chars = 0
@@ -195,12 +200,14 @@ def build_chunks(conn):
             if current_chunk_texts:
                 body = "\n".join(current_chunk_texts)
                 text = f"{header}\n---\n{body}".strip()
-                chunks.append({
-                    "page_id": page_id,
-                    "chunk_index": chunk_idx,
-                    "text": text,
-                    "database_key": page["database_key"],
-                })
+                chunks.append(
+                    {
+                        "page_id": page_id,
+                        "chunk_index": chunk_idx,
+                        "text": text,
+                        "database_key": page["database_key"],
+                    }
+                )
 
     return chunks
 
@@ -257,18 +264,20 @@ def main():
 
     # Show distribution
     from collections import Counter
+
     db_counts = Counter(c["database_key"] for c in chunks)
     for db_key, count in db_counts.most_common():
         print(f"  {db_key}: {count} chunks")
 
     # Chunk size stats
     lengths = [len(c["text"]) for c in chunks]
-    print(f"  Text length: min={min(lengths)}, median={sorted(lengths)[len(lengths)//2]}, max={max(lengths)}")
+    print(f"  Text length: min={min(lengths)}, median={sorted(lengths)[len(lengths) // 2]}, max={max(lengths)}")
 
     # Load model
     print(f"\nLoading {MODEL_NAME}...")
     t1 = time.time()
     from sentence_transformers import SentenceTransformer
+
     model = SentenceTransformer(MODEL_NAME)
     print(f"  Model loaded in {time.time() - t1:.1f}s")
 
@@ -290,7 +299,7 @@ def main():
 
     all_embeddings = np.vstack(all_embeddings)
     embed_time = time.time() - t2
-    print(f"  Done in {embed_time:.1f}s ({len(chunks)/embed_time:.1f} chunks/s)")
+    print(f"  Done in {embed_time:.1f}s ({len(chunks) / embed_time:.1f} chunks/s)")
     print(f"  Embedding shape: {all_embeddings.shape}")
 
     # Store in database

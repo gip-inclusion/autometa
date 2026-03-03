@@ -1,9 +1,9 @@
 """Abstract base class for agent backends."""
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Optional
-import time
 
 
 @dataclass

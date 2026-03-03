@@ -58,20 +58,20 @@ def _get_embeddings(conn):
         if _cache["mtime"] == mtime and _cache["chunks"] is not None:
             return _cache["chunks"], _cache["embeddings"]
 
-    rows = conn.execute(
-        "SELECT id, page_id, chunk_index, text, database_key, embedding FROM chunks"
-    ).fetchall()
+    rows = conn.execute("SELECT id, page_id, chunk_index, text, database_key, embedding FROM chunks").fetchall()
 
     chunks = []
     vecs = []
     for row in rows:
-        chunks.append({
-            "id": row["id"],
-            "page_id": row["page_id"],
-            "chunk_index": row["chunk_index"],
-            "text": row["text"],
-            "database_key": row["database_key"],
-        })
+        chunks.append(
+            {
+                "id": row["id"],
+                "page_id": row["page_id"],
+                "chunk_index": row["chunk_index"],
+                "text": row["text"],
+                "database_key": row["database_key"],
+            }
+        )
         vecs.append(_blob_to_vec(row["embedding"]))
 
     if vecs:
@@ -97,9 +97,7 @@ def _get_pages(conn):
         if _page_cache["mtime"] == mtime and _page_cache["pages"] is not None:
             return _page_cache["pages"]
 
-    rows = conn.execute(
-        "SELECT id, title, database_key, database_name, url, properties_json FROM pages"
-    ).fetchall()
+    rows = conn.execute("SELECT id, title, database_key, database_name, url, properties_json FROM pages").fetchall()
 
     pages = {}
     for row in rows:
@@ -236,18 +234,13 @@ def get_corpus_stats():
         chunks_n = conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()["n"]
 
         db_stats = conn.execute(
-            "SELECT database_key, database_name, COUNT(*) as n "
-            "FROM pages GROUP BY database_key"
+            "SELECT database_key, database_name, COUNT(*) as n FROM pages GROUP BY database_key"
         ).fetchall()
 
-        chunk_counts = conn.execute(
-            "SELECT database_key, COUNT(*) as n FROM chunks GROUP BY database_key"
-        ).fetchall()
+        chunk_counts = conn.execute("SELECT database_key, COUNT(*) as n FROM chunks GROUP BY database_key").fetchall()
         chunks_by_db = {r["database_key"]: r["n"] for r in chunk_counts}
 
-        type_rows = conn.execute(
-            "SELECT properties_json FROM pages WHERE database_key = 'entretiens'"
-        ).fetchall()
+        type_rows = conn.execute("SELECT properties_json FROM pages WHERE database_key = 'entretiens'").fetchall()
         type_counts = {}
         for row in type_rows:
             props = json.loads(row["properties_json"]) if row["properties_json"] else {}
@@ -355,8 +348,7 @@ def get_page(page_id):
         props = json.loads(page["properties_json"]) if page["properties_json"] else {}
 
         blocks = conn.execute(
-            "SELECT type, text_content, position FROM blocks "
-            "WHERE page_id = ? ORDER BY position",
+            "SELECT type, text_content, position FROM blocks WHERE page_id = ? ORDER BY position",
             (page_id,),
         ).fetchall()
 
@@ -375,8 +367,7 @@ def get_page(page_id):
             relations[prop].append({"title": r["title"], "page_id": r["target_id"]})
 
         chunks = conn.execute(
-            "SELECT id, chunk_index FROM chunks "
-            "WHERE page_id = ? ORDER BY chunk_index",
+            "SELECT id, chunk_index FROM chunks WHERE page_id = ? ORDER BY chunk_index",
             (page_id,),
         ).fetchall()
 
@@ -389,10 +380,7 @@ def get_page(page_id):
             "type": props.get("Type"),
             "date": props.get("Date"),
             "properties": props,
-            "blocks": [
-                {"type": b["type"], "text": b["text_content"], "position": b["position"]}
-                for b in blocks
-            ],
+            "blocks": [{"type": b["type"], "text": b["text_content"], "position": b["position"]} for b in blocks],
             "relations": relations,
             "chunk_ids": [c["id"] for c in chunks],
         }
@@ -522,17 +510,14 @@ def page_detail(page_id: str):
         return JSONResponse({"error": "Research database not found"}, status_code=404)
 
     try:
-        page = conn.execute(
-            "SELECT * FROM pages WHERE id = ?", (page_id,)
-        ).fetchone()
+        page = conn.execute("SELECT * FROM pages WHERE id = ?", (page_id,)).fetchone()
         if not page:
             return JSONResponse({"error": "Page not found"}, status_code=404)
 
         props = json.loads(page["properties_json"]) if page["properties_json"] else {}
 
         blocks = conn.execute(
-            "SELECT type, text_content, position FROM blocks "
-            "WHERE page_id = ? ORDER BY position",
+            "SELECT type, text_content, position FROM blocks WHERE page_id = ? ORDER BY position",
             (page_id,),
         ).fetchall()
 
@@ -549,14 +534,15 @@ def page_detail(page_id: str):
             prop = r["property_name"]
             if prop not in relations:
                 relations[prop] = []
-            relations[prop].append({
-                "title": r["title"],
-                "page_id": r["target_id"],
-            })
+            relations[prop].append(
+                {
+                    "title": r["title"],
+                    "page_id": r["target_id"],
+                }
+            )
 
         chunks = conn.execute(
-            "SELECT id, chunk_index FROM chunks "
-            "WHERE page_id = ? ORDER BY chunk_index",
+            "SELECT id, chunk_index FROM chunks WHERE page_id = ? ORDER BY chunk_index",
             (page_id,),
         ).fetchall()
 
@@ -569,10 +555,7 @@ def page_detail(page_id: str):
             "type": props.get("Type"),
             "date": props.get("Date"),
             "properties": props,
-            "blocks": [
-                {"type": b["type"], "text": b["text_content"], "position": b["position"]}
-                for b in blocks
-            ],
+            "blocks": [{"type": b["type"], "text": b["text_content"], "position": b["position"]} for b in blocks],
             "relations": relations,
             "chunk_ids": [c["id"] for c in chunks],
         }
@@ -593,19 +576,14 @@ def stats():
         chunks_n = conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()["n"]
 
         db_stats = conn.execute(
-            "SELECT database_key, database_name, COUNT(*) as n "
-            "FROM pages GROUP BY database_key"
+            "SELECT database_key, database_name, COUNT(*) as n FROM pages GROUP BY database_key"
         ).fetchall()
 
-        chunk_counts = conn.execute(
-            "SELECT database_key, COUNT(*) as n FROM chunks GROUP BY database_key"
-        ).fetchall()
+        chunk_counts = conn.execute("SELECT database_key, COUNT(*) as n FROM chunks GROUP BY database_key").fetchall()
         chunks_by_db = {r["database_key"]: r["n"] for r in chunk_counts}
 
         # Type breakdown for entretiens
-        type_rows = conn.execute(
-            "SELECT properties_json FROM pages WHERE database_key = 'entretiens'"
-        ).fetchall()
+        type_rows = conn.execute("SELECT properties_json FROM pages WHERE database_key = 'entretiens'").fetchall()
         type_counts = {}
         for row in type_rows:
             props = json.loads(row["properties_json"]) if row["properties_json"] else {}

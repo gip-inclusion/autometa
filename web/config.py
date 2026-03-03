@@ -29,7 +29,8 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 # Allowed tools for the agent (CLI backend only - SDK ignores this)
 # Bash patterns use glob wildcards (* matches anything)
 # NOTE: Real security boundary is the container, not LLM tool restrictions
-ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
+ALLOWED_TOOLS = os.getenv(
+    "ALLOWED_TOOLS",
     "Read,Write,Edit,Glob,Grep,"
     "Bash(curl:*inclusion.gouv.fr*),Bash(curl:*inclusion.beta.gouv.fr*),"
     "Bash(curl:*github.com/gip-inclusion*),Bash(curl:*github.com/betagouv*),"
@@ -37,7 +38,7 @@ ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
     "Bash(curl:*api.github.com*),"
     "Bash(jq:*),Bash(sqlite3:*),"
     "Bash(python:*),Bash(python3:*),"
-    "Bash(.venv/bin/python:*)"
+    "Bash(.venv/bin/python:*)",
 )
 
 # Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
@@ -68,9 +69,7 @@ DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 # Admin users who can see all conversations (comma-separated emails)
 ADMIN_USERS = [
     email.strip()
-    for email in os.getenv(
-        "ADMIN_USERS", "louisjean.teitelbaum@inclusion.gouv.fr,admin@localhost"
-    ).split(",")
+    for email in os.getenv("ADMIN_USERS", "louisjean.teitelbaum@inclusion.gouv.fr,admin@localhost").split(",")
     if email.strip()
 ]
 

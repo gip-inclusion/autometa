@@ -17,7 +17,7 @@ from . import config
 logger = logging.getLogger(__name__)
 
 # Regex to extract OAuth URL from Claude output
-URL_PATTERN = re.compile(r'https://claude\.ai/oauth/[^\s\x1b\x00-\x1f]+')
+URL_PATTERN = re.compile(r"https://claude\.ai/oauth/[^\s\x1b\x00-\x1f]+")
 
 # Active auth session (simple in-memory store, only one at a time)
 _active_session: Optional["AuthSession"] = None
@@ -27,6 +27,7 @@ _session_lock = threading.Lock()
 @dataclass
 class AuthSession:
     """Represents an ongoing authentication session."""
+
     process: pexpect.spawn
     oauth_url: Optional[str] = None
     status: str = "starting"  # starting, waiting_for_code, completing, done, error
@@ -49,10 +50,11 @@ def start_auth(force: bool = False) -> dict:
 
     # Check if already authenticated
     from . import claude_credentials
+
     if claude_credentials.credentials_exist() and not force:
         return {
             "status": "already_authenticated",
-            "message": "Credentials already exist. Use force=true to re-authenticate."
+            "message": "Credentials already exist. Use force=true to re-authenticate.",
         }
 
     with _session_lock:
@@ -72,22 +74,19 @@ def start_auth(force: bool = False) -> dict:
             # Spawn claude with pexpect
             # Set TERM to handle the Ink-based UI
             env = os.environ.copy()
-            env['TERM'] = 'xterm-256color'
-            env['COLUMNS'] = '120'
-            env['LINES'] = '40'
+            env["TERM"] = "xterm-256color"
+            env["COLUMNS"] = "120"
+            env["LINES"] = "40"
 
             child = pexpect.spawn(
                 config.CLAUDE_CLI,
-                encoding='utf-8',
+                encoding="utf-8",
                 timeout=60,
                 env=env,
-                dimensions=(40, 120)  # rows, cols
+                dimensions=(40, 120),  # rows, cols
             )
 
-            _active_session = AuthSession(
-                process=child,
-                status="starting"
-            )
+            _active_session = AuthSession(process=child, status="starting")
 
             # Navigate through the setup wizard
             oauth_url = _navigate_to_oauth(child, _active_session)
@@ -95,27 +94,18 @@ def start_auth(force: bool = False) -> dict:
             if oauth_url:
                 _active_session.oauth_url = oauth_url
                 _active_session.status = "waiting_for_code"
-                return {
-                    "status": "waiting_for_code",
-                    "oauth_url": oauth_url
-                }
+                return {"status": "waiting_for_code", "oauth_url": oauth_url}
             else:
                 _active_session.status = "error"
                 _active_session.error = "Could not get OAuth URL"
-                return {
-                    "status": "error",
-                    "error": f"Could not get OAuth URL. Log: {_active_session.output_log[-5:]}"
-                }
+                return {"status": "error", "error": f"Could not get OAuth URL. Log: {_active_session.output_log[-5:]}"}
 
         except Exception as e:
             logger.exception("Failed to start auth session")
             if _active_session:
                 _cleanup_session(_active_session)
                 _active_session = None
-            return {
-                "status": "error",
-                "error": str(e)
-            }
+            return {"status": "error", "error": str(e)}
 
 
 def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[str]:
@@ -123,7 +113,7 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
 
     def log_output(text):
         # Strip ANSI codes for logging
-        clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+        clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
         clean = clean.strip()
         if clean:
             session.output_log.append(clean[:200])
@@ -132,7 +122,7 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
     def safe_str(val):
         """Convert pexpect output to string safely."""
         if val is None or val is pexpect.TIMEOUT or val is pexpect.EOF:
-            return ''
+            return ""
         return str(val)
 
     import time as time_module
@@ -140,24 +130,26 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
     try:
         # Step 1: Wait for theme selection, press Enter
         logger.info("Waiting for theme selection...")
-        index = child.expect(['looks best', pexpect.TIMEOUT, pexpect.EOF], timeout=15)
+        index = child.expect(["looks best", pexpect.TIMEOUT, pexpect.EOF], timeout=15)
         log_output(safe_str(child.before) + safe_str(child.after))
 
         if index == 0:
             logger.info("Theme selection found, pressing Enter")
             time_module.sleep(0.5)  # Wait for UI to stabilize
-            child.send('\r')  # Press Enter to select default theme
+            child.send("\r")  # Press Enter to select default theme
             time_module.sleep(0.5)
 
         # Step 2: Wait for login method selection, press Enter
         logger.info("Waiting for login method selection...")
-        index = child.expect(['[Ss]elect.*login|[Ll]ogin.*method|Claude account', pexpect.TIMEOUT, pexpect.EOF], timeout=15)
+        index = child.expect(
+            ["[Ss]elect.*login|[Ll]ogin.*method|Claude account", pexpect.TIMEOUT, pexpect.EOF], timeout=15
+        )
         log_output(safe_str(child.before) + safe_str(child.after))
 
         if index == 0:
             logger.info("Login method found, pressing Enter")
             time_module.sleep(0.5)
-            child.send('\r')  # Press Enter to select Claude subscription
+            child.send("\r")  # Press Enter to select Claude subscription
 
         # Step 3: Wait for OAuth URL and then "Paste code" prompt
         logger.info("Waiting for OAuth URL...")
@@ -170,7 +162,9 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
 
         while time_module.time() - start_time < 30:
             try:
-                index = child.expect([r'https://claude\.ai/oauth', 'Paste code', pexpect.TIMEOUT, pexpect.EOF], timeout=2)
+                index = child.expect(
+                    [r"https://claude\.ai/oauth", "Paste code", pexpect.TIMEOUT, pexpect.EOF], timeout=2
+                )
                 collected_output += safe_str(child.before) + safe_str(child.after)
 
                 if index == 0:
@@ -194,9 +188,9 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
         logger.debug(f"Collected {len(collected_output)} chars of output")
 
         # Clean and search for URL
-        clean_output = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', collected_output)
-        clean_output = re.sub(r'\x1b\[\?[0-9;]*[a-zA-Z]', '', clean_output)
-        clean_output = clean_output.replace('\r\n', '').replace('\n', '').replace('\r', '')
+        clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", collected_output)
+        clean_output = re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", clean_output)
+        clean_output = clean_output.replace("\r\n", "").replace("\n", "").replace("\r", "")
 
         url_match = URL_PATTERN.search(clean_output)
         if url_match:
@@ -210,7 +204,7 @@ def _navigate_to_oauth(child: pexpect.spawn, session: AuthSession) -> Optional[s
             # Got URL but not at prompt yet - wait a bit more for paste prompt
             logger.info("Got URL, waiting for paste prompt...")
             try:
-                child.expect(['Paste code'], timeout=10)
+                child.expect(["Paste code"], timeout=10)
                 logger.info("Now at 'Paste code' prompt")
                 return found_url
             except (pexpect.TIMEOUT, pexpect.EOF):
@@ -262,7 +256,7 @@ def complete_auth(code: str) -> dict:
             logger.info("Verifying we're at paste prompt...")
             try:
                 # Look for "Paste code" or ">" prompt indicator
-                index = child.expect(['Paste code', '>', pexpect.TIMEOUT], timeout=3)
+                index = child.expect(["Paste code", ">", pexpect.TIMEOUT], timeout=3)
                 if index <= 1:
                     logger.info(f"Confirmed at prompt (index {index})")
             except pexpect.TIMEOUT:
@@ -272,15 +266,16 @@ def complete_auth(code: str) -> dict:
             logger.info(f"Sending auth code: {code[:10]}...")
             child.send(code)
             time_module.sleep(0.3)
-            child.send('\r')
+            child.send("\r")
 
             # Wait for completion - collect output and look for success indicators
             import time as time_module
+
             from . import claude_credentials
 
             def safe_str(val):
                 if val is None or val is pexpect.TIMEOUT or val is pexpect.EOF:
-                    return ''
+                    return ""
                 return str(val)
 
             collected_output = ""
@@ -290,15 +285,10 @@ def complete_auth(code: str) -> dict:
             while time_module.time() - start_time < 30:
                 try:
                     # Look for success patterns (as separate list items, not regex OR)
-                    index = child.expect([
-                        'success',
-                        'authenticated',
-                        'logged in',
-                        'Welcome',
-                        'Ready',
-                        pexpect.TIMEOUT,
-                        pexpect.EOF
-                    ], timeout=3)
+                    index = child.expect(
+                        ["success", "authenticated", "logged in", "Welcome", "Ready", pexpect.TIMEOUT, pexpect.EOF],
+                        timeout=3,
+                    )
 
                     collected_output += safe_str(child.before) + safe_str(child.after)
 
@@ -326,7 +316,7 @@ def complete_auth(code: str) -> dict:
                     break
 
             # Clean and log output for debugging
-            clean_output = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', collected_output)
+            clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", collected_output)
             logger.debug(f"Output after code submission: {clean_output[:500]}")
 
             # Final check for credentials file
@@ -337,10 +327,7 @@ def complete_auth(code: str) -> dict:
                 return {"status": "done"}
 
             _active_session.status = "error"
-            return {
-                "status": "error",
-                "error": f"Auth may have failed. Output: {clean_output[:200]}"
-            }
+            return {"status": "error", "error": f"Auth may have failed. Output: {clean_output[:200]}"}
 
         except Exception as e:
             logger.exception("Failed to complete auth")
@@ -361,7 +348,7 @@ def get_auth_status() -> dict:
             "status": _active_session.status,
             "oauth_url": _active_session.oauth_url,
             "error": _active_session.error,
-            "log": _active_session.output_log[-10:]
+            "log": _active_session.output_log[-10:],
         }
 
 

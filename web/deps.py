@@ -8,8 +8,8 @@ from fastapi.templating import Jinja2Templates
 
 from . import config
 
-
 # --- Auth dependencies ---
+
 
 def get_current_user(request: Request) -> str:
     """Extract authenticated user email from oauth2-proxy headers."""
@@ -81,6 +81,7 @@ templates.env.globals["static_url"] = _static_url
 def _format_relative_date_global(dt):
     """Lazy import to avoid circular dependency with routes.html."""
     from .routes.html import format_relative_date
+
     return format_relative_date(dt)
 
 

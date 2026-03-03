@@ -20,7 +20,7 @@ import sys
 from typing import Optional
 
 # Signal pattern for parsing
-SIGNAL_PATTERN = re.compile(r'\[MATOMETA:API:({.*?})\]')
+SIGNAL_PATTERN = re.compile(r"\[MATOMETA:API:({.*?})\]")
 
 
 def emit_api_signal(

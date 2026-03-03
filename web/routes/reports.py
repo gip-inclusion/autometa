@@ -6,10 +6,10 @@ import urllib.error
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-from ..deps import get_current_user
-from ..storage import store
 from .. import notion
 from ..config import ADMIN_USERS
+from ..deps import get_current_user
+from ..storage import store
 
 router = APIRouter(prefix="/api/reports")
 
@@ -22,9 +22,7 @@ def list_tags(type: str | None = Query(default=None, alias="type")):
     else:
         tags = store.get_all_tags()
 
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}
 
 
 @router.get("")
@@ -125,19 +123,20 @@ async def create_report(request: Request, user_email: str = Depends(get_current_
     # Optionally add link message to source conversation
     if data.get("source_conversation_id"):
         store.add_message(
-            data["source_conversation_id"],
-            "report",
-            json.dumps({"report_id": report.id, "title": report.title})
+            data["source_conversation_id"], "report", json.dumps({"report_id": report.id, "title": report.title})
         )
 
-    return JSONResponse({
-        "id": report.id,
-        "title": report.title,
-        "links": {
-            "self": f"/api/reports/{report.id}",
-            "view": f"/rapports/{report.id}",
-        }
-    }, status_code=201)
+    return JSONResponse(
+        {
+            "id": report.id,
+            "title": report.title,
+            "links": {
+                "self": f"/api/reports/{report.id}",
+                "view": f"/rapports/{report.id}",
+            },
+        },
+        status_code=201,
+    )
 
 
 @router.post("/{report_id}/publish-notion")
@@ -168,10 +167,9 @@ def publish_to_notion(report_id: int):
 
     # Store the URL
     from ..database import get_db
+
     with get_db() as conn:
-        conn.execute(
-            "UPDATE reports SET notion_url = ? WHERE id = ?", (url, report_id)
-        )
+        conn.execute("UPDATE reports SET notion_url = ? WHERE id = ?", (url, report_id))
 
     return {"url": url}
 
@@ -207,9 +205,7 @@ def unpin_report(report_id: int, user_email: str = Depends(get_current_user)):
 def get_report_tags(report_id: int):
     """Get tags for a report."""
     tags = store.get_report_tags(report_id)
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}
 
 
 @router.put("/{report_id}/tags")
@@ -225,6 +221,4 @@ async def set_report_tags(report_id: int, request: Request):
 
     store.set_report_tags(report_id, tag_names)
     tags = store.get_report_tags(report_id)
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}

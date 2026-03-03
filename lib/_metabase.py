@@ -12,8 +12,8 @@ Usage:
 import base64
 import json
 import time
-import urllib.request
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -84,6 +84,7 @@ class QueryResult:
 
 class MetabaseError(Exception):
     """Error from Metabase API."""
+
     pass
 
 
@@ -218,8 +219,7 @@ class MetabaseAPI:
         cols = data.get("data", {}).get("cols", [])
         rows = data.get("data", {}).get("rows", [])
 
-        columns = [col.get("display_name") or col.get("name", f"col_{i}")
-                   for i, col in enumerate(cols)]
+        columns = [col.get("display_name") or col.get("name", f"col_{i}") for i, col in enumerate(cols)]
 
         return QueryResult(
             columns=columns,
@@ -269,9 +269,7 @@ class MetabaseAPI:
         Returns:
             QueryResult with columns and rows
         """
-        result_data = self._request(
-            "POST", f"/api/card/{card_id}/query", {}, timeout=timeout, query_type="card"
-        )
+        result_data = self._request("POST", f"/api/card/{card_id}/query", {}, timeout=timeout, query_type="card")
         result = self._parse_result(result_data)
 
         # Emit signal for observability sidebar
@@ -298,11 +296,13 @@ class MetabaseAPI:
 
     def search_cards(self, query: str, limit: int = 50) -> list[dict]:
         """Search for cards by name/description."""
-        params = urllib.parse.urlencode({
-            "q": query,
-            "models": "card",
-            "limit": limit,
-        })
+        params = urllib.parse.urlencode(
+            {
+                "q": query,
+                "models": "card",
+                "limit": limit,
+            }
+        )
         result = self._request("GET", f"/api/search?{params}")
         return result.get("data", [])
 

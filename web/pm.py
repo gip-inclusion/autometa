@@ -9,13 +9,14 @@ import json
 import logging
 import os
 
+from lib.api_signals import parse_api_signals
+from lib.tool_taxonomy import classify_tool
+
 from . import config
 from .agents import get_agent
 from .agents.base import AgentBackend
-from .storage import store
 from .audit import audit_log
-from lib.tool_taxonomy import classify_tool
-from lib.api_signals import parse_api_signals
+from .storage import store
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,9 @@ class ProcessManager:
                         elif len(self.running) < MAX_CONCURRENT_AGENTS:
                             self._start_agent(conv_id, cmd["payload"])
                         else:
-                            logger.info(f"Agent queued for {conv_id} ({len(self.running)} running, {len(self._queued)} queued)")
+                            logger.info(
+                                f"Agent queued for {conv_id} ({len(self.running)} running, {len(self._queued)} queued)"
+                            )
                             self._queued.append((conv_id, cmd["payload"]))
                     elif cmd["command"] == "cancel":
                         # Also remove from queue if waiting

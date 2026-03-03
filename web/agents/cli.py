@@ -111,9 +111,11 @@ class CLIBackend(AgentBackend):
 
         cmd = [
             config.CLAUDE_CLI,
-            "--output-format", "stream-json",
+            "--output-format",
+            "stream-json",
             "--verbose",
-            "--setting-sources", "project",  # Only load project skills, not user plugins
+            "--setting-sources",
+            "project",  # Only load project skills, not user plugins
         ]
 
         # Add additional directories the agent can access
@@ -124,6 +126,7 @@ class CLIBackend(AgentBackend):
         agents_md_path = config.BASE_DIR / "AGENTS.md"
         if agents_md_path.exists():
             from datetime import date
+
             today = date.today().strftime("%A %d %B %Y")
             agents_content = agents_md_path.read_text()
             agents_content = f"Aujourd'hui, nous sommes le {today}.\n\n{agents_content}"
@@ -144,7 +147,9 @@ class CLIBackend(AgentBackend):
 
         cmd.extend(self._extra_cmd_args())
 
-        logger.info(f"Starting claude CLI: {' '.join(cmd[:4])}... (prompt length: {len(prompt)}, session: {session_id or 'none'})")
+        logger.info(
+            f"Starting claude CLI: {' '.join(cmd[:4])}... (prompt length: {len(prompt)}, session: {session_id or 'none'})"
+        )
 
         env = self._build_env(conversation_id)
 
@@ -238,21 +243,25 @@ class CLIBackend(AgentBackend):
                 if block_type == "text":
                     text = block.get("text", "").strip()
                     if text:
-                        messages.append(AgentMessage(
-                            type="assistant",
-                            content=text,
-                            raw=event,
-                        ))
+                        messages.append(
+                            AgentMessage(
+                                type="assistant",
+                                content=text,
+                                raw=event,
+                            )
+                        )
 
                 elif block_type == "tool_use":
-                    messages.append(AgentMessage(
-                        type="tool_use",
-                        content={
-                            "tool": block.get("name"),
-                            "input": block.get("input"),
-                        },
-                        raw=event,
-                    ))
+                    messages.append(
+                        AgentMessage(
+                            type="tool_use",
+                            content={
+                                "tool": block.get("name"),
+                                "input": block.get("input"),
+                            },
+                            raw=event,
+                        )
+                    )
 
             # Return first message (we'll handle multiple in the caller if needed)
             if messages:
@@ -342,11 +351,7 @@ class CLIBackend(AgentBackend):
     @property
     def _running(self) -> set[str]:
         """Get set of currently running conversation IDs."""
-        return {
-            conv_id
-            for conv_id, process in self._processes.items()
-            if process.returncode is None
-        }
+        return {conv_id for conv_id, process in self._processes.items() if process.returncode is None}
 
     def is_running(self, conversation_id: str) -> bool:
         """Check if a conversation is currently running."""

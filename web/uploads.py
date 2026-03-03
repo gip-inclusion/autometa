@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import BinaryIO, Optional, Tuple
 
 from . import config
-from .database import store, UploadedFile
+from .database import UploadedFile, store
 
 logger = logging.getLogger(__name__)
 
@@ -48,44 +48,107 @@ TEXT_MIME_TYPES = {
 
 # File extensions that are considered text
 TEXT_EXTENSIONS = {
-    ".txt", ".md", ".markdown", ".csv", ".json", ".yaml", ".yml",
-    ".xml", ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx",
-    ".py", ".rb", ".php", ".java", ".c", ".cpp", ".h", ".hpp",
-    ".go", ".rs", ".swift", ".kt", ".scala", ".r", ".sql",
-    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
-    ".conf", ".ini", ".cfg", ".toml", ".env", ".properties",
-    ".log", ".gitignore", ".dockerignore", ".editorconfig",
+    ".txt",
+    ".md",
+    ".markdown",
+    ".csv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".py",
+    ".rb",
+    ".php",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".go",
+    ".rs",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".r",
+    ".sql",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".bat",
+    ".cmd",
+    ".conf",
+    ".ini",
+    ".cfg",
+    ".toml",
+    ".env",
+    ".properties",
+    ".log",
+    ".gitignore",
+    ".dockerignore",
+    ".editorconfig",
 }
 
 # Dangerous file extensions that should be blocked
 BLOCKED_EXTENSIONS = {
-    ".exe", ".dll", ".so", ".dylib",  # Executables
-    ".bat", ".cmd", ".com", ".msi",   # Windows executables
-    ".scr", ".pif", ".hta", ".cpl",   # Windows script/control panel
-    ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf", ".wsc", ".wsh",  # Windows scripting
-    ".ps1", ".psm1", ".psd1",         # PowerShell
-    ".jar", ".class",                  # Java
-    ".app",                            # macOS application
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",  # Executables
+    ".bat",
+    ".cmd",
+    ".com",
+    ".msi",  # Windows executables
+    ".scr",
+    ".pif",
+    ".hta",
+    ".cpl",  # Windows script/control panel
+    ".vbs",
+    ".vbe",
+    ".js",
+    ".jse",
+    ".ws",
+    ".wsf",
+    ".wsc",
+    ".wsh",  # Windows scripting
+    ".ps1",
+    ".psm1",
+    ".psd1",  # PowerShell
+    ".jar",
+    ".class",  # Java
+    ".app",  # macOS application
 }
 
 
 class UploadError(Exception):
     """Base exception for upload errors."""
+
     pass
 
 
 class FileTooLargeError(UploadError):
     """File exceeds size limit."""
+
     pass
 
 
 class BlockedFileTypeError(UploadError):
     """File type is blocked for security reasons."""
+
     pass
 
 
 class AVScanFailedError(UploadError):
     """File failed antivirus scan."""
+
     pass
 
 
@@ -132,11 +195,11 @@ def _sanitize_filename(filename: str) -> str:
     # Remove path components
     filename = os.path.basename(filename)
     # Replace problematic characters
-    filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+    filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", filename)
     # Limit length
     if len(filename) > 200:
         name, ext = os.path.splitext(filename)
-        filename = name[:200 - len(ext)] + ext
+        filename = name[: 200 - len(ext)] + ext
     return filename or "unnamed"
 
 
@@ -206,6 +269,7 @@ def _upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str
 
     try:
         from . import s3
+
         # Use a different prefix for uploads vs interactive
         key = f"uploads/{relative_path}"
         return s3.upload_file(key, content, content_type)
@@ -245,9 +309,7 @@ def upload_file(
 
     # Check size limit
     if file_size > config.MAX_UPLOAD_SIZE:
-        raise FileTooLargeError(
-            f"File size {file_size} bytes exceeds limit of {config.MAX_UPLOAD_SIZE} bytes"
-        )
+        raise FileTooLargeError(f"File size {file_size} bytes exceeds limit of {config.MAX_UPLOAD_SIZE} bytes")
 
     # Check for blocked extensions
     ext = Path(filename).suffix.lower()
@@ -343,10 +405,7 @@ def upload_file(
         except UnicodeDecodeError:
             pass
 
-    logger.info(
-        f"Uploaded file: {filename} -> {stored_filename} "
-        f"({file_size} bytes, hash={sha256_hash[:16]}...)"
-    )
+    logger.info(f"Uploaded file: {filename} -> {stored_filename} ({file_size} bytes, hash={sha256_hash[:16]}...)")
 
     return uploaded_file, text_content
 
@@ -366,6 +425,7 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
     if config.USE_S3:
         try:
             from . import s3
+
             key = f"uploads/{uploaded_file.stored_filename}"
             return s3.download_file(key)
         except Exception as e:
@@ -456,10 +516,10 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
     # Check if any other records use this stored file
     # (files with same hash share the same storage)
     from .database import get_db
+
     with get_db() as conn:
         count = conn.execute(
-            "SELECT COUNT(*) as cnt FROM uploaded_files WHERE stored_filename = ?",
-            (uploaded_file.stored_filename,)
+            "SELECT COUNT(*) as cnt FROM uploaded_files WHERE stored_filename = ?", (uploaded_file.stored_filename,)
         ).fetchone()["cnt"]
 
     if count > 1:
@@ -483,6 +543,7 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
     if config.USE_S3:
         try:
             from . import s3
+
             key = f"uploads/{uploaded_file.stored_filename}"
             s3.delete_file(key)
         except Exception as e:

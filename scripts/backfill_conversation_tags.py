@@ -9,16 +9,15 @@ Run with --dry-run to see what would be tagged without making changes.
 """
 
 import argparse
-import sys
 import os
+import sys
 import time
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.database import init_db, store, get_db
-from web import config
-from web import llm
+from web import config, llm
+from web.database import get_db, init_db, store
 
 # Tag taxonomy (must match database _seed_tags)
 TAG_TAXONOMY = """
@@ -62,14 +61,37 @@ TAG_TAXONOMY = """
 """
 
 VALID_TAGS = {
-    "emplois", "dora", "marche", "communaute", "pilotage",
-    "plateforme", "rdv-insertion", "mon-recap", "multi",
-    "matomo", "stats", "datalake",
-    "candidats", "prescripteurs", "employeurs", "structures",
-    "acheteurs", "fournisseurs",
-    "iae", "orientation", "depot-de-besoin", "demande-de-devis", "commandes",
-    "trafic", "conversions", "retention", "geographique",
-    "extraction", "analyse", "appli", "meta",
+    "emplois",
+    "dora",
+    "marche",
+    "communaute",
+    "pilotage",
+    "plateforme",
+    "rdv-insertion",
+    "mon-recap",
+    "multi",
+    "matomo",
+    "stats",
+    "datalake",
+    "candidats",
+    "prescripteurs",
+    "employeurs",
+    "structures",
+    "acheteurs",
+    "fournisseurs",
+    "iae",
+    "orientation",
+    "depot-de-besoin",
+    "demande-de-devis",
+    "commandes",
+    "trafic",
+    "conversions",
+    "retention",
+    "geographique",
+    "extraction",
+    "analyse",
+    "appli",
+    "meta",
 }
 
 
@@ -87,7 +109,7 @@ def get_untagged_conversations(limit: int = 100):
             ORDER BY c.created_at DESC
             LIMIT ?
             """,
-            (limit,)
+            (limit,),
         ).fetchall()
         return [dict(row) for row in rows]
 

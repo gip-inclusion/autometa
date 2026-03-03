@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
+
 load_dotenv(PROJECT_ROOT / ".env")
 
 DATA_DIR = PROJECT_ROOT / "data-remote"
@@ -43,7 +44,7 @@ def pull_from_vps():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # DB file (no --delete, single file)
-    print(f"  rsync matometa.db")
+    print("  rsync matometa.db")
     subprocess.run(
         ["rsync", "-avz", f"{VPS_DATA}/matometa.db", str(DATA_DIR) + "/"],
         check=True,
@@ -62,10 +63,7 @@ def pull_from_vps():
 
 def cast_row(columns, row):
     """Cast SQLite 0/1 to Python bool for PG BOOLEAN columns."""
-    return tuple(
-        bool(v) if c in PG_BOOL_COLUMNS and isinstance(v, int) else v
-        for c, v in zip(columns, row)
-    )
+    return tuple(bool(v) if c in PG_BOOL_COLUMNS and isinstance(v, int) else v for c, v in zip(columns, row))
 
 
 def _fetch_rows(src, table, where=None):
@@ -107,8 +105,12 @@ def sync_db(database_url: str, dry_run: bool = False):
                 cur.execute(f"DELETE FROM {t} WHERE {ts} >= %s", (CUTOFF,))
             print(f"  {t}: deleted rows >= {CUTOFF}")
 
-        for t, ts in [("conversations", "created_at"), ("reports", "created_at"),
-                       ("pinned_items", "pinned_at"), ("cron_runs", "started_at")]:
+        for t, ts in [
+            ("conversations", "created_at"),
+            ("reports", "created_at"),
+            ("pinned_items", "pinned_at"),
+            ("cron_runs", "started_at"),
+        ]:
             if not dry_run:
                 cur.execute(f"DELETE FROM {t} WHERE {ts} >= %s", (CUTOFF,))
             print(f"  {t}: deleted rows >= {CUTOFF}")
@@ -130,24 +132,28 @@ def sync_db(database_url: str, dry_run: bool = False):
                     cur,
                     f"INSERT INTO conversations ({col_list}) VALUES %s "
                     f"ON CONFLICT (id) DO UPDATE SET {conflict_update}",
-                    values, page_size=500,
+                    values,
+                    page_size=500,
                 )
                 print(f"  conversations: upserted {len(values)} rows")
         else:
             print("  conversations: nothing to sync")
 
         # Other timestamped tables: plain insert (post-cutoff rows were deleted)
-        for t, ts in [("messages", "timestamp"), ("reports", "updated_at"),
-                       ("uploaded_files", "created_at"), ("pinned_items", "pinned_at"),
-                       ("cron_runs", "started_at")]:
+        for t, ts in [
+            ("messages", "timestamp"),
+            ("reports", "updated_at"),
+            ("uploaded_files", "created_at"),
+            ("pinned_items", "pinned_at"),
+            ("cron_runs", "started_at"),
+        ]:
             columns, values = _fetch_rows(src, t, f"{ts} >= '{CUTOFF}'")
             if values:
                 col_list = ", ".join(columns)
                 if dry_run:
                     print(f"  {t}: would insert {len(values)} rows")
                 else:
-                    execute_values(cur, f"INSERT INTO {t} ({col_list}) VALUES %s",
-                                   values, page_size=500)
+                    execute_values(cur, f"INSERT INTO {t} ({col_list}) VALUES %s", values, page_size=500)
                     print(f"  {t}: inserted {len(values)} rows")
             else:
                 print(f"  {t}: nothing to sync")
@@ -165,8 +171,7 @@ def sync_db(database_url: str, dry_run: bool = False):
         if values:
             col_list = ", ".join(columns)
             if not dry_run:
-                execute_values(cur, f"INSERT INTO tags ({col_list}) VALUES %s",
-                               values, page_size=500)
+                execute_values(cur, f"INSERT INTO tags ({col_list}) VALUES %s", values, page_size=500)
             print(f"  tags: inserted {len(values)} rows")
             # refresh tag IDs after insert
             cur.execute("SELECT id FROM tags")
@@ -180,8 +185,7 @@ def sync_db(database_url: str, dry_run: bool = False):
             values = [v for v in values if v[ci] in pg_conv_ids and v[ti] in pg_tag_ids]
             col_list = ", ".join(columns)
             if not dry_run:
-                execute_values(cur, f"INSERT INTO conversation_tags ({col_list}) VALUES %s",
-                               values, page_size=500)
+                execute_values(cur, f"INSERT INTO conversation_tags ({col_list}) VALUES %s", values, page_size=500)
             print(f"  conversation_tags: inserted {len(values)} rows")
 
         # report_tags: filter to existing reports + tags
@@ -192,17 +196,14 @@ def sync_db(database_url: str, dry_run: bool = False):
             values = [v for v in values if v[ri] in pg_report_ids and v[ti] in pg_tag_ids]
             col_list = ", ".join(columns)
             if not dry_run:
-                execute_values(cur, f"INSERT INTO report_tags ({col_list}) VALUES %s",
-                               values, page_size=500)
+                execute_values(cur, f"INSERT INTO report_tags ({col_list}) VALUES %s", values, page_size=500)
             print(f"  report_tags: inserted {len(values)} rows")
 
         # Reset sequences
         if not dry_run:
-            for t in ["messages", "reports", "uploaded_files",
-                       "pinned_items", "cron_runs", "tags"]:
+            for t in ["messages", "reports", "uploaded_files", "pinned_items", "cron_runs", "tags"]:
                 cur.execute(
-                    f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
-                    f"COALESCE(MAX(id), 0) + 1, false) FROM {t}"
+                    f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 0) + 1, false) FROM {t}"
                 )
 
         if not dry_run:
@@ -267,8 +268,7 @@ def sync_s3(dry_run: bool = False):
                 action = "new" if key not in existing else "changed"
                 print(f"  [{action}] {key} ({size:,} bytes)")
             else:
-                client.put_object(Bucket=bucket, Key=key,
-                                  Body=f.read_bytes(), ContentType=content_type)
+                client.put_object(Bucket=bucket, Key=key, Body=f.read_bytes(), ContentType=content_type)
                 print(f"  {key} ({size:,} bytes)")
             uploaded += 1
 

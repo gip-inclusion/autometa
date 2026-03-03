@@ -8,7 +8,6 @@ and generates clickable URLs for reports.
 import urllib.parse
 from typing import Optional
 
-
 # Mapping from API methods to web UI category/subcategory
 # Discovered via API.getWidgetMetadata - these are the actual Matomo IDs
 UI_MAPPING = {
@@ -98,7 +97,7 @@ def get_ui_url(
         hash_params["segment"] = segment
 
     # Use safe='@=;' to avoid over-encoding segment operators
-    hash_fragment = urllib.parse.urlencode(hash_params, safe='@=;,')
+    hash_fragment = urllib.parse.urlencode(hash_params, safe="@=;,")
 
     # Build the main URL
     main_params = {

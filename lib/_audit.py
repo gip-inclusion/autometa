@@ -126,7 +126,7 @@ def log_query(
                 error,
                 execution_time_ms,
                 row_count,
-            )
+            ),
         )
         conn.commit()
         conn.close()

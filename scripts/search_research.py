@@ -59,7 +59,8 @@ def get_type_label(type_str):
         return None
     # Remove leading emojis/symbols/whitespace
     import re
-    return re.sub(r'^[\U0001F000-\U0001FFFF\u2000-\u2BFF\uFE00-\uFEFF❝❞\s]+', '', type_str).strip()
+
+    return re.sub(r"^[\U0001F000-\U0001FFFF\u2000-\u2BFF\uFE00-\uFEFF❝❞\s]+", "", type_str).strip()
 
 
 def embed_query(text, api_key):
@@ -121,20 +122,20 @@ def search(query, db_path=None, limit=5, db_filter=None, type_filter=None):
     conn.row_factory = sqlite3.Row
 
     # Load chunks and embeddings
-    rows = conn.execute(
-        "SELECT id, page_id, chunk_index, text, database_key, embedding FROM chunks"
-    ).fetchall()
+    rows = conn.execute("SELECT id, page_id, chunk_index, text, database_key, embedding FROM chunks").fetchall()
 
     chunks = []
     vecs = []
     for row in rows:
-        chunks.append({
-            "id": row["id"],
-            "page_id": row["page_id"],
-            "chunk_index": row["chunk_index"],
-            "text": row["text"],
-            "database_key": row["database_key"],
-        })
+        chunks.append(
+            {
+                "id": row["id"],
+                "page_id": row["page_id"],
+                "chunk_index": row["chunk_index"],
+                "text": row["text"],
+                "database_key": row["database_key"],
+            }
+        )
         vecs.append(np.frombuffer(row["embedding"], dtype=np.float32))
 
     embeddings = np.vstack(vecs)
@@ -187,17 +188,19 @@ def search(query, db_path=None, limit=5, db_filter=None, type_filter=None):
         seen_pages[pid] = True
 
         body = extract_body(chunk["text"])
-        results.append({
-            "page_id": pid,
-            "title": page_info["title"] if page_info else "Sans titre",
-            "body": body,
-            "database_key": chunk["database_key"],
-            "database_name": page_info["database_name"] if page_info else None,
-            "page_type": page_info["type"] if page_info else None,
-            "page_date": page_info["date"] if page_info else None,
-            "page_url": page_info["url"] if page_info else None,
-            "score": float(scores[idx]),
-        })
+        results.append(
+            {
+                "page_id": pid,
+                "title": page_info["title"] if page_info else "Sans titre",
+                "body": body,
+                "database_key": chunk["database_key"],
+                "database_name": page_info["database_name"] if page_info else None,
+                "page_type": page_info["type"] if page_info else None,
+                "page_date": page_info["date"] if page_info else None,
+                "page_url": page_info["url"] if page_info else None,
+                "score": float(scores[idx]),
+            }
+        )
 
         if len(results) >= limit:
             break
@@ -233,7 +236,7 @@ def format_citation(result):
         if len(text) > 300:
             cut = text[:300].rfind(". ")
             if cut > 150:
-                text = text[:cut + 1]
+                text = text[: cut + 1]
             else:
                 cut = text[:300].rfind("\n")
                 if cut > 100:
@@ -265,9 +268,7 @@ def format_citation(result):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Search the Notion research corpus for relevant citations."
-    )
+    parser = argparse.ArgumentParser(description="Search the Notion research corpus for relevant citations.")
     parser.add_argument("query", help="Search query (natural language)")
     parser.add_argument("--limit", type=int, default=5, help="Number of citations (default: 5)")
     parser.add_argument("--db", action="append", help="Filter by database key (repeatable)")

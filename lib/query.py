@@ -30,15 +30,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from ._sources import get_metabase, get_matomo
-from ._audit import log_query, _get_db_connection
+from ._audit import _get_db_connection
+from ._matomo import MatomoAPI, MatomoError  # noqa: F401 — re-exported
+from ._metabase import MetabaseAPI, MetabaseError  # noqa: F401 — re-exported
 
 # Re-export API classes and helpers for convenience
-from ._matomo import MatomoAPI, MatomoError
-from ._metabase import MetabaseAPI, MetabaseError
+from ._sources import get_matomo, get_metabase
+
 
 class CallerType(str, Enum):
     """Type of caller making the query."""
+
     AGENT = "agent"
     APP = "app"
 
@@ -46,6 +48,7 @@ class CallerType(str, Enum):
 @dataclass
 class QueryResult:
     """Result of a query execution."""
+
     success: bool
     data: Any
     error: Optional[str] = None
@@ -238,29 +241,23 @@ def get_query_stats(
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
     # Total queries
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM query_log WHERE {where_sql}", params
-    ).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM query_log WHERE {where_sql}", params).fetchone()[0]
 
     # Success rate
-    success = conn.execute(
-        f"SELECT COUNT(*) FROM query_log WHERE {where_sql} AND success = 1", params
-    ).fetchone()[0]
+    success = conn.execute(f"SELECT COUNT(*) FROM query_log WHERE {where_sql} AND success = 1", params).fetchone()[0]
 
     # By source
-    by_source = dict(conn.execute(
-        f"SELECT source, COUNT(*) FROM query_log WHERE {where_sql} GROUP BY source", params
-    ).fetchall())
+    by_source = dict(
+        conn.execute(f"SELECT source, COUNT(*) FROM query_log WHERE {where_sql} GROUP BY source", params).fetchall()
+    )
 
     # By caller
-    by_caller = dict(conn.execute(
-        f"SELECT caller, COUNT(*) FROM query_log WHERE {where_sql} GROUP BY caller", params
-    ).fetchall())
+    by_caller = dict(
+        conn.execute(f"SELECT caller, COUNT(*) FROM query_log WHERE {where_sql} GROUP BY caller", params).fetchall()
+    )
 
     # Avg execution time
-    avg_time = conn.execute(
-        f"SELECT AVG(execution_time_ms) FROM query_log WHERE {where_sql}", params
-    ).fetchone()[0]
+    avg_time = conn.execute(f"SELECT AVG(execution_time_ms) FROM query_log WHERE {where_sql}", params).fetchone()[0]
 
     conn.close()
 

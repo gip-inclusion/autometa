@@ -158,7 +158,9 @@ def _classify_bash(cmd: str) -> str:
     """Classify a Bash command."""
     # API calls - check these first (most important for observability)
     has_matomo = "MatomoAPI" in cmd or "matomo_api" in cmd or "execute_matomo_query" in cmd
-    has_metabase = "MetabaseAPI" in cmd or "metabase_api" in cmd or "execute_sql" in cmd or "execute_metabase_query" in cmd
+    has_metabase = (
+        "MetabaseAPI" in cmd or "metabase_api" in cmd or "execute_sql" in cmd or "execute_metabase_query" in cmd
+    )
 
     if has_matomo and has_metabase:
         return "API: Matomo + Metabase"

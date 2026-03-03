@@ -8,19 +8,20 @@ import threading
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from .. import config, llm
+from ..config import ADMIN_USERS
 from ..deps import get_current_user
 from ..storage import store
-from .. import config
-from .. import llm
-from ..config import ADMIN_USERS
+from ..uploads import (
+    AVScanFailedError,
+    BlockedFileTypeError,
+    FileTooLargeError,
+    copy_file_for_modification,
+    format_file_for_context,
+    get_file_content,
+)
 from ..uploads import (
     upload_file as do_upload_file,
-    copy_file_for_modification,
-    get_file_content,
-    format_file_for_context,
-    FileTooLargeError,
-    BlockedFileTypeError,
-    AVScanFailedError,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/api/conversations")
 
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
     """Generate a smart title for a conversation (async, in background)."""
+
     def _generate():
         try:
             model = config.OLLAMA_TITLE_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.CLAUDE_MODEL
@@ -95,14 +97,37 @@ def generate_conversation_tags(user_message: str, conv_id: str) -> None:
 """
 
     VALID_TAGS = {
-        "emplois", "dora", "marche", "communaute", "pilotage",
-        "plateforme", "rdv-insertion", "mon-recap", "multi",
-        "matomo", "stats", "datalake",
-        "candidats", "prescripteurs", "employeurs", "structures",
-        "acheteurs", "fournisseurs",
-        "iae", "orientation", "depot-de-besoin", "demande-de-devis", "commandes",
-        "trafic", "conversions", "retention", "geographique",
-        "extraction", "analyse", "appli", "meta",
+        "emplois",
+        "dora",
+        "marche",
+        "communaute",
+        "pilotage",
+        "plateforme",
+        "rdv-insertion",
+        "mon-recap",
+        "multi",
+        "matomo",
+        "stats",
+        "datalake",
+        "candidats",
+        "prescripteurs",
+        "employeurs",
+        "structures",
+        "acheteurs",
+        "fournisseurs",
+        "iae",
+        "orientation",
+        "depot-de-besoin",
+        "demande-de-devis",
+        "commandes",
+        "trafic",
+        "conversions",
+        "retention",
+        "geographique",
+        "extraction",
+        "analyse",
+        "appli",
+        "meta",
     }
 
     prompt = f"""Analyse cette demande utilisateur et attribue des tags parmi la taxonomie suivante.
@@ -317,7 +342,7 @@ def generate_title(conv_id: str):
             "En francais uniquement. Pas de guillemets.\n\n"
             f"{context}"
         )
-        title = llm.generate_text(prompt, model=model, max_tokens=50).strip().strip('"\'')[:100]
+        title = llm.generate_text(prompt, model=model, max_tokens=50).strip().strip("\"'")[:100]
         store.update_conversation(conv_id, title=title)
         return {"title": title}
 
@@ -367,7 +392,9 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
     # Check ownership - only owner can send messages
     if conv.user_id and conv.user_id != user_email:
         return JSONResponse(
-            {"error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."},
+            {
+                "error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."
+            },
             status_code=403,
         )
 
@@ -398,7 +425,8 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:
-        from ..helpers import get_staging_dir, KNOWLEDGE_ROOT
+        from ..helpers import KNOWLEDGE_ROOT, get_staging_dir
+
         staging_dir = get_staging_dir(conv_id)
         original_path = KNOWLEDGE_ROOT / conv.file_path
         staged_path = staging_dir / conv.file_path
@@ -433,12 +461,16 @@ User request: """
         prompt = knowledge_context + prompt
 
     # Enqueue the run command for the process manager
-    store.enqueue_pm_command(conv_id, "run", {
-        "prompt": prompt,
-        "history": history,
-        "session_id": conv.session_id,
-        "user_email": user_email,
-    })
+    store.enqueue_pm_command(
+        conv_id,
+        "run",
+        {
+            "prompt": prompt,
+            "history": history,
+            "session_id": conv.session_id,
+            "user_email": user_email,
+        },
+    )
 
     return {
         "status": "started",
@@ -480,12 +512,16 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
             history.append({"role": msg.type, "content": msg.content})
 
     store.update_conversation(conv_id, needs_response=True)
-    store.enqueue_pm_command(conv_id, "run", {
-        "prompt": last_user_msg.content,
-        "history": history,
-        "session_id": conv.session_id,
-        "user_email": conv.user_id,
-    })
+    store.enqueue_pm_command(
+        conv_id,
+        "run",
+        {
+            "prompt": last_user_msg.content,
+            "history": history,
+            "session_id": conv.session_id,
+            "user_email": conv.user_id,
+        },
+    )
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
@@ -538,26 +574,22 @@ async def stream_conversation(
         max_polls = 600  # 5 minutes at 0.5s intervals
 
         while poll_count < max_polls:
-            new_messages = await asyncio.to_thread(
-                store.get_messages_since, conv_id, last_msg_id
-            )
+            new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
             if new_messages:
-                logger.debug(f"SSE poll {poll_count}: {len(new_messages)} new msgs, types={[m.type for m in new_messages]}")
+                logger.debug(
+                    f"SSE poll {poll_count}: {len(new_messages)} new msgs, types={[m.type for m in new_messages]}"
+                )
             for msg in new_messages:
                 last_msg_id = msg.id
                 yield _format_msg(msg)
 
             # Check if the PM has finished (needs_response cleared)
-            updated = await asyncio.to_thread(
-                store.get_conversation, conv_id, False
-            )
+            updated = await asyncio.to_thread(store.get_conversation, conv_id, False)
             if updated and not updated.needs_response:
                 # Final sweep: the PM commits all messages before clearing
                 # needs_response, so one last poll catches anything written
                 # between our message query and this status check.
-                final = await asyncio.to_thread(
-                    store.get_messages_since, conv_id, last_msg_id
-                )
+                final = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
                 for msg in final:
                     yield _format_msg(msg)
 
@@ -601,10 +633,7 @@ def cancel_conversation(conv_id: str):
     # If there's no pending run command, the PM either already finished
     # (and failed to clear the flag) or crashed. Force-clear to unstick.
     pending = store.get_pending_pm_commands()
-    has_pending_run = any(
-        cmd["conversation_id"] == conv_id and cmd["command"] == "run"
-        for cmd in pending
-    )
+    has_pending_run = any(cmd["conversation_id"] == conv_id and cmd["command"] == "run" for cmd in pending)
     if not has_pending_run:
         store.update_conversation(conv_id, needs_response=False)
         store.add_message(conv_id, "assistant", "*Interrompu.*")
@@ -612,14 +641,11 @@ def cancel_conversation(conv_id: str):
     return {"status": "cancelled"}
 
 
-
 @router.get("/{conv_id}/tags")
 def get_conversation_tags(conv_id: str):
     """Get tags for a conversation."""
     tags = store.get_conversation_tags(conv_id)
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}
 
 
 @router.put("/{conv_id}/tags")
@@ -635,14 +661,13 @@ async def set_conversation_tags(conv_id: str, request: Request):
 
     store.set_conversation_tags(conv_id, tag_names)
     tags = store.get_conversation_tags(conv_id)
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}
 
 
 # =============================================================================
 # File Upload Endpoints
 # =============================================================================
+
 
 @router.post("/{conv_id}/files")
 async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str = Depends(get_current_user)):
@@ -701,9 +726,7 @@ def list_files(conv_id: str):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     files = store.get_conversation_files(conv_id)
-    return {
-        "files": [f.to_dict() for f in files]
-    }
+    return {"files": [f.to_dict() for f in files]}
 
 
 @router.get("/{conv_id}/files/{file_id}")
@@ -736,9 +759,7 @@ def get_file_content_endpoint(conv_id: str, file_id: int):
     return Response(
         content=content,
         media_type=uploaded_file.mime_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="{uploaded_file.original_filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{uploaded_file.original_filename}"'},
     )
 
 

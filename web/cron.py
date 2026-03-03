@@ -28,8 +28,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import config
-from . import s3
+from . import config, s3
 from .database import get_db
 
 # Defaults
@@ -161,16 +160,18 @@ def _discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
         meta = _parse_frontmatter(folder / md_name)
 
-        tasks.append({
-            "slug": folder.name,
-            "title": meta.get("title", folder.name),
-            "tier": tier,
-            "path": str(folder),
-            "cron_path": str(cron_script),
-            "enabled": _is_enabled(meta),
-            "timeout": _get_timeout(meta),
-            "schedule": _get_schedule(meta),
-        })
+        tasks.append(
+            {
+                "slug": folder.name,
+                "title": meta.get("title", folder.name),
+                "tier": tier,
+                "path": str(folder),
+                "cron_path": str(cron_script),
+                "enabled": _is_enabled(meta),
+                "timeout": _get_timeout(meta),
+                "schedule": _get_schedule(meta),
+            }
+        )
 
     return tasks
 
@@ -186,17 +187,19 @@ def _discover_from_s3() -> list[dict]:
         md_bytes = s3.download_file(f"{slug}/APP.md")
         meta = _parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
 
-        tasks.append({
-            "slug": slug,
-            "title": meta.get("title", slug),
-            "tier": "app",
-            "source": "s3",
-            "path": slug,  # S3 prefix, not a local path
-            "cron_path": f"{slug}/cron.py",
-            "enabled": _is_enabled(meta),
-            "timeout": _get_timeout(meta),
-            "schedule": _get_schedule(meta),
-        })
+        tasks.append(
+            {
+                "slug": slug,
+                "title": meta.get("title", slug),
+                "tier": "app",
+                "source": "s3",
+                "path": slug,  # S3 prefix, not a local path
+                "cron_path": f"{slug}/cron.py",
+                "enabled": _is_enabled(meta),
+                "timeout": _get_timeout(meta),
+                "schedule": _get_schedule(meta),
+            }
+        )
 
     return tasks
 
@@ -228,7 +231,7 @@ def _prepare_s3_workdir(slug: str) -> Path:
     for entry in s3.list_files(f"{slug}/"):
         rel_path = entry["path"]
         # rel_path is like "slug/cron.py" — strip the slug prefix
-        local_name = rel_path[len(slug) + 1:]
+        local_name = rel_path[len(slug) + 1 :]
         if not local_name:
             continue
         content = s3.download_file(rel_path)
@@ -362,25 +365,25 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
     runs: dict[str, list[dict]] = {}
     try:
         with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM cron_runs ORDER BY started_at DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM cron_runs ORDER BY started_at DESC").fetchall()
 
             for row in rows:
                 slug = row["app_slug"]
                 if slug not in runs:
                     runs[slug] = []
                 if len(runs[slug]) < limit_per_app:
-                    runs[slug].append({
-                        "id": row["id"],
-                        "app_slug": row["app_slug"],
-                        "started_at": row["started_at"],
-                        "finished_at": row["finished_at"],
-                        "status": row["status"],
-                        "output": row["output"],
-                        "duration_ms": row["duration_ms"],
-                        "trigger": row["trigger"],
-                    })
+                    runs[slug].append(
+                        {
+                            "id": row["id"],
+                            "app_slug": row["app_slug"],
+                            "started_at": row["started_at"],
+                            "finished_at": row["finished_at"],
+                            "status": row["status"],
+                            "output": row["output"],
+                            "duration_ms": row["duration_ms"],
+                            "trigger": row["trigger"],
+                        }
+                    )
     except Exception as e:
         print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
     return runs

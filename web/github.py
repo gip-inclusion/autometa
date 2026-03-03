@@ -6,12 +6,12 @@ from typing import Optional
 
 import requests
 
-
 GITHUB_API = "https://api.github.com"
 
 
 class GitHubError(Exception):
     """GitHub API error."""
+
     pass
 
 

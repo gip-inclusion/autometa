@@ -7,7 +7,6 @@ Usage:
 """
 
 import argparse
-import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -15,9 +14,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from lib.query import execute_metabase_query, CallerType
+from lib.query import CallerType, execute_metabase_query
 
 DATABASE_ID = 2
 
@@ -45,7 +45,8 @@ def run_sql(sql, label="", write=False):
 def create_tables():
     print("Creating tables on datalake...")
 
-    run_sql("""
+    run_sql(
+        """
     CREATE TABLE IF NOT EXISTS matometa_webinaires (
         id VARCHAR(255) PRIMARY KEY,
         source VARCHAR(20) NOT NULL,
@@ -66,9 +67,13 @@ def create_tables():
         raw_json JSONB,
         synced_at TIMESTAMPTZ
     )
-    """, "matometa_webinaires", write=True)
+    """,
+        "matometa_webinaires",
+        write=True,
+    )
 
-    run_sql("""
+    run_sql(
+        """
     CREATE TABLE IF NOT EXISTS matometa_webinaire_sessions (
         id VARCHAR(255) PRIMARY KEY,
         webinar_id VARCHAR(255) REFERENCES matometa_webinaires(id),
@@ -81,9 +86,13 @@ def create_tables():
         room_link TEXT,
         synced_at TIMESTAMPTZ
     )
-    """, "matometa_webinaire_sessions", write=True)
+    """,
+        "matometa_webinaire_sessions",
+        write=True,
+    )
 
-    run_sql("""
+    run_sql(
+        """
     CREATE TABLE IF NOT EXISTS matometa_webinaire_inscriptions (
         id SERIAL PRIMARY KEY,
         source VARCHAR(20) NOT NULL,
@@ -103,25 +112,37 @@ def create_tables():
         synced_at TIMESTAMPTZ,
         UNIQUE(source, webinar_id, session_id, email)
     )
-    """, "matometa_webinaire_inscriptions", write=True)
+    """,
+        "matometa_webinaire_inscriptions",
+        write=True,
+    )
 
-    run_sql("""
+    run_sql(
+        """
     CREATE TABLE IF NOT EXISTS matometa_webinaire_sync_meta (
         key VARCHAR(255) PRIMARY KEY,
         value TEXT
     )
-    """, "matometa_webinaire_sync_meta", write=True)
+    """,
+        "matometa_webinaire_sync_meta",
+        write=True,
+    )
 
     # Indexes
     for idx_sql, label in [
-        ("CREATE INDEX IF NOT EXISTS idx_mw_reg_email ON matometa_webinaire_inscriptions(email)",
-         "idx email"),
-        ("CREATE INDEX IF NOT EXISTS idx_mw_reg_org ON matometa_webinaire_inscriptions(organisation)",
-         "idx organisation"),
-        ("CREATE INDEX IF NOT EXISTS idx_mw_reg_webinar ON matometa_webinaire_inscriptions(webinar_id)",
-         "idx webinar_id"),
-        ("CREATE INDEX IF NOT EXISTS idx_mw_sessions_webinar ON matometa_webinaire_sessions(webinar_id)",
-         "idx sessions.webinar_id"),
+        ("CREATE INDEX IF NOT EXISTS idx_mw_reg_email ON matometa_webinaire_inscriptions(email)", "idx email"),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_mw_reg_org ON matometa_webinaire_inscriptions(organisation)",
+            "idx organisation",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_mw_reg_webinar ON matometa_webinaire_inscriptions(webinar_id)",
+            "idx webinar_id",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_mw_sessions_webinar ON matometa_webinaire_sessions(webinar_id)",
+            "idx sessions.webinar_id",
+        ),
     ]:
         run_sql(idx_sql, label, write=True)
 
@@ -147,20 +168,35 @@ def export_sqlite(db_path: Path):
     print(f"  webinars: {len(rows)} rows")
     batch_size = 10
     for i in range(0, len(rows), batch_size):
-        batch = rows[i:i + batch_size]
+        batch = rows[i : i + batch_size]
         values = []
         for r in batch:
-            values.append("({})".format(", ".join([
-                escape(r["id"]), escape(r["source"]), escape(r["source_id"]),
-                escape(r["title"]), escape(r["description"]),
-                escape(r["organizer_email"]), escape(r["product"]),
-                escape(r["status"]), escape(r["started_at"]),
-                escape(r["ended_at"]), escape(r["duration_minutes"]),
-                escape(r["capacity"]), escape(r["registrants_count"]),
-                escape(r["attendees_count"]), escape(r["registration_url"]),
-                escape(r["webinar_url"]), escape(r["raw_json"]),
-                escape(r["synced_at"]),
-            ])))
+            values.append(
+                "({})".format(
+                    ", ".join(
+                        [
+                            escape(r["id"]),
+                            escape(r["source"]),
+                            escape(r["source_id"]),
+                            escape(r["title"]),
+                            escape(r["description"]),
+                            escape(r["organizer_email"]),
+                            escape(r["product"]),
+                            escape(r["status"]),
+                            escape(r["started_at"]),
+                            escape(r["ended_at"]),
+                            escape(r["duration_minutes"]),
+                            escape(r["capacity"]),
+                            escape(r["registrants_count"]),
+                            escape(r["attendees_count"]),
+                            escape(r["registration_url"]),
+                            escape(r["webinar_url"]),
+                            escape(r["raw_json"]),
+                            escape(r["synced_at"]),
+                        ]
+                    )
+                )
+            )
         sql = """INSERT INTO matometa_webinaires
             (id, source, source_id, title, description, organizer_email,
              product, status, started_at, ended_at, duration_minutes,
@@ -173,16 +209,27 @@ def export_sqlite(db_path: Path):
     rows = conn.execute("SELECT * FROM sessions").fetchall()
     print(f"  sessions: {len(rows)} rows")
     for i in range(0, len(rows), batch_size):
-        batch = rows[i:i + batch_size]
+        batch = rows[i : i + batch_size]
         values = []
         for r in batch:
-            values.append("({})".format(", ".join([
-                escape(r["id"]), escape(r["webinar_id"]), escape(r["status"]),
-                escape(r["started_at"]), escape(r["ended_at"]),
-                escape(r["duration_seconds"]), escape(r["registrants_count"]),
-                escape(r["attendees_count"]), escape(r["room_link"]),
-                escape(r["synced_at"]),
-            ])))
+            values.append(
+                "({})".format(
+                    ", ".join(
+                        [
+                            escape(r["id"]),
+                            escape(r["webinar_id"]),
+                            escape(r["status"]),
+                            escape(r["started_at"]),
+                            escape(r["ended_at"]),
+                            escape(r["duration_seconds"]),
+                            escape(r["registrants_count"]),
+                            escape(r["attendees_count"]),
+                            escape(r["room_link"]),
+                            escape(r["synced_at"]),
+                        ]
+                    )
+                )
+            )
         sql = """INSERT INTO matometa_webinaire_sessions
             (id, webinar_id, status, started_at, ended_at, duration_seconds,
              registrants_count, attendees_count, room_link, synced_at)
@@ -194,27 +241,39 @@ def export_sqlite(db_path: Path):
     print(f"  registrations: {len(rows)} rows")
     reg_batch = 20
     for i in range(0, len(rows), reg_batch):
-        batch = rows[i:i + reg_batch]
+        batch = rows[i : i + reg_batch]
         values = []
         for r in batch:
-            values.append("({})".format(", ".join([
-                escape(r["source"]), escape(r["webinar_id"]),
-                escape(r["session_id"]), escape(r["email"]),
-                escape(r["first_name"]), escape(r["last_name"]),
-                escape(r["organisation"]), escape(r["registered"]),
-                escape(r["attended"]), escape(r["attendance_rate"]),
-                escape(r["attendance_duration_seconds"]),
-                escape(r["has_viewed_replay"]), escape(r["custom_fields"]),
-                escape(r["registered_at"]), escape(r["synced_at"]),
-            ])))
+            values.append(
+                "({})".format(
+                    ", ".join(
+                        [
+                            escape(r["source"]),
+                            escape(r["webinar_id"]),
+                            escape(r["session_id"]),
+                            escape(r["email"]),
+                            escape(r["first_name"]),
+                            escape(r["last_name"]),
+                            escape(r["organisation"]),
+                            escape(r["registered"]),
+                            escape(r["attended"]),
+                            escape(r["attendance_rate"]),
+                            escape(r["attendance_duration_seconds"]),
+                            escape(r["has_viewed_replay"]),
+                            escape(r["custom_fields"]),
+                            escape(r["registered_at"]),
+                            escape(r["synced_at"]),
+                        ]
+                    )
+                )
+            )
         sql = """INSERT INTO matometa_webinaire_inscriptions
             (source, webinar_id, session_id, email, first_name, last_name,
              organisation, registered, attended, attendance_rate,
              attendance_duration_seconds, has_viewed_replay, custom_fields,
              registered_at, synced_at)
             VALUES {}
-            ON CONFLICT(source, webinar_id, session_id, email) DO NOTHING""".format(
-                ", ".join(values))
+            ON CONFLICT(source, webinar_id, session_id, email) DO NOTHING""".format(", ".join(values))
         run_sql(sql, f"registrations batch {i // reg_batch + 1}", write=True)
         if (i + reg_batch) % 1000 == 0:
             print(f"    {i + reg_batch}/{len(rows)}")
@@ -223,8 +282,7 @@ def export_sqlite(db_path: Path):
     rows = conn.execute("SELECT * FROM sync_meta").fetchall()
     for r in rows:
         sql = """INSERT INTO matometa_webinaire_sync_meta (key, value) VALUES ({}, {})
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value""".format(
-                escape(r["key"]), escape(r["value"]))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value""".format(escape(r["key"]), escape(r["value"]))
         run_sql(sql, f"sync_meta: {r['key']}", write=True)
 
     conn.close()

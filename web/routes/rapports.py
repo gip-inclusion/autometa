@@ -8,11 +8,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from markupsafe import Markup
 
+from .. import config
+from ..config import ADMIN_USERS
 from ..deps import get_current_user, templates
 from ..storage import store
 from .html import get_sidebar_data
-from .. import config
-from ..config import ADMIN_USERS
 
 router = APIRouter()
 
@@ -172,18 +172,18 @@ def _render_report_content(raw_content: str) -> tuple[dict, Markup]:
     front_matter = {}
     content = raw_content
 
-    fm_match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
+    fm_match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
     if fm_match:
-        for line in fm_match.group(1).split('\n'):
-            idx = line.find(':')
+        for line in fm_match.group(1).split("\n"):
+            idx = line.find(":")
             if idx > 0:
                 key = line[:idx].strip().lower()
-                value = line[idx + 1:].strip()
+                value = line[idx + 1 :].strip()
                 front_matter[key] = value
-        content = content[fm_match.end():]
+        content = content[fm_match.end() :]
 
     html = md.markdown(content, extensions=["fenced_code", "tables", "toc"])
-    html = html.replace('<table>', '<table class="table table-sm table-striped">')
+    html = html.replace("<table>", '<table class="table table-sm table-striped">')
 
     return front_matter, Markup(html)
 
@@ -199,14 +199,18 @@ def _render_rapports_page(request: Request, user_email: str, report_id: int):
     current_report_tags = store.get_report_tags(report_id)
     report_front_matter, report_html = _render_report_content(current_report.content)
 
-    return templates.TemplateResponse(request, "rapports.html", {
-        "section": "rapports",
-        "current_report": current_report,
-        "current_report_tags": current_report_tags,
-        "report_front_matter": report_front_matter,
-        "report_html": report_html,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "rapports.html",
+        {
+            "section": "rapports",
+            "current_report": current_report,
+            "current_report_tags": current_report_tags,
+            "report_front_matter": report_front_matter,
+            "report_html": report_html,
+            **data,
+        },
+    )
 
 
 @router.post("/api/apps/{slug}/pin")

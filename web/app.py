@@ -28,19 +28,23 @@ async def lifespan(app: FastAPI):
     # Restore Claude credentials from S3 if needed
     if config.USES_CLAUDE_CLI:
         from . import claude_credentials
+
         claude_credentials.restore_credentials_from_s3()
 
     # Start S3 sync watcher for interactive files
     from . import sync_to_s3
+
     sync_to_s3.start_sync_watcher()
 
     # Warm the interactive apps cache (avoids N+1 S3 calls on first request)
     if config.USE_S3:
         from .routes.rapports import scan_interactive_apps
+
         await asyncio.to_thread(scan_interactive_apps)
 
     # Run process manager in-process (no separate container needed)
     from .pm import ProcessManager
+
     pm = ProcessManager()
     pm_task = asyncio.create_task(pm.run())
 
@@ -70,6 +74,7 @@ if config.COMMON_DIR.exists():
 # =============================================================================
 # Interactive files: /interactive/ (served from S3 or local data/interactive/)
 # =============================================================================
+
 
 @app.get("/interactive/{filename:path}")
 @app.get("/interactive/")
@@ -137,7 +142,7 @@ def serve_interactive(request: Request, filename: str = ""):
 # Register Routers
 # =============================================================================
 
-from .routes import query, auth, logs, cron, knowledge, reports, rapports, research, html, conversations  # noqa: E402
+from .routes import auth, conversations, cron, html, knowledge, logs, query, rapports, reports, research  # noqa: E402
 
 app.include_router(query.router)
 app.include_router(auth.router)
@@ -155,6 +160,7 @@ app.include_router(html.router)
 # =============================================================================
 # Main
 # =============================================================================
+
 
 def main():
     """Run the development server."""

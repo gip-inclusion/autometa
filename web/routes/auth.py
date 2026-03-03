@@ -98,6 +98,4 @@ def backup():
     success = claude_credentials.backup_credentials_to_s3()
     if success:
         return {"status": "ok"}
-    return JSONResponse(
-        {"status": "error", "error": "Backup failed"}, status_code=500
-    )
+    return JSONResponse({"status": "error", "error": "Backup failed"}, status_code=500)

@@ -10,19 +10,20 @@ Usage:
 
 import json
 import time
-import urllib.request
 import urllib.parse
+import urllib.request
 from typing import Any, Optional
 
-from ._audit import log_query, get_conversation_id
-from .api_signals import emit_api_signal
+from ._audit import log_query
 
 # Import UI URL builder
 from ._matomo_ui import get_ui_url
+from .api_signals import emit_api_signal
 
 
 class MatomoError(Exception):
     """Error from Matomo API."""
+
     pass
 
 
@@ -248,10 +249,7 @@ class MatomoAPI:
 
     def get_configured_dimensions(self, site_id: int) -> list[dict]:
         """Get custom dimensions configured for a site."""
-        return self._request(
-            "CustomDimensions.getConfiguredCustomDimensions",
-            {"idSite": site_id}
-        )
+        return self._request("CustomDimensions.getConfiguredCustomDimensions", {"idSite": site_id})
 
     def get_dimension(
         self,

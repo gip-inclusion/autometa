@@ -7,7 +7,6 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Optional
 
 from . import config
@@ -101,7 +100,7 @@ def audit_log(
                 tool_name,
                 input_json,
                 1 if success else 0,
-            )
+            ),
         )
 
 
@@ -112,7 +111,7 @@ def get_recent_audit_logs(limit: int = 100) -> list[dict]:
             """SELECT * FROM tool_invocations
                ORDER BY timestamp DESC
                LIMIT ?""",
-            (limit,)
+            (limit,),
         ).fetchall()
 
         return [
@@ -136,7 +135,7 @@ def get_audit_logs_for_conversation(conversation_id: str) -> list[dict]:
             """SELECT * FROM tool_invocations
                WHERE conversation_id = ?
                ORDER BY timestamp ASC""",
-            (conversation_id,)
+            (conversation_id,),
         ).fetchall()
 
         return [

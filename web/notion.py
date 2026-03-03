@@ -5,8 +5,6 @@ import os
 import re
 import urllib.request
 
-from . import config
-
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
 
@@ -129,13 +127,15 @@ def markdown_to_blocks(md: str) -> list[dict]:
             code_content = "\n".join(code_lines)
             if len(code_content) > 2000:
                 code_content = code_content[:1997] + "..."
-            blocks.append({
-                "type": "code",
-                "code": {
-                    "rich_text": [_rich_text(code_content)],
-                    "language": notion_lang,
-                },
-            })
+            blocks.append(
+                {
+                    "type": "code",
+                    "code": {
+                        "rich_text": [_rich_text(code_content)],
+                        "language": notion_lang,
+                    },
+                }
+            )
             continue
 
         # Table
@@ -144,9 +144,7 @@ def markdown_to_blocks(md: str) -> list[dict]:
             while i < len(lines) and "|" in lines[i] and lines[i].strip():
                 table_lines.append(lines[i])
                 i += 1
-            data_lines = [
-                l for l in table_lines if not re.match(r"^\s*\|[-:\s|]+\|\s*$", l)
-            ]
+            data_lines = [line for line in table_lines if not re.match(r"^\s*\|[-:\s|]+\|\s*$", line)]
             if data_lines:
                 rows = []
                 for tl in data_lines:
@@ -158,59 +156,65 @@ def markdown_to_blocks(md: str) -> list[dict]:
                     while len(row) < col_count:
                         row.append("")
                     row = row[:col_count]
-                    table_rows.append({
-                        "type": "table_row",
-                        "table_row": {
-                            "cells": [_parse_inline(cell) for cell in row],
+                    table_rows.append(
+                        {
+                            "type": "table_row",
+                            "table_row": {
+                                "cells": [_parse_inline(cell) for cell in row],
+                            },
+                        }
+                    )
+                blocks.append(
+                    {
+                        "type": "table",
+                        "table": {
+                            "table_width": col_count,
+                            "has_column_header": True,
+                            "has_row_header": False,
+                            "children": table_rows,
                         },
-                    })
-                blocks.append({
-                    "type": "table",
-                    "table": {
-                        "table_width": col_count,
-                        "has_column_header": True,
-                        "has_row_header": False,
-                        "children": table_rows,
-                    },
-                })
+                    }
+                )
             continue
 
         # Numbered list
         num_match = re.match(r"^(\d+)\.\s+(.*)", line)
         if num_match:
-            blocks.append({
-                "type": "numbered_list_item",
-                "numbered_list_item": {"rich_text": _parse_inline(num_match.group(2))},
-            })
+            blocks.append(
+                {
+                    "type": "numbered_list_item",
+                    "numbered_list_item": {"rich_text": _parse_inline(num_match.group(2))},
+                }
+            )
             i += 1
             continue
 
         # Bullet list
         bullet_match = re.match(r"^[-*]\s+(.*)", line)
         if bullet_match:
-            blocks.append({
-                "type": "bulleted_list_item",
-                "bulleted_list_item": {
-                    "rich_text": _parse_inline(bullet_match.group(1))
-                },
-            })
+            blocks.append(
+                {
+                    "type": "bulleted_list_item",
+                    "bulleted_list_item": {"rich_text": _parse_inline(bullet_match.group(1))},
+                }
+            )
             i += 1
             continue
 
         # Regular paragraph
         para_lines = []
         while (
-            i < len(lines)
-            and lines[i].strip()
-            and not re.match(r"^(#{1,3}\s|```|---|\|.*\||\d+\.\s|[-*]\s)", lines[i])
+            i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,3}\s|```|---|\|.*\||\d+\.\s|[-*]\s)", lines[i])
         ):
             para_lines.append(lines[i])
             i += 1
         if para_lines:
-            blocks.append({
-                "type": "paragraph",
-                "paragraph": {"rich_text": _parse_inline(" ".join(para_lines))},
-            })
+            blocks.append(
+                {
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": _parse_inline(" ".join(para_lines))},
+                }
+            )
             continue
 
         i += 1
