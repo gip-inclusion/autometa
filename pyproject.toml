@@ -61,4 +61,38 @@ embeddings = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.0.2",
+    "ruff>=0.11.0",
+    "bandit>=1.8.0",
+    "pip-audit>=2.7.0",
+]
+
+# =============================================================================
+# Ruff — linting & formatting
+# =============================================================================
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = ["data/", ".venv/", "evals/", "skills/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line length — enforce progressively, not retroactively
+]
+
+[tool.ruff.lint.per-file-ignores]
+"web/app.py" = ["E402"]              # imports after logging setup
+"web/routes/__init__.py" = ["F401"]  # re-exports
+"scripts/*" = ["E402"]               # sys.path / dotenv setup before imports
+
+# =============================================================================
+# Bandit — SAST
+# =============================================================================
+
+[tool.bandit]
+exclude_dirs = ["tests", "evals", "data", "skills"]
+skips = [
+    "B310",  # urllib.request.urlopen — used for controlled internal API calls (Matomo, Metabase, Notion)
+    "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]
