@@ -1,18 +1,19 @@
 """Expert mode routes — separate UI section for vibecoded apps."""
 
-import copy
+import asyncio
 import logging
 import secrets
 import socket
 import subprocess
 from urllib.parse import urljoin, urlsplit, urlunsplit
-from pathlib import Path
 
-import requests
-from flask import Blueprint, render_template, request, g, redirect, jsonify, abort, Response
+import requests as http_requests
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from ..storage import store
 from .. import config
+from ..deps import get_current_user, templates
 from lib.expert_git import (
     authenticated_clone_url,
     commit_and_push_staging_if_changed,
@@ -24,7 +25,7 @@ from lib.expert_git import (
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("expert", __name__)
+router = APIRouter()
 
 
 # =============================================================================
@@ -61,7 +62,7 @@ def _normalize_deploy_url(raw_domains) -> str | None:
     return f"http://{domain}"
 
 
-def _publicize_deploy_url(url: str | None) -> str | None:
+def _publicize_deploy_url(url: str | None, request: Request | None = None) -> str | None:
     """Return a browser-reachable URL for the current requester.
 
     Deploy URLs are stored as localhost in local Docker setups. When users access
@@ -78,8 +79,8 @@ def _publicize_deploy_url(url: str | None) -> str | None:
         return url
 
     target_host = config.EXPERT_DEPLOY_PUBLIC_HOST or ""
-    if not target_host:
-        req_host = (request.host or "").split(":", 1)[0].strip()
+    if not target_host and request is not None:
+        req_host = (request.headers.get("host") or "").split(":", 1)[0].strip()
         if req_host and req_host not in {"localhost", "127.0.0.1", "testserver"}:
             target_host = req_host
 
@@ -91,11 +92,11 @@ def _publicize_deploy_url(url: str | None) -> str | None:
     return urlunsplit((scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
-def _project_to_public_dict(project) -> dict:
+def _project_to_public_dict(project, request: Request | None = None) -> dict:
     """Serialize project and rewrite deploy URLs for current requester."""
     payload = project.to_dict()
     for field in ("deploy_url", "staging_deploy_url", "production_deploy_url"):
-        value = _publicize_deploy_url(payload.get(field))
+        value = _publicize_deploy_url(payload.get(field), request)
         payload[f"{field}_technical"] = value
         payload[field] = value
     payload["staging_preview_url"] = _preview_url(project.slug, "staging")
@@ -267,7 +268,7 @@ def _ensure_deployable_repo(project):
             f"<title>{safe_name}</title></head>\n"
             "<body style=\"font-family: sans-serif; margin: 2rem;\">\n"
             f"<h1>{safe_name}</h1>\n"
-            "<p>L'application est déployée. Vous pouvez maintenant la faire évoluer dans cette conversation.</p>\n"
+            "<p>L'application est deployee. Vous pouvez maintenant la faire evoluer dans cette conversation.</p>\n"
             "</body></html>\n"
         )
         created_files.append("index.html")
@@ -373,7 +374,7 @@ def _try_create_gitea_repo(project):
 
 
 def _setup_gitea_webhook(project, app_uuid, coolify, branch_filter: str | None = None):
-    """Set up Gitea→Coolify webhook for auto-redeploy on push.
+    """Set up Gitea->Coolify webhook for auto-redeploy on push.
 
     Non-blocking: logs errors but never raises.
     """
@@ -393,7 +394,7 @@ def _setup_gitea_webhook(project, app_uuid, coolify, branch_filter: str | None =
 
         gitea = GiteaClient()
         gitea.create_webhook(owner, repo, webhook_url, secret, branch_filter=branch_filter)
-        logger.info("Created Gitea webhook for %s/%s → Coolify %s", owner, repo, app_uuid)
+        logger.info("Created Gitea webhook for %s/%s -> Coolify %s", owner, repo, app_uuid)
     except Exception:
         logger.exception("Failed to set up Gitea webhook for project %s", project.id)
 
@@ -534,8 +535,6 @@ def _ensure_production_application(project, coolify):
 def _get_expert_sidebar_data(user_email=None):
     """Get sidebar data for expert mode pages."""
     from .html import get_sidebar_data
-    if user_email is None:
-        user_email = getattr(g, "user_email", None)
     return get_sidebar_data(user_email)
 
 
@@ -543,91 +542,106 @@ def _get_expert_sidebar_data(user_email=None):
 # HTML pages
 # =============================================================================
 
-@bp.route("/expert")
-def expert_home():
+@router.get("/expert")
+def expert_home(request: Request, user_email: str = Depends(get_current_user)):
     """Expert mode landing: list of user's projects + new project button."""
     if not config.EXPERT_MODE_ENABLED:
-        abort(404)
+        raise HTTPException(status_code=404)
 
-    user_email = getattr(g, "user_email", None)
     projects = store.list_projects(user_id=user_email)
 
-    data = _get_expert_sidebar_data()
-    return render_template(
-        "expert/home.html",
-        section="expert",
-        current_conv=None,
-        projects=projects,
-        **data
-    )
+    data = _get_expert_sidebar_data(user_email)
+    return templates.TemplateResponse(request, "expert/home.html", {
+        "section": "expert",
+        "current_conv": None,
+        "projects": projects,
+        **data,
+    })
 
 
-@bp.route("/expert/nouveau")
-def expert_new():
+@router.get("/expert/nouveau")
+def expert_new(user_email: str = Depends(get_current_user)):
     """Create new expert app -> redirects to conversation in plan mode."""
     if not config.EXPERT_MODE_ENABLED:
-        abort(404)
+        raise HTTPException(status_code=404)
 
-    user_email = getattr(g, "user_email", None)
     project = store.create_project(name="Nouveau projet", user_id=user_email)
     _try_create_gitea_repo(project)
+
+    # Initialize .specify/ structure for spec-driven workflow
+    workdir = config.PROJECTS_DIR / project.id
+    workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        from skills.speckit_init.scripts.init_project import init_specify
+        init_specify(str(workdir))
+    except Exception:
+        logger.exception("Failed to init .specify/ for project %s", project.id)
+
     conv = store.create_conversation(
         conv_type="project", project_id=project.id, user_id=user_email
     )
-    return redirect(f"/expert/{project.slug}/{conv.id}")
+    return RedirectResponse(f"/expert/{project.slug}/{conv.id}", status_code=302)
 
 
-@bp.route("/expert/<slug>")
-def expert_project(slug):
-    """Project detail: tabs for conversations, spec, deployment."""
+@router.get("/expert/{slug}")
+def expert_project(slug: str, user_email: str = Depends(get_current_user)):
+    """Project detail: redirect to latest conversation (workspace view)."""
     if not config.EXPERT_MODE_ENABLED:
-        abort(404)
+        raise HTTPException(status_code=404)
 
     project = store.get_project_by_slug(slug)
     if not project:
-        return redirect("/expert")
+        return RedirectResponse("/expert", status_code=302)
 
+    # Redirect to the latest conversation's workspace view
     project_conversations = store.list_project_conversations(project.id)
+    if project_conversations:
+        return RedirectResponse(f"/expert/{slug}/{project_conversations[0].id}", status_code=302)
 
-    public_project = copy.deepcopy(project)
-    public_project.deploy_url = _publicize_deploy_url(public_project.deploy_url)
-    public_project.staging_deploy_url = _publicize_deploy_url(public_project.staging_deploy_url)
-    public_project.production_deploy_url = _publicize_deploy_url(public_project.production_deploy_url)
-    public_project.staging_preview_url = _preview_url(project.slug, "staging")
-    public_project.production_preview_url = _preview_url(project.slug, "production")
-
-    data = _get_expert_sidebar_data()
-    return render_template(
-        "expert/project.html",
-        section="expert",
-        current_conv=None,
-        project=public_project,
-        project_conversations=project_conversations,
-        **data
+    # No conversations yet -- create one and redirect
+    conv = store.create_conversation(
+        conv_type="project", project_id=project.id, user_id=user_email
     )
+    return RedirectResponse(f"/expert/{slug}/{conv.id}", status_code=302)
 
 
-@bp.route("/expert/<slug>/preview/<environment>/", defaults={"subpath": ""}, methods=["GET", "HEAD"])
-@bp.route("/expert/<slug>/preview/<environment>/<path:subpath>", methods=["GET", "HEAD"])
-def expert_project_preview(slug, environment, subpath):
+@router.get("/expert/{slug}/settings")
+def expert_settings(slug: str, request: Request):
+    """Project settings: deploy status, deploy actions, project config."""
+    if not config.EXPERT_MODE_ENABLED:
+        raise HTTPException(status_code=404)
+
+    project = store.get_project_by_slug(slug)
+    if not project:
+        return RedirectResponse("/expert", status_code=302)
+
+    return templates.TemplateResponse(request, "expert/settings.html", {
+        "project": project,
+        "section": "expert",
+    })
+
+
+@router.api_route("/expert/{slug}/preview/{environment}/", methods=["GET", "HEAD"])
+@router.api_route("/expert/{slug}/preview/{environment}/{subpath:path}", methods=["GET", "HEAD"])
+async def expert_project_preview(slug: str, environment: str, request: Request, subpath: str = ""):
     """Proxy project preview through Matometa host so localhost ports are not required client-side."""
     if not config.EXPERT_MODE_ENABLED:
-        abort(404)
+        raise HTTPException(status_code=404)
 
     if environment not in {"staging", "production"}:
-        abort(404)
+        raise HTTPException(status_code=404)
 
     project = store.get_project_by_slug(slug)
     if not project:
-        abort(404)
+        raise HTTPException(status_code=404)
 
     upstream_base = _environment_deploy_url(project, environment)
     if not upstream_base:
-        return "Application non deployee pour cet environnement.", 404
+        return Response(content="Application non deployee pour cet environnement.", status_code=404)
 
     parsed_subpath = urlsplit(subpath)
     if parsed_subpath.scheme or parsed_subpath.netloc:
-        abort(400)
+        raise HTTPException(status_code=400)
 
     safe_subpath = parsed_subpath.path.lstrip("/")
     target_url = urljoin(upstream_base.rstrip("/") + "/", safe_subpath)
@@ -638,7 +652,7 @@ def expert_project_preview(slug, environment, subpath):
         urlsplit(_internal_proxy_url(upstream_base)).netloc,
     }
     if urlsplit(target_url).netloc not in allowed_targets:
-        abort(400)
+        raise HTTPException(status_code=400)
 
     hop_by_hop = {
         "connection",
@@ -657,21 +671,26 @@ def expert_project_preview(slug, environment, subpath):
         if key.lower() not in hop_by_hop
     }
 
+    request_body = await request.body()
+    request_method = request.method
+    request_params = dict(request.query_params)
+
     try:
-        upstream_resp = requests.request(
-            method=request.method,
+        upstream_resp = await asyncio.to_thread(
+            http_requests.request,
+            method=request_method,
             url=target_url,
-            params=request.args,
+            params=request_params,
             headers=upstream_headers,
-            data=request.get_data(),
+            data=request_body,
             allow_redirects=False,
             timeout=30,
         )
-    except requests.RequestException as exc:
+    except http_requests.RequestException as exc:
         logger.warning("Preview proxy error for %s/%s: %s", slug, environment, exc)
-        return "Impossible de joindre l'application deployee.", 502
+        return Response(content="Impossible de joindre l'application deployee.", status_code=502)
 
-    response_headers = []
+    response_headers = {}
     location = upstream_resp.headers.get("Location")
     if location:
         parsed_loc = urlsplit(location)
@@ -679,20 +698,20 @@ def expert_project_preview(slug, environment, subpath):
         parsed_internal_target = urlsplit(_internal_proxy_url(upstream_base))
         if location.startswith("/"):
             rewritten = _preview_base_path(slug, environment) + location
-            response_headers.append(("Location", rewritten))
+            response_headers["Location"] = rewritten
         elif parsed_loc.netloc in {parsed_target.netloc, parsed_internal_target.netloc}:
             rewritten = _preview_base_path(slug, environment) + (parsed_loc.path or "/")
             if parsed_loc.query:
                 rewritten = f"{rewritten}?{parsed_loc.query}"
-            response_headers.append(("Location", rewritten))
+            response_headers["Location"] = rewritten
         else:
-            response_headers.append(("Location", location))
+            response_headers["Location"] = location
 
     for key, value in upstream_resp.headers.items():
         key_lower = key.lower()
         if key_lower in hop_by_hop or key_lower in {"content-length", "location"}:
             continue
-        response_headers.append((key, value))
+        response_headers[key] = value
 
     body = upstream_resp.content
     content_type = (upstream_resp.headers.get("Content-Type") or "").lower()
@@ -704,74 +723,89 @@ def expert_project_preview(slug, environment, subpath):
         except Exception:
             logger.exception("Failed to rewrite preview HTML for %s/%s", slug, environment)
 
-    return Response(body, status=upstream_resp.status_code, headers=response_headers)
+    return Response(content=body, status_code=upstream_resp.status_code, headers=response_headers)
 
 
-@bp.route("/expert/<slug>/<conv_id>")
-def expert_conversation(slug, conv_id):
-    """Expert mode conversation view — same chat UI, different chrome."""
+@router.get("/expert/{slug}/{conv_id}")
+def expert_conversation(slug: str, conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    """Expert workspace: spec panel + chat + deploy bar."""
     if not config.EXPERT_MODE_ENABLED:
-        abort(404)
+        raise HTTPException(status_code=404)
 
     project = store.get_project_by_slug(slug)
     if not project:
-        return redirect("/expert")
+        return RedirectResponse("/expert", status_code=302)
 
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
-        return redirect(f"/expert/{slug}")
+        return RedirectResponse(f"/expert/{slug}", status_code=302)
 
-    data = _get_expert_sidebar_data()
-    return render_template(
-        "expert/conversation.html",
-        section="expert",
-        current_conv=conv,
-        project=project,
-        **data
-    )
+    project_conversations = store.list_project_conversations(project.id)
+
+    data = _get_expert_sidebar_data(user_email)
+    return templates.TemplateResponse(request, "expert/workspace.html", {
+        "section": "expert",
+        "current_conv": conv,
+        "project": project,
+        "project_conversations": project_conversations,
+        **data,
+    })
 
 
 # =============================================================================
 # API endpoints
 # =============================================================================
 
-@bp.route("/api/expert/projects", methods=["POST"])
-def api_create_project():
+@router.post("/api/expert/projects")
+async def api_create_project(request: Request, user_email: str = Depends(get_current_user)):
     """Create project + first conversation."""
     if not config.EXPERT_MODE_ENABLED:
-        return jsonify({"error": "Expert mode not enabled"}), 403
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
 
-    data = request.get_json() or {}
+    data = await request.json()
+    if not data:
+        data = {}
     name = data.get("name", "Nouveau projet")
     description = data.get("description")
-    user_email = getattr(g, "user_email", None)
 
     project = store.create_project(name=name, user_id=user_email, description=description)
     _try_create_gitea_repo(project)
+
+    # Initialize .specify/ structure
+    workdir = config.PROJECTS_DIR / project.id
+    workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        from skills.speckit_init.scripts.init_project import init_specify
+        init_specify(str(workdir))
+    except Exception:
+        logger.exception("Failed to init .specify/ for project %s", project.id)
+
     # Re-fetch so gitea fields are included in response
     project = store.get_project(project.id) or project
     conv = store.create_conversation(
         conv_type="project", project_id=project.id, user_id=user_email
     )
 
-    return jsonify({
-        "project": _project_to_public_dict(project),
+    return JSONResponse({
+        "project": _project_to_public_dict(project, request),
         "conversation_id": conv.id,
         "redirect": f"/expert/{project.slug}/{conv.id}",
-    }), 201
+    }, status_code=201)
 
 
-@bp.route("/api/expert/projects/<project_id>", methods=["PATCH"])
-def api_update_project(project_id):
+@router.patch("/api/expert/projects/{project_id}")
+async def api_update_project(project_id: str, request: Request):
     """Update project fields (name, spec, status)."""
     if not config.EXPERT_MODE_ENABLED:
-        return jsonify({"error": "Expert mode not enabled"}), 403
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
 
     project = store.get_project(project_id)
     if not project:
-        return jsonify({"error": "Project not found"}), 404
+        return JSONResponse({"error": "Project not found"}, status_code=404)
 
-    data = request.get_json() or {}
+    data = await request.json()
+    if not data:
+        data = {}
     allowed_fields = {
         "name",
         "description",
@@ -783,49 +817,48 @@ def api_update_project(project_id):
     updates = {k: v for k, v in data.items() if k in allowed_fields}
 
     if not updates:
-        return jsonify({"error": "No valid fields to update"}), 400
+        return JSONResponse({"error": "No valid fields to update"}, status_code=400)
 
     store.update_project(project_id, **updates)
     updated = store.get_project(project_id)
-    return jsonify(_project_to_public_dict(updated))
+    return JSONResponse(_project_to_public_dict(updated, request))
 
 
-@bp.route("/api/expert/projects/<project_id>/conversations", methods=["POST"])
-def api_new_conversation(project_id):
+@router.post("/api/expert/projects/{project_id}/conversations")
+async def api_new_conversation(project_id: str, user_email: str = Depends(get_current_user)):
     """Start a new conversation within an existing project."""
     if not config.EXPERT_MODE_ENABLED:
-        return jsonify({"error": "Expert mode not enabled"}), 403
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
 
     project = store.get_project(project_id)
     if not project:
-        return jsonify({"error": "Project not found"}), 404
+        return JSONResponse({"error": "Project not found"}, status_code=404)
 
-    user_email = getattr(g, "user_email", None)
     conv = store.create_conversation(
         conv_type="project", project_id=project.id, user_id=user_email
     )
 
-    return jsonify({
+    return JSONResponse({
         "conversation_id": conv.id,
         "redirect": f"/expert/{project.slug}/{conv.id}",
-    }), 201
+    }, status_code=201)
 
 
-@bp.route("/api/expert/projects/<project_id>/deploy", methods=["POST"])
-def api_deploy_project(project_id):
+@router.post("/api/expert/projects/{project_id}/deploy")
+def api_deploy_project(project_id: str, request: Request):
     """Promote staging to production and trigger production deployment."""
     if not config.EXPERT_MODE_ENABLED:
-        return jsonify({"error": "Expert mode not enabled"}), 403
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
 
     project = store.get_project(project_id)
     if not project:
-        return jsonify({"error": "Project not found"}), 404
+        return JSONResponse({"error": "Project not found"}, status_code=404)
 
     if not project.gitea_url:
-        return jsonify({"error": "Project has no Gitea repo yet"}), 400
+        return JSONResponse({"error": "Project has no Gitea repo yet"}, status_code=400)
 
     if not config.COOLIFY_API_TOKEN:
-        return jsonify({"error": "Coolify not configured"}), 503
+        return JSONResponse({"error": "Coolify not configured"}, status_code=503)
 
     try:
         from lib.coolify import CoolifyClient
@@ -856,42 +889,40 @@ def api_deploy_project(project_id):
             deploy_result = coolify.deploy(production_app_uuid)
 
         updated = store.get_project(project_id)
-        return jsonify(
-            {
-                "status": "production_deploying",
-                "promotion": promotion,
-                "staging": {
-                    "app_uuid": staging_app_uuid,
-                    "deploy_url": staging_url,
-                },
-                "production": {
-                    "app_uuid": production_app_uuid,
-                    "deploy_url": production_url,
-                    "detail": deploy_result,
-                },
-                "project": _project_to_public_dict(updated) if updated else _project_to_public_dict(refreshed),
-            }
-        )
+        return JSONResponse({
+            "status": "production_deploying",
+            "promotion": promotion,
+            "staging": {
+                "app_uuid": staging_app_uuid,
+                "deploy_url": staging_url,
+            },
+            "production": {
+                "app_uuid": production_app_uuid,
+                "deploy_url": production_url,
+                "detail": deploy_result,
+            },
+            "project": _project_to_public_dict(updated, request) if updated else _project_to_public_dict(refreshed, request),
+        })
     except Exception as e:
         logger.exception("Production deploy failed")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@bp.route("/api/expert/projects/<project_id>/deploy-staging", methods=["POST"])
-def api_deploy_staging_project(project_id):
+@router.post("/api/expert/projects/{project_id}/deploy-staging")
+def api_deploy_staging_project(project_id: str, request: Request):
     """Create/redeploy staging app (auto path used by expert workflow)."""
     if not config.EXPERT_MODE_ENABLED:
-        return jsonify({"error": "Expert mode not enabled"}), 403
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
 
     project = store.get_project(project_id)
     if not project:
-        return jsonify({"error": "Project not found"}), 404
+        return JSONResponse({"error": "Project not found"}, status_code=404)
 
     if not project.gitea_url:
-        return jsonify({"error": "Project has no Gitea repo yet"}), 400
+        return JSONResponse({"error": "Project has no Gitea repo yet"}, status_code=400)
 
     if not config.COOLIFY_API_TOKEN:
-        return jsonify({"error": "Coolify not configured"}), 503
+        return JSONResponse({"error": "Coolify not configured"}, status_code=503)
 
     try:
         from lib.coolify import CoolifyClient
@@ -905,37 +936,84 @@ def api_deploy_staging_project(project_id):
         detail = coolify.deploy(staging_app_uuid) if staging_app_uuid else None
 
         updated = store.get_project(project_id)
-        return jsonify(
-            {
-                "status": "staging_deploying",
-                "staging": {
-                    "app_uuid": staging_app_uuid,
-                    "deploy_url": staging_url,
-                    "detail": detail,
-                },
-                "project": _project_to_public_dict(updated) if updated else _project_to_public_dict(project),
-            }
-        )
+        return JSONResponse({
+            "status": "staging_deploying",
+            "staging": {
+                "app_uuid": staging_app_uuid,
+                "deploy_url": staging_url,
+                "detail": detail,
+            },
+            "project": _project_to_public_dict(updated, request) if updated else _project_to_public_dict(project, request),
+        })
     except Exception as e:
         logger.exception("Staging deploy failed")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@bp.route("/api/expert/projects/<project_id>/deploy-status", methods=["GET"])
-def api_deploy_status(project_id):
-    """Poll deployment status (AJAX from project detail page)."""
+@router.get("/api/expert/projects/{project_id}/spec-files")
+def api_spec_files(project_id: str):
+    """Return .specify/ artifact contents as JSON for the spec panel."""
     if not config.EXPERT_MODE_ENABLED:
-        return jsonify({"error": "Expert mode not enabled"}), 403
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
 
     project = store.get_project(project_id)
     if not project:
-        return jsonify({"error": "Project not found"}), 404
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    workdir = config.PROJECTS_DIR / project.id
+    specify_dir = workdir / ".specify"
+
+    result = {}
+
+    def _read_file(path):
+        if path.exists():
+            return path.read_text()
+        return None
+
+    # Read constitution
+    result["constitution"] = _read_file(specify_dir / "memory" / "constitution.md")
+
+    # Find latest spec version
+    specs_dir = specify_dir / "specs"
+    version = None
+    if specs_dir.exists():
+        versions = sorted(
+            [d for d in specs_dir.iterdir() if d.is_dir()],
+            key=lambda d: d.name,
+            reverse=True,
+        )
+        if versions:
+            version = versions[0].name
+            latest = versions[0]
+            result["spec"] = _read_file(latest / "spec.md")
+            result["plan"] = _read_file(latest / "plan.md")
+            result["tasks"] = _read_file(latest / "tasks.md")
+            result["checklist"] = _read_file(latest / "checklist.md")
+
+    result["version"] = version
+
+    # Fallback: if no .specify/, return project.spec from DB
+    if not specify_dir.exists() and project.spec:
+        result["spec"] = project.spec
+
+    return JSONResponse(result)
+
+
+@router.get("/api/expert/projects/{project_id}/deploy-status")
+def api_deploy_status(project_id: str, request: Request):
+    """Poll deployment status (AJAX from project detail page)."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+
+    project = store.get_project(project_id)
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
 
     if not project.staging_coolify_app_uuid and not project.production_coolify_app_uuid:
-        return jsonify({"status": "not_deployed"})
+        return JSONResponse({"status": "not_deployed"})
 
     if not config.COOLIFY_API_TOKEN:
-        return jsonify({"status": "unknown", "error": "Coolify not configured"})
+        return JSONResponse({"status": "unknown", "error": "Coolify not configured"})
 
     try:
         from lib.coolify import CoolifyClient
@@ -957,27 +1035,27 @@ def api_deploy_status(project_id):
         production_preview_url = _preview_url(project.slug, "production") if project.production_deploy_url else None
 
         primary_url = production_preview_url or staging_preview_url or _publicize_deploy_url(
-            project.production_deploy_url or project.staging_deploy_url or project.deploy_url
+            project.production_deploy_url or project.staging_deploy_url or project.deploy_url, request
         )
 
-        return jsonify({
+        return JSONResponse({
             "status": overall_status,
             "deploy_url": primary_url,
             "staging": {
                 "status": staging_detail.get("status", "unknown") if staging_detail else "not_deployed",
                 "deploy_url": staging_preview_url,
-                "technical_deploy_url": _publicize_deploy_url(project.staging_deploy_url),
+                "technical_deploy_url": _publicize_deploy_url(project.staging_deploy_url, request),
                 "app_uuid": project.staging_coolify_app_uuid,
                 "detail": staging_detail,
             },
             "production": {
                 "status": production_detail.get("status", "unknown") if production_detail else "not_deployed",
                 "deploy_url": production_preview_url,
-                "technical_deploy_url": _publicize_deploy_url(project.production_deploy_url),
+                "technical_deploy_url": _publicize_deploy_url(project.production_deploy_url, request),
                 "app_uuid": project.production_coolify_app_uuid,
                 "detail": production_detail,
             },
         })
     except Exception as e:
         logger.exception("Deploy status check failed")
-        return jsonify({"status": "error", "error": str(e)}), 500
+        return JSONResponse({"status": "error", "error": str(e)}, status_code=500)

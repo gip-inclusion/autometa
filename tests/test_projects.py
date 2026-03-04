@@ -1,6 +1,6 @@
 """Tests for expert-mode projects (database CRUD, API endpoints, context injection)."""
 
-from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -9,17 +9,15 @@ import pytest
 def project(app):
     """Create a test project."""
     from web.storage import store
-    with app.test_request_context():
-        return store.create_project(name="Test App", user_id="dev@example.com", description="A test app")
+    return store.create_project(name="Test App", user_id="dev@example.com", description="A test app")
 
 
 @pytest.fixture
 def project_with_spec(app, project):
     """Create a test project with a spec."""
     from web.storage import store
-    with app.test_request_context():
-        store.update_project(project.id, spec="# Test Spec\n\nA Flask app.", status="active")
-        return store.get_project(project.id)
+    store.update_project(project.id, spec="# Test Spec\n\nA Flask app.", status="active")
+    return store.get_project(project.id)
 
 
 class TestProjectCRUD:
@@ -34,73 +32,64 @@ class TestProjectCRUD:
 
     def test_create_project_slug_uniqueness(self, app):
         from web.storage import store
-        with app.test_request_context():
-            p1 = store.create_project(name="Mon App", user_id="a@b.com")
-            p2 = store.create_project(name="Mon App", user_id="a@b.com")
-            assert p1.slug == "mon-app"
-            assert p2.slug == "mon-app-1"
-            assert p1.id != p2.id
+        p1 = store.create_project(name="Mon App", user_id="a@b.com")
+        p2 = store.create_project(name="Mon App", user_id="a@b.com")
+        assert p1.slug == "mon-app"
+        assert p2.slug == "mon-app-1"
+        assert p1.id != p2.id
 
     def test_create_project_french_chars(self, app):
         from web.storage import store
-        with app.test_request_context():
-            p = store.create_project(name="Résumé des données", user_id="a@b.com")
-            assert p.slug == "resume-des-donnees"
+        p = store.create_project(name="Résumé des données", user_id="a@b.com")
+        assert p.slug == "resume-des-donnees"
 
     def test_get_project(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            fetched = store.get_project(project.id)
-            assert fetched is not None
-            assert fetched.name == "Test App"
+        fetched = store.get_project(project.id)
+        assert fetched is not None
+        assert fetched.name == "Test App"
 
     def test_get_project_by_slug(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            fetched = store.get_project_by_slug("test-app")
-            assert fetched is not None
-            assert fetched.id == project.id
+        fetched = store.get_project_by_slug("test-app")
+        assert fetched is not None
+        assert fetched.id == project.id
 
     def test_get_project_not_found(self, app):
         from web.storage import store
-        with app.test_request_context():
-            assert store.get_project("nonexistent") is None
-            assert store.get_project_by_slug("nonexistent") is None
+        assert store.get_project("nonexistent") is None
+        assert store.get_project_by_slug("nonexistent") is None
 
     def test_update_project(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            store.update_project(project.id, name="Renamed", spec="# Spec", status="active")
-            updated = store.get_project(project.id)
-            assert updated.name == "Renamed"
-            assert updated.spec == "# Spec"
-            assert updated.status == "active"
+        store.update_project(project.id, name="Renamed", spec="# Spec", status="active")
+        updated = store.get_project(project.id)
+        assert updated.name == "Renamed"
+        assert updated.spec == "# Spec"
+        assert updated.status == "active"
 
     def test_update_project_tech_stack(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            store.update_project(project.id, tech_stack={"backend": "flask", "db": "postgres"})
-            updated = store.get_project(project.id)
-            assert updated.tech_stack == {"backend": "flask", "db": "postgres"}
+        store.update_project(project.id, tech_stack={"backend": "flask", "db": "postgres"})
+        updated = store.get_project(project.id)
+        assert updated.tech_stack == {"backend": "flask", "db": "postgres"}
 
     def test_update_project_rejects_invalid_fields(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            result = store.update_project(project.id, invalid_field="bad")
-            assert result is False
+        result = store.update_project(project.id, invalid_field="bad")
+        assert result is False
 
     def test_list_projects(self, app):
         from web.storage import store
-        with app.test_request_context():
-            store.create_project(name="App 1", user_id="dev@example.com")
-            store.create_project(name="App 2", user_id="dev@example.com")
-            store.create_project(name="App 3", user_id="other@example.com")
+        store.create_project(name="App 1", user_id="dev@example.com")
+        store.create_project(name="App 2", user_id="dev@example.com")
+        store.create_project(name="App 3", user_id="other@example.com")
 
-            all_projects = store.list_projects()
-            assert len(all_projects) == 3
+        all_projects = store.list_projects()
+        assert len(all_projects) == 3
 
-            user_projects = store.list_projects(user_id="dev@example.com")
-            assert len(user_projects) == 2
+        user_projects = store.list_projects(user_id="dev@example.com")
+        assert len(user_projects) == 2
 
     def test_project_to_dict(self, app, project):
         d = project.to_dict()
@@ -116,41 +105,37 @@ class TestProjectConversationLink:
 
     def test_create_conversation_with_project(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(
-                conv_type="project", project_id=project.id, user_id="dev@example.com"
-            )
-            assert conv.project_id == project.id
-            assert conv.conv_type == "project"
+        conv = store.create_conversation(
+            conv_type="project", project_id=project.id, user_id="dev@example.com"
+        )
+        assert conv.project_id == project.id
+        assert conv.conv_type == "project"
 
     def test_get_conversation_includes_project_id(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(
-                conv_type="project", project_id=project.id, user_id="dev@example.com"
-            )
-            fetched = store.get_conversation(conv.id)
-            assert fetched.project_id == project.id
+        conv = store.create_conversation(
+            conv_type="project", project_id=project.id, user_id="dev@example.com"
+        )
+        fetched = store.get_conversation(conv.id)
+        assert fetched.project_id == project.id
 
     def test_list_project_conversations(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            store.create_conversation(conv_type="project", project_id=project.id, user_id="dev@example.com")
-            store.create_conversation(conv_type="project", project_id=project.id, user_id="dev@example.com")
-            store.create_conversation(conv_type="exploration", user_id="dev@example.com")
+        store.create_conversation(conv_type="project", project_id=project.id, user_id="dev@example.com")
+        store.create_conversation(conv_type="project", project_id=project.id, user_id="dev@example.com")
+        store.create_conversation(conv_type="exploration", user_id="dev@example.com")
 
-            convs = store.list_project_conversations(project.id)
-            assert len(convs) == 2
-            assert all(c.project_id == project.id for c in convs)
+        convs = store.list_project_conversations(project.id)
+        assert len(convs) == 2
+        assert all(c.project_id == project.id for c in convs)
 
     def test_conversation_to_dict_includes_project_id(self, app, project):
         from web.storage import store
-        with app.test_request_context():
-            conv = store.create_conversation(
-                conv_type="project", project_id=project.id, user_id="dev@example.com"
-            )
-            d = conv.to_dict()
-            assert d["project_id"] == project.id
+        conv = store.create_conversation(
+            conv_type="project", project_id=project.id, user_id="dev@example.com"
+        )
+        d = conv.to_dict()
+        assert d["project_id"] == project.id
 
 
 class TestExpertAPI:
@@ -302,7 +287,7 @@ class TestExpertAPI:
             assert len(pending) == 1
             payload = pending[0]["payload"]
             assert payload["project_workdir"] == str(config.PROJECTS_DIR / project.id)
-            assert "MODE EXPERT - plan mode" in payload["prompt"]
+            assert "Project: Test App" in payload["prompt"]
 
             # Simulate completion: assistant has responded and run is finished.
             store.add_message(conv.id, "assistant", "Bienvenue, on peut commencer le plan.")
@@ -338,7 +323,7 @@ class TestExpertAPI:
         config.EXPERT_MODE_ENABLED = True
         try:
             store.update_project(project.id, staging_deploy_url="http://localhost:18080")
-            monkeypatch.setattr("web.routes.expert.requests.request", lambda **kwargs: FakeResponse())
+            monkeypatch.setattr("web.routes.expert.http_requests.request", lambda **kwargs: FakeResponse())
 
             resp = client.get(
                 f"/expert/{project.slug}/preview/staging/",
@@ -363,7 +348,7 @@ class TestExpertAPI:
         config.EXPERT_MODE_ENABLED = True
         try:
             store.update_project(project.id, staging_deploy_url="http://localhost:18080")
-            monkeypatch.setattr("web.routes.expert.requests.request", _unexpected_request)
+            monkeypatch.setattr("web.routes.expert.http_requests.request", _unexpected_request)
 
             resp = client.get(
                 f"/expert/{project.slug}/preview/staging/https:%2F%2Fevil.example%2F",
@@ -533,8 +518,12 @@ class TestExpertHelpers:
         from web.routes.expert import _publicize_deploy_url
 
         monkeypatch.setattr(config, "EXPERT_DEPLOY_PUBLIC_HOST", "")
-        with app.test_request_context(base_url="http://matometa.local:5002"):
-            public = _publicize_deploy_url("http://localhost:18084")
+
+        # Build a mock request with the desired host header
+        mock_request = MagicMock()
+        mock_request.headers = {"host": "matometa.local:5002"}
+
+        public = _publicize_deploy_url("http://localhost:18084", mock_request)
         assert public == "http://matometa.local:18084"
 
     def test_project_to_public_dict_includes_preview_urls(self, app):
@@ -542,8 +531,7 @@ class TestExpertHelpers:
         from web.routes.expert import _project_to_public_dict
 
         project = Project(id="p1", name="Demo", slug="demo", staging_deploy_url="http://localhost:18084")
-        with app.test_request_context(base_url="http://127.0.0.1:5002"):
-            payload = _project_to_public_dict(project)
+        payload = _project_to_public_dict(project)
         assert payload["staging_preview_url"] == "/expert/demo/preview/staging/"
         assert payload["production_preview_url"] == "/expert/demo/preview/production/"
 
