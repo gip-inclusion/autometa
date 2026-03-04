@@ -16,8 +16,8 @@ from lib.tool_taxonomy import classify_tool
 from . import config
 from .agents import get_agent
 from .agents.base import AgentBackend
-from .signals import signals
 from .audit import audit_log
+from .signals import signals
 from .storage import store
 
 logger = logging.getLogger(__name__)

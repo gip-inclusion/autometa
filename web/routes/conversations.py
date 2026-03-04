@@ -566,6 +566,15 @@ async def stream_conversation(
                 pass
         return _sse_event(msg.type, sse_data)
 
+    async def _drain_unseen(last_msg_id: int) -> list[str]:
+        """Fetch remaining messages and return formatted SSE chunks ending with 'done'."""
+        chunks = []
+        final = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
+        for msg in final:
+            chunks.append(_format_msg(msg))
+        chunks.append(_sse_event("done", {"conversation_id": conv_id}))
+        return chunks
+
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
         logger.debug(f"SSE stream start: conv={conv_id}, after={after}, watermark={last_msg_id}")
@@ -578,12 +587,8 @@ async def stream_conversation(
             # Check if conversation is already complete (PM finished before
             # SSE connects, or conversation was never running)
             if signals.is_finished(conv_id) or not conv.needs_response:
-                final = await asyncio.to_thread(
-                    store.get_messages_since, conv_id, last_msg_id
-                )
-                for msg in final:
-                    yield _format_msg(msg)
-                yield _sse_event("done", {"conversation_id": conv_id})
+                for chunk in await _drain_unseen(last_msg_id):
+                    yield chunk
                 return
 
             while (time.monotonic() - start) < max_seconds:
@@ -600,12 +605,8 @@ async def stream_conversation(
 
                 # Completion check: in-memory flag (0 queries)
                 if signals.is_finished(conv_id):
-                    final = await asyncio.to_thread(
-                        store.get_messages_since, conv_id, last_msg_id
-                    )
-                    for msg in final:
-                        yield _format_msg(msg)
-                    yield _sse_event("done", {"conversation_id": conv_id})
+                    for chunk in await _drain_unseen(last_msg_id):
+                        yield chunk
                     return
 
                 # Safety-net fallback: check DB every 5s for missed signals
@@ -622,12 +623,8 @@ async def stream_conversation(
                         store.get_conversation, conv_id, False
                     )
                     if updated and not updated.needs_response:
-                        final = await asyncio.to_thread(
-                            store.get_messages_since, conv_id, last_msg_id
-                        )
-                        for msg in final:
-                            yield _format_msg(msg)
-                        yield _sse_event("done", {"conversation_id": conv_id})
+                        for chunk in await _drain_unseen(last_msg_id):
+                            yield chunk
                         return
 
                 # PM liveness: in-memory cache (0 queries)

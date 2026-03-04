@@ -42,7 +42,10 @@ async def lifespan(app: FastAPI):
 
         await asyncio.to_thread(scan_interactive_apps)
 
-    # Run process manager in-process (no separate container needed)
+    # Run process manager in-process (no separate container needed).
+    # Single-worker constraint: PM and SSE share an in-memory signal registry
+    # (web/signals.py), so multiple workers would each get their own registry
+    # and PM signals would not reach SSE handlers in other processes.
     from .pm import ProcessManager
 
     pm = ProcessManager()
@@ -175,6 +178,7 @@ def main():
         host=config.HOST,
         port=config.PORT,
         reload=config.DEBUG,
+        workers=1,  # required: PM ↔ SSE signals are in-process (see lifespan)
     )
 
 

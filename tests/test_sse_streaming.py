@@ -56,8 +56,8 @@ def client(app):
 @pytest.fixture
 def conversation(app):
     """Create a conversation with one user message awaiting response."""
-    from web.storage import store
     from web.signals import signals
+    from web.storage import store
 
     store.update_pm_heartbeat()  # Simulate PM being alive
     signals.update_pm_alive()
@@ -115,8 +115,8 @@ def _simulate_pm(conv_id, messages, delay=0.1):
 
     def _run():
         time.sleep(delay)
-        from web.storage import store
         from web.signals import signals
+        from web.storage import store
 
         for msg_type, content in messages:
             store.add_message(
@@ -219,8 +219,8 @@ class TestRaceCondition:
         ``after=<user_msg_id>`` so the SSE handler starts streaming from
         the user message onward — catching anything the PM wrote in between.
         """
-        from web.storage import store
         from web.signals import signals
+        from web.storage import store
 
         conv = store.create_conversation(user_id="test@example.com")
         user_msg = store.add_message(conv.id, "user", "Hello")
@@ -251,8 +251,8 @@ class TestRaceCondition:
         SSE handler connects.  The handler must still flush unseen messages
         before sending done.
         """
-        from web.storage import store
         from web.signals import signals
+        from web.storage import store
 
         conv = store.create_conversation(user_id="test@example.com")
         user_msg = store.add_message(conv.id, "user", "Hello")
