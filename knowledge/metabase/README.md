@@ -313,6 +313,24 @@ Voir [documentation détaillée des CLPE](../stats/clpe.md).
 
 Données offre/demande par CLPE. Voir [documentation CLPE](../stats/clpe.md).
 
+### Nexus — Application Unifiée (DB 17)
+
+Base dédiée à Nexus, fonctionnalité permettant aux utilisateurs de voir leur présence cross-services.
+**⚠️ Base distincte : `database_id = 17`** (pas la même que Stats principal).
+
+| Table | Volumétrie | Description |
+|-------|------------|-------------|
+| `public.structures` | 52 573 lignes | Structures par service (un SIRET peut apparaître N fois) |
+| `public.users` | 139 186 lignes | Utilisateurs par service (un email peut apparaître N fois) |
+| `public.memberships` | 136 428 lignes | Liens user ↔ structure avec rôle (`administrateur` / `collaborateur`) |
+
+**Clé de jointure :** `id_unique` (format `{source}--{id_source}`) →
+`memberships.user_id_unique` et `memberships.structure_id_unique`.
+
+**Sources :** `emplois-de-linclusion`, `dora`, `le-marché`
+
+Voir [documentation complète](../stats/nexus.md).
+
 ## Tables recommandées pour analyses détaillées (Emplois)
 
 Pour des analyses qui dépassent les tables "courantes" (candidatures, structures), voici les tables de référence et leurs jointures :
