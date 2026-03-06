@@ -112,16 +112,46 @@ async function loadSpecContent() {
 function initDeployBar() {
   const refreshBtn = document.getElementById('deployRefreshBtn');
   const deployBtn = document.getElementById('deployProductionBtn');
+  const deployStagingBtn = document.getElementById('deployStagingBtn');
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => refreshDeployStatus());
   }
   if (deployBtn) {
-    deployBtn.addEventListener('click', () => deployProduction());
+    deployBtn.addEventListener('click', () => deployEnv('production', deployBtn));
+  }
+  if (deployStagingBtn) {
+    deployStagingBtn.addEventListener('click', () => deployEnv('staging', deployStagingBtn));
+  }
+
+  // Inline restart buttons
+  const stagingRestart = document.getElementById('stagingRestartInline');
+  const productionRestart = document.getElementById('productionRestartInline');
+  if (stagingRestart) {
+    stagingRestart.addEventListener('click', () => restartEnv('staging', stagingRestart));
+  }
+  if (productionRestart) {
+    productionRestart.addEventListener('click', () => restartEnv('production', productionRestart));
+  }
+
+  // Dots: click to open preview
+  const stagingDot = document.getElementById('stagingDot');
+  const productionDot = document.getElementById('productionDot');
+  if (stagingDot && _expertConfig) {
+    stagingDot.addEventListener('click', () => {
+      window.open(`/expert/${_expertConfig.projectSlug}/preview/staging/`, '_blank');
+    });
+  }
+  if (productionDot && _expertConfig) {
+    productionDot.addEventListener('click', () => {
+      window.open(`/expert/${_expertConfig.projectSlug}/preview/production/`, '_blank');
+    });
   }
 
   // Initial status check
   refreshDeployStatus();
+  // Poll every 15 seconds
+  setInterval(refreshDeployStatus, 15000);
 }
 
 async function refreshDeployStatus() {
@@ -144,18 +174,22 @@ function updateDeployDot(dotId, linkId, envData) {
   const link = document.getElementById(linkId);
   if (!dot) return;
 
+  const env = dotId.replace('Dot', '');
+  const restartBtn = document.getElementById(env + 'RestartInline');
+
   // Reset classes
   dot.className = 'deploy-dot';
 
-  if (!envData || envData.status === 'not_deployed') {
+  const st = envData?.status || '';
+  if (!envData || st === 'not_deployed') {
     dot.classList.add('deploy-dot-unknown');
-  } else if (envData.status === 'running') {
+  } else if (st === 'running' || st.startsWith('running:')) {
     dot.classList.add('deploy-dot-running');
-  } else if (envData.status === 'deploying' || envData.status === 'starting') {
+  } else if (st === 'deploying' || st === 'starting') {
     dot.classList.add('deploy-dot-deploying');
-  } else if (envData.status === 'stopped' || envData.status === 'exited') {
+  } else if (st === 'stopped' || st === 'exited') {
     dot.classList.add('deploy-dot-stopped');
-  } else if (envData.status === 'error' || envData.status === 'degraded') {
+  } else if (st === 'error' || st === 'degraded' || st.includes('unhealthy')) {
     dot.classList.add('deploy-dot-error');
   } else {
     dot.classList.add('deploy-dot-unknown');
@@ -167,35 +201,75 @@ function updateDeployDot(dotId, linkId, envData) {
   } else if (link) {
     link.style.display = 'none';
   }
+
+  // Show restart button only when container is stopped/errored
+  const deployed = envData && st !== 'not_deployed';
+  if (restartBtn) {
+    restartBtn.style.display = (deployed && st !== 'running' && !st.startsWith('running:')) ? '' : 'none';
+  }
 }
 
-async function deployProduction() {
+async function deployEnv(env, btn) {
   if (!_expertConfig) return;
 
-  const btn = document.getElementById('deployProductionBtn');
+  const originalHtml = btn?.innerHTML;
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Deploiement...';
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
   }
 
+  const endpoint = env === 'production'
+    ? `/api/expert/projects/${_expertConfig.projectId}/deploy`
+    : `/api/expert/projects/${_expertConfig.projectId}/deploy-staging`;
+
   try {
-    const res = await fetch(`/api/expert/projects/${_expertConfig.projectId}/deploy`, {
-      method: 'POST',
-    });
+    const res = await fetch(endpoint, { method: 'POST' });
     const data = await res.json();
 
     if (!res.ok) {
       alert('Erreur de déploiement : ' + (data.error || 'Erreur inconnue'));
     }
 
-    // Refresh status after a short delay
-    setTimeout(refreshDeployStatus, 3000);
+    // Poll status a few times to show progress
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      await refreshDeployStatus();
+    }
   } catch (err) {
     alert('Erreur de connexion : ' + err.message);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<i class="ri-rocket-line"></i> Deployer';
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+
+async function restartEnv(env, btn) {
+  if (!_expertConfig) return;
+
+  const originalHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+  }
+
+  try {
+    const res = await fetch(`/api/expert/projects/${_expertConfig.projectId}/restart/${env}`, { method: 'POST' });
+    const data = await res.json();
+
+    if (!res.ok || data.status !== 'running') {
+      alert(data.error || 'Restart échoué');
+    }
+
+    await new Promise(r => setTimeout(r, 2000));
+    await refreshDeployStatus();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
     }
   }
 }

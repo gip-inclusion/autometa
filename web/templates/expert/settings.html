@@ -44,16 +44,24 @@
                 <strong>Staging</strong>
               </div>
               <p class="text-muted small mb-2" id="stagingStatusText">Chargement...</p>
-              {% if project.staging_deploy_url %}
-              <a href="/expert/{{ project.slug }}/preview/staging/" target="_blank" class="btn btn-sm btn-outline-secondary mb-2">
-                <i class="ri-external-link-line"></i> Ouvrir
-              </a>
-              {% endif %}
-              <div>
-                <button type="button" class="btn btn-sm btn-warning" id="deployStagingBtn" {% if not project.gitea_url %}disabled{% endif %}>
-                  <i class="ri-upload-cloud-line"></i> Forcer le déploiement staging
+              <div class="d-flex flex-wrap gap-2 mb-2">
+                <a href="/expert/{{ project.slug }}/preview/staging/" target="_blank" class="btn btn-sm btn-outline-secondary" id="stagingOpenBtn" style="display:none;">
+                  <i class="ri-external-link-line"></i> Ouvrir
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-info" id="stagingLogsBtn" style="display:none;" title="Voir les logs">
+                  <i class="ri-terminal-line"></i> Logs
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-warning" id="stagingRestartBtn" style="display:none;" title="Redémarrer">
+                  <i class="ri-restart-line"></i> Restart
                 </button>
               </div>
+              <div>
+                <button type="button" class="btn btn-sm btn-warning" id="deployStagingBtn" {% if not project.gitea_url %}disabled{% endif %}>
+                  <i class="ri-upload-cloud-line"></i> Déployer staging
+                </button>
+              </div>
+              <!-- Logs panel (hidden by default) -->
+              <pre class="mt-2 p-2 bg-dark text-light small" id="stagingLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
             </div>
 
             <!-- Production -->
@@ -63,16 +71,23 @@
                 <strong>Production</strong>
               </div>
               <p class="text-muted small mb-2" id="productionStatusText">Chargement...</p>
-              {% if project.production_deploy_url %}
-              <a href="/expert/{{ project.slug }}/preview/production/" target="_blank" class="btn btn-sm btn-outline-success mb-2">
-                <i class="ri-external-link-line"></i> Ouvrir
-              </a>
-              {% endif %}
-              <div>
-                <button type="button" class="btn btn-sm btn-primary" id="deployProductionBtn" {% if not project.gitea_url %}disabled{% endif %}>
-                  <i class="ri-rocket-line"></i> Lancer en production
+              <div class="d-flex flex-wrap gap-2 mb-2">
+                <a href="/expert/{{ project.slug }}/preview/production/" target="_blank" class="btn btn-sm btn-outline-success" id="productionOpenBtn" style="display:none;">
+                  <i class="ri-external-link-line"></i> Ouvrir
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-info" id="productionLogsBtn" style="display:none;" title="Voir les logs">
+                  <i class="ri-terminal-line"></i> Logs
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-warning" id="productionRestartBtn" style="display:none;" title="Redémarrer">
+                  <i class="ri-restart-line"></i> Restart
                 </button>
               </div>
+              <div>
+                <button type="button" class="btn btn-sm btn-primary" id="deployProductionBtn" {% if not project.gitea_url %}disabled{% endif %}>
+                  <i class="ri-rocket-line"></i> Déployer production
+                </button>
+              </div>
+              <pre class="mt-2 p-2 bg-dark text-light small" id="productionLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
             </div>
           </div>
         </div>
@@ -137,30 +152,42 @@ function updateDot(dotId, statusTextId, envData) {
   const text = document.getElementById(statusTextId);
   if (!dot) return;
 
+  const env = dotId.replace('Dot', '');
+  const openBtn = document.getElementById(env + 'OpenBtn');
+  const logsBtn = document.getElementById(env + 'LogsBtn');
+  const restartBtn = document.getElementById(env + 'RestartBtn');
+
   dot.className = 'deploy-dot';
   let label = 'Inconnu';
+  const st = envData?.status || '';
 
-  if (!envData || envData.status === 'not_deployed') {
+  if (!envData || st === 'not_deployed') {
     dot.classList.add('deploy-dot-unknown');
     label = 'Non déployé';
-  } else if (envData.status === 'running') {
+  } else if (st === 'running' || st.startsWith('running:')) {
     dot.classList.add('deploy-dot-running');
     label = 'En ligne';
-  } else if (envData.status === 'deploying' || envData.status === 'starting') {
+  } else if (st === 'deploying' || st === 'starting') {
     dot.classList.add('deploy-dot-deploying');
     label = 'Déploiement en cours...';
-  } else if (envData.status === 'stopped' || envData.status === 'exited') {
+  } else if (st === 'stopped' || st === 'exited') {
     dot.classList.add('deploy-dot-stopped');
     label = 'Arrêté';
-  } else if (envData.status === 'error' || envData.status === 'degraded') {
+  } else if (st === 'error' || st === 'degraded' || st.includes('unhealthy')) {
     dot.classList.add('deploy-dot-error');
-    label = 'Erreur';
+    label = st;
   } else {
     dot.classList.add('deploy-dot-unknown');
-    label = envData.status || 'Inconnu';
+    label = st || 'Inconnu';
   }
 
   if (text) text.textContent = label;
+
+  // Show/hide action buttons based on status
+  const deployed = envData && st !== 'not_deployed';
+  if (openBtn) openBtn.style.display = deployed && envData.deploy_url ? '' : 'none';
+  if (logsBtn) logsBtn.style.display = deployed ? '' : 'none';
+  if (restartBtn) restartBtn.style.display = (deployed && st !== 'running') ? '' : 'none';
 }
 
 async function refreshStatus() {
@@ -175,14 +202,14 @@ async function refreshStatus() {
   }
 }
 
-async function deployAction(url, btn, originalHtml) {
+async function deployAction(url, btn) {
+  const originalHtml = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> En cours...';
   try {
     const res = await fetch(url, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) alert(data.error || 'Erreur');
-    // Poll status a few times
     for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 3000));
       await refreshStatus();
@@ -195,26 +222,68 @@ async function deployAction(url, btn, originalHtml) {
   }
 }
 
+async function showLogs(env) {
+  const panel = document.getElementById(env + 'LogsPanel');
+  if (!panel) return;
+
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.textContent = 'Chargement...';
+  panel.style.display = '';
+
+  try {
+    const res = await fetch(`/api/expert/projects/${PROJECT_ID}/logs/${env}`);
+    const data = await res.json();
+    panel.textContent = data.logs || 'Pas de logs';
+    panel.scrollTop = panel.scrollHeight;
+  } catch (err) {
+    panel.textContent = 'Erreur: ' + err.message;
+  }
+}
+
+async function restartEnv(env, btn) {
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+  try {
+    const res = await fetch(`/api/expert/projects/${PROJECT_ID}/restart/${env}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status !== 'running') alert(data.error || 'Restart échoué');
+    await new Promise(r => setTimeout(r, 2000));
+    await refreshStatus();
+  } catch (err) {
+    alert('Erreur: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   refreshStatus();
+  setInterval(refreshStatus, 15000);
 
   document.getElementById('refreshStatusBtn')?.addEventListener('click', refreshStatus);
 
+  // Deploy buttons
   const stagingBtn = document.getElementById('deployStagingBtn');
-  if (stagingBtn) {
-    const stagingHtml = stagingBtn.innerHTML;
-    stagingBtn.addEventListener('click', () => {
-      deployAction(`/api/expert/projects/${PROJECT_ID}/deploy-staging`, stagingBtn, stagingHtml);
-    });
-  }
+  if (stagingBtn) stagingBtn.addEventListener('click', () => deployAction(`/api/expert/projects/${PROJECT_ID}/deploy-staging`, stagingBtn));
 
   const prodBtn = document.getElementById('deployProductionBtn');
-  if (prodBtn) {
-    const prodHtml = prodBtn.innerHTML;
-    prodBtn.addEventListener('click', () => {
-      deployAction(`/api/expert/projects/${PROJECT_ID}/deploy`, prodBtn, prodHtml);
-    });
-  }
+  if (prodBtn) prodBtn.addEventListener('click', () => deployAction(`/api/expert/projects/${PROJECT_ID}/deploy`, prodBtn));
+
+  // Logs buttons
+  document.getElementById('stagingLogsBtn')?.addEventListener('click', () => showLogs('staging'));
+  document.getElementById('productionLogsBtn')?.addEventListener('click', () => showLogs('production'));
+
+  // Restart buttons
+  const sr = document.getElementById('stagingRestartBtn');
+  if (sr) sr.addEventListener('click', () => restartEnv('staging', sr));
+  const pr = document.getElementById('productionRestartBtn');
+  if (pr) pr.addEventListener('click', () => restartEnv('production', pr));
 });
 </script>
 {% endblock %}

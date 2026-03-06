@@ -49,6 +49,12 @@ class GiteaClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_repo(self, owner: str, name: str) -> dict:
+        """Get an existing repository by owner/name."""
+        resp = self._session.get(self._url(f"/repos/{owner}/{name}"))
+        resp.raise_for_status()
+        return resp.json()
+
     def push_files(
         self,
         owner: str,

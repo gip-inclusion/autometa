@@ -130,6 +130,21 @@ class CoolifyClient:
         resp.raise_for_status()
         return resp.json()
 
+    def create_env_var(self, app_uuid: str, key: str, value: str,
+                       is_buildtime: bool = True, is_runtime: bool = True) -> dict:
+        """Create an environment variable on an application."""
+        payload = {
+            "key": key,
+            "value": value,
+            "is_buildtime": is_buildtime,
+            "is_runtime": is_runtime,
+        }
+        resp = self._session.post(
+            self._url(f"/applications/{app_uuid}/envs"), json=payload
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def set_ports_mapping(self, app_uuid: str, ports_mappings: str) -> dict:
         """Set host:container port mapping for an application."""
         payload = {"ports_mappings": ports_mappings}

@@ -39,6 +39,14 @@ async def lifespan(app: FastAPI):
         from .routes.rapports import scan_interactive_apps
         await asyncio.to_thread(scan_interactive_apps)
 
+    # Reset any conversations stuck in "running" from a previous crash
+    from .database import ConversationStore
+    _store = ConversationStore()
+    _stuck = _store.clear_all_needs_response()
+    if _stuck:
+        import logging
+        logging.getLogger(__name__).info("Reset %d stuck conversations on startup: %s", len(_stuck), _stuck)
+
     # Run process manager in-process (no separate container needed)
     from .pm import ProcessManager
     pm = ProcessManager()

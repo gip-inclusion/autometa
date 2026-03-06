@@ -1,12 +1,25 @@
 /* Expert mode workspace: two-panel layout (spec + chat) */
 
+/* Grid layout: header / body (panels + deploy bar) / chat bar */
+#section-expert {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+@media (max-width: 991.98px) {
+  #section-expert {
+    height: calc(100vh - 56px);
+  }
+}
+
 /* =============================================================================
    Two-panel layout
    ============================================================================= */
 
 .expert-panels {
   display: flex;
-  height: calc(100vh - 180px); /* header + deploy bar + chat bar */
+  flex: 1;
   overflow: hidden;
 }
 
@@ -147,6 +160,25 @@
   margin: 0 auto;
 }
 
+/* Expert workspace: body fills grid cell */
+#section-expert .section-body {
+  max-width: none;
+  padding: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Expert workspace: chat bar is part of grid, not fixed */
+.expert-workspace .chat-bar-container {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  box-shadow: none;
+}
+
 /* =============================================================================
    Deploy bar
    ============================================================================= */
@@ -211,6 +243,26 @@
   margin-left: auto;
   display: flex;
   gap: 0.375rem;
+}
+
+.deploy-action-inline {
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color, #6c757d);
+  padding: 0;
+  line-height: 1;
+}
+
+.deploy-action-inline:hover {
+  color: var(--bs-warning, #ffc107);
+}
+
+.deploy-dot[role="button"] {
+  cursor: pointer;
+}
+
+.deploy-dot[role="button"]:hover {
+  transform: scale(1.5);
+  transition: transform 0.15s;
 }
 
 /* =============================================================================

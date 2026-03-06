@@ -820,33 +820,44 @@ async def expert_project_preview(slug: str, environment: str, request: Request, 
         )
     except http_requests.RequestException as exc:
         logger.warning("Preview proxy error for %s/%s: %s", slug, environment, exc)
-        # Build an informative error page with deploy status and redeploy action
-        coolify_status = ""
-        if config.COOLIFY_API_TOKEN:
+
+        # Try auto-restart via Docker before returning error
+        container_status = "inconnu"
+        if _use_docker_deploy():
             try:
-                from lib.coolify import CoolifyClient
-                coolify = CoolifyClient()
-                app_uuid = (project.staging_coolify_app_uuid if environment == "staging"
-                            else project.production_coolify_app_uuid)
-                if app_uuid:
-                    detail = coolify.get_status(app_uuid)
-                    coolify_status = detail.get("status", "unknown")
+                from lib import docker_deploy
+                st = docker_deploy.status(project.id, environment)
+                container_status = st.get("status", "unknown")
+                if container_status in ("exited", "stopped", "error"):
+                    docker_deploy.restart(project.id, environment)
+                    container_status = "redemarrage..."
             except Exception:
-                coolify_status = "check failed"
+                container_status = "erreur Docker"
+
+        deploy_endpoint = (f"/api/expert/projects/{project.id}/deploy-staging"
+                           if environment == "staging"
+                           else f"/api/expert/projects/{project.id}/deploy")
+
         return HTMLResponse(
             f"""<!doctype html><html><head><meta charset="utf-8"><title>Preview indisponible</title>
             <style>body{{font-family:system-ui;max-width:600px;margin:80px auto;text-align:center;color:#333}}
             .status{{background:#f8d7da;padding:12px 20px;border-radius:8px;margin:20px 0;font-size:14px}}
+            .actions{{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}}
             button{{background:#0d6efd;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px}}
-            button:hover{{background:#0b5ed7}}a{{color:#0d6efd}}</style></head>
+            button:hover{{background:#0b5ed7}}
+            .btn-secondary{{background:#6c757d}}
+            .btn-secondary:hover{{background:#5c636a}}
+            a{{color:#0d6efd}}</style></head>
             <body><h2>Application indisponible</h2>
             <p>L'application <b>{slug}</b> ({environment}) ne repond pas.</p>
-            <div class="status">Statut Coolify : <b>{coolify_status or "inconnu"}</b></div>
-            <p>
-            <button onclick="fetch('/api/expert/projects/{project.id}/deploy-staging',{{method:'POST'}}).then(()=>location.reload())">
-            Redéployer staging</button>
-            </p>
-            <p><a href="/expert/{slug}">← Retour au projet</a></p></body></html>""",
+            <div class="status">Statut conteneur : <b>{container_status}</b></div>
+            <div class="actions">
+            <button class="btn-secondary" onclick="fetch('/api/expert/projects/{project.id}/restart/{environment}',{{method:'POST'}}).then(()=>setTimeout(()=>location.reload(),3000))">
+            <i class="ri-restart-line"></i> Redemarrer</button>
+            <button onclick="fetch('{deploy_endpoint}',{{method:'POST'}}).then(()=>setTimeout(()=>location.reload(),5000))">
+            <i class="ri-upload-cloud-line"></i> Redéployer</button>
+            </div>
+            <p style="margin-top:20px"><a href="/expert/{slug}">← Retour au projet</a></p></body></html>""",
             status_code=502,
         )
 
