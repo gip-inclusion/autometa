@@ -71,9 +71,13 @@ rsync -az --delete \
     "$PROJECT_DIR/" "$HOST:$REMOTE_DIR/"
 
 # --- Step 4: Sync Claude credentials (best-effort) ---
-if [ -d "$PROJECT_DIR/claude-credentials" ]; then
-    echo "==> Syncing Claude credentials..."
+# Copy from host's ~/.claude if local credentials dir is empty
+echo "==> Syncing Claude credentials..."
+if [ -d "$PROJECT_DIR/claude-credentials" ] && [ -f "$PROJECT_DIR/claude-credentials/.credentials.json" ]; then
     rsync -az --ignore-errors "$PROJECT_DIR/claude-credentials/" "$HOST:$REMOTE_DIR/claude-credentials/" 2>/dev/null || true
+else
+    # Populate from host's own Claude login
+    ssh "$HOST" "cp -f /root/.claude/.credentials.json $REMOTE_DIR/claude-credentials/.credentials.json 2>/dev/null; chown 1004:1004 $REMOTE_DIR/claude-credentials/.credentials.json 2>/dev/null" || true
 fi
 
 # --- Step 5: Write production .env (only if missing) ---
@@ -158,6 +162,10 @@ SSHCFG
     /opt/matometa/deploy/update-gitea-hosts.sh
   fi
 SSHEOF
+
+# --- Step 6c: Set Docker GID for socket access ---
+echo "==> Detecting Docker GID..."
+ssh "$HOST" "grep -q '^DOCKER_GID=' $REMOTE_DIR/.env 2>/dev/null || echo \"DOCKER_GID=\$(stat -c '%g' /var/run/docker.sock)\" >> $REMOTE_DIR/.env"
 
 # --- Step 7: Build and start (slim Dockerfile, public port) ---
 echo "==> Building image..."

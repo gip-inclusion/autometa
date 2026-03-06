@@ -1,0 +1,56 @@
+# Matometa - Slim production build for small VPS (8-10GB disk)
+# Drops: ClamAV, PyTorch, triton, sentence-transformers (embeddings)
+
+FROM python:3.11-slim
+
+# Install Node.js for Claude Code CLI + Docker CLI for direct deploys
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    procps \
+    ca-certificates \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create non-root user (UID 1004 to match host for volume permissions)
+# Add to docker group (GID will be fixed at runtime via entrypoint if needed)
+RUN groupadd -g 999 docker 2>/dev/null || true \
+    && useradd -m -s /bin/bash -u 1004 -G docker matometa
+
+WORKDIR /app
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_SYSTEM_PYTHON=1 UV_COMPILE_BYTECODE=1
+
+COPY pyproject.toml uv.lock .python-version ./
+
+# Install deps WITHOUT embeddings/torch/triton (no direct torch usage in codebase)
+RUN uv export --frozen --no-hashes | \
+    grep -v '^\(torch\|nvidia-\|cuda-\|triton\)' | \
+    uv pip install --no-cache -r -
+
+COPY --chown=matometa:matometa . .
+
+RUN mkdir -p /app/data /app/data/uploads /app/data/modified /app/data/projects \
+    && chown -R matometa:matometa /app/data
+
+USER matometa
+
+ENV AGENT_BACKEND=cli \
+    WEB_HOST=0.0.0.0 \
+    WEB_PORT=5000 \
+    WEB_DEBUG=false
+
+EXPOSE 5000
+
+CMD ["./entrypoint.sh"]

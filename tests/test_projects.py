@@ -430,6 +430,7 @@ class TestExpertAPI:
             store.update_project(project.id, gitea_url="http://localhost:3300/apps/test-app")
 
             monkeypatch.setattr("lib.coolify.CoolifyClient", FakeCoolify)
+            monkeypatch.setattr("web.routes.expert._use_docker_deploy", lambda: False)
             monkeypatch.setattr("web.routes.expert._setup_gitea_webhook", lambda *args, **kwargs: None)
             monkeypatch.setattr("web.routes.expert._use_local_direct_port_mode", lambda: False)
             monkeypatch.setattr("web.routes.expert._ensure_local_git_repo", lambda project: True)
@@ -489,6 +490,7 @@ class TestExpertAPI:
                 production_deploy_url="http://localhost:28084",
             )
             monkeypatch.setattr("lib.coolify.CoolifyClient", FakeCoolify)
+            monkeypatch.setattr("web.routes.expert._use_docker_deploy", lambda: False)
 
             resp = client.get(
                 f"/api/expert/projects/{project.id}/deploy-status",

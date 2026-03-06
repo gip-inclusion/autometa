@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from ..storage import store
 from .. import config
@@ -300,11 +300,19 @@ def _try_create_gitea_repo(project):
         return
     try:
         from lib.gitea import GiteaClient
+        import requests as _requests
         gitea = GiteaClient()
-        repo = gitea.create_repo(
-            name=project.slug,
-            description=project.description or "",
-        )
+        try:
+            repo = gitea.create_repo(
+                name=project.slug,
+                description=project.description or "",
+            )
+        except _requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 409:
+                # Repo already exists — fetch it instead
+                repo = gitea.get_repo(config.GITEA_ORG, project.slug)
+            else:
+                raise
         gitea_id = repo.get("id")
         gitea_url = repo.get("html_url", "")
         full_name = repo.get("full_name", "")  # e.g. "apps/nouveau-projet"
@@ -455,10 +463,70 @@ def _create_coolify_application(
     )
     app_uuid = result.get("uuid", "")
 
+    # For dockercompose apps, set HOST_PORT env var so compose file can use ${HOST_PORT}
+    if host_port and build_pack == "dockercompose" and app_uuid:
+        try:
+            coolify.create_env_var(app_uuid, "HOST_PORT", str(host_port))
+        except Exception as exc:
+            logger.warning("Failed to set HOST_PORT env var on %s: %s", app_uuid, exc)
+
     if not deploy_url:
         deploy_url = _normalize_deploy_url(result.get("domains"))
 
     return app_uuid, deploy_url
+
+
+def _reconcile_coolify_app(app_uuid: str, app_state: dict, project, coolify,
+                           port_range_start: int, branch: str):
+    """Fix common Coolify app misconfigurations in-place.
+
+    - Upgrades dockerfile → dockercompose when project has a compose file
+    - Sets HOST_PORT env var for dockercompose apps
+    - Fixes stale branch names (e.g. stagging → staging)
+    """
+    workdir = config.PROJECTS_DIR / project.id
+    has_compose = (workdir / "docker-compose.yml").exists() or (workdir / "docker-compose.yaml").exists()
+    current_bp = app_state.get("build_pack", "dockerfile")
+    current_branch = app_state.get("git_branch", "")
+
+    patches = {}
+
+    # Upgrade to dockercompose if project has a compose file
+    if has_compose and current_bp != "dockercompose":
+        patches["build_pack"] = "dockercompose"
+        patches["docker_compose_location"] = "/docker-compose.yml"
+        # Set HOST_PORT env var from existing port mapping
+        mapped_port = _extract_host_port_mapping(app_state.get("ports_mappings"))
+        if not mapped_port:
+            reserved = _reserved_local_deploy_ports(exclude_project_id=project.id)
+            mapped_port = _pick_host_port(start=port_range_start, reserved_ports=reserved)
+        try:
+            coolify.create_env_var(app_uuid, "HOST_PORT", str(mapped_port))
+        except Exception:
+            pass  # env var may already exist
+        logger.info("Upgrading %s to dockercompose (HOST_PORT=%s)", app_uuid, mapped_port)
+
+    # Fix branch name
+    if branch and current_branch != branch:
+        patches["git_branch"] = branch
+        logger.info("Fixing branch for %s: %s → %s", app_uuid, current_branch, branch)
+
+    # Fix wrong container port in port mapping (for dockerfile apps)
+    if current_bp == "dockerfile" and not has_compose:
+        expected_port = _detect_exposed_port(workdir)
+        current_mapping = app_state.get("ports_mappings") or ""
+        if ":" in current_mapping:
+            host_p, container_p = current_mapping.split(",")[0].split(":")
+            if int(container_p) != expected_port:
+                patches["ports_mappings"] = f"{host_p}:{expected_port}"
+                patches["ports_exposes"] = str(expected_port)
+                logger.info("Fixing port for %s: %s → %s:%s", app_uuid, current_mapping, host_p, expected_port)
+
+    if patches:
+        try:
+            coolify._session.patch(coolify._url(f"/applications/{app_uuid}"), json=patches)
+        except Exception:
+            logger.exception("Failed to reconcile Coolify app %s", app_uuid)
 
 
 def _ensure_staging_application(project, coolify):
@@ -472,8 +540,14 @@ def _ensure_staging_application(project, coolify):
         if _use_local_direct_port_mode():
             app_state = coolify.get_status(app_uuid)
             build_pack = app_state.get("build_pack", "dockerfile")
-            # Only manage port mappings for dockerfile apps; compose handles its own
-            if build_pack != "dockercompose":
+            _reconcile_coolify_app(app_uuid, app_state, project, coolify,
+                                   port_range_start=18080, branch=staging_branch)
+            if build_pack == "dockercompose":
+                # Port managed by compose via HOST_PORT env var
+                mapped_port = _extract_host_port_mapping(app_state.get("ports_mappings"))
+                if mapped_port:
+                    deploy_url = _local_deploy_url(mapped_port)
+            else:
                 mapped_port = _extract_host_port_mapping(app_state.get("ports_mappings"))
                 reserved_ports = _reserved_local_deploy_ports(exclude_project_id=project.id)
                 if not mapped_port or mapped_port in reserved_ports:
@@ -516,7 +590,13 @@ def _ensure_production_application(project, coolify):
         if _use_local_direct_port_mode():
             app_state = coolify.get_status(app_uuid)
             build_pack = app_state.get("build_pack", "dockerfile")
-            if build_pack != "dockercompose":
+            _reconcile_coolify_app(app_uuid, app_state, project, coolify,
+                                   port_range_start=28080, branch=production_branch)
+            if build_pack == "dockercompose":
+                mapped_port = _extract_host_port_mapping(app_state.get("ports_mappings"))
+                if mapped_port:
+                    deploy_url = _local_deploy_url(mapped_port)
+            else:
                 mapped_port = _extract_host_port_mapping(app_state.get("ports_mappings"))
                 reserved_ports = _reserved_local_deploy_ports(exclude_project_id=project.id)
                 if not mapped_port or mapped_port in reserved_ports:
@@ -713,7 +793,35 @@ async def expert_project_preview(slug: str, environment: str, request: Request, 
         )
     except http_requests.RequestException as exc:
         logger.warning("Preview proxy error for %s/%s: %s", slug, environment, exc)
-        return Response(content="Impossible de joindre l'application deployee.", status_code=502)
+        # Build an informative error page with deploy status and redeploy action
+        coolify_status = ""
+        if config.COOLIFY_API_TOKEN:
+            try:
+                from lib.coolify import CoolifyClient
+                coolify = CoolifyClient()
+                app_uuid = (project.staging_coolify_app_uuid if environment == "staging"
+                            else project.production_coolify_app_uuid)
+                if app_uuid:
+                    detail = coolify.get_status(app_uuid)
+                    coolify_status = detail.get("status", "unknown")
+            except Exception:
+                coolify_status = "check failed"
+        return HTMLResponse(
+            f"""<!doctype html><html><head><meta charset="utf-8"><title>Preview indisponible</title>
+            <style>body{{font-family:system-ui;max-width:600px;margin:80px auto;text-align:center;color:#333}}
+            .status{{background:#f8d7da;padding:12px 20px;border-radius:8px;margin:20px 0;font-size:14px}}
+            button{{background:#0d6efd;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px}}
+            button:hover{{background:#0b5ed7}}a{{color:#0d6efd}}</style></head>
+            <body><h2>Application indisponible</h2>
+            <p>L'application <b>{slug}</b> ({environment}) ne repond pas.</p>
+            <div class="status">Statut Coolify : <b>{coolify_status or "inconnu"}</b></div>
+            <p>
+            <button onclick="fetch('/api/expert/projects/{project.id}/deploy-staging',{{method:'POST'}}).then(()=>location.reload())">
+            Redéployer staging</button>
+            </p>
+            <p><a href="/expert/{slug}">← Retour au projet</a></p></body></html>""",
+            status_code=502,
+        )
 
     response_headers = {}
     location = upstream_resp.headers.get("Location")
@@ -876,6 +984,69 @@ async def api_new_conversation(project_id: str, user_email: str = Depends(get_cu
     }, status_code=201)
 
 
+def _use_docker_deploy() -> bool:
+    """Use direct Docker deploy when Docker socket is available."""
+    from lib.docker_deploy import docker_available
+    return docker_available()
+
+
+def _docker_deploy_staging(project_id: str, project, request: Request):
+    """Deploy staging via direct Docker Compose."""
+    from lib import docker_deploy
+
+    _ensure_local_git_repo(project)
+    ensure_project_branches(project)
+    _ensure_deployable_repo(project)
+    commit_and_push_staging_if_changed(project)
+
+    result = docker_deploy.deploy(project_id, "staging")
+    updated = store.get_project(project_id)
+    return JSONResponse({
+        "status": "staging_deploying" if result["status"] == "running" else result["status"],
+        "staging": {
+            "deploy_url": result.get("deploy_url"),
+            "detail": result,
+        },
+        "project": _project_to_public_dict(updated or project, request),
+    }, status_code=200 if result["status"] == "running" else 500)
+
+
+def _docker_deploy_production(project_id: str, project, request: Request):
+    """Deploy staging + production via direct Docker Compose."""
+    from lib import docker_deploy
+
+    _ensure_local_git_repo(project)
+    ensure_project_branches(project)
+    _ensure_deployable_repo(project)
+    commit_and_push_staging_if_changed(project)
+
+    # Deploy staging first
+    staging_result = docker_deploy.deploy(project_id, "staging")
+
+    refreshed = store.get_project(project_id) or project
+
+    # Promote staging to production branch
+    promotion = promote_staging_to_production(refreshed)
+
+    # Deploy production
+    prod_result = docker_deploy.deploy(project_id, "production")
+
+    updated = store.get_project(project_id)
+    return JSONResponse({
+        "status": "production_deploying" if prod_result["status"] == "running" else prod_result["status"],
+        "promotion": promotion,
+        "staging": {
+            "deploy_url": staging_result.get("deploy_url"),
+            "detail": staging_result,
+        },
+        "production": {
+            "deploy_url": prod_result.get("deploy_url"),
+            "detail": prod_result,
+        },
+        "project": _project_to_public_dict(updated or refreshed, request),
+    }, status_code=200 if prod_result["status"] == "running" else 500)
+
+
 @router.post("/api/expert/projects/{project_id}/deploy")
 def api_deploy_project(project_id: str, request: Request):
     """Promote staging to production and trigger production deployment."""
@@ -889,28 +1060,28 @@ def api_deploy_project(project_id: str, request: Request):
     if not project.gitea_url:
         return JSONResponse({"error": "Project has no Gitea repo yet"}, status_code=400)
 
-    if not config.COOLIFY_API_TOKEN:
-        return JSONResponse({"error": "Coolify not configured"}, status_code=503)
-
     try:
+        # Prefer direct Docker deploy when socket is available
+        if _use_docker_deploy():
+            return _docker_deploy_production(project_id, project, request)
+
+        # Fallback to Coolify
+        if not config.COOLIFY_API_TOKEN:
+            return JSONResponse({"error": "Neither Docker socket nor Coolify available"}, status_code=503)
+
         from lib.coolify import CoolifyClient
         coolify = CoolifyClient()
 
         _ensure_local_git_repo(project)
         ensure_project_branches(project)
-
-        # Guarantee the repository is deployable on first deploy.
         _ensure_deployable_repo(project)
         commit_and_push_staging_if_changed(project)
 
-        # Ensure staging infra is always alive and webhook-driven.
         staging_app_uuid, staging_url = _ensure_staging_application(project, coolify)
         if staging_app_uuid and not project.staging_coolify_app_uuid:
             coolify.deploy(staging_app_uuid)
 
         refreshed = store.get_project(project_id) or project
-
-        # Promote staging branch to production branch before production deploy.
         promotion = promote_staging_to_production(refreshed)
 
         refreshed = store.get_project(project_id) or refreshed
@@ -924,15 +1095,8 @@ def api_deploy_project(project_id: str, request: Request):
         return JSONResponse({
             "status": "production_deploying",
             "promotion": promotion,
-            "staging": {
-                "app_uuid": staging_app_uuid,
-                "deploy_url": staging_url,
-            },
-            "production": {
-                "app_uuid": production_app_uuid,
-                "deploy_url": production_url,
-                "detail": deploy_result,
-            },
+            "staging": {"app_uuid": staging_app_uuid, "deploy_url": staging_url},
+            "production": {"app_uuid": production_app_uuid, "deploy_url": production_url, "detail": deploy_result},
             "project": _project_to_public_dict(updated, request) if updated else _project_to_public_dict(refreshed, request),
         })
     except Exception as e:
@@ -953,10 +1117,13 @@ def api_deploy_staging_project(project_id: str, request: Request):
     if not project.gitea_url:
         return JSONResponse({"error": "Project has no Gitea repo yet"}, status_code=400)
 
-    if not config.COOLIFY_API_TOKEN:
-        return JSONResponse({"error": "Coolify not configured"}, status_code=503)
-
     try:
+        if _use_docker_deploy():
+            return _docker_deploy_staging(project_id, project, request)
+
+        if not config.COOLIFY_API_TOKEN:
+            return JSONResponse({"error": "Neither Docker socket nor Coolify available"}, status_code=503)
+
         from lib.coolify import CoolifyClient
         coolify = CoolifyClient()
 
@@ -970,11 +1137,7 @@ def api_deploy_staging_project(project_id: str, request: Request):
         updated = store.get_project(project_id)
         return JSONResponse({
             "status": "staging_deploying",
-            "staging": {
-                "app_uuid": staging_app_uuid,
-                "deploy_url": staging_url,
-                "detail": detail,
-            },
+            "staging": {"app_uuid": staging_app_uuid, "deploy_url": staging_url, "detail": detail},
             "project": _project_to_public_dict(updated, request) if updated else _project_to_public_dict(project, request),
         })
     except Exception as e:
@@ -1041,6 +1204,38 @@ def api_deploy_status(project_id: str, request: Request):
     if not project:
         return JSONResponse({"error": "Project not found"}, status_code=404)
 
+    staging_preview_url = _preview_url(project.slug, "staging") if project.staging_deploy_url else None
+    production_preview_url = _preview_url(project.slug, "production") if project.production_deploy_url else None
+
+    # Try direct Docker status first
+    if _use_docker_deploy():
+        from lib import docker_deploy
+        staging_st = docker_deploy.status(project_id, "staging") if project.staging_deploy_url else {"status": "not_deployed"}
+        prod_st = docker_deploy.status(project_id, "production") if project.production_deploy_url else {"status": "not_deployed"}
+
+        overall = prod_st.get("status", "not_deployed")
+        if overall == "not_deployed":
+            overall = staging_st.get("status", "not_deployed")
+
+        primary_url = production_preview_url or staging_preview_url
+        return JSONResponse({
+            "status": overall,
+            "deploy_url": primary_url,
+            "staging": {
+                "status": staging_st.get("status", "not_deployed"),
+                "deploy_url": staging_preview_url,
+                "technical_deploy_url": _publicize_deploy_url(project.staging_deploy_url, request),
+                "detail": staging_st,
+            },
+            "production": {
+                "status": prod_st.get("status", "not_deployed"),
+                "deploy_url": production_preview_url,
+                "technical_deploy_url": _publicize_deploy_url(project.production_deploy_url, request),
+                "detail": prod_st,
+            },
+        })
+
+    # Fallback: Coolify status
     if not project.staging_coolify_app_uuid and not project.production_coolify_app_uuid:
         return JSONResponse({"status": "not_deployed"})
 
@@ -1062,9 +1257,6 @@ def api_deploy_status(project_id: str, request: Request):
             overall_status = production_detail.get("status", "unknown")
         elif staging_detail:
             overall_status = staging_detail.get("status", "unknown")
-
-        staging_preview_url = _preview_url(project.slug, "staging") if project.staging_deploy_url else None
-        production_preview_url = _preview_url(project.slug, "production") if project.production_deploy_url else None
 
         primary_url = production_preview_url or staging_preview_url or _publicize_deploy_url(
             project.production_deploy_url or project.staging_deploy_url or project.deploy_url, request
@@ -1091,3 +1283,49 @@ def api_deploy_status(project_id: str, request: Request):
     except Exception as e:
         logger.exception("Deploy status check failed")
         return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
+
+
+@router.get("/api/expert/projects/{project_id}/logs/{environment}")
+def api_project_logs(project_id: str, environment: str):
+    """Get container logs for a project environment."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+    if environment not in ("staging", "production"):
+        return JSONResponse({"error": "Invalid environment"}, status_code=400)
+    if not _use_docker_deploy():
+        return JSONResponse({"error": "Direct Docker not available"}, status_code=503)
+
+    from lib import docker_deploy
+    log_text = docker_deploy.logs(project_id, environment)
+    return JSONResponse({"logs": log_text})
+
+
+@router.post("/api/expert/projects/{project_id}/restart/{environment}")
+def api_project_restart(project_id: str, environment: str):
+    """Restart project containers without rebuild."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+    if environment not in ("staging", "production"):
+        return JSONResponse({"error": "Invalid environment"}, status_code=400)
+    if not _use_docker_deploy():
+        return JSONResponse({"error": "Direct Docker not available"}, status_code=503)
+
+    from lib import docker_deploy
+    result = docker_deploy.restart(project_id, environment)
+    status_code = 200 if result.get("status") == "running" else 500
+    return JSONResponse(result, status_code=status_code)
+
+
+@router.post("/api/expert/projects/{project_id}/stop/{environment}")
+def api_project_stop(project_id: str, environment: str):
+    """Stop project containers."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+    if environment not in ("staging", "production"):
+        return JSONResponse({"error": "Invalid environment"}, status_code=400)
+    if not _use_docker_deploy():
+        return JSONResponse({"error": "Direct Docker not available"}, status_code=503)
+
+    from lib import docker_deploy
+    result = docker_deploy.stop(project_id, environment)
+    return JSONResponse(result)

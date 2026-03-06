@@ -1,0 +1,16 @@
+# Production override for small VPS — uses Dockerfile.slim
+services:
+  matometa:
+    build:
+      context: .
+      dockerfile: Dockerfile.slim
+    ports: !override
+      - "0.0.0.0:5002:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Grant Docker socket access to matometa user (host docker GID)
+    group_add:
+      - ${DOCKER_GID:-999}
+    environment:
+      - SKIP_CLI_AUTH_CHECK=false
+      - CONTAINER_ENV=1
