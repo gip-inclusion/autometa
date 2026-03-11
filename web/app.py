@@ -11,11 +11,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 
-# Configure logging (stdout only)
-logging.basicConfig(
-    level=logging.DEBUG if config.DEBUG else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# Configure logging (stdout only) with injection-safe formatter
+from .logging_utils import setup_logging
+
+setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
 # Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
 for _logger_name in ("botocore", "boto3", "urllib3", "s3transfer"):
     logging.getLogger(_logger_name).setLevel(logging.WARNING)

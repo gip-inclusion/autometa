@@ -484,7 +484,7 @@ def copy_file_for_modification(
     # Make writable (unlike original)
     os.chmod(copy_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    logger.info("Created writable copy: %s", str(copy_path).replace("\n", "\\n").replace("\r", "\\r"))
+    logger.info("Created writable copy: %s", copy_path)
     return copy_path
 
 

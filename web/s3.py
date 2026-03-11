@@ -17,11 +17,6 @@ from . import config
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_for_log(value: str) -> str:
-    """Remove newlines and control characters to prevent log injection."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x00", "")
-
-
 # Initialize S3 client if configured
 _s3_client = None
 
@@ -84,20 +79,20 @@ def upload_file(path: str, content: bytes, content_type: Optional[str] = None) -
                 Body=content,
                 ContentType=content_type,
             )
-            logger.debug(f"Uploaded to S3: {_sanitize_for_log(key)}")
+            logger.debug(f"Uploaded to S3: {str(key)}")
             return True
         except Exception as e:
-            logger.error(f"S3 upload failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"S3 upload failed for {str(path)}: {e}")
             return False
     else:
         try:
             local_path = _get_local_path(path)
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(content)
-            logger.debug(f"Saved locally: {_sanitize_for_log(local_path)}")
+            logger.debug(f"Saved locally: {str(local_path)}")
             return True
         except Exception as e:
-            logger.error(f"Local save failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"Local save failed for {str(path)}: {e}")
             return False
 
 
@@ -134,12 +129,12 @@ def download_file(path: str) -> Optional[bytes]:
             return response["Body"].read()
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                logger.debug(f"S3 file not found: {_sanitize_for_log(path)}")
+                logger.debug(f"S3 file not found: {str(path)}")
                 return None
-            logger.error(f"S3 download failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"S3 download failed for {str(path)}: {e}")
             return None
         except Exception as e:
-            logger.error(f"S3 download failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"S3 download failed for {str(path)}: {e}")
             return None
     else:
         try:
@@ -148,7 +143,7 @@ def download_file(path: str) -> Optional[bytes]:
                 return local_path.read_bytes()
             return None
         except Exception as e:
-            logger.error(f"Local read failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"Local read failed for {str(path)}: {e}")
             return None
 
 
@@ -176,7 +171,7 @@ def get_file_url(path: str, expires_in: int = 3600) -> Optional[str]:
             )
             return url
         except Exception as e:
-            logger.error(f"Failed to generate presigned URL for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"Failed to generate presigned URL for {str(path)}: {e}")
             return None
     return None
 
@@ -199,7 +194,7 @@ def file_exists(path: str) -> bool:
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
                 return False
-            logger.error(f"S3 head_object failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"S3 head_object failed for {str(path)}: {e}")
             return False
     else:
         try:
@@ -222,20 +217,20 @@ def delete_file(path: str) -> bool:
         try:
             key = _get_s3_key(path)
             _s3_client.delete_object(Bucket=config.S3_BUCKET, Key=key)
-            logger.debug(f"Deleted from S3: {_sanitize_for_log(key)}")
+            logger.debug(f"Deleted from S3: {str(key)}")
             return True
         except Exception as e:
-            logger.error(f"S3 delete failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"S3 delete failed for {str(path)}: {e}")
             return False
     else:
         try:
             local_path = _get_local_path(path)
             if local_path.exists():
                 local_path.unlink()
-                logger.debug(f"Deleted locally: {_sanitize_for_log(local_path)}")
+                logger.debug(f"Deleted locally: {str(local_path)}")
             return True
         except Exception as e:
-            logger.error(f"Local delete failed for {_sanitize_for_log(path)}: {e}")
+            logger.error(f"Local delete failed for {str(path)}: {e}")
             return False
 
 
@@ -268,7 +263,7 @@ def list_files(prefix: str = "") -> list[dict]:
                         }
                     )
         except Exception as e:
-            logger.error(f"S3 list failed for prefix {_sanitize_for_log(prefix)}: {e}")
+            logger.error(f"S3 list failed for prefix {str(prefix)}: {e}")
     else:
         try:
             base_path = _get_local_path(prefix)
@@ -285,7 +280,7 @@ def list_files(prefix: str = "") -> list[dict]:
                             }
                         )
         except Exception as e:
-            logger.error(f"Local list failed for prefix {_sanitize_for_log(prefix)}: {e}")
+            logger.error(f"Local list failed for prefix {str(prefix)}: {e}")
 
     return files
 
@@ -320,7 +315,7 @@ def list_directories(prefix: str = "") -> list[str]:
                     dir_name = dir_path
                 directories.add(dir_name)
         except Exception as e:
-            logger.error(f"S3 list directories failed for prefix {_sanitize_for_log(prefix)}: {e}")
+            logger.error(f"S3 list directories failed for prefix {str(prefix)}: {e}")
     else:
         try:
             base_path = _get_local_path(prefix) if prefix else config.INTERACTIVE_DIR
@@ -329,6 +324,6 @@ def list_directories(prefix: str = "") -> list[str]:
                     if item.is_dir():
                         directories.add(item.name)
         except Exception as e:
-            logger.error(f"Local list directories failed for prefix {_sanitize_for_log(prefix)}: {e}")
+            logger.error(f"Local list directories failed for prefix {str(prefix)}: {e}")
 
     return sorted(directories)

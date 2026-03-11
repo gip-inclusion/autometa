@@ -585,7 +585,7 @@ async def stream_conversation(
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
         logger.debug(
             "SSE stream start: conv=%s, after=%d, watermark=%d",
-            conv_id.replace("\n", "").replace("\r", ""),
+            conv_id,
             after,
             last_msg_id,
         )

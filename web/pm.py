@@ -297,10 +297,9 @@ class ProcessManager:
 
 async def main():
     """Entry point for the process manager."""
-    logging.basicConfig(
-        level=logging.DEBUG if config.DEBUG else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    from .logging_utils import setup_logging
+
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     pm = ProcessManager()
     await pm.run()
 
