@@ -484,9 +484,9 @@ function formatUserContent(content) {
     }
   }
 
-  // If no file blocks found, just escape and return
+  // If no file blocks found, wrap in user-text to preserve line breaks
   if (!matches) {
-    return escapeHtml(content);
+    return `<div class="user-text">${escapeHtml(content)}</div>`;
   }
 
   return result;
