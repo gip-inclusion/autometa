@@ -434,8 +434,9 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         staged_path = (staging_dir / conv.file_path).resolve()
 
         # Path traversal protection
-        if not str(original_path).startswith(str(KNOWLEDGE_ROOT.resolve())) or \
-           not str(staged_path).startswith(str(staging_dir.resolve())):
+        if not str(original_path).startswith(str(KNOWLEDGE_ROOT.resolve())) or not str(staged_path).startswith(
+            str(staging_dir.resolve())
+        ):
             return JSONResponse({"error": "Invalid file path"}, status_code=400)
 
         if is_first_message:
@@ -582,7 +583,12 @@ async def stream_conversation(
 
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
-        logger.debug("SSE stream start: conv=%s, after=%d, watermark=%d", conv_id.replace("\n", "").replace("\r", ""), after, last_msg_id)
+        logger.debug(
+            "SSE stream start: conv=%s, after=%d, watermark=%d",
+            conv_id.replace("\n", "").replace("\r", ""),
+            after,
+            last_msg_id,
+        )
         max_seconds = 300
         fallback_interval = 5  # safety-net DB poll every 5s
         start = time.monotonic()

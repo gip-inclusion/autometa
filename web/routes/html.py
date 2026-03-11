@@ -438,7 +438,7 @@ def explorations(
     """Legacy explorations list — redirects to /rechercher."""
     if conv:
         # Validate conv is a UUID to prevent open redirect
-        if re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', conv, re.IGNORECASE):
+        if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", conv, re.IGNORECASE):
             return RedirectResponse(f"/explorations/{conv}", status_code=301)
         return RedirectResponse("/rechercher?show=convos", status_code=301)
 
@@ -521,7 +521,7 @@ def connaissances(
     # Redirect old ?file= pattern to RESTful URL
     if file:
         # Validate file path contains only safe characters to prevent open redirect
-        if re.match(r'^[a-zA-Z0-9_\-./]+$', file) and '..' not in file:
+        if re.match(r"^[a-zA-Z0-9_\-./]+$", file) and ".." not in file:
             return RedirectResponse(f"/connaissances/{file}", status_code=301)
         return RedirectResponse("/connaissances", status_code=301)
 
