@@ -146,8 +146,8 @@ def _scan_interactive_apps_uncached():
 @router.get("/rapports")
 def rapports(report_id: int | None = Query(default=None, alias="id")):
     """Legacy rapports list — redirects to /rechercher."""
-    if report_id:
-        return RedirectResponse(f"/rapports/{report_id}", status_code=301)
+    if report_id is not None:
+        return RedirectResponse(f"/rapports/{int(report_id)}", status_code=301)
 
     return RedirectResponse("/rechercher?show=reports", status_code=301)
 

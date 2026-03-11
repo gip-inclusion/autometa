@@ -473,12 +473,18 @@ def copy_file_for_modification(
         copy_filename = f"{stem}_copy_{uuid.uuid4().hex[:8]}{ext}"
 
     copy_path = destination_dir / copy_filename
+
+    # Prevent path traversal
+    if not str(copy_path.resolve()).startswith(str(destination_dir.resolve())):
+        logger.error("Path traversal detected in copy filename")
+        return None
+
     copy_path.write_bytes(content)
 
     # Make writable (unlike original)
     os.chmod(copy_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    logger.info(f"Created writable copy: {copy_path}")
+    logger.info("Created writable copy: %s", str(copy_path).replace("\n", "\\n").replace("\r", "\\r"))
     return copy_path
 
 

@@ -437,7 +437,10 @@ def explorations(
 ):
     """Legacy explorations list — redirects to /rechercher."""
     if conv:
-        return RedirectResponse(f"/explorations/{conv}", status_code=301)
+        # Validate conv is a UUID to prevent open redirect
+        if re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', conv, re.IGNORECASE):
+            return RedirectResponse(f"/explorations/{conv}", status_code=301)
+        return RedirectResponse("/rechercher?show=convos", status_code=301)
 
     target = "/rechercher?show=mine" if mine == "1" else "/rechercher?show=convos"
     return RedirectResponse(target, status_code=301)
@@ -517,7 +520,10 @@ def connaissances(
     """Connaissances section - knowledge file browser (index)."""
     # Redirect old ?file= pattern to RESTful URL
     if file:
-        return RedirectResponse(f"/connaissances/{file}", status_code=301)
+        # Validate file path contains only safe characters to prevent open redirect
+        if re.match(r'^[a-zA-Z0-9_\-./]+$', file) and '..' not in file:
+            return RedirectResponse(f"/connaissances/{file}", status_code=301)
+        return RedirectResponse("/connaissances", status_code=301)
 
     data = get_sidebar_data(user_email)
     categories = list_knowledge_files()
@@ -642,17 +648,17 @@ def terrain(
             t0 = time.monotonic()
             results, _ = search_corpus(q, limit=25, db_filter=db_filter, type_filter=type_filter)
             elapsed = round(time.monotonic() - t0, 1)
-        except Exception as e:
+        except Exception:
             logger.exception("Research search failed")
-            error = str(e)
+            error = "La recherche a échoué"
     elif similar:
         try:
             t0 = time.monotonic()
             results, similar_source = find_similar_pages(similar, limit=20)
             elapsed = round(time.monotonic() - t0, 1)
-        except Exception as e:
+        except Exception:
             logger.exception("Research similar failed")
-            error = str(e)
+            error = "La recherche de pages similaires a échoué"
 
     return templates.TemplateResponse(
         request,

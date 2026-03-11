@@ -1,9 +1,13 @@
 """API routes for Claude authentication."""
 
+import logging
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import claude_auth, claude_credentials, config
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth")
 
@@ -68,7 +72,11 @@ async def start(request: Request):
     body = await request.body()
     data = (await request.json()) if body else {}
     force = data.get("force", False)
-    return claude_auth.start_auth(force=force)
+    result = claude_auth.start_auth(force=force)
+    if result.get("status") == "error":
+        logger.error("Auth start failed: %s", result.get("error"))
+        return JSONResponse({"status": "error", "error": "Authentication failed"}, status_code=500)
+    return result
 
 
 @router.post("/complete")
@@ -83,7 +91,11 @@ async def complete(request: Request):
             {"status": "error", "error": "Missing 'code' in request body"},
             status_code=400,
         )
-    return claude_auth.complete_auth(data["code"])
+    result = claude_auth.complete_auth(data["code"])
+    if result.get("status") == "error":
+        logger.error("Auth completion failed: %s", result.get("error"))
+        return JSONResponse({"status": "error", "error": "Authentication failed"}, status_code=500)
+    return result
 
 
 @router.post("/cancel")

@@ -232,11 +232,14 @@ def _prepare_s3_workdir(slug: str) -> Path:
         rel_path = entry["path"]
         # rel_path is like "slug/cron.py" — strip the slug prefix
         local_name = rel_path[len(slug) + 1 :]
-        if not local_name:
+        if not local_name or ".." in local_name:
             continue
         content = s3.download_file(rel_path)
         if content is not None:
-            local_file = workdir / local_name
+            local_file = (workdir / local_name).resolve()
+            # Path traversal protection
+            if not str(local_file).startswith(str(workdir.resolve())):
+                continue
             local_file.parent.mkdir(parents=True, exist_ok=True)
             local_file.write_bytes(content)
     return workdir
@@ -244,8 +247,11 @@ def _prepare_s3_workdir(slug: str) -> Path:
 
 def _upload_s3_results(slug: str, workdir: Path):
     """Upload new/modified files from workdir back to S3."""
+    workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
         if not path.is_file():
+            continue
+        if not str(path.resolve()).startswith(str(workdir_resolved)):
             continue
         rel = path.relative_to(workdir)
         s3_key = f"{slug}/{rel}"

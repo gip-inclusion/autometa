@@ -1,6 +1,7 @@
 """Reports API routes."""
 
 import json
+import logging
 import urllib.error
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -10,6 +11,8 @@ from .. import notion
 from ..config import ADMIN_USERS
 from ..deps import get_current_user
 from ..storage import store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/reports")
 
@@ -161,9 +164,11 @@ def publish_to_notion(report_id: int):
         )
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")[:200]
-        return JSONResponse({"error": f"Notion API error {e.code}: {body}"}, status_code=502)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.error("Notion API error %d: %s", e.code, body)
+        return JSONResponse({"error": "Notion API error"}, status_code=502)
+    except Exception:
+        logger.exception("Notion publish failed")
+        return JSONResponse({"error": "Failed to publish to Notion"}, status_code=500)
 
     # Store the URL
     from ..database import get_db

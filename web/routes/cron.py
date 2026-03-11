@@ -50,7 +50,7 @@ def run_task(slug: str):
         return JSONResponse({"error": "Task not found"}, status_code=404)
 
     result = run_cron_task(slug, trigger="manual")
-    return result
+    return result  # Admin-only endpoint, output needed for debugging
 
 
 @router.post("/api/cron/{slug}/toggle")
