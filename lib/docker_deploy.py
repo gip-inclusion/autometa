@@ -221,12 +221,25 @@ def deploy(project_id: str, environment: str = "staging") -> dict:
     # Also update legacy fields
     store.update_project(project_id, deploy_url=deploy_url)
 
-    return {
+    result = {
         "status": "running",
         "port": port,
         "deploy_url": deploy_url,
         "container_prefix": f"{project.slug}-{environment}",
     }
+
+    # Optional browser smoke test (non-blocking: failure is advisory)
+    try:
+        from lib.browser_smoke import smoke_test, browser_available
+        if browser_available():
+            smoke = smoke_test(deploy_url, project_id, timeout=30)
+            result["smoke_test"] = smoke
+            if smoke.get("status") == "fail":
+                logger.warning("Smoke test failed for %s: %s", deploy_url, smoke.get("errors"))
+    except Exception as e:
+        logger.debug("Smoke test skipped: %s", e)
+
+    return result
 
 
 def status(project_id: str, environment: str = "staging") -> dict:

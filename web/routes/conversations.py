@@ -704,6 +704,7 @@ async def stream_conversation(
                                 conv_id,
                             )
                             deploy_triggered = False
+                            deploy_result = None
 
                             if commit_result:
                                 # Auto-deploy staging via Docker if available (replaces Gitea webhook).
@@ -724,18 +725,20 @@ async def stream_conversation(
                                 except Exception as deploy_exc:
                                     logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
 
-                                yield _sse_event(
-                                    "system",
-                                    {
-                                        "type": "system",
-                                        "content": {
+                                sse_content = {
                                             "subtype": "auto_commit",
                                             "branch": commit_result["branch"],
                                             "commit": commit_result["commit"],
                                             "files_changed": len(commit_result["files"]),
                                             "staging_deploy_triggered": deploy_triggered,
-                                        },
-                                    },
+                                        }
+                                # Include smoke test results if available
+                                if deploy_triggered and deploy_result and deploy_result.get("smoke_test"):
+                                    sse_content["smoke_test"] = deploy_result["smoke_test"]
+
+                                yield _sse_event(
+                                    "system",
+                                    {"type": "system", "content": sse_content},
                                 )
                     except Exception as exc:
                         logger.warning("Expert auto-commit failed for conversation %s: %s", conv_id, exc)

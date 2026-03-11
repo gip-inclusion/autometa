@@ -77,10 +77,24 @@ python -m scripts.deploy logs gold-falcon --env staging
 
 # Validate compose file
 python -m scripts.deploy validate gold-falcon
+
+# Debug containers (logs + resources + state)
+python -m scripts.deploy debug gold-falcon --env staging
+
+# Browser smoke test (validates page renders, no 500 errors)
+python -m scripts.deploy smoke gold-falcon --env staging
+
+# Clean up unused Docker resources
+python -m scripts.deploy cleanup --dry-run   # preview
+python -m scripts.deploy cleanup             # execute
 ```
 
 **On deploy failure:** Always read the container logs before retrying. The deploy
 CLI and skill both show logs automatically on failure.
+
+**Browser smoke test:** After each deploy, a headless browser verifies the page
+renders correctly (no blank page, no 500 error, no JS crashes). Results include
+a screenshot saved to `/app/data/smoke-results/{project_id}/latest.png`.
 
 ## Tech Stack
 

@@ -127,6 +127,22 @@ def main():
         print("\nCheck logs above. The container may still be starting.")
         return 1
 
+    # Step 5: Browser smoke test (optional)
+    smoke = result.get("smoke_test")
+    if smoke:
+        print(f"\n--- Step 5: Browser Smoke Test ---")
+        if smoke["status"] == "pass":
+            title = smoke.get("title", "?")
+            print(f"OK: Page rendered (title='{title}', {smoke.get('duration_ms', '?')}ms)")
+        elif smoke["status"] == "fail":
+            print(f"WARNING: Smoke test failed")
+            for err in smoke.get("errors", []):
+                print(f"  - {err}")
+            if smoke.get("screenshot"):
+                print(f"  Screenshot: {smoke['screenshot']}")
+        else:
+            print(f"Skipped: {smoke.get('reason', 'agent-browser not available')}")
+
     print(f"\nDone: {project.slug}/{env} deployed at {deploy_url}")
     return 0
 

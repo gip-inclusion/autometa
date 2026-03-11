@@ -15,6 +15,9 @@ Usage:
     python -m scripts.deploy stop <slug-or-uuid> [--env ENV]   # Stop
     python -m scripts.deploy validate <slug-or-uuid>           # Check compose file
     python -m scripts.deploy health                            # Health check all
+    python -m scripts.deploy cleanup [--dry-run]                   # Clean unused Docker resources
+    python -m scripts.deploy debug <slug-or-uuid> [--env ENV]      # Debug containers
+    python -m scripts.deploy smoke <slug-or-uuid> [--env ENV]      # Browser smoke test
 
 Note: <slug-or-uuid> accepts either project slug (e.g. gold-falcon) or UUID.
 """
@@ -167,6 +170,89 @@ def cmd_health(args):
     return 0
 
 
+def cmd_cleanup(args):
+    """Clean up unused Docker resources."""
+    from lib.docker_cleanup import cleanup, disk_usage
+
+    # Show current usage
+    print("=== Docker Disk Usage ===")
+    usage = disk_usage()
+    if "error" in usage:
+        print(f"  Error: {usage['error']}")
+    else:
+        for rtype, info in usage.items():
+            print(f"  {rtype:15s} count={info['count']:>5s}  size={info['size']:>10s}  reclaimable={info['reclaimable']}")
+
+    print()
+    dry_run = getattr(args, "dry_run", False)
+    result = cleanup(dry_run=dry_run)
+
+    action = "Would remove" if dry_run else "Removed"
+    print(f"=== Cleanup {'(dry run)' if dry_run else ''} ===")
+    print(f"  {action} {result['dangling_images']} dangling images")
+    print(f"  {action} {result['stopped_containers']} stopped containers")
+    print(f"  {action} {result['unused_volumes']} unused volumes")
+    if result["total_reclaimed_mb"] > 0:
+        print(f"  Reclaimed: {result['total_reclaimed_mb']:.1f} MB")
+    if result["errors"]:
+        for err in result["errors"]:
+            print(f"  ERROR: {err}")
+    return 0
+
+
+def cmd_debug(args):
+    """Debug a project's containers."""
+    store = ConversationStore()
+    project = _resolve_project(store, args.slug)
+    if not project:
+        print(f"Project not found: {args.slug}")
+        print("Hint: use 'python -m scripts.deploy list' to see available projects")
+        return 1
+
+    from lib.docker_cleanup import debug_container
+    info = debug_container(project.slug, args.env)
+
+    if "error" in info:
+        print(f"Error: {info['error']}")
+        return 1
+
+    for c in info.get("containers", []):
+        print(f"\n=== {c['name']} ({c['state']}) ===")
+        if c.get("cpu"):
+            print(f"  CPU: {c['cpu']}  Memory: {c['memory']}")
+            print(f"  Network: {c['network_io']}  Disk: {c['block_io']}")
+        if c.get("logs"):
+            print(f"  --- Last 20 log lines ---")
+            print(c["logs"][-1000:])
+    return 0
+
+
+def cmd_smoke(args):
+    """Run browser smoke test on a deployed project."""
+    store = ConversationStore()
+    project = _resolve_project(store, args.slug)
+    if not project:
+        print(f"Project not found: {args.slug}")
+        return 1
+
+    deploy_url = (project.staging_deploy_url if args.env == "staging"
+                  else project.production_deploy_url)
+    if not deploy_url:
+        print(f"No {args.env} deploy URL for {project.slug}")
+        return 1
+
+    from lib.browser_smoke import smoke_test, browser_available
+    if not browser_available():
+        print("ERROR: agent-browser is not available")
+        print("Install: npm install -g agent-browser && agent-browser install")
+        return 1
+
+    print(f"Running smoke test on {deploy_url}...")
+    result = smoke_test(deploy_url, project.id)
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "pass" else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy CLI for expert-mode projects")
     sub = parser.add_subparsers(dest="command")
@@ -199,6 +285,18 @@ def main():
     sub.add_parser("health", help="Health check all projects")
     sub.add_parser("list", help="List all projects (slugs and IDs)")
 
+    p_cleanup = sub.add_parser("cleanup", help="Clean up unused Docker resources")
+    p_cleanup.add_argument("--dry-run", action="store_true", dest="dry_run",
+                           help="Show what would be cleaned without acting")
+
+    p_debug = sub.add_parser("debug", help="Debug a project's containers")
+    p_debug.add_argument("slug", help="Project slug or UUID")
+    p_debug.add_argument("--env", default="staging", choices=["staging", "production"])
+
+    p_smoke = sub.add_parser("smoke", help="Run browser smoke test")
+    p_smoke.add_argument("slug", help="Project slug or UUID")
+    p_smoke.add_argument("--env", default="staging", choices=["staging", "production"])
+
     args = parser.parse_args()
 
     if not args.command:
@@ -223,6 +321,9 @@ def main():
         "validate": cmd_validate,
         "health": cmd_health,
         "list": cmd_list,
+        "cleanup": cmd_cleanup,
+        "debug": cmd_debug,
+        "smoke": cmd_smoke,
     }
 
     return handlers[args.command](args)

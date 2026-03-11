@@ -14,12 +14,28 @@ done) &
 REFRESH_PID=$!
 
 # Health check: restart crashed project containers every 60s
+# Docker cleanup: run daily (track via timestamp file)
 (sleep 30; while true; do
   python -c "
 from lib.docker_deploy import health_check_all, docker_available
 if docker_available():
     health_check_all()
 " 2>/dev/null
+
+  # Daily cleanup: prune dangling images, stopped containers, build cache
+  CLEANUP_FILE=/app/data/.last_cleanup
+  if [ ! -f "$CLEANUP_FILE" ] || [ "$(find "$CLEANUP_FILE" -mmin +1440 2>/dev/null)" ]; then
+    python -c "
+from lib.docker_cleanup import cleanup
+from lib.docker_deploy import docker_available
+if docker_available():
+    result = cleanup()
+    if result.get('dangling_images') or result.get('stopped_containers'):
+        print(f'Cleanup: {result[\"dangling_images\"]} images, {result[\"stopped_containers\"]} containers')
+" 2>/dev/null
+    touch "$CLEANUP_FILE"
+  fi
+
   sleep 60
 done) &
 HEALTH_PID=$!
