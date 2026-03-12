@@ -36,9 +36,6 @@ dependencies = [
     # S3-compatible object storage
     "boto3>=1.35.0",
 
-    # Process management
-    "pexpect>=4.9.0",
-
     # Data analysis
     "numpy>=1.26.0",
     "scipy>=1.11.0",
