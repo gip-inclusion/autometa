@@ -196,6 +196,7 @@ function initForkButton() {
     newForkBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
 
     try {
+      if (!isValidConversationId(currentConversationId)) return;
       const resp = await fetch(`/api/conversations/${currentConversationId}/fork`, { method: 'POST' });
       if (resp.ok) {
         const data = await resp.json();
@@ -262,6 +263,7 @@ function initTitleEditing() {
     if (!newTitle || !currentConversationId) return;
 
     try {
+      if (!isValidConversationId(currentConversationId)) return;
       const response = await fetch(`/api/conversations/${currentConversationId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -291,6 +293,7 @@ function initTitleEditing() {
       autoBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
 
       try {
+        if (!isValidConversationId(currentConversationId)) return;
         const response = await fetch(`/api/conversations/${currentConversationId}/generate-title`, {
           method: 'POST'
         });
@@ -428,6 +431,8 @@ async function uploadPendingFiles() {
   if (!currentConversationId) return [];
 
   const contextMessages = [];
+
+  if (!isValidConversationId(currentConversationId)) return [];
 
   for (const file of pendingFiles) {
     try {

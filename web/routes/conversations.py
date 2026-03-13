@@ -350,7 +350,7 @@ def generate_title(conv_id: str):
 
     except Exception as exc:
         logger.error(f"Failed to generate title: {exc}")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse({"error": "Failed to generate title"}, status_code=500)
 
 
 @router.post("/{conv_id}/fork")
@@ -430,8 +430,14 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         from ..helpers import KNOWLEDGE_ROOT, get_staging_dir
 
         staging_dir = get_staging_dir(conv_id)
-        original_path = KNOWLEDGE_ROOT / conv.file_path
-        staged_path = staging_dir / conv.file_path
+        original_path = (KNOWLEDGE_ROOT / conv.file_path).resolve()
+        staged_path = (staging_dir / conv.file_path).resolve()
+
+        # Path traversal protection
+        if not str(original_path).startswith(str(KNOWLEDGE_ROOT.resolve())) or not str(staged_path).startswith(
+            str(staging_dir.resolve())
+        ):
+            return JSONResponse({"error": "Invalid file path"}, status_code=400)
 
         if is_first_message:
             if staged_path.exists():
@@ -577,7 +583,12 @@ async def stream_conversation(
 
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
-        logger.debug(f"SSE stream start: conv={conv_id}, after={after}, watermark={last_msg_id}")
+        logger.debug(
+            "SSE stream start: conv=%s, after=%d, watermark=%d",
+            conv_id,
+            after,
+            last_msg_id,
+        )
         max_seconds = 300
         fallback_interval = 5  # safety-net DB poll every 5s
         start = time.monotonic()
@@ -733,11 +744,14 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         return JSONResponse(response, status_code=201)
 
     except FileTooLargeError as e:
-        return JSONResponse({"error": f"File too large: {e}"}, status_code=413)
+        logger.warning("File too large: %s", e)
+        return JSONResponse({"error": "File too large"}, status_code=413)
     except BlockedFileTypeError as e:
-        return JSONResponse({"error": f"File type not allowed: {e}"}, status_code=415)
+        logger.warning("Blocked file type: %s", e)
+        return JSONResponse({"error": "File type not allowed"}, status_code=415)
     except AVScanFailedError as e:
-        return JSONResponse({"error": f"File failed security scan: {e}"}, status_code=422)
+        logger.warning("AV scan failed: %s", e)
+        return JSONResponse({"error": "File failed security scan"}, status_code=422)
     except Exception as e:
         logger.error(f"File upload failed: {e}")
         return JSONResponse({"error": "Upload failed"}, status_code=500)

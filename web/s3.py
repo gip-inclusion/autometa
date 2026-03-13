@@ -16,6 +16,7 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
+
 # Initialize S3 client if configured
 _s3_client = None
 
@@ -47,7 +48,10 @@ def _get_s3_key(path: str) -> str:
 def _get_local_path(path: str) -> Path:
     """Convert a relative path to a local filesystem path."""
     path = path.replace("\\", "/").lstrip("/")
-    return config.INTERACTIVE_DIR / path
+    resolved = (config.INTERACTIVE_DIR / path).resolve()
+    if not str(resolved).startswith(str(config.INTERACTIVE_DIR.resolve())):
+        raise ValueError("Path traversal detected")
+    return resolved
 
 
 def upload_file(path: str, content: bytes, content_type: Optional[str] = None) -> bool:
@@ -193,7 +197,10 @@ def file_exists(path: str) -> bool:
             logger.error(f"S3 head_object failed for {path}: {e}")
             return False
     else:
-        return _get_local_path(path).exists()
+        try:
+            return _get_local_path(path).exists()
+        except ValueError:
+            return False
 
 
 def delete_file(path: str) -> bool:

@@ -1,6 +1,7 @@
 """Shared helper functions for the web application."""
 
 import re
+import uuid
 from pathlib import Path
 
 from . import config
@@ -51,13 +52,26 @@ def validate_knowledge_path(file_param: str) -> Path | None:
     return candidate
 
 
+def _validate_conv_id(conv_id: str) -> bool:
+    """Validate that conv_id is a valid UUID."""
+    try:
+        uuid.UUID(conv_id)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 def get_staging_dir(conv_id: str) -> Path:
     """Get staging directory for a knowledge conversation."""
+    if not _validate_conv_id(conv_id):
+        raise ValueError("Invalid conversation ID")
     return KNOWLEDGE_DRAFTS_ROOT / conv_id
 
 
 def list_staged_files(conv_id: str) -> list[str]:
     """List files in staging directory relative to knowledge root."""
+    if not _validate_conv_id(conv_id):
+        return []
     staging_dir = get_staging_dir(conv_id)
     if not staging_dir.exists():
         return []

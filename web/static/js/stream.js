@@ -8,6 +8,14 @@
  */
 
 let currentConversationId = null;
+
+/**
+ * Validate that a conversation ID is a valid UUID to prevent URL manipulation.
+ */
+function isValidConversationId(id) {
+  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 let eventSource = null;
 let eventSourceConversationId = null;  // Track which conversation the eventSource belongs to
 let retryCount = 0;
@@ -537,6 +545,8 @@ function hideEmptyState() {
  * Load an existing conversation by ID
  */
 async function loadConversation(convId, { autoStream = true } = {}) {
+  if (!isValidConversationId(convId)) return;
+
   // Close any existing EventSource before loading new conversation
   closeEventSource();
 

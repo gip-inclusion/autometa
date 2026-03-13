@@ -115,6 +115,7 @@ function appendEvent(type, data) {
   block.className = `event-block event-${type}`;
 
   if (type === 'user') {
+    // Safe: formatUserContent escapes all user text via escapeHtml()
     block.innerHTML = formatUserContent(data.content);
   } else if (type === 'assistant') {
     // Start streaming accumulation
@@ -145,6 +146,7 @@ function appendEvent(type, data) {
     if (typeof reportData === 'string') {
       try { reportData = JSON.parse(reportData); } catch { }
     }
+    // Safe: formatReportCard escapes title via escapeHtml() and validates reportId
     block.innerHTML = formatReportCard(reportData);
   }
 
@@ -281,7 +283,15 @@ async function renderMermaid(element) {
 
     try {
       const { svg } = await mermaid.render('mermaid-' + Date.now(), code);
-      container.innerHTML = svg;
+      // Use DOMParser to validate SVG output from mermaid
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svg, 'image/svg+xml');
+      const svgEl = doc.querySelector('svg');
+      if (svgEl && !doc.querySelector('parsererror')) {
+        container.appendChild(document.importNode(svgEl, true));
+      } else {
+        container.textContent = 'Mermaid render error';
+      }
       block.parentElement.replaceWith(container);
     } catch (err) {
       console.error('Mermaid rendering failed:', err);
@@ -496,7 +506,7 @@ function formatUserContent(content) {
  * Format a report card for display in conversation
  */
 function formatReportCard(data) {
-  const reportId = data.report_id || data.id;
+  const reportId = typeof data.report_id === 'number' ? data.report_id : (typeof data.id === 'number' ? data.id : 0);
   const title = data.title || 'Rapport';
   const viewUrl = `/rapports/${reportId}`;
 
