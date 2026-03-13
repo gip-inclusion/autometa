@@ -238,7 +238,9 @@ def _prepare_s3_workdir(slug: str) -> Path:
         if content is not None:
             local_file = (workdir / local_name).resolve()
             # Path traversal protection
-            if not str(local_file).startswith(str(workdir.resolve())):
+            try:
+                local_file.relative_to(workdir.resolve())
+            except ValueError:
                 continue
             local_file.parent.mkdir(parents=True, exist_ok=True)
             local_file.write_bytes(content)
@@ -251,7 +253,9 @@ def _upload_s3_results(slug: str, workdir: Path):
     for path in workdir.rglob("*"):
         if not path.is_file():
             continue
-        if not str(path.resolve()).startswith(str(workdir_resolved)):
+        try:
+            path.resolve().relative_to(workdir_resolved)
+        except ValueError:
             continue
         rel = path.relative_to(workdir)
         s3_key = f"{slug}/{rel}"
