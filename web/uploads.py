@@ -468,14 +468,17 @@ def copy_file_for_modification(
     if new_filename:
         copy_filename = _sanitize_filename(new_filename)
     else:
-        stem = Path(uploaded_file.original_filename).stem
+        stem = _sanitize_filename(Path(uploaded_file.original_filename).stem)
         ext = Path(uploaded_file.original_filename).suffix
         copy_filename = f"{stem}_copy_{uuid.uuid4().hex[:8]}{ext}"
 
     copy_path = destination_dir / copy_filename
 
-    # Prevent path traversal
-    if not str(copy_path.resolve()).startswith(str(destination_dir.resolve())):
+    # Prevent path traversal: relative_to raises ValueError if copy_path
+    # is not inside destination_dir after symlink resolution
+    try:
+        copy_path.resolve().relative_to(destination_dir.resolve())
+    except ValueError:
         logger.error("Path traversal detected in copy filename")
         return None
 
