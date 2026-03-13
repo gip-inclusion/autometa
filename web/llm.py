@@ -6,7 +6,7 @@ import logging
 import subprocess
 from typing import Optional
 
-import httpx
+import requests
 
 from . import config
 
@@ -29,7 +29,6 @@ def generate_text(
     max_tokens: int = 100,
     temperature: float = 0.2,
     timeout: Optional[float] = None,
-    client: Optional[httpx.Client] = None,
 ) -> str:
     """Generate a short text completion using the configured backend."""
     backend = _get_llm_backend()
@@ -41,7 +40,6 @@ def generate_text(
             max_tokens=max_tokens,
             temperature=temperature,
             timeout=timeout,
-            client=client,
         )
 
     if backend == "cli":
@@ -60,7 +58,6 @@ def _ollama_generate(
     max_tokens: int,
     temperature: float,
     timeout: Optional[float],
-    client: Optional[httpx.Client],
 ) -> str:
     base_url = config.OLLAMA_BASE_URL.rstrip("/")
     url = f"{base_url}/api/generate"
@@ -76,21 +73,14 @@ def _ollama_generate(
         },
     }
 
-    close_client = client is None
-    if client is None:
-        client = httpx.Client(timeout=timeout)
-
     try:
-        response = client.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         text = data.get("response", "")
         return text.strip()
-    except httpx.HTTPError as exc:
+    except requests.RequestException as exc:
         raise LLMError(f"Ollama request failed: {exc}") from exc
-    finally:
-        if close_client:
-            client.close()
 
 
 def _claude_cli_generate(prompt: str, *, timeout: Optional[float]) -> str:
