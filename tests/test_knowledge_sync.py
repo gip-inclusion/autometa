@@ -1,18 +1,10 @@
-"""Tests for knowledge_sync skill."""
-
-import pytest
-
-# Skip entire module - skill was renamed/removed
-pytest.skip(
-    "skills.knowledge_sync module no longer exists (renamed to sync_sites skill)",
-    allow_module_level=True,
-)
+"""Tests for sync_sites skill."""
 
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from skills.knowledge_sync.scripts.sync_sites import (
+from skills.sync_sites.scripts.sync_sites import (
     SITES,
     fetch_custom_dimensions,
     fetch_event_categories,

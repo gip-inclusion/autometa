@@ -5,9 +5,9 @@ Usage:
     from scripts.ui_tester import test_ui_url, discover_categories
 """
 
+import re
 import subprocess
 import urllib.parse
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -159,7 +159,6 @@ def discover_categories(site_id: int = 117) -> dict[str, list[tuple[str, str]]]:
 
     Returns dict: {category_id: [(subcategory_id, subcategory_name), ...]}
     """
-    import os
     import json
     from pathlib import Path
 
@@ -217,16 +216,13 @@ def print_categories(site_id: int = 117):
 
 def test_all_mappings(site_id: int = 117, period: str = "month", date: str = "2025-12-01"):
     """Test all current UI mappings and report which ones work."""
-    # Import the current mapping
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "querying"))
-    from scripts.matomo import _UI_MAPPING
+    from lib._matomo_ui import UI_MAPPING
 
-    print(f"Testing {len(_UI_MAPPING)} UI mappings...\n")
+    print(f"Testing {len(UI_MAPPING)} UI mappings...\n")
 
     results = {"ok": [], "redirect": [], "error": [], "auth_failed": []}
 
-    for method, (category, subcategory) in _UI_MAPPING.items():
+    for method, (category, subcategory) in UI_MAPPING.items():
         # Handle None subcategory (custom dimensions)
         if subcategory is None:
             subcategory = "1"
@@ -241,7 +237,7 @@ def test_all_mappings(site_id: int = 117, period: str = "month", date: str = "20
             print(f"   Requested: {category}/{subcategory}")
             print(f"   Actual: {result['actual']['category']}/{result['actual']['subcategory']}")
 
-    print(f"\n=== Summary ===")
+    print("\n=== Summary ===")
     print(f"OK: {len(results['ok'])}")
     print(f"Redirected: {len(results['redirect'])}")
     print(f"Errors: {len(results['error'])}")

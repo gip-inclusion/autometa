@@ -13,15 +13,11 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from scripts.matomo import MatomoAPI, MatomoError
-
+from lib.query import MatomoAPI, MatomoError
 
 # =============================================================================
 # Matomo Data Fetching (extended)
@@ -495,7 +491,7 @@ def count_section_lines(content: str, section_title: str) -> int:
     if not match:
         return 0
     section_content = match.group(1)
-    return len([l for l in section_content.strip().split("\n") if l.strip()])
+    return len([line for line in section_content.strip().split("\n") if line.strip()])
 
 
 def update_doc_section(
@@ -702,7 +698,7 @@ def main():
             updated_count += 1
             print(f"   Updated: {doc_path}")
         else:
-            print(f"   No changes")
+            print("   No changes")
 
         print()
 
