@@ -338,3 +338,170 @@ class TestTriggerHelpers:
         )
 
         assert mock_session.post.called
+
+
+class TestTagHelpers:
+    """Test tag-related helper methods."""
+
+    @patch('lib._matomo.requests.Session')
+    def test_add_tag_valid_params(self, mock_session_class):
+        """add_tag creates tag with valid parameters."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": 11149}
+        mock_response.text = '{"value": 11149}'
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        tag_id = api.add_tag(
+            site_id=210,
+            container_id="xg8aydM9",
+            version_id=420,
+            tag_type="CustomHtml",
+            name="Test Tag",
+            parameters={"customHtml": "<script></script>", "htmlPosition": "bodyEnd"},
+            fire_trigger_ids=[13994],
+            fire_limit="once_page"
+        )
+
+        assert tag_id == 11149
+        assert mock_session.post.called
+
+    def test_add_tag_invalid_type_raises(self):
+        """add_tag raises ValueError for invalid tag type."""
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+
+        with pytest.raises(ValueError) as exc_info:
+            api.add_tag(
+                site_id=210,
+                container_id="xg8aydM9",
+                version_id=420,
+                tag_type="InvalidTagType",
+                name="Test",
+                parameters={},
+                fire_trigger_ids=[]
+            )
+
+        assert "Invalid tag_type" in str(exc_info.value)
+        assert "CustomHtml" in str(exc_info.value)
+
+    def test_add_tag_invalid_fire_limit_raises(self):
+        """add_tag raises ValueError for invalid fire_limit."""
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+
+        with pytest.raises(ValueError) as exc_info:
+            api.add_tag(
+                site_id=210,
+                container_id="xg8aydM9",
+                version_id=420,
+                tag_type="CustomHtml",
+                name="Test",
+                parameters={},
+                fire_trigger_ids=[],
+                fire_limit="once_hour"  # Invalid
+            )
+
+        assert "Invalid fire_limit" in str(exc_info.value)
+        assert "unlimited" in str(exc_info.value)
+
+    def test_add_tag_invalid_html_position_raises(self):
+        """add_tag validates htmlPosition for CustomHtml tags."""
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+
+        with pytest.raises(ValueError) as exc_info:
+            api.add_tag(
+                site_id=210,
+                container_id="xg8aydM9",
+                version_id=420,
+                tag_type="CustomHtml",
+                name="Test",
+                parameters={"customHtml": "<script></script>", "htmlPosition": "invalidPosition"},
+                fire_trigger_ids=[]
+            )
+
+        assert "Invalid htmlPosition" in str(exc_info.value)
+        assert "bodyEnd" in str(exc_info.value)
+
+    @patch('lib._matomo.requests.Session')
+    def test_update_tag(self, mock_session_class):
+        """update_tag modifies existing tag."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.update_tag(
+            site_id=210,
+            container_id="xg8aydM9",
+            version_id=420,
+            tag_id=11149,
+            name="Updated Tag"
+        )
+
+        assert mock_session.post.called
+
+    @patch('lib._matomo.requests.Session')
+    def test_delete_tag(self, mock_session_class):
+        """delete_tag removes tag."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.delete_tag(210, "xg8aydM9", 420, 11149)
+        assert mock_session.post.called
+
+    @patch('lib._matomo.requests.Session')
+    def test_pause_tag(self, mock_session_class):
+        """pause_tag sets status to paused."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.pause_tag(210, "xg8aydM9", 420, 11149)
+        assert mock_session.post.called
+
+    @patch('lib._matomo.requests.Session')
+    def test_resume_tag(self, mock_session_class):
+        """resume_tag sets status to active."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.resume_tag(210, "xg8aydM9", 420, 11149)
+        assert mock_session.post.called
