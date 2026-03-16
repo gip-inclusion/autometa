@@ -87,6 +87,7 @@ class TestPostSupport:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.text = '{"value": 123}'
         mock_response.json.return_value = {"value": 123}
         mock_session.post.return_value = mock_response
         mock_session_class.return_value = mock_session
@@ -108,6 +109,7 @@ class TestPostSupport:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.text = '{"value": 456}'
         mock_response.json.return_value = {"value": 456}
         mock_session.post.return_value = mock_response
         mock_session_class.return_value = mock_session
@@ -136,6 +138,7 @@ class TestPostSupport:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.text = '{"nb_visits": 100}'
         mock_response.json.return_value = {"nb_visits": 100}
         mock_session.get.return_value = mock_response
         mock_session_class.return_value = mock_session
