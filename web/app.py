@@ -6,12 +6,11 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .deps import get_current_user
 
 # Extensions safe to serve via presigned URL redirect (no sensitive data)
 _STATIC_ASSET_EXTS = frozenset(
@@ -99,14 +98,14 @@ if config.COMMON_DIR.exists():
 def serve_interactive(
     request: Request,
     filename: str = "",
-    user_email: str = Depends(get_current_user),
 ):
-    """Serve interactive files to authenticated users.
+    """Serve interactive files (auth via oauth2-proxy).
 
-    Auth is checked on every request (via oauth2-proxy in prod,
-    DEFAULT_USER in dev).  Static assets (CSS/JS/images) are served
-    via presigned URL redirect (5 min TTL); other files are streamed
-    through the app in 64 KB chunks.
+    Static assets (CSS/JS/images) are served via presigned URL redirect
+    (5 min TTL); other files are streamed through the app in 64 KB chunks.
+
+    Authentication is handled by oauth2-proxy at the infrastructure level,
+    not in application code.
 
     File state matrix (USE_S3=True):
       S3 hit, static asset → 307 presigned URL redirect
