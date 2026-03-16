@@ -667,3 +667,42 @@ class MatomoAPI:
                 result[new_key] = value
 
         return result
+
+    # --- Tag Manager: Container operations ---
+
+    def get_container(self, site_id: int, container_id: str) -> dict:
+        """
+        Get container details including draft version and releases.
+
+        Args:
+            site_id: Matomo site ID
+            container_id: Container ID (e.g., "xg8aydM9")
+
+        Returns:
+            Container dict with draft and releases information
+
+        Example:
+            >>> container = api.get_container(site_id=210, container_id="xg8aydM9")
+            >>> draft_id = container["draft"]["idcontainerversion"]
+            >>> for rel in container["releases"]:
+            ...     print(f"{rel['environment']} → v{rel['idcontainerversion']}")
+        """
+        return self._request("TagManager.getContainer", {"idSite": site_id, "idContainer": container_id})
+
+    def get_draft_version(self, site_id: int, container_id: str) -> int:
+        """
+        Get current draft version ID (convenience method).
+
+        Args:
+            site_id: Matomo site ID
+            container_id: Container ID
+
+        Returns:
+            Draft version ID (int)
+
+        Example:
+            >>> draft_id = api.get_draft_version(site_id=210, container_id="xg8aydM9")
+            >>> print(f"Draft version: {draft_id}")
+        """
+        container = self.get_container(site_id, container_id)
+        return container["draft"]["idcontainerversion"]
