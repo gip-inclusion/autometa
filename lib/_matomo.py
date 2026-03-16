@@ -23,6 +23,60 @@ from .api_signals import emit_api_signal
 
 logger = logging.getLogger(__name__)
 
+# Tag Manager validation constants
+VALID_TRIGGER_TYPES = {
+    "AllElementsClick",
+    "AllLinksClick",
+    "PageView",
+    "FormSubmit",
+    "HistoryChange",
+    "WindowLoaded",
+    "ElementVisibility",
+    "CustomEvent",
+}
+
+VALID_TAG_TYPES = {
+    "CustomHtml",
+    "Matomo",
+    "LinkedinInsight",
+}
+
+VALID_FIRE_LIMITS = {
+    "unlimited",
+    "once_page",
+    "once_24hours",
+    "once_lifetime",
+}
+
+VALID_HTML_POSITIONS = {
+    "headStart",
+    "headEnd",
+    "bodyStart",
+    "bodyEnd",
+}
+
+VALID_ENVIRONMENTS = {
+    "live",
+    "staging",
+    "dev",
+    "production",
+    "pentest",
+    "preview",
+}
+
+VALID_COMPARISONS = {
+    "equals",
+    "equals_exactly",
+    "contains",
+    "starts_with",
+    "ends_with",
+    "matches_regex",
+    "is_not_equal",
+    "does_not_contain",
+    "not_contains",
+    "match_css_selector",
+}
+
 
 class MatomoError(Exception):
     """Error from Matomo API."""
