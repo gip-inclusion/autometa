@@ -518,6 +518,7 @@ class TestWorkflowHelpers:
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
         mock_session.post.return_value = mock_response
         mock_session_class.return_value = mock_session
 
@@ -556,6 +557,7 @@ class TestWorkflowHelpers:
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
         mock_session.post.return_value = mock_response
         mock_session_class.return_value = mock_session
 
@@ -573,6 +575,7 @@ class TestWorkflowHelpers:
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.json.return_value = {"value": True}
+        mock_response.text = '{"value": true}'
         mock_session.post.return_value = mock_response
         mock_session_class.return_value = mock_session
 
@@ -594,6 +597,7 @@ class TestWorkflowHelpers:
             "tags": [],
             "variables": []
         }
+        mock_response.text = '{"triggers": [], "tags": [], "variables": []}'
         mock_session.get.return_value = mock_response
         mock_session_class.return_value = mock_session
 

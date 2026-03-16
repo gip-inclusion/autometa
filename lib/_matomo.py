@@ -1057,3 +1057,119 @@ class MatomoAPI:
             idContainerVersion=version_id,
             idTag=tag_id,
         )
+
+    # --- Tag Manager: Workflow operations ---
+
+    def publish_version(
+        self,
+        site_id: int,
+        container_id: str,
+        version_id: int,
+        environment: str,
+    ):
+        """
+        Publish container version to environment.
+
+        Creates a new numbered version from the draft and deploys it.
+        Note: IDs of triggers/tags change in the published version.
+
+        Args:
+            site_id: Matomo site ID
+            container_id: Container ID
+            version_id: Version ID to publish (typically draft)
+            environment: Target environment (validated against VALID_ENVIRONMENTS)
+
+        Raises:
+            ValueError: If environment is invalid
+
+        Example:
+            >>> api.publish_version(
+            ...     site_id=210,
+            ...     container_id="xg8aydM9",
+            ...     version_id=420,
+            ...     environment="live"
+            ... )
+        """
+        if environment not in VALID_ENVIRONMENTS:
+            raise ValueError(
+                f"Invalid environment '{environment}'. "
+                f"Must be one of: {', '.join(sorted(VALID_ENVIRONMENTS))}"
+            )
+
+        return self.post(
+            "TagManager.publishContainerVersion",
+            idSite=site_id,
+            idContainer=container_id,
+            idContainerVersion=version_id,
+            environment=environment,
+        )
+
+    def enable_preview(
+        self,
+        site_id: int,
+        container_id: str,
+        version_id: Optional[int] = None,
+    ):
+        """
+        Enable preview mode for testing draft without publishing.
+
+        Sets a cookie in the browser to load draft version.
+
+        Args:
+            site_id: Matomo site ID
+            container_id: Container ID
+            version_id: Optional version to preview (defaults to current draft)
+
+        Example:
+            >>> api.enable_preview(site_id=210, container_id="xg8aydM9")
+            >>> # Now visit the site in your browser to test
+        """
+        params = {"idSite": site_id, "idContainer": container_id}
+        if version_id is not None:
+            params["idContainerVersion"] = version_id
+        return self.post("TagManager.enablePreviewMode", **params)
+
+    def disable_preview(self, site_id: int, container_id: str):
+        """
+        Disable preview mode.
+
+        Args:
+            site_id: Matomo site ID
+            container_id: Container ID
+
+        Example:
+            >>> api.disable_preview(site_id=210, container_id="xg8aydM9")
+        """
+        return self.post(
+            "TagManager.disablePreviewMode",
+            idSite=site_id,
+            idContainer=container_id,
+        )
+
+    def export_version(
+        self,
+        site_id: int,
+        container_id: str,
+        version_id: int,
+    ) -> dict:
+        """
+        Export container version (for debugging/analysis).
+
+        Returns full container data including all triggers, tags, variables.
+
+        Args:
+            site_id: Matomo site ID
+            container_id: Container ID
+            version_id: Version ID to export
+
+        Returns:
+            Dict with triggers, tags, variables lists
+
+        Example:
+            >>> data = api.export_version(210, "xg8aydM9", 972)
+            >>> print(f"Found {len(data['triggers'])} triggers")
+        """
+        return self._request(
+            "TagManager.exportContainerVersion",
+            {"idSite": site_id, "idContainer": container_id, "idContainerVersion": version_id},
+        )
