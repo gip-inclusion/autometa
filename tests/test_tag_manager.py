@@ -505,3 +505,101 @@ class TestTagHelpers:
 
         api.resume_tag(210, "xg8aydM9", 420, 11149)
         assert mock_session.post.called
+
+
+class TestWorkflowHelpers:
+    """Test workflow helper methods (publish, preview, export)."""
+
+    @patch('lib._matomo.requests.Session')
+    def test_publish_version_valid_environment(self, mock_session_class):
+        """publish_version publishes to valid environment."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.publish_version(
+            site_id=210,
+            container_id="xg8aydM9",
+            version_id=420,
+            environment="live"
+        )
+
+        assert mock_session.post.called
+
+    def test_publish_version_invalid_environment_raises(self):
+        """publish_version raises ValueError for invalid environment."""
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+
+        with pytest.raises(ValueError) as exc_info:
+            api.publish_version(
+                site_id=210,
+                container_id="xg8aydM9",
+                version_id=420,
+                environment="invalid_env"
+            )
+
+        assert "Invalid environment" in str(exc_info.value)
+        assert "live" in str(exc_info.value)
+
+    @patch('lib._matomo.requests.Session')
+    def test_enable_preview(self, mock_session_class):
+        """enable_preview activates preview mode."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.enable_preview(site_id=210, container_id="xg8aydM9")
+        assert mock_session.post.called
+
+    @patch('lib._matomo.requests.Session')
+    def test_disable_preview(self, mock_session_class):
+        """disable_preview deactivates preview mode."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"value": True}
+        mock_session.post.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        api.disable_preview(site_id=210, container_id="xg8aydM9")
+        assert mock_session.post.called
+
+    @patch('lib._matomo.requests.Session')
+    def test_export_version(self, mock_session_class):
+        """export_version retrieves version data."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {
+            "triggers": [],
+            "tags": [],
+            "variables": []
+        }
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        result = api.export_version(210, "xg8aydM9", 420)
+        assert "triggers" in result
+        assert mock_session.get.called
