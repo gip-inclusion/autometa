@@ -754,8 +754,7 @@ class MatomoAPI:
         """
         if trigger_type not in VALID_TRIGGER_TYPES:
             raise ValueError(
-                f"Invalid trigger_type '{trigger_type}'. "
-                f"Must be one of: {', '.join(sorted(VALID_TRIGGER_TYPES))}"
+                f"Invalid trigger_type '{trigger_type}'. Must be one of: {', '.join(sorted(VALID_TRIGGER_TYPES))}"
             )
 
         params = {
@@ -898,15 +897,11 @@ class MatomoAPI:
             ... )
         """
         if tag_type not in VALID_TAG_TYPES:
-            raise ValueError(
-                f"Invalid tag_type '{tag_type}'. "
-                f"Must be one of: {', '.join(sorted(VALID_TAG_TYPES))}"
-            )
+            raise ValueError(f"Invalid tag_type '{tag_type}'. Must be one of: {', '.join(sorted(VALID_TAG_TYPES))}")
 
         if fire_limit not in VALID_FIRE_LIMITS:
             raise ValueError(
-                f"Invalid fire_limit '{fire_limit}'. "
-                f"Must be one of: {', '.join(sorted(VALID_FIRE_LIMITS))}"
+                f"Invalid fire_limit '{fire_limit}'. Must be one of: {', '.join(sorted(VALID_FIRE_LIMITS))}"
             )
 
         # Validate htmlPosition for CustomHtml tags
@@ -914,8 +909,7 @@ class MatomoAPI:
             html_position = parameters["htmlPosition"]
             if html_position not in VALID_HTML_POSITIONS:
                 raise ValueError(
-                    f"Invalid htmlPosition '{html_position}'. "
-                    f"Must be one of: {', '.join(sorted(VALID_HTML_POSITIONS))}"
+                    f"Invalid htmlPosition '{html_position}'. Must be one of: {', '.join(sorted(VALID_HTML_POSITIONS))}"
                 )
 
         params = {
@@ -1092,8 +1086,7 @@ class MatomoAPI:
         """
         if environment not in VALID_ENVIRONMENTS:
             raise ValueError(
-                f"Invalid environment '{environment}'. "
-                f"Must be one of: {', '.join(sorted(VALID_ENVIRONMENTS))}"
+                f"Invalid environment '{environment}'. Must be one of: {', '.join(sorted(VALID_ENVIRONMENTS))}"
             )
 
         return self.post(
