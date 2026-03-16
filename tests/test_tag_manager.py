@@ -185,3 +185,57 @@ class TestPostSupport:
         call_data = mock_session.post.call_args[1]['data']
         assert call_data['idSite'] == 210
         assert call_data['idContainer'] == "xg8aydM9"
+
+
+class TestContainerHelpers:
+    """Test container-related helper methods."""
+
+    @patch('lib._matomo.requests.Session')
+    def test_get_container(self, mock_session_class):
+        """get_container retrieves container with draft and releases."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {
+            "idcontainer": "xg8aydM9",
+            "name": "Dora_Preprod",
+            "draft": {"idcontainerversion": 420, "revision": 5},
+            "releases": [
+                {"environment": "live", "idcontainerversion": 972}
+            ]
+        }
+        mock_response.text = '{"idcontainer": "xg8aydM9"}'
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        result = api.get_container(site_id=210, container_id="xg8aydM9")
+
+        assert result["idcontainer"] == "xg8aydM9"
+        assert result["draft"]["idcontainerversion"] == 420
+        assert mock_session.get.called
+
+    @patch('lib._matomo.requests.Session')
+    def test_get_draft_version(self, mock_session_class):
+        """get_draft_version extracts draft ID from container."""
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {
+            "idcontainer": "xg8aydM9",
+            "draft": {"idcontainerversion": 420}
+        }
+        mock_response.text = '{"idcontainer": "xg8aydM9"}'
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        api = MatomoAPI(url="matomo.example.com", token="test_token")
+        api._session = mock_session
+
+        draft_id = api.get_draft_version(site_id=210, container_id="xg8aydM9")
+
+        assert draft_id == 420
