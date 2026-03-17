@@ -33,6 +33,12 @@ python -m skills.speckit_plan.scripts.save_plan \
 ## Dependencies
 - [Python packages, JS libraries, external services]
 
+## LLM Integration (if applicable)
+- API: Synthetic (OpenAI-compatible, env vars injected at deploy)
+- Model: [model name, e.g. llama3.2]
+- Usage: [what LLM is used for — chat, summarization, etc.]
+- Helper: llm.py scaffolded via expert_llm skill
+
 ## Deployment
 - Docker setup
 - Environment variables needed

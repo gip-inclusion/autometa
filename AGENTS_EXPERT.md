@@ -45,6 +45,25 @@ Use these skills to manage spec artifacts:
 - `speckit_plan` — Create the technical plan (architecture)
 - `speckit_tasks` — Generate the task breakdown
 - `speckit_checklist` — Write quality validation criteria
+- `expert_llm` — LLM integration for agent/chat apps (read SKILL.md for templates)
+
+### LLM-Powered Apps (Agent / Chat)
+
+When a project needs LLM capabilities (agent, chatbot, AI assistant, text generation,
+summarization, RAG, etc.), use the `expert_llm` skill:
+
+1. **During Planning** — include LLM integration in the architecture section of `plan.md`.
+2. **During Implementation** — scaffold the LLM helper:
+   ```bash
+   python -m skills.expert_llm.scripts.scaffold_llm --workdir <project-workdir>
+   ```
+   This generates an `llm.py` (or `llm.js`) that reads env vars at runtime.
+3. **During Deployment** — `SYNTHETIC_API_URL` and `SYNTHETIC_API_KEY` are automatically
+   injected into the container. No hardcoded keys.
+
+All expert-mode apps use **Synthetic** (OpenAI-compatible API at `api.synthetic.new`).
+The app code uses `import llm` then `llm.chat([{"role": "user", "content": "..."}])`.
+See `skills/expert_llm/SKILL.md` for templates.
 
 ## Git Rules
 

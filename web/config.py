@@ -124,6 +124,10 @@ ADDITIONAL_DIRS = ["/tmp"]
 NOTION_RESEARCH_DB = DATA_DIR / "notion_research.db"
 DEEPINFRA_API_KEY = os.getenv("DEEPINFRA_API_KEY")
 
+# Expert LLM (for apps built in expert mode, NOT the coding assistant)
+SYNTHETIC_API_URL = os.getenv("SYNTHETIC_API_URL", "https://api.synthetic.new/openai/v1")
+SYNTHETIC_API_KEY = os.getenv("SYNTHETIC_API_KEY", "")
+
 # Mode expert (vibecoded apps via Gitea + Coolify)
 GITEA_URL = os.getenv("GITEA_URL", "http://localhost:3300")
 GITEA_API_TOKEN = os.getenv("GITEA_API_TOKEN")

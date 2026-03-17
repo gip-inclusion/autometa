@@ -1032,6 +1032,7 @@ async def api_update_project(project_id: str, request: Request):
         "status",
         "staging_branch",
         "production_branch",
+        "llm_backend",
     }
     updates = {k: v for k, v in data.items() if k in allowed_fields}
 
@@ -1140,44 +1141,10 @@ def api_deploy_project(project_id: str, request: Request):
         return JSONResponse({"error": "Project has no Gitea repo yet"}, status_code=400)
 
     try:
-        # Prefer direct Docker deploy when socket is available
-        if _use_docker_deploy():
-            return _docker_deploy_production(project_id, project, request)
+        if not _use_docker_deploy():
+            return JSONResponse({"error": "Docker socket not available"}, status_code=503)
 
-        # Fallback to Coolify
-        if not config.COOLIFY_API_TOKEN:
-            return JSONResponse({"error": "Neither Docker socket nor Coolify available"}, status_code=503)
-
-        from lib.coolify import CoolifyClient
-        coolify = CoolifyClient()
-
-        _ensure_local_git_repo(project)
-        ensure_project_branches(project)
-        _ensure_deployable_repo(project)
-        commit_and_push_staging_if_changed(project)
-
-        staging_app_uuid, staging_url = _ensure_staging_application(project, coolify)
-        if staging_app_uuid and not project.staging_coolify_app_uuid:
-            coolify.deploy(staging_app_uuid)
-
-        refreshed = store.get_project(project_id) or project
-        promotion = promote_staging_to_production(refreshed)
-
-        refreshed = store.get_project(project_id) or refreshed
-        production_app_uuid, production_url = _ensure_production_application(refreshed, coolify)
-
-        deploy_result = None
-        if production_app_uuid:
-            deploy_result = coolify.deploy(production_app_uuid)
-
-        updated = store.get_project(project_id)
-        return JSONResponse({
-            "status": "production_deploying",
-            "promotion": promotion,
-            "staging": {"app_uuid": staging_app_uuid, "deploy_url": staging_url},
-            "production": {"app_uuid": production_app_uuid, "deploy_url": production_url, "detail": deploy_result},
-            "project": _project_to_public_dict(updated, request) if updated else _project_to_public_dict(refreshed, request),
-        })
+        return _docker_deploy_production(project_id, project, request)
     except Exception as e:
         logger.exception("Production deploy failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1197,28 +1164,10 @@ def api_deploy_staging_project(project_id: str, request: Request):
         return JSONResponse({"error": "Project has no Gitea repo yet"}, status_code=400)
 
     try:
-        if _use_docker_deploy():
-            return _docker_deploy_staging(project_id, project, request)
+        if not _use_docker_deploy():
+            return JSONResponse({"error": "Docker socket not available"}, status_code=503)
 
-        if not config.COOLIFY_API_TOKEN:
-            return JSONResponse({"error": "Neither Docker socket nor Coolify available"}, status_code=503)
-
-        from lib.coolify import CoolifyClient
-        coolify = CoolifyClient()
-
-        _ensure_local_git_repo(project)
-        ensure_project_branches(project)
-        _ensure_deployable_repo(project)
-
-        staging_app_uuid, staging_url = _ensure_staging_application(project, coolify)
-        detail = coolify.deploy(staging_app_uuid) if staging_app_uuid else None
-
-        updated = store.get_project(project_id)
-        return JSONResponse({
-            "status": "staging_deploying",
-            "staging": {"app_uuid": staging_app_uuid, "deploy_url": staging_url, "detail": detail},
-            "project": _project_to_public_dict(updated, request) if updated else _project_to_public_dict(project, request),
-        })
+        return _docker_deploy_staging(project_id, project, request)
     except Exception as e:
         logger.exception("Staging deploy failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1314,54 +1263,8 @@ def api_deploy_status(project_id: str, request: Request):
             },
         })
 
-    # Fallback: Coolify status
-    if not project.staging_coolify_app_uuid and not project.production_coolify_app_uuid:
-        return JSONResponse({"status": "not_deployed"})
-
-    if not config.COOLIFY_API_TOKEN:
-        return JSONResponse({"status": "unknown", "error": "Coolify not configured"})
-
-    try:
-        from lib.coolify import CoolifyClient
-        coolify = CoolifyClient()
-        staging_detail = None
-        production_detail = None
-        if project.staging_coolify_app_uuid:
-            staging_detail = coolify.get_status(project.staging_coolify_app_uuid)
-        if project.production_coolify_app_uuid:
-            production_detail = coolify.get_status(project.production_coolify_app_uuid)
-
-        overall_status = "not_deployed"
-        if production_detail:
-            overall_status = production_detail.get("status", "unknown")
-        elif staging_detail:
-            overall_status = staging_detail.get("status", "unknown")
-
-        primary_url = production_preview_url or staging_preview_url or _publicize_deploy_url(
-            project.production_deploy_url or project.staging_deploy_url or project.deploy_url, request
-        )
-
-        return JSONResponse({
-            "status": overall_status,
-            "deploy_url": primary_url,
-            "staging": {
-                "status": staging_detail.get("status", "unknown") if staging_detail else "not_deployed",
-                "deploy_url": staging_preview_url,
-                "technical_deploy_url": _publicize_deploy_url(project.staging_deploy_url, request),
-                "app_uuid": project.staging_coolify_app_uuid,
-                "detail": staging_detail,
-            },
-            "production": {
-                "status": production_detail.get("status", "unknown") if production_detail else "not_deployed",
-                "deploy_url": production_preview_url,
-                "technical_deploy_url": _publicize_deploy_url(project.production_deploy_url, request),
-                "app_uuid": project.production_coolify_app_uuid,
-                "detail": production_detail,
-            },
-        })
-    except Exception as e:
-        logger.exception("Deploy status check failed")
-        return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
+    # No Docker socket available
+    return JSONResponse({"status": "not_deployed"})
 
 
 @router.get("/api/expert/projects/{project_id}/logs/{environment}")

@@ -66,6 +66,7 @@ class Project:
     production_deploy_url: Optional[str] = None
     tech_stack: Optional[dict] = None
     boilerplate: Optional[str] = None
+    llm_backend: str = "ollama"
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -91,6 +92,7 @@ class Project:
             "production_deploy_url": self.production_deploy_url,
             "tech_stack": self.tech_stack,
             "boilerplate": self.boilerplate,
+            "llm_backend": self.llm_backend,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -517,8 +519,8 @@ class ConversationStore:
                    staging_branch, production_branch,
                    staging_coolify_app_uuid, staging_deploy_url,
                    production_coolify_app_uuid, production_deploy_url,
-                   tech_stack, boilerplate, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   tech_stack, boilerplate, llm_backend, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (project.id, project.user_id, project.name, project.slug,
                  project.description, project.spec, project.status,
                  project.gitea_repo_id, project.gitea_url,
@@ -527,7 +529,7 @@ class ConversationStore:
                  project.staging_coolify_app_uuid, project.staging_deploy_url,
                  project.production_coolify_app_uuid, project.production_deploy_url,
                  json.dumps(project.tech_stack) if project.tech_stack else None,
-                 project.boilerplate,
+                 project.boilerplate, project.llm_backend,
                  project.created_at.isoformat(), project.updated_at.isoformat())
             )
 
@@ -556,7 +558,7 @@ class ConversationStore:
                    "deploy_url", "staging_branch", "production_branch",
                    "staging_coolify_app_uuid", "staging_deploy_url",
                    "production_coolify_app_uuid", "production_deploy_url",
-                   "tech_stack", "boilerplate"}
+                   "tech_stack", "boilerplate", "llm_backend"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
@@ -630,6 +632,7 @@ class ConversationStore:
             production_deploy_url=production_deploy_url,
             tech_stack=tech_stack,
             boilerplate=row["boilerplate"],
+            llm_backend=row["llm_backend"] if "llm_backend" in row_keys and row["llm_backend"] else "ollama",
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

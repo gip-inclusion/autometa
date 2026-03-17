@@ -8,7 +8,7 @@ import sqlite3
 from .db import ConnectionWrapper, get_db, USE_POSTGRES
 
 # Schema version - increment when adding migrations
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 
 def _get_schema_version(conn: ConnectionWrapper) -> int:
@@ -88,6 +88,8 @@ def init_db():
                     _migrate_to_v22(conn)
                 if current_version < 23:
                     _migrate_to_v23(conn)
+                if current_version < 24:
+                    _migrate_to_v24(conn)
 
             _set_schema_version(conn, SCHEMA_VERSION)
 
@@ -100,6 +102,7 @@ def init_db():
         _migrate_to_v21(conn)
         _migrate_to_v22(conn)
         _migrate_to_v23(conn)
+        _migrate_to_v24(conn)
 
 
 # =============================================================================
@@ -320,6 +323,7 @@ def _create_schema(conn: ConnectionWrapper):
             production_deploy_url TEXT,
             tech_stack TEXT,
             boilerplate TEXT,
+            llm_backend TEXT DEFAULT 'ollama',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -546,6 +550,16 @@ def _migrate_to_v23(conn: ConnectionWrapper):
         if col not in columns:
             default_clause = f" DEFAULT {default}" if default else ""
             conn.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT{default_clause}")
+
+
+def _migrate_to_v24(conn: ConnectionWrapper):
+    """Migrate to v24: add llm_backend column to projects for expert LLM integration."""
+    try:
+        columns = _get_table_columns(conn, "projects")
+    except Exception:
+        return
+    if "llm_backend" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN llm_backend TEXT DEFAULT 'ollama'")
 
 
 # =============================================================================

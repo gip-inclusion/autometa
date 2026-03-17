@@ -163,6 +163,9 @@ def deploy(project_id: str, environment: str = "staging") -> dict:
         "COMPOSE_PROJECT_NAME": f"{project.slug}-{environment}",
     }
 
+    # Inject LLM env vars based on project's llm_backend
+    env_vars.update(_llm_env_vars(project))
+
     # Build
     result = _run_compose(workdir, "build", "--no-cache", timeout=300)
     if result.returncode != 0:
@@ -363,6 +366,7 @@ def restart(project_id: str, environment: str = "staging") -> dict:
     env = dict(os.environ)
     env["HOST_PORT"] = str(port)
     env["COMPOSE_PROJECT_NAME"] = project_name
+    env.update(_llm_env_vars(project))
 
     compose_file = workdir / "docker-compose.yml"
     if not compose_file.exists():
@@ -379,6 +383,14 @@ def restart(project_id: str, environment: str = "staging") -> dict:
         "port": port,
         "output": result.stdout + result.stderr,
     }
+
+
+def _llm_env_vars(project) -> dict[str, str]:
+    """Build LLM env vars to inject into a project's containers."""
+    env = {"SYNTHETIC_API_URL": config.SYNTHETIC_API_URL}
+    if config.SYNTHETIC_API_KEY:
+        env["SYNTHETIC_API_KEY"] = config.SYNTHETIC_API_KEY
+    return env
 
 
 def _get_or_assign_port(project, environment: str, store) -> int | None:
