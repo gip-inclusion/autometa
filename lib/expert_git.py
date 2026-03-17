@@ -14,6 +14,40 @@ from web import config
 logger = logging.getLogger(__name__)
 
 
+SPECIFY_ARTIFACTS = ("spec.md", "plan.md", "tasks.md", "checklist.md")
+
+
+def reconcile_specify_artifacts(project_id: str) -> list[str]:
+    """Move spec artifacts from project root into .specify/specs/v1/ if misplaced.
+
+    The agent sometimes writes spec.md, plan.md, etc. to the project root instead
+    of .specify/specs/v1/. This copies them to the right location so the spec panel
+    picks them up. Only copies if the root file is larger than the existing .specify/ file
+    (i.e. has real content vs empty template).
+
+    Returns list of files that were reconciled.
+    """
+    workdir = config.PROJECTS_DIR / project_id
+    specify_dir = workdir / ".specify" / "specs" / "v1"
+    if not specify_dir.exists():
+        return []
+
+    reconciled = []
+    for filename in SPECIFY_ARTIFACTS:
+        root_file = workdir / filename
+        specify_file = specify_dir / filename
+        if not root_file.exists():
+            continue
+        root_size = root_file.stat().st_size
+        specify_size = specify_file.stat().st_size if specify_file.exists() else 0
+        if root_size > specify_size:
+            shutil.copy2(root_file, specify_file)
+            reconciled.append(filename)
+            logger.info("Reconciled %s -> .specify/specs/v1/%s (%d > %d bytes)",
+                        filename, filename, root_size, specify_size)
+    return reconciled
+
+
 def authenticated_clone_url(repo_path: str) -> str:
     """Build an authenticated HTTP clone URL for Gitea using the configured token."""
     base = config.GITEA_URL.rstrip("/")

@@ -697,10 +697,13 @@ async def stream_conversation(
                 # Expert-mode post-run hook: commit/push staged changes and trigger staging deploy.
                 if updated.conv_type == "project" and updated.project_id:
                     try:
-                        from lib.expert_git import commit_and_push_staging_if_changed
+                        from lib.expert_git import commit_and_push_staging_if_changed, reconcile_specify_artifacts
 
                         project = await asyncio.to_thread(store.get_project, updated.project_id)
                         if project:
+                            # Reconcile misplaced spec artifacts before committing
+                            await asyncio.to_thread(reconcile_specify_artifacts, project.id)
+
                             commit_result = await asyncio.to_thread(
                                 commit_and_push_staging_if_changed,
                                 project,

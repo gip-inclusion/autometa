@@ -8,6 +8,10 @@ code, handle errors properly, and always include a Dockerfile for deployment.
 Every project uses the `.specify/` directory for structured development artifacts.
 **Read these files before every action** to stay aligned with the project goals.
 
+**CRITICAL: Always write spec artifacts to `.specify/specs/v1/`** — never to the project
+root. The spec panel reads from `.specify/` only. If you write `spec.md`, `plan.md`,
+`tasks.md`, or `checklist.md` to the project root, the user will not see them.
+
 ```
 .specify/
 ├── memory/
