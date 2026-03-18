@@ -217,6 +217,13 @@ class CLIBackend(AgentBackend):
 
         env = self._build_env(conversation_id)
 
+        # Inject LLM env vars for expert projects so agent can run test scripts
+        if project_workdir:
+            if config.SYNTHETIC_API_URL:
+                env["SYNTHETIC_API_URL"] = config.SYNTHETIC_API_URL
+            if config.SYNTHETIC_API_KEY:
+                env["SYNTHETIC_API_KEY"] = config.SYNTHETIC_API_KEY
+
         # Determine working directory
         cwd = project_workdir if project_workdir else str(config.BASE_DIR)
 
