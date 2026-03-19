@@ -35,6 +35,21 @@ function labelValue(label, value, tag) {
   return div;
 }
 
+// Row with a label and multiple children (elements or strings), comma-separated
+function labelRow(label, children, className) {
+  const div = document.createElement('div');
+  div.className = className || 'mt-2';
+  const span = document.createElement('span');
+  span.className = 'text-muted small';
+  span.textContent = label;
+  div.append(span, ' ');
+  children.forEach((child, i) => {
+    if (i > 0) div.append(', ');
+    div.append(child);
+  });
+  return div;
+}
+
 function replaceChildren(el, ...children) {
   el.textContent = '';
   el.append(...children);
@@ -270,6 +285,38 @@ function selectTrigger(triggerId, btn, skipPush) {
 }
 
 // --- Render tag details ---
+function renderTriggerCard(trigger) {
+  const { site } = currentSiteData;
+  const card = clone('tpl-trigger-card');
+  card.querySelector('.tm-name').textContent = trigger.name;
+  card.querySelector('.tm-type').textContent = trigger.type;
+
+  if (trigger.draft_id) {
+    card.querySelector('.tm-card-header').append(
+      matomoLink(matomoTriggerUrl(site.matomo_id, site.container_id, trigger.draft_id))
+    );
+  }
+
+  const body = card.querySelector('.tm-body');
+  const conditions = trigger.conditions || [];
+  if (conditions.length > 0) {
+    const condDiv = document.createElement('div');
+    condDiv.className = 'tm-conditions mt-2';
+    for (const c of conditions) {
+      const row = clone('tpl-condition');
+      row.querySelector('.tm-actual').textContent = c.actual;
+      row.querySelector('.tm-comparison').textContent = c.comparison;
+      row.querySelector('.tm-expected').textContent = '"' + (c.expected || '') + '"';
+      condDiv.append(row);
+    }
+    body.append(condDiv);
+  } else {
+    body.append(clone('tpl-no-conditions'));
+  }
+
+  return card;
+}
+
 function renderTagDetails(trigger, tags) {
   const container = document.getElementById('tmDetailsContent');
 
@@ -283,39 +330,8 @@ function renderTagDetails(trigger, tags) {
 
   const frag = document.createDocumentFragment();
 
-  // Trigger summary card
-  if (trigger) {
-    const card = clone('tpl-trigger-card');
-    card.querySelector('.tm-name').textContent = trigger.name;
-    card.querySelector('.tm-type').textContent = trigger.type;
+  if (trigger) frag.append(renderTriggerCard(trigger), clone('tpl-arrow'));
 
-    if (trigger.draft_id) {
-      card.querySelector('.tm-card-header').append(
-        matomoLink(matomoTriggerUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, trigger.draft_id))
-      );
-    }
-
-    const body = card.querySelector('.tm-body');
-    const conditions = trigger.conditions || [];
-    if (conditions.length > 0) {
-      const condDiv = document.createElement('div');
-      condDiv.className = 'tm-conditions mt-2';
-      for (const c of conditions) {
-        const row = clone('tpl-condition');
-        row.querySelector('.tm-actual').textContent = c.actual;
-        row.querySelector('.tm-comparison').textContent = c.comparison;
-        row.querySelector('.tm-expected').textContent = '"' + (c.expected || '') + '"';
-        condDiv.append(row);
-      }
-      body.append(condDiv);
-    } else {
-      body.append(clone('tpl-no-conditions'));
-    }
-
-    frag.append(card, clone('tpl-arrow'));
-  }
-
-  // Tag cards
   for (let i = 0; i < tags.length; i++) {
     if (i > 0) {
       const arrow = clone('tpl-arrow');
@@ -328,36 +344,10 @@ function renderTagDetails(trigger, tags) {
   replaceChildren(container, frag);
 }
 
-function renderTagCard(tag) {
-  const card = clone('tpl-tag-card');
-  if (tag.status === 'paused') card.classList.add('tm-paused');
-
-  card.querySelector('.tm-name').textContent = tag.name;
-
-  // Actions: type pill, paused badge, matomo link
-  const actions = card.querySelector('.tm-actions');
-  actions.append(badge(tagTypeCss(tag.type), tagTypeLabel(tag.type)));
-  if (tag.status === 'paused') actions.append(badge('bg-secondary', 'pause'));
-  if (tag.draft_id) {
-    actions.append(matomoLink(matomoTagUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, tag.draft_id)));
-  }
-
-  // Badges
-  const badges = card.querySelector('.tm-tag-badges');
-  badges.append(badge('bg-light text-dark', tag.fire_limit || 'unlimited'));
-  if (tag.priority !== 999) badges.append(badge('bg-light text-dark', 'prio ' + tag.priority));
-
-  // Type-specific content
-  const content = card.querySelector('.tm-tag-content');
-  const params = tag.parameters || {};
-
-  if (tag.type === 'CustomHtml') {
-    const position = params.htmlPosition || '';
-    if (position) {
-      const el = labelValue('Position:', position);
-      el.className = 'mt-2';
-      content.append(el);
-    }
+// --- Tag type renderers (dispatched by type) ---
+const tagRenderers = {
+  CustomHtml(content, params) {
+    if (params.htmlPosition) content.append(labelValue('Position:', params.htmlPosition));
     const codeBlock = document.createElement('div');
     codeBlock.className = 'tm-code-block mt-2';
     const pre = document.createElement('pre');
@@ -366,65 +356,65 @@ function renderTagCard(tag) {
     pre.append(code);
     codeBlock.append(pre);
     content.append(codeBlock);
-  } else if (tag.type === 'Matomo') {
+  },
+
+  Matomo(content, params) {
     const trackingType = params.trackingType || 'pageview';
-    const el = labelValue('Tracking:', trackingType, 'strong');
-    el.className = 'mt-2';
-    content.append(el);
+    content.append(labelValue('Tracking:', trackingType, 'strong'));
     if (trackingType === 'event') {
-      if (params.eventCategory) content.append(labelValue('Category:', params.eventCategory));
-      if (params.eventAction) content.append(labelValue('Action:', params.eventAction));
-      if (params.eventName) content.append(labelValue('Name:', params.eventName));
-      if (params.eventValue) content.append(labelValue('Value:', params.eventValue));
+      for (const key of ['eventCategory', 'eventAction', 'eventName', 'eventValue']) {
+        if (params[key]) content.append(labelValue(key.replace('event', '') + ':', params[key]));
+      }
     }
     if (params.customDimensions?.length > 0) {
-      const dimDiv = document.createElement('div');
-      dimDiv.className = 'mt-1';
-      const label = document.createElement('span');
-      label.className = 'text-muted small';
-      label.textContent = 'Dimensions:';
-      dimDiv.append(label);
-      for (const d of params.customDimensions) {
+      const codes = params.customDimensions.map(d => {
         const c = document.createElement('code');
         c.textContent = 'dim' + (d.index || '') + '=' + (d.value || '');
-        dimDiv.append(' ', c);
-      }
-      content.append(dimDiv);
+        return c;
+      });
+      content.append(labelRow('Dimensions:', codes, 'mt-1'));
     }
-  } else if (tag.type === 'LinkedinInsight') {
+  },
+
+  LinkedinInsight(content) {
     const p = document.createElement('div');
     p.className = 'mt-2 text-muted small';
     p.textContent = 'LinkedIn Insight pixel';
     content.append(p);
-  }
+  },
+};
 
-  // Block triggers
+function renderTagCard(tag) {
+  const card = clone('tpl-tag-card');
+  if (tag.status === 'paused') card.classList.add('tm-paused');
+  card.querySelector('.tm-name').textContent = tag.name;
+
+  const { site } = currentSiteData;
+  const actions = card.querySelector('.tm-actions');
+  actions.append(badge(tagTypeCss(tag.type), tagTypeLabel(tag.type)));
+  if (tag.status === 'paused') actions.append(badge('bg-secondary', 'pause'));
+  if (tag.draft_id) actions.append(matomoLink(matomoTagUrl(site.matomo_id, site.container_id, tag.draft_id)));
+
+  const badges = card.querySelector('.tm-tag-badges');
+  badges.append(badge('bg-light text-dark', tag.fire_limit || 'unlimited'));
+  if (tag.priority !== 999) badges.append(badge('bg-light text-dark', 'prio ' + tag.priority));
+
+  const content = card.querySelector('.tm-tag-content');
+  const renderer = tagRenderers[tag.type];
+  if (renderer) renderer(content, tag.parameters || {});
+
   if (tag.block_trigger_ids?.length > 0) {
-    const div = document.createElement('div');
-    div.className = 'mt-2';
-    const label = document.createElement('span');
-    label.className = 'text-muted small';
-    label.textContent = 'Bloque par:';
-    div.append(label, ' ');
-    tag.block_trigger_ids.forEach((id, i) => {
-      if (i > 0) div.append(', ');
+    const codes = tag.block_trigger_ids.map(id => {
       const t = (currentSiteData.triggers || []).find(tr => tr.idtrigger === id);
       const code = document.createElement('code');
       code.textContent = t ? t.name : '#' + id;
-      div.append(code);
+      return code;
     });
-    content.append(div);
+    content.append(labelRow('Bloque par:', codes));
   }
 
-  // Schedule
   if (tag.start_date || tag.end_date) {
-    const div = document.createElement('div');
-    div.className = 'mt-2';
-    const label = document.createElement('span');
-    label.className = 'text-muted small';
-    label.textContent = 'Periode:';
-    div.append(label, ' ', (tag.start_date || '...') + ' \u2014 ' + (tag.end_date || '...'));
-    content.append(div);
+    content.append(labelRow('Periode:', [(tag.start_date || '...') + ' \u2014 ' + (tag.end_date || '...')]));
   }
 
   return card;
