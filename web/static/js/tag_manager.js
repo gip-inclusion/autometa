@@ -6,6 +6,41 @@ const selectedSiteId = JSON.parse(layoutEl.dataset.selectedSite);
 const selectedTriggerId = JSON.parse(layoutEl.dataset.selectedTrigger);
 const matomoUrl = layoutEl.dataset.matomoUrl;
 
+// --- DOM helpers ---
+function clone(id) {
+  return document.getElementById(id).content.firstElementChild.cloneNode(true);
+}
+
+function badge(className, text) {
+  const el = document.createElement('span');
+  el.className = 'badge ' + className;
+  el.textContent = text;
+  return el;
+}
+
+function matomoLink(href) {
+  const el = clone('tpl-matomo-link');
+  el.href = href;
+  return el;
+}
+
+function labelValue(label, value, tag) {
+  const div = document.createElement('div');
+  const span = document.createElement('span');
+  span.className = 'text-muted small';
+  span.textContent = label;
+  const val = document.createElement(tag || 'code');
+  val.textContent = value;
+  div.append(span, ' ', val);
+  return div;
+}
+
+function replaceChildren(el, ...children) {
+  el.textContent = '';
+  el.append(...children);
+}
+
+// --- URLs ---
 function matomoTriggerUrl(siteId, containerId, triggerId) {
   return matomoUrl + '/index.php?module=TagManager&action=manageTriggers&idSite=' + siteId + '&idContainer=' + containerId + '#?idTrigger=' + triggerId;
 }
@@ -14,7 +49,7 @@ function matomoTagUrl(siteId, containerId, tagId) {
   return matomoUrl + '/index.php?module=TagManager&action=manageTags&idSite=' + siteId + '&idContainer=' + containerId + '#?idTag=' + tagId;
 }
 
-// --- Tag type pill helper ---
+// --- Tag type helpers ---
 function tagTypeCss(type) {
   switch (type) {
     case 'Matomo': return 'tm-type-matomo';
@@ -30,21 +65,6 @@ function tagTypeLabel(type) {
     case 'LinkedinInsight': return 'LinkedIn';
     default: return type;
   }
-}
-
-function tagTypePill(type) {
-  return '<span class="badge ' + tagTypeCss(type) + '">' + escapeHtml(tagTypeLabel(type)) + '</span>';
-}
-
-// Build "3 Matomo · 1 CustomHTML" type breakdown pills
-function tagTypeBreakdownPills(tags) {
-  const counts = {};
-  for (const tag of tags) {
-    counts[tag.type] = (counts[tag.type] || 0) + 1;
-  }
-  return Object.entries(counts)
-    .map(([type, count]) => '<span class="badge ' + tagTypeCss(type) + '">' + count + ' ' + escapeHtml(tagTypeLabel(type)) + '</span>')
-    .join(' ');
 }
 
 // --- Mobile navigation ---
@@ -80,11 +100,16 @@ document.addEventListener('DOMContentLoaded', function() {
       })
       .catch(() => {
         const el = document.getElementById('count-' + matomoId);
-        if (el) el.innerHTML = '<span class="tm-count-pill" style="color:#dc3545;">erreur</span>';
+        if (el) {
+          const pill = document.createElement('span');
+          pill.className = 'tm-count-pill';
+          pill.style.color = '#dc3545';
+          pill.textContent = 'erreur';
+          replaceChildren(el, pill);
+        }
       });
   });
 
-  // Auto-select site (and trigger) from server-rendered URL
   if (selectedSiteId) {
     const siteBtn = document.querySelector('.tm-sites-pane .tm-list-item[data-matomo-id="' + selectedSiteId + '"]');
     if (siteBtn) selectSite(siteBtn, true, selectedTriggerId);
@@ -92,20 +117,20 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // --- Handle browser back/forward ---
+function resetPanes() {
+  document.querySelectorAll('.tm-list-item').forEach(b => b.classList.remove('active'));
+  replaceChildren(document.getElementById('tmTriggersList'), clone('tpl-empty-site'));
+  replaceChildren(document.getElementById('tmDetailsContent'), clone('tpl-empty-trigger'));
+  document.getElementById('tmTriggersHeader').textContent = 'Triggers';
+  document.getElementById('tmDetailsHeader').textContent = 'Tags';
+  document.getElementById('tmFooter').textContent = '';
+  currentSiteData = null;
+  mobileShowPane('sites');
+}
+
 window.addEventListener('popstate', function(e) {
   const state = e.state;
-  if (!state) {
-    // Back to /tag-manager root — deselect everything
-    document.querySelectorAll('.tm-list-item').forEach(b => b.classList.remove('active'));
-    document.getElementById('tmTriggersList').innerHTML = '<div class="tm-empty"><i class="ri-cursor-line ri-2x text-muted"></i><p class="text-muted mt-2">Choisir un site</p></div>';
-    document.getElementById('tmDetailsContent').innerHTML = '<div class="tm-empty"><i class="ri-file-list-3-line ri-2x text-muted"></i><p class="text-muted mt-2">Choisir un trigger</p></div>';
-    document.getElementById('tmTriggersHeader').textContent = 'Triggers';
-    document.getElementById('tmDetailsHeader').textContent = 'Tags';
-    document.getElementById('tmFooter').textContent = '';
-    currentSiteData = null;
-    mobileShowPane('sites');
-    return;
-  }
+  if (!state) { resetPanes(); return; }
   if (state.matomoId) {
     const siteBtn = document.querySelector('.tm-sites-pane .tm-list-item[data-matomo-id="' + state.matomoId + '"]');
     if (siteBtn) selectSite(siteBtn, true, state.triggerId);
@@ -118,12 +143,11 @@ async function selectSite(btn, skipPush, autoTriggerId) {
   btn.classList.add('active');
 
   const matomoId = btn.dataset.matomoId;
-
   if (!skipPush) pushUrl(matomoId);
 
-  // Loading state
-  document.getElementById('tmTriggersList').innerHTML = '<div class="tm-loading"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
-  document.getElementById('tmDetailsContent').innerHTML = '<div class="tm-empty"><i class="ri-file-list-3-line ri-2x text-muted"></i><p class="text-muted mt-2">Choisir un trigger</p></div>';
+  const triggersList = document.getElementById('tmTriggersList');
+  replaceChildren(triggersList, clone('tpl-loading'));
+  replaceChildren(document.getElementById('tmDetailsContent'), clone('tpl-empty-trigger'));
   document.getElementById('tmDetailsHeader').textContent = 'Tags';
 
   try {
@@ -144,14 +168,14 @@ async function selectSite(btn, skipPush, autoTriggerId) {
     updateFooter(data);
     mobileShowPane('triggers');
 
-    // Auto-select trigger if requested (from URL or popstate)
     if (autoTriggerId) {
-      const triggerBtn = document.querySelector('.tm-triggers-pane .tm-list-item[onclick*="(' + autoTriggerId + ',"]');
+      const triggerBtn = document.querySelector('.tm-triggers-pane .tm-list-item[data-trigger-id="' + autoTriggerId + '"]');
       if (triggerBtn) selectTrigger(autoTriggerId, triggerBtn, true);
     }
   } catch (err) {
-    document.getElementById('tmTriggersList').innerHTML =
-      '<div class="tm-empty"><i class="ri-error-warning-line ri-2x text-danger"></i><p class="text-danger mt-2">' + escapeHtml(err.message) + '</p></div>';
+    const errEl = clone('tpl-error');
+    errEl.querySelector('.tm-error-msg').textContent = err.message;
+    replaceChildren(triggersList, errEl);
   }
 }
 
@@ -162,7 +186,7 @@ function renderTriggers(data) {
   const container = document.getElementById('tmTriggersList');
 
   if (triggers.length === 0) {
-    container.innerHTML = '<div class="tm-empty"><i class="ri-ghost-line ri-2x text-muted"></i><p class="text-muted mt-2">Aucun trigger</p></div>';
+    replaceChildren(container, clone('tpl-empty-no-triggers'));
     document.getElementById('tmTriggersHeader').textContent = 'Triggers';
     return;
   }
@@ -176,7 +200,7 @@ function renderTriggers(data) {
     }
   }
 
-  // Sort: no conditions first (fire everywhere), then with tags before orphans, then by name
+  // Sort: no conditions first, then with tags before orphans, then by name
   const sorted = [...triggers].sort((a, b) => {
     const aCond = (a.conditions || []).length === 0 ? 0 : 1;
     const bCond = (b.conditions || []).length === 0 ? 0 : 1;
@@ -190,28 +214,40 @@ function renderTriggers(data) {
 
   document.getElementById('tmTriggersHeader').textContent = 'Triggers (' + triggers.length + ')';
 
-  let html = '';
+  const frag = document.createDocumentFragment();
   for (const trigger of sorted) {
     const tTags = triggerTags[trigger.idtrigger] || [];
     const conditions = trigger.conditions || [];
-    const condPreview = conditions.length > 0
-      ? conditions.map(c => c.actual + ' ' + c.comparison + ' "' + escapeHtml(c.expected || '') + '"').join(', ')
-      : 'toutes les pages';
     const orphan = tTags.length === 0;
 
-    html += '<button class="tm-list-item' + (orphan ? ' tm-orphan' : '') + '" onclick="selectTrigger(' + trigger.idtrigger + ', this)">'
-      + '<div class="tm-trigger-main">'
-      + '<span class="tm-item-name">' + escapeHtml(trigger.name) + '</span>'
-      + '<span class="badge bg-light text-dark">' + escapeHtml(trigger.type) + '</span>'
-      + '</div>'
-      + '<div class="tm-trigger-meta">'
-      + '<span class="text-muted small">' + escapeHtml(condPreview) + '</span>'
-      + (tTags.length > 0 ? tagTypeBreakdownPills(tTags) : '<span class="badge bg-secondary">orphelin</span>')
-      + '</div>'
-      + '</button>';
+    const btn = clone('tpl-trigger-item');
+    if (orphan) btn.classList.add('tm-orphan');
+    btn.dataset.triggerId = trigger.idtrigger;
+    btn.addEventListener('click', function() { selectTrigger(trigger.idtrigger, this); });
+
+    btn.querySelector('.tm-item-name').textContent = trigger.name;
+    btn.querySelector('.tm-trigger-type').textContent = trigger.type;
+
+    const condPreview = conditions.length > 0
+      ? conditions.map(c => c.actual + ' ' + c.comparison + ' "' + (c.expected || '') + '"').join(', ')
+      : 'toutes les pages';
+    btn.querySelector('.tm-trigger-cond').textContent = condPreview;
+
+    const pillsEl = btn.querySelector('.tm-trigger-pills');
+    if (tTags.length > 0) {
+      const counts = {};
+      for (const t of tTags) counts[t.type] = (counts[t.type] || 0) + 1;
+      for (const [type, count] of Object.entries(counts)) {
+        pillsEl.append(badge(tagTypeCss(type), count + ' ' + tagTypeLabel(type)));
+      }
+    } else {
+      pillsEl.append(badge('bg-secondary', 'orphelin'));
+    }
+
+    frag.append(btn);
   }
 
-  container.innerHTML = html;
+  replaceChildren(container, frag);
 }
 
 // --- Trigger selection ---
@@ -227,7 +263,6 @@ function selectTrigger(triggerId, btn, skipPush) {
   const tags = (currentSiteData.tags || []).filter(
     t => (t.fire_trigger_ids || []).includes(triggerId)
   );
-
   const trigger = (currentSiteData.triggers || []).find(t => t.idtrigger === triggerId);
 
   renderTagDetails(trigger, tags);
@@ -239,130 +274,175 @@ function renderTagDetails(trigger, tags) {
   const container = document.getElementById('tmDetailsContent');
 
   if (tags.length === 0) {
-    container.innerHTML = '<div class="tm-empty"><i class="ri-ghost-line ri-2x text-muted"></i><p class="text-muted mt-2">Aucun tag pour ce trigger</p></div>';
+    replaceChildren(container, clone('tpl-empty-no-tags'));
     document.getElementById('tmDetailsHeader').textContent = 'Tags';
     return;
   }
 
   document.getElementById('tmDetailsHeader').textContent = 'Tags (' + tags.length + ')';
 
-  let html = '';
+  const frag = document.createDocumentFragment();
 
   // Trigger summary card
   if (trigger) {
-    html += '<div class="tm-card tm-trigger-card">'
-      + '<div class="tm-card-header"><span><i class="ri-flashlight-line me-1"></i>Trigger</span>'
-      + (trigger.draft_id ? '<a href="' + matomoTriggerUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, trigger.draft_id) + '" target="_blank" class="tm-external-link" title="Ouvrir dans Matomo"><i class="ri-external-link-line"></i></a>' : '')
-      + '</div>'
-      + '<div class="tm-card-body">'
-      + '<strong>' + escapeHtml(trigger.name) + '</strong>'
-      + ' <span class="badge bg-light text-dark">' + escapeHtml(trigger.type) + '</span>';
+    const card = clone('tpl-trigger-card');
+    card.querySelector('.tm-name').textContent = trigger.name;
+    card.querySelector('.tm-type').textContent = trigger.type;
 
-    const conditions = trigger.conditions || [];
-    if (conditions.length > 0) {
-      html += '<div class="tm-conditions mt-2">';
-      for (const c of conditions) {
-        html += '<div class="tm-condition">'
-          + '<code>' + escapeHtml(c.actual) + '</code> '
-          + '<span class="text-muted">' + escapeHtml(c.comparison) + '</span> '
-          + '<code>"' + escapeHtml(c.expected || '') + '"</code>'
-          + '</div>';
-      }
-      html += '</div>';
-    } else {
-      html += '<div class="text-warning mt-2"><i class="ri-alert-line me-1"></i>Pas de condition (se declenche partout)</div>';
+    if (trigger.draft_id) {
+      card.querySelector('.tm-card-header').append(
+        matomoLink(matomoTriggerUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, trigger.draft_id))
+      );
     }
 
-    html += '</div></div>';
+    const body = card.querySelector('.tm-body');
+    const conditions = trigger.conditions || [];
+    if (conditions.length > 0) {
+      const condDiv = document.createElement('div');
+      condDiv.className = 'tm-conditions mt-2';
+      for (const c of conditions) {
+        const row = clone('tpl-condition');
+        row.querySelector('.tm-actual').textContent = c.actual;
+        row.querySelector('.tm-comparison').textContent = c.comparison;
+        row.querySelector('.tm-expected').textContent = '"' + (c.expected || '') + '"';
+        condDiv.append(row);
+      }
+      body.append(condDiv);
+    } else {
+      body.append(clone('tpl-no-conditions'));
+    }
 
-    // Arrow separator
-    html += '<div class="tm-arrow-separator"><i class="ri-arrow-down-line"></i></div>';
+    frag.append(card, clone('tpl-arrow'));
   }
 
   // Tag cards
   for (let i = 0; i < tags.length; i++) {
-    const tag = tags[i];
-    const paused = tag.status === 'paused';
-
-    // Arrow between multiple tag cards
     if (i > 0) {
-      html += '<div class="tm-arrow-separator" style="opacity: 0.4;"><i class="ri-arrow-down-line"></i></div>';
+      const arrow = clone('tpl-arrow');
+      arrow.style.opacity = '0.4';
+      frag.append(arrow);
     }
-
-    html += '<div class="tm-card' + (paused ? ' tm-paused' : '') + '">'
-      + '<div class="tm-card-header">'
-      + '<span>' + escapeHtml(tag.name) + '</span>'
-      + '<div class="d-flex gap-1 align-items-center">'
-      + tagTypePill(tag.type)
-      + (paused ? '<span class="badge bg-secondary">pause</span>' : '')
-      + (tag.draft_id ? '<a href="' + matomoTagUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, tag.draft_id) + '" target="_blank" class="tm-external-link" title="Ouvrir dans Matomo"><i class="ri-external-link-line"></i></a>' : '')
-      + '</div>'
-      + '</div>'
-      + '<div class="tm-card-body">'
-      + '<div class="tm-tag-badges">'
-      + '<span class="badge bg-light text-dark">' + escapeHtml(tag.fire_limit || 'unlimited') + '</span>'
-      + (tag.priority !== 999 ? '<span class="badge bg-light text-dark">prio ' + tag.priority + '</span>' : '')
-      + '</div>';
-
-    // Tag content based on type
-    const params = tag.parameters || {};
-    if (tag.type === 'CustomHtml') {
-      const htmlContent = params.customHtml || '';
-      const position = params.htmlPosition || '';
-      if (position) {
-        html += '<div class="mt-2"><span class="text-muted small">Position:</span> <code>' + escapeHtml(position) + '</code></div>';
-      }
-      html += '<div class="tm-code-block mt-2"><pre><code>' + escapeHtml(htmlContent) + '</code></pre></div>';
-    } else if (tag.type === 'Matomo') {
-      const trackingType = params.trackingType || 'pageview';
-      html += '<div class="mt-2"><span class="text-muted small">Tracking:</span> <strong>' + escapeHtml(trackingType) + '</strong></div>';
-      if (trackingType === 'event') {
-        if (params.eventCategory) html += '<div><span class="text-muted small">Category:</span> <code>' + escapeHtml(params.eventCategory) + '</code></div>';
-        if (params.eventAction) html += '<div><span class="text-muted small">Action:</span> <code>' + escapeHtml(params.eventAction) + '</code></div>';
-        if (params.eventName) html += '<div><span class="text-muted small">Name:</span> <code>' + escapeHtml(params.eventName) + '</code></div>';
-        if (params.eventValue) html += '<div><span class="text-muted small">Value:</span> <code>' + escapeHtml(params.eventValue) + '</code></div>';
-      }
-      if (params.customDimensions && params.customDimensions.length > 0) {
-        html += '<div class="mt-1"><span class="text-muted small">Dimensions:</span>';
-        for (const d of params.customDimensions) {
-          html += ' <code>dim' + escapeHtml(String(d.index || '')) + '=' + escapeHtml(d.value || '') + '</code>';
-        }
-        html += '</div>';
-      }
-    } else if (tag.type === 'LinkedinInsight') {
-      html += '<div class="mt-2 text-muted small">LinkedIn Insight pixel</div>';
-    }
-
-    // Block triggers
-    if (tag.block_trigger_ids && tag.block_trigger_ids.length > 0) {
-      const blockNames = tag.block_trigger_ids.map(id => {
-        const t = (currentSiteData.triggers || []).find(tr => tr.idtrigger === id);
-        return t ? t.name : '#' + id;
-      });
-      html += '<div class="mt-2"><span class="text-muted small">Bloque par:</span> ' + blockNames.map(n => '<code>' + escapeHtml(n) + '</code>').join(', ') + '</div>';
-    }
-
-    // Schedule
-    if (tag.start_date || tag.end_date) {
-      html += '<div class="mt-2"><span class="text-muted small">Periode:</span> '
-        + (tag.start_date || '...') + ' \u2014 ' + (tag.end_date || '...') + '</div>';
-    }
-
-    html += '</div></div>';
+    frag.append(renderTagCard(tags[i]));
   }
 
-  container.innerHTML = html;
+  replaceChildren(container, frag);
+}
+
+function renderTagCard(tag) {
+  const card = clone('tpl-tag-card');
+  if (tag.status === 'paused') card.classList.add('tm-paused');
+
+  card.querySelector('.tm-name').textContent = tag.name;
+
+  // Actions: type pill, paused badge, matomo link
+  const actions = card.querySelector('.tm-actions');
+  actions.append(badge(tagTypeCss(tag.type), tagTypeLabel(tag.type)));
+  if (tag.status === 'paused') actions.append(badge('bg-secondary', 'pause'));
+  if (tag.draft_id) {
+    actions.append(matomoLink(matomoTagUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, tag.draft_id)));
+  }
+
+  // Badges
+  const badges = card.querySelector('.tm-tag-badges');
+  badges.append(badge('bg-light text-dark', tag.fire_limit || 'unlimited'));
+  if (tag.priority !== 999) badges.append(badge('bg-light text-dark', 'prio ' + tag.priority));
+
+  // Type-specific content
+  const content = card.querySelector('.tm-tag-content');
+  const params = tag.parameters || {};
+
+  if (tag.type === 'CustomHtml') {
+    const position = params.htmlPosition || '';
+    if (position) {
+      const el = labelValue('Position:', position);
+      el.className = 'mt-2';
+      content.append(el);
+    }
+    const codeBlock = document.createElement('div');
+    codeBlock.className = 'tm-code-block mt-2';
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = params.customHtml || '';
+    pre.append(code);
+    codeBlock.append(pre);
+    content.append(codeBlock);
+  } else if (tag.type === 'Matomo') {
+    const trackingType = params.trackingType || 'pageview';
+    const el = labelValue('Tracking:', trackingType, 'strong');
+    el.className = 'mt-2';
+    content.append(el);
+    if (trackingType === 'event') {
+      if (params.eventCategory) content.append(labelValue('Category:', params.eventCategory));
+      if (params.eventAction) content.append(labelValue('Action:', params.eventAction));
+      if (params.eventName) content.append(labelValue('Name:', params.eventName));
+      if (params.eventValue) content.append(labelValue('Value:', params.eventValue));
+    }
+    if (params.customDimensions?.length > 0) {
+      const dimDiv = document.createElement('div');
+      dimDiv.className = 'mt-1';
+      const label = document.createElement('span');
+      label.className = 'text-muted small';
+      label.textContent = 'Dimensions:';
+      dimDiv.append(label);
+      for (const d of params.customDimensions) {
+        const c = document.createElement('code');
+        c.textContent = 'dim' + (d.index || '') + '=' + (d.value || '');
+        dimDiv.append(' ', c);
+      }
+      content.append(dimDiv);
+    }
+  } else if (tag.type === 'LinkedinInsight') {
+    const p = document.createElement('div');
+    p.className = 'mt-2 text-muted small';
+    p.textContent = 'LinkedIn Insight pixel';
+    content.append(p);
+  }
+
+  // Block triggers
+  if (tag.block_trigger_ids?.length > 0) {
+    const div = document.createElement('div');
+    div.className = 'mt-2';
+    const label = document.createElement('span');
+    label.className = 'text-muted small';
+    label.textContent = 'Bloque par:';
+    div.append(label, ' ');
+    tag.block_trigger_ids.forEach((id, i) => {
+      if (i > 0) div.append(', ');
+      const t = (currentSiteData.triggers || []).find(tr => tr.idtrigger === id);
+      const code = document.createElement('code');
+      code.textContent = t ? t.name : '#' + id;
+      div.append(code);
+    });
+    content.append(div);
+  }
+
+  // Schedule
+  if (tag.start_date || tag.end_date) {
+    const div = document.createElement('div');
+    div.className = 'mt-2';
+    const label = document.createElement('span');
+    label.className = 'text-muted small';
+    label.textContent = 'Periode:';
+    div.append(label, ' ', (tag.start_date || '...') + ' \u2014 ' + (tag.end_date || '...'));
+    content.append(div);
+  }
+
+  return card;
 }
 
 // --- Helpers ---
 function updateSiteCounts(matomoId, data) {
   const el = document.getElementById('count-' + matomoId);
-  if (el) {
-    const triggers = (data.triggers || []).length;
-    const tags = (data.tags || []).length;
-    el.innerHTML = '<span class="tm-count-pill">' + triggers + ' trigger' + (triggers !== 1 ? 's' : '') + '</span>'
-      + '<span class="tm-count-pill">' + tags + ' tag' + (tags !== 1 ? 's' : '') + '</span>';
-  }
+  if (!el) return;
+  const triggers = (data.triggers || []).length;
+  const tags = (data.tags || []).length;
+  const p1 = document.createElement('span');
+  p1.className = 'tm-count-pill';
+  p1.textContent = triggers + ' trigger' + (triggers !== 1 ? 's' : '');
+  const p2 = document.createElement('span');
+  p2.className = 'tm-count-pill';
+  p2.textContent = tags + ' tag' + (tags !== 1 ? 's' : '');
+  replaceChildren(el, p1, p2);
 }
 
 function updateFooter(data) {
@@ -379,10 +459,4 @@ function updateFooter(data) {
     + 'v' + rel.idcontainerversion + ' publiee le ' + (rel.release_date || '').slice(0, 10)
     + ' par ' + (rel.release_login || '?')
     + ' \u00b7 ' + data.query_time_ms + ' ms';
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
