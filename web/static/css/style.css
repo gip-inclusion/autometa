@@ -3498,13 +3498,28 @@ body.no-sidebar .section-header .container-fluid {
 }
 
 .tm-card.tm-trigger-card {
-  border-color: #ADB6FF;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid #dee2e6;
   background: #f0f3ff;
 }
 
 .tm-card.tm-trigger-card .tm-card-header {
   background: #e0e7ff;
-  border-color: #ADB6FF;
+  border-color: #dee2e6;
+}
+
+.tm-external-link {
+  color: #6c757d;
+  font-size: 0.85rem;
+  opacity: 0.6;
+  transition: opacity 0.1s;
+}
+
+.tm-external-link:hover {
+  opacity: 1;
+  color: #006ADC;
 }
 
 .tm-card-body {
@@ -3560,10 +3575,12 @@ body.no-sidebar .section-header .container-fluid {
 .tm-code-block pre {
   margin: 0;
   padding: 0.75rem;
+  background: transparent;
 }
 
 .tm-code-block code {
   color: #d4d4d4;
+  background: transparent;
   font-size: 0.75rem;
   white-space: pre-wrap;
   word-break: break-all;

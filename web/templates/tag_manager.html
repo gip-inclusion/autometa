@@ -86,6 +86,15 @@ let currentSiteData = null;
 const siteCache = {};
 const selectedSiteId = {{ selected_site|tojson }};
 const selectedTriggerId = {{ selected_trigger|tojson }};
+const matomoUrl = {{ matomo_url|tojson }};
+
+function matomoTriggerUrl(siteId, containerId, triggerId) {
+  return matomoUrl + '/index.php?module=TagManager&action=manageTriggers&idSite=' + siteId + '&idContainer=' + containerId + '#?idTrigger=' + triggerId;
+}
+
+function matomoTagUrl(siteId, containerId, tagId) {
+  return matomoUrl + '/index.php?module=TagManager&action=manageTags&idSite=' + siteId + '&idContainer=' + containerId + '#?idTag=' + tagId;
+}
 
 // --- Tag type pill helper ---
 function tagTypeCss(type) {
@@ -250,8 +259,11 @@ function renderTriggers(data) {
     }
   }
 
-  // Sort: triggers with tags first, then by name
+  // Sort: no conditions first (fire everywhere), then with tags before orphans, then by name
   const sorted = [...triggers].sort((a, b) => {
+    const aCond = (a.conditions || []).length === 0 ? 0 : 1;
+    const bCond = (b.conditions || []).length === 0 ? 0 : 1;
+    if (aCond !== bCond) return aCond - bCond;
     const aCount = (triggerTags[a.idtrigger] || []).length;
     const bCount = (triggerTags[b.idtrigger] || []).length;
     if (aCount > 0 && bCount === 0) return -1;
@@ -322,7 +334,9 @@ function renderTagDetails(trigger, tags) {
   // Trigger summary card
   if (trigger) {
     html += '<div class="tm-card tm-trigger-card">'
-      + '<div class="tm-card-header"><i class="ri-flashlight-line me-1"></i>Trigger</div>'
+      + '<div class="tm-card-header"><span><i class="ri-flashlight-line me-1"></i>Trigger</span>'
+      + (trigger.draft_id ? '<a href="' + matomoTriggerUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, trigger.draft_id) + '" target="_blank" class="tm-external-link" title="Ouvrir dans Matomo"><i class="ri-external-link-line"></i></a>' : '')
+      + '</div>'
       + '<div class="tm-card-body">'
       + '<strong>' + escapeHtml(trigger.name) + '</strong>'
       + ' <span class="badge bg-light text-dark">' + escapeHtml(trigger.type) + '</span>';
@@ -364,6 +378,7 @@ function renderTagDetails(trigger, tags) {
       + '<div class="d-flex gap-1 align-items-center">'
       + tagTypePill(tag.type)
       + (paused ? '<span class="badge bg-secondary">pause</span>' : '')
+      + (tag.draft_id ? '<a href="' + matomoTagUrl(currentSiteData.site.matomo_id, currentSiteData.site.container_id, tag.draft_id) + '" target="_blank" class="tm-external-link" title="Ouvrir dans Matomo"><i class="ri-external-link-line"></i></a>' : '')
       + '</div>'
       + '</div>'
       + '<div class="tm-card-body">'

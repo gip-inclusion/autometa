@@ -20,6 +20,7 @@ def _tag_manager_response(request: Request, user_email: str, selected_site: int 
     """Render Tag Manager page with optional pre-selection."""
     data = get_sidebar_data(user_email)
     sites = get_tag_manager_sites()
+    matomo_url = f"https://{get_matomo().url}"
     return templates.TemplateResponse(
         request,
         "tag_manager.html",
@@ -28,6 +29,7 @@ def _tag_manager_response(request: Request, user_email: str, selected_site: int 
             "sites": sites,
             "selected_site": selected_site,
             "selected_trigger": selected_trigger,
+            "matomo_url": matomo_url,
             **data,
         },
     )
@@ -100,6 +102,16 @@ def api_tag_manager_site(matomo_id: int):
         triggers = export.get("triggers", [])
         tags = export.get("tags", [])
         variables = export.get("variables", [])
+
+        # Export draft version to get UI-compatible IDs (live IDs are version-specific)
+        draft_id = container["draft"]["idcontainerversion"]
+        draft = api.export_version(matomo_id, container_id, draft_id)
+        draft_trigger_ids = {t["name"]: t["idtrigger"] for t in draft.get("triggers", [])}
+        draft_tag_ids = {t["name"]: t["idtag"] for t in draft.get("tags", [])}
+        for t in triggers:
+            t["draft_id"] = draft_trigger_ids.get(t["name"])
+        for t in tags:
+            t["draft_id"] = draft_tag_ids.get(t["name"])
 
         query_time_ms = int((time.time() - start) * 1000)
 
