@@ -39,7 +39,7 @@ Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données m
 │
 ├── reports/             # Rapports générés
 │
-├── AGENTS.md            # Instructions système pour l'agent
+├── CLAUDE.md            # Instructions projet + prompt agent
 └── docker-compose.yml   # Déploiement production
 ```
 
@@ -63,7 +63,7 @@ skills/mon_skill/
 
 ### Modifier le comportement de l'agent
 
-Le fichier `AGENTS.md` contient le system prompt. Sections clés :
+Le fichier `CLAUDE.md` contient le system prompt. Sections clés :
 
 - **Domain Context** — Vocabulaire métier (IAE, SIAE, prescripteurs, etc.)
 - **Query Workflow** — Processus de réponse aux questions
