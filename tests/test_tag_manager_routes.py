@@ -18,17 +18,38 @@ MOCK_CONTAINER = {
 MOCK_LIVE_EXPORT = {
     "triggers": [
         {"idtrigger": 9001, "name": "PageView", "type": "Pageview", "conditions": []},
-        {"idtrigger": 9002, "name": "Click CTA", "type": "AllElementsClick", "conditions": [
-            {"actual": "ClickClasses", "comparison": "contains", "expected": "btn-cta"},
-        ]},
+        {
+            "idtrigger": 9002,
+            "name": "Click CTA",
+            "type": "AllElementsClick",
+            "conditions": [
+                {"actual": "ClickClasses", "comparison": "contains", "expected": "btn-cta"},
+            ],
+        },
     ],
     "tags": [
-        {"idtag": 8001, "name": "Matomo Pageview", "type": "Matomo", "status": "active",
-         "fire_trigger_ids": [9001], "block_trigger_ids": [], "fire_limit": "unlimited",
-         "priority": 999, "parameters": {"trackingType": "pageview"}},
-        {"idtag": 8002, "name": "CTA Tracker", "type": "CustomHtml", "status": "active",
-         "fire_trigger_ids": [9002], "block_trigger_ids": [], "fire_limit": "once_page",
-         "priority": 100, "parameters": {"customHtml": "<script>track()</script>"}},
+        {
+            "idtag": 8001,
+            "name": "Matomo Pageview",
+            "type": "Matomo",
+            "status": "active",
+            "fire_trigger_ids": [9001],
+            "block_trigger_ids": [],
+            "fire_limit": "unlimited",
+            "priority": 999,
+            "parameters": {"trackingType": "pageview"},
+        },
+        {
+            "idtag": 8002,
+            "name": "CTA Tracker",
+            "type": "CustomHtml",
+            "status": "active",
+            "fire_trigger_ids": [9002],
+            "block_trigger_ids": [],
+            "fire_limit": "once_page",
+            "priority": 100,
+            "parameters": {"customHtml": "<script>track()</script>"},
+        },
     ],
     "variables": [{"name": "Matomo Configuration"}],
 }
@@ -48,13 +69,17 @@ MOCK_DRAFT_EXPORT = {
 
 def _patch_sources():
     """Patch get_tag_manager_sites and get_matomo for route tests."""
-    mock_api = type("MockAPI", (), {
-        "url": "matomo.example.com",
-        "get_container": lambda self, *a: MOCK_CONTAINER,
-        "export_version": lambda self, site_id, container_id, version_id: (
-            MOCK_DRAFT_EXPORT if version_id == 500 else MOCK_LIVE_EXPORT
-        ),
-    })()
+    mock_api = type(
+        "MockAPI",
+        (),
+        {
+            "url": "matomo.example.com",
+            "get_container": lambda self, *a: MOCK_CONTAINER,
+            "export_version": lambda self, site_id, container_id, version_id: (
+                MOCK_DRAFT_EXPORT if version_id == 500 else MOCK_LIVE_EXPORT
+            ),
+        },
+    )()
     return (
         patch("web.routes.tag_manager.get_tag_manager_sites", return_value=MOCK_SITES),
         patch("web.routes.tag_manager.get_matomo", return_value=mock_api),
@@ -65,10 +90,14 @@ class TestGetTagManagerSites:
     """Test get_tag_manager_sites config loader."""
 
     def test_returns_sites_from_config(self):
-        with patch("lib._sources.load_config", return_value={
-            "tag_manager": {"sites": MOCK_SITES},
-        }):
+        with patch(
+            "lib._sources.load_config",
+            return_value={
+                "tag_manager": {"sites": MOCK_SITES},
+            },
+        ):
             from lib._sources import get_tag_manager_sites
+
             sites = get_tag_manager_sites()
             assert len(sites) == 3
             assert sites[0]["name"] == "Dora"
@@ -77,6 +106,7 @@ class TestGetTagManagerSites:
     def test_returns_empty_list_when_no_config(self):
         with patch("lib._sources.load_config", return_value={}):
             from lib._sources import get_tag_manager_sites
+
             assert get_tag_manager_sites() == []
 
 
@@ -169,10 +199,14 @@ class TestTagManagerAPI:
             "draft": {"idcontainerversion": 500},
             "releases": [{"environment": "staging", "idcontainerversion": 100}],
         }
-        mock_api = type("MockAPI", (), {
-            "url": "matomo.example.com",
-            "get_container": lambda self, *a: container_no_live,
-        })()
+        mock_api = type(
+            "MockAPI",
+            (),
+            {
+                "url": "matomo.example.com",
+                "get_container": lambda self, *a: container_no_live,
+            },
+        )()
         with (
             patch("web.routes.tag_manager.get_tag_manager_sites", return_value=MOCK_SITES),
             patch("web.routes.tag_manager.get_matomo", return_value=mock_api),

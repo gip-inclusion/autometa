@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _tag_manager_response(request: Request, user_email: str, selected_site: int | None = None, selected_trigger: int | None = None):
+def _tag_manager_response(
+    request: Request, user_email: str, selected_site: int | None = None, selected_trigger: int | None = None
+):
     """Render Tag Manager page with optional pre-selection."""
     data = get_sidebar_data(user_email)
     sites = get_tag_manager_sites()
