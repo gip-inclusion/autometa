@@ -135,16 +135,16 @@ class TestTagManagerPages:
         with p1, p2:
             resp = client.get("/tag-manager/211")
         assert resp.status_code == 200
-        assert "const selectedSiteId = 211" in resp.text
-        assert "const selectedTriggerId = null" in resp.text
+        assert 'data-selected-site="211"' in resp.text
+        assert 'data-selected-trigger="null"' in resp.text
 
     def test_tag_manager_site_trigger_route(self, client):
         p1, p2 = _patch_sources()
         with p1, p2:
             resp = client.get("/tag-manager/211/3577")
         assert resp.status_code == 200
-        assert "const selectedSiteId = 211" in resp.text
-        assert "const selectedTriggerId = 3577" in resp.text
+        assert 'data-selected-site="211"' in resp.text
+        assert 'data-selected-trigger="3577"' in resp.text
 
     def test_no_sidebar_class(self, client):
         p1, p2 = _patch_sources()
