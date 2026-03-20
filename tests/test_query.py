@@ -217,7 +217,7 @@ class TestExecuteQuery:
 
 
 class TestConversationIdFromEnv:
-    """Tests for auto-reading conversation_id from environment."""
+    """Tests for auto-reading conversation_id from AUTOMETA_CONVERSATION_ID."""
 
     @patch("lib.query.get_metabase")
     def test_reads_conversation_id_from_env(self, mock_get_metabase):
@@ -230,15 +230,12 @@ class TestConversationIdFromEnv:
         mock_api.caller = "agent"
         mock_get_metabase.return_value = mock_api
 
-        with patch.dict("os.environ", {"MATOMETA_CONVERSATION_ID": "env-conv-123"}):
-            from lib.query import CallerType, execute_metabase_query
-
+        with patch.dict("os.environ", {"AUTOMETA_CONVERSATION_ID": "env-conv-123"}):
             result = execute_metabase_query(
                 instance="stats",
                 caller=CallerType.AGENT,
                 sql="SELECT 1",
                 database_id=2,
-                # conversation_id NOT provided
             )
 
         assert result.success is True
@@ -258,7 +255,6 @@ class TestQueryIntegration:
         result = execute_metabase_query(
             instance="stats",
             caller=CallerType.AGENT,
-            conversation_id="integration-test",
             sql="SELECT 1 as test",
             database_id=2,
         )
@@ -273,7 +269,6 @@ class TestQueryIntegration:
         result = execute_matomo_query(
             instance="inclusion",
             caller=CallerType.AGENT,
-            conversation_id="integration-test-matomo",
             method="SitesManager.getSitesWithAtLeastViewAccess",
             params={},
         )

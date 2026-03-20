@@ -69,7 +69,7 @@ class SDKBackend(AgentBackend):
         # CLAUDE_CODE_OAUTH_TOKEN from os.environ is used for auth).
         env = {
             "ANTHROPIC_API_KEY": "",
-            "MATOMETA_CONVERSATION_ID": conversation_id,
+            "AUTOMETA_CONVERSATION_ID": conversation_id,
         }
 
         return ClaudeAgentOptions(

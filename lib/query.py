@@ -68,10 +68,13 @@ def execute_metabase_query(
 
     Either sql+database_id or card_id must be provided.
     Returns QueryResult (never raises).
+
+    conversation_id is read from AUTOMETA_CONVERSATION_ID env var if not
+    provided.  It is propagated by the web backends so that agent scripts
+    can correlate their work with a conversation.
     """
-    # Auto-read conversation_id from environment if not provided
     if conversation_id is None:
-        conversation_id = os.environ.get("MATOMETA_CONVERSATION_ID")
+        conversation_id = os.environ.get("AUTOMETA_CONVERSATION_ID")
 
     start_time = time.time()
 
@@ -117,10 +120,12 @@ def execute_matomo_query(
     """
     Execute a Matomo API query with logging.
     Returns QueryResult (never raises).
+
+    conversation_id is read from AUTOMETA_CONVERSATION_ID env var if not
+    provided.
     """
-    # Auto-read conversation_id from environment if not provided
     if conversation_id is None:
-        conversation_id = os.environ.get("MATOMETA_CONVERSATION_ID")
+        conversation_id = os.environ.get("AUTOMETA_CONVERSATION_ID")
 
     start_time = time.time()
     params = params or {}
@@ -163,7 +168,7 @@ def execute_query(
         source: "metabase" or "matomo"
         instance: Instance name (e.g., "stats", "datalake", "inclusion")
         caller: CallerType.AGENT or CallerType.APP
-        conversation_id: ID of the conversation making the request
+        conversation_id: Conversation context (auto-read from AUTOMETA_CONVERSATION_ID)
 
         # For Metabase:
         sql: SQL query string

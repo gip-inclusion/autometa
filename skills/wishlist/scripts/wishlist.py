@@ -72,7 +72,7 @@ def push_to_notion(title: str, category: str, description: str = None) -> str | 
         "Fonction": {"title": [{"text": {"content": title}}]},
         "Catégorie": {"select": {"name": category}},
         "Statut": {"status": {"name": "En attente"}},
-        "Source": {"rich_text": [{"text": {"content": "Matometa"}}]},
+        "Source": {"rich_text": [{"text": {"content": "Autometa"}}]},
     }
     if description:
         properties["Description"] = {"rich_text": [{"text": {"content": description}}]}
