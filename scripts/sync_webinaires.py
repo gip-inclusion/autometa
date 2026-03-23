@@ -18,13 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib.webinaires import (
-    DatalakeWriter,
-    GristClient,
-    LivestormClient,
     T_INSCRIPTIONS,
     T_SESSIONS,
     T_SYNC_META,
     T_WEBINAIRES,
+    DatalakeWriter,
+    GristClient,
+    LivestormClient,
     sync_grist,
     sync_livestorm,
 )
@@ -38,10 +38,8 @@ logging.basicConfig(
 
 def main():
     parser = argparse.ArgumentParser(description="Sync webinaire attendance data")
-    parser.add_argument("--grist-only", action="store_true",
-                        help="Only sync Grist (for daily cron)")
-    parser.add_argument("--livestorm-only", action="store_true",
-                        help="Only sync Livestorm")
+    parser.add_argument("--grist-only", action="store_true", help="Only sync Grist (for daily cron)")
+    parser.add_argument("--livestorm-only", action="store_true", help="Only sync Livestorm")
     args = parser.parse_args()
 
     conn = DatalakeWriter()
@@ -49,7 +47,7 @@ def main():
     print("=" * 50)
     print("WEBINAIRES SYNC")
     print("=" * 50)
-    print(f"Target: datalake (Metabase API)")
+    print("Target: datalake (Metabase API)")
     print(f"Mode: {'grist-only' if args.grist_only else 'livestorm-only' if args.livestorm_only else 'full'}")
     print()
 
@@ -71,8 +69,10 @@ def main():
                 "api_calls": client.request_count,
                 "monthly_remaining": client.monthly_remaining,
             }
-            print(f"\n  Livestorm: {events} events, {sessions} sessions, "
-                  f"{regs} registrations, {client.request_count} API calls")
+            print(
+                f"\n  Livestorm: {events} events, {sessions} sessions, "
+                f"{regs} registrations, {client.request_count} API calls"
+            )
             if client.monthly_remaining is not None:
                 print(f"  Monthly API budget remaining: {client.monthly_remaining}")
         except Exception as e:
@@ -106,9 +106,7 @@ def main():
     total_webinars = conn.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
     total_sessions = conn.execute(f"SELECT COUNT(*) FROM {T_SESSIONS}").fetchone()[0]
     total_regs = conn.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
-    unique_emails = conn.execute(
-        f"SELECT COUNT(DISTINCT email) FROM {T_INSCRIPTIONS}"
-    ).fetchone()[0]
+    unique_emails = conn.execute(f"SELECT COUNT(DISTINCT email) FROM {T_INSCRIPTIONS}").fetchone()[0]
 
     for key, value in [
         ("last_sync", now),
@@ -128,7 +126,7 @@ def main():
     print("=" * 50)
     print("SYNC COMPLETE")
     print("=" * 50)
-    print(f"Total time:      {total_time:.1f}s ({total_time/60:.1f} min)")
+    print(f"Total time:      {total_time:.1f}s ({total_time / 60:.1f} min)")
     print(f"Webinars:        {total_webinars}")
     print(f"Sessions:        {total_sessions}")
     print(f"Registrations:   {total_regs}")

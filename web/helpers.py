@@ -1,6 +1,7 @@
 """Shared helper functions for the web application."""
 
 import re
+import uuid
 from pathlib import Path
 
 from . import config
@@ -24,7 +25,7 @@ def validate_knowledge_path(file_param: str) -> Path | None:
         return None
 
     # Only allow simple alphanumeric + hyphen/underscore/dot + slash
-    if not re.match(r'^[a-zA-Z0-9_\-./]+\.md$', file_param):
+    if not re.match(r"^[a-zA-Z0-9_\-./]+\.md$", file_param):
         return None
 
     # No double slashes, no hidden files
@@ -51,13 +52,26 @@ def validate_knowledge_path(file_param: str) -> Path | None:
     return candidate
 
 
+def _validate_conv_id(conv_id: str) -> bool:
+    """Validate that conv_id is a valid UUID."""
+    try:
+        uuid.UUID(conv_id)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 def get_staging_dir(conv_id: str) -> Path:
     """Get staging directory for a knowledge conversation."""
+    if not _validate_conv_id(conv_id):
+        raise ValueError("Invalid conversation ID")
     return KNOWLEDGE_DRAFTS_ROOT / conv_id
 
 
 def list_staged_files(conv_id: str) -> list[str]:
     """List files in staging directory relative to knowledge root."""
+    if not _validate_conv_id(conv_id):
+        return []
     staging_dir = get_staging_dir(conv_id)
     if not staging_dir.exists():
         return []
@@ -95,11 +109,13 @@ def list_knowledge_files() -> dict[str, list[dict]]:
         if section not in sections:
             sections[section] = []
 
-        sections[section].append({
-            "path": str(rel_path),
-            "name": name,
-            "modified": f.stat().st_mtime,
-        })
+        sections[section].append(
+            {
+                "path": str(rel_path),
+                "name": name,
+                "modified": f.stat().st_mtime,
+            }
+        )
 
     # Sort sections by name, with top-level folders first
     return dict(sorted(sections.items(), key=lambda x: (x[0].count("/"), x[0])))
@@ -109,18 +125,18 @@ def list_knowledge_sections() -> dict[str, list[dict]]:
     """List top-level knowledge folders and root files, grouped by category."""
     mb_icon = "ri-pie-chart-2-line"
     meta = {
-        "README":      {"label": "README", "icon": "ri-file-text-line", "group": "Généralités"},
+        "README": {"label": "README", "icon": "ri-file-text-line", "group": "Généralités"},
         "methodology": {"label": "Méthodologie", "icon": "ri-file-text-line", "group": "Généralités"},
-        "webinaires":  {"label": "Webinaires", "icon": "ri-live-line", "group": "Généralités"},
-        "metabase":    {"label": "Metabase API", "icon": "ri-book-open-line", "group": "Metabase", "order": 0},
-        "stats":       {"label": "Stats", "icon": mb_icon, "group": "Metabase"},
-        "datalake":    {"label": "Datalake", "icon": mb_icon, "group": "Metabase"},
-        "dora":        {"label": "Dora", "icon": mb_icon, "group": "Metabase"},
-        "rdvi":        {"label": "RDVI", "icon": mb_icon, "group": "Metabase"},
-        "matomo":      {"label": "Matomo API", "icon": "ri-line-chart-line", "group": "Matomo et sites"},
-        "sites":       {"label": "Sites", "icon": "ri-global-line", "group": "Matomo et sites"},
-        "notion":      {"label": "Notion API", "icon": "ri-booklet-line", "group": "Notion"},
-        "research":    {"label": "Recherche terrain", "icon": "ri-search-eye-line", "group": "Notion"},
+        "webinaires": {"label": "Webinaires", "icon": "ri-live-line", "group": "Généralités"},
+        "metabase": {"label": "Metabase API", "icon": "ri-book-open-line", "group": "Metabase", "order": 0},
+        "stats": {"label": "Stats", "icon": mb_icon, "group": "Metabase"},
+        "datalake": {"label": "Datalake", "icon": mb_icon, "group": "Metabase"},
+        "dora": {"label": "Dora", "icon": mb_icon, "group": "Metabase"},
+        "rdvi": {"label": "RDVI", "icon": mb_icon, "group": "Metabase"},
+        "matomo": {"label": "Matomo API", "icon": "ri-line-chart-line", "group": "Matomo et sites"},
+        "sites": {"label": "Sites", "icon": "ri-global-line", "group": "Matomo et sites"},
+        "notion": {"label": "Notion API", "icon": "ri-booklet-line", "group": "Notion"},
+        "research": {"label": "Recherche terrain", "icon": "ri-search-eye-line", "group": "Notion"},
     }
     skip: set[str] = set()
 

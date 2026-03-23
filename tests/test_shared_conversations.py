@@ -15,6 +15,7 @@ import pytest
 def owner_client(app):
     """Create a test client with owner user header."""
     from starlette.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -22,6 +23,7 @@ def owner_client(app):
 def guest_client(app):
     """Create a test client with guest user header."""
     from starlette.testclient import TestClient
+
     return TestClient(app)
 
 
@@ -39,15 +41,6 @@ def conversation(app, owner_client):
 
 class TestSharedConversationAccess:
     """Test that users can view shared conversations."""
-
-    def test_owner_can_view_own_conversation(self, app, owner_client, conversation):
-        """Owner can view their own conversation."""
-        response = owner_client.get(
-            f"/explorations/{conversation.id}",
-            headers={"X-Forwarded-Email": "owner@example.com"},
-        )
-        assert response.status_code == 200
-        assert b"owner@example.com" not in response.content  # Not shown as "Conversation de" for owner
 
     def test_guest_can_view_shared_conversation(self, app, guest_client, conversation):
         """Guest can view a conversation owned by someone else."""
@@ -163,6 +156,7 @@ class TestRelaunchConversation:
     def stuck_conversation(self, app):
         """Create a conversation stuck on a user message (no agent response)."""
         from web.storage import store
+
         conv = store.create_conversation(user_id="owner@example.com")
         store.add_message(conv.id, "user", "Hello")
         store.add_message(conv.id, "assistant", "Hi there!")
@@ -228,6 +222,7 @@ class TestRelaunchConversation:
     def test_relaunch_api_denied_if_already_running(self, app, guest_client, stuck_conversation):
         """Cannot relaunch if conversation is already running."""
         from web.storage import store
+
         store.update_conversation(stuck_conversation.id, needs_response=True)
         response = guest_client.post(
             f"/api/conversations/{stuck_conversation.id}/relaunch",

@@ -4,12 +4,12 @@ Fix updated_at timestamps for conversations that were modified by the tag backfi
 Sets updated_at to the timestamp of the last message in each conversation.
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.database import init_db, get_db
+from web.database import get_db, init_db
 
 
 def fix_updated_at():
@@ -37,10 +37,7 @@ def fix_updated_at():
             new_ts = row["last_msg"]
             print(f"  {conv_id[:8]}... {old_ts} -> {new_ts}")
 
-            conn.execute(
-                "UPDATE conversations SET updated_at = ? WHERE id = ?",
-                (new_ts, conv_id)
-            )
+            conn.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (new_ts, conv_id))
 
         print(f"\nFixed {len(rows)} conversations")
 

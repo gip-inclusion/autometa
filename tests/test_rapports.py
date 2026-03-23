@@ -142,6 +142,7 @@ def _extract_main_content(html: str) -> str:
     """
     # Find <main ... id="main" ...>
     import re
+
     main_match = re.search(r'<main[^>]*\bid="main"[^>]*>', html)
     assert main_match, "Could not find <main id='main'> in response"
     start = main_match.end()
@@ -183,8 +184,7 @@ class TestRapportHtmxNavigation:
         main_content = _extract_main_content(html)
 
         assert _report_body_has_content(main_content), (
-            "Report body is empty inside #main. Content must be server-side "
-            "rendered so it survives HTMX navigation."
+            "Report body is empty inside #main. Content must be server-side rendered so it survives HTMX navigation."
         )
 
     def test_report_list_items_use_htmx_boost(self, app, client, report):
@@ -224,6 +224,7 @@ def _report_body_has_content(main_html: str) -> bool:
     Returns False if it's an empty div (client-side rendering that hasn't run).
     """
     import re
+
     # Match <div ... id="reportBody" ...>CONTENT</div>
     match = re.search(
         r'<div[^>]*\bid="reportBody"[^>]*>(.*?)</div>',

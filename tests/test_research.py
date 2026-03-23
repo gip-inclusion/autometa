@@ -3,24 +3,8 @@
 import hashlib
 import json
 import sqlite3
-import textwrap
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Helpers from web/routes/research.py
-# ---------------------------------------------------------------------------
-from web.routes.research import _extract_body, _build_result, _dedupe_by_page
-
-# ---------------------------------------------------------------------------
-# Helpers from scripts/search_research.py
-# ---------------------------------------------------------------------------
-from scripts.search_research import (
-    extract_body,
-    format_citation,
-    format_date,
-    get_type_label,
-)
 
 # ---------------------------------------------------------------------------
 # Helpers from scripts/refresh_research.py
@@ -34,15 +18,27 @@ from scripts.refresh_research import (
     extract_page_title,
     extract_text_from_rich_text,
     text_hash,
-    CHUNK_MAX_CHARS,
-    CHUNK_TARGET_CHARS,
-    CHUNK_THRESHOLD,
 )
 
+# ---------------------------------------------------------------------------
+# Helpers from scripts/search_research.py
+# ---------------------------------------------------------------------------
+from scripts.search_research import (
+    extract_body,
+    format_citation,
+    format_date,
+    get_type_label,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers from web/routes/research.py
+# ---------------------------------------------------------------------------
+from web.routes.research import _build_result, _dedupe_by_page, _extract_body
 
 # =============================================================================
 # _extract_body / extract_body  (identical logic in two modules)
 # =============================================================================
+
 
 class TestExtractBody:
     """Tests for the body extraction function (strips metadata header)."""
@@ -93,6 +89,7 @@ class TestExtractBody:
 # =============================================================================
 # _build_result
 # =============================================================================
+
 
 class TestBuildResult:
     def _chunk(self, **overrides):
@@ -145,6 +142,7 @@ class TestBuildResult:
 # _dedupe_by_page
 # =============================================================================
 
+
 class TestDedupeByPage:
     def test_empty(self):
         assert _dedupe_by_page([]) == []
@@ -182,6 +180,7 @@ class TestDedupeByPage:
 # format_date
 # =============================================================================
 
+
 class TestFormatDate:
     def test_iso_datetime(self):
         assert format_date("2024-03-15T10:30:00.000Z") == "2024-03-15"
@@ -202,6 +201,7 @@ class TestFormatDate:
 # =============================================================================
 # get_type_label
 # =============================================================================
+
 
 class TestGetTypeLabel:
     def test_verbatim(self):
@@ -226,6 +226,7 @@ class TestGetTypeLabel:
 # =============================================================================
 # format_citation
 # =============================================================================
+
 
 class TestFormatCitation:
     def _result(self, **overrides):
@@ -299,6 +300,7 @@ class TestFormatCitation:
 # text_hash
 # =============================================================================
 
+
 class TestTextHash:
     def test_deterministic(self):
         assert text_hash("hello") == text_hash("hello")
@@ -320,6 +322,7 @@ class TestTextHash:
 # =============================================================================
 # _split_text
 # =============================================================================
+
 
 class TestSplitText:
     def test_short_text_no_split(self):
@@ -362,6 +365,7 @@ class TestSplitText:
 # =============================================================================
 # Notion API extraction helpers
 # =============================================================================
+
 
 class TestExtractTextFromRichText:
     def test_empty(self):
@@ -500,6 +504,7 @@ class TestExtractPageProperties:
 # build_chunks (integration with in-memory SQLite)
 # =============================================================================
 
+
 @pytest.fixture
 def research_db():
     """Create an in-memory SQLite DB with the research corpus schema."""
@@ -509,12 +514,10 @@ def research_db():
     return conn
 
 
-def _insert_page(conn, page_id="page-1", db_key="entretiens", title="Test Page",
-                 properties=None):
+def _insert_page(conn, page_id="page-1", db_key="entretiens", title="Test Page", properties=None):
     props = properties or {"Type": "❝ Verbatim"}
     conn.execute(
-        "INSERT INTO pages (id, database_key, database_name, title, properties_json, url) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO pages (id, database_key, database_name, title, properties_json, url) VALUES (?, ?, ?, ?, ?, ?)",
         (page_id, db_key, "Entretiens", title, json.dumps(props), f"https://notion.so/{page_id}"),
     )
     conn.commit()
@@ -606,11 +609,10 @@ class TestBuildChunks:
 # ensure_schema
 # =============================================================================
 
+
 class TestEnsureSchema:
     def test_creates_all_tables(self, research_db):
-        tables = {r[0] for r in research_db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {r[0] for r in research_db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         assert "pages" in tables
         assert "blocks" in tables
         assert "relations" in tables
@@ -620,9 +622,7 @@ class TestEnsureSchema:
     def test_idempotent(self, research_db):
         """Running ensure_schema twice should not fail."""
         ensure_schema(research_db)
-        tables = {r[0] for r in research_db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {r[0] for r in research_db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         assert "pages" in tables
 
     def test_chunks_has_text_hash(self, research_db):

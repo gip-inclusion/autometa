@@ -14,7 +14,6 @@ from typing import Any
 
 import yaml
 
-
 # Config file location
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "sources.yaml"
 
@@ -31,7 +30,7 @@ def _substitute_env_vars(value: Any, strict: bool = False) -> Any:
         strict: If True, raise error for missing env vars. If False, keep original string.
     """
     if isinstance(value, str):
-        pattern = r'\$\{env\.([^}]+)\}'
+        pattern = r"\$\{env\.([^}]+)\}"
 
         def replacer(match):
             var_name = match.group(1)
@@ -62,8 +61,7 @@ def load_config(force_reload: bool = False) -> dict:
 
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(
-            f"Config file not found: {CONFIG_PATH}\n"
-            f"Copy config/sources.yaml.example to config/sources.yaml"
+            f"Config file not found: {CONFIG_PATH}\nCopy config/sources.yaml.example to config/sources.yaml"
         )
 
     with open(CONFIG_PATH) as f:
@@ -99,10 +97,7 @@ def get_source_config(source_type: str, instance: str | None = None) -> dict:
 
     if instance not in source_config:
         available = [k for k in source_config.keys() if not k.startswith("_")]
-        raise ValueError(
-            f"Unknown {source_type} instance: {instance}. "
-            f"Available: {', '.join(available)}"
-        )
+        raise ValueError(f"Unknown {source_type} instance: {instance}. Available: {', '.join(available)}")
 
     # Re-substitute with strict mode to catch missing env vars for this specific instance
     instance_config = source_config[instance]

@@ -6,7 +6,6 @@ Uses watchdog to detect file changes and uploads them to S3.
 
 import logging
 import threading
-import time
 from pathlib import Path
 
 from . import config
@@ -117,6 +116,7 @@ def _upload_file(local_path: Path, s3_module):
             logger.info(f"Synced to S3: {relative_path}")
             if local_path.name == "APP.md":
                 from .routes.rapports import invalidate_apps_cache
+
                 invalidate_apps_cache()
         else:
             logger.error(f"Failed to sync to S3: {relative_path}")

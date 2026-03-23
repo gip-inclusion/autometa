@@ -1,7 +1,5 @@
 #!/bin/sh
-# Start the process manager in background, then run uvicorn
-python -m web.pm &
-PM_PID=$!
+# PM runs in-process via FastAPI lifespan (web/app.py) — no separate subprocess needed.
 
 # Keep OAuth token alive (check every 10 minutes, refresh if < 1h remaining)
 (sleep 10; while true; do
@@ -40,5 +38,5 @@ if docker_available():
 done) &
 HEALTH_PID=$!
 
-trap "kill $PM_PID $REFRESH_PID $HEALTH_PID" EXIT
+trap "kill $REFRESH_PID $HEALTH_PID" EXIT
 exec uvicorn web.app:app --host 0.0.0.0 --port "${WEB_PORT:-5000}"

@@ -5,7 +5,7 @@ Called once at startup by ConversationStore.__init__().
 
 import sqlite3
 
-from .db import ConnectionWrapper, get_db, USE_POSTGRES
+from .db import USE_POSTGRES, ConnectionWrapper, get_db
 
 # Schema version - increment when adding migrations
 SCHEMA_VERSION = 24
@@ -32,7 +32,7 @@ def _set_schema_version(conn: ConnectionWrapper, version: int):
     if conn.is_postgres:
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (%s) ON CONFLICT (version) DO UPDATE SET version = %s",
-            (version, version)
+            (version, version),
         )
     else:
         conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (?)", (version,))
@@ -42,13 +42,12 @@ def _get_table_columns(conn: ConnectionWrapper, table_name: str) -> set[str]:
     """Get column names for a table."""
     if conn.is_postgres:
         rows = conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
-            (table_name,)
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table_name,)
         ).fetchall()
-        return {row['column_name'] for row in rows}
+        return {row["column_name"] for row in rows}
     else:
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-        return {row['name'] for row in rows}
+        return {row["name"] for row in rows}
 
 
 def init_db():
@@ -109,6 +108,7 @@ def init_db():
 # Migrations
 # =============================================================================
 
+
 def _migrate_to_v11(conn: ConnectionWrapper):
     """Migrate to v11: rename token columns to usage_ prefix, add cache/backend columns."""
     columns = _get_table_columns(conn, "conversations")
@@ -141,7 +141,9 @@ def _migrate_to_v11(conn: ConnectionWrapper):
             # Old SQLite: add new columns and copy data
             conn.execute("ALTER TABLE conversations ADD COLUMN usage_input_tokens INTEGER DEFAULT 0")
             conn.execute("ALTER TABLE conversations ADD COLUMN usage_output_tokens INTEGER DEFAULT 0")
-            conn.execute("UPDATE conversations SET usage_input_tokens = input_tokens, usage_output_tokens = output_tokens")
+            conn.execute(
+                "UPDATE conversations SET usage_input_tokens = input_tokens, usage_output_tokens = output_tokens"
+            )
         else:
             conn.execute("ALTER TABLE conversations ADD COLUMN usage_input_tokens INTEGER DEFAULT 0")
             conn.execute("ALTER TABLE conversations ADD COLUMN usage_output_tokens INTEGER DEFAULT 0")
@@ -291,6 +293,7 @@ def _migrate_to_v19(conn: ConnectionWrapper):
 # =============================================================================
 # Full schema creation
 # =============================================================================
+
 
 def _create_schema(conn: ConnectionWrapper):
     """Create the complete database schema."""
@@ -480,7 +483,9 @@ def _migrate_to_v20(conn: ConnectionWrapper):
     """
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user_updated ON conversations(user_id, updated_at DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_needs_response ON conversations(needs_response) WHERE needs_response = 1")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_needs_response ON conversations(needs_response) WHERE needs_response = 1"
+    )
 
 
 def _migrate_to_v21(conn: ConnectionWrapper):
@@ -610,12 +615,6 @@ TAGS = [
 def _seed_tags(conn: ConnectionWrapper):
     """Seed the tags table with taxonomy."""
     if conn.is_postgres:
-        conn.executemany(
-            "INSERT INTO tags (name, type, label) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING",
-            TAGS
-        )
+        conn.executemany("INSERT INTO tags (name, type, label) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING", TAGS)
     else:
-        conn.executemany(
-            "INSERT OR IGNORE INTO tags (name, type, label) VALUES (?, ?, ?)",
-            TAGS
-        )
+        conn.executemany("INSERT OR IGNORE INTO tags (name, type, label) VALUES (?, ?, ?)", TAGS)

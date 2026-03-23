@@ -1,21 +1,26 @@
 """HTML page routes."""
 
-import re
-from datetime import datetime, timedelta, timezone
-from collections import OrderedDict
-from zoneinfo import ZoneInfo
-
 import logging
+import re
 import time
+from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
-from ..config import DISPLAY_TIMEZONE, FEATURE_KNOWLEDGE_CHAT, ADMIN_USERS
+from ..config import ADMIN_USERS, DISPLAY_TIMEZONE, FEATURE_KNOWLEDGE_CHAT
 from ..deps import get_current_user, templates
+from ..helpers import (
+    _validate_conv_id,
+    list_knowledge_files,
+    list_knowledge_sections,
+    list_staged_files,
+    validate_knowledge_path,
+)
 from ..storage import store
-from ..helpers import validate_knowledge_path, list_knowledge_files, list_knowledge_sections, list_staged_files
-from .research import get_corpus_stats, search_corpus, find_similar_pages, get_page
+from .research import find_similar_pages, get_corpus_stats, get_page, search_corpus
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +80,7 @@ def format_relative_date(dt):
     today = now.date()
     dt_date = dt.date()
 
-    day_names = {
-        0: "lundi", 1: "mardi", 2: "mercredi", 3: "jeudi",
-        4: "vendredi", 5: "samedi", 6: "dimanche"
-    }
+    day_names = {0: "lundi", 1: "mardi", 2: "mercredi", 3: "jeudi", 4: "vendredi", 5: "samedi", 6: "dimanche"}
 
     # Calculate start of this week (Monday)
     days_since_monday = today.weekday()
@@ -148,8 +150,11 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
 
     # Pinned items (conversations, reports, apps)
     from .rapports import scan_interactive_apps
+
     pinned_raw = store.list_pinned_items()
-    apps_by_slug = {a["slug"]: a for a in scan_interactive_apps()} if any(p.item_type == "app" for p in pinned_raw) else {}
+    apps_by_slug = (
+        {a["slug"]: a for a in scan_interactive_apps()} if any(p.item_type == "app" for p in pinned_raw) else {}
+    )
     pinned = []
     for p in pinned_raw:
         if p.item_type == "conversation":
@@ -188,13 +193,17 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
     # Knowledge sections (top-level folders only)
     knowledge_sections = list_knowledge_sections()
 
-    return templates.TemplateResponse(request, "accueil.html", {
-        "section": "accueil",
-        "current_conv": None,
-        "pinned": pinned,
-        "knowledge_sections": knowledge_sections,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "accueil.html",
+        {
+            "section": "accueil",
+            "current_conv": None,
+            "pinned": pinned,
+            "knowledge_sections": knowledge_sections,
+            **data,
+        },
+    )
 
 
 def _group_items_by_date(items):
@@ -217,9 +226,18 @@ def _group_items_by_date(items):
     this_month_start = today.replace(day=1)
 
     month_names = {
-        1: "janvier", 2: "février", 3: "mars", 4: "avril",
-        5: "mai", 6: "juin", 7: "juillet", 8: "août",
-        9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+        1: "janvier",
+        2: "février",
+        3: "mars",
+        4: "avril",
+        5: "mai",
+        6: "juin",
+        7: "juillet",
+        8: "août",
+        9: "septembre",
+        10: "octobre",
+        11: "novembre",
+        12: "décembre",
     }
 
     for item in items:
@@ -296,19 +314,26 @@ def rechercher(
                     conv.icon = "ri-window-fill"
                     break
 
-            items.append({
-                "type": "conversation",
-                "conv": conv,
-                "tags": tags,
-                "icon": conv.icon,
-                "sort_date": conv.updated_at,
-                "formatted_date": format_relative_date(conv.updated_at),
-                "search": " ".join(filter(None, [
-                    (conv.title or "").lower(),
-                    (conv.user_id or "").lower(),
-                    " ".join(t.label.lower() for t in tags),
-                ])),
-            })
+            items.append(
+                {
+                    "type": "conversation",
+                    "conv": conv,
+                    "tags": tags,
+                    "icon": conv.icon,
+                    "sort_date": conv.updated_at,
+                    "formatted_date": format_relative_date(conv.updated_at),
+                    "search": " ".join(
+                        filter(
+                            None,
+                            [
+                                (conv.title or "").lower(),
+                                (conv.user_id or "").lower(),
+                                " ".join(t.label.lower() for t in tags),
+                            ],
+                        )
+                    ),
+                }
+            )
 
     # Reports
     if show_reports:
@@ -318,21 +343,28 @@ def rechercher(
         )
         for report, tags in reports_with_tags:
             report.tag_objects = tags
-            items.append({
-                "type": "report",
-                "report": report,
-                "tags": tags,
-                "icon": "ri-file-text-line",
-                "sort_date": report.updated_at,
-                "formatted_date": format_relative_date(report.updated_at),
-                "search": " ".join(filter(None, [
-                    report.title.lower(),
-                    (report.user_id or "").lower(),
-                    (report.website or "").lower(),
-                    (report.category or "").lower(),
-                    " ".join(t.label.lower() for t in tags),
-                ])),
-            })
+            items.append(
+                {
+                    "type": "report",
+                    "report": report,
+                    "tags": tags,
+                    "icon": "ri-file-text-line",
+                    "sort_date": report.updated_at,
+                    "formatted_date": format_relative_date(report.updated_at),
+                    "search": " ".join(
+                        filter(
+                            None,
+                            [
+                                report.title.lower(),
+                                (report.user_id or "").lower(),
+                                (report.website or "").lower(),
+                                (report.category or "").lower(),
+                                " ".join(t.label.lower() for t in tags),
+                            ],
+                        )
+                    ),
+                }
+            )
 
     # Apps
     if show_apps:
@@ -344,20 +376,27 @@ def rechercher(
                 continue
 
             sort_date = app.get("updated") or datetime.min
-            items.append({
-                "type": "app",
-                "app": app,
-                "tags": [],
-                "icon": "ri-window-fill",
-                "sort_date": sort_date,
-                "formatted_date": format_relative_date(sort_date) if sort_date != datetime.min else "",
-                "search": " ".join(filter(None, [
-                    app["title"].lower(),
-                    (app.get("description") or "").lower(),
-                    " ".join(a.lower() for a in app.get("authors", [])),
-                    " ".join(t.lower() for t in app.get("tags", [])),
-                ])),
-            })
+            items.append(
+                {
+                    "type": "app",
+                    "app": app,
+                    "tags": [],
+                    "icon": "ri-window-fill",
+                    "sort_date": sort_date,
+                    "formatted_date": format_relative_date(sort_date) if sort_date != datetime.min else "",
+                    "search": " ".join(
+                        filter(
+                            None,
+                            [
+                                app["title"].lower(),
+                                (app.get("description") or "").lower(),
+                                " ".join(a.lower() for a in app.get("authors", [])),
+                                " ".join(t.lower() for t in app.get("tags", [])),
+                            ],
+                        )
+                    ),
+                }
+            )
 
     # Sort by date descending
     items.sort(key=lambda x: x["sort_date"], reverse=True)
@@ -395,17 +434,21 @@ def rechercher(
     pinned_ids = store.get_pinned_ids()
 
     data = get_sidebar_data(user_email)
-    return templates.TemplateResponse(request, "rechercher.html", {
-        "section": "rechercher",
-        "current_conv": None,
-        "grouped_items": grouped_items,
-        "all_tags": all_tags,
-        "active_tags": tag_params,
-        "pinned_ids": pinned_ids,
-        "show": show,
-        "q": q,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "rechercher.html",
+        {
+            "section": "rechercher",
+            "current_conv": None,
+            "grouped_items": grouped_items,
+            "all_tags": all_tags,
+            "active_tags": tag_params,
+            "pinned_ids": pinned_ids,
+            "show": show,
+            "q": q,
+            **data,
+        },
+    )
 
 
 @router.get("/explorations")
@@ -415,6 +458,9 @@ def explorations(
 ):
     """Legacy explorations list — redirects to /rechercher."""
     if conv:
+        # Validate conv is a UUID to prevent open redirect
+        if not _validate_conv_id(conv):
+            return RedirectResponse("/rechercher?show=convos", status_code=301)
         # Check if this is a project conversation that should go to /expert/
         conv_obj = store.get_conversation(conv, include_messages=False)
         if conv_obj:
@@ -429,13 +475,17 @@ def explorations(
 def explorations_new(request: Request, user_email: str = Depends(get_current_user)):
     """Start a new conversation - empty chat UI."""
     data = get_sidebar_data(user_email)
-    return templates.TemplateResponse(request, "explorations.html", {
-        "section": "explorations",
-        "current_conv": None,
-        "is_new": True,
-        "can_upload": True,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "explorations.html",
+        {
+            "section": "explorations",
+            "current_conv": None,
+            "is_new": True,
+            "can_upload": True,
+            **data,
+        },
+    )
 
 
 @router.get("/explorations/{conv_id}")
@@ -465,10 +515,7 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
         current_conv.title = humanize_title(current_conv.title)
 
     # Determine if file uploads are allowed for this conversation
-    can_upload = (
-        not is_shared and
-        current_conv.conv_type in ('exploration', None)
-    )
+    can_upload = not is_shared and current_conv.conv_type in ("exploration", None)
 
     # Admin can relaunch shared conversations stuck on a user message
     can_relaunch = (
@@ -479,15 +526,19 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
     )
 
     data = get_sidebar_data(user_email)
-    return templates.TemplateResponse(request, "explorations.html", {
-        "section": "explorations",
-        "current_conv": current_conv,
-        "is_shared": is_shared,
-        "owner_email": owner_email,
-        "can_upload": can_upload,
-        "can_relaunch": can_relaunch,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "explorations.html",
+        {
+            "section": "explorations",
+            "current_conv": current_conv,
+            "is_shared": is_shared,
+            "owner_email": owner_email,
+            "can_upload": can_upload,
+            "can_relaunch": can_relaunch,
+            **data,
+        },
+    )
 
 
 @router.get("/connaissances")
@@ -500,30 +551,34 @@ def connaissances(
     """Connaissances section - knowledge file browser (index)."""
     # Redirect old ?file= pattern to RESTful URL
     if file:
-        return RedirectResponse(f"/connaissances/{file}", status_code=301)
+        # Validate file path contains only safe characters to prevent open redirect
+        if re.match(r"^[a-zA-Z0-9_\-./]+$", file) and ".." not in file:
+            return RedirectResponse(f"/connaissances/{file}", status_code=301)
+        return RedirectResponse("/connaissances", status_code=301)
 
     data = get_sidebar_data(user_email)
     categories = list_knowledge_files()
     if section_filter:
-        categories = {
-            k: v for k, v in categories.items()
-            if k == section_filter or k.startswith(section_filter + "/")
-        }
+        categories = {k: v for k, v in categories.items() if k == section_filter or k.startswith(section_filter + "/")}
     active_conversations = store.list_active_knowledge_conversations()
     active_files = {c.file_path: c for c in active_conversations if c.file_path}
 
-    return templates.TemplateResponse(request, "connaissances.html", {
-        "section": "connaissances",
-        "categories": categories,
-        "current_file": None,
-        "file_content": None,
-        "current_conv": None,
-        "staged_files": [],
-        "active_files": active_files,
-        "active_conversations": active_conversations,
-        "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "connaissances.html",
+        {
+            "section": "connaissances",
+            "categories": categories,
+            "current_file": None,
+            "file_content": None,
+            "current_conv": None,
+            "staged_files": [],
+            "active_files": active_files,
+            "active_conversations": active_conversations,
+            "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+            **data,
+        },
+    )
 
 
 @router.get("/connaissances/{file_path:path}")
@@ -538,14 +593,18 @@ def connaissances_file(
 
     validated_path = validate_knowledge_path(file_path)
     if not validated_path:
-        return templates.TemplateResponse(request, "connaissances.html", {
-            "section": "connaissances",
-            "error": "Fichier non trouvé",
-            "categories": list_knowledge_files(),
-            "active_conversations": store.list_active_knowledge_conversations(),
-            "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
-            **data,
-        })
+        return templates.TemplateResponse(
+            request,
+            "connaissances.html",
+            {
+                "section": "connaissances",
+                "error": "Fichier non trouvé",
+                "categories": list_knowledge_files(),
+                "active_conversations": store.list_active_knowledge_conversations(),
+                "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+                **data,
+            },
+        )
 
     file_content = validated_path.read_text()
     current_conv = None
@@ -563,18 +622,22 @@ def connaissances_file(
     active_conversations = store.list_active_knowledge_conversations()
     active_files = {c.file_path: c for c in active_conversations if c.file_path}
 
-    return templates.TemplateResponse(request, "connaissances.html", {
-        "section": "connaissances",
-        "categories": categories,
-        "current_file": file_path,
-        "file_content": file_content,
-        "current_conv": current_conv,
-        "staged_files": staged_files,
-        "active_files": active_files,
-        "active_conversations": active_conversations,
-        "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "connaissances.html",
+        {
+            "section": "connaissances",
+            "categories": categories,
+            "current_file": file_path,
+            "file_content": file_content,
+            "current_conv": current_conv,
+            "staged_files": staged_files,
+            "active_files": active_files,
+            "active_conversations": active_conversations,
+            "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+            **data,
+        },
+    )
 
 
 @router.get("/recherche")
@@ -616,33 +679,37 @@ def terrain(
             t0 = time.monotonic()
             results, _ = search_corpus(q, limit=25, db_filter=db_filter, type_filter=type_filter)
             elapsed = round(time.monotonic() - t0, 1)
-        except Exception as e:
+        except Exception:
             logger.exception("Research search failed")
-            error = str(e)
+            error = "La recherche a échoué"
     elif similar:
         try:
             t0 = time.monotonic()
             results, similar_source = find_similar_pages(similar, limit=20)
             elapsed = round(time.monotonic() - t0, 1)
-        except Exception as e:
+        except Exception:
             logger.exception("Research similar failed")
-            error = str(e)
+            error = "La recherche de pages similaires a échoué"
 
-    return templates.TemplateResponse(request, "terrain.html", {
-        "section": "terrain",
-        "current_conv": None,
-        "current_page": None,
-        "corpus_stats": corpus_stats,
-        "query": q,
-        "results": results,
-        "similar_id": similar,
-        "similar_source": similar_source,
-        "elapsed": elapsed,
-        "error": error,
-        "active_dbs": db_filter,
-        "active_types": type_filter,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "terrain.html",
+        {
+            "section": "terrain",
+            "current_conv": None,
+            "current_page": None,
+            "corpus_stats": corpus_stats,
+            "query": q,
+            "results": results,
+            "similar_id": similar,
+            "similar_source": similar_source,
+            "elapsed": elapsed,
+            "error": error,
+            "active_dbs": db_filter,
+            "active_types": type_filter,
+            **data,
+        },
+    )
 
 
 @router.get("/terrain/{page_id}")
@@ -669,14 +736,18 @@ def terrain_page(page_id: str, request: Request, user_email: str = Depends(get_c
             continue
         visible_props[k] = v
 
-    return templates.TemplateResponse(request, "terrain.html", {
-        "section": "terrain",
-        "current_conv": None,
-        "current_page": page,
-        "visible_props": visible_props,
-        "corpus_stats": None,
-        **data,
-    })
+    return templates.TemplateResponse(
+        request,
+        "terrain.html",
+        {
+            "section": "terrain",
+            "current_conv": None,
+            "current_page": page,
+            "visible_props": visible_props,
+            "corpus_stats": None,
+            **data,
+        },
+    )
 
 
 def is_admin(user_email: str | None) -> bool:

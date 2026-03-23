@@ -303,6 +303,25 @@ Logs d'activité de l'application GPS (Mon Suivi), importés depuis Datadog.
 
 **Note :** Contrairement à Matomo (comportement web), ces logs capturent les actions métier côté serveur.
 
+### Support Emplois (Zendesk)
+
+Tickets du support utilisateurs des Emplois de l'Inclusion, alimentés depuis Zendesk
+via webhooks n8n (mise à jour en temps réel).
+
+| Table | Granularité | Description |
+|-------|-------------|-------------|
+| `public.support_emplois_tickets_metrics` | 1 ligne/ticket | Métriques de traitement (délais de réponse, résolution, réouvertures) |
+| `public.support_emplois_tickets_infos` | 1 ligne/ticket | Contexte du ticket (demandeur, sujet, canal, horodatage) |
+| `public.support_emplois_tickets_tags` | N lignes/ticket | Tags (automatiques ou manuels) — un tag par ligne |
+
+**Clé de jointure :** `id_du_ticket` (integer) — commune aux trois tables.
+
+**Délais disponibles :** `first_reply_time_minutes`, `first_resolution_time_minutes`, `full_resolution_time_minutes` (en minutes).
+
+**Lien utilisateurs :** Joindre `support_emplois_tickets_infos.e_mail_du_demandeur` à `public.utilisateurs.email` pour identifier le type d'utilisateur.
+
+Voir [documentation complète](../stats/support-emplois.md).
+
 ### public.ref_clpe_ft
 
 Table de liaison commune → CLPE (Comité Local Pour l'Emploi). 357 CLPE, ~35 000 liaisons.
@@ -312,6 +331,24 @@ Voir [documentation détaillée des CLPE](../stats/clpe.md).
 ### public.offre_demande_clpe
 
 Données offre/demande par CLPE. Voir [documentation CLPE](../stats/clpe.md).
+
+### Nexus — Application Unifiée (DB 17)
+
+Base dédiée à Nexus, fonctionnalité permettant aux utilisateurs de voir leur présence cross-services.
+**⚠️ Base distincte : `database_id = 17`** (pas la même que Stats principal).
+
+| Table | Volumétrie | Description |
+|-------|------------|-------------|
+| `public.structures` | 52 573 lignes | Structures par service (un SIRET peut apparaître N fois) |
+| `public.users` | 139 186 lignes | Utilisateurs par service (un email peut apparaître N fois) |
+| `public.memberships` | 136 428 lignes | Liens user ↔ structure avec rôle (`administrateur` / `collaborateur`) |
+
+**Clé de jointure :** `id_unique` (format `{source}--{id_source}`) →
+`memberships.user_id_unique` et `memberships.structure_id_unique`.
+
+**Sources :** `emplois-de-linclusion`, `dora`, `le-marché`
+
+Voir [documentation complète](../stats/nexus.md).
 
 ## Tables recommandées pour analyses détaillées (Emplois)
 

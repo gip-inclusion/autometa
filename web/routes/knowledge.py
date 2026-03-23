@@ -1,5 +1,7 @@
 """Knowledge API routes."""
 
+import html as html_mod
+import logging
 import shutil
 
 import markdown
@@ -7,14 +9,16 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..deps import get_current_user
-from ..storage import store
-from ..helpers import (
-    validate_knowledge_path,
-    list_knowledge_files,
-    get_staging_dir,
-    list_staged_files,
-)
 from ..github import GitHubClient, GitHubError
+from ..helpers import (
+    get_staging_dir,
+    list_knowledge_files,
+    list_staged_files,
+    validate_knowledge_path,
+)
+from ..storage import store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/knowledge")
 
@@ -66,7 +70,9 @@ def start_knowledge_conversation(file_path: str, user_email: str = Depends(get_c
     staging_dir = get_staging_dir(conv.id)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    staged_file = staging_dir / file_path
+    staged_file = (staging_dir / file_path).resolve()
+    if not str(staged_file).startswith(str(staging_dir.resolve())):
+        return JSONResponse({"error": "Invalid path"}, status_code=400)
     staged_file.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(validated_path, staged_file)
 
@@ -128,11 +134,12 @@ async def commit_knowledge_changes(conv_id: str, request: Request):
     # Collect file contents
     files = {}
     for rel_path in staged_files:
-        src = staging_dir / rel_path
-        if src.exists():
-            # Path in repo includes knowledge/ prefix
-            repo_path = f"knowledge/{rel_path}"
-            files[repo_path] = src.read_text()
+        src = (staging_dir / rel_path).resolve()
+        if not str(src).startswith(str(staging_dir.resolve())) or not src.exists():
+            continue
+        # Path in repo includes knowledge/ prefix
+        repo_path = f"knowledge/{rel_path}"
+        files[repo_path] = src.read_text()
 
     # Create GitHub PR
     try:
@@ -143,7 +150,8 @@ async def commit_knowledge_changes(conv_id: str, request: Request):
             conversation_id=conv_id,
         )
     except GitHubError as e:
-        return JSONResponse({"error": f"GitHub PR creation failed: {e}"}, status_code=500)
+        logger.error("GitHub PR creation failed: %s", e)
+        return JSONResponse({"error": "GitHub PR creation failed"}, status_code=500)
 
     # Clean up staging
     shutil.rmtree(staging_dir, ignore_errors=True)
@@ -192,7 +200,9 @@ def preview_staged_file(conv_id: str, file_path: str):
         return HTMLResponse("Knowledge conversation not found", status_code=404)
 
     staging_dir = get_staging_dir(conv_id)
-    staged_file = staging_dir / file_path
+    staged_file = (staging_dir / file_path).resolve()
+    if not str(staged_file).startswith(str(staging_dir.resolve())):
+        return HTMLResponse("Invalid path", status_code=400)
 
     if not staged_file.exists():
         return HTMLResponse("Staged file not found", status_code=404)
@@ -200,11 +210,12 @@ def preview_staged_file(conv_id: str, file_path: str):
     content = staged_file.read_text()
     html_content = markdown.markdown(content, extensions=["fenced_code", "tables", "toc"])
 
+    safe_file_path = html_mod.escape(file_path)
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <title>Apercu: {file_path}</title>
+    <title>Apercu: {safe_file_path}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <style>
         body {{ padding: 2rem; max-width: 800px; margin: 0 auto; }}
@@ -216,7 +227,7 @@ def preview_staged_file(conv_id: str, file_path: str):
 </head>
 <body>
     <nav class="mb-4">
-        <small class="text-muted">{file_path}</small>
+        <small class="text-muted">{safe_file_path}</small>
     </nav>
     <article class="markdown-body">
         {html_content}

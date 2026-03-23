@@ -4,12 +4,9 @@ Tests for the Metabase cards database.
 Run with: pytest tests/test_metabase_db.py -v
 """
 
-import json
 import pytest
-import tempfile
-from pathlib import Path
 
-from skills.metabase_query.scripts.cards_db import CardsDB, Card, TOPICS
+from skills.metabase_query.scripts.cards_db import TOPICS, Card, CardsDB
 
 
 @pytest.fixture
@@ -89,9 +86,16 @@ class TestSchema:
         columns = {row[1] for row in cursor.fetchall()}
 
         expected = {
-            "id", "name", "description", "collection_id", "dashboard_id",
-            "topic", "sql_query", "tables_referenced",
-            "created_at", "updated_at"
+            "id",
+            "name",
+            "description",
+            "collection_id",
+            "dashboard_id",
+            "topic",
+            "sql_query",
+            "tables_referenced",
+            "created_at",
+            "updated_at",
         }
         assert expected.issubset(columns)
 

@@ -54,6 +54,7 @@ TABLES = [
 # Database migration
 # ---------------------------------------------------------------------------
 
+
 def migrate_db(database_url: str, dry_run: bool = False):
     """Migrate all tables from SQLite to PostgreSQL."""
     src = sqlite3.connect(str(SQLITE_PATH))
@@ -63,11 +64,7 @@ def migrate_db(database_url: str, dry_run: bool = False):
         # Dry run: just count rows from SQLite, no PG connection needed
         print("  [dry-run] Would create schema.\n")
         for table in TABLES:
-            src_tables = [
-                r[0] for r in src.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            ]
+            src_tables = [r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
             if table not in src_tables:
                 print(f"  {table}: not in source, skipping")
                 continue
@@ -84,6 +81,7 @@ def migrate_db(database_url: str, dry_run: bool = False):
     print("Initializing PG schema via app...")
     os.environ["DATABASE_URL"] = database_url
     from web.schema import init_db
+
     init_db()
     print("  Schema created.")
 
@@ -94,11 +92,7 @@ def migrate_db(database_url: str, dry_run: bool = False):
     try:
         for table in TABLES:
             # Check if table exists in source
-            src_tables = [
-                r[0] for r in src.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            ]
+            src_tables = [r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
             if table not in src_tables:
                 print(f"  {table}: not in source, skipping")
                 continue
@@ -113,7 +107,6 @@ def migrate_db(database_url: str, dry_run: bool = False):
             columns = [c for c in columns if c != "rowid"]
 
             col_list = ", ".join(columns)
-            placeholders = ", ".join(["%s"] * len(columns))
 
             # Clear target table
             cur.execute(f"DELETE FROM {table}")
@@ -126,13 +119,17 @@ def migrate_db(database_url: str, dry_run: bool = False):
 
         # Fix serial sequences (PG SERIAL needs to know the max id)
         serial_tables = [
-            "messages", "tags", "reports", "uploaded_files",
-            "pinned_items", "cron_runs", "pm_commands",
+            "messages",
+            "tags",
+            "reports",
+            "uploaded_files",
+            "pinned_items",
+            "cron_runs",
+            "pm_commands",
         ]
         for table in serial_tables:
             cur.execute(
-                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
-                f"COALESCE(MAX(id), 0) + 1, false) FROM {table}"
+                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE(MAX(id), 0) + 1, false) FROM {table}"
             )
             print(f"  {table}: sequence reset")
 
@@ -151,6 +148,7 @@ def migrate_db(database_url: str, dry_run: bool = False):
 # ---------------------------------------------------------------------------
 # S3 migration
 # ---------------------------------------------------------------------------
+
 
 def migrate_s3(dry_run: bool = False):
     """Upload interactive/ and uploads/ directories to S3."""
@@ -230,6 +228,7 @@ def migrate_s3(dry_run: bool = False):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate SQLite → PostgreSQL + S3")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be done")
@@ -240,9 +239,10 @@ def main():
     if not SQLITE_PATH.exists():
         # Try downloading from S3 (for running inside Scalingo one-off)
         if os.environ.get("S3_BUCKET"):
-            print(f"SQLite DB not found locally, downloading from S3...")
+            print("SQLite DB not found locally, downloading from S3...")
             import boto3
             from botocore.config import Config as BotoConfig
+
             client = boto3.client(
                 "s3",
                 endpoint_url=os.environ.get("S3_ENDPOINT"),
@@ -268,7 +268,7 @@ def main():
             print("ERROR: DATABASE_URL not set. Get it from Scalingo:")
             print("  scalingo --app matometa env | grep DATABASE_URL")
             sys.exit(1)
-        print(f"=== DB Migration (SQLite → PostgreSQL) ===")
+        print("=== DB Migration (SQLite → PostgreSQL) ===")
         print(f"Source: {SQLITE_PATH}")
         print(f"Target: {database_url.split('@')[1] if '@' in database_url else database_url}")
         migrate_db(database_url, dry_run=args.dry_run)

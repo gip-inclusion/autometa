@@ -4,10 +4,9 @@ Tests markdown-to-blocks conversion, frontmatter extraction,
 the publish API endpoint, and the UI button behavior.
 """
 
-import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -65,6 +64,7 @@ Fin du rapport.
 @pytest.fixture
 def report(app):
     from web.storage import store
+
     return store.create_report(
         title="Analyse des événements",
         content=SAMPLE_REPORT,
@@ -78,6 +78,7 @@ def report(app):
 def report_with_db_query(app):
     """Report where DB original_query differs from frontmatter."""
     from web.storage import store
+
     return store.create_report(
         title="Test Report",
         content=SAMPLE_REPORT,
@@ -98,21 +99,22 @@ class TestMarkdownToBlocks:
 
     def test_strips_yaml_frontmatter(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("---\ndate: 2026-01-01\n---\n\n# Title\n")
         types = [b["type"] for b in blocks]
-        assert "paragraph" not in types or not any(
-            "date:" in str(b) for b in blocks
-        )
+        assert "paragraph" not in types or not any("date:" in str(b) for b in blocks)
         assert any(b["type"] == "heading_1" for b in blocks)
 
     def test_headings(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("# H1\n\n## H2\n\n### H3\n")
         types = [b["type"] for b in blocks]
         assert types == ["heading_1", "heading_2", "heading_3"]
 
     def test_paragraph_with_inline_formatting(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("This is **bold** and *italic* and `code`.\n")
         assert len(blocks) == 1
         assert blocks[0]["type"] == "paragraph"
@@ -124,6 +126,7 @@ class TestMarkdownToBlocks:
 
     def test_link_parsing(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("See [example](https://example.com) here.\n")
         rich = blocks[0]["paragraph"]["rich_text"]
         link_obj = next(r for r in rich if r["text"].get("link"))
@@ -132,6 +135,7 @@ class TestMarkdownToBlocks:
 
     def test_code_block_with_language(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("```python\nprint('hello')\n```\n")
         assert len(blocks) == 1
         assert blocks[0]["type"] == "code"
@@ -140,12 +144,14 @@ class TestMarkdownToBlocks:
 
     def test_mermaid_block(self):
         from web.notion import markdown_to_blocks
-        blocks = markdown_to_blocks('```mermaid\nflowchart TD\n    A --> B\n```\n')
+
+        blocks = markdown_to_blocks("```mermaid\nflowchart TD\n    A --> B\n```\n")
         assert blocks[0]["type"] == "code"
         assert blocks[0]["code"]["language"] == "mermaid"
 
     def test_table(self):
         from web.notion import markdown_to_blocks
+
         md = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n"
         blocks = markdown_to_blocks(md)
         assert len(blocks) == 1
@@ -161,18 +167,21 @@ class TestMarkdownToBlocks:
 
     def test_bullet_list(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("- one\n- two\n")
         assert len(blocks) == 2
         assert all(b["type"] == "bulleted_list_item" for b in blocks)
 
     def test_numbered_list(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("1. first\n2. second\n")
         assert len(blocks) == 2
         assert all(b["type"] == "numbered_list_item" for b in blocks)
 
     def test_divider(self):
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks("text\n\n---\n\nmore text\n")
         types = [b["type"] for b in blocks]
         assert "divider" in types
@@ -180,15 +189,25 @@ class TestMarkdownToBlocks:
     def test_full_report_block_count(self):
         """The sample report should produce a reasonable number of blocks."""
         from web.notion import markdown_to_blocks
+
         blocks = markdown_to_blocks(SAMPLE_REPORT)
         assert len(blocks) > 10
         types = {b["type"] for b in blocks}
-        assert types >= {"heading_1", "heading_2", "heading_3", "paragraph",
-                         "table", "code", "bulleted_list_item",
-                         "numbered_list_item", "divider"}
+        assert types >= {
+            "heading_1",
+            "heading_2",
+            "heading_3",
+            "paragraph",
+            "table",
+            "code",
+            "bulleted_list_item",
+            "numbered_list_item",
+            "divider",
+        }
 
     def test_code_block_truncated_at_2000(self):
         from web.notion import markdown_to_blocks
+
         long_code = "x" * 3000
         blocks = markdown_to_blocks(f"```python\n{long_code}\n```\n")
         content = blocks[0]["code"]["rich_text"][0]["text"]["content"]
@@ -201,10 +220,11 @@ class TestMarkdownToBlocks:
 
 
 class TestFrontmatterExtraction:
-
-    def test_frontmatter_query_overrides_db_field(self):
+    @patch("web.notion.is_configured", return_value=True)
+    def test_frontmatter_query_overrides_db_field(self, _mock_conf):
         """Frontmatter original_query should take priority over DB value."""
         from web.notion import publish_report
+
         with patch("web.notion._notion_request") as mock_req:
             mock_req.return_value = {"id": "abc", "url": "https://notion.so/page"}
             publish_report(
@@ -218,8 +238,10 @@ class TestFrontmatterExtraction:
             query_text = payload["properties"]["Requête initiale"]["rich_text"][0]["text"]["content"]
             assert query_text == "Quels sont les événements les plus fréquents ?"
 
-    def test_frontmatter_date_overrides_argument(self):
+    @patch("web.notion.is_configured", return_value=True)
+    def test_frontmatter_date_overrides_argument(self, _mock_conf):
         from web.notion import publish_report
+
         with patch("web.notion._notion_request") as mock_req:
             mock_req.return_value = {"id": "abc", "url": "https://notion.so/page"}
             publish_report(
@@ -231,8 +253,10 @@ class TestFrontmatterExtraction:
             payload = call_args[0][2]
             assert payload["properties"]["Date de publication"]["date"]["start"] == "2026-01-15"
 
-    def test_db_field_used_when_no_frontmatter(self):
+    @patch("web.notion.is_configured", return_value=True)
+    def test_db_field_used_when_no_frontmatter(self, _mock_conf):
         from web.notion import publish_report
+
         content_no_fm = "# Just a heading\n\nSome text.\n"
         with patch("web.notion._notion_request") as mock_req:
             mock_req.return_value = {"id": "abc", "url": "https://notion.so/page"}
@@ -254,7 +278,6 @@ class TestFrontmatterExtraction:
 
 
 class TestPublishNotionEndpoint:
-
     @patch("web.notion.is_configured", return_value=False)
     def test_returns_503_when_not_configured(self, mock_conf, app, client, report):
         resp = client.post(
@@ -301,7 +324,7 @@ class TestPublishNotionEndpoint:
             headers={"X-Forwarded-Email": "test@example.com"},
         )
         assert resp.status_code == 500
-        assert "timeout" in resp.json()["error"]
+        assert resp.json()["error"] == "Failed to publish to Notion"
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +333,6 @@ class TestPublishNotionEndpoint:
 
 
 class TestNotionButton:
-
     def test_shows_export_button_when_no_url(self, app, client, report):
         resp = client.get(
             f"/rapports/{report.id}",

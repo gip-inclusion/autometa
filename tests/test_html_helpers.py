@@ -1,10 +1,10 @@
 """Tests for web.routes.html time-display helpers (timezone localization)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from web.routes.html import format_relative_date, _group_items_by_date
+from web.routes.html import _group_items_by_date, format_relative_date
 
 PARIS = ZoneInfo("Europe/Paris")
 

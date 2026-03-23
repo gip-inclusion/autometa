@@ -85,6 +85,7 @@ _request_count = 0
 # Notion API helpers (from sync_notion_research.py)
 # =============================================================================
 
+
 def _rate_limited_request(url, data=None, method="GET", max_retries=5):
     global _last_request_time, _request_count
     for attempt in range(max_retries):
@@ -192,9 +193,7 @@ def extract_page_properties(page):
         elif ptype == "relation":
             props[name] = [r["id"] for r in val.get("relation", [])]
         elif ptype == "people":
-            props[name] = [
-                p.get("name", p.get("id", "")) for p in val.get("people", [])
-            ]
+            props[name] = [p.get("name", p.get("id", "")) for p in val.get("people", [])]
         elif ptype == "formula":
             f = val.get("formula", {})
             ftype = f.get("type")
@@ -209,6 +208,7 @@ def extract_page_properties(page):
 # =============================================================================
 # Chunking helpers (from embed_notion_research.py)
 # =============================================================================
+
 
 def get_page_block_texts(conn, page_id):
     rows = conn.execute(
@@ -266,9 +266,7 @@ def _split_text(text, max_chars):
 
 
 def build_chunks(conn):
-    pages = conn.execute(
-        "SELECT id, database_key, database_name, title, properties_json FROM pages"
-    ).fetchall()
+    pages = conn.execute("SELECT id, database_key, database_name, title, properties_json FROM pages").fetchall()
     chunks = []
     for page in pages:
         page_id = page["id"]
@@ -285,12 +283,14 @@ def build_chunks(conn):
             for i, piece in enumerate(_split_text(body, body_budget)):
                 text = f"{header}\n{piece}".strip()
                 if text:
-                    chunks.append({
-                        "page_id": page_id,
-                        "chunk_index": i,
-                        "text": text,
-                        "database_key": page["database_key"],
-                    })
+                    chunks.append(
+                        {
+                            "page_id": page_id,
+                            "chunk_index": i,
+                            "text": text,
+                            "database_key": page["database_key"],
+                        }
+                    )
         else:
             current_chunk_texts = []
             current_chars = 0
@@ -300,23 +300,27 @@ def build_chunks(conn):
                     if current_chunk_texts:
                         body = "\n".join(current_chunk_texts)
                         text = f"{header}\n---\n{body}".strip()
-                        chunks.append({
-                            "page_id": page_id,
-                            "chunk_index": chunk_idx,
-                            "text": text,
-                            "database_key": page["database_key"],
-                        })
+                        chunks.append(
+                            {
+                                "page_id": page_id,
+                                "chunk_index": chunk_idx,
+                                "text": text,
+                                "database_key": page["database_key"],
+                            }
+                        )
                         chunk_idx += 1
                         current_chunk_texts = []
                         current_chars = 0
                     for piece in _split_text(block_text, body_budget):
                         text = f"{header}\n---\n{piece}".strip()
-                        chunks.append({
-                            "page_id": page_id,
-                            "chunk_index": chunk_idx,
-                            "text": text,
-                            "database_key": page["database_key"],
-                        })
+                        chunks.append(
+                            {
+                                "page_id": page_id,
+                                "chunk_index": chunk_idx,
+                                "text": text,
+                                "database_key": page["database_key"],
+                            }
+                        )
                         chunk_idx += 1
                     continue
                 current_chunk_texts.append(block_text)
@@ -324,24 +328,28 @@ def build_chunks(conn):
                 if current_chars >= CHUNK_TARGET_CHARS:
                     body = "\n".join(current_chunk_texts)
                     text = f"{header}\n---\n{body}".strip()
-                    chunks.append({
-                        "page_id": page_id,
-                        "chunk_index": chunk_idx,
-                        "text": text,
-                        "database_key": page["database_key"],
-                    })
+                    chunks.append(
+                        {
+                            "page_id": page_id,
+                            "chunk_index": chunk_idx,
+                            "text": text,
+                            "database_key": page["database_key"],
+                        }
+                    )
                     chunk_idx += 1
                     current_chunk_texts = []
                     current_chars = 0
             if current_chunk_texts:
                 body = "\n".join(current_chunk_texts)
                 text = f"{header}\n---\n{body}".strip()
-                chunks.append({
-                    "page_id": page_id,
-                    "chunk_index": chunk_idx,
-                    "text": text,
-                    "database_key": page["database_key"],
-                })
+                chunks.append(
+                    {
+                        "page_id": page_id,
+                        "chunk_index": chunk_idx,
+                        "text": text,
+                        "database_key": page["database_key"],
+                    }
+                )
     return chunks
 
 
@@ -356,6 +364,7 @@ def embedding_to_blob(vec):
 # =============================================================================
 # Schema
 # =============================================================================
+
 
 def ensure_schema(conn):
     """Create tables if they don't exist (idempotent)."""
@@ -429,7 +438,9 @@ def ensure_schema(conn):
                 (page[0], page[1], "\n".join(parts)),
             )
         # Repopulate blocks_fts
-        for block in conn.execute("SELECT id, text_content FROM blocks WHERE text_content IS NOT NULL AND text_content != ''").fetchall():
+        for block in conn.execute(
+            "SELECT id, text_content FROM blocks WHERE text_content IS NOT NULL AND text_content != ''"
+        ).fetchall():
             conn.execute(
                 "INSERT INTO blocks_fts (block_id, text_content) VALUES (?, ?)",
                 (block[0], block[1]),
@@ -467,13 +478,14 @@ def ensure_schema(conn):
                 h = hashlib.sha256(row["text"].encode("utf-8")).hexdigest()[:16]
                 conn.execute("UPDATE chunks SET text_hash = ? WHERE id = ?", (h, row["id"]))
             conn.commit()
-            print(f"  Done.")
+            print("  Done.")
     conn.commit()
 
 
 # =============================================================================
 # Sync phase
 # =============================================================================
+
 
 def sync_pages(conn, full=False):
     """Sync pages from Notion. Returns set of page IDs that changed."""
@@ -521,9 +533,16 @@ def sync_pages(conn, full=False):
             # Upsert page
             conn.execute(
                 "INSERT OR REPLACE INTO pages (id, database_key, database_name, title, properties_json, url, created_time, last_edited_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (page_id, db_key, db_name, title,
-                 json.dumps(props, ensure_ascii=False),
-                 page.get("url"), page.get("created_time"), last_edited),
+                (
+                    page_id,
+                    db_key,
+                    db_name,
+                    title,
+                    json.dumps(props, ensure_ascii=False),
+                    page.get("url"),
+                    page.get("created_time"),
+                    last_edited,
+                ),
             )
 
             # Update FTS
@@ -546,8 +565,10 @@ def sync_pages(conn, full=False):
             # Update relations
             conn.execute("DELETE FROM relations WHERE source_page_id = ?", (page_id,))
             for prop_name, prop_val in props.items():
-                if isinstance(prop_val, list) and prop_val and all(
-                    isinstance(v, str) and len(v) == 36 for v in prop_val
+                if (
+                    isinstance(prop_val, list)
+                    and prop_val
+                    and all(isinstance(v, str) and len(v) == 36 for v in prop_val)
                 ):
                     for target_id in prop_val:
                         conn.execute(
@@ -563,7 +584,9 @@ def sync_pages(conn, full=False):
                 blocks = []
 
             # Clear old blocks and their FTS entries
-            old_block_ids = [r[0] for r in conn.execute("SELECT id FROM blocks WHERE page_id = ?", (page_id,)).fetchall()]
+            old_block_ids = [
+                r[0] for r in conn.execute("SELECT id FROM blocks WHERE page_id = ?", (page_id,)).fetchall()
+            ]
             for bid in old_block_ids:
                 conn.execute("DELETE FROM blocks_fts WHERE block_id = ?", (bid,))
             conn.execute("DELETE FROM blocks WHERE page_id = ?", (page_id,))
@@ -571,8 +594,7 @@ def sync_pages(conn, full=False):
                 text = extract_block_text(block)
                 conn.execute(
                     "INSERT INTO blocks (id, page_id, type, text_content, position, parent_block_id) VALUES (?, ?, ?, ?, ?, ?)",
-                    (block["id"], page_id, block["type"], text, pos,
-                     block.get("parent", {}).get("block_id")),
+                    (block["id"], page_id, block["type"], text, pos, block.get("parent", {}).get("block_id")),
                 )
                 if text.strip():
                     conn.execute(
@@ -609,6 +631,7 @@ def sync_pages(conn, full=False):
 # Embed phase
 # =============================================================================
 
+
 def rebuild_and_embed(conn, changed_page_ids, full=False):
     """Rebuild chunks and embed only what changed."""
     print("\nBuilding chunks...")
@@ -624,7 +647,9 @@ def rebuild_and_embed(conn, changed_page_ids, full=False):
     old_embeddings = {}  # text_hash → embedding blob
     if not full:
         try:
-            for row in conn.execute("SELECT text_hash, embedding FROM chunks WHERE text_hash != '' AND embedding IS NOT NULL"):
+            for row in conn.execute(
+                "SELECT text_hash, embedding FROM chunks WHERE text_hash != '' AND embedding IS NOT NULL"
+            ):
                 old_embeddings[row["text_hash"]] = row["embedding"]
         except sqlite3.OperationalError:
             pass
@@ -684,7 +709,7 @@ def rebuild_and_embed(conn, changed_page_ids, full=False):
 
         all_embeddings = np.vstack(all_embeddings)
         embed_time = time.time() - t2
-        print(f"  Done in {embed_time:.1f}s ({len(to_embed)/embed_time:.1f} chunks/s)")
+        print(f"  Done in {embed_time:.1f}s ({len(to_embed) / embed_time:.1f} chunks/s)")
 
         for i, chunk in enumerate(to_embed):
             chunk["embedding_blob"] = embedding_to_blob(all_embeddings[i])
@@ -697,8 +722,14 @@ def rebuild_and_embed(conn, changed_page_ids, full=False):
     for chunk in new_chunks:
         conn.execute(
             "INSERT INTO chunks (page_id, chunk_index, text, text_hash, database_key, embedding) VALUES (?, ?, ?, ?, ?, ?)",
-            (chunk["page_id"], chunk["chunk_index"], chunk["text"],
-             chunk["text_hash"], chunk["database_key"], chunk["embedding_blob"]),
+            (
+                chunk["page_id"],
+                chunk["chunk_index"],
+                chunk["text"],
+                chunk["text_hash"],
+                chunk["database_key"],
+                chunk["embedding_blob"],
+            ),
         )
     conn.commit()
 
@@ -708,6 +739,7 @@ def rebuild_and_embed(conn, changed_page_ids, full=False):
 # =============================================================================
 # Main
 # =============================================================================
+
 
 def main():
     parser = argparse.ArgumentParser(description="Incremental refresh of Notion research corpus")
@@ -746,8 +778,10 @@ def main():
     changed_ids, sync_stats = sync_pages(conn, full=args.full)
     sync_time = time.time() - t0
 
-    print(f"\nSync: {sync_stats['new']} new, {sync_stats['updated']} updated, "
-          f"{sync_stats['unchanged']} unchanged, {sync_stats['deleted']} deleted")
+    print(
+        f"\nSync: {sync_stats['new']} new, {sync_stats['updated']} updated, "
+        f"{sync_stats['unchanged']} unchanged, {sync_stats['deleted']} deleted"
+    )
     print(f"  {_request_count} API requests in {sync_time:.1f}s")
 
     # Phase 2: Rebuild chunks and embed
@@ -761,9 +795,7 @@ def main():
             print("=" * 50)
             print("PHASE 2: CHUNK + EMBED")
             print("=" * 50)
-            total_chunks, embedded, reused, embed_time = rebuild_and_embed(
-                conn, changed_ids, full=args.full
-            )
+            total_chunks, embedded, reused, embed_time = rebuild_and_embed(conn, changed_ids, full=args.full)
 
     # Store metadata
     total_time = time.time() - t0
@@ -771,20 +803,20 @@ def main():
     total_blocks = conn.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
     total_chunks = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("last_sync", datetime.now().isoformat()))
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("sync_duration_seconds", str(round(total_time, 1))))
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("total_pages", str(total_pages)))
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("total_blocks", str(total_blocks)))
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("total_api_requests", str(_request_count)))
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("embedding_model", MODEL_NAME))
-    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
-                 ("embedding_count", str(total_chunks)))
+    conn.execute(
+        "INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", ("last_sync", datetime.now().isoformat())
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)",
+        ("sync_duration_seconds", str(round(total_time, 1))),
+    )
+    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", ("total_pages", str(total_pages)))
+    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", ("total_blocks", str(total_blocks)))
+    conn.execute(
+        "INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", ("total_api_requests", str(_request_count))
+    )
+    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", ("embedding_model", MODEL_NAME))
+    conn.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", ("embedding_count", str(total_chunks)))
     conn.commit()
     conn.close()
 
@@ -794,9 +826,11 @@ def main():
     print("=" * 50)
     print("REFRESH COMPLETE")
     print("=" * 50)
-    print(f"Total time:     {total_time:.1f}s ({total_time/60:.1f} min)")
+    print(f"Total time:     {total_time:.1f}s ({total_time / 60:.1f} min)")
     print(f"API requests:   {_request_count}")
-    print(f"Pages:          {total_pages} ({sync_stats['new']} new, {sync_stats['updated']} updated, {sync_stats['deleted']} deleted)")
+    print(
+        f"Pages:          {total_pages} ({sync_stats['new']} new, {sync_stats['updated']} updated, {sync_stats['deleted']} deleted)"
+    )
     print(f"Blocks:         {total_blocks}")
     print(f"Chunks:         {total_chunks} ({embedded} embedded, {reused} reused)")
     if embed_time:

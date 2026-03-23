@@ -17,7 +17,8 @@ To add new test cases:
 
 import os
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
+
 import pytest
 
 from lib.query import get_metabase
@@ -26,8 +27,7 @@ from skills.metabase_query.scripts.cards_db import load_cards_db
 # Check if we have credentials for integration tests
 _HAS_CREDENTIALS = bool(os.environ.get("METABASE_STATS_API_KEY"))
 requires_credentials = pytest.mark.skipif(
-    not _HAS_CREDENTIALS,
-    reason="Integration test requires METABASE_STATS_API_KEY"
+    not _HAS_CREDENTIALS, reason="Integration test requires METABASE_STATS_API_KEY"
 )
 
 
@@ -110,23 +110,17 @@ class TestKnownAnswers:
         if case.expected_range:
             # Get the numeric value
             value = result.rows[case.row_index][case.column_index]
-            assert isinstance(value, (int, float)), (
-                f"Expected numeric value, got {type(value)}: {value}"
-            )
+            assert isinstance(value, (int, float)), f"Expected numeric value, got {type(value)}: {value}"
             min_val, max_val = case.expected_range
             assert min_val <= value <= max_val, (
-                f"Value {value} outside expected range [{min_val}, {max_val}] "
-                f"for question: {case.question}"
+                f"Value {value} outside expected range [{min_val}, {max_val}] for question: {case.question}"
             )
 
         if case.expected_contains:
             # Check that expected strings appear somewhere in results
             all_text = str(result.rows)
             for expected in case.expected_contains:
-                assert expected in all_text, (
-                    f"Expected '{expected}' not found in results "
-                    f"for question: {case.question}"
-                )
+                assert expected in all_text, f"Expected '{expected}' not found in results for question: {case.question}"
 
 
 class TestCardDiscovery:
@@ -192,6 +186,4 @@ class TestEndToEnd:
 
         # SQL should contain recognizable keywords
         sql_lower = card.sql_query.lower()
-        assert any(kw in sql_lower for kw in ["select", "from", "where"]), (
-            "SQL should contain basic keywords"
-        )
+        assert any(kw in sql_lower for kw in ["select", "from", "where"]), "SQL should contain basic keywords"

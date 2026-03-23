@@ -4,6 +4,9 @@
 - **Database:** `dora-analytics` (PostgreSQL)
 - **Instance name:** `dora`
 
+## Qu'est-ce que Dora ?
+Dora is a directory of social services for support professionals — it covers social barriers in general (housing, mobility, health, etc.), for any public in difficulty, not specifically the IAE public.
+
 ## Related Knowledge
 
 Dora has two knowledge files:

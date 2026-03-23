@@ -11,6 +11,7 @@ import pytest
 def conversation(app):
     """Create a test conversation."""
     from web.storage import store
+
     conv = store.create_conversation(user_id="owner@example.com")
     store.update_conversation(conv.id, title="Test conversation")
     store.add_message(conv.id, "user", "Hello")
@@ -45,6 +46,7 @@ class TestPinAPI:
 
     def test_admin_can_unpin(self, app, client, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "Pinned")
 
         resp = client.delete(
@@ -55,6 +57,7 @@ class TestPinAPI:
 
     def test_non_admin_cannot_unpin(self, app, client, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "Pinned")
 
         resp = client.delete(
@@ -86,6 +89,7 @@ class TestPinDatabase:
 
     def test_pin_and_list(self, app, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "My label")
         pinned = store.list_pinned_conversations()
         assert len(pinned) == 1
@@ -95,6 +99,7 @@ class TestPinDatabase:
 
     def test_unpin(self, app, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "Label")
         store.unpin_conversation(conversation.id)
         pinned = store.list_pinned_conversations()
@@ -102,6 +107,7 @@ class TestPinDatabase:
 
     def test_multiple_pins(self, app):
         from web.storage import store
+
         c1 = store.create_conversation(user_id="a@b.com")
         c2 = store.create_conversation(user_id="a@b.com")
         store.pin_conversation(c1.id, "First")
@@ -113,6 +119,7 @@ class TestPinDatabase:
 
     def test_pinned_at_in_get_conversation(self, app, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "Label")
         conv = store.get_conversation(conversation.id, include_messages=False)
         assert conv.pinned_at is not None
@@ -120,6 +127,7 @@ class TestPinDatabase:
 
     def test_unpinned_conversation_has_none(self, app, conversation):
         from web.storage import store
+
         conv = store.get_conversation(conversation.id, include_messages=False)
         assert conv.pinned_at is None
         assert conv.pinned_label is None
@@ -130,6 +138,7 @@ class TestPinInSidebar:
 
     def test_pinned_visible_on_home(self, app, client, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "Bonnes pratiques")
 
         resp = client.get(
@@ -169,6 +178,7 @@ class TestPinInSidebar:
 
     def test_admin_sees_unpin_on_pinned(self, app, client, conversation):
         from web.storage import store
+
         store.pin_conversation(conversation.id, "Test")
 
         resp = client.get(

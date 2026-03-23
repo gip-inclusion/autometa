@@ -22,7 +22,6 @@ CLI usage (for agent):
     python -c "from lib.readers import read_excel; print(read_excel('file.xlsx'))"
 """
 
-import io
 from pathlib import Path
 from typing import Optional, Union
 

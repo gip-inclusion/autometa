@@ -7,7 +7,7 @@ Business logic lives in web/database.py.
 import logging
 import sqlite3
 from contextlib import contextmanager
-from typing import Optional, Any
+from typing import Any, Optional
 
 from . import config
 
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 USE_POSTGRES = config.DATABASE_URL is not None and config.DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 if USE_POSTGRES:
-    import psycopg2
     from psycopg2.extras import RealDictCursor
     from psycopg2.pool import ThreadedConnectionPool
 
@@ -27,15 +26,18 @@ if USE_POSTGRES:
         global _pg_pool
         if _pg_pool is None or _pg_pool.closed:
             _pg_pool = ThreadedConnectionPool(
-                minconn=1,
-                maxconn=10,
+                minconn=2,
+                maxconn=20,
                 dsn=config.DATABASE_URL,
             )
-            logger.info("PostgreSQL connection pool created (max=10)")
+            logger.info("PostgreSQL connection pool created (max=20)")
         return _pg_pool
 
+
 # Valid column names for dynamic updates (security: prevents SQL injection)
-VALID_CONVERSATION_COLUMNS = frozenset({"title", "session_id", "user_id", "status", "pr_url", "updated_at", "pinned_at", "pinned_label", "needs_response", "project_id"})
+VALID_CONVERSATION_COLUMNS = frozenset(
+    {"title", "session_id", "user_id", "status", "pr_url", "updated_at", "pinned_at", "pinned_label", "needs_response", "project_id"}
+)
 VALID_REPORT_COLUMNS = frozenset({"title", "website", "category", "tags", "original_query", "content", "updated_at"})
 
 
@@ -61,6 +63,7 @@ def _build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, 
 
 class DictRowWrapper:
     """Wrapper to make psycopg2 RealDictRow behave like sqlite3.Row for .keys() method."""
+
     def __init__(self, row: dict):
         self._row = row
 

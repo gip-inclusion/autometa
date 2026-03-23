@@ -1,9 +1,6 @@
 """Tests for usage tracking across backends."""
 
 import pytest
-import tempfile
-import os
-from pathlib import Path
 
 
 class TestConversationUsageFields:
@@ -14,7 +11,7 @@ class TestConversationUsageFields:
         from web.database import Conversation
 
         conv = Conversation()
-        assert hasattr(conv, 'usage_input_tokens')
+        assert hasattr(conv, "usage_input_tokens")
         assert conv.usage_input_tokens == 0
 
     def test_conversation_has_usage_output_tokens_field(self):
@@ -22,7 +19,7 @@ class TestConversationUsageFields:
         from web.database import Conversation
 
         conv = Conversation()
-        assert hasattr(conv, 'usage_output_tokens')
+        assert hasattr(conv, "usage_output_tokens")
         assert conv.usage_output_tokens == 0
 
     def test_conversation_has_usage_cache_creation_tokens_field(self):
@@ -30,7 +27,7 @@ class TestConversationUsageFields:
         from web.database import Conversation
 
         conv = Conversation()
-        assert hasattr(conv, 'usage_cache_creation_tokens')
+        assert hasattr(conv, "usage_cache_creation_tokens")
         assert conv.usage_cache_creation_tokens == 0
 
     def test_conversation_has_usage_cache_read_tokens_field(self):
@@ -38,7 +35,7 @@ class TestConversationUsageFields:
         from web.database import Conversation
 
         conv = Conversation()
-        assert hasattr(conv, 'usage_cache_read_tokens')
+        assert hasattr(conv, "usage_cache_read_tokens")
         assert conv.usage_cache_read_tokens == 0
 
     def test_conversation_has_usage_backend_field(self):
@@ -46,7 +43,7 @@ class TestConversationUsageFields:
         from web.database import Conversation
 
         conv = Conversation()
-        assert hasattr(conv, 'usage_backend')
+        assert hasattr(conv, "usage_backend")
         assert conv.usage_backend is None
 
     def test_conversation_has_usage_extra_field(self):
@@ -54,7 +51,7 @@ class TestConversationUsageFields:
         from web.database import Conversation
 
         conv = Conversation()
-        assert hasattr(conv, 'usage_extra')
+        assert hasattr(conv, "usage_extra")
         assert conv.usage_extra is None
 
     def test_conversation_to_dict_includes_usage_fields(self):
@@ -66,16 +63,16 @@ class TestConversationUsageFields:
             usage_output_tokens=50,
             usage_cache_creation_tokens=20,
             usage_cache_read_tokens=80,
-            usage_backend='cli',
-            usage_extra={'service_tier': 'standard'},
+            usage_backend="cli",
+            usage_extra={"service_tier": "standard"},
         )
         data = conv.to_dict()
-        assert data['usage_input_tokens'] == 100
-        assert data['usage_output_tokens'] == 50
-        assert data['usage_cache_creation_tokens'] == 20
-        assert data['usage_cache_read_tokens'] == 80
-        assert data['usage_backend'] == 'cli'
-        assert data['usage_extra'] == {'service_tier': 'standard'}
+        assert data["usage_input_tokens"] == 100
+        assert data["usage_output_tokens"] == 50
+        assert data["usage_cache_creation_tokens"] == 20
+        assert data["usage_cache_read_tokens"] == 80
+        assert data["usage_backend"] == "cli"
+        assert data["usage_extra"] == {"service_tier": "standard"}
 
 
 class TestDatabaseUsageColumns:
@@ -85,28 +82,30 @@ class TestDatabaseUsageColumns:
     def temp_db(self, tmp_path, monkeypatch):
         """Create a temporary database for testing."""
         db_path = tmp_path / "test.db"
-        monkeypatch.setattr('web.config.SQLITE_PATH', db_path)
+        monkeypatch.setattr("web.config.SQLITE_PATH", db_path)
         # Re-import to use patched path
         import importlib
+
         import web.database
+
         importlib.reload(web.database)
         return db_path
 
     def test_conversations_table_has_usage_columns(self, temp_db):
         """Conversations table has all usage columns."""
-        from web.database import init_db, get_db
+        from web.database import get_db, init_db
 
         init_db()
 
         with get_db() as conn:
             cursor = conn.execute("PRAGMA table_info(conversations)")
-            columns = {row['name'] for row in cursor.fetchall()}
-            assert 'usage_input_tokens' in columns
-            assert 'usage_output_tokens' in columns
-            assert 'usage_cache_creation_tokens' in columns
-            assert 'usage_cache_read_tokens' in columns
-            assert 'usage_backend' in columns
-            assert 'usage_extra' in columns
+            columns = {row["name"] for row in cursor.fetchall()}
+            assert "usage_input_tokens" in columns
+            assert "usage_output_tokens" in columns
+            assert "usage_cache_creation_tokens" in columns
+            assert "usage_cache_read_tokens" in columns
+            assert "usage_backend" in columns
+            assert "usage_extra" in columns
 
     def test_create_conversation_stores_zero_usage(self, temp_db):
         """New conversations start with zero usage."""
@@ -137,8 +136,8 @@ class TestDatabaseUsageColumns:
             output_tokens=800,
             cache_creation_tokens=100,
             cache_read_tokens=500,
-            backend='sdk',
-            extra={'service_tier': 'priority', 'web_search_requests': 2},
+            backend="sdk",
+            extra={"service_tier": "priority", "web_search_requests": 2},
         )
 
         loaded = store.get_conversation(conv.id)
@@ -146,8 +145,8 @@ class TestDatabaseUsageColumns:
         assert loaded.usage_output_tokens == 800
         assert loaded.usage_cache_creation_tokens == 100
         assert loaded.usage_cache_read_tokens == 500
-        assert loaded.usage_backend == 'sdk'
-        assert loaded.usage_extra == {'service_tier': 'priority', 'web_search_requests': 2}
+        assert loaded.usage_backend == "sdk"
+        assert loaded.usage_extra == {"service_tier": "priority", "web_search_requests": 2}
 
     def test_accumulate_usage(self, temp_db):
         """Can accumulate usage incrementally."""
@@ -163,14 +162,14 @@ class TestDatabaseUsageColumns:
             output_tokens=50,
             cache_creation_tokens=10,
             cache_read_tokens=0,
-            backend='cli',
+            backend="cli",
         )
         loaded = store.get_conversation(conv.id)
         assert loaded.usage_input_tokens == 100
         assert loaded.usage_output_tokens == 50
         assert loaded.usage_cache_creation_tokens == 10
         assert loaded.usage_cache_read_tokens == 0
-        assert loaded.usage_backend == 'cli'
+        assert loaded.usage_backend == "cli"
 
         # Second exchange
         store.accumulate_usage(
@@ -186,7 +185,7 @@ class TestDatabaseUsageColumns:
         assert loaded.usage_cache_creation_tokens == 10
         assert loaded.usage_cache_read_tokens == 80
         # Backend should persist from first call
-        assert loaded.usage_backend == 'cli'
+        assert loaded.usage_backend == "cli"
 
 
 class TestAgentMessageTokens:
@@ -206,12 +205,12 @@ class TestAgentMessageTokens:
                     "cache_creation_input_tokens": 100,
                     "cache_read_input_tokens": 400,
                 }
-            }
+            },
         )
-        assert msg.raw['usage']['input_tokens'] == 1000
-        assert msg.raw['usage']['output_tokens'] == 500
-        assert msg.raw['usage']['cache_creation_input_tokens'] == 100
-        assert msg.raw['usage']['cache_read_input_tokens'] == 400
+        assert msg.raw["usage"]["input_tokens"] == 1000
+        assert msg.raw["usage"]["output_tokens"] == 500
+        assert msg.raw["usage"]["cache_creation_input_tokens"] == 100
+        assert msg.raw["usage"]["cache_read_input_tokens"] == 400
 
 
 class TestCLIBackendTokenExtraction:
@@ -230,12 +229,12 @@ class TestCLIBackendTokenExtraction:
             "usage": {
                 "input_tokens": 1234,
                 "output_tokens": 567,
-            }
+            },
         }
 
         msg = backend._parse_event(event)
         assert msg is not None
-        assert msg.raw.get('usage') == {"input_tokens": 1234, "output_tokens": 567}
+        assert msg.raw.get("usage") == {"input_tokens": 1234, "output_tokens": 567}
 
     def test_parse_result_event_without_usage(self):
         """CLI backend handles result event without usage gracefully."""

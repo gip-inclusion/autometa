@@ -1,11 +1,11 @@
-"""Configuration for the Matometa web application."""
+"""Configuration for the Autometa web application."""
 
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Base directory (Matometa project root)
+# Base directory (Autometa project root)
 BASE_DIR = Path(__file__).parent.parent.resolve()
 
 load_dotenv(BASE_DIR / ".env")
@@ -14,7 +14,7 @@ load_dotenv(BASE_DIR / ".env")
 # Default: ./data (relative to BASE_DIR)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 
-# Agent backend: "cli" or "cli-ollama"
+# Agent backend: "cli", "sdk", or "cli-ollama"
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 
 # LLM backend for short prompts (titles, tags). Defaults to AGENT_BACKEND.
@@ -29,7 +29,8 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 # Allowed tools for the agent (CLI backend only - SDK ignores this)
 # Bash patterns use glob wildcards (* matches anything)
 # NOTE: Real security boundary is the container, not LLM tool restrictions
-ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
+ALLOWED_TOOLS = os.getenv(
+    "ALLOWED_TOOLS",
     "Read,Write,Edit,Glob,Grep,"
     "Bash(curl:*inclusion.gouv.fr*),Bash(curl:*inclusion.beta.gouv.fr*),"
     "Bash(curl:*github.com/gip-inclusion*),Bash(curl:*github.com/betagouv*),"
@@ -38,7 +39,7 @@ ALLOWED_TOOLS = os.getenv("ALLOWED_TOOLS",
     "Bash(jq:*),Bash(sqlite3:*),"
     "Bash(python:*),Bash(python3:*),"
     "Bash(.venv/bin/python:*),"
-    "Bash(git:*)"
+    "Bash(git:*)",
 )
 
 # Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
@@ -49,7 +50,7 @@ OLLAMA_TAG_MODEL = os.getenv("OLLAMA_TAG_MODEL", OLLAMA_MODEL)
 OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "120"))
 
 # Backend capability helpers
-USES_CLAUDE_CLI = AGENT_BACKEND == "cli" or LLM_BACKEND == "cli"
+USES_CLAUDE_CLI = AGENT_BACKEND in ("cli", "sdk") or LLM_BACKEND in ("cli", "sdk")
 
 # Display timezone (IANA name, e.g. "Europe/Paris")
 DISPLAY_TIMEZONE = os.getenv("DISPLAY_TIMEZONE", "Europe/Paris")
@@ -59,7 +60,7 @@ HOST = os.getenv("WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("WEB_PORT", "5000"))
 DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 
-# Base URL for generating absolute links (e.g. BASE_URL=https://matometa.ljt.cc/)
+# Base URL for generating absolute links
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
@@ -69,9 +70,7 @@ DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 # Admin users who can see all conversations (comma-separated emails)
 ADMIN_USERS = [
     email.strip()
-    for email in os.getenv(
-        "ADMIN_USERS", "louisjean.teitelbaum@inclusion.gouv.fr,admin@localhost"
-    ).split(",")
+    for email in os.getenv("ADMIN_USERS", "louisjean.teitelbaum@inclusion.gouv.fr,admin@localhost").split(",")
     if email.strip()
 ]
 

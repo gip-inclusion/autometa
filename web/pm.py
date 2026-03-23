@@ -1,7 +1,8 @@
-"""Process Manager: runs agent subprocesses, persists events to database.
+"""Process Manager: runs agents, persists events to database.
 
-Decoupled from the web process. Communicates via pm_commands table (input)
-and messages table (output). The web SSE handler tails the messages table.
+Runs in-process as an asyncio task via FastAPI lifespan (web/app.py).
+Communicates with the SSE handler via in-memory signals (web/signals.py)
+and the pm_commands table (input).
 """
 
 import asyncio
@@ -10,13 +11,15 @@ import logging
 import os
 import time
 
+from lib.api_signals import parse_api_signals
+from lib.failure_detection import extract_snippet, find_failure_marker
+from lib.tool_taxonomy import classify_tool
+
 from . import config
 from .agents import get_agent
 from .agents.base import AgentBackend
+from .signals import signals
 from .storage import store
-from .audit import audit_log
-from lib.tool_taxonomy import classify_tool
-from lib.api_signals import parse_api_signals
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +45,17 @@ class ProcessManager:
                 store.add_message(conv_id, "assistant", "*Interrompu (redémarrage serveur).*")
             logger.info(f"Cleared {len(cleared_ids)} stuck needs_response flags on startup")
         logger.info(f"Process manager started (max_concurrent={MAX_CONCURRENT_AGENTS})")
+        await asyncio.to_thread(store.update_pm_heartbeat)
+        signals.update_pm_alive()
+        heartbeat_counter = 0
+        HEARTBEAT_EVERY = 10  # 10 x 0.5s = 5s
         while True:
             try:
-                await asyncio.to_thread(store.update_pm_heartbeat)
+                heartbeat_counter += 1
+                if heartbeat_counter >= HEARTBEAT_EVERY:
+                    await asyncio.to_thread(store.update_pm_heartbeat)
+                    signals.update_pm_alive()
+                    heartbeat_counter = 0
 
                 # Drain finished tasks and start queued ones
                 self._reap_finished()
@@ -65,7 +76,9 @@ class ProcessManager:
                         elif len(self.running) < MAX_CONCURRENT_AGENTS:
                             self._start_agent(conv_id, cmd["payload"])
                         else:
-                            logger.info(f"Agent queued for {conv_id} ({len(self.running)} running, {len(self._queued)} queued)")
+                            logger.info(
+                                f"Agent queued for {conv_id} ({len(self.running)} running, {len(self._queued)} queued)"
+                            )
                             self._queued.append((conv_id, cmd["payload"]))
                     elif cmd["command"] == "cancel":
                         # Also remove from queue if waiting
@@ -104,6 +117,7 @@ class ProcessManager:
 
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
+        all_assistant_texts: list[str] = []  # collect all text across tool_use resets
 
         try:
             async for event in self.backend.send_message(
@@ -122,13 +136,17 @@ class ProcessManager:
                         assistant_msg_id = msg.id if msg else None
                     else:
                         store.update_message(assistant_msg_id, full_text)
+                    signals.notify_message(conversation_id)
 
                 elif event.type in ("tool_use", "tool_result"):
                     if event.type == "tool_use":
+                        if assistant_text_parts:
+                            all_assistant_texts.extend(assistant_text_parts)
                         assistant_msg_id = None
                         assistant_text_parts = []
                     content = self._serialize_tool_event(event, conversation_id, user_email)
                     store.add_message(conversation_id, event.type, content)
+                    signals.notify_message(conversation_id)
 
                 elif event.type == "system":
                     if event.raw.get("subtype") == "init":
@@ -137,6 +155,15 @@ class ProcessManager:
                             store.update_conversation(conversation_id, session_id=new_session_id)
                     if event.raw.get("usage"):
                         self._persist_usage(conversation_id, event.raw["usage"])
+
+            # Collect final segment
+            if assistant_text_parts:
+                all_assistant_texts.extend(assistant_text_parts)
+
+            # Check for failure markers in the full assistant response
+            full_response = " ".join(all_assistant_texts)
+            if full_response:
+                self._check_failure_markers(conversation_id, full_response)
 
         except Exception:
             logger.exception(f"Agent error for {conversation_id}")
@@ -153,6 +180,7 @@ class ProcessManager:
                     )
                     if attempt < 2:
                         await asyncio.sleep(1)
+            signals.notify_finished(conversation_id)
             self.running.pop(conversation_id, None)
             logger.info(f"Agent finished for {conversation_id}")
 
@@ -163,13 +191,6 @@ class ProcessManager:
             tool_input = event.content.get("input", {})
             category = classify_tool(tool_name, tool_input)
             enriched = {**event.content, "category": category}
-
-            audit_log(
-                conversation_id=conversation_id,
-                user_email=user_email or "",
-                tool_name=tool_name,
-                tool_input=tool_input,
-            )
             return json.dumps(enriched)
 
         elif event.type == "tool_result":
@@ -265,13 +286,81 @@ class ProcessManager:
         task = self.running.get(conversation_id)
         return task is not None and not task.done()
 
+    def _check_failure_markers(self, conversation_id: str, text: str):
+        """Check assistant text for failure markers and send Slack notification."""
+        marker = find_failure_marker(text)
+        if not marker:
+            return
+
+        snippet = extract_snippet(text, marker)
+        conv = store.get_conversation(conversation_id)
+        title = conv.title if conv and conv.title else "Sans titre"
+
+        import threading
+
+        threading.Thread(
+            target=self._send_failure_notification,
+            args=(conversation_id, title, snippet),
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _send_failure_notification(conv_id: str, title: str, snippet: str):
+        """Send a Slack DM about a detected failure (runs in background thread)."""
+        import requests as req
+
+        notify_email = os.environ.get("EMAIL_ANNAELLE", "")
+        if not notify_email:
+            logger.warning("EMAIL_ANNAELLE not set, skipping failure notification")
+            return
+        token = os.environ.get("SLACK_BOT_TOKEN", "")
+        if not token:
+            logger.warning("SLACK_BOT_TOKEN not set, skipping failure notification")
+            return
+
+        base_url = config.BASE_URL
+        url = f"{base_url}/explorations/{conv_id}"
+        message = (
+            f":warning: *Erreur détectée dans une conversation*\n\n"
+            f'<{url}|{title}> — "{snippet}"\n\n'
+            f"_Vérifiez que la réponse est correcte._"
+        )
+
+        try:
+            # Resolve Slack user ID
+            resp = req.get(
+                "https://slack.com/api/users.lookupByEmail",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"email": notify_email},
+                timeout=10,
+            )
+            data = resp.json()
+            if not data.get("ok"):
+                logger.warning(f"Slack user not found for {notify_email}")
+                return
+
+            slack_id = data["user"]["id"]
+
+            # Send DM
+            resp = req.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"channel": slack_id, "text": message},
+                timeout=10,
+            )
+            if resp.json().get("ok"):
+                logger.info(f"Failure notification sent for conversation {conv_id}")
+            else:
+                logger.warning(f"Failed to send Slack DM: {resp.json()}")
+        except Exception:
+            logger.exception("Error sending failure notification")
+
 
 async def main():
     """Entry point for the process manager."""
-    logging.basicConfig(
-        level=logging.DEBUG if config.DEBUG else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    from .logging_utils import setup_logging
+
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     pm = ProcessManager()
     await pm.run()
 

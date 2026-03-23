@@ -8,13 +8,13 @@ Usage:
 Run with --dry-run to see what would be tagged without making changes.
 """
 
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.database import init_db, store, get_db
+from web.database import init_db, store
 
 # Manual tag mappings based on our earlier analysis
 # Format: report_id -> list of tag names
@@ -153,7 +153,7 @@ def suggest_tags():
     for tag_name, info in sorted(wishlist.items()):
         print(f"  {tag_name}")
         print(f"    suggested type: {info['type']}")
-        print(f"    found in:")
+        print("    found in:")
         for source in info["sources"][:3]:  # Limit to 3 examples
             print(f"      - {source}")
         if len(info["sources"]) > 3:

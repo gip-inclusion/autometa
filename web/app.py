@@ -1,4 +1,4 @@
-"""Matometa web application - FastAPI server with SSE streaming."""
+"""Autometa web application - FastAPI server with SSE streaming."""
 
 import asyncio
 import logging
@@ -11,11 +11,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 
-# Configure logging (stdout only)
-logging.basicConfig(
-    level=logging.DEBUG if config.DEBUG else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# Configure logging (stdout only) with injection-safe formatter
+from .logging_utils import setup_logging
+
+setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
 # Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
 for _logger_name in ("botocore", "boto3", "urllib3", "s3transfer"):
     logging.getLogger(_logger_name).setLevel(logging.WARNING)
@@ -25,30 +24,31 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown tasks."""
-    # Restore Claude credentials from S3 if needed
-    if config.USES_CLAUDE_CLI:
-        from . import claude_credentials
-        claude_credentials.restore_credentials_from_s3()
-
     # Start S3 sync watcher for interactive files
     from . import sync_to_s3
+
     sync_to_s3.start_sync_watcher()
 
     # Warm the interactive apps cache (avoids N+1 S3 calls on first request)
     if config.USE_S3:
         from .routes.rapports import scan_interactive_apps
+
         await asyncio.to_thread(scan_interactive_apps)
 
     # Reset any conversations stuck in "running" from a previous crash
     from .database import ConversationStore
+
     _store = ConversationStore()
     _stuck = _store.clear_all_needs_response()
     if _stuck:
-        import logging
-        logging.getLogger(__name__).info("Reset %d stuck conversations on startup: %s", len(_stuck), _stuck)
+        logger.info("Reset %d stuck conversations on startup: %s", len(_stuck), _stuck)
 
-    # Run process manager in-process (no separate container needed)
+    # Run process manager in-process (no separate container needed).
+    # Single-worker constraint: PM and SSE share an in-memory signal registry
+    # (web/signals.py), so multiple workers would each get their own registry
+    # and PM signals would not reach SSE handlers in other processes.
     from .pm import ProcessManager
+
     pm = ProcessManager()
     pm_task = asyncio.create_task(pm.run())
 
@@ -78,6 +78,7 @@ if config.COMMON_DIR.exists():
 # =============================================================================
 # Interactive files: /interactive/ (served from S3 or local data/interactive/)
 # =============================================================================
+
 
 @app.get("/interactive/{filename:path}")
 @app.get("/interactive/")
@@ -145,7 +146,7 @@ def serve_interactive(request: Request, filename: str = ""):
 # Register Routers
 # =============================================================================
 
-from .routes import query, auth, logs, cron, knowledge, reports, rapports, research, html, conversations, expert  # noqa: E402
+from .routes import auth, conversations, cron, expert, html, knowledge, logs, query, rapports, reports, research  # noqa: E402
 
 app.include_router(query.router)
 app.include_router(auth.router)
@@ -165,11 +166,12 @@ app.include_router(html.router)
 # Main
 # =============================================================================
 
+
 def main():
     """Run the development server."""
     import uvicorn
 
-    print(f"Starting Matometa web server at http://{config.HOST}:{config.PORT}")
+    print(f"Starting Autometa web server at http://{config.HOST}:{config.PORT}")
     print(f"Agent backend: {config.AGENT_BACKEND}")
     print(f"Working directory: {config.BASE_DIR}")
 
@@ -178,6 +180,7 @@ def main():
         host=config.HOST,
         port=config.PORT,
         reload=config.DEBUG,
+        workers=1,  # required: PM ↔ SSE signals are in-process (see lifespan)
     )
 
 

@@ -1,4 +1,4 @@
-# Matometa - Analytics assistant web app
+# Autometa - Analytics assistant web app
 
 FROM python:3.11-slim
 
@@ -25,7 +25,7 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user (UID 1004 to match host for volume permissions)
 # Add to docker group (GID 988 on host) for Docker socket access
-RUN groupadd -g 988 docker && useradd -m -s /bin/bash -u 1004 -G docker matometa
+RUN groupadd -g 988 docker && useradd -m -s /bin/bash -u 1004 -G docker autometa
 
 # Set up app directory
 WORKDIR /app
@@ -49,14 +49,14 @@ RUN uv export --frozen --extra embeddings --no-hashes | \
     uv pip install --no-cache -r -
 
 # Copy application code
-COPY --chown=matometa:matometa . .
+COPY --chown=autometa:autometa . .
 
 # Create data directories for SQLite, uploads, modified files, and projects
 RUN mkdir -p /app/data /app/data/uploads /app/data/modified /app/data/projects \
-    && chown -R matometa:matometa /app/data
+    && chown -R autometa:autometa /app/data
 
 # Switch to non-root user
-USER matometa
+USER autometa
 
 # Environment variables
 ENV AGENT_BACKEND=sdk \

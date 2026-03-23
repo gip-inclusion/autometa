@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <title>Matometa{% block title_suffix %}{% endblock %}</title>
+  <title>Autometa{% block title_suffix %}{% endblock %}</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
@@ -34,7 +34,7 @@
     <div class="sidebar-header">
       <a href="/" class="sidebar-brand">
         <img src="/static/favicon.svg" alt="" width="48" height="48">
-        <span>Matometa</span>
+        <span>Autometa</span>
       </a>
     </div>
 
@@ -105,7 +105,7 @@
   <header class="app-header-mobile d-lg-none">
     <a href="/" class="header-brand">
       <img src="/static/favicon.svg" alt="" width="32" height="32">
-      <span>Matometa</span>
+      <span>Autometa</span>
     </a>
     <button type="button" class="btn btn-link" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-label="Menu">
       <i class="ri-menu-line ri-lg"></i>
@@ -116,7 +116,7 @@
   <div class="offcanvas offcanvas-start d-lg-none" id="mobileNav" tabindex="-1">
     <div class="offcanvas-header">
       <h5 class="offcanvas-title">
-        <img src="/static/favicon.svg" alt="" width="28" height="28" class="me-2">Matometa
+        <img src="/static/favicon.svg" alt="" width="28" height="28" class="me-2">Autometa
       </h5>
       <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
     </div>
@@ -165,15 +165,12 @@
     </div>
   </div>
 
-  <!-- Auth required banner (shown when not authenticated) -->
+  <!-- Auth required banner (shown when CLI backend has no credentials) -->
   <div class="auth-banner d-none" id="authBanner">
     <div class="container">
       <div class="alert alert-warning d-flex align-items-center gap-2 mb-0" role="alert">
         <i class="ri-key-line"></i>
-        <span>Connexion Claude requise pour utiliser l'assistant.</span>
-        <button type="button" class="btn btn-sm btn-warning ms-auto" onclick="showAuthModal()">
-          <i class="ri-login-box-line"></i> Se connecter
-        </button>
+        <span>Connexion Claude requise. Configurez <code>CLAUDE_CODE_OAUTH_TOKEN</code> pour utiliser l'assistant.</span>
       </div>
     </div>
   </div>
@@ -182,62 +179,6 @@
   <main class="app-main" role="main" id="main">
     {% block content %}{% endblock %}
   </main>
-
-  <!-- Auth Modal -->
-  <div class="modal fade" id="authModal" tabindex="-1" aria-labelledby="authModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="authModalLabel">
-            <i class="ri-key-line"></i> Connexion Claude
-          </h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-        </div>
-        <div class="modal-body">
-          <!-- Step 1: Start -->
-          <div id="authStep1">
-            <p>Pour utiliser l'assistant, vous devez vous connecter avec votre compte Claude.</p>
-            <button type="button" class="btn btn-primary w-100" onclick="startAuth()">
-              <i class="ri-login-box-line"></i> Commencer l'authentification
-            </button>
-          </div>
-
-          <!-- Step 2: OAuth URL -->
-          <div id="authStep2" class="d-none">
-            <p><strong>Étape 1 :</strong> Cliquez sur le lien ci-dessous pour vous connecter à Claude :</p>
-            <div class="mb-3">
-              <a href="#" id="authOauthUrl" target="_blank" class="btn btn-outline-primary w-100">
-                <i class="ri-external-link-line"></i> Ouvrir la page de connexion Claude
-              </a>
-            </div>
-            <hr>
-            <p><strong>Étape 2 :</strong> Après connexion, copiez le code affiché et collez-le ici :</p>
-            <div class="input-group">
-              <input type="text" class="form-control" id="authCodeInput" placeholder="Collez le code ici...">
-              <button type="button" class="btn btn-primary" onclick="completeAuth()">
-                <i class="ri-check-line"></i> Valider
-              </button>
-            </div>
-            <div id="authError" class="text-danger mt-2 d-none"></div>
-          </div>
-
-          <!-- Step 3: Loading -->
-          <div id="authStep3" class="d-none text-center py-4">
-            <div class="spinner-border text-primary" role="status">
-              <span class="visually-hidden">Chargement...</span>
-            </div>
-            <p class="mt-2 mb-0" id="authLoadingText">Connexion en cours...</p>
-          </div>
-
-          <!-- Step 4: Success -->
-          <div id="authStep4" class="d-none text-center py-4">
-            <i class="ri-check-circle-line ri-3x text-success"></i>
-            <p class="mt-2 mb-0">Connexion réussie !</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"></script>

@@ -82,9 +82,7 @@ async def query(request: Request):
     instance = data.get("instance")
 
     if not source or not instance:
-        return JSONResponse(
-            {"error": "source and instance are required"}, status_code=400, headers=cors
-        )
+        return JSONResponse({"error": "source and instance are required"}, status_code=400, headers=cors)
 
     # execute_query is synchronous — run in threadpool
     result = await asyncio.to_thread(

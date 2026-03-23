@@ -64,6 +64,7 @@ def infer_product(title: str, organizer_email: str | None = None) -> str | None:
 # Datalake writer (PostgreSQL via Metabase API)
 # ---------------------------------------------------------------------------
 
+
 class _ResultProxy:
     """Minimal result wrapper matching sqlite3 cursor interface."""
 
@@ -86,11 +87,13 @@ class DatalakeWriter:
 
     def __init__(self, database_id: int = 2):
         from lib.query import CallerType
+
         self._database_id = database_id
         self._caller = CallerType.APP
 
     def execute(self, sql, params=None):
         from lib.query import execute_metabase_query
+
         if params:
             sql = self._interpolate(sql, params)
         result = execute_metabase_query(
@@ -113,9 +116,7 @@ class DatalakeWriter:
     def _interpolate(sql, params):
         parts = sql.split("?")
         if len(parts) - 1 != len(params):
-            raise ValueError(
-                f"Expected {len(parts) - 1} placeholders, got {len(params)} params"
-            )
+            raise ValueError(f"Expected {len(parts) - 1} placeholders, got {len(params)} params")
         out = parts[0]
         for i, val in enumerate(params):
             out += DatalakeWriter._escape(val) + parts[i + 1]
@@ -158,7 +159,7 @@ def _batch_upsert(conn, insert_prefix, conflict_suffix, rows, batch_size=100):
     if not rows:
         return
     for i in range(0, len(rows), batch_size):
-        batch = rows[i:i + batch_size]
+        batch = rows[i : i + batch_size]
         values_clauses = []
         for row in batch:
             escaped = ", ".join(_escape_val(v) for v in row)
@@ -170,6 +171,7 @@ def _batch_upsert(conn, insert_prefix, conflict_suffix, rows, batch_size=100):
 # ---------------------------------------------------------------------------
 # Livestorm API client
 # ---------------------------------------------------------------------------
+
 
 class LivestormClient:
     """Livestorm REST API client (JSON:API format)."""
@@ -200,9 +202,10 @@ class LivestormClient:
                 time.sleep(wait)
                 continue
             if resp.status_code >= 500:
-                wait = 2 ** attempt
-                log.warning("Server error %d on %s, retrying in %ds (attempt %d)",
-                            resp.status_code, path, wait, attempt + 1)
+                wait = 2**attempt
+                log.warning(
+                    "Server error %d on %s, retrying in %ds (attempt %d)", resp.status_code, path, wait, attempt + 1
+                )
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -240,6 +243,7 @@ class LivestormClient:
 # ---------------------------------------------------------------------------
 # Grist API client
 # ---------------------------------------------------------------------------
+
 
 class GristClient:
     """Grist REST API client."""
@@ -356,6 +360,7 @@ def ensure_schema(conn: sqlite3.Connection):
 # Timestamp helpers
 # ---------------------------------------------------------------------------
 
+
 def _ts_to_iso(ts) -> str | None:
     """Convert a Unix timestamp (int or float) to ISO8601 string."""
     if ts is None or ts == 0:
@@ -373,6 +378,7 @@ def _now_iso() -> str:
 # ---------------------------------------------------------------------------
 # Livestorm sync
 # ---------------------------------------------------------------------------
+
 
 def _extract_custom_field(fields: list[dict], field_id: str) -> str | None:
     """Extract a field value from Livestorm registration fields."""
@@ -506,24 +512,21 @@ def sync_livestorm(conn, client: LivestormClient):
             session_count += 1
         if (i + 1) % 50 == 0:
             conn.commit()
-            print(f"    {i+1}/{len(events)} events processed, "
-                  f"{session_count} sessions ({client.request_count} calls)")
+            print(
+                f"    {i + 1}/{len(events)} events processed, {session_count} sessions ({client.request_count} calls)"
+            )
     conn.commit()
     print(f"  {session_count} sessions synced ({client.request_count} API calls so far)")
 
     # Phase 3: People per session
     # Only fetch people for sessions not yet synced (incremental)
     already_synced = set(
-        row[0] for row in conn.execute(
-            f"SELECT DISTINCT session_id FROM {T_INSCRIPTIONS} WHERE source='livestorm'"
-        ).fetchall()
+        row[0]
+        for row in conn.execute(f"SELECT DISTINCT session_id FROM {T_INSCRIPTIONS} WHERE source='livestorm'").fetchall()
     )
-    all_sessions = conn.execute(
-        f"SELECT id FROM {T_SESSIONS} WHERE id LIKE 'livestorm:%'"
-    ).fetchall()
+    all_sessions = conn.execute(f"SELECT id FROM {T_SESSIONS} WHERE id LIKE 'livestorm:%'").fetchall()
     to_sync = [(s,) for (s,) in all_sessions if s not in already_synced]
-    print(f"  Fetching attendance data: {len(to_sync)} sessions "
-          f"({len(all_sessions) - len(to_sync)} already synced)")
+    print(f"  Fetching attendance data: {len(to_sync)} sessions ({len(all_sessions) - len(to_sync)} already synced)")
     reg_count = 0
     skipped_sessions = 0
     for i, (sess_id_row,) in enumerate(to_sync):
@@ -557,8 +560,9 @@ def sync_livestorm(conn, client: LivestormClient):
                 continue
 
             organisation = _extract_organisation(fields)
-            custom = {f["id"]: f.get("value") for f in fields
-                      if f.get("id") not in ("email", "first_name", "last_name")}
+            custom = {
+                f["id"]: f.get("value") for f in fields if f.get("id") not in ("email", "first_name", "last_name")
+            }
 
             conn.execute(
                 f"""INSERT INTO {T_INSCRIPTIONS}
@@ -599,9 +603,11 @@ def sync_livestorm(conn, client: LivestormClient):
 
         if (i + 1) % 100 == 0:
             conn.commit()
-            print(f"    {i+1}/{len(to_sync)} sessions, "
-                  f"{reg_count} registrations ({client.request_count} calls, "
-                  f"monthly remaining: {client.monthly_remaining})")
+            print(
+                f"    {i + 1}/{len(to_sync)} sessions, "
+                f"{reg_count} registrations ({client.request_count} calls, "
+                f"monthly remaining: {client.monthly_remaining})"
+            )
 
     conn.commit()
     print(f"  {reg_count} registrations synced ({client.request_count} API calls total)")
@@ -613,6 +619,7 @@ def sync_livestorm(conn, client: LivestormClient):
 # ---------------------------------------------------------------------------
 # Grist sync
 # ---------------------------------------------------------------------------
+
 
 def _grist_ts_to_iso(ts) -> str | None:
     """Convert Grist timestamp (seconds since epoch, float) to ISO8601."""
@@ -649,25 +656,27 @@ def sync_grist(conn, client: GristClient):
         title = f.get("titre", "")
         organizer_email = f.get("organizer_email")
 
-        webinaire_rows.append((
-            webinar_id,
-            "grist",
-            source_id,
-            title,
-            f.get("description"),
-            organizer_email,
-            infer_product(title, organizer_email),
-            "active" if f.get("status") else "inactive",
-            _grist_ts_to_iso(f.get("date_event")),
-            _grist_ts_to_iso(f.get("date_fin")),
-            _grist_duration_to_minutes(f.get("duree")),
-            f.get("capacite"),
-            f.get("nb_inscrits"),
-            f.get("form_inscription_url"),
-            f.get("lien_webinaire"),
-            json.dumps(rec, ensure_ascii=False),
-            now,
-        ))
+        webinaire_rows.append(
+            (
+                webinar_id,
+                "grist",
+                source_id,
+                title,
+                f.get("description"),
+                organizer_email,
+                infer_product(title, organizer_email),
+                "active" if f.get("status") else "inactive",
+                _grist_ts_to_iso(f.get("date_event")),
+                _grist_ts_to_iso(f.get("date_fin")),
+                _grist_duration_to_minutes(f.get("duree")),
+                f.get("capacite"),
+                f.get("nb_inscrits"),
+                f.get("form_inscription_url"),
+                f.get("lien_webinaire"),
+                json.dumps(rec, ensure_ascii=False),
+                now,
+            )
+        )
 
     _batch_upsert(
         conn,
@@ -676,7 +685,7 @@ def sync_grist(conn, client: GristClient):
             product, status, started_at, ended_at, duration_minutes,
             capacity, registrants_count, registration_url, webinar_url,
             raw_json, synced_at) VALUES """,
-        f""" ON CONFLICT(id) DO UPDATE SET
+        """ ON CONFLICT(id) DO UPDATE SET
                source=excluded.source,
                source_id=excluded.source_id,
                title=excluded.title,
@@ -711,26 +720,28 @@ def sync_grist(conn, client: GristClient):
         event_id = f.get("event_id", "")
         webinar_id = f"grist:{event_id}" if event_id else None
 
-        inscription_rows.append((
-            "grist",
-            webinar_id,
-            "",
-            email.lower().strip(),
-            f.get("prenom"),
-            f.get("nom"),
-            f.get("entreprise"),
-            1,
-            1 if f.get("a_participe") else 0,
-            _grist_ts_to_iso(f.get("date_inscription")),
-            now,
-        ))
+        inscription_rows.append(
+            (
+                "grist",
+                webinar_id,
+                "",
+                email.lower().strip(),
+                f.get("prenom"),
+                f.get("nom"),
+                f.get("entreprise"),
+                1,
+                1 if f.get("a_participe") else 0,
+                _grist_ts_to_iso(f.get("date_inscription")),
+                now,
+            )
+        )
 
     _batch_upsert(
         conn,
         f"""INSERT INTO {T_INSCRIPTIONS}
            (source, webinar_id, session_id, email, first_name, last_name,
             organisation, registered, attended, registered_at, synced_at) VALUES """,
-        f""" ON CONFLICT(source, webinar_id, session_id, email)
+        """ ON CONFLICT(source, webinar_id, session_id, email)
            DO UPDATE SET
                first_name=excluded.first_name,
                last_name=excluded.last_name,

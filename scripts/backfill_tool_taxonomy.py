@@ -31,9 +31,11 @@ def get_db_connection(db_path: str):
     """Get database connection (SQLite or PostgreSQL)."""
     if db_path.startswith("postgres"):
         import psycopg2
+
         return psycopg2.connect(db_path), "postgres"
     else:
         import sqlite3
+
         return sqlite3.connect(db_path), "sqlite"
 
 

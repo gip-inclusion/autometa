@@ -24,21 +24,21 @@ Usage:
     visits = api.get_visits(site_id=117, period="month", date="2025-12-01")
 """
 
-import os
 import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from ._sources import get_metabase, get_matomo
-from ._audit import log_query, _get_db_connection
+from ._matomo import MatomoAPI, MatomoError  # noqa: F401 — re-exported
+from ._metabase import MetabaseAPI, MetabaseError  # noqa: F401 — re-exported
 
 # Re-export API classes and helpers for convenience
-from ._matomo import MatomoAPI, MatomoError
-from ._metabase import MetabaseAPI, MetabaseError
+from ._sources import get_matomo, get_metabase
+
 
 class CallerType(str, Enum):
     """Type of caller making the query."""
+
     AGENT = "agent"
     APP = "app"
 
@@ -46,6 +46,7 @@ class CallerType(str, Enum):
 @dataclass
 class QueryResult:
     """Result of a query execution."""
+
     success: bool
     data: Any
     error: Optional[str] = None
@@ -55,7 +56,6 @@ class QueryResult:
 def execute_metabase_query(
     instance: str,
     caller: CallerType,
-    conversation_id: Optional[str] = None,
     sql: Optional[str] = None,
     database_id: Optional[int] = None,
     card_id: Optional[int] = None,
@@ -67,10 +67,6 @@ def execute_metabase_query(
     Either sql+database_id or card_id must be provided.
     Returns QueryResult (never raises).
     """
-    # Auto-read conversation_id from environment if not provided
-    if conversation_id is None:
-        conversation_id = os.environ.get("MATOMETA_CONVERSATION_ID")
-
     start_time = time.time()
 
     try:
@@ -107,7 +103,6 @@ def execute_metabase_query(
 def execute_matomo_query(
     instance: str,
     caller: CallerType,
-    conversation_id: Optional[str] = None,
     method: str = "",
     params: Optional[dict] = None,
     timeout: int = 180,
@@ -116,10 +111,6 @@ def execute_matomo_query(
     Execute a Matomo API query with logging.
     Returns QueryResult (never raises).
     """
-    # Auto-read conversation_id from environment if not provided
-    if conversation_id is None:
-        conversation_id = os.environ.get("MATOMETA_CONVERSATION_ID")
-
     start_time = time.time()
     params = params or {}
 
@@ -143,7 +134,6 @@ def execute_query(
     source: str,
     instance: str,
     caller: CallerType,
-    conversation_id: Optional[str] = None,
     # Metabase params
     sql: Optional[str] = None,
     database_id: Optional[int] = None,
@@ -161,7 +151,6 @@ def execute_query(
         source: "metabase" or "matomo"
         instance: Instance name (e.g., "stats", "datalake", "inclusion")
         caller: CallerType.AGENT or CallerType.APP
-        conversation_id: ID of the conversation making the request
 
         # For Metabase:
         sql: SQL query string
@@ -181,7 +170,6 @@ def execute_query(
         return execute_metabase_query(
             instance=instance,
             caller=caller,
-            conversation_id=conversation_id,
             sql=sql,
             database_id=database_id,
             card_id=card_id,
@@ -191,7 +179,6 @@ def execute_query(
         return execute_matomo_query(
             instance=instance,
             caller=caller,
-            conversation_id=conversation_id,
             method=method or "",
             params=params,
             timeout=timeout,
@@ -202,73 +189,3 @@ def execute_query(
             data=None,
             error=f"Unknown source: {source}. Use 'metabase' or 'matomo'.",
         )
-
-
-def get_query_stats(
-    since: Optional[str] = None,
-    source: Optional[str] = None,
-    caller: Optional[str] = None,
-) -> dict:
-    """
-    Get query statistics from the log.
-
-    Args:
-        since: ISO timestamp to filter from (e.g., "2025-01-01")
-        source: Filter by source ("metabase" or "matomo")
-        caller: Filter by caller type ("agent" or "app")
-
-    Returns:
-        Dict with statistics
-    """
-    conn = _get_db_connection()
-
-    where_clauses = []
-    params = []
-
-    if since:
-        where_clauses.append("timestamp >= ?")
-        params.append(since)
-    if source:
-        where_clauses.append("source = ?")
-        params.append(source)
-    if caller:
-        where_clauses.append("caller = ?")
-        params.append(caller)
-
-    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-
-    # Total queries
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM query_log WHERE {where_sql}", params
-    ).fetchone()[0]
-
-    # Success rate
-    success = conn.execute(
-        f"SELECT COUNT(*) FROM query_log WHERE {where_sql} AND success = 1", params
-    ).fetchone()[0]
-
-    # By source
-    by_source = dict(conn.execute(
-        f"SELECT source, COUNT(*) FROM query_log WHERE {where_sql} GROUP BY source", params
-    ).fetchall())
-
-    # By caller
-    by_caller = dict(conn.execute(
-        f"SELECT caller, COUNT(*) FROM query_log WHERE {where_sql} GROUP BY caller", params
-    ).fetchall())
-
-    # Avg execution time
-    avg_time = conn.execute(
-        f"SELECT AVG(execution_time_ms) FROM query_log WHERE {where_sql}", params
-    ).fetchone()[0]
-
-    conn.close()
-
-    return {
-        "total_queries": total,
-        "successful_queries": success,
-        "success_rate": success / total if total > 0 else 0,
-        "by_source": by_source,
-        "by_caller": by_caller,
-        "avg_execution_time_ms": int(avg_time) if avg_time else 0,
-    }

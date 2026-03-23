@@ -26,7 +26,7 @@ Scraped from the Matomo instance on 2026-01-03. This instance includes premium p
 
 → See `core-modules.md` for full signatures.
 
-### Premium Plugins
+### Documented Plugins
 
 | Module | Methods | File | Description |
 |--------|---------|------|-------------|
@@ -36,6 +36,7 @@ Scraped from the Matomo instance on 2026-01-03. This instance includes premium p
 | HeatmapSessionRecording | 24 | `heatmaps.md` | Click maps & session replay |
 | AbTesting | 18 | `abtesting.md` | A/B experiments |
 | MediaAnalytics | 13 | `media.md` | Video/audio tracking |
+| TagManager | 38 | `tag-manager.md` | Tag management |
 
 ### Other Modules
 
@@ -47,10 +48,7 @@ Scraped from the Matomo instance on 2026-01-03. This instance includes premium p
 | VisitorInterest | 6 | Engagement metrics |
 | VisitTime | 3 | Time-based analytics |
 | SitesManager | 42 | Site configuration |
-| TagManager | 46 | `tag-manager.md` | Tag management (containers, tags, triggers, variables) |
 | UsersManager | 28 | User management |
-
-→ See `other-modules.md` for full signatures.
 
 ## Common Parameters
 
@@ -66,6 +64,40 @@ Optional modifiers:
 - `filter_limit=N` - Max rows to return
 
 ## Critical Behaviors
+
+### ⚠️ Segments Are Expensive — Treat Every Segmented Query as Slow
+
+**Matomo segments trigger a full scan of raw visit data.** On large sites
+(Emplois has millions of visits), a single segmented query for one month
+takes **30–180 seconds**. This is not a bug — it's how Matomo works.
+
+**Pre-computed vs. ad-hoc segments:**
+
+| Type | Speed | How to tell |
+|------|-------|-------------|
+| **Pre-computed** (archived) | Fast (< 5s) | Listed in `SegmentEditor.getAll` with `auto_archive=1` |
+| **Saved but not archived** | Slow (30-180s) | Listed in `SegmentEditor.getAll` with `auto_archive=0` |
+| **Ad-hoc** (inline segment string) | Slow (30-180s) | Not saved at all — computed on the fly |
+
+**The danger:** Writing a script that loops over 12+ months with an ad-hoc
+segment creates 12+ sequential slow queries = **6-36 minutes** of wall time.
+This WILL cause the Bash tool to timeout, background the script, and trap
+the conversation in a polling loop.
+
+**Rules:**
+1. **Max 5 segmented queries per script.** No exceptions.
+2. **Prefer date ranges without segments** — `date=2025-01-01,2025-12-31`
+   without a segment returns all months instantly as a keyed dict.
+3. **With segments, query 2-3 months max**, show results, offer to fetch more.
+4. **Check if a segment is pre-computed** before bulk-querying with it:
+   ```python
+   result = execute_matomo_query(
+       instance="inclusion", caller=CallerType.AGENT,
+       method="SegmentEditor.getAll", params={"idSite": 117})
+   for seg in result.data:
+       print(f"{seg['name']}: auto_archive={seg.get('auto_archive')}")
+   ```
+5. **Always print progress** after each query in multi-query scripts.
 
 ### Asynchronous Report Processing
 

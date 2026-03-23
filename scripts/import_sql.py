@@ -4,13 +4,14 @@
 Run on Scalingo one-off:
     scalingo --app matometa run python scripts/import_sql.py
 """
+
 import os
 import re
 import sys
 
 import boto3
-from botocore.config import Config as BotoConfig
 import psycopg2
+from botocore.config import Config as BotoConfig
 
 SQL_KEY = "_migration/migration.sql"
 LOCAL_PATH = "/tmp/migration.sql"
@@ -40,9 +41,9 @@ def main():
     # Split SQL into per-table sections to avoid connection timeout
     sql = open(LOCAL_PATH).read()
     # Split on comment headers like "-- tablename: N rows"
-    sections = re.split(r'(?=^-- \w+:)', sql, flags=re.MULTILINE)
+    sections = re.split(r"(?=^-- \w+:)", sql, flags=re.MULTILINE)
 
-    print(f"Connecting to PostgreSQL...")
+    print("Connecting to PostgreSQL...")
     conn = psycopg2.connect(database_url)
     conn.autocommit = True  # each section is its own transaction
 
@@ -52,7 +53,7 @@ def main():
             continue
 
         # Extract table name from comment
-        header = section.split('\n')[0]
+        header = section.split("\n")[0]
         print(f"  {header}")
 
         cur = conn.cursor()

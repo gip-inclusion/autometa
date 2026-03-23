@@ -1,5 +1,5 @@
 [project]
-name = "matometa"
+name = "autometa"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,10 +10,7 @@ dependencies = [
     "python-multipart>=0.0.21",
 
     # Claude API
-    "anthropic>=0.75.0",
-
-    # HTTP client (used directly in llm.py)
-    "httpx>=0.28.1",
+    "claude-agent-sdk>=0.1.48",
 
     # Templating
     "jinja2>=3.1.6",
@@ -36,8 +33,8 @@ dependencies = [
     # S3-compatible object storage
     "boto3>=1.35.0",
 
-    # Process management
-    "pexpect>=4.9.0",
+    # Vector similarity (lightweight numpy alternative for embeddings)
+    "simsimd>=6.0.0",
 
     # Data analysis
     "numpy>=1.26.0",
@@ -61,4 +58,50 @@ embeddings = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.0.2",
+    "ruff>=0.11.0",
+    "bandit>=1.8.0",
+    "pip-audit>=2.7.0",
+]
+
+# =============================================================================
+# Ruff — linting & formatting
+# =============================================================================
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+# evals/: experimental evaluation scripts, intentionally loose style
+# skills/: self-contained agent skill packages with their own conventions
+exclude = ["data/", ".venv/", "evals/", "skills/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line length — enforce progressively, not retroactively
+]
+
+[tool.ruff.lint.per-file-ignores]
+"web/app.py" = ["E402"]              # imports after logging setup
+"scripts/*" = ["E402"]               # sys.path / dotenv setup before imports
+"tests/test_knowledge_sync.py" = ["E402"]  # sys.path setup before imports
+"tests/test_uploads.py" = ["E402"]         # env config before imports
+
+# =============================================================================
+# Bandit — SAST
+# =============================================================================
+
+# =============================================================================
+# Pytest
+# =============================================================================
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that require external services or credentials",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "evals", "data", "skills"]
+skips = [
+    "B310",  # urllib.request.urlopen — used for Notion API calls and research sync (controlled URLs)
+    "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]

@@ -1,30 +1,20 @@
-"""Tests for knowledge_sync skill."""
+"""Tests for sync_sites skill."""
 
-import pytest
-
-# Skip entire module - skill was renamed/removed
-pytest.skip(
-    "skills.knowledge_sync module no longer exists (renamed to sync_sites skill)",
-    allow_module_level=True,
-)
-
-from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock
 
-from skills.knowledge_sync.scripts.sync_sites import (
-    SiteConfig,
+from skills.sync_sites.scripts.sync_sites import (
     SITES,
     fetch_custom_dimensions,
-    fetch_saved_segments,
     fetch_event_categories,
+    fetch_saved_segments,
+    format_number,
     generate_baselines_section,
     generate_dimensions_section,
-    generate_segments_section,
     generate_events_section,
+    generate_segments_section,
     update_doc_section,
-    format_number,
 )
 
 
@@ -162,8 +152,8 @@ class TestGenerateSections:
         assert "| candidature |" in result
         # Should be sorted by event count (candidature first)
         lines = result.split("\n")
-        candidature_line = [l for l in lines if "candidature" in l][0]
-        employeurs_line = [l for l in lines if "employeurs" in l][0]
+        candidature_line = [line for line in lines if "candidature" in line][0]
+        employeurs_line = [line for line in lines if "employeurs" in line][0]
         assert lines.index(candidature_line) < lines.index(employeurs_line)
 
 
@@ -226,8 +216,20 @@ class TestGenerateBaselinesSection:
         """Baselines section generates proper tables."""
         data = {
             "monthly_stats": [
-                {"month": "2025-01", "visitors": 1000, "visits": 2000, "daily_avg_visitors": 32, "daily_avg_visits": 65},
-                {"month": "2025-02", "visitors": 1200, "visits": 2400, "daily_avg_visitors": 43, "daily_avg_visits": 86},
+                {
+                    "month": "2025-01",
+                    "visitors": 1000,
+                    "visits": 2000,
+                    "daily_avg_visitors": 32,
+                    "daily_avg_visits": 65,
+                },
+                {
+                    "month": "2025-02",
+                    "visitors": 1200,
+                    "visits": 2400,
+                    "daily_avg_visitors": 43,
+                    "daily_avg_visits": 86,
+                },
             ],
             "user_types": {},
             "engagement": [
@@ -248,7 +250,13 @@ class TestGenerateBaselinesSection:
         """None values are formatted as dashes."""
         data = {
             "monthly_stats": [
-                {"month": "2025-04", "visitors": None, "visits": None, "daily_avg_visitors": None, "daily_avg_visits": None},
+                {
+                    "month": "2025-04",
+                    "visitors": None,
+                    "visits": None,
+                    "daily_avg_visitors": None,
+                    "daily_avg_visits": None,
+                },
             ],
             "user_types": {},
             "engagement": [],
@@ -258,5 +266,5 @@ class TestGenerateBaselinesSection:
 
         assert "| 2025-04 |" in result
         # Should have dashes for None values
-        line = [l for l in result.split("\n") if "2025-04" in l][0]
+        line = [x for x in result.split("\n") if "2025-04" in x][0]
         assert "-" in line

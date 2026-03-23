@@ -190,9 +190,7 @@ def extract_page_properties(page):
         elif ptype == "relation":
             props[name] = [r["id"] for r in val.get("relation", [])]
         elif ptype == "people":
-            props[name] = [
-                p.get("name", p.get("id", "")) for p in val.get("people", [])
-            ]
+            props[name] = [p.get("name", p.get("id", "")) for p in val.get("people", [])]
         elif ptype == "formula":
             f = val.get("formula", {})
             ftype = f.get("type")
@@ -275,9 +273,7 @@ def index_database(conn, db_key, db_info, fetch_blocks=True):
 
         # Store relations separately
         for prop_name, prop_val in props.items():
-            if isinstance(prop_val, list) and prop_val and all(
-                isinstance(v, str) and len(v) == 36 for v in prop_val
-            ):
+            if isinstance(prop_val, list) and prop_val and all(isinstance(v, str) and len(v) == 36 for v in prop_val):
                 for target_id in prop_val:
                     conn.execute(
                         "INSERT INTO relations (source_page_id, property_name, target_page_id) VALUES (?, ?, ?)",
@@ -313,9 +309,7 @@ def index_database(conn, db_key, db_info, fetch_blocks=True):
         )
 
         # FTS for pages
-        rowid = conn.execute(
-            "SELECT rowid FROM pages WHERE id = ?", (page_id,)
-        ).fetchone()[0]
+        rowid = conn.execute("SELECT rowid FROM pages WHERE id = ?", (page_id,)).fetchone()[0]
         conn.execute(
             "INSERT INTO pages_fts (rowid, title, properties_text) VALUES (?, ?, ?)",
             (rowid, title, properties_text),
@@ -343,9 +337,7 @@ def index_database(conn, db_key, db_info, fetch_blocks=True):
                     ),
                 )
                 if text.strip():
-                    rowid = conn.execute(
-                        "SELECT rowid FROM blocks WHERE id = ?", (block["id"],)
-                    ).fetchone()[0]
+                    rowid = conn.execute("SELECT rowid FROM blocks WHERE id = ?", (block["id"],)).fetchone()[0]
                     conn.execute(
                         "INSERT INTO blocks_fts (rowid, text_content) VALUES (?, ?)",
                         (rowid, text),
@@ -434,9 +426,9 @@ def main():
     print("\n" + "=" * 60)
     print("SYNC COMPLETE")
     print("=" * 60)
-    print(f"Total time:     {elapsed:.1f}s ({elapsed/60:.1f} min)")
+    print(f"Total time:     {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     print(f"API requests:   {_request_count}")
-    print(f"Avg rate:       {_request_count/elapsed:.1f} req/s")
+    print(f"Avg rate:       {_request_count / elapsed:.1f} req/s")
     print(f"Pages indexed:  {total_pages}")
     print(f"Blocks indexed: {total_blocks}")
     print(f"Database:       {args.db} ({args.db.stat().st_size / 1024:.0f} KB)")

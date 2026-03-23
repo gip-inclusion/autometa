@@ -4,23 +4,26 @@ import asyncio
 import json
 import logging
 import threading
+import time
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from ..deps import get_current_user
-from ..storage import store
-from .. import config
-from .. import llm
+from .. import config, llm
 from ..config import ADMIN_USERS
+from ..deps import get_current_user
+from ..signals import signals
+from ..storage import store
+from ..uploads import (
+    AVScanFailedError,
+    BlockedFileTypeError,
+    FileTooLargeError,
+    copy_file_for_modification,
+    format_file_for_context,
+    get_file_content,
+)
 from ..uploads import (
     upload_file as do_upload_file,
-    copy_file_for_modification,
-    get_file_content,
-    format_file_for_context,
-    FileTooLargeError,
-    BlockedFileTypeError,
-    AVScanFailedError,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +89,7 @@ def _build_project_prompt(*, project, content: str, workdir: str, is_first_proje
 
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
     """Generate a smart title for a conversation (async, in background)."""
+
     def _generate():
         try:
             model = config.OLLAMA_TITLE_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.CLAUDE_MODEL
@@ -147,18 +151,41 @@ def generate_conversation_tags(user_message: str, conv_id: str) -> None:
 - extraction: Extraction de données brutes
 - analyse: Analyse / rapport
 - appli: Application interactive
-- meta: Question sur Matometa lui-même
+- meta: Question sur Autometa lui-même
 """
 
     VALID_TAGS = {
-        "emplois", "dora", "marche", "communaute", "pilotage",
-        "plateforme", "rdv-insertion", "mon-recap", "multi",
-        "matomo", "stats", "datalake",
-        "candidats", "prescripteurs", "employeurs", "structures",
-        "acheteurs", "fournisseurs",
-        "iae", "orientation", "depot-de-besoin", "demande-de-devis", "commandes",
-        "trafic", "conversions", "retention", "geographique",
-        "extraction", "analyse", "appli", "meta",
+        "emplois",
+        "dora",
+        "marche",
+        "communaute",
+        "pilotage",
+        "plateforme",
+        "rdv-insertion",
+        "mon-recap",
+        "multi",
+        "matomo",
+        "stats",
+        "datalake",
+        "candidats",
+        "prescripteurs",
+        "employeurs",
+        "structures",
+        "acheteurs",
+        "fournisseurs",
+        "iae",
+        "orientation",
+        "depot-de-besoin",
+        "demande-de-devis",
+        "commandes",
+        "trafic",
+        "conversions",
+        "retention",
+        "geographique",
+        "extraction",
+        "analyse",
+        "appli",
+        "meta",
     }
 
     prompt = f"""Analyse cette demande utilisateur et attribue des tags parmi la taxonomie suivante.
@@ -170,7 +197,7 @@ Règles:
 - OBLIGATOIRE: exactement 1 tag type_demande
 - OPTIONNEL: 0 à 2 tags thème (acteurs, concepts, métriques)
 - Si la demande mentionne plusieurs produits, utilise "multi"
-- Si c'est une question sur l'outil Matometa, utilise "meta"
+- Si c'est une question sur l'outil Autometa, utilise "meta"
 
 Demande: {user_message[:1000]}
 
@@ -373,13 +400,13 @@ def generate_title(conv_id: str):
             "En francais uniquement. Pas de guillemets.\n\n"
             f"{context}"
         )
-        title = llm.generate_text(prompt, model=model, max_tokens=50).strip().strip('"\'')[:100]
+        title = llm.generate_text(prompt, model=model, max_tokens=50).strip().strip("\"'")[:100]
         store.update_conversation(conv_id, title=title)
         return {"title": title}
 
     except Exception as exc:
         logger.error(f"Failed to generate title: {exc}")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse({"error": "Failed to generate title"}, status_code=500)
 
 
 @router.post("/{conv_id}/fork")
@@ -424,7 +451,9 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
     # Check ownership - only owner can send messages
     if conv.user_id and conv.user_id != user_email:
         return JSONResponse(
-            {"error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."},
+            {
+                "error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."
+            },
             status_code=403,
         )
 
@@ -455,10 +484,17 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:
-        from ..helpers import get_staging_dir, KNOWLEDGE_ROOT
+        from ..helpers import KNOWLEDGE_ROOT, get_staging_dir
+
         staging_dir = get_staging_dir(conv_id)
-        original_path = KNOWLEDGE_ROOT / conv.file_path
-        staged_path = staging_dir / conv.file_path
+        original_path = (KNOWLEDGE_ROOT / conv.file_path).resolve()
+        staged_path = (staging_dir / conv.file_path).resolve()
+
+        # Path traversal protection
+        if not str(original_path).startswith(str(KNOWLEDGE_ROOT.resolve())) or not str(staged_path).startswith(
+            str(staging_dir.resolve())
+        ):
+            return JSONResponse({"error": "Invalid file path"}, status_code=400)
 
         if is_first_message:
             if staged_path.exists():
@@ -512,13 +548,17 @@ User request: """
             )
 
     # Enqueue the run command for the process manager
-    store.enqueue_pm_command(conv_id, "run", {
-        "prompt": prompt,
-        "history": history,
-        "session_id": conv.session_id,
-        "user_email": user_email,
-        "project_workdir": project_workdir,
-    })
+    store.enqueue_pm_command(
+        conv_id,
+        "run",
+        {
+            "prompt": prompt,
+            "history": history,
+            "session_id": conv.session_id,
+            "user_email": user_email,
+            "project_workdir": project_workdir,
+        },
+    )
 
     return {
         "status": "started",
@@ -560,12 +600,16 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
             history.append({"role": msg.type, "content": msg.content})
 
     store.update_conversation(conv_id, needs_response=True)
-    store.enqueue_pm_command(conv_id, "run", {
-        "prompt": last_user_msg.content,
-        "history": history,
-        "session_id": conv.session_id,
-        "user_email": conv.user_id,
-    })
+    store.enqueue_pm_command(
+        conv_id,
+        "run",
+        {
+            "prompt": last_user_msg.content,
+            "history": history,
+            "session_id": conv.session_id,
+            "user_email": conv.user_id,
+        },
+    )
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
@@ -642,9 +686,9 @@ async def stream_conversation(
 ):
     """Stream agent responses via Server-Sent Events.
 
-    Tails the messages table for new events written by the process manager.
-    Decoupled from the agent subprocess — client disconnect does NOT kill
-    the agent.
+    Uses in-process signals (web/signals.py) for near-instant message
+    delivery, with a 5s DB fallback for robustness. Client disconnect
+    does NOT kill the agent.
 
     The ``after`` query parameter tells the handler where to start streaming
     from (the ID of the last message the client already has).  This prevents
@@ -658,9 +702,6 @@ async def stream_conversation(
     if after == 0 and not conv.messages and not conv.needs_response:
         return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
-    # Tail the messages table: poll for new messages written by the PM.
-    # Even when needs_response is already False (PM finished before SSE
-    # connect), we flush unseen messages before sending done.
     def _sse_event(msg_type: str, data: dict) -> str:
         """Format a complete SSE event as a single string (avoids split-chunk buffering)."""
         return f"event: {msg_type}\ndata: {json.dumps(data)}\n\n"
@@ -675,154 +716,194 @@ async def stream_conversation(
                 pass
         return _sse_event(msg.type, sse_data)
 
+    async def _drain_unseen(last_msg_id: int) -> list[str]:
+        """Fetch remaining messages and return formatted SSE chunks ending with 'done'."""
+        chunks = []
+        final = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
+        for msg in final:
+            chunks.append(_format_msg(msg))
+        chunks.append(_sse_event("done", {"conversation_id": conv_id}))
+        return chunks
+
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
-        logger.debug(f"SSE stream start: conv={conv_id}, after={after}, watermark={last_msg_id}")
-        poll_count = 0
-        max_polls = 1800  # 15 minutes at 0.5s intervals
+        logger.debug(
+            "SSE stream start: conv=%s, after=%d, watermark=%d",
+            conv_id,
+            after,
+            last_msg_id,
+        )
+        max_seconds = 300
+        fallback_interval = 5  # safety-net DB poll every 5s
+        start = time.monotonic()
+        last_fallback = start
 
-        while poll_count < max_polls:
-            new_messages = await asyncio.to_thread(
-                store.get_messages_since, conv_id, last_msg_id
-            )
-            if new_messages:
-                logger.debug(f"SSE poll {poll_count}: {len(new_messages)} new msgs, types={[m.type for m in new_messages]}")
-            for msg in new_messages:
-                last_msg_id = msg.id
-                yield _format_msg(msg)
+        async def _expert_post_run_hook():
+            """Expert-mode post-run hook: commit/push staged changes and trigger staging deploy."""
+            updated = await asyncio.to_thread(store.get_conversation, conv_id, False)
+            if not updated or updated.conv_type != "project" or not updated.project_id:
+                return
+            try:
+                from lib.expert_git import commit_and_push_staging_if_changed, reconcile_specify_artifacts
 
-            # Check if the PM has finished (needs_response cleared)
-            updated = await asyncio.to_thread(
-                store.get_conversation, conv_id, False
-            )
-            if updated and not updated.needs_response:
-                # Final sweep: the PM commits all messages before clearing
-                # needs_response, so one last poll catches anything written
-                # between our message query and this status check.
-                final = await asyncio.to_thread(
-                    store.get_messages_since, conv_id, last_msg_id
+                project = await asyncio.to_thread(store.get_project, updated.project_id)
+                if not project:
+                    return
+
+                # Reconcile misplaced spec artifacts before committing
+                await asyncio.to_thread(reconcile_specify_artifacts, project.id)
+
+                commit_result = await asyncio.to_thread(
+                    commit_and_push_staging_if_changed,
+                    project,
+                    conv_id,
                 )
-                for msg in final:
-                    yield _format_msg(msg)
+                if not commit_result:
+                    return
 
-                # Expert-mode post-run hook: commit/push staged changes and trigger staging deploy.
-                if updated.conv_type == "project" and updated.project_id:
-                    try:
-                        from lib.expert_git import commit_and_push_staging_if_changed, reconcile_specify_artifacts
+                deploy_triggered = False
+                deploy_result = None
+                review_result = None
 
-                        project = await asyncio.to_thread(store.get_project, updated.project_id)
-                        if project:
-                            # Reconcile misplaced spec artifacts before committing
-                            await asyncio.to_thread(reconcile_specify_artifacts, project.id)
+                # Run deploy and code review in parallel.
+                deploy_task = None
+                review_task = None
 
-                            commit_result = await asyncio.to_thread(
-                                commit_and_push_staging_if_changed,
-                                project,
-                                conv_id,
-                            )
-                            deploy_triggered = False
-                            deploy_result = None
-                            review_result = None
-
-                            if commit_result:
-                                # Run deploy and code review in parallel.
-                                deploy_task = None
-                                review_task = None
-
-                                # Auto-deploy staging via Docker if available.
-                                try:
-                                    from lib import docker_deploy
-                                    if docker_deploy.docker_available():
-                                        compose_file = config.PROJECTS_DIR / project.id / "docker-compose.yml"
-                                        if compose_file.exists():
-                                            deploy_task = asyncio.create_task(
-                                                asyncio.to_thread(
-                                                    docker_deploy.deploy, project.id, "staging"
-                                                )
-                                            )
-                                except Exception as deploy_exc:
-                                    logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
-
-                                # Code review via local Ollama model (advisory).
-                                try:
-                                    from lib.expert_review import review_commit
-                                    review_task = asyncio.create_task(
-                                        asyncio.to_thread(
-                                            review_commit, project.id, commit_result["commit"]
-                                        )
-                                    )
-                                except Exception as review_exc:
-                                    logger.warning("Code review setup error for %s: %s", conv_id, review_exc)
-
-                                # Await deploy result.
-                                if deploy_task:
-                                    try:
-                                        deploy_result = await deploy_task
-                                        deploy_triggered = deploy_result.get("status") == "running"
-                                        if not deploy_triggered:
-                                            logger.warning(
-                                                "Auto-deploy staging failed for %s: %s",
-                                                project.slug, deploy_result.get("error", "unknown"),
-                                            )
-                                    except Exception as deploy_exc:
-                                        logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
-
-                                # Await review result.
-                                if review_task:
-                                    try:
-                                        review_result = await review_task
-                                    except Exception as review_exc:
-                                        logger.warning("Code review error for %s: %s", conv_id, review_exc)
-
-                                sse_content = {
-                                    "subtype": "auto_commit",
-                                    "branch": commit_result["branch"],
-                                    "commit": commit_result["commit"],
-                                    "files_changed": len(commit_result["files"]),
-                                    "staging_deploy_triggered": deploy_triggered,
-                                }
-                                # Include lint warnings from quality gate.
-                                if commit_result.get("lint_warnings"):
-                                    sse_content["lint_warnings"] = commit_result["lint_warnings"]
-                                # Include smoke test results if available.
-                                if deploy_triggered and deploy_result and deploy_result.get("smoke_test"):
-                                    sse_content["smoke_test"] = deploy_result["smoke_test"]
-
-                                yield _sse_event(
-                                    "system",
-                                    {"type": "system", "content": sse_content},
+                # Auto-deploy staging via Docker if available.
+                try:
+                    from lib import docker_deploy
+                    if docker_deploy.docker_available():
+                        compose_file = config.PROJECTS_DIR / project.id / "docker-compose.yml"
+                        if compose_file.exists():
+                            deploy_task = asyncio.create_task(
+                                asyncio.to_thread(
+                                    docker_deploy.deploy, project.id, "staging"
                                 )
+                            )
+                except Exception as deploy_exc:
+                    logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
 
-                                # Send code review as a separate SSE event (can arrive after deploy).
-                                if review_result:
-                                    yield _sse_event(
-                                        "system",
-                                        {"type": "system", "content": {
-                                            "subtype": "code_review",
-                                            "review": review_result["review"],
-                                            "model": review_result["model"],
-                                            "commit": commit_result["commit"],
-                                        }},
-                                    )
-                    except Exception as exc:
-                        logger.warning("Expert auto-commit failed for conversation %s: %s", conv_id, exc)
+                # Code review via local Ollama model (advisory).
+                try:
+                    from lib.expert_review import review_commit
+                    review_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            review_commit, project.id, commit_result["commit"]
+                        )
+                    )
+                except Exception as review_exc:
+                    logger.warning("Code review setup error for %s: %s", conv_id, review_exc)
 
-                yield _sse_event("done", {"conversation_id": conv_id})
+                # Await deploy result.
+                if deploy_task:
+                    try:
+                        deploy_result = await deploy_task
+                        deploy_triggered = deploy_result.get("status") == "running"
+                        if not deploy_triggered:
+                            logger.warning(
+                                "Auto-deploy staging failed for %s: %s",
+                                project.slug, deploy_result.get("error", "unknown"),
+                            )
+                    except Exception as deploy_exc:
+                        logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
+
+                # Await review result.
+                if review_task:
+                    try:
+                        review_result = await review_task
+                    except Exception as review_exc:
+                        logger.warning("Code review error for %s: %s", conv_id, review_exc)
+
+                sse_content = {
+                    "subtype": "auto_commit",
+                    "branch": commit_result["branch"],
+                    "commit": commit_result["commit"],
+                    "files_changed": len(commit_result["files"]),
+                    "staging_deploy_triggered": deploy_triggered,
+                }
+                # Include lint warnings from quality gate.
+                if commit_result.get("lint_warnings"):
+                    sse_content["lint_warnings"] = commit_result["lint_warnings"]
+                # Include smoke test results if available.
+                if deploy_triggered and deploy_result and deploy_result.get("smoke_test"):
+                    sse_content["smoke_test"] = deploy_result["smoke_test"]
+
+                yield _sse_event(
+                    "system",
+                    {"type": "system", "content": sse_content},
+                )
+
+                # Send code review as a separate SSE event (can arrive after deploy).
+                if review_result:
+                    yield _sse_event(
+                        "system",
+                        {"type": "system", "content": {
+                            "subtype": "code_review",
+                            "review": review_result["review"],
+                            "model": review_result["model"],
+                            "commit": commit_result["commit"],
+                        }},
+                    )
+            except Exception as exc:
+                logger.warning("Expert auto-commit failed for conversation %s: %s", conv_id, exc)
+
+        try:
+            # Check if conversation is already complete (PM finished before
+            # SSE connects, or conversation was never running)
+            if signals.is_finished(conv_id) or not conv.needs_response:
+                for chunk in await _drain_unseen(last_msg_id):
+                    yield chunk
+                async for evt in _expert_post_run_hook():
+                    yield evt
                 return
 
-            # PM liveness check: if PM is dead and needs_response is stuck, stop waiting
-            if not await asyncio.to_thread(store.is_pm_alive):
-                yield _sse_event("error", {"content": "L'agent est indisponible"})
-                yield _sse_event("done", {"conversation_id": conv_id})
-                return
+            while (time.monotonic() - start) < max_seconds:
+                signaled = await signals.wait_for_message(conv_id, timeout=3.0)
+                now = time.monotonic()
 
-            poll_count += 1
-            # Named heartbeat event (resets client retry counter, keeps proxies alive)
-            if poll_count % 6 == 0:
-                yield _sse_event("heartbeat", {})
-            await asyncio.sleep(0.5)
+                if signaled:
+                    new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
+                    for msg in new_messages:
+                        last_msg_id = msg.id
+                        yield _format_msg(msg)
 
-        yield _sse_event("error", {"content": "Timeout waiting for agent"})
+                # Completion check: in-memory flag (0 queries)
+                if signals.is_finished(conv_id):
+                    for chunk in await _drain_unseen(last_msg_id):
+                        yield chunk
+                    async for evt in _expert_post_run_hook():
+                        yield evt
+                    return
+
+                # Safety-net fallback: check DB every 5s for missed signals
+                if not signaled and (now - last_fallback) >= fallback_interval:
+                    last_fallback = now
+                    new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
+                    for msg in new_messages:
+                        last_msg_id = msg.id
+                        yield _format_msg(msg)
+
+                    updated = await asyncio.to_thread(store.get_conversation, conv_id, False)
+                    if updated and not updated.needs_response:
+                        for chunk in await _drain_unseen(last_msg_id):
+                            yield chunk
+                        async for evt in _expert_post_run_hook():
+                            yield evt
+                        return
+
+                # PM liveness: in-memory cache (0 queries)
+                if not signals.is_pm_alive():
+                    yield _sse_event("error", {"content": "L'agent est indisponible"})
+                    yield _sse_event("done", {"conversation_id": conv_id})
+                    return
+
+                # Heartbeat keeps proxies alive (only when idle — skip if we just yielded content)
+                if not signaled:
+                    yield _sse_event("heartbeat", {})
+
+            yield _sse_event("error", {"content": "Timeout waiting for agent"})
+        finally:
+            signals.cleanup(conv_id)
 
     return StreamingResponse(
         generate(),
@@ -850,7 +931,7 @@ def cancel_conversation(conv_id: str):
         cmd["conversation_id"] == conv_id and cmd["command"] == "run"
         for cmd in pending
     )
-    if not store.is_pm_alive() and not has_pending_run:
+    if not has_pending_run:
         store.update_conversation(conv_id, needs_response=False)
         store.add_message(conv_id, "assistant", "*Interrompu.*")
         return {"status": "cancelled"}
@@ -858,14 +939,11 @@ def cancel_conversation(conv_id: str):
     return {"status": "cancel_requested"}
 
 
-
 @router.get("/{conv_id}/tags")
 def get_conversation_tags(conv_id: str):
     """Get tags for a conversation."""
     tags = store.get_conversation_tags(conv_id)
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}
 
 
 @router.put("/{conv_id}/tags")
@@ -881,14 +959,13 @@ async def set_conversation_tags(conv_id: str, request: Request):
 
     store.set_conversation_tags(conv_id, tag_names)
     tags = store.get_conversation_tags(conv_id)
-    return {
-        "tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]
-    }
+    return {"tags": [{"name": t.name, "type": t.type, "label": t.label} for t in tags]}
 
 
 # =============================================================================
 # File Upload Endpoints
 # =============================================================================
+
 
 @router.post("/{conv_id}/files")
 async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str = Depends(get_current_user)):
@@ -929,11 +1006,14 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         return JSONResponse(response, status_code=201)
 
     except FileTooLargeError as e:
-        return JSONResponse({"error": f"File too large: {e}"}, status_code=413)
+        logger.warning("File too large: %s", e)
+        return JSONResponse({"error": "File too large"}, status_code=413)
     except BlockedFileTypeError as e:
-        return JSONResponse({"error": f"File type not allowed: {e}"}, status_code=415)
+        logger.warning("Blocked file type: %s", e)
+        return JSONResponse({"error": "File type not allowed"}, status_code=415)
     except AVScanFailedError as e:
-        return JSONResponse({"error": f"File failed security scan: {e}"}, status_code=422)
+        logger.warning("AV scan failed: %s", e)
+        return JSONResponse({"error": "File failed security scan"}, status_code=422)
     except Exception as e:
         logger.error(f"File upload failed: {e}")
         return JSONResponse({"error": "Upload failed"}, status_code=500)
@@ -947,9 +1027,7 @@ def list_files(conv_id: str):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     files = store.get_conversation_files(conv_id)
-    return {
-        "files": [f.to_dict() for f in files]
-    }
+    return {"files": [f.to_dict() for f in files]}
 
 
 @router.get("/{conv_id}/files/{file_id}")
@@ -982,9 +1060,7 @@ def get_file_content_endpoint(conv_id: str, file_id: int):
     return Response(
         content=content,
         media_type=uploaded_file.mime_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="{uploaded_file.original_filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{uploaded_file.original_filename}"'},
     )
 
 
