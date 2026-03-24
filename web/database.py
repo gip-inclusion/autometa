@@ -65,6 +65,9 @@ class Project:
     tech_stack: Optional[dict] = None
     boilerplate: Optional[str] = None
     llm_backend: str = "ollama"
+    scaleway_container_id: Optional[str] = None
+    scaleway_url: Optional[str] = None
+    scaleway_db_url: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -91,6 +94,9 @@ class Project:
             "tech_stack": self.tech_stack,
             "boilerplate": self.boilerplate,
             "llm_backend": self.llm_backend,
+            "scaleway_container_id": self.scaleway_container_id,
+            "scaleway_url": self.scaleway_url,
+            "scaleway_db_url": self.scaleway_db_url,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -589,7 +595,8 @@ class ConversationStore:
                    "deploy_url", "staging_branch", "production_branch",
                    "staging_coolify_app_uuid", "staging_deploy_url",
                    "production_coolify_app_uuid", "production_deploy_url",
-                   "tech_stack", "boilerplate", "llm_backend"}
+                   "tech_stack", "boilerplate", "llm_backend",
+                   "scaleway_container_id", "scaleway_url", "scaleway_db_url"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
@@ -664,6 +671,9 @@ class ConversationStore:
             tech_stack=tech_stack,
             boilerplate=row["boilerplate"],
             llm_backend=row["llm_backend"] if "llm_backend" in row_keys and row["llm_backend"] else "ollama",
+            scaleway_container_id=row["scaleway_container_id"] if "scaleway_container_id" in row_keys else None,
+            scaleway_url=row["scaleway_url"] if "scaleway_url" in row_keys else None,
+            scaleway_db_url=row["scaleway_db_url"] if "scaleway_db_url" in row_keys else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

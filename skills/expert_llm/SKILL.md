@@ -98,3 +98,4 @@ python -m skills.expert_llm.scripts.scaffold_llm --workdir <project-workdir> --l
 4. **Streaming**: set `"stream": true` in the request body and consume standard SSE.
 5. **Dockerfile**: Do NOT bundle API keys. They come from env vars at runtime.
 6. **docker-compose.yml**: Do NOT add `SYNTHETIC_API_KEY` to compose — it is injected by the deployment pipeline.
+7. **Health checks must NOT call the LLM**. The `/health` endpoint is hit every 30s by Docker — checking LLM connectivity there wastes API credits. Health should only verify the app itself (DB, config). Check LLM status only on-demand (e.g. a `/test` endpoint).

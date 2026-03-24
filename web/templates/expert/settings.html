@@ -27,69 +27,91 @@
   <div class="section-body">
     <div class="container py-4" style="max-width: 720px;">
 
-      <!-- Deploy status -->
+      <!-- Staging -->
       <div class="card mb-4">
         <div class="card-header d-flex align-items-center justify-content-between">
-          <strong>Déploiement</strong>
+          <strong><i class="ri-code-s-slash-line me-1"></i> Staging</strong>
           <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshStatusBtn">
-            <i class="ri-refresh-line"></i> Rafraîchir
+            <i class="ri-refresh-line"></i>
           </button>
         </div>
         <div class="card-body">
-          <div class="row g-4">
-            <!-- Staging -->
-            <div class="col-md-6">
-              <div class="d-flex align-items-center gap-2 mb-2">
-                <span class="deploy-dot deploy-dot-unknown" id="stagingDot"></span>
-                <strong>Staging</strong>
-              </div>
-              <p class="text-muted small mb-2" id="stagingStatusText">Chargement...</p>
-              <div class="d-flex flex-wrap gap-2 mb-2">
-                <a href="/expert/{{ project.slug }}/preview/staging/" target="_blank" class="btn btn-sm btn-outline-secondary" id="stagingOpenBtn" style="display:none;">
-                  <i class="ri-external-link-line"></i> Ouvrir
-                </a>
-                <button type="button" class="btn btn-sm btn-outline-info" id="stagingLogsBtn" style="display:none;" title="Voir les logs">
-                  <i class="ri-terminal-line"></i> Logs
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-warning" id="stagingRestartBtn" style="display:none;" title="Redémarrer">
-                  <i class="ri-restart-line"></i> Restart
-                </button>
-              </div>
-              <div>
-                <button type="button" class="btn btn-sm btn-warning" id="deployStagingBtn" {% if not project.gitea_url %}disabled{% endif %}>
-                  <i class="ri-upload-cloud-line"></i> Déployer staging
-                </button>
-              </div>
-              <!-- Logs panel (hidden by default) -->
-              <pre class="mt-2 p-2 bg-dark text-light small" id="stagingLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
-            </div>
-
-            <!-- Production -->
-            <div class="col-md-6">
-              <div class="d-flex align-items-center gap-2 mb-2">
-                <span class="deploy-dot deploy-dot-unknown" id="productionDot"></span>
-                <strong>Production</strong>
-              </div>
-              <p class="text-muted small mb-2" id="productionStatusText">Chargement...</p>
-              <div class="d-flex flex-wrap gap-2 mb-2">
-                <a href="/expert/{{ project.slug }}/preview/production/" target="_blank" class="btn btn-sm btn-outline-success" id="productionOpenBtn" style="display:none;">
-                  <i class="ri-external-link-line"></i> Ouvrir
-                </a>
-                <button type="button" class="btn btn-sm btn-outline-info" id="productionLogsBtn" style="display:none;" title="Voir les logs">
-                  <i class="ri-terminal-line"></i> Logs
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-warning" id="productionRestartBtn" style="display:none;" title="Redémarrer">
-                  <i class="ri-restart-line"></i> Restart
-                </button>
-              </div>
-              <div>
-                <button type="button" class="btn btn-sm btn-primary" id="deployProductionBtn" {% if not project.gitea_url %}disabled{% endif %}>
-                  <i class="ri-rocket-line"></i> Déployer production
-                </button>
-              </div>
-              <pre class="mt-2 p-2 bg-dark text-light small" id="productionLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
-            </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="deploy-dot deploy-dot-unknown" id="stagingDot"></span>
+            <span class="small" id="stagingStatusText">Chargement...</span>
           </div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <a href="/expert/{{ project.slug }}/preview/staging/" target="_blank" class="btn btn-sm btn-outline-secondary" id="stagingOpenBtn" style="display:none;">
+              <i class="ri-external-link-line"></i> Ouvrir
+            </a>
+            <button type="button" class="btn btn-sm btn-outline-info" id="stagingLogsBtn" style="display:none;">
+              <i class="ri-terminal-line"></i> Logs
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-warning" id="stagingRestartBtn" style="display:none;">
+              <i class="ri-restart-line"></i> Restart
+            </button>
+            <button type="button" class="btn btn-sm btn-warning" id="deployStagingBtn" {% if not project.gitea_url %}disabled{% endif %}>
+              <i class="ri-upload-cloud-line"></i> Déployer staging
+            </button>
+          </div>
+          <pre class="mt-2 p-2 bg-dark text-light small" id="stagingLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+        </div>
+      </div>
+
+      <!-- Production -->
+      <div class="card mb-4">
+        <div class="card-header"><strong><i class="ri-rocket-line me-1"></i> Production</strong></div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">Promouvoir la branche staging vers production. Choisir la cible :</p>
+
+          <!-- Option 1: Docker server -->
+          <div class="border rounded p-3 mb-3">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="deploy-dot deploy-dot-unknown" id="productionDot"></span>
+              <strong>Serveur Docker</strong>
+              <span class="badge bg-secondary">local</span>
+            </div>
+            <p class="text-muted small mb-2" id="productionStatusText">Chargement...</p>
+            <div class="d-flex flex-wrap gap-2">
+              <a href="/expert/{{ project.slug }}/preview/production/" target="_blank" class="btn btn-sm btn-outline-success" id="productionOpenBtn" style="display:none;">
+                <i class="ri-external-link-line"></i> Ouvrir
+              </a>
+              <button type="button" class="btn btn-sm btn-outline-info" id="productionLogsBtn" style="display:none;">
+                <i class="ri-terminal-line"></i> Logs
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-warning" id="productionRestartBtn" style="display:none;">
+                <i class="ri-restart-line"></i> Restart
+              </button>
+              <button type="button" class="btn btn-sm btn-primary" id="deployProductionBtn" {% if not project.gitea_url %}disabled{% endif %}>
+                <i class="ri-server-line"></i> Déployer sur le serveur
+              </button>
+            </div>
+            <pre class="mt-2 p-2 bg-dark text-light small" id="productionLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+          </div>
+
+          <!-- Option 2: Scaleway Serverless -->
+          {% if scaleway_available %}
+          <div class="border rounded p-3 border-info">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="deploy-dot" id="scalewayDot"></span>
+              <strong>Scaleway Serverless</strong>
+              <span class="badge bg-info text-dark">cloud</span>
+            </div>
+            <p class="text-muted small mb-2" id="scalewayStatusText">Chargement...</p>
+            <div class="d-flex flex-wrap gap-2">
+              <a href="#" target="_blank" class="btn btn-sm btn-outline-info" id="scalewayOpenBtn" style="display:none;">
+                <i class="ri-external-link-line"></i> Ouvrir
+              </a>
+              <button type="button" class="btn btn-sm btn-info" id="publishScalewayBtn">
+                <i class="ri-cloud-line"></i> Publier sur Scaleway
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-danger" id="unpublishScalewayBtn" style="display:none;">
+                <i class="ri-delete-bin-line"></i> Retirer
+              </button>
+            </div>
+            <div class="mt-2 p-2 bg-light small" id="scalewayProgress" style="display:none;border-radius:6px;"></div>
+          </div>
+          {% endif %}
         </div>
       </div>
 
@@ -318,6 +340,84 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // --- Scaleway publish ---
+  const scwBtn = document.getElementById('publishScalewayBtn');
+  const scwUnpubBtn = document.getElementById('unpublishScalewayBtn');
+  const scwProgress = document.getElementById('scalewayProgress');
+
+  async function refreshScalewayStatus() {
+    try {
+      const res = await fetch(`/api/expert/projects/${PROJECT_ID}/scaleway-status`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const dot = document.getElementById('scalewayDot');
+      const text = document.getElementById('scalewayStatusText');
+      const openBtn = document.getElementById('scalewayOpenBtn');
+      if (!dot) return;
+
+      dot.className = 'deploy-dot';
+      const st = data.status || 'not_published';
+
+      if (st === 'not_published') {
+        dot.classList.add('deploy-dot-unknown');
+        text.textContent = 'Non publié';
+        if (openBtn) openBtn.style.display = 'none';
+        if (scwUnpubBtn) scwUnpubBtn.style.display = 'none';
+      } else if (st === 'ready') {
+        dot.classList.add('deploy-dot-running');
+        text.textContent = 'En ligne';
+        if (openBtn && data.scaleway_url) { openBtn.href = data.scaleway_url; openBtn.style.display = ''; }
+        if (scwUnpubBtn) scwUnpubBtn.style.display = '';
+      } else if (st === 'pending' || st === 'creating' || st === 'deploying') {
+        dot.classList.add('deploy-dot-deploying');
+        text.textContent = 'Déploiement...';
+      } else {
+        dot.classList.add('deploy-dot-error');
+        text.textContent = st;
+        if (scwUnpubBtn) scwUnpubBtn.style.display = '';
+      }
+    } catch (err) { console.warn('SCW status failed:', err); }
+  }
+
+  if (scwBtn) {
+    scwBtn.addEventListener('click', async () => {
+      if (!confirm('Publier sur Scaleway ?\n\nCela va créer un conteneur serverless public accessible sur Internet.')) return;
+      scwBtn.disabled = true;
+      scwBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Publication...';
+      if (scwProgress) { scwProgress.style.display = ''; scwProgress.textContent = 'Construction de l\'image...'; }
+      try {
+        const res = await fetch(`/api/expert/projects/${PROJECT_ID}/publish-scaleway`, { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'published' || data.status === 'published_unverified') {
+          if (scwProgress) scwProgress.innerHTML = `<i class="ri-check-line text-success"></i> Publié : <a href="${data.url}" target="_blank">${data.url}</a>`;
+        } else {
+          if (scwProgress) scwProgress.innerHTML = `<i class="ri-error-warning-line text-danger"></i> Erreur (${data.step || '?'}): ${data.error || 'Inconnu'}`;
+        }
+        await refreshScalewayStatus();
+      } catch (err) {
+        if (scwProgress) scwProgress.textContent = 'Erreur: ' + err.message;
+      } finally {
+        scwBtn.disabled = false;
+        scwBtn.innerHTML = '<i class="ri-cloud-line"></i> Publier sur Scaleway';
+      }
+    });
+  }
+
+  if (scwUnpubBtn) {
+    scwUnpubBtn.addEventListener('click', async () => {
+      if (!confirm('Retirer de Scaleway ?\n\nLa base de données sera conservée.')) return;
+      scwUnpubBtn.disabled = true;
+      try {
+        await fetch(`/api/expert/projects/${PROJECT_ID}/publish-scaleway`, { method: 'DELETE' });
+        if (scwProgress) { scwProgress.style.display = ''; scwProgress.textContent = 'Retiré de Scaleway.'; }
+        await refreshScalewayStatus();
+      } catch (err) { alert('Erreur: ' + err.message); }
+      finally { scwUnpubBtn.disabled = false; }
+    });
+  }
+
+  refreshScalewayStatus();
 });
 </script>
 {% endblock %}

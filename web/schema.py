@@ -8,7 +8,7 @@ import sqlite3
 from .db import USE_POSTGRES, ConnectionWrapper, get_db
 
 # Schema version - increment when adding migrations
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 
 
 def _get_schema_version(conn: ConnectionWrapper) -> int:
@@ -89,6 +89,8 @@ def init_db():
                     _migrate_to_v23(conn)
                 if current_version < 24:
                     _migrate_to_v24(conn)
+                if current_version < 25:
+                    _migrate_to_v25(conn)
 
             _set_schema_version(conn, SCHEMA_VERSION)
 
@@ -102,6 +104,7 @@ def init_db():
         _migrate_to_v22(conn)
         _migrate_to_v23(conn)
         _migrate_to_v24(conn)
+        _migrate_to_v25(conn)
 
 
 # =============================================================================
@@ -565,6 +568,17 @@ def _migrate_to_v24(conn: ConnectionWrapper):
         return
     if "llm_backend" not in columns:
         conn.execute("ALTER TABLE projects ADD COLUMN llm_backend TEXT DEFAULT 'ollama'")
+
+
+def _migrate_to_v25(conn: ConnectionWrapper):
+    """Migrate to v25: add Scaleway publish fields to projects."""
+    try:
+        columns = _get_table_columns(conn, "projects")
+    except Exception:
+        return
+    for col in ("scaleway_container_id", "scaleway_url", "scaleway_db_url"):
+        if col not in columns:
+            conn.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT")
 
 
 # =============================================================================

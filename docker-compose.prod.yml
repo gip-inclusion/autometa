@@ -8,6 +8,8 @@ services:
       - "0.0.0.0:5002:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Dockerfile.slim creates user "matometa" (home: /home/matometa)
+      - ./claude-credentials:/home/matometa/.claude
     # Grant Docker socket access to matometa user (host docker GID)
     group_add:
       - ${DOCKER_GID:-999}

@@ -823,9 +823,11 @@ def expert_settings(slug: str, request: Request, user_email: str = Depends(get_c
     if not project:
         return RedirectResponse("/expert", status_code=302)
 
+    from lib import scaleway_publish
     return templates.TemplateResponse(request, "expert/settings.html", {
         "project": project,
         "section": "expert",
+        "scaleway_available": scaleway_publish.available(),
     })
 
 
@@ -1379,4 +1381,49 @@ def api_project_stop(project_id: str, environment: str):
 
     from lib import docker_deploy
     result = docker_deploy.stop(project_id, environment)
+    return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Scaleway Serverless publish (additive, does NOT replace Docker deploy)
+# ---------------------------------------------------------------------------
+
+@router.post("/api/expert/projects/{project_id}/publish-scaleway")
+def api_publish_scaleway(project_id: str):
+    """Publish production app to Scaleway Serverless Containers."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+
+    from lib import scaleway_publish
+    if not scaleway_publish.available():
+        return JSONResponse({"error": "Scaleway not configured"}, status_code=503)
+
+    project = store.get_project(project_id)
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    result = scaleway_publish.publish(project_id)
+    status_code = 200 if result["status"] in ("published", "published_unverified") else 500
+    return JSONResponse(result, status_code=status_code)
+
+
+@router.delete("/api/expert/projects/{project_id}/publish-scaleway")
+def api_unpublish_scaleway(project_id: str):
+    """Remove app from Scaleway (keeps database)."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+
+    from lib import scaleway_publish
+    result = scaleway_publish.unpublish(project_id)
+    return JSONResponse(result)
+
+
+@router.get("/api/expert/projects/{project_id}/scaleway-status")
+def api_scaleway_status(project_id: str):
+    """Get Scaleway container status."""
+    if not config.EXPERT_MODE_ENABLED:
+        return JSONResponse({"error": "Expert mode not enabled"}, status_code=403)
+
+    from lib import scaleway_publish
+    result = scaleway_publish.status(project_id)
     return JSONResponse(result)

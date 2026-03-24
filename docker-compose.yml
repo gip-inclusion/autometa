@@ -1,5 +1,5 @@
 services:
-  autometa:
+  matometa:
     build: .
     restart: always
     hostname: autometa

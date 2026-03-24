@@ -185,6 +185,10 @@ Always include a healthcheck on the app service:
       retries: 3
 ```
 
+**Health endpoints must be cheap.** Docker hits the healthcheck every 10-30s.
+Never call external APIs (LLM, Synthetic, etc.) from `/health` — only check local
+state (DB, config). Put LLM connectivity checks behind an on-demand `/test` endpoint.
+
 ### Named volumes for persistence
 
 Use named volumes for database data so it survives container recreation:

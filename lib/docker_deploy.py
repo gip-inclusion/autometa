@@ -180,15 +180,13 @@ def deploy(project_id: str, environment: str = "staging") -> dict:
     # Stop existing containers first (if any)
     _run_compose(workdir, "down", "--remove-orphans", timeout=30)
 
-    # Start with port override
-    up_env_args = []
-    for k, v in env_vars.items():
-        up_env_args.extend(["-e", f"{k}={v}"])
+    # Write env vars into containers via compose override
+    override_file = _write_deploy_env(workdir, compose_file, env_vars)
 
-    # Use subprocess directly for env var injection
     cmd = [
         "docker", "compose",
         "-f", str(compose_file),
+        "-f", str(override_file),
         "-p", f"{project.slug}-{environment}",
         "up", "-d", "--build",
     ]
@@ -362,18 +360,25 @@ def restart(project_id: str, environment: str = "staging") -> dict:
     if not port:
         port = _get_or_assign_port(project, environment, store)
 
-    import os
-    env = dict(os.environ)
-    env["HOST_PORT"] = str(port)
-    env["COMPOSE_PROJECT_NAME"] = project_name
-    env.update(_llm_env_vars(project))
+    env_vars = {
+        "HOST_PORT": str(port),
+        "COMPOSE_PROJECT_NAME": project_name,
+    }
+    env_vars.update(_llm_env_vars(project))
 
     compose_file = workdir / "docker-compose.yml"
     if not compose_file.exists():
         return {"status": "error", "error": "No docker-compose.yml"}
 
+    override_file = _write_deploy_env(workdir, compose_file, env_vars)
+
+    import os
+    env = dict(os.environ)
+    env.update(env_vars)
+
     result = subprocess.run(
-        ["docker", "compose", "-f", str(compose_file), "-p", project_name, "up", "-d"],
+        ["docker", "compose", "-f", str(compose_file), "-f", str(override_file),
+         "-p", project_name, "up", "-d"],
         capture_output=True, text=True, timeout=60,
         cwd=str(workdir), env=env,
     )
@@ -391,6 +396,28 @@ def _llm_env_vars(project) -> dict[str, str]:
     if config.SYNTHETIC_API_KEY:
         env["SYNTHETIC_API_KEY"] = config.SYNTHETIC_API_KEY
     return env
+
+
+def _write_deploy_env(workdir: Path, compose_file: Path, env_vars: dict) -> Path:
+    """Write .deploy.env and a compose override so containers receive env vars.
+
+    Returns path to the override compose file (use with -f).
+    """
+    # Write the env file
+    (workdir / ".deploy.env").write_text(
+        "\n".join(f"{k}={v}" for k, v in env_vars.items()) + "\n"
+    )
+    # Generate override that adds env_file to every service (not volumes/networks)
+    text = compose_file.read_text()
+    svc_block = text.split("services:")[-1].split("\nvolumes:")[0].split("\nnetworks:")[0]
+    services = re.findall(r"^  (\w[\w-]*):", svc_block, re.MULTILINE)
+    override_lines = ["services:"]
+    for svc in services:
+        override_lines.append(f"  {svc}:")
+        override_lines.append(f"    env_file: [.deploy.env]")
+    override_file = workdir / ".deploy-override.yml"
+    override_file.write_text("\n".join(override_lines) + "\n")
+    return override_file
 
 
 def _get_or_assign_port(project, environment: str, store) -> int | None:
