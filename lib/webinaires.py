@@ -1,14 +1,4 @@
-"""Webinaire attendance data: Livestorm + Grist sync.
-
-Provides API clients for both platforms and sync logic to write
-to the datalake PostgreSQL via Metabase API.
-
-Usage:
-    from lib.webinaires import (
-        LivestormClient, GristClient, DatalakeWriter,
-        sync_livestorm, sync_grist,
-    )
-"""
+"""Webinaire attendance data: Livestorm + Grist sync."""
 
 import json
 import logging
@@ -119,23 +109,11 @@ class DatalakeWriter:
             raise ValueError(f"Expected {len(parts) - 1} placeholders, got {len(params)} params")
         out = parts[0]
         for i, val in enumerate(params):
-            out += DatalakeWriter._escape(val) + parts[i + 1]
+            out += _escape_val(val) + parts[i + 1]
         return out
-
-    @staticmethod
-    def _escape(val):
-        if val is None:
-            return "NULL"
-        if isinstance(val, bool):
-            return "TRUE" if val else "FALSE"
-        if isinstance(val, (int, float)):
-            return str(val)
-        s = str(val).replace("'", "''")
-        return f"'{s}'"
 
 
 def _escape_val(val):
-    """Escape a value for SQL embedding. Works for both SQLite and PostgreSQL."""
     if val is None:
         return "NULL"
     if isinstance(val, bool):
@@ -616,18 +594,6 @@ def sync_livestorm(conn, client: LivestormClient):
     return len(events), session_count, reg_count
 
 
-# ---------------------------------------------------------------------------
-# Grist sync
-# ---------------------------------------------------------------------------
-
-
-def _grist_ts_to_iso(ts) -> str | None:
-    """Convert Grist timestamp (seconds since epoch, float) to ISO8601."""
-    if ts is None or ts == 0:
-        return None
-    return _ts_to_iso(ts)
-
-
 def _grist_duration_to_minutes(duree: str | None) -> int | None:
     """Parse Grist duration choice ('30 min', '45 min', '60 min')."""
     if not duree:
@@ -666,8 +632,8 @@ def sync_grist(conn, client: GristClient):
                 organizer_email,
                 infer_product(title, organizer_email),
                 "active" if f.get("status") else "inactive",
-                _grist_ts_to_iso(f.get("date_event")),
-                _grist_ts_to_iso(f.get("date_fin")),
+                _ts_to_iso(f.get("date_event")),
+                _ts_to_iso(f.get("date_fin")),
                 _grist_duration_to_minutes(f.get("duree")),
                 f.get("capacite"),
                 f.get("nb_inscrits"),
@@ -731,7 +697,7 @@ def sync_grist(conn, client: GristClient):
                 f.get("entreprise"),
                 1,
                 1 if f.get("a_participe") else 0,
-                _grist_ts_to_iso(f.get("date_inscription")),
+                _ts_to_iso(f.get("date_inscription")),
                 now,
             )
         )
