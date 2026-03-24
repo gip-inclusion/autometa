@@ -64,7 +64,6 @@ Invoquer via l'outil `Skill` :
 
 - `matomo_query` — **Toujours l'invoquer avant d'écrire des requêtes Matomo.**
 - `metabase_query` — Requêtes Metabase.
-- `research_corpus` — Citer des preuves terrain (entretiens, verbatims, observations).
 - `save_report` — Sauvegarder un rapport en base.
 - `wishlist` — Logger un souhait, un blocage, ou une idée d'amélioration.
 
@@ -78,7 +77,6 @@ Invoquer via l'outil `Skill` :
 | `knowledge/stats/` | Contexte Metabase stats (IAE) |
 | `knowledge/stats/nexus.md` | Nexus (application unifiée, database_id=17) |
 | `data/matometa.db` | Base SQLite (conversations, rapports) |
-| `data/notion_research.db` | Corpus recherche terrain |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
 
 ## Performance Matomo

@@ -33,9 +33,6 @@ dependencies = [
     # S3-compatible object storage
     "boto3>=1.35.0",
 
-    # Vector similarity (lightweight numpy alternative for embeddings)
-    "simsimd>=6.0.0",
-
     # Data analysis
     "numpy>=1.26.0",
     "scipy>=1.11.0",
@@ -47,11 +44,6 @@ dependencies = [
     "openpyxl>=3.1.0",
     "mammoth>=1.6.0",
     "pdfplumber>=0.10.0",
-]
-
-[project.optional-dependencies]
-embeddings = [
-    "sentence-transformers>=3.0.0",
 ]
 
 [dependency-groups]

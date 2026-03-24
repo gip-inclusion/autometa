@@ -22,8 +22,6 @@ FastAPI single-worker avec ProcessManager in-process. Le PM et le SSE partagent 
 
 **Requête API** : Agent exécute Python → `lib.query.execute_*_query()` → client API avec retry → signal d'observabilité sur stdout → PM parse → DB.
 
-**Recherche sémantique** : Query → DeepInfra (embedding) → cosine similarity sur ~1700 chunks en cache mémoire (simsimd) → dedup par page → JSON.
-
 ## Déploiement
 
 | Environnement | DB | Stockage |

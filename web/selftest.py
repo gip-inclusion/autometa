@@ -211,20 +211,6 @@ def _check_slack() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
-def _check_deepinfra() -> tuple[bool, str]:
-    key = config.DEEPINFRA_API_KEY
-    if not key:
-        return (False, "DEEPINFRA_API_KEY not set")
-    resp = requests.get(
-        "https://api.deepinfra.com/v1/openai/models",
-        headers={"Authorization": f"Bearer {key}"},
-        timeout=10,
-    )
-    if resp.status_code == 200:
-        return (True, "reachable")
-    return (False, f"HTTP {resp.status_code}")
-
-
 def _run_all_checks() -> list[Check]:
     checks = [
         _probe("PostgreSQL", _check_postgresql),
@@ -247,7 +233,6 @@ def _run_all_checks() -> list[Check]:
         _probe("Grist", _check_grist),
         _probe("Livestorm", _check_livestorm),
         _probe("Slack", _check_slack),
-        _probe("DeepInfra (embeddings)", _check_deepinfra),
     ]
     return checks
 

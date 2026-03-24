@@ -66,8 +66,7 @@ def _truncate_all_tables():
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version,
-                research_chunks, research_blocks, research_relations,
-                research_pages, research_sync_meta, wishlist
+                wishlist
                 CASCADE;
         """)
 

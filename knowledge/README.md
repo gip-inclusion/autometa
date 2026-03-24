@@ -10,8 +10,6 @@ Ces documents constituent la mémoire de l'agent Autometa. Ils sont lus avant ch
 
 3. **Pour les analyses thématiques** : l'agent lit `stats/` pour comprendre le contexte métier (candidats, prescripteurs, etc.).
 
-4. **Pour la recherche terrain** : l'agent consulte `research/` pour le modèle de données du corpus ethnographique, et `notion/` pour l'intégration Notion.
-
 ## Structure des dossiers
 
 ### `sites/`
@@ -46,11 +44,7 @@ Contexte métier et données Metabase :
 
 ### `notion/`
 Intégration Notion (API, authentification, fonctionnalités) :
-- `_index.md` : endpoints, config, 3 features (publish, wishlist, corpus)
-
-### `research/`
-Corpus de recherche terrain (ethnographie « Connaissance du terrain ») :
-- `_index.md` : bases Notion, hiérarchie, schéma PostgreSQL, requêtes, recherche vectorielle, correspondance segments/sites
+- `_index.md` : endpoints, config, 2 features (publish, wishlist)
 
 ### `webinaires/`
 Données de participation aux webinaires (Livestorm historique + Grist actuel) :

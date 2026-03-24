@@ -117,8 +117,5 @@ USE_S3 = bool(S3_BUCKET and S3_ACCESS_KEY and S3_SECRET_KEY)
 # Additional directories the agent can access (beyond working directory)
 ADDITIONAL_DIRS = ["/tmp"]
 
-# Research corpus embedding API
-DEEPINFRA_API_KEY = os.getenv("DEEPINFRA_API_KEY")
-
 # Feature flags
 FEATURE_KNOWLEDGE_CHAT = False  # Chat from Connaissance tab disabled (requires GitHub PAT)
