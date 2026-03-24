@@ -76,19 +76,3 @@ Propriétés :
 - `Source` (rich_text) : "Autometa"
 - `Description` (rich_text, optionnel)
 
-### 3. Corpus — Synchronisation de la recherche terrain
-
-**Fichier** : `scripts/refresh_research.py`
-**Cron** : `cron/research-corpus/` (hebdomadaire, timeout 1200s)
-**Base** : PostgreSQL (tables `research_*`, pgvector)
-
-Synchronise 6 bases Notion du workspace "Connaissance du terrain".
-Voir [knowledge/research/_index.md](../research/_index.md) pour le modèle de données complet.
-
-Pipeline :
-1. Query chaque base Notion → compare `last_edited_time`
-2. Re-fetch les blocs des pages modifiées uniquement
-3. Rebuild les chunks (~400 car.), conserve les embeddings si le texte n'a pas changé (hash SHA-256)
-4. Embed les nouveaux chunks avec `sentence-transformers` (Qwen3-Embedding-0.6B, local)
-
-Les 6 database IDs sont définis dans `scripts/refresh_research.py` (dict `DATABASES`).

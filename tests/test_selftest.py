@@ -65,8 +65,6 @@ class TestRunAllChecks:
         mock_config.ADMIN_USERS = ["admin@localhost"]
         mock_config.USE_S3 = False
         mock_config.CLAUDE_CLI = "claude"
-        mock_config.DEEPINFRA_API_KEY = None
-
         mock_getenv.return_value = None
 
         mock_subprocess.return_value = MagicMock(returncode=0, stdout="1.0.0\n", stderr="")
@@ -108,7 +106,6 @@ class TestRunAllChecks:
             patch("web.selftest._check_grist", return_value=(False, "not set")),
             patch("web.selftest._check_livestorm", return_value=(False, "not set")),
             patch("web.selftest._check_slack", return_value=(False, "not set")),
-            patch("web.selftest._check_deepinfra", return_value=(False, "not set")),
             patch("lib._sources.list_instances", return_value=["stats"]),
         ):
             checks = _run_all_checks()

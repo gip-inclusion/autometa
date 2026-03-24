@@ -136,7 +136,6 @@ def list_knowledge_sections() -> dict[str, list[dict]]:
         "matomo": {"label": "Matomo API", "icon": "ri-line-chart-line", "group": "Matomo et sites"},
         "sites": {"label": "Sites", "icon": "ri-global-line", "group": "Matomo et sites"},
         "notion": {"label": "Notion API", "icon": "ri-booklet-line", "group": "Notion"},
-        "research": {"label": "Recherche terrain", "icon": "ri-search-eye-line", "group": "Notion"},
     }
     skip: set[str] = set()
 

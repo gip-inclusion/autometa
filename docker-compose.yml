@@ -1,6 +1,6 @@
 services:
   db:
-    build: database
+    image: postgis/postgis:18-3.6
     restart: unless-stopped
     environment:
       POSTGRES_USER: autometa
@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
