@@ -42,9 +42,7 @@ async def query(request: Request):
     Request body (JSON):
         source: "metabase" or "matomo"
         instance: Instance name (e.g., "stats", "datalake", "inclusion")
-        conversation_id: Optional conversation ID for audit logging
-
-        # For Metabase:
+# For Metabase:
         sql: SQL query string (with database_id)
         database_id: Metabase database ID
         card_id: Metabase card/question ID (alternative to sql)
@@ -90,7 +88,6 @@ async def query(request: Request):
         source=source,
         instance=instance,
         caller=CallerType.APP,
-        conversation_id=data.get("conversation_id"),
         sql=data.get("sql"),
         database_id=data.get("database_id"),
         card_id=data.get("card_id"),
