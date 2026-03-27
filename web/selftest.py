@@ -1,4 +1,14 @@
-"""Self-test route: lightweight health checks for all core services."""
+"""Self-test route: lightweight health checks for all core services.
+
+GET /selftest :
+
+- ``Accept: text/html`` : page qui consomme le flux ``text/plain`` et remplace
+  tout l'affichage à chaque instantané (séparateurs ``SNAPSHOT_SEP``).
+- Sinon : flux ``text/plain`` seul ; afficher le **dernier** segment complet,
+  pas la concaténation.
+
+HTTP status stays 200 while streaming; use the header line for pass/fail.
+"""
 
 import asyncio
 import json
@@ -10,8 +20,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 import requests
-from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from lib._sources import list_instances
 
@@ -20,6 +30,57 @@ from . import config
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+SNAPSHOT_SEP = "\n---\n"
+
+
+def _first_accept(accept: str) -> str:
+    if not accept or not accept.strip():
+        return "*/*"
+    return accept.split(",")[0].strip().split(";")[0].strip().lower()
+
+
+def _selftest_page_html() -> str:
+    sep = json.dumps(SNAPSHOT_SEP)
+    return f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autometa selftest</title>
+<style>
+body {{ font-family: system-ui, sans-serif; margin: 1rem; }}
+pre {{ white-space: pre-wrap; word-break: break-word; margin: 0; }}
+</style>
+</head>
+<body>
+<pre id="out">Chargement…</pre>
+<script>
+(async () => {{
+  const SEP = {sep};
+  const pre = document.getElementById("out");
+  const r = await fetch("/selftest", {{ headers: {{ Accept: "text/plain" }} }});
+  if (!r.ok) {{ pre.textContent = "HTTP " + r.status; return; }}
+  const dec = new TextDecoder();
+  const reader = r.body.getReader();
+  let buf = "";
+  while (true) {{
+    const {{ done, value }} = await reader.read();
+    if (value) buf += dec.decode(value, {{ stream: true }});
+    const parts = buf.split(SEP);
+    buf = parts.pop() ?? "";
+    for (const p of parts) {{
+      const t = p.replace(/^\\n+|\\n+$/g, "");
+      if (t) pre.textContent = t;
+    }}
+    if (done) break;
+  }}
+  const tail = buf.replace(/^\\n+|\\n+$/g, "");
+  if (tail) pre.textContent = tail;
+}})();
+</script>
+</body>
+</html>"""
 
 
 @dataclass
@@ -47,6 +108,31 @@ def _fmt(check: Check) -> str:
     if check.duration_ms:
         line += f"  ({check.duration_ms}ms)"
     return line
+
+
+def _fmt_pending(name: str) -> str:
+    return f"[PENDING]  {name}"
+
+
+def _render_snapshot(names: list[str], results: list[Check | None]) -> str:
+    total = len(names)
+    done = [c for c in results if c is not None]
+    passed = sum(1 for c in done if c.ok)
+    failed = sum(1 for c in done if not c.ok)
+    pending_n = sum(1 for c in results if c is None)
+
+    header = f"Autometa selftest  —  {passed}/{total} OK"
+    if pending_n:
+        header += f"  ({pending_n} pending)"
+    elif failed:
+        header += f"  ({failed} failed)"
+
+    lines = [header, ""]
+    for i, name in enumerate(names):
+        c = results[i]
+        lines.append(_fmt(c) if c is not None else _fmt_pending(name))
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _check_postgresql() -> tuple[bool, str]:
@@ -257,47 +343,62 @@ def _check_slack() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
-def _run_all_checks() -> list[Check]:
-    checks = [
-        _probe("PostgreSQL", _check_postgresql),
-        _probe("Admin users", _check_admin_users),
-        _probe("Process Manager", _check_process_manager),
-        _probe("Conversation roundtrip", _check_conversation_roundtrip),
-        _probe("Claude CLI", _check_claude_cli),
-        _probe("Claude status page", _check_claude_status_page),
-        _probe("Claude Code API ping", _check_claude_code_ping),
-        _probe("S3", _check_s3),
-        _probe("Matomo", _check_matomo),
+def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
+    specs: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
+        ("PostgreSQL", _check_postgresql),
+        ("Admin users", _check_admin_users),
+        ("Process Manager", _check_process_manager),
+        ("Conversation roundtrip", _check_conversation_roundtrip),
+        ("Claude CLI", _check_claude_cli),
+        ("Claude status page", _check_claude_status_page),
+        ("Claude Code API ping", _check_claude_code_ping),
+        ("S3", _check_s3),
+        ("Matomo", _check_matomo),
     ]
     for inst in list_instances("metabase"):
-        checks.append(
-            _probe(
-                f"Metabase ({inst})",
-                lambda i=inst: _check_metabase_instance(i),
-            )
+        specs.append(
+            (f"Metabase ({inst})", lambda i=inst: _check_metabase_instance(i)),
         )
-    checks += [
-        _probe("Notion", _check_notion),
-        _probe("Grist", _check_grist),
-        _probe("Livestorm", _check_livestorm),
-        _probe("Slack", _check_slack),
+    specs += [
+        ("Notion", _check_notion),
+        ("Grist", _check_grist),
+        ("Livestorm", _check_livestorm),
+        ("Slack", _check_slack),
     ]
-    return checks
+    return specs
+
+
+def _run_all_checks() -> list[Check]:
+    return [_probe(name, fn) for name, fn in _check_specs()]
+
+
+async def _run_checks_streaming():
+    specs = _check_specs()
+    names = [n for n, _ in specs]
+    results: list[Check | None] = [None] * len(names)
+
+    async def one(i: int, name: str, fn: Callable[[], tuple[bool, str]]) -> tuple[int, Check]:
+        return i, await asyncio.to_thread(_probe, name, fn)
+
+    pending = {asyncio.create_task(one(i, name, fn)) for i, (name, fn) in enumerate(specs)}
+
+    yield _render_snapshot(names, results)
+
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            idx, check = task.result()
+            results[idx] = check
+            yield _render_snapshot(names, results)
 
 
 @router.get("/selftest")
-async def selftest():
-    checks = await asyncio.to_thread(_run_all_checks)
-    total = len(checks)
-    passed = sum(1 for c in checks if c.ok)
-    failed = total - passed
+async def selftest(request: Request):
+    if _first_accept(request.headers.get("accept", "")) == "text/html":
+        return HTMLResponse(_selftest_page_html())
 
-    header = f"Autometa selftest  —  {passed}/{total} OK"
-    if failed:
-        header += f"  ({failed} failed)"
-    lines = [header, ""]
-    lines.extend(_fmt(c) for c in checks)
-    lines.append("")
+    async def body():
+        async for chunk in _run_checks_streaming():
+            yield chunk + SNAPSHOT_SEP
 
-    status = 200 if failed == 0 else 503
-    return PlainTextResponse("\n".join(lines), status_code=status)
+    return StreamingResponse(body(), media_type="text/plain; charset=utf-8")

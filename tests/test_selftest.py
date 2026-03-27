@@ -5,6 +5,7 @@ import json
 import pytest
 
 from web.selftest import (
+    SNAPSHOT_SEP,
     Check,
     _check_claude_code_ping,
     _check_claude_status_page,
@@ -208,26 +209,51 @@ class TestSelftestRoute:
 
     def test_returns_text(self, mocker, client):
         mocker.patch(
-            "web.selftest._run_all_checks",
+            "web.selftest._check_specs",
             return_value=[
-                Check("A", True, "ok", 1),
-                Check("B", False, "down", 2),
+                ("A", lambda: (True, "ok")),
+                ("B", lambda: (False, "down")),
             ],
         )
         resp = client.get("/selftest")
 
-        assert resp.status_code == 503
+        assert resp.status_code == 200
         assert "text/plain" in resp.headers["content-type"]
         body = resp.text
         assert "1/2 OK" in body
+        assert "(1 failed)" in body
         assert "\u2705 A" in body
         assert "\u274c B" in body
 
     def test_200_when_all_pass(self, mocker, client):
         mocker.patch(
-            "web.selftest._run_all_checks",
-            return_value=[Check("X", True, "fine", 1)],
+            "web.selftest._check_specs",
+            return_value=[("X", lambda: (True, "fine"))],
         )
         resp = client.get("/selftest")
         assert resp.status_code == 200
         assert "1/1 OK" in resp.text
+
+    def test_plain_stream_separates_snapshots(self, mocker, client):
+        mocker.patch(
+            "web.selftest._check_specs",
+            return_value=[
+                ("A", lambda: (True, "ok")),
+                ("B", lambda: (True, "ok")),
+            ],
+        )
+        resp = client.get("/selftest")
+        assert resp.status_code == 200
+        assert resp.text.count(SNAPSHOT_SEP) == 3
+
+    def test_accept_html_returns_shell_page(self, mocker, client):
+        mocker.patch(
+            "web.selftest._check_specs",
+            return_value=[("X", lambda: (True, "fine"))],
+        )
+        resp = client.get("/selftest", headers={"Accept": "text/html"})
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        text = resp.text
+        assert "fetch" in text and "text/plain" in text
+        assert "split" in text and "pre" in text
