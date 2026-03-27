@@ -157,8 +157,10 @@ class CLIBackend(AgentBackend):
 
         self._processes[conversation_id] = process
 
+        stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
+
         try:
-            # Read stdout line by line
+            # Read stdout line by line (stderr drained in parallel to avoid pipe deadlock)
             line_count = 0
             while True:
                 line = await process.stdout.readline()
@@ -186,21 +188,8 @@ class CLIBackend(AgentBackend):
                         raw={"raw_line": line_str},
                     )
 
-            # Wait for process to complete
             await process.wait()
             logger.info(f"Process exited with code: {process.returncode}")
-
-            # Check for errors
-            if process.returncode != 0:
-                stderr = await process.stderr.read()
-                stderr_str = stderr.decode("utf-8")
-                logger.error(f"Process error: {stderr_str}")
-                yield AgentMessage(
-                    type="error",
-                    content=f"Process exited with code {process.returncode}: {stderr_str}",
-                    raw={"stderr": stderr_str, "code": process.returncode},
-                )
-
         finally:
             self._processes.pop(conversation_id, None)
             if process.returncode is None:
@@ -212,7 +201,27 @@ class CLIBackend(AgentBackend):
                         process.kill()
                     except ProcessLookupError:
                         pass
+            stderr_bytes = await stderr_task
             logger.info(f"Cleaned up conversation {conversation_id}")
+
+        stderr_str = stderr_bytes.decode("utf-8", errors="replace")
+        if process.returncode != 0:
+            logger.error(f"Process error: {stderr_str}")
+            yield AgentMessage(
+                type="error",
+                content=f"Process exited with code {process.returncode}: {stderr_str}",
+                raw={"stderr": stderr_str, "code": process.returncode},
+            )
+
+    @staticmethod
+    async def _drain_stderr(stream: asyncio.StreamReader) -> bytes:
+        chunks: list[bytes] = []
+        while True:
+            line = await stream.readline()
+            if not line:
+                break
+            chunks.append(line)
+        return b"".join(chunks)
 
     def _parse_events(self, event: dict) -> list[AgentMessage]:
         event_type = event.get("type")
