@@ -173,7 +173,7 @@ class CLIBackend(AgentBackend):
                     continue
 
                 line_count += 1
-                logger.debug(f"Line {line_count}: {line_str[:100]}...")
+                logger.debug("Line %d: %s", line_count, line_str)
 
                 try:
                     event = json.loads(line_str)
@@ -181,7 +181,7 @@ class CLIBackend(AgentBackend):
                         logger.debug(f"Parsed event: {agent_msg.type}")
                         yield agent_msg
                 except json.JSONDecodeError:
-                    logger.warning(f"Non-JSON line: {line_str[:100]}")
+                    logger.warning("Non-JSON line: %s", line_str)
                     yield AgentMessage(
                         type="system",
                         content=line_str,
