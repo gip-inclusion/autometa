@@ -173,15 +173,12 @@ class CLIBackend(AgentBackend):
                 line_count += 1
                 logger.debug(f"Line {line_count}: {line_str[:100]}...")
 
-                # Parse JSON event
                 try:
                     event = json.loads(line_str)
-                    agent_msg = self._parse_event(event)
-                    if agent_msg:
+                    for agent_msg in self._parse_events(event):
                         logger.debug(f"Parsed event: {agent_msg.type}")
                         yield agent_msg
                 except json.JSONDecodeError:
-                    # Non-JSON output, emit as system message
                     logger.warning(f"Non-JSON line: {line_str[:100]}")
                     yield AgentMessage(
                         type="system",
@@ -217,15 +214,14 @@ class CLIBackend(AgentBackend):
                         pass
             logger.info(f"Cleaned up conversation {conversation_id}")
 
-    def _parse_event(self, event: dict) -> Optional[AgentMessage]:
+    def _parse_events(self, event: dict) -> list[AgentMessage]:
         event_type = event.get("type")
 
         if event_type == "assistant":
-            # Extract content from assistant message
-            message = event.get("message", {})
-            content_blocks = message.get("content", [])
+            msg_payload = event.get("message", {})
+            content_blocks = msg_payload.get("content", [])
 
-            messages = []
+            messages: list[AgentMessage] = []
             for block in content_blocks:
                 block_type = block.get("type")
 
@@ -252,75 +248,82 @@ class CLIBackend(AgentBackend):
                         )
                     )
 
-            # Return first message (we'll handle multiple in the caller if needed)
-            if messages:
-                return messages[0]
+            return messages
 
-        elif event_type == "tool_use":
-            # Standalone tool_use event (fallback)
-            return AgentMessage(
-                type="tool_use",
-                content={
-                    "tool": event.get("tool") or event.get("name"),
-                    "input": event.get("input"),
-                },
-                raw=event,
-            )
+        if event_type == "tool_use":
+            return [
+                AgentMessage(
+                    type="tool_use",
+                    content={
+                        "tool": event.get("tool") or event.get("name"),
+                        "input": event.get("input"),
+                    },
+                    raw=event,
+                )
+            ]
 
-        elif event_type == "tool_result":
-            return AgentMessage(
-                type="tool_result",
-                content={
-                    "tool": event.get("tool"),
-                    "output": event.get("output"),
-                },
-                raw=event,
-            )
+        if event_type == "tool_result":
+            return [
+                AgentMessage(
+                    type="tool_result",
+                    content={
+                        "tool": event.get("tool"),
+                        "output": event.get("output"),
+                    },
+                    raw=event,
+                )
+            ]
 
-        elif event_type == "user":
-            # User messages often contain tool_results
-            message = event.get("message", {})
-            content_blocks = message.get("content", [])
+        if event_type == "user":
+            msg_payload = event.get("message", {})
+            content_blocks = msg_payload.get("content", [])
 
             for block in content_blocks:
                 if block.get("type") == "tool_result":
                     result_content = block.get("content", "")
-                    return AgentMessage(
-                        type="tool_result",
-                        content={
-                            "tool": block.get("tool_use_id", "")[:8],
-                            "output": result_content,
-                        },
-                        raw=event,
-                    )
-            return None  # Ignore other user messages
+                    return [
+                        AgentMessage(
+                            type="tool_result",
+                            content={
+                                "tool": block.get("tool_use_id", "")[:8],
+                                "output": result_content,
+                            },
+                            raw=event,
+                        )
+                    ]
+            return []
 
-        elif event_type == "system":
-            return AgentMessage(
-                type="system",
-                content=event.get("message") or event.get("subtype"),
-                raw=event,
-            )
+        if event_type == "system":
+            return [
+                AgentMessage(
+                    type="system",
+                    content=event.get("message") or event.get("subtype"),
+                    raw=event,
+                )
+            ]
 
-        elif event_type == "error":
-            return AgentMessage(
-                type="error",
-                content=event.get("message") or str(event),
-                raw=event,
-            )
+        if event_type == "error":
+            return [
+                AgentMessage(
+                    type="error",
+                    content=event.get("message") or str(event),
+                    raw=event,
+                )
+            ]
 
-        elif event_type == "result":
-            # Final result message - preserve usage info if present
+        if event_type == "result":
             raw = dict(event)
             if "usage" in event:
                 raw["usage"] = event["usage"]
-            return AgentMessage(
-                type="system",
-                content=f"Completed: {event.get('subtype', 'done')}",
-                raw=raw,
-            )
+            return [
+                AgentMessage(
+                    type="system",
+                    content=f"Completed: {event.get('subtype', 'done')}",
+                    raw=raw,
+                )
+            ]
 
-        return None
+        return []
 
     async def cancel(self, conversation_id: str) -> bool:
         process = self._processes.get(conversation_id)
