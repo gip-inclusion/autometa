@@ -21,7 +21,7 @@ class CLIBackend(AgentBackend):
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
 
-    def _build_env(self, conversation_id: str) -> dict:
+    def _build_env(self) -> dict:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         return env
 
@@ -141,7 +141,7 @@ class CLIBackend(AgentBackend):
             f"Starting claude CLI: {' '.join(cmd[:4])}... (prompt length: {len(prompt)}, session: {session_id or 'none'})"
         )
 
-        env = self._build_env(conversation_id)
+        env = self._build_env()
 
         # Spawn process (10 MB buffer to handle large tool results)
         process = await asyncio.create_subprocess_exec(
