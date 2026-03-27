@@ -1,3 +1,5 @@
+Imports : tout regrouper en tête de module (stdlib, puis tiers, puis paquet local), dans l'ordre attendu par le linter. Ne pas utiliser d'imports différés dans des fonctions ou des blocs `if` sauf cas documenté où c'est indispensable (dépendance circulaire qu'on ne peut pas résoudre autrement, coût de chargement prohibitive pour un module optionnel rarement utilisé, etc.). Les agents ne doivent pas introduire d'imports lazy « par habitude ».
+
 Ne jamais écrire de commentaires qui expliquent **ce que** fait le code, ni des marqueurs de sections. Le code doit être lisible seul. Exceptions : contexte métier ou contrainte externe non évidente, `# Why:` quand l’intention n’est pas déductible, lien vers une issue, `# noqa` justifié.
 
 Ne jamais générer de code commenté. Si du code n'est plus utile, le supprimer.
