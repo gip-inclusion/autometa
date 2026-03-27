@@ -18,6 +18,8 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
+SELFTEST_TIMEOUT_SEC = 3
+
 router = APIRouter()
 
 
@@ -35,6 +37,7 @@ def _probe(name: str, fn: Callable[[], tuple[bool, str]]) -> Check:
         ok, detail = fn()
         return Check(name, ok, detail, int((time.monotonic() - t0) * 1000))
     except Exception as exc:
+        logger.debug("selftest probe %s failed: %s", name, exc)
         return Check(name, False, str(exc)[:120], int((time.monotonic() - t0) * 1000))
 
 
@@ -104,11 +107,11 @@ def _check_claude_cli() -> tuple[bool, str]:
         [config.CLAUDE_CLI, "--version"],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=SELFTEST_TIMEOUT_SEC,
     )
     if result.returncode == 0:
         return (True, result.stdout.strip().split("\n")[0][:80])
-    return (False, result.stderr.strip()[:120])
+    return (False, (result.stderr or result.stdout).strip()[:120])
 
 
 def _check_s3() -> tuple[bool, str]:
@@ -116,8 +119,10 @@ def _check_s3() -> tuple[bool, str]:
         return (False, "not configured (USE_S3=false)")
     from . import s3
 
-    s3._s3_client.head_bucket(Bucket=config.S3_BUCKET)
-    return (True, f"bucket={config.S3_BUCKET}")
+    filename = "apps-list.json"
+    if not s3.file_exists(filename):
+        return (False, f"object not found: {filename}")
+    return (True, f"bucket={config.S3_BUCKET} object {filename}")
 
 
 def _check_matomo() -> tuple[bool, str]:
@@ -132,7 +137,7 @@ def _check_matomo() -> tuple[bool, str]:
             "format": "json",
             "token_auth": api.token,
         },
-        timeout=10,
+        timeout=SELFTEST_TIMEOUT_SEC,
     )
     resp.raise_for_status()
     version = resp.json().get("value", "?")[:40]
@@ -144,7 +149,7 @@ def _check_metabase_instance(instance: str) -> tuple[bool, str]:
 
     cfg = get_source_config("metabase", instance)
     url = cfg["url"].rstrip("/") + "/api/health"
-    resp = requests.get(url, timeout=10)
+    resp = requests.get(url, timeout=SELFTEST_TIMEOUT_SEC)
     if resp.status_code == 200:
         return (True, "healthy")
     return (False, f"HTTP {resp.status_code}")
@@ -160,7 +165,7 @@ def _check_notion() -> tuple[bool, str]:
             "Authorization": f"Bearer {token}",
             "Notion-Version": "2022-06-28",
         },
-        timeout=10,
+        timeout=SELFTEST_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
         return (True, f"bot: {resp.json().get('name', 'ok')}")
@@ -175,7 +180,7 @@ def _check_grist() -> tuple[bool, str]:
     resp = requests.get(
         f"https://grist.numerique.gouv.fr/api/docs/{doc_id}/tables",
         headers={"Authorization": f"Bearer {api_key}"},
-        timeout=10,
+        timeout=SELFTEST_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
         n = len(resp.json().get("tables", []))
@@ -190,7 +195,7 @@ def _check_livestorm() -> tuple[bool, str]:
     resp = requests.get(
         "https://api.livestorm.co/v1/ping",
         headers={"Authorization": api_key},
-        timeout=10,
+        timeout=SELFTEST_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
         return (True, "reachable")
@@ -204,7 +209,7 @@ def _check_slack() -> tuple[bool, str]:
     resp = requests.head(
         "https://slack.com/api/auth.test",
         headers={"Authorization": f"Bearer {token}"},
-        timeout=10,
+        timeout=SELFTEST_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
         return (True, "API reachable")
