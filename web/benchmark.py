@@ -130,107 +130,111 @@ async def benchmark_conversation(
         yield "=" * 60 + "\n\n"
         yield f"Source: {orig['prompt_count']} prompt(s), {orig['msg_count']} messages\n"
         yield f"Original duration: {orig['total_s']:.0f}s ({orig['total_s'] / 60:.1f} min)\n"
-        yield (f"Original tokens: {orig['input_tokens']:,} in / {orig['output_tokens']:,} out\n")
+        yield f"Original tokens: {orig['input_tokens']:,} in / {orig['output_tokens']:,} out\n"
         yield f"Planned: {runs} run(s) × {len(user_msgs)} prompt(s)\n\n"
 
-        backend = get_agent()
-        all_runs: list[list[PromptResult]] = []
+        try:
+            backend = get_agent()
+            all_runs: list[list[PromptResult]] = []
 
-        for r in range(runs):
-            yield f"━━━ Run {r + 1}/{runs} ━━━\n"
-            run_results: list[PromptResult] = []
-            run_t0 = time.monotonic()
+            for r in range(runs):
+                yield f"━━━ Run {r + 1}/{runs} ━━━\n"
+                run_results: list[PromptResult] = []
+                run_t0 = time.monotonic()
+
+                for p in range(len(user_msgs)):
+                    prompt, history = _history_for_prompt(conv.messages, p)
+                    preview = prompt.replace("\n", " ")[:60]
+                    yield f"  ▶ Prompt {p + 1}: {preview}…\n"
+
+                    res = await _run_prompt(backend, prompt, history, f"bench-{r}-{p}-{int(time.time())}")
+                    run_results.append(res)
+
+                    icon = "✓" if not res.error else "✗"
+                    parts = [f"{res.duration_s}s", f"{res.events} events"]
+                    if res.tools:
+                        parts.append(f"{len(res.tools)} tools")
+                    if res.input_tokens or res.output_tokens:
+                        parts.append(f"{res.input_tokens:,}↓ {res.output_tokens:,}↑ tok")
+                    notable = [c for c in Counter(res.categories) if c.startswith(("API:", "Skill:", "Query:"))]
+                    if notable:
+                        parts.append(", ".join(notable))
+                    if res.error:
+                        parts.append(f"ERR: {res.error[:80]}")
+                    yield f"  {icon} {' · '.join(parts)}\n"
+
+                run_total = round(time.monotonic() - run_t0, 1)
+                yield f"  ⏱  Run total: {run_total}s\n\n"
+                all_runs.append(run_results)
+
+            # ── Summary table ────────────────────────────────────────
+            yield "=" * 60 + "\n"
+            yield f"RESULTS  ({runs} run(s) × {len(user_msgs)} prompt(s))\n"
+            yield "=" * 60 + "\n\n"
+
+            W = [8, 10, 10, 10, 10] + ([10] if runs > 1 else [])
+            headers = ["Prompt", "Original", "Mean", "Min", "Max"]
+            if runs > 1:
+                headers.append("Stdev")
+            yield _table_row(headers, W)
+            yield _table_row(["─" * w for w in W], W)
 
             for p in range(len(user_msgs)):
-                prompt, history = _history_for_prompt(conv.messages, p)
-                preview = prompt.replace("\n", " ")[:60]
-                yield f"  ▶ Prompt {p + 1}: {preview}…\n"
+                ds = [all_runs[r][p].duration_s for r in range(runs)]
+                orig_d = orig["prompt_durations"][p] if p < len(orig["prompt_durations"]) else 0
+                cells = [
+                    str(p + 1),
+                    f"{orig_d:.1f}",
+                    f"{statistics.mean(ds):.1f}",
+                    f"{min(ds):.1f}",
+                    f"{max(ds):.1f}",
+                ]
+                if runs > 1:
+                    cells.append(f"{statistics.stdev(ds):.1f}")
+                yield _table_row(cells, W)
 
-                res = await _run_prompt(backend, prompt, history, f"bench-{r}-{p}-{int(time.time())}")
-                run_results.append(res)
-
-                icon = "✓" if not res.error else "✗"
-                parts = [f"{res.duration_s}s", f"{res.events} events"]
-                if res.tools:
-                    parts.append(f"{len(res.tools)} tools")
-                if res.input_tokens or res.output_tokens:
-                    parts.append(f"{res.input_tokens:,}↓ {res.output_tokens:,}↑ tok")
-                notable = [c for c in Counter(res.categories) if c.startswith(("API:", "Skill:", "Query:"))]
-                if notable:
-                    parts.append(", ".join(notable))
-                if res.error:
-                    parts.append(f"ERR: {res.error[:80]}")
-                yield f"  {icon} {' · '.join(parts)}\n"
-
-            run_total = round(time.monotonic() - run_t0, 1)
-            yield f"  ⏱  Run total: {run_total}s\n\n"
-            all_runs.append(run_results)
-
-        # ── Summary table ────────────────────────────────────────────
-        yield "=" * 60 + "\n"
-        yield f"RESULTS  ({runs} run(s) × {len(user_msgs)} prompt(s))\n"
-        yield "=" * 60 + "\n\n"
-
-        W = [8, 10, 10, 10, 10] + ([10] if runs > 1 else [])
-        headers = ["Prompt", "Original", "Mean", "Min", "Max"]
-        if runs > 1:
-            headers.append("Stdev")
-        yield _table_row(headers, W)
-        yield _table_row(["─" * w for w in W], W)
-
-        for p in range(len(user_msgs)):
-            ds = [all_runs[r][p].duration_s for r in range(runs)]
-            orig_d = orig["prompt_durations"][p] if p < len(orig["prompt_durations"]) else 0
-            cells = [
-                str(p + 1),
-                f"{orig_d:.1f}",
-                f"{statistics.mean(ds):.1f}",
-                f"{min(ds):.1f}",
-                f"{max(ds):.1f}",
+            totals = [sum(all_runs[r][p].duration_s for p in range(len(user_msgs))) for r in range(runs)]
+            total_cells = [
+                "TOTAL",
+                f"{orig['total_s']:.1f}",
+                f"{statistics.mean(totals):.1f}",
+                f"{min(totals):.1f}",
+                f"{max(totals):.1f}",
             ]
             if runs > 1:
-                cells.append(f"{statistics.stdev(ds):.1f}")
-            yield _table_row(cells, W)
+                total_cells.append(f"{statistics.stdev(totals):.1f}")
+            yield _table_row(["─" * w for w in W], W)
+            yield _table_row(total_cells, W)
 
-        totals = [sum(all_runs[r][p].duration_s for p in range(len(user_msgs))) for r in range(runs)]
-        total_cells = [
-            "TOTAL",
-            f"{orig['total_s']:.1f}",
-            f"{statistics.mean(totals):.1f}",
-            f"{min(totals):.1f}",
-            f"{max(totals):.1f}",
-        ]
-        if runs > 1:
-            total_cells.append(f"{statistics.stdev(totals):.1f}")
-        yield _table_row(["─" * w for w in W], W)
-        yield _table_row(total_cells, W)
+            # ── Token comparison ──────────────────────────────────────
+            run_in_totals = [sum(r[p].input_tokens for p in range(len(user_msgs))) for r in all_runs]
+            run_out_totals = [sum(r[p].output_tokens for p in range(len(user_msgs))) for r in all_runs]
+            yield "\nTokens (per run):\n"
+            yield f"  {'Run':<6} {'Input':>12} {'Output':>12}\n"
+            yield f"  {'─' * 6} {'─' * 12} {'─' * 12}\n"
+            for r in range(runs):
+                yield f"  {r + 1:<6} {run_in_totals[r]:>12,} {run_out_totals[r]:>12,}\n"
+            yield f"  {'─' * 6} {'─' * 12} {'─' * 12}\n"
+            yield f"  {'Mean':<6} {int(statistics.mean(run_in_totals)):>12,} {int(statistics.mean(run_out_totals)):>12,}\n"
+            yield f"  {'Orig':<6} {orig['input_tokens']:>12,} {orig['output_tokens']:>12,}\n"
 
-        # ── Token comparison ──────────────────────────────────────────
-        run_in_totals = [sum(r[p].input_tokens for p in range(len(user_msgs))) for r in all_runs]
-        run_out_totals = [sum(r[p].output_tokens for p in range(len(user_msgs))) for r in all_runs]
-        yield "\nTokens (per run):\n"
-        yield f"  {'Run':<6} {'Input':>12} {'Output':>12}\n"
-        yield f"  {'─' * 6} {'─' * 12} {'─' * 12}\n"
-        for r in range(runs):
-            yield f"  {r + 1:<6} {run_in_totals[r]:>12,} {run_out_totals[r]:>12,}\n"
-        yield f"  {'─' * 6} {'─' * 12} {'─' * 12}\n"
-        yield f"  {'Mean':<6} {int(statistics.mean(run_in_totals)):>12,} {int(statistics.mean(run_out_totals)):>12,}\n"
-        yield f"  {'Orig':<6} {orig['input_tokens']:>12,} {orig['output_tokens']:>12,}\n"
+            # ── Tool categories comparison ────────────────────────────
+            replay_cats: Counter[str] = Counter()
+            for run in all_runs:
+                for res in run:
+                    replay_cats.update(res.categories)
 
-        # ── Tool categories comparison ───────────────────────────────
-        replay_cats: Counter[str] = Counter()
-        for run in all_runs:
-            for res in run:
-                replay_cats.update(res.categories)
+            all_cat_keys = sorted(set(list(replay_cats.keys()) + list(orig["categories"].keys())))
+            if all_cat_keys:
+                yield "\nTool categories (replay total / original):\n"
+                for cat in all_cat_keys:
+                    r_count = replay_cats.get(cat, 0)
+                    o_count = orig["categories"].get(cat, 0)
+                    yield f"  {cat:<35} {r_count:>4} / {o_count}\n"
 
-        all_cat_keys = sorted(set(list(replay_cats.keys()) + list(orig["categories"].keys())))
-        if all_cat_keys:
-            yield "\nTool categories (replay total / original):\n"
-            for cat in all_cat_keys:
-                r_count = replay_cats.get(cat, 0)
-                o_count = orig["categories"].get(cat, 0)
-                yield f"  {cat:<35} {r_count:>4} / {o_count}\n"
+            yield "\nDone.\n"
 
-        yield "\nDone.\n"
+        except Exception as exc:
+            yield f"\n\n❌ BENCHMARK ERROR: {type(exc).__name__}: {exc}\n"
 
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
