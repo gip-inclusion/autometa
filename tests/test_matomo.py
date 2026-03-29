@@ -225,125 +225,149 @@ def test_get_visit_frequency_returns_dict(mocker):
     assert "nb_visits_new" in result
 
 
+@pytest.fixture
+def matomo_integration_api():
+    try:
+        return get_matomo(instance="inclusion")
+    except (FileNotFoundError, ValueError) as e:
+        pytest.skip(f"No valid config: {e}")
+
+
 @pytest.mark.integration
-class TestMatomoAPIIntegration:
-    @pytest.fixture
-    def api(self):
-        try:
-            return get_matomo(instance="inclusion")
-        except (FileNotFoundError, ValueError) as e:
-            pytest.skip(f"No valid config: {e}")
+def test_matomo_integration_get_sites_returns_list(matomo_integration_api):
+    sites = matomo_integration_api.get_sites()
+    assert isinstance(sites, list)
+    assert len(sites) > 0
+    assert "idsite" in sites[0] or "idSite" in sites[0]
 
-    def test_get_sites_returns_list(self, api):
-        sites = api.get_sites()
-        assert isinstance(sites, list)
-        assert len(sites) > 0
-        assert "idsite" in sites[0] or "idSite" in sites[0]
 
-    def test_get_visits_returns_dict_with_expected_keys(self, api):
-        result = api.get_visits(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, dict)
-        expected_keys = ["nb_visits", "nb_uniq_visitors", "nb_actions"]
-        assert any(k in result for k in expected_keys)
+@pytest.mark.integration
+def test_matomo_integration_get_visits_returns_dict_with_expected_keys(matomo_integration_api):
+    result = matomo_integration_api.get_visits(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, dict)
+    expected_keys = ["nb_visits", "nb_uniq_visitors", "nb_actions"]
+    assert any(k in result for k in expected_keys)
 
-    def test_get_pages_returns_list(self, api):
-        result = api.get_pages(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-            limit=5,
-        )
-        assert isinstance(result, list)
 
-    def test_get_configured_dimensions_returns_list(self, api):
-        result = api.get_configured_dimensions(site_id=MATOMO_TEST_SITE_ID)
-        assert isinstance(result, list)
+@pytest.mark.integration
+def test_matomo_integration_get_pages_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_pages(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+        limit=5,
+    )
+    assert isinstance(result, list)
 
-    def test_get_dimension_returns_list(self, api):
-        result = api.get_dimension(
-            site_id=MATOMO_TEST_SITE_ID,
-            dimension_id=MATOMO_TEST_DIMENSION_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, list)
 
-    def test_get_event_categories_returns_list(self, api):
-        result = api.get_event_categories(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, list)
+@pytest.mark.integration
+def test_matomo_integration_get_configured_dimensions_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_configured_dimensions(site_id=MATOMO_TEST_SITE_ID)
+    assert isinstance(result, list)
 
-    def test_get_entry_pages_returns_list(self, api):
-        result = api.get_entry_pages(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-            limit=5,
-        )
-        assert isinstance(result, list)
 
-    def test_get_exit_pages_returns_list(self, api):
-        result = api.get_exit_pages(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-            limit=5,
-        )
-        assert isinstance(result, list)
+@pytest.mark.integration
+def test_matomo_integration_get_dimension_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_dimension(
+        site_id=MATOMO_TEST_SITE_ID,
+        dimension_id=MATOMO_TEST_DIMENSION_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, list)
 
-    def test_get_visits_by_hour_returns_list(self, api):
-        result = api.get_visits_by_hour(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, list)
-        assert len(result) == 24
 
-    def test_get_visits_by_day_of_week_returns_list(self, api):
-        result = api.get_visits_by_day_of_week(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, list)
-        assert len(result) == 7
+@pytest.mark.integration
+def test_matomo_integration_get_event_categories_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_event_categories(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, list)
 
-    def test_get_referrers_returns_list(self, api):
-        result = api.get_referrers(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, list)
 
-    def test_segment_filter_works(self, api):
-        all_visits = api.get_visits(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        filtered_visits = api.get_visits(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-            segment=MATOMO_TEST_SEGMENT,
-        )
-        assert filtered_visits.get("nb_visits", 0) <= all_visits.get("nb_visits", 0)
+@pytest.mark.integration
+def test_matomo_integration_get_entry_pages_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_entry_pages(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+        limit=5,
+    )
+    assert isinstance(result, list)
 
-    def test_get_visit_frequency_returns_dict(self, api):
-        result = api.get_visit_frequency(
-            site_id=MATOMO_TEST_SITE_ID,
-            period=MATOMO_TEST_PERIOD,
-            date=MATOMO_TEST_DATE,
-        )
-        assert isinstance(result, dict)
-        keys = list(result.keys())
-        assert any("returning" in k or "new" in k for k in keys), f"Unexpected keys: {keys}"
+
+@pytest.mark.integration
+def test_matomo_integration_get_exit_pages_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_exit_pages(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+        limit=5,
+    )
+    assert isinstance(result, list)
+
+
+@pytest.mark.integration
+def test_matomo_integration_get_visits_by_hour_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_visits_by_hour(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, list)
+    assert len(result) == 24
+
+
+@pytest.mark.integration
+def test_matomo_integration_get_visits_by_day_of_week_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_visits_by_day_of_week(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, list)
+    assert len(result) == 7
+
+
+@pytest.mark.integration
+def test_matomo_integration_get_referrers_returns_list(matomo_integration_api):
+    result = matomo_integration_api.get_referrers(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, list)
+
+
+@pytest.mark.integration
+def test_matomo_integration_segment_filter_works(matomo_integration_api):
+    all_visits = matomo_integration_api.get_visits(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    filtered_visits = matomo_integration_api.get_visits(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+        segment=MATOMO_TEST_SEGMENT,
+    )
+    assert filtered_visits.get("nb_visits", 0) <= all_visits.get("nb_visits", 0)
+
+
+@pytest.mark.integration
+def test_matomo_integration_get_visit_frequency_returns_dict(matomo_integration_api):
+    result = matomo_integration_api.get_visit_frequency(
+        site_id=MATOMO_TEST_SITE_ID,
+        period=MATOMO_TEST_PERIOD,
+        date=MATOMO_TEST_DATE,
+    )
+    assert isinstance(result, dict)
+    keys = list(result.keys())
+    assert any("returning" in k or "new" in k for k in keys), f"Unexpected keys: {keys}"

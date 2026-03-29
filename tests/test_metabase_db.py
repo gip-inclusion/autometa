@@ -58,145 +58,140 @@ def populated_db(temp_db):
     return db
 
 
-class TestSchema:
-    """Test database schema."""
+def test_schema_init_schema(temp_db):
+    """Schema initialization creates tables."""
+    cursor = temp_db.conn.cursor()
 
-    def test_init_schema(self, temp_db):
-        """Schema initialization creates tables."""
-        cursor = temp_db.conn.cursor()
+    # Check cards table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
+    assert cursor.fetchone() is not None
 
-        # Check cards table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
-        assert cursor.fetchone() is not None
+    # Check FTS table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards_fts'")
+    assert cursor.fetchone() is not None
 
-        # Check FTS table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards_fts'")
-        assert cursor.fetchone() is not None
-
-        # Check dashboards table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dashboards'")
-        assert cursor.fetchone() is not None
-
-    def test_schema_columns(self, temp_db):
-        """Cards table has expected columns."""
-        cursor = temp_db.conn.cursor()
-        cursor.execute("PRAGMA table_info(cards)")
-        columns = {row[1] for row in cursor.fetchall()}
-
-        expected = {
-            "id",
-            "name",
-            "description",
-            "collection_id",
-            "dashboard_id",
-            "topic",
-            "sql_query",
-            "tables_referenced",
-            "created_at",
-            "updated_at",
-        }
-        assert expected.issubset(columns)
+    # Check dashboards table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dashboards'")
+    assert cursor.fetchone() is not None
 
 
-class TestCardOperations:
-    """Test card CRUD operations."""
+def test_schema_columns(temp_db):
+    """Cards table has expected columns."""
+    cursor = temp_db.conn.cursor()
+    cursor.execute("PRAGMA table_info(cards)")
+    columns = {row[1] for row in cursor.fetchall()}
 
-    def test_upsert_and_get(self, temp_db):
-        """Upsert card and retrieve it."""
-        temp_db.upsert_card(
-            card_id=100,
-            name="[999] Test card",
-            description="A test card",
-            collection_id=453,
-            dashboard_id=999,
-            topic="autre",
-            sql_query="SELECT 1",
-            tables_referenced=["test_table"],
-        )
-        temp_db.commit()
-
-        card = temp_db.get(100)
-        assert card is not None
-        assert card.id == 100
-        assert card.name == "[999] Test card"
-        assert card.description == "A test card"
-        assert card.dashboard_id == 999
-        assert card.topic == "autre"
-        assert card.tables_referenced == ["test_table"]
-
-    def test_get_nonexistent(self, temp_db):
-        card = temp_db.get(99999)
-        assert card is None
-
-    def test_all(self, populated_db):
-        cards = populated_db.all()
-        assert len(cards) == 3
-        assert all(isinstance(c, Card) for c in cards)
-
-    def test_count(self, populated_db):
-        assert populated_db.count() == 3
+    expected = {
+        "id",
+        "name",
+        "description",
+        "collection_id",
+        "dashboard_id",
+        "topic",
+        "sql_query",
+        "tables_referenced",
+        "created_at",
+        "updated_at",
+    }
+    assert expected.issubset(columns)
 
 
-class TestQueries:
-    """Test query methods."""
+def test_card_operations_upsert_and_get(temp_db):
+    """Upsert card and retrieve it."""
+    temp_db.upsert_card(
+        card_id=100,
+        name="[999] Test card",
+        description="A test card",
+        collection_id=453,
+        dashboard_id=999,
+        topic="autre",
+        sql_query="SELECT 1",
+        tables_referenced=["test_table"],
+    )
+    temp_db.commit()
 
-    def test_by_topic(self, populated_db):
-        cards = populated_db.by_topic("file-active")
-        assert len(cards) == 1
-        assert cards[0].id == 1
-
-    def test_by_topic_empty(self, populated_db):
-        cards = populated_db.by_topic("nonexistent")
-        assert cards == []
-
-    def test_search(self, populated_db):
-        """Full-text search."""
-        cards = populated_db.search("file active")
-        assert len(cards) >= 1
-        # First result should be the file active card
-        assert any(c.id == 1 for c in cards)
-
-    def test_search_by_sql(self, populated_db):
-        cards = populated_db.search("region")
-        assert len(cards) >= 1
-        assert any(c.id == 2 for c in cards)
-
-    def test_by_table(self, populated_db):
-        cards = populated_db.by_table("candidats")
-        assert len(cards) == 2
-        ids = {c.id for c in cards}
-        assert ids == {1, 3}
+    card = temp_db.get(100)
+    assert card is not None
+    assert card.id == 100
+    assert card.name == "[999] Test card"
+    assert card.description == "A test card"
+    assert card.dashboard_id == 999
+    assert card.topic == "autre"
+    assert card.tables_referenced == ["test_table"]
 
 
-class TestSummaries:
-    """Test summary methods."""
-
-    def test_topics_summary(self, populated_db):
-        summary = populated_db.topics_summary()
-        assert summary["file-active"] == 1
-        assert summary["candidatures"] == 1
-        assert summary["demographie"] == 1
-
-    def test_tables_summary(self, populated_db):
-        summary = populated_db.tables_summary()
-        assert summary["candidats"] == 2
-        assert summary["candidatures"] == 1
+def test_card_operations_get_nonexistent(temp_db):
+    card = temp_db.get(99999)
+    assert card is None
 
 
-class TestTopicsTaxonomy:
-    """Test topics constant."""
+def test_card_operations_all(populated_db):
+    cards = populated_db.all()
+    assert len(cards) == 3
+    assert all(isinstance(c, Card) for c in cards)
 
-    def test_topics_defined(self):
-        """All topics have descriptions."""
-        assert len(TOPICS) > 0
-        for topic, description in TOPICS.items():
-            assert isinstance(topic, str)
-            assert isinstance(description, str)
-            assert len(description) > 0
 
-    def test_expected_topics_exist(self):
-        """Key topics are defined."""
-        # Note: "autre" was deliberately removed - all cards must be categorized
-        expected = ["file-active", "candidatures", "demographie"]
-        for topic in expected:
-            assert topic in TOPICS
+def test_card_operations_count(populated_db):
+    assert populated_db.count() == 3
+
+
+def test_queries_by_topic(populated_db):
+    cards = populated_db.by_topic("file-active")
+    assert len(cards) == 1
+    assert cards[0].id == 1
+
+
+def test_queries_by_topic_empty(populated_db):
+    cards = populated_db.by_topic("nonexistent")
+    assert cards == []
+
+
+def test_queries_search(populated_db):
+    """Full-text search."""
+    cards = populated_db.search("file active")
+    assert len(cards) >= 1
+    # First result should be the file active card
+    assert any(c.id == 1 for c in cards)
+
+
+def test_queries_search_by_sql(populated_db):
+    cards = populated_db.search("region")
+    assert len(cards) >= 1
+    assert any(c.id == 2 for c in cards)
+
+
+def test_queries_by_table(populated_db):
+    cards = populated_db.by_table("candidats")
+    assert len(cards) == 2
+    ids = {c.id for c in cards}
+    assert ids == {1, 3}
+
+
+def test_summaries_topics_summary(populated_db):
+    summary = populated_db.topics_summary()
+    assert summary["file-active"] == 1
+    assert summary["candidatures"] == 1
+    assert summary["demographie"] == 1
+
+
+def test_summaries_tables_summary(populated_db):
+    summary = populated_db.tables_summary()
+    assert summary["candidats"] == 2
+    assert summary["candidatures"] == 1
+
+
+def test_topics_taxonomy_topics_defined():
+    """All topics have descriptions."""
+    assert len(TOPICS) > 0
+    for topic, description in TOPICS.items():
+        assert isinstance(topic, str)
+        assert isinstance(description, str)
+        assert len(description) > 0
+
+
+def test_topics_taxonomy_expected_topics_exist():
+    """Key topics are defined."""
+    # Note: "autre" was deliberately removed - all cards must be categorized
+    expected = ["file-active", "candidatures", "demographie"]
+    for topic in expected:
+        assert topic in TOPICS

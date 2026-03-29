@@ -10,8 +10,6 @@ import json
 import logging
 import threading
 
-import requests as req
-
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
 from lib.tool_taxonomy import classify_tool
@@ -252,31 +250,18 @@ class ProcessManager:
             f"_Vérifiez que la réponse est correcte._"
         )
 
+        from lib.slack import lookup_user, send_dm
+
         for email in config.FAILURE_NOTIFY_EMAILS:
             try:
-                resp = req.get(
-                    "https://slack.com/api/users.lookupByEmail",
-                    headers={"Authorization": f"Bearer {token}"},
-                    params={"email": email},
-                    timeout=10,
-                )
-                data = resp.json()
-                if not data.get("ok"):
+                slack_id = lookup_user(token, email)
+                if not slack_id:
                     logger.warning(f"Slack user not found for {email}")
                     continue
-
-                slack_id = data["user"]["id"]
-
-                resp = req.post(
-                    "https://slack.com/api/chat.postMessage",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"channel": slack_id, "text": message},
-                    timeout=10,
-                )
-                if resp.json().get("ok"):
+                if send_dm(token, slack_id, message):
                     logger.info(f"Failure notification sent to {email} for conversation {conv_id}")
                 else:
-                    logger.warning(f"Failed to send Slack DM to {email}: {resp.json()}")
+                    logger.warning(f"Failed to send Slack DM to {email}")
             except Exception:
                 logger.exception(f"Error sending failure notification to {email}")
 

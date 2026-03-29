@@ -197,29 +197,30 @@ def test_reads_conversation_id_from_env(mocker):
 
 
 @pytest.mark.integration
-class TestQueryIntegration:
-    def test_metabase_query_executes(self):
-        from lib.query import CallerType, execute_metabase_query
+def test_query_integration_metabase_query_executes():
+    from lib.query import CallerType, execute_metabase_query
 
-        result = execute_metabase_query(
-            instance="stats",
-            caller=CallerType.AGENT,
-            sql="SELECT 1 as test",
-            database_id=2,
-        )
+    result = execute_metabase_query(
+        instance="stats",
+        caller=CallerType.AGENT,
+        sql="SELECT 1 as test",
+        database_id=2,
+    )
 
-        assert result.success is True
-        assert result.data["row_count"] == 1
+    assert result.success is True
+    assert result.data["row_count"] == 1
 
-    def test_matomo_query_executes(self):
-        from lib.query import CallerType, execute_matomo_query
 
-        result = execute_matomo_query(
-            instance="inclusion",
-            caller=CallerType.AGENT,
-            method="SitesManager.getSitesWithAtLeastViewAccess",
-            params={},
-        )
+@pytest.mark.integration
+def test_query_integration_matomo_query_executes():
+    from lib.query import CallerType, execute_matomo_query
 
-        assert result.success is True
-        assert isinstance(result.data, list)
+    result = execute_matomo_query(
+        instance="inclusion",
+        caller=CallerType.AGENT,
+        method="SitesManager.getSitesWithAtLeastViewAccess",
+        params={},
+    )
+
+    assert result.success is True
+    assert isinstance(result.data, list)

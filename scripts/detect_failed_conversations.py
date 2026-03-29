@@ -8,35 +8,12 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import requests
-
 from lib.failure_detection import FAILURE_MARKERS, extract_snippet
+from lib.slack import lookup_user as slack_lookup_user
+from lib.slack import send_dm as slack_send_dm
 from web import config
 from web.db import get_db
 from web.schema import init_db
-
-
-def slack_lookup_user(token: str, email: str) -> str | None:
-    """Resolve an email to a Slack user ID."""
-    resp = requests.get(
-        "https://slack.com/api/users.lookupByEmail",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"email": email},
-        timeout=10,
-    )
-    data = resp.json()
-    return data["user"]["id"] if data.get("ok") else None
-
-
-def slack_send_dm(token: str, user_id: str, text: str) -> bool:
-    resp = requests.post(
-        "https://slack.com/api/chat.postMessage",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"channel": user_id, "text": text},
-        timeout=10,
-    )
-    return resp.json().get("ok", False)
-
 
 NOTIFY_EMAILS = config.FAILURE_NOTIFY_EMAILS
 
@@ -135,7 +112,6 @@ def main():
             print(f"Slack DM sent to {email}")
         else:
             print(f"FAILED to send Slack DM to {email}", file=sys.stderr)
-        sys.exit(1)
 
 
 if __name__ == "__main__":

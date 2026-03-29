@@ -48,79 +48,84 @@ def two_prompt_conv():
     )
 
 
-class TestOriginalMetrics:
-    def test_prompt_count_and_durations(self, two_prompt_conv):
-        m = _original_metrics(two_prompt_conv)
-        assert m["prompt_count"] == 2
-        assert m["prompt_durations"][0] == 60.0
-        assert m["prompt_durations"][1] == 60.0
-        assert m["total_s"] == 120.0
-
-    def test_tool_counting(self, two_prompt_conv):
-        m = _original_metrics(two_prompt_conv)
-        assert m["tools"]["Bash"] == 2
-        assert m["tools"]["Read"] == 1
-        assert m["categories"]["API: Matomo"] == 2
-        assert m["categories"]["Read: knowledge"] == 1
-
-    def test_tokens_from_conversation(self, two_prompt_conv):
-        m = _original_metrics(two_prompt_conv)
-        assert m["input_tokens"] == 40000
-        assert m["output_tokens"] == 10000
-
-    def test_msg_count(self, two_prompt_conv):
-        m = _original_metrics(two_prompt_conv)
-        assert m["msg_count"] == 8
-
-    def test_single_prompt(self):
-        msgs = [
-            _msg("user", "hello", T0, id=1),
-            _msg("assistant", "hi", T0 + timedelta(seconds=5), id=2),
-        ]
-        conv = Conversation(id="c2", messages=msgs)
-        m = _original_metrics(conv)
-        assert m["prompt_count"] == 1
-        assert m["prompt_durations"] == [5.0]
-
-    def test_malformed_tool_use_skipped(self):
-        msgs = [
-            _msg("user", "go", T0, id=1),
-            _msg("tool_use", "not json {{{", T0 + timedelta(seconds=1), id=2),
-            _msg("assistant", "done", T0 + timedelta(seconds=2), id=3),
-        ]
-        conv = Conversation(id="c3", messages=msgs)
-        m = _original_metrics(conv)
-        assert m["prompt_count"] == 1
-        assert len(m["tools"]) == 0
+def test_original_metrics_prompt_count_and_durations(two_prompt_conv):
+    m = _original_metrics(two_prompt_conv)
+    assert m["prompt_count"] == 2
+    assert m["prompt_durations"][0] == 60.0
+    assert m["prompt_durations"][1] == 60.0
+    assert m["total_s"] == 120.0
 
 
-class TestHistoryForPrompt:
-    def test_first_prompt_has_empty_history(self, two_prompt_conv):
-        prompt, history = _history_for_prompt(two_prompt_conv.messages, 0)
-        assert prompt == "Quel est le trafic ?"
-        assert history == []
-
-    def test_second_prompt_gets_user_assistant_history(self, two_prompt_conv):
-        prompt, history = _history_for_prompt(two_prompt_conv.messages, 1)
-        assert prompt == "Compare avec février"
-        assert len(history) == 2
-        assert history[0] == {"role": "user", "content": "Quel est le trafic ?"}
-        assert history[1] == {"role": "assistant", "content": "Voici le trafic."}
-
-    def test_tool_messages_excluded_from_history(self, two_prompt_conv):
-        _, history = _history_for_prompt(two_prompt_conv.messages, 1)
-        roles = {h["role"] for h in history}
-        assert roles == {"user", "assistant"}
+def test_original_metrics_tool_counting(two_prompt_conv):
+    m = _original_metrics(two_prompt_conv)
+    assert m["tools"]["Bash"] == 2
+    assert m["tools"]["Read"] == 1
+    assert m["categories"]["API: Matomo"] == 2
+    assert m["categories"]["Read: knowledge"] == 1
 
 
-class TestTableRow:
-    def test_formatting(self):
-        row = _table_row(["A", "BB", "CCC"], [4, 4, 4])
-        assert row == "   A    BB   CCC\n"
+def test_original_metrics_tokens_from_conversation(two_prompt_conv):
+    m = _original_metrics(two_prompt_conv)
+    assert m["input_tokens"] == 40000
+    assert m["output_tokens"] == 10000
 
-    def test_separator_row(self):
-        row = _table_row(["──", "──"], [4, 4])
-        assert "──" in row
+
+def test_original_metrics_msg_count(two_prompt_conv):
+    m = _original_metrics(two_prompt_conv)
+    assert m["msg_count"] == 8
+
+
+def test_original_metrics_single_prompt():
+    msgs = [
+        _msg("user", "hello", T0, id=1),
+        _msg("assistant", "hi", T0 + timedelta(seconds=5), id=2),
+    ]
+    conv = Conversation(id="c2", messages=msgs)
+    m = _original_metrics(conv)
+    assert m["prompt_count"] == 1
+    assert m["prompt_durations"] == [5.0]
+
+
+def test_original_metrics_malformed_tool_use_skipped():
+    msgs = [
+        _msg("user", "go", T0, id=1),
+        _msg("tool_use", "not json {{{", T0 + timedelta(seconds=1), id=2),
+        _msg("assistant", "done", T0 + timedelta(seconds=2), id=3),
+    ]
+    conv = Conversation(id="c3", messages=msgs)
+    m = _original_metrics(conv)
+    assert m["prompt_count"] == 1
+    assert len(m["tools"]) == 0
+
+
+def test_history_for_prompt_first_prompt_has_empty_history(two_prompt_conv):
+    prompt, history = _history_for_prompt(two_prompt_conv.messages, 0)
+    assert prompt == "Quel est le trafic ?"
+    assert history == []
+
+
+def test_history_for_prompt_second_prompt_gets_user_assistant_history(two_prompt_conv):
+    prompt, history = _history_for_prompt(two_prompt_conv.messages, 1)
+    assert prompt == "Compare avec février"
+    assert len(history) == 2
+    assert history[0] == {"role": "user", "content": "Quel est le trafic ?"}
+    assert history[1] == {"role": "assistant", "content": "Voici le trafic."}
+
+
+def test_history_for_prompt_tool_messages_excluded(two_prompt_conv):
+    _, history = _history_for_prompt(two_prompt_conv.messages, 1)
+    roles = {h["role"] for h in history}
+    assert roles == {"user", "assistant"}
+
+
+def test_table_row_formatting():
+    row = _table_row(["A", "BB", "CCC"], [4, 4, 4])
+    assert row == "   A    BB   CCC\n"
+
+
+def test_table_row_separator():
+    row = _table_row(["──", "──"], [4, 4])
+    assert "──" in row
 
 
 @pytest.mark.parametrize(
@@ -157,64 +162,66 @@ def test_yield_summary_table_includes_totals():
     assert "Stdev" in text
 
 
-class TestBenchmarkRoute:
-    @pytest.fixture
-    def app_and_client(self, mocker):
-        mocker.patch("web.benchmark.config")
-        mocker.patch("web.benchmark.store")
+@pytest.fixture
+def benchmark_app_and_client(mocker):
+    mocker.patch("web.benchmark.config")
+    mocker.patch("web.benchmark.store")
 
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
-        from web.benchmark import router
-        from web.deps import get_current_user
+    from web.benchmark import router
+    from web.deps import get_current_user
 
-        app = FastAPI()
-        app.include_router(router)
-        return app, TestClient(app), get_current_user
-
-    def test_403_for_non_admin(self, app_and_client):
-        app, client, dep = app_and_client
-        from web.benchmark import config
-
-        config.ADMIN_USERS = ["boss@test.com"]
-        app.dependency_overrides[dep] = lambda: "nobody@test.com"
-        resp = client.get("/benchmark/some-id")
-        assert resp.status_code == 403
-
-    def test_404_for_missing_conversation(self, app_and_client):
-        app, client, dep = app_and_client
-        from web.benchmark import config, store
-
-        config.ADMIN_USERS = ["admin@test.com"]
-        app.dependency_overrides[dep] = lambda: "admin@test.com"
-        store.get_conversation.return_value = None
-        resp = client.get("/benchmark/nonexistent")
-        assert resp.status_code == 404
-
-    def test_400_for_no_user_messages(self, app_and_client):
-        app, client, dep = app_and_client
-        from web.benchmark import config, store
-
-        config.ADMIN_USERS = ["admin@test.com"]
-        app.dependency_overrides[dep] = lambda: "admin@test.com"
-        conv = Conversation(id="c1", messages=[_msg("assistant", "hi", T0)])
-        store.get_conversation.return_value = conv
-        resp = client.get("/benchmark/c1")
-        assert resp.status_code == 400
+    app = FastAPI()
+    app.include_router(router)
+    return app, TestClient(app), get_current_user
 
 
-class TestPromptResult:
-    def test_defaults(self):
-        r = PromptResult()
-        assert r.duration_s == 0
-        assert r.input_tokens == 0
-        assert r.output_tokens == 0
-        assert r.tools == []
-        assert r.error == ""
+def test_benchmark_route_403_for_non_admin(benchmark_app_and_client):
+    app, client, dep = benchmark_app_and_client
+    from web.benchmark import config
 
-    def test_independent_lists(self):
-        a = PromptResult()
-        b = PromptResult()
-        a.tools.append("Bash")
-        assert b.tools == []
+    config.ADMIN_USERS = ["boss@test.com"]
+    app.dependency_overrides[dep] = lambda: "nobody@test.com"
+    resp = client.get("/benchmark/some-id")
+    assert resp.status_code == 403
+
+
+def test_benchmark_route_404_for_missing_conversation(benchmark_app_and_client):
+    app, client, dep = benchmark_app_and_client
+    from web.benchmark import config, store
+
+    config.ADMIN_USERS = ["admin@test.com"]
+    app.dependency_overrides[dep] = lambda: "admin@test.com"
+    store.get_conversation.return_value = None
+    resp = client.get("/benchmark/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_benchmark_route_400_for_no_user_messages(benchmark_app_and_client):
+    app, client, dep = benchmark_app_and_client
+    from web.benchmark import config, store
+
+    config.ADMIN_USERS = ["admin@test.com"]
+    app.dependency_overrides[dep] = lambda: "admin@test.com"
+    conv = Conversation(id="c1", messages=[_msg("assistant", "hi", T0)])
+    store.get_conversation.return_value = conv
+    resp = client.get("/benchmark/c1")
+    assert resp.status_code == 400
+
+
+def test_prompt_result_defaults():
+    r = PromptResult()
+    assert r.duration_s == 0
+    assert r.input_tokens == 0
+    assert r.output_tokens == 0
+    assert r.tools == []
+    assert r.error == ""
+
+
+def test_prompt_result_independent_lists():
+    a = PromptResult()
+    b = PromptResult()
+    a.tools.append("Bash")
+    assert b.tools == []

@@ -9,8 +9,8 @@ from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import requests
-
+from lib.slack import lookup_user as slack_lookup_user
+from lib.slack import send_dm as slack_send_dm
 from web import config
 from web.database import get_db, init_db
 
@@ -45,31 +45,6 @@ def get_active_emails() -> list[str]:
         if email and email.strip() and email.strip() not in EXCLUDED_EMAILS:
             emails.append(email.strip())
     return sorted(set(emails))
-
-
-def slack_lookup_user(token: str, email: str) -> str | None:
-    """Resolve an email to a Slack user ID via users.lookupByEmail."""
-    resp = requests.get(
-        "https://slack.com/api/users.lookupByEmail",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"email": email},
-        timeout=10,
-    )
-    data = resp.json()
-    if data.get("ok"):
-        return data["user"]["id"]
-    return None
-
-
-def slack_send_dm(token: str, user_id: str, text: str) -> bool:
-    resp = requests.post(
-        "https://slack.com/api/chat.postMessage",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"channel": user_id, "text": text},
-        timeout=10,
-    )
-    data = resp.json()
-    return data.get("ok", False)
 
 
 def build_message(email: str) -> str:

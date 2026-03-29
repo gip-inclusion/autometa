@@ -37,160 +37,114 @@ def grist_client(mocker):
     return client
 
 
-class TestInferProduct:
-    def test_dora(self):
-        assert infer_product("Présentation de DORA et prise en main") == "dora"
-
-    def test_marche(self):
-        assert infer_product("Devenez expert des achats inclusifs") == "marche"
-
-    def test_marche_accent(self):
-        assert infer_product("Découvrez le Marché de l'inclusion") == "marche"
-
-    def test_pilotage(self):
-        assert infer_product("Webinaire Pilotage : indicateurs") == "pilotage"
-
-    def test_immersion(self):
-        assert infer_product("Utiliser le site d'Immersion Facilitée") == "immersion"
-
-    def test_communaute(self):
-        assert infer_product("Bienvenue sur la Communauté") == "communaute"
-
-    def test_rdv_insertion(self):
-        assert infer_product("Formation RDV-Insertion pour les CD") == "rdv-insertion"
-
-    def test_emplois(self):
-        assert infer_product("Les emplois de l'inclusion") == "emplois"
-
-    def test_emplois_prescripteur(self):
-        assert infer_product("Webinaire pour les prescripteurs habilités") == "emplois"
-
-    def test_emplois_pass_iae(self):
-        assert infer_product("Comprendre le Pass IAE") == "emplois"
-
-    def test_unknown(self):
-        assert infer_product("Formation générale sur le numérique") is None
-
-    def test_empty(self):
-        assert infer_product("") is None
-
-    def test_none(self):
-        assert infer_product(None) is None
-
-    def test_priority_dora_over_emplois(self):
-        """Dora pattern is checked before emplois."""
-        assert infer_product("DORA pour les prescripteurs") == "dora"
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("Présentation de DORA et prise en main", "dora"),
+        ("Devenez expert des achats inclusifs", "marche"),
+        ("Découvrez le Marché de l'inclusion", "marche"),
+        ("Webinaire Pilotage : indicateurs", "pilotage"),
+        ("Utiliser le site d'Immersion Facilitée", "immersion"),
+        ("Bienvenue sur la Communauté", "communaute"),
+        ("Formation RDV-Insertion pour les CD", "rdv-insertion"),
+        ("Les emplois de l'inclusion", "emplois"),
+        ("Webinaire pour les prescripteurs habilités", "emplois"),
+        ("Comprendre le Pass IAE", "emplois"),
+        ("Formation générale sur le numérique", None),
+        ("", None),
+        (None, None),
+        ("DORA pour les prescripteurs", "dora"),
+    ],
+)
+def test_infer_product(title, expected):
+    assert infer_product(title) == expected
 
 
-class TestTsToIso:
-    def test_valid_timestamp(self):
-        result = ts_to_iso(1700000000)
-        assert result.startswith("2023-11-14")
-        assert "+00:00" in result
-
-    def test_float_timestamp(self):
-        result = ts_to_iso(1700000000.5)
-        assert result is not None
-
-    def test_zero(self):
-        assert ts_to_iso(0) is None
-
-    def test_none(self):
-        assert ts_to_iso(None) is None
-
-    def test_invalid(self):
-        assert ts_to_iso("not-a-number") is None
+def test_ts_to_iso_valid_timestamp():
+    result = ts_to_iso(1700000000)
+    assert result.startswith("2023-11-14")
+    assert "+00:00" in result
 
 
-class TestGristDurationToMinutes:
-    def test_30_min(self):
-        assert grist_duration_to_minutes("30 min") == 30
-
-    def test_45_min(self):
-        assert grist_duration_to_minutes("45 min") == 45
-
-    def test_60_min(self):
-        assert grist_duration_to_minutes("60 min") == 60
-
-    def test_none(self):
-        assert grist_duration_to_minutes(None) is None
-
-    def test_empty(self):
-        assert grist_duration_to_minutes("") is None
+@pytest.mark.parametrize(
+    "value,expected_none",
+    [
+        (1700000000.5, False),
+        (0, True),
+        (None, True),
+        ("not-a-number", True),
+    ],
+)
+def test_ts_to_iso_edge_cases(value, expected_none):
+    result = ts_to_iso(value)
+    assert (result is None) == expected_none
 
 
-class TestExtractOrganisation:
-    def test_company_field(self):
-        fields = [{"id": "company", "value": "ACME Corp"}]
-        assert extract_organisation(fields) == "ACME Corp"
-
-    def test_structure_field(self):
-        fields = [{"id": "quel_est_le_nom_de_votre_structure", "value": "PLIE Bordeaux"}]
-        assert extract_organisation(fields) == "PLIE Bordeaux"
-
-    def test_entreprise_field(self):
-        fields = [{"id": "entreprise", "value": "Mission Locale"}]
-        assert extract_organisation(fields) == "Mission Locale"
-
-    def test_no_match(self):
-        fields = [{"id": "departement", "value": "75"}]
-        assert extract_organisation(fields) is None
-
-    def test_empty(self):
-        assert extract_organisation([]) is None
-
-    def test_priority(self):
-        """company takes precedence over entreprise."""
-        fields = [
-            {"id": "entreprise", "value": "second"},
-            {"id": "company", "value": "first"},
-        ]
-        assert extract_organisation(fields) == "first"
-
-    def test_skips_empty_value(self):
-        fields = [
-            {"id": "company", "value": ""},
-            {"id": "entreprise", "value": "Fallback"},
-        ]
-        assert extract_organisation(fields) == "Fallback"
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30 min", 30),
+        ("45 min", 45),
+        ("60 min", 60),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_grist_duration_to_minutes(value, expected):
+    assert grist_duration_to_minutes(value) == expected
 
 
-class TestSchema:
-    def test_tables_exist(self, db):
-        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        assert T_WEBINAIRES in tables
-        assert T_SESSIONS in tables
-        assert T_INSCRIPTIONS in tables
-        assert T_SYNC_META in tables
+@pytest.mark.parametrize(
+    "fields,expected",
+    [
+        ([{"id": "company", "value": "ACME Corp"}], "ACME Corp"),
+        ([{"id": "quel_est_le_nom_de_votre_structure", "value": "PLIE Bordeaux"}], "PLIE Bordeaux"),
+        ([{"id": "entreprise", "value": "Mission Locale"}], "Mission Locale"),
+        ([{"id": "departement", "value": "75"}], None),
+        ([], None),
+        ([{"id": "entreprise", "value": "second"}, {"id": "company", "value": "first"}], "first"),
+        ([{"id": "company", "value": ""}, {"id": "entreprise", "value": "Fallback"}], "Fallback"),
+    ],
+)
+def test_extract_organisation(fields, expected):
+    assert extract_organisation(fields) == expected
 
-    def test_ensure_schema_idempotent(self, db):
-        """Calling ensure_schema twice doesn't fail."""
-        ensure_schema(db)
-        ensure_schema(db)
 
-    def test_registration_unique_constraint(self, db):
-        """Duplicate (source, webinar_id, session_id, email) is rejected."""
+def test_schema_tables_exist(db):
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    assert T_WEBINAIRES in tables
+    assert T_SESSIONS in tables
+    assert T_INSCRIPTIONS in tables
+    assert T_SYNC_META in tables
+
+
+def test_schema_ensure_schema_idempotent(db):
+    """Calling ensure_schema twice doesn't fail."""
+    ensure_schema(db)
+    ensure_schema(db)
+
+
+def test_schema_registration_unique_constraint(db):
+    """Duplicate (source, webinar_id, session_id, email) is rejected."""
+    db.execute(
+        f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) VALUES ('test', 'w1', 's1', 'a@b.com')"
+    )
+    with pytest.raises(sqlite3.IntegrityError):
         db.execute(
             f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) "
             "VALUES ('test', 'w1', 's1', 'a@b.com')"
         )
-        with pytest.raises(sqlite3.IntegrityError):
-            db.execute(
-                f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) "
-                "VALUES ('test', 'w1', 's1', 'a@b.com')"
-            )
 
-    def test_registration_different_sessions_ok(self, db):
-        db.execute(
-            f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) "
-            "VALUES ('test', 'w1', 's1', 'a@b.com')"
-        )
-        db.execute(
-            f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) "
-            "VALUES ('test', 'w1', 's2', 'a@b.com')"
-        )
-        count = db.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
-        assert count == 2
+
+def test_schema_registration_different_sessions_ok(db):
+    db.execute(
+        f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) VALUES ('test', 'w1', 's1', 'a@b.com')"
+    )
+    db.execute(
+        f"INSERT INTO {T_INSCRIPTIONS} (source, webinar_id, session_id, email) VALUES ('test', 'w1', 's2', 'a@b.com')"
+    )
+    count = db.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
+    assert count == 2
 
 
 def mock_grist_response(mocker, records):
@@ -278,245 +232,258 @@ SAMPLE_INSCRIPTIONS = [
 ]
 
 
-class TestBatchUpsert:
-    INSERT_PREFIX = f"INSERT INTO {T_WEBINAIRES} (id, source, source_id, title) VALUES "
-    CONFLICT_SUFFIX = " ON CONFLICT(id) DO UPDATE SET title=excluded.title"
-
-    def test_inserts_all_rows(self, db):
-        """All rows are inserted across batches."""
-        rows = [(f"id-{i}", "grist", f"src-{i}", f"title-{i}") for i in range(250)]
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows, batch_size=100)
-        db.commit()
-        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
-        assert count == 250
-
-    def test_upsert_on_conflict(self, db):
-        """ON CONFLICT updates existing rows."""
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, [("id-1", "grist", "src-1", "old title")])
-        db.commit()
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, [("id-1", "grist", "src-1", "new title")])
-        db.commit()
-        title = db.execute(f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-1'").fetchone()[0]
-        assert title == "new title"
-
-    def test_empty_rows(self, db):
-        """Empty row list is a no-op."""
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, [])
-        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
-        assert count == 0
-
-    def test_handles_special_characters(self, db):
-        """Values with quotes and special chars are escaped properly."""
-        rows = [("id-quote", "grist", "src-q", "It's a \"test\" with 'quotes'")]
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows)
-        db.commit()
-        title = db.execute(f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-quote'").fetchone()[0]
-        assert title == "It's a \"test\" with 'quotes'"
-
-    def test_handles_none_values(self, db):
-        """None values are inserted as NULL."""
-        rows = [("id-null", "grist", "src-n", None)]
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows)
-        db.commit()
-        title = db.execute(f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-null'").fetchone()[0]
-        assert title is None
-
-    def test_exact_batch_boundary(self, db):
-        """Row count exactly equal to batch_size works."""
-        rows = [(f"id-{i}", "grist", f"src-{i}", f"t-{i}") for i in range(100)]
-        batch_upsert(db, self.INSERT_PREFIX, self.CONFLICT_SUFFIX, rows, batch_size=100)
-        db.commit()
-        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
-        assert count == 100
+BATCH_UPSERT_INSERT_PREFIX = f"INSERT INTO {T_WEBINAIRES} (id, source, source_id, title) VALUES "
+BATCH_UPSERT_CONFLICT_SUFFIX = " ON CONFLICT(id) DO UPDATE SET title=excluded.title"
 
 
-class TestGristSync:
-    def test_sync_webinars(self, mocker, db, grist_client):
-        """Webinaires are inserted with correct fields."""
+def test_batch_upsert_inserts_all_rows(db):
+    """All rows are inserted across batches."""
+    rows = [(f"id-{i}", "grist", f"src-{i}", f"title-{i}") for i in range(250)]
+    batch_upsert(db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, rows, batch_size=100)
+    db.commit()
+    count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+    assert count == 250
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            return mock_grist_response(mocker, [])
 
-        grist_client._session.get.side_effect = mock_get
-        sync_grist(db, grist_client)
+def test_batch_upsert_upsert_on_conflict(db):
+    """ON CONFLICT updates existing rows."""
+    batch_upsert(
+        db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, [("id-1", "grist", "src-1", "old title")]
+    )
+    db.commit()
+    batch_upsert(
+        db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, [("id-1", "grist", "src-1", "new title")]
+    )
+    db.commit()
+    title = db.execute(f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-1'").fetchone()[0]
+    assert title == "new title"
 
-        rows = db.execute(f"SELECT * FROM {T_WEBINAIRES} ORDER BY id").fetchall()
-        assert len(rows) == 2
 
-        dora = dict(rows[0])
-        assert dora["id"] == "grist:dora-prise-en-main-001"
-        assert dora["source"] == "grist"
-        assert dora["title"] == "DORA présentation et prise en main"
-        assert dora["product"] == "dora"
-        assert dora["duration_minutes"] == 60
-        assert dora["capacity"] == 350
+def test_batch_upsert_empty_rows(db):
+    """Empty row list is a no-op."""
+    batch_upsert(db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, [])
+    count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+    assert count == 0
 
-    def test_sync_inscriptions(self, mocker, db, grist_client):
-        """Inscriptions are inserted with correct fields."""
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
-            return mock_grist_response(mocker, [])
+def test_batch_upsert_handles_special_characters(db):
+    """Values with quotes and special chars are escaped properly."""
+    rows = [("id-quote", "grist", "src-q", "It's a \"test\" with 'quotes'")]
+    batch_upsert(db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, rows)
+    db.commit()
+    title = db.execute(f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-quote'").fetchone()[0]
+    assert title == "It's a \"test\" with 'quotes'"
 
-        grist_client._session.get.side_effect = mock_get
-        sync_grist(db, grist_client)
 
-        rows = db.execute(f"SELECT * FROM {T_INSCRIPTIONS} ORDER BY email").fetchall()
-        assert len(rows) == 3
+def test_batch_upsert_handles_none_values(db):
+    """None values are inserted as NULL."""
+    rows = [("id-null", "grist", "src-n", None)]
+    batch_upsert(db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, rows)
+    db.commit()
+    title = db.execute(f"SELECT title FROM {T_WEBINAIRES} WHERE id='id-null'").fetchone()[0]
+    assert title is None
 
-        julie = dict(rows[0])
-        assert julie["email"] == "julie@example.fr"
-        assert julie["first_name"] == "Julie"
-        assert julie["last_name"] == "Dupont"
-        assert julie["organisation"] == "Mission Locale de Reims"
-        assert julie["attended"] == 1
-        assert julie["webinar_id"] == "grist:missions-locales-001"
-        assert julie["session_id"] == ""
 
-    def test_email_lowercased(self, mocker, db, grist_client):
-        """Emails are normalized to lowercase."""
+def test_batch_upsert_exact_batch_boundary(db):
+    """Row count exactly equal to batch_size works."""
+    rows = [(f"id-{i}", "grist", f"src-{i}", f"t-{i}") for i in range(100)]
+    batch_upsert(db, BATCH_UPSERT_INSERT_PREFIX, BATCH_UPSERT_CONFLICT_SUFFIX, rows, batch_size=100)
+    db.commit()
+    count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+    assert count == 100
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
-            return mock_grist_response(mocker, [])
 
-        grist_client._session.get.side_effect = mock_get
-        sync_grist(db, grist_client)
+def test_grist_sync_webinars(mocker, db, grist_client):
+    """Webinaires are inserted with correct fields."""
 
-        emails = [r[0] for r in db.execute(f"SELECT email FROM {T_INSCRIPTIONS} ORDER BY email").fetchall()]
-        assert all(e == e.lower() for e in emails)
-        assert "laure@example.fr" in emails
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        return mock_grist_response(mocker, [])
 
-    def test_idempotent(self, mocker, db, grist_client):
-        """Running sync twice doesn't duplicate data."""
+    grist_client._session.get.side_effect = mock_get
+    sync_grist(db, grist_client)
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
-            return mock_grist_response(mocker, [])
+    rows = db.execute(f"SELECT * FROM {T_WEBINAIRES} ORDER BY id").fetchall()
+    assert len(rows) == 2
 
-        grist_client._session.get.side_effect = mock_get
+    dora = dict(rows[0])
+    assert dora["id"] == "grist:dora-prise-en-main-001"
+    assert dora["source"] == "grist"
+    assert dora["title"] == "DORA présentation et prise en main"
+    assert dora["product"] == "dora"
+    assert dora["duration_minutes"] == 60
+    assert dora["capacity"] == 350
 
-        sync_grist(db, grist_client)
-        sync_grist(db, grist_client)
 
-        webinar_count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
-        reg_count = db.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
-        assert webinar_count == 2
-        assert reg_count == 3
+def test_grist_sync_inscriptions(mocker, db, grist_client):
+    """Inscriptions are inserted with correct fields."""
 
-    def test_updates_on_resync(self, mocker, db, grist_client):
-        """Re-syncing updates changed fields (e.g. a_participe)."""
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
+        return mock_grist_response(mocker, [])
 
-        def mock_get_v1(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS[:1])
-            return mock_grist_response(mocker, [])
+    grist_client._session.get.side_effect = mock_get
+    sync_grist(db, grist_client)
 
-        grist_client._session.get.side_effect = mock_get_v1
-        sync_grist(db, grist_client)
+    rows = db.execute(f"SELECT * FROM {T_INSCRIPTIONS} ORDER BY email").fetchall()
+    assert len(rows) == 3
 
-        # Nora didn't attend initially
-        attended = db.execute(f"SELECT attended FROM {T_INSCRIPTIONS} WHERE email='nora@example.fr'").fetchone()[0]
-        assert attended == 0
+    julie = dict(rows[0])
+    assert julie["email"] == "julie@example.fr"
+    assert julie["first_name"] == "Julie"
+    assert julie["last_name"] == "Dupont"
+    assert julie["organisation"] == "Mission Locale de Reims"
+    assert julie["attended"] == 1
+    assert julie["webinar_id"] == "grist:missions-locales-001"
+    assert julie["session_id"] == ""
 
-        # Now she did attend
-        updated = [
-            {
-                "id": 1,
-                "fields": {
-                    **SAMPLE_INSCRIPTIONS[0]["fields"],
-                    "a_participe": True,
-                },
-            }
-        ]
 
-        def mock_get_v2(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, updated)
-            return mock_grist_response(mocker, [])
+def test_grist_sync_email_lowercased(mocker, db, grist_client):
+    """Emails are normalized to lowercase."""
 
-        grist_client._session.get.side_effect = mock_get_v2
-        sync_grist(db, grist_client)
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
+        return mock_grist_response(mocker, [])
 
-        attended = db.execute(f"SELECT attended FROM {T_INSCRIPTIONS} WHERE email='nora@example.fr'").fetchone()[0]
-        assert attended == 1
+    grist_client._session.get.side_effect = mock_get
+    sync_grist(db, grist_client)
 
-    def test_skips_empty_email(self, mocker, db, grist_client):
-        """Records without email are skipped."""
-        no_email = [
-            {
-                "id": 99,
-                "fields": {
-                    "email": "",
-                    "nom": "Ghost",
-                    "prenom": "User",
-                    "event_id": "dora-prise-en-main-001",
-                },
-            }
-        ]
+    emails = [r[0] for r in db.execute(f"SELECT email FROM {T_INSCRIPTIONS} ORDER BY email").fetchall()]
+    assert all(e == e.lower() for e in emails)
+    assert "laure@example.fr" in emails
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, no_email)
-            return mock_grist_response(mocker, [])
 
-        grist_client._session.get.side_effect = mock_get
-        sync_grist(db, grist_client)
+def test_grist_sync_idempotent(mocker, db, grist_client):
+    """Running sync twice doesn't duplicate data."""
 
-        count = db.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
-        assert count == 0
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
+        return mock_grist_response(mocker, [])
 
-    def test_skips_empty_event_id(self, mocker, db, grist_client):
-        """Webinaires without event_id are skipped."""
-        no_event_id = [
-            {
-                "id": 99,
-                "fields": {
-                    "event_id": "",
-                    "titre": "Orphan webinar",
-                },
-            }
-        ]
+    grist_client._session.get.side_effect = mock_get
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, no_event_id)
-            return mock_grist_response(mocker, [])
+    sync_grist(db, grist_client)
+    sync_grist(db, grist_client)
 
-        grist_client._session.get.side_effect = mock_get
-        sync_grist(db, grist_client)
+    webinar_count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+    reg_count = db.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
+    assert webinar_count == 2
+    assert reg_count == 3
 
-        count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
-        assert count == 0
 
-    def test_return_value(self, mocker, db, grist_client):
-        """sync_grist returns (webinar_count, registration_count)."""
+def test_grist_sync_updates_on_resync(mocker, db, grist_client):
+    """Re-syncing updates changed fields (e.g. a_participe)."""
 
-        def mock_get(url, **kwargs):
-            if "Webinaires" in url:
-                return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
-            if "Inscriptions" in url:
-                return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
-            return mock_grist_response(mocker, [])
+    def mock_get_v1(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS[:1])
+        return mock_grist_response(mocker, [])
 
-        grist_client._session.get.side_effect = mock_get
-        webinars, regs = sync_grist(db, grist_client)
-        assert webinars == 2
-        assert regs == 3
+    grist_client._session.get.side_effect = mock_get_v1
+    sync_grist(db, grist_client)
+
+    attended = db.execute(f"SELECT attended FROM {T_INSCRIPTIONS} WHERE email='nora@example.fr'").fetchone()[0]
+    assert attended == 0
+
+    updated = [
+        {
+            "id": 1,
+            "fields": {
+                **SAMPLE_INSCRIPTIONS[0]["fields"],
+                "a_participe": True,
+            },
+        }
+    ]
+
+    def mock_get_v2(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, updated)
+        return mock_grist_response(mocker, [])
+
+    grist_client._session.get.side_effect = mock_get_v2
+    sync_grist(db, grist_client)
+
+    attended = db.execute(f"SELECT attended FROM {T_INSCRIPTIONS} WHERE email='nora@example.fr'").fetchone()[0]
+    assert attended == 1
+
+
+def test_grist_sync_skips_empty_email(mocker, db, grist_client):
+    """Records without email are skipped."""
+    no_email = [
+        {
+            "id": 99,
+            "fields": {
+                "email": "",
+                "nom": "Ghost",
+                "prenom": "User",
+                "event_id": "dora-prise-en-main-001",
+            },
+        }
+    ]
+
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, no_email)
+        return mock_grist_response(mocker, [])
+
+    grist_client._session.get.side_effect = mock_get
+    sync_grist(db, grist_client)
+
+    count = db.execute(f"SELECT COUNT(*) FROM {T_INSCRIPTIONS}").fetchone()[0]
+    assert count == 0
+
+
+def test_grist_sync_skips_empty_event_id(mocker, db, grist_client):
+    """Webinaires without event_id are skipped."""
+    no_event_id = [
+        {
+            "id": 99,
+            "fields": {
+                "event_id": "",
+                "titre": "Orphan webinar",
+            },
+        }
+    ]
+
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, no_event_id)
+        return mock_grist_response(mocker, [])
+
+    grist_client._session.get.side_effect = mock_get
+    sync_grist(db, grist_client)
+
+    count = db.execute(f"SELECT COUNT(*) FROM {T_WEBINAIRES}").fetchone()[0]
+    assert count == 0
+
+
+def test_grist_sync_return_value(mocker, db, grist_client):
+    """sync_grist returns (webinar_count, registration_count)."""
+
+    def mock_get(url, **kwargs):
+        if "Webinaires" in url:
+            return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, SAMPLE_INSCRIPTIONS)
+        return mock_grist_response(mocker, [])
+
+    grist_client._session.get.side_effect = mock_get
+    webinars, regs = sync_grist(db, grist_client)
+    assert webinars == 2
+    assert regs == 3

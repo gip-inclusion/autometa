@@ -259,7 +259,7 @@ def fetch_baselines(api: MatomoAPI, site: SiteConfig, year: int = 2025) -> dict:
 def format_number(n) -> str:
     if n is None:
         return "-"
-    return f"{n:,}".replace(",", ",")
+    return f"{n:,}"
 
 def generate_baselines_section(data: dict, year: int) -> str:
     lines = [

@@ -41,103 +41,93 @@ def report_with_source(app, conversation):
     )
 
 
-class TestRapportTxtExport:
-    """Test the .txt export endpoint."""
-
-    def test_txt_endpoint_returns_plain_text(self, app, client, report):
-        """GET /rapports/<id>.txt returns text/plain content type."""
-        response = client.get(
-            f"/rapports/{report.id}.txt",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/plain")
-
-    def test_txt_endpoint_returns_raw_markdown(self, app, client, report):
-        """GET /rapports/<id>.txt returns the raw markdown content."""
-        response = client.get(
-            f"/rapports/{report.id}.txt",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 200
-        content = response.content.decode("utf-8")
-        assert "# Test Report" in content
-        assert "**markdown**" in content
-        assert "date: 2026-01-01" in content
-
-    def test_txt_endpoint_nonexistent_report_returns_404(self, app, client):
-        """GET /rapports/<nonexistent>.txt returns 404."""
-        response = client.get(
-            "/rapports/99999.txt",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 404
-
-    def test_txt_endpoint_utf8_encoding(self, app, client):
-        """GET /rapports/<id>.txt handles UTF-8 content correctly."""
-        from web.database import store
-
-        report = store.create_report(
-            title="Rapport avec accents",
-            content="# Résumé\n\nCe rapport contient des caractères spéciaux: é, è, ê, ë, à, ç, ù.",
-            website="test",
-            category="testing",
-            user_id="test@example.com",
-        )
-
-        response = client.get(
-            f"/rapports/{report.id}.txt",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 200
-        content = response.content.decode("utf-8")
-        assert "Résumé" in content
-        assert "é, è, ê, ë, à, ç, ù" in content
+def test_rapport_txt_export_returns_plain_text(app, client, report):
+    """GET /rapports/<id>.txt returns text/plain content type."""
+    response = client.get(
+        f"/rapports/{report.id}.txt",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
 
 
-class TestRapportDetailView:
-    """Test the report detail view includes the export button."""
-
-    def test_detail_view_has_export_button(self, app, client, report):
-        """Report detail view includes the 'Version exportable' button."""
-        response = client.get(
-            f"/rapports/{report.id}",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 200
-        assert b"Version exportable" in response.content
-        assert f"/rapports/{report.id}.txt".encode() in response.content
-
-    def test_detail_view_has_continue_button(self, app, client, report):
-        """Report detail view still includes the 'Poursuivre l'exploration' button."""
-        response = client.get(
-            f"/rapports/{report.id}",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 200
-        assert b"Poursuivre l'exploration" in response.content
+def test_rapport_txt_export_returns_raw_markdown(app, client, report):
+    """GET /rapports/<id>.txt returns the raw markdown content."""
+    response = client.get(
+        f"/rapports/{report.id}.txt",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert "# Test Report" in content
+    assert "**markdown**" in content
+    assert "date: 2026-01-01" in content
 
 
-class TestRapportsListRedirect:
-    """Test that /rapports list redirects to /rechercher."""
-
-    def test_list_redirects_to_rechercher(self, app, client, report):
-        """/rapports redirects to /rechercher?show=reports."""
-        response = client.get(
-            "/rapports",
-            headers={"X-Forwarded-Email": "test@example.com"},
-            follow_redirects=False,
-        )
-        assert response.status_code == 301
-        assert response.headers["location"] == "/rechercher?show=reports"
+def test_rapport_txt_export_nonexistent_report_returns_404(app, client):
+    """GET /rapports/<nonexistent>.txt returns 404."""
+    response = client.get(
+        "/rapports/99999.txt",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 404
 
 
-def extract_main_content(html: str) -> str:
-    """Extract the innerHTML of <main id="main"> from a full page.
+def test_rapport_txt_export_utf8_encoding(app, client):
+    """GET /rapports/<id>.txt handles UTF-8 content correctly."""
+    from web.database import store
 
-    This is what HTMX swaps when using hx-target="#main" hx-select="#main > *".
-    """
-    # Find <main ... id="main" ...>
+    report = store.create_report(
+        title="Rapport avec accents",
+        content="# Résumé\n\nCe rapport contient des caractères spéciaux: é, è, ê, ë, à, ç, ù.",
+        website="test",
+        category="testing",
+        user_id="test@example.com",
+    )
+
+    response = client.get(
+        f"/rapports/{report.id}.txt",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert "Résumé" in content
+    assert "é, è, ê, ë, à, ç, ù" in content
+
+
+def test_rapport_detail_view_has_export_button(app, client, report):
+    """Report detail view includes the 'Version exportable' button."""
+    response = client.get(
+        f"/rapports/{report.id}",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 200
+    assert b"Version exportable" in response.content
+    assert f"/rapports/{report.id}.txt".encode() in response.content
+
+
+def test_rapport_detail_view_has_continue_button(app, client, report):
+    """Report detail view still includes the 'Poursuivre l'exploration' button."""
+    response = client.get(
+        f"/rapports/{report.id}",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 200
+    assert b"Poursuivre l'exploration" in response.content
+
+
+def test_rapports_list_redirects_to_rechercher(app, client, report):
+    """/rapports redirects to /rechercher?show=reports."""
+    response = client.get(
+        "/rapports",
+        headers={"X-Forwarded-Email": "test@example.com"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 301
+    assert response.headers["location"] == "/rechercher?show=reports"
+
+
+def _extract_main_content(html: str) -> str:
     import re
 
     main_match = re.search(r'<main[^>]*\bid="main"[^>]*>', html)
@@ -148,81 +138,9 @@ def extract_main_content(html: str) -> str:
     return html[start:end]
 
 
-class TestRapportHtmxNavigation:
-    """Test that report content renders correctly via HTMX navigation.
-
-    Bug: navigating to /rapports via HTMX sidebar click, then clicking a
-    report, the report body stays empty. The request succeeds and HTMX swaps
-    #main content, but the report markdown is never rendered into the DOM.
-
-    Root cause: renderReportContent() and its htmx:afterSettle listener are
-    defined in {% block scripts %}, which is OUTSIDE <main id="main">. HTMX's
-    hx-select="#main > *" excludes it, so the function is never loaded on
-    HTMX-navigated pages. The <div id="reportBody"> stays empty because no
-    script ever fills it with the parsed markdown from <script id="reportRawContent">.
-
-    Full page loads work fine (all scripts execute), which is why this only
-    reproduces when navigating from another section via the sidebar.
-    """
-
-    def test_report_rendering_survives_htmx_swap(self, app, client, report):
-        """After HTMX swaps #main, report content must be in the DOM.
-
-        The report body must be server-side rendered so HTMX navigation
-        (hx-select="#main > *") includes the actual content — no client-side
-        JS required.
-        """
-        response = client.get(
-            f"/rapports/{report.id}",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        assert response.status_code == 200
-        html = response.content.decode("utf-8")
-        main_content = extract_main_content(html)
-
-        assert report_body_has_content(main_content), (
-            "Report body is empty inside #main. Content must be server-side rendered so it survives HTMX navigation."
-        )
-
-    def test_report_list_items_use_htmx_boost(self, app, client, report):
-        """Report list in /rechercher has hx-boost for HTMX navigation."""
-        response = client.get(
-            "/rechercher?show=reports",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        html = response.content.decode("utf-8")
-        main_content = extract_main_content(html)
-
-        # Each report link should have the htmx attributes
-        assert 'hx-boost="true"' in main_content
-        assert 'hx-target="#main"' in main_content
-        assert 'hx-select="#main > *"' in main_content
-
-    def test_report_detail_has_rendered_html_in_main(self, app, client, report):
-        """The rendered HTML must be inside #main for HTMX swaps."""
-        response = client.get(
-            f"/rapports/{report.id}",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        html = response.content.decode("utf-8")
-        main_content = extract_main_content(html)
-
-        # Rendered HTML (not raw markdown) must be present
-        assert "<h1" in main_content, "Heading should be rendered as HTML"
-        assert "<strong>markdown</strong>" in main_content, "Bold should be rendered as HTML"
-        # Front-matter should NOT leak into rendered body
-        assert "---\ndate:" not in main_content
-
-
-def report_body_has_content(main_html: str) -> bool:
-    """Check whether #reportBody has any meaningful content (not just empty).
-
-    Returns True if reportBody contains rendered HTML (server-side rendering).
-    Returns False if it's an empty div (client-side rendering that hasn't run).
-    """
+def _report_body_has_content(main_html: str) -> bool:
     import re
 
-    # Match <div ... id="reportBody" ...>CONTENT</div>
     match = re.search(
         r'<div[^>]*\bid="reportBody"[^>]*>(.*?)</div>',
         main_html,
@@ -234,47 +152,88 @@ def report_body_has_content(main_html: str) -> bool:
     return len(body_content) > 0
 
 
-class TestReportAuthorInSearch:
-    """Test that report author and source conversation appear in /rechercher."""
+def test_rapport_htmx_report_rendering_survives_htmx_swap(app, client, report):
+    """After HTMX swaps #main, report content must be in the DOM."""
+    response = client.get(
+        f"/rapports/{report.id}",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 200
+    html = response.content.decode("utf-8")
+    main_content = _extract_main_content(html)
 
-    def test_report_shows_author(self, app, client, report):
-        """Report author (user_id) appears in search results."""
-        response = client.get(
-            "/rechercher?show=reports",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        html = response.content.decode("utf-8")
-        assert "conv-item-author" in html
-        assert "test" in html  # test@example.com -> "test"
+    assert _report_body_has_content(main_content), (
+        "Report body is empty inside #main. Content must be server-side rendered so it survives HTMX navigation."
+    )
 
-    def test_report_shows_source_conversation_link(self, app, client, report_with_source, conversation):
-        """Report with source_conversation_id shows a conversation link."""
-        response = client.get(
-            "/rechercher?show=reports",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        html = response.content.decode("utf-8")
-        assert f"/explorations/{conversation.id}" in html
-        assert "Conversation" in html
 
-    def test_report_without_source_has_no_conversation_link(self, app, client, report):
-        """Report without source_conversation_id has no conversation link."""
-        response = client.get(
-            "/rechercher?show=reports",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        html = response.content.decode("utf-8")
-        main_content = extract_main_content(html)
-        # No /explorations/ link inside the report item
-        assert "/explorations/" not in main_content
+def test_rapport_htmx_report_list_items_use_htmx_boost(app, client, report):
+    """Report list in /rechercher has hx-boost for HTMX navigation."""
+    response = client.get(
+        "/rechercher?show=reports",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    html = response.content.decode("utf-8")
+    main_content = _extract_main_content(html)
 
-    def test_report_author_is_searchable(self, app, client, report):
-        """Report author appears in data-search attribute for client-side filtering."""
-        response = client.get(
-            "/rechercher?show=reports",
-            headers={"X-Forwarded-Email": "test@example.com"},
-        )
-        html = response.content.decode("utf-8")
-        assert 'data-search="' in html
-        # user_id should be in the search string
-        assert "test@example.com" in html
+    assert 'hx-boost="true"' in main_content
+    assert 'hx-target="#main"' in main_content
+    assert 'hx-select="#main > *"' in main_content
+
+
+def test_rapport_htmx_report_detail_has_rendered_html_in_main(app, client, report):
+    """The rendered HTML must be inside #main for HTMX swaps."""
+    response = client.get(
+        f"/rapports/{report.id}",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    html = response.content.decode("utf-8")
+    main_content = _extract_main_content(html)
+
+    assert "<h1" in main_content, "Heading should be rendered as HTML"
+    assert "<strong>markdown</strong>" in main_content, "Bold should be rendered as HTML"
+    assert "---\ndate:" not in main_content
+
+
+def test_report_author_in_search_shows_author(app, client, report):
+    """Report author (user_id) appears in search results."""
+    response = client.get(
+        "/rechercher?show=reports",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    html = response.content.decode("utf-8")
+    assert "conv-item-author" in html
+    assert "test" in html  # test@example.com -> "test"
+
+
+def test_report_author_in_search_shows_source_conversation_link(app, client, report_with_source, conversation):
+    """Report with source_conversation_id shows a conversation link."""
+    response = client.get(
+        "/rechercher?show=reports",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    html = response.content.decode("utf-8")
+    assert f"/explorations/{conversation.id}" in html
+    assert "Conversation" in html
+
+
+def test_report_author_in_search_without_source_has_no_conversation_link(app, client, report):
+    """Report without source_conversation_id has no conversation link."""
+    response = client.get(
+        "/rechercher?show=reports",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    html = response.content.decode("utf-8")
+    main_content = _extract_main_content(html)
+    assert "/explorations/" not in main_content
+
+
+def test_report_author_in_search_is_searchable(app, client, report):
+    """Report author appears in data-search attribute for client-side filtering."""
+    response = client.get(
+        "/rechercher?show=reports",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    html = response.content.decode("utf-8")
+    assert 'data-search="' in html
+    assert "test@example.com" in html

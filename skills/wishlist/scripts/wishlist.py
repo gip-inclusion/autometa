@@ -48,14 +48,10 @@ def push_to_notion(title: str, category: str, description: str = None) -> str | 
     if description:
         properties["Description"] = {"rich_text": [{"text": {"content": description}}]}
 
-    children = []
-
     payload = {
         "parent": {"database_id": NOTION_WISHLIST_DB},
         "properties": properties,
     }
-    if children:
-        payload["children"] = children
 
     try:
         req = urllib.request.Request(
