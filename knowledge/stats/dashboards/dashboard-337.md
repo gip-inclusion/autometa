@@ -470,7 +470,7 @@ GROUP BY CAST(DATE_TRUNC('year', "public"."candidatures_echelle_locale"."date_ca
 ORDER BY CAST(DATE_TRUNC('year', "public"."candidatures_echelle_locale"."date_candidature") AS date) ASC, "public"."candidatures_echelle_locale"."type_complet" ASC
 ```
 
-## Taux de candidatures refusées par les SIAE en 2023
+## Taux de candidatures refusées par les SIAE - année précedente
 
 - **ID:** 3685
 - **Thème:** candidatures
@@ -481,8 +481,8 @@ SELECT CAST(SUM(CASE WHEN "public"."candidatures_echelle_locale"."état" = 'Cand
 FROM "public"."candidatures_echelle_locale" 
 WHERE ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
-AND ("public"."candidatures_echelle_locale"."date_candidature" >= DATE_TRUNC('year', (NOW() + INTERVAL '-1 year'))) 
-AND ("public"."candidatures_echelle_locale"."date_candidature" < DATE_TRUNC('year', NOW())) 
+AND (("public"."candidatures_echelle_locale"."date_candidature" >= (DATE_TRUNC('year', (NOW() + INTERVAL '-1 year')) + INTERVAL '-1 year')) 
+AND ("public"."candidatures_echelle_locale"."date_candidature" < (DATE_TRUNC('year', NOW()) + INTERVAL '-1 year'))) 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ACI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EI') 
@@ -490,7 +490,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ```
 
-## Taux de candidatures acceptées par les SIAE en 2023
+## Taux de candidatures acceptées par les SIAE - année précedente
 
 - **ID:** 3686
 - **Thème:** candidatures
@@ -501,8 +501,8 @@ SELECT CAST(SUM(CASE WHEN "public"."candidatures_echelle_locale"."état" = 'Cand
 FROM "public"."candidatures_echelle_locale" 
 WHERE ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
-AND ("public"."candidatures_echelle_locale"."date_candidature" >= DATE_TRUNC('year', (NOW() + INTERVAL '-1 year'))) 
-AND ("public"."candidatures_echelle_locale"."date_candidature" < DATE_TRUNC('year', NOW())) 
+AND (("public"."candidatures_echelle_locale"."date_candidature" >= (DATE_TRUNC('year', (NOW() + INTERVAL '-1 year')) + INTERVAL '-1 year')) 
+AND ("public"."candidatures_echelle_locale"."date_candidature" < (DATE_TRUNC('year', NOW()) + INTERVAL '-1 year'))) 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ACI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EI') 
@@ -524,7 +524,7 @@ GROUP BY CAST(DATE_TRUNC('year', "public"."organisations"."date_inscription") AS
 ORDER BY "Nombre total de conseillers inscrits" DESC, CAST(DATE_TRUNC('year', "public"."organisations"."date_inscription") AS date) ASC
 ```
 
-## Taux d'auto-prescription en 2023
+## Taux d'auto-prescription année précedente
 
 - **ID:** 3689
 - **Thème:** auto-prescription
@@ -539,8 +539,8 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'AI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')) 
-AND ("public"."suivi_auto_prescription"."date_candidature" >= DATE_TRUNC('year', (NOW() + INTERVAL '-1 year'))) 
-AND ("public"."suivi_auto_prescription"."date_candidature" < DATE_TRUNC('year', NOW())) 
+AND (("public"."suivi_auto_prescription"."date_candidature" >= (DATE_TRUNC('year', (NOW() + INTERVAL '-1 year')) + INTERVAL '-1 year')) 
+AND ("public"."suivi_auto_prescription"."date_candidature" < (DATE_TRUNC('year', NOW()) + INTERVAL '-1 year'))) 
 AND (("public"."suivi_auto_prescription"."type_structure" = 'AI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ACI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
@@ -548,7 +548,7 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
 ```
 
-## Nombre de candidatures acceptées en 2023
+## Nombre de candidatures acceptées - année précedente
 
 - **ID:** 3695
 - **Thème:** candidatures
@@ -558,8 +558,8 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
 SELECT count(distinct "public"."candidatures_echelle_locale"."id") AS "count" 
 FROM "public"."candidatures_echelle_locale" 
 WHERE ("public"."candidatures_echelle_locale"."état" = 'Candidature acceptée') 
-AND ("public"."candidatures_echelle_locale"."date_candidature" >= DATE_TRUNC('year', (NOW() + INTERVAL '-1 year'))) 
-AND ("public"."candidatures_echelle_locale"."date_candidature" < DATE_TRUNC('year', NOW())) 
+AND (("public"."candidatures_echelle_locale"."date_candidature" >= (DATE_TRUNC('year', (NOW() + INTERVAL '-1 year')) + INTERVAL '-1 year')) 
+AND ("public"."candidatures_echelle_locale"."date_candidature" < (DATE_TRUNC('year', NOW()) + INTERVAL '-1 year'))) 
 AND ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
@@ -569,7 +569,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ```
 
-## Nombre de candidatures en cours de traitement en 2023
+## Nombre de candidatures en cours de traitement - année précedente
 
 - **ID:** 3709
 - **Thème:** candidatures
@@ -581,8 +581,8 @@ FROM "public"."candidatures_echelle_locale"
 WHERE (("public"."candidatures_echelle_locale"."état" = 'Candidature à l''étude') 
 OR ("public"."candidatures_echelle_locale"."état" = 'Candidature en attente') 
 OR ("public"."candidatures_echelle_locale"."état" = 'Nouvelle candidature')) 
-AND ("public"."candidatures_echelle_locale"."date_candidature" >= DATE_TRUNC('year', (NOW() + INTERVAL '-1 year'))) 
-AND ("public"."candidatures_echelle_locale"."date_candidature" < DATE_TRUNC('year', NOW())) 
+AND (("public"."candidatures_echelle_locale"."date_candidature" >= (DATE_TRUNC('year', (NOW() + INTERVAL '-1 year')) + INTERVAL '-1 year')) 
+AND ("public"."candidatures_echelle_locale"."date_candidature" < (DATE_TRUNC('year', NOW()) + INTERVAL '-1 year'))) 
 AND ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
@@ -607,8 +607,8 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'ACI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI')) 
-AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2023-01-01' 
-AND date '2023-12-31'
+AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2024-01-01' 
+AND date '2024-12-31'
 ```
 
 ## Motifs de refus sur 2024
@@ -638,7 +638,7 @@ GROUP BY "public"."candidatures_echelle_locale"."motif_de_refus"
 ORDER BY "count" DESC, "public"."candidatures_echelle_locale"."motif_de_refus" ASC
 ```
 
-## Part de prescriptions du SPE en 2024
+## Part de prescriptions du SPE en 2025
 
 - **ID:** 3863
 - **Thème:** candidatures
@@ -653,11 +653,11 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'ACI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI')) 
-AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31'
+AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31'
 ```
 
-## Taux d'auto-prescription en 2024
+## Taux d'auto-prescription en 2025
 
 - **ID:** 3864
 - **Thème:** auto-prescription
@@ -672,8 +672,8 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'AI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')) 
-AND "public"."suivi_auto_prescription"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31' 
+AND "public"."suivi_auto_prescription"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31' 
 AND (("public"."suivi_auto_prescription"."type_structure" = 'AI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ACI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
@@ -681,7 +681,7 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
 ```
 
-## Nombre de candidatures acceptées en 2024
+## Nombre de candidatures acceptées en 2025
 
 - **ID:** 3865
 - **Thème:** candidatures
@@ -691,8 +691,8 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
 SELECT count(distinct "public"."candidatures_echelle_locale"."id") AS "count" 
 FROM "public"."candidatures_echelle_locale" 
 WHERE ("public"."candidatures_echelle_locale"."état" = 'Candidature acceptée') 
-AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31' 
+AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31' 
 AND ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
@@ -702,7 +702,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ```
 
-## Taux de candidatures acceptées par les SIAE en 2024
+## Taux de candidatures acceptées par les SIAE en 2025
 
 - **ID:** 3866
 - **Thème:** candidatures
@@ -713,8 +713,8 @@ SELECT CAST(SUM(CASE WHEN "public"."candidatures_echelle_locale"."état" = 'Cand
 FROM "public"."candidatures_echelle_locale" 
 WHERE ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
-AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31' 
+AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31' 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ACI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EI') 
@@ -722,7 +722,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ```
 
-## Nombre de candidatures en attente d'être clôturée sur 2024
+## Nombre de candidatures en attente d'être clôturée sur 2025
 
 - **ID:** 3867
 - **Thème:** candidatures
@@ -734,8 +734,8 @@ FROM "public"."candidatures_echelle_locale"
 WHERE (("public"."candidatures_echelle_locale"."état" = 'Candidature à l''étude') 
 OR ("public"."candidatures_echelle_locale"."état" = 'Candidature en attente') 
 OR ("public"."candidatures_echelle_locale"."état" = 'Nouvelle candidature')) 
-AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31' 
+AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31' 
 AND ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
@@ -745,7 +745,7 @@ OR ("public"."candidatures_echelle_locale"."type_structure" = 'EITI')
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ETTI'))
 ```
 
-## Taux de candidatures refusées par les SIAE en 2024
+## Taux de candidatures refusées par les SIAE en 2025
 
 - **ID:** 3868
 - **Thème:** candidatures
@@ -756,8 +756,8 @@ SELECT CAST(SUM(CASE WHEN "public"."candidatures_echelle_locale"."état" = 'Cand
 FROM "public"."candidatures_echelle_locale" 
 WHERE ("public"."candidatures_echelle_locale"."categorie_structure" = 'IAE') 
 AND ("public"."candidatures_echelle_locale"."reprise_de_stock_ai" = 'Non') 
-AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31' 
+AND "public"."candidatures_echelle_locale"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31' 
 AND (("public"."candidatures_echelle_locale"."type_structure" = 'AI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'ACI') 
 OR ("public"."candidatures_echelle_locale"."type_structure" = 'EI') 

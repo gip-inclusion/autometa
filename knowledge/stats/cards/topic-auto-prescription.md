@@ -111,7 +111,7 @@ GROUP BY CAST(DATE_TRUNC('year', "public"."suivi_auto_prescription"."date_candid
 ORDER BY CAST(DATE_TRUNC('year', "public"."suivi_auto_prescription"."date_candidature") AS date) ASC
 ```
 
-## Taux d'auto-prescription en 2023
+## Taux d'auto-prescription année précedente
 
 - **ID:** 3689
 - **Dashboard:** 337
@@ -126,8 +126,8 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'AI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')) 
-AND ("public"."suivi_auto_prescription"."date_candidature" >= DATE_TRUNC('year', (NOW() + INTERVAL '-1 year'))) 
-AND ("public"."suivi_auto_prescription"."date_candidature" < DATE_TRUNC('year', NOW())) 
+AND (("public"."suivi_auto_prescription"."date_candidature" >= (DATE_TRUNC('year', (NOW() + INTERVAL '-1 year')) + INTERVAL '-1 year')) 
+AND ("public"."suivi_auto_prescription"."date_candidature" < (DATE_TRUNC('year', NOW()) + INTERVAL '-1 year'))) 
 AND (("public"."suivi_auto_prescription"."type_structure" = 'AI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ACI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
@@ -135,7 +135,7 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI'))
 ```
 
-## Taux d'auto-prescription en 2024
+## Taux d'auto-prescription en 2025
 
 - **ID:** 3864
 - **Dashboard:** 337
@@ -150,8 +150,8 @@ OR ("public"."suivi_auto_prescription"."type_structure" = 'AI')
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ETTI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EITI')) 
-AND "public"."suivi_auto_prescription"."date_candidature" BETWEEN date '2024-01-01' 
-AND date '2024-12-31' 
+AND "public"."suivi_auto_prescription"."date_candidature" BETWEEN date '2025-01-01' 
+AND date '2025-12-31' 
 AND (("public"."suivi_auto_prescription"."type_structure" = 'AI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'ACI') 
 OR ("public"."suivi_auto_prescription"."type_structure" = 'EI') 

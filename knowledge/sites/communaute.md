@@ -44,6 +44,47 @@ Données récupérées le 06/01/2026 via l'API Matomo.
 | 2025-11 |            67% |            2,4 |                  2m 02s |
 | 2025-12 |            67% |            2,5 |                  2m 09s |
 
+
+## Traffic Baselines (2025)
+
+Data retrieved 2026-03-29 via Matomo API.
+
+### Monthly Visitor Stats
+
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |          30,643 |    41,836 |                988 |            1,350 |
+| 2025-02 |          25,553 |    34,110 |                913 |            1,218 |
+| 2025-03 |          27,469 |    36,687 |                886 |            1,183 |
+| 2025-04 |          27,557 |    36,246 |                919 |            1,208 |
+| 2025-05 |          25,716 |    33,818 |                830 |            1,091 |
+| 2025-06 |          24,370 |    32,152 |                812 |            1,072 |
+| 2025-07 |          22,334 |    28,912 |                720 |              933 |
+| 2025-08 |          17,051 |    21,623 |                550 |              698 |
+| 2025-09 |          27,707 |    34,910 |                924 |            1,164 |
+| 2025-10 |          33,324 |    44,914 |              1,075 |            1,449 |
+| 2025-11 |          25,444 |    32,056 |                848 |            1,069 |
+| 2025-12 |          21,643 |    27,109 |                698 |              874 |
+
+**Typical range:** 550-1,075 unique visitors/day, 698-1,449 visits/day.
+
+### Engagement Metrics
+
+| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
+|---------|-------------|---------------|------------------|
+| 2025-01 |         62% |           3.3 |           2m 40s |
+| 2025-02 |         62% |           3.3 |           2m 44s |
+| 2025-03 |         62% |           3.3 |           2m 43s |
+| 2025-04 |         61% |           3.1 |           2m 44s |
+| 2025-05 |         60% |           3.2 |           2m 30s |
+| 2025-06 |         61% |             3 |           2m 28s |
+| 2025-07 |         59% |             3 |           2m 21s |
+| 2025-08 |         62% |           2.9 |           2m 14s |
+| 2025-09 |         64% |           2.7 |           2m 04s |
+| 2025-10 |         67% |           2.6 |           1m 59s |
+| 2025-11 |         67% |           2.4 |           2m 02s |
+| 2025-12 |         67% |           2.5 |           2m 09s |
+
 ## Dimensions personnalisées
 
 Aucune dimension personnalisée n'est configurée pour ce site.
@@ -222,3 +263,86 @@ La Communauté est un forum communautaire basé sur Django pour les professionne
 - HTMX (interactions dynamiques)
 
 ---
+
+## Saved Segments
+
+*Retrieved 2026-03-29 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| ACQUISITION - Search | `referrerType==search` |
+| Action - Créer un événement | `pageUrl==https%253A%252F%252Fcommunaute.inclusion.beta.go...` |
+| Création de topic | `pageUrl=@create` |
+| DEVICE - Smartphone | `deviceType==smartphone` |
+| PROFILE - connecté | `pageUrl=@https%253A%252F%252Fcommunaute.inclusion.gouv.fr...` |
+| Première visite | `visitCount<2` |
+| RETENTION - dernière visite 30j | `daysSinceLastVisit>=1;daysSinceLastVisit<32` |
+| RETENTION - dernière visite 30j - Engagés | `daysSinceLastVisit>=1;eventAction==contribute,eventAction...` |
+| SOURCE - Direct | `referrerType==direct` |
+| SOURCE - Linkedin | `referrerName==LinkedIn` |
+| STATS GIP - engagés | `eventAction==Poser%2520une%2520question,eventAction==cont...` |
+| Visite de Topic | `pageUrl=@topic` |
+| Visites Forums | `pageUrl=@https%253A%252F%252Fcommunaute-experimentation.i...` |
+| Visites avec Action | `actions>=1` |
+| visites de la home | `pageTitle=@Accueil` |
+
+## Event Names
+
+*Data from 2026-02, retrieved 2026-03-29 via Matomo API.*
+
+**51 distinct events tracked.**
+
+| Name | Events | Visits |
+|------|--------|--------|
+| topic | 2,573 | 1,457 |
+| post | 1,953 | 942 |
+| fiches_techniques | 1,651 | 794 |
+| fichestechniques | 1,093 | 649 |
+| documentation_header | 857 | 639 |
+| forum | 813 | 641 |
+| submit_query_header | 773 | 493 |
+| submit_query | 722 | 355 |
+| topics | 581 | 422 |
+| member | 507 | 214 |
+| submit-dsp | 462 | 294 |
+| dsp | 452 | 369 |
+| events | 374 | 279 |
+| documentation_breadcrumb | 229 | 189 |
+| search-prescriber | 126 | 111 |
+| footer | 101 | 59 |
+| search-company-header | 92 | 78 |
+| topics_breadcrumb | 88 | 80 |
+| new_topic | 73 | 68 |
+| query | 64 | 57 |
+| upvotes | 46 | 44 |
+| event | 46 | 41 |
+| inclusion-demain | 44 | 23 |
+| new_topic_on_docs | 41 | 40 |
+| search-company | 35 | 29 |
+| documentation | 33 | 29 |
+| new_topic_after_search | 28 | 22 |
+| search-prescriber-header | 26 | 23 |
+| submit-an-other-dsp | 19 | 19 |
+| visit-trouver-un-emploi | 18 | 16 |
+| submit_query_header_hp | 14 | 9 |
+| devenircip | 13 | 12 |
+| visit-apprendre-francais--accompagnement-insertion-pro | 10 | 9 |
+| partner | 10 | 7 |
+| visit-mobilite | 8 | 8 |
+| itou-jobseeker | 8 | 7 |
+| visit-handicap--adaptation-au-poste-de-travail | 7 | 7 |
+| visit-logement-hebergement | 6 | 6 |
+| highlight | 5 | 4 |
+| visit-acces-aux-droits-et-citoyennete--accompagnement-dans-les-demarches-administratives | 3 | 3 |
+| partner-list | 2 | 2 |
+| visit-apprendre-francais--suivre-formation | 2 | 2 |
+| visit-illettrisme--reperer-situation-illettrisme | 2 | 2 |
+| visit-logement-hebergement--mal-loges-sans-logis | 2 | 2 |
+| visit-acces-aux-droits-et-citoyennete--connaitre-ses-droits | 1 | 1 |
+| visit-apprendre-francais--communiquer-vie-tous-les-jours | 1 | 1 |
+| visit-famille--soutien-aux-familles | 1 | 1 |
+| visit-gestion-financiere--acces-au-micro-credit | 1 | 1 |
+| visit-gestion-financiere--accompagnement-aux-personnes-en-difficultes-financieres | 1 | 1 |
+| visit-gestion-financiere--prevention-et-gestion-du-surendettement | 1 | 1 |
+
+*... and 1 more events.*

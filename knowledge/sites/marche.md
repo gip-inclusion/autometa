@@ -7,7 +7,7 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-06 via Matomo API.
+Data retrieved 2026-03-29 via Matomo API.
 
 ### Monthly Visitor Stats
 
@@ -182,3 +182,64 @@ Tracked link interactions:
 - Button clicks (`Clic bouton`) appear to be manually configured in Tag Manager
 - Form events (`Formulaire`) track multi-step wizard progression
 - Goals are triggered by specific event actions (search, registration, tender publication)
+
+## Event Names
+
+*Data from 2026-02, retrieved 2026-03-29 via Matomo API.*
+
+**200 distinct events tracked.**
+
+| Name | Events | Visits |
+|------|--------|--------|
+| # | 2,124 | 571 |
+| Clic rechercher - Moteur recherche | 1,756 | 890 |
+| Clic website SIAE - fiche commerciale | 1,418 | 1,145 |
+| / | 1,150 | 1,066 |
+| https://lemarche.inclusion.gouv.fr/prestataires/ | 943 | 800 |
+| /accounts/login/ | 854 | 797 |
+| Clic recherche SIRET - Moteur recherche | 742 | 266 |
+| /profil/ | 522 | 458 |
+| /ressources/quest-ce-quun-fournisseur-inclusif/ | 440 | 422 |
+| /accueil-structure/ | 377 | 353 |
+| /besoins/ | 330 | 302 |
+| /accounts/signup/ | 216 | 207 |
+| /besoins/ajouter/ | 216 | 206 |
+| #close | 197 | 89 |
+| Inscription | 192 | 153 |
+| /prestataires/? | 180 | 174 |
+| https://www.hosmoz.fr/ | 164 | 159 |
+| /accounts/password-reset/ | 164 | 141 |
+| /profil/modifier/ | 161 | 144 |
+| https://lemarche.inclusion.gouv.fr/besoins/ajouter/ | 143 | 132 |
+| Dépôt de besoin - Step 1 | 135 | 67 |
+| /profil/prestataires/rechercher/ | 116 | 91 |
+| https://inclusion.beta.gouv.fr/ | 105 | 99 |
+| /prestataires/ | 102 | 101 |
+| Dépôt de besoin - Step 3 | 83 | 41 |
+| https://lemarche.inclusion.gouv.fr/accounts/signup/ | 73 | 56 |
+| https://docs.google.com/spreadsheets/d/e/2PACX-1vQRtavj-NHym5wjgDu9KRTIDPVZtujFlaSL9Z_BYQ7nWrmkcbGRuL12-VxiNctaOTsgdjQURuPLr57R/pubhtml | 71 | 67 |
+| /ressources/auditer-vos-achats/ | 70 | 67 |
+| Dépôt de besoin - Step 4 | 68 | 40 |
+| /ressources/ | 65 | 65 |
+| /qui-sommes-nous/ | 63 | 63 |
+| Clic Publier un besoin - Résultats recherche | 58 | 56 |
+| /ressources/analyse-programmation-achats/ | 48 | 46 |
+| Clic sourcing inversé - Header | 48 | 44 |
+| javascript:undefined; | 48 | 19 |
+| /ressources/quest-ce-que-linclusion/ | 47 | 46 |
+| /contact/ | 42 | 41 |
+| Clic trouver un facilitateur - Header | 42 | 37 |
+| /calculer-impact-social-achat-inclusif/ | 38 | 38 |
+| /accounts/login/?next=/prestataires/ | 38 | 37 |
+| http://www.lesentreprisesdinsertion.org/ | 38 | 37 |
+| https://tally.so/r/nG1JOz | 37 | 35 |
+| https://tally.so/r/wgMrXd | 37 | 18 |
+| https://tally.so/r/31KJYL | 35 | 33 |
+| http://www.chantierecole.org/ | 34 | 34 |
+| Clic calculer impact social - Header | 33 | 32 |
+| Publier et diffuser le besoin | 32 | 29 |
+| /partenaires/ | 30 | 30 |
+| Clic valoriser vos achats - Header | 30 | 24 |
+| /api/ | 29 | 27 |
+
+*... and 150 more events.*

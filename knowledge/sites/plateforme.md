@@ -45,6 +45,47 @@ Données récupérées le 2026-01-06 via l'API Matomo.
 | 2025-11 |             2% |            4,8 |               1m 37s |
 | 2025-12 |             1% |            4,4 |               1m 30s |
 
+
+## Traffic Baselines (2025)
+
+Data retrieved 2026-03-29 via Matomo API.
+
+### Monthly Visitor Stats
+
+| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
+|---------|-----------------|-----------|--------------------|-----------------:|
+| 2025-01 |          21,052 |    35,104 |                679 |            1,132 |
+| 2025-02 |          19,196 |    31,698 |                686 |            1,132 |
+| 2025-03 |          19,690 |    32,771 |                635 |            1,057 |
+| 2025-04 |          18,662 |    30,932 |                622 |            1,031 |
+| 2025-05 |          16,693 |    26,930 |                538 |              869 |
+| 2025-06 |          17,420 |    28,636 |                581 |              955 |
+| 2025-07 |          16,529 |    27,775 |                533 |              896 |
+| 2025-08 |          12,531 |    19,826 |                404 |              640 |
+| 2025-09 |          19,482 |    31,833 |                649 |            1,061 |
+| 2025-10 |          19,864 |    32,841 |                641 |            1,059 |
+| 2025-11 |          12,078 |    17,876 |                403 |              596 |
+| 2025-12 |          10,288 |    15,476 |                332 |              499 |
+
+**Typical range:** 332-686 unique visitors/day, 499-1,132 visits/day.
+
+### Engagement Metrics
+
+| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
+|---------|-------------|---------------|------------------|
+| 2025-01 |          2% |           5.1 |           2m 14s |
+| 2025-02 |          2% |             5 |           2m 05s |
+| 2025-03 |          2% |           4.9 |           2m 04s |
+| 2025-04 |          2% |           4.9 |           2m 05s |
+| 2025-05 |          3% |           4.9 |           2m 06s |
+| 2025-06 |          2% |           4.8 |           2m 01s |
+| 2025-07 |          3% |           4.7 |           1m 56s |
+| 2025-08 |          2% |           4.7 |           1m 47s |
+| 2025-09 |          2% |           4.8 |           1m 50s |
+| 2025-10 |          2% |           4.7 |           1m 50s |
+| 2025-11 |          2% |           4.8 |           1m 37s |
+| 2025-12 |          1% |           4.4 |           1m 30s |
+
 ## Custom Dimensions
 
 Aucune custom dimension configurée pour ce site.
@@ -116,3 +157,27 @@ Les events sont trackés via **Matomo Tag Manager** (pas de tracking dans le cod
 - **Version Python :** Voir .python-version dans le repo
 - **Fichiers statiques :** CSS, JS, artwork dans /static/
 - **Templates :** Templates Django avec composants DSFR
+
+## Saved Segments
+
+*Retrieved 2026-03-29 via Matomo API.*
+
+| Name | Definition |
+|------|------------|
+| ACTION - Clic sur liste des services | `eventName==Clic%2520Liste%2520des%2520Services` |
+| ACTION - Formulaire envoyé | `eventAction==Formulaire%2520Envoy%25C3%25A9%2520-%2520Sup...` |
+| SORTIE - Les emplois | `exitPageTitle==Emplois%2520de%2520l%27inclusion%2520%25E2...` |
+| SOURCE - Linkedin | `referrerName==LinkedIn` |
+| VISITS - 2 pages vues minimum | `eventName==Nombre%2520de%2520pages%2520vues;eventValue>=2` |
+
+## Event Names
+
+*Data from 2026-02, retrieved 2026-03-29 via Matomo API.*
+
+**3 distinct events tracked.**
+
+| Name | Events | Visits |
+|------|--------|--------|
+| Nombre de pages vues | 32,859 | 16,316 |
+| Clic Bouton Nous Contacter | 1,622 | 1,407 |
+| Clic Bouton LinkedIn | 11 | 11 |

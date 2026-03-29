@@ -20,7 +20,7 @@ Dora has two knowledge files:
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-06 via Matomo API.
+Data retrieved 2026-03-29 via Matomo API.
 
 ### Monthly Visitor Stats
 
@@ -271,3 +271,64 @@ Orientation completion events. Each successful orientation generates a category 
 - "Recherche textuelle" funnel added Feb 2025 for text search analysis
 - JS Error tracking captures frontend errors (noisy, mostly third-party related)
 - Many service-specific categories from dynamic URL-based orientation tracking
+
+## Event Names
+
+*Data from 2026-02, retrieved 2026-03-29 via Matomo API.*
+
+**200 distinct events tracked.**
+
+| Name | Events | Visits |
+|------|--------|--------|
+| Visite de la page recherche | 78,492 | 11,463 |
+| Vue page services hors page orienter | 60,837 | 47,886 |
+| Recherche classique - Clic sur un des champs de recherche | 35,357 | 12,045 |
+| HP - Lancer Recherche | 13,714 | 10,185 |
+| Page Service - Clic bouton Orienter | 6,579 | 4,417 |
+| Recherche textuelle - Clic champs de recherche | 4,849 | 2,287 |
+| Fiche structure - Afficher les contacts | 4,402 | 3,668 |
+| Clic Recherche par mots clés | 3,840 | 2,963 |
+| Recherche textuelle - Vue d'une page de résultats | 3,087 | 2,251 |
+| Recherche textuelle - Vue d'une page service | 2,951 | 1,582 |
+| Orienter - Etape Suivante | 1,896 | 1,237 |
+| Recherche textuelle - Clic sur un résultat | 1,883 | 1,096 |
+| Clic Bouton Envoyer l'Orientation | 1,677 | 811 |
+| Event Name not defined | 1,491 | 1,296 |
+| Rattachement - Rejoindre la Structure | 1,334 | 1,267 |
+| Page vue orienter/merci | 875 | 811 |
+| Page service - Clic sur afficher les contacts | 854 | 520 |
+| Orientations envoyées | 827 | 626 |
+| Recherche - Actualiser la Recherche | 587 | 393 |
+| Orientations reçues | 586 | 404 |
+| Recherche textuelle - Lancer une recherche | 542 | 360 |
+| Clic Voir sur la carte - Page de résultat | 454 | 351 |
+| Recherche textuelle - Clic sur Structures | 366 | 272 |
+| Recherche textuelle - Clic sur Services | 341 | 252 |
+|  (75)&l=Paris (75)&locs=en-presentiel | 313 | 292 |
+| Script error. | 308 | 242 |
+| Recherche - Créer une Alerte | 307 | 281 |
+|  (31)&l=Toulouse (31)&locs=en-presentiel | 204 | 186 |
+| ResizeObserver loop completed with undelivered notifications. | 201 | 181 |
+|  (80)&l=Amiens (80)&locs=en-presentiel | 189 | 168 |
+|  (13)&l=Marseille (13)&locs=en-presentiel | 185 | 175 |
+|  (59)&l=Lille (59)&locs=en-presentiel | 171 | 157 |
+| Invitation - Adhérer à la Structure | 163 | 146 |
+|  (26)&l=Valence (26)&locs=en-presentiel | 159 | 141 |
+| Utilisateur connecté | 155 | 155 |
+|  (34)&l=Montpellier (34)&locs=en-presentiel | 137 | 130 |
+|  (35)&l=Rennes (35)&locs=en-presentiel | 126 | 118 |
+|  (69)&l=Lyon (69)&locs=en-presentiel | 117 | 112 |
+|  (30)&l=Nîmes (30)&locs=en-presentiel | 114 | 104 |
+|  (44)&l=Nantes (44)&locs=en-presentiel | 113 | 103 |
+|  (68)&l=Mulhouse (68)&locs=en-presentiel | 90 | 83 |
+|  (974)&l=Saint-Denis (974)&locs=en-presentiel | 89 | 85 |
+|  (67)&l=Strasbourg (67)&locs=en-presentiel | 81 | 75 |
+|  (34)&l=Béziers (34)&locs=en-presentiel | 73 | 63 |
+|  (42)&l=Saint-Étienne (42)&locs=en-presentiel | 73 | 62 |
+|  (65)&l=Tarbes (65)&locs=en-presentiel | 69 | 57 |
+|  (63)&l=Clermont-Ferrand (63)&locs=en-presentiel | 66 | 60 |
+|  (86)&l=Poitiers (86)&locs=en-presentiel | 65 | 61 |
+|  (26)&l=Romans-sur-Isère (26)&locs=en-presentiel | 65 | 59 |
+|  (58)&l=Nevers (58)&locs=en-presentiel | 63 | 51 |
+
+*... and 150 more events.*

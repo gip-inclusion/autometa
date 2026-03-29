@@ -7,7 +7,7 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-06 via Matomo API.
+Data retrieved 2026-03-29 via Matomo API.
 
 ### Monthly Visitor Stats
 

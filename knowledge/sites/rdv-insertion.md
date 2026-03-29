@@ -7,7 +7,7 @@
 
 ## Traffic Baselines (2025)
 
-Data retrieved 2026-01-06 via Matomo API.
+Data retrieved 2026-03-29 via Matomo API.
 
 ### Monthly Visitor Stats
 
@@ -297,3 +297,24 @@ Par exemple, `/departments/28/users` concerne **Loire-Atlantique (44)**, pas l'E
 | 111 | Charente | 16 |
 
 **Note :** L'Allier a deux entrées (IDs 38 et 73) correspondant à des dispositifs différents (TZI et RSA).
+
+## Event Names
+
+*Data from 2026-02, retrieved 2026-03-29 via Matomo API.*
+
+**12 distinct events tracked.**
+
+| Name | Events | Visits |
+|------|--------|--------|
+| Upload - résultat ok | 58,921 | 8,604 |
+| Clic sur ******* | 20,460 | 15,505 |
+| Event Name not defined | 267 | 61 |
+| Bandeau affiché à l'utilisateur | 63 | 33 |
+| btn-notification-center-Yvelines | 10 | 8 |
+| Clic sur ******* ******* | 9 | 9 |
+| Page Vue Configuration | 9 | 8 |
+| btn-notification-center-Loire-Atlantique | 4 | 2 |
+| btn-notification-center-Val d'Oise | 3 | 1 |
+| btn-notification-center-Lot-et-Garonne | 2 | 1 |
+| btn-notification-center-Charente | 1 | 1 |
+| notification-center-close-Yvelines | 1 | 1 |

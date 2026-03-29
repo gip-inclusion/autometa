@@ -1,6 +1,6 @@
 # Inventaire Metabase
 
-*Dernière synchronisation : 2026-01-16 14:30*
+*Dernière synchronisation : 2026-03-29 15:30*
 *325 cartes · 17 dashboards*
 
 ## Cartes par thème
