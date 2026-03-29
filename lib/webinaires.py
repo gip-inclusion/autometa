@@ -292,7 +292,7 @@ def ts_to_iso(ts) -> str | None:
         return None
     try:
         return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
-    except (ValueError, TypeError, OSError):
+    except ValueError, TypeError, OSError:
         return None
 
 

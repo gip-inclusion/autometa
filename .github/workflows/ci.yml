@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  # Python version pinned via .python-version (3.11), read by uv sync.
+  # Python version pinned via .python-version (3.14), read by uv sync.
   lint:
     name: Lint & format
     runs-on: ubuntu-latest

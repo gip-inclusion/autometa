@@ -1,7 +1,7 @@
 [project]
 name = "autometa"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     # Web framework
     "fastapi>=0.135.2",
@@ -43,7 +43,7 @@ dev = [
 # =============================================================================
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py314"
 line-length = 120
 # evals/: experimental evaluation scripts, intentionally loose style
 # skills/: self-contained agent skill packages with their own conventions

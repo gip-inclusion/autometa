@@ -74,7 +74,7 @@ Le fichier `CLAUDE.md` contient le system prompt. Sections clés :
 
 ### Prérequis
 
-- Python 3.11+
+- Python 3.14+
 - Node.js 20+ (pour Claude Code CLI)
 - Clés API : `MATOMO_TOKEN`, `METABASE_USER`, `METABASE_PASSWORD`
 

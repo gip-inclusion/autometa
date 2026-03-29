@@ -73,7 +73,7 @@ def serve_interactive(request: Request, filename: str = ""):
     interactive_root = config.INTERACTIVE_DIR.resolve()
     try:
         resolved = (config.INTERACTIVE_DIR / filename).resolve()
-    except (ValueError, OSError):
+    except ValueError, OSError:
         raise HTTPException(status_code=404)
     if not resolved.is_relative_to(interactive_root):
         raise HTTPException(status_code=404)

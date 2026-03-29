@@ -28,7 +28,7 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
             try:
                 dt = datetime.fromisoformat(task["last_run"]["started_at"])
                 task["last_run"]["formatted_date"] = format_relative_date(dt)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 task["last_run"]["formatted_date"] = task["last_run"]["started_at"]
 
     return templates.TemplateResponse(

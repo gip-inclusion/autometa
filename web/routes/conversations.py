@@ -525,7 +525,7 @@ async def stream_conversation(
         if msg.type in ("tool_use", "tool_result"):
             try:
                 sse_data["content"] = json.loads(msg.content)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
         elif msg.type == "system":
             try:
@@ -533,7 +533,7 @@ async def stream_conversation(
                 if isinstance(raw, dict):
                     sse_data["raw"] = raw
                     sse_data["content"] = raw.get("subtype") or raw.get("message") or msg.content
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
         return _sse_event(msg.type, sse_data)
 
