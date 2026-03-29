@@ -135,18 +135,16 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
         meta = parse_frontmatter(folder / md_name)
 
-        tasks.append(
-            {
-                "slug": folder.name,
-                "title": meta.get("title", folder.name),
-                "tier": tier,
-                "path": str(folder),
-                "cron_path": str(cron_script),
-                "enabled": is_enabled(meta),
-                "timeout": get_timeout(meta),
-                "schedule": get_schedule(meta),
-            }
-        )
+        tasks.append({
+            "slug": folder.name,
+            "title": meta.get("title", folder.name),
+            "tier": tier,
+            "path": str(folder),
+            "cron_path": str(cron_script),
+            "enabled": is_enabled(meta),
+            "timeout": get_timeout(meta),
+            "schedule": get_schedule(meta),
+        })
 
     return tasks
 
@@ -162,19 +160,17 @@ def discover_from_s3() -> list[dict]:
         md_bytes = s3.download_file(f"{slug}/APP.md")
         meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
 
-        tasks.append(
-            {
-                "slug": slug,
-                "title": meta.get("title", slug),
-                "tier": "app",
-                "source": "s3",
-                "path": slug,  # S3 prefix, not a local path
-                "cron_path": f"{slug}/cron.py",
-                "enabled": is_enabled(meta),
-                "timeout": get_timeout(meta),
-                "schedule": get_schedule(meta),
-            }
-        )
+        tasks.append({
+            "slug": slug,
+            "title": meta.get("title", slug),
+            "tier": "app",
+            "source": "s3",
+            "path": slug,  # S3 prefix, not a local path
+            "cron_path": f"{slug}/cron.py",
+            "enabled": is_enabled(meta),
+            "timeout": get_timeout(meta),
+            "schedule": get_schedule(meta),
+        })
 
     return tasks
 
@@ -352,18 +348,16 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
                 if slug not in runs:
                     runs[slug] = []
                 if len(runs[slug]) < limit_per_app:
-                    runs[slug].append(
-                        {
-                            "id": row["id"],
-                            "app_slug": row["app_slug"],
-                            "started_at": row["started_at"],
-                            "finished_at": row["finished_at"],
-                            "status": row["status"],
-                            "output": row["output"],
-                            "duration_ms": row["duration_ms"],
-                            "trigger": row["trigger"],
-                        }
-                    )
+                    runs[slug].append({
+                        "id": row["id"],
+                        "app_slug": row["app_slug"],
+                        "started_at": row["started_at"],
+                        "finished_at": row["finished_at"],
+                        "status": row["status"],
+                        "output": row["output"],
+                        "duration_ms": row["duration_ms"],
+                        "trigger": row["trigger"],
+                    })
     except Exception as e:
         print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
     return runs

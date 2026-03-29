@@ -72,13 +72,11 @@ def get_failed_conversations(days: int) -> list[dict]:
             continue
         seen.add(conv_id)
         snip = extract_snippet(row["content"])
-        results.append(
-            {
-                "id": conv_id,
-                "title": row["title"] or "Sans titre",
-                "snippet": snip,
-            }
-        )
+        results.append({
+            "id": conv_id,
+            "title": row["title"] or "Sans titre",
+            "snippet": snip,
+        })
 
     return results
 

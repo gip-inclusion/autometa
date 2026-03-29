@@ -462,12 +462,10 @@ class TestDiscoverS3:
 
     def test_s3_multiple_apps_sorted(self, mocker, s3_cron_env):
         """S3 apps are returned in sorted order."""
-        mocks = make_s3_mocks(
-            [
-                mock_s3_app("zeta-app"),
-                mock_s3_app("alpha-app"),
-            ]
-        )
+        mocks = make_s3_mocks([
+            mock_s3_app("zeta-app"),
+            mock_s3_app("alpha-app"),
+        ])
         mocker.patch("web.cron.s3.list_directories", side_effect=mocks["list_directories"])
         mocker.patch("web.cron.s3.file_exists", side_effect=mocks["file_exists"])
         mocker.patch("web.cron.s3.download_file", side_effect=mocks["download_file"])

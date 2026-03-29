@@ -181,13 +181,11 @@ def list_files(prefix: str = "") -> list[dict]:
                 for obj in page.get("Contents", []):
                     # Remove the S3 prefix to get relative path
                     rel_path = obj["Key"][len(config.S3_PREFIX) :]
-                    files.append(
-                        {
-                            "path": rel_path,
-                            "size": obj["Size"],
-                            "last_modified": obj["LastModified"],
-                        }
-                    )
+                    files.append({
+                        "path": rel_path,
+                        "size": obj["Size"],
+                        "last_modified": obj["LastModified"],
+                    })
         except Exception as e:
             logger.error(f"S3 list failed for prefix {prefix}: {e}")
     else:
@@ -198,13 +196,11 @@ def list_files(prefix: str = "") -> list[dict]:
                     if file_path.is_file():
                         rel_path = str(file_path.relative_to(config.INTERACTIVE_DIR))
                         stat = file_path.stat()
-                        files.append(
-                            {
-                                "path": rel_path,
-                                "size": stat.st_size,
-                                "last_modified": stat.st_mtime,
-                            }
-                        )
+                        files.append({
+                            "path": rel_path,
+                            "size": stat.st_size,
+                            "last_modified": stat.st_mtime,
+                        })
         except Exception as e:
             logger.error(f"Local list failed for prefix {prefix}: {e}")
 

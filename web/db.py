@@ -32,9 +32,17 @@ def get_pg_pool() -> ThreadedConnectionPool:
 
 
 # Valid column names for dynamic updates (security: prevents SQL injection)
-VALID_CONVERSATION_COLUMNS = frozenset(
-    {"title", "session_id", "user_id", "status", "pr_url", "updated_at", "pinned_at", "pinned_label", "needs_response"}
-)
+VALID_CONVERSATION_COLUMNS = frozenset({
+    "title",
+    "session_id",
+    "user_id",
+    "status",
+    "pr_url",
+    "updated_at",
+    "pinned_at",
+    "pinned_label",
+    "needs_response",
+})
 VALID_REPORT_COLUMNS = frozenset({"title", "website", "category", "tags", "original_query", "content", "updated_at"})
 
 

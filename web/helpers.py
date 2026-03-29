@@ -143,13 +143,11 @@ def list_knowledge_files() -> dict[str, list[dict]]:
         if section not in sections:
             sections[section] = []
 
-        sections[section].append(
-            {
-                "path": str(rel_path),
-                "name": name,
-                "modified": f.stat().st_mtime,
-            }
-        )
+        sections[section].append({
+            "path": str(rel_path),
+            "name": name,
+            "modified": f.stat().st_mtime,
+        })
 
     # Sort sections by name, with top-level folders first
     return dict(sorted(sections.items(), key=lambda x: (x[0].count("/"), x[0])))

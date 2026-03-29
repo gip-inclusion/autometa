@@ -247,26 +247,24 @@ def rechercher(
                     conv.icon = "ri-window-fill"
                     break
 
-            items.append(
-                {
-                    "type": "conversation",
-                    "conv": conv,
-                    "tags": tags,
-                    "icon": conv.icon,
-                    "sort_date": conv.updated_at,
-                    "formatted_date": format_relative_date(conv.updated_at),
-                    "search": " ".join(
-                        filter(
-                            None,
-                            [
-                                (conv.title or "").lower(),
-                                (conv.user_id or "").lower(),
-                                " ".join(t.label.lower() for t in tags),
-                            ],
-                        )
-                    ),
-                }
-            )
+            items.append({
+                "type": "conversation",
+                "conv": conv,
+                "tags": tags,
+                "icon": conv.icon,
+                "sort_date": conv.updated_at,
+                "formatted_date": format_relative_date(conv.updated_at),
+                "search": " ".join(
+                    filter(
+                        None,
+                        [
+                            (conv.title or "").lower(),
+                            (conv.user_id or "").lower(),
+                            " ".join(t.label.lower() for t in tags),
+                        ],
+                    )
+                ),
+            })
 
     # Reports
     if show_reports:
@@ -276,28 +274,26 @@ def rechercher(
         )
         for report, tags in reports_with_tags:
             report.tag_objects = tags
-            items.append(
-                {
-                    "type": "report",
-                    "report": report,
-                    "tags": tags,
-                    "icon": "ri-file-text-line",
-                    "sort_date": report.updated_at,
-                    "formatted_date": format_relative_date(report.updated_at),
-                    "search": " ".join(
-                        filter(
-                            None,
-                            [
-                                report.title.lower(),
-                                (report.user_id or "").lower(),
-                                (report.website or "").lower(),
-                                (report.category or "").lower(),
-                                " ".join(t.label.lower() for t in tags),
-                            ],
-                        )
-                    ),
-                }
-            )
+            items.append({
+                "type": "report",
+                "report": report,
+                "tags": tags,
+                "icon": "ri-file-text-line",
+                "sort_date": report.updated_at,
+                "formatted_date": format_relative_date(report.updated_at),
+                "search": " ".join(
+                    filter(
+                        None,
+                        [
+                            report.title.lower(),
+                            (report.user_id or "").lower(),
+                            (report.website or "").lower(),
+                            (report.category or "").lower(),
+                            " ".join(t.label.lower() for t in tags),
+                        ],
+                    )
+                ),
+            })
 
     # Apps
     if show_apps:
@@ -309,27 +305,25 @@ def rechercher(
                 continue
 
             sort_date = app.get("updated") or datetime.min
-            items.append(
-                {
-                    "type": "app",
-                    "app": app,
-                    "tags": [],
-                    "icon": "ri-window-fill",
-                    "sort_date": sort_date,
-                    "formatted_date": format_relative_date(sort_date) if sort_date != datetime.min else "",
-                    "search": " ".join(
-                        filter(
-                            None,
-                            [
-                                app["title"].lower(),
-                                (app.get("description") or "").lower(),
-                                " ".join(a.lower() for a in app.get("authors", [])),
-                                " ".join(t.lower() for t in app.get("tags", [])),
-                            ],
-                        )
-                    ),
-                }
-            )
+            items.append({
+                "type": "app",
+                "app": app,
+                "tags": [],
+                "icon": "ri-window-fill",
+                "sort_date": sort_date,
+                "formatted_date": format_relative_date(sort_date) if sort_date != datetime.min else "",
+                "search": " ".join(
+                    filter(
+                        None,
+                        [
+                            app["title"].lower(),
+                            (app.get("description") or "").lower(),
+                            " ".join(a.lower() for a in app.get("authors", [])),
+                            " ".join(t.lower() for t in app.get("tags", [])),
+                        ],
+                    )
+                ),
+            })
 
     # Sort by date descending
     items.sort(key=lambda x: x["sort_date"], reverse=True)

@@ -86,3 +86,6 @@ skips = [
     "B310",  # urllib.request.urlopen — used for Notion API calls and research sync (controlled URLs)
     "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]
+
+[tool.ruff.format]
+preview = true

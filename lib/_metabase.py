@@ -204,13 +204,11 @@ class MetabaseAPI:
         return [item for item in items if item.get("model") == "card"]
 
     def search_cards(self, query: str, limit: int = 50) -> list[dict]:
-        params = urllib.parse.urlencode(
-            {
-                "q": query,
-                "models": "card",
-                "limit": limit,
-            }
-        )
+        params = urllib.parse.urlencode({
+            "q": query,
+            "models": "card",
+            "limit": limit,
+        })
         result = self._request("GET", f"/api/search?{params}")
         return result.get("data", [])
 

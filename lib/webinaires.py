@@ -566,27 +566,25 @@ def sync_grist(conn, client: GristClient):
         title = f.get("titre", "")
         organizer_email = f.get("organizer_email")
 
-        webinaire_rows.append(
-            (
-                webinar_id,
-                "grist",
-                source_id,
-                title,
-                f.get("description"),
-                organizer_email,
-                infer_product(title, organizer_email),
-                "active" if f.get("status") else "inactive",
-                ts_to_iso(f.get("date_event")),
-                ts_to_iso(f.get("date_fin")),
-                grist_duration_to_minutes(f.get("duree")),
-                f.get("capacite"),
-                f.get("nb_inscrits"),
-                f.get("form_inscription_url"),
-                f.get("lien_webinaire"),
-                json.dumps(rec, ensure_ascii=False),
-                now,
-            )
-        )
+        webinaire_rows.append((
+            webinar_id,
+            "grist",
+            source_id,
+            title,
+            f.get("description"),
+            organizer_email,
+            infer_product(title, organizer_email),
+            "active" if f.get("status") else "inactive",
+            ts_to_iso(f.get("date_event")),
+            ts_to_iso(f.get("date_fin")),
+            grist_duration_to_minutes(f.get("duree")),
+            f.get("capacite"),
+            f.get("nb_inscrits"),
+            f.get("form_inscription_url"),
+            f.get("lien_webinaire"),
+            json.dumps(rec, ensure_ascii=False),
+            now,
+        ))
 
     batch_upsert(
         conn,
@@ -630,21 +628,19 @@ def sync_grist(conn, client: GristClient):
         event_id = f.get("event_id", "")
         webinar_id = f"grist:{event_id}" if event_id else None
 
-        inscription_rows.append(
-            (
-                "grist",
-                webinar_id,
-                "",
-                email.lower().strip(),
-                f.get("prenom"),
-                f.get("nom"),
-                f.get("entreprise"),
-                1,
-                1 if f.get("a_participe") else 0,
-                ts_to_iso(f.get("date_inscription")),
-                now,
-            )
-        )
+        inscription_rows.append((
+            "grist",
+            webinar_id,
+            "",
+            email.lower().strip(),
+            f.get("prenom"),
+            f.get("nom"),
+            f.get("entreprise"),
+            1,
+            1 if f.get("a_participe") else 0,
+            ts_to_iso(f.get("date_inscription")),
+            now,
+        ))
 
     batch_upsert(
         conn,
