@@ -21,6 +21,9 @@ knowledge-drafts/
 claude-credentials/
 AGENTS.local.md
 knowledge/metabase/cards.db
+knowledge/stats/cards/
+knowledge/stats/dashboards/
+knowledge/stats/_index.md
 auth/allowed_emails.txt
 docker-compose.local.yml
 .pm.pid

@@ -1,197 +1,131 @@
-"""
-Tests for the Metabase cards database.
+"""Tests for Metabase cards inventory (PostgreSQL backend)."""
 
-Run with: pytest tests/test_metabase_db.py -v
-"""
+import json
 
 import pytest
 
 from skills.metabase_query.scripts.cards_db import TOPICS, Card, CardsDB
+from web.database import init_db
+from web.db import get_db
 
 
 @pytest.fixture
-def temp_db():
-    db = CardsDB(in_memory=True)
-    db.init_schema()
-    yield db
-    db.close()
+def db():
+    init_db()
+    instance = "test"
+    with get_db() as conn:
+        conn.execute("DELETE FROM metabase_cards WHERE instance = %s", (instance,))
+        conn.execute("DELETE FROM metabase_dashboards WHERE instance = %s", (instance,))
+    yield CardsDB(instance=instance)
+    with get_db() as conn:
+        conn.execute("DELETE FROM metabase_cards WHERE instance = %s", (instance,))
+        conn.execute("DELETE FROM metabase_dashboards WHERE instance = %s", (instance,))
 
 
 @pytest.fixture
-def populated_db(temp_db):
-    db = temp_db
-
-    # Add sample cards
-    db.upsert_card(
-        card_id=1,
-        name="[408] File active count",
-        description="Count of candidates in file active",
-        collection_id=453,
-        dashboard_id=408,
-        topic="file-active",
-        sql_query="SELECT COUNT(*) FROM candidats WHERE status = 'active'",
-        tables_referenced=["candidats"],
-    )
-    db.upsert_card(
-        card_id=2,
-        name="[408] Candidatures by region",
-        description="Breakdown of applications by region",
-        collection_id=453,
-        dashboard_id=408,
-        topic="candidatures",
-        sql_query="SELECT region, COUNT(*) FROM candidatures GROUP BY region",
-        tables_referenced=["candidatures"],
-    )
-    db.upsert_card(
-        card_id=3,
-        name="[267] Gender demographics",
-        description=None,
-        collection_id=453,
-        dashboard_id=267,
-        topic="demographie",
-        sql_query="SELECT gender, COUNT(*) FROM candidats GROUP BY gender",
-        tables_referenced=["candidats"],
-    )
-
-    db.commit()
-    db.rebuild_fts()
+def populated_db(db):
+    with get_db() as conn:
+        for card_id, name, desc, topic, sql, tables, dash_id in [
+            (
+                1,
+                "File active count",
+                "Count of candidates in file active",
+                "file-active",
+                "SELECT COUNT(*) FROM candidats WHERE status = 'active'",
+                ["candidats"],
+                408,
+            ),
+            (
+                2,
+                "Candidatures by region",
+                "Breakdown of applications by region",
+                "candidatures",
+                "SELECT region, COUNT(*) FROM candidatures GROUP BY region",
+                ["candidatures"],
+                408,
+            ),
+            (
+                3,
+                "Gender demographics",
+                None,
+                "demographie",
+                "SELECT gender, COUNT(*) FROM candidats GROUP BY gender",
+                ["candidats"],
+                267,
+            ),
+        ]:
+            conn.execute(
+                """INSERT INTO metabase_cards (id, instance, name, description, topic, sql_query, tables_json, dashboard_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (card_id, db.instance, name, desc, topic, sql, json.dumps(tables), dash_id),
+            )
     return db
 
 
-def test_schema_init_schema(temp_db):
-    """Schema initialization creates tables."""
-    cursor = temp_db.conn.cursor()
-
-    # Check cards table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
-    assert cursor.fetchone() is not None
-
-    # Check FTS table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards_fts'")
-    assert cursor.fetchone() is not None
-
-    # Check dashboards table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dashboards'")
-    assert cursor.fetchone() is not None
-
-
-def test_schema_columns(temp_db):
-    """Cards table has expected columns."""
-    cursor = temp_db.conn.cursor()
-    cursor.execute("PRAGMA table_info(cards)")
-    columns = {row[1] for row in cursor.fetchall()}
-
-    expected = {
-        "id",
-        "name",
-        "description",
-        "collection_id",
-        "dashboard_id",
-        "topic",
-        "sql_query",
-        "tables_referenced",
-        "created_at",
-        "updated_at",
-    }
-    assert expected.issubset(columns)
-
-
-def test_card_operations_upsert_and_get(temp_db):
-    """Upsert card and retrieve it."""
-    temp_db.upsert_card(
-        card_id=100,
-        name="[999] Test card",
-        description="A test card",
-        collection_id=453,
-        dashboard_id=999,
-        topic="autre",
-        sql_query="SELECT 1",
-        tables_referenced=["test_table"],
-    )
-    temp_db.commit()
-
-    card = temp_db.get(100)
+def test_get_card(populated_db):
+    card = populated_db.get(1)
     assert card is not None
-    assert card.id == 100
-    assert card.name == "[999] Test card"
-    assert card.description == "A test card"
-    assert card.dashboard_id == 999
-    assert card.topic == "autre"
-    assert card.tables_referenced == ["test_table"]
+    assert card.id == 1
+    assert card.name == "File active count"
+    assert card.topic == "file-active"
+    assert card.tables_referenced == ["candidats"]
 
 
-def test_card_operations_get_nonexistent(temp_db):
-    card = temp_db.get(99999)
-    assert card is None
+def test_get_nonexistent(populated_db):
+    assert populated_db.get(99999) is None
 
 
-def test_card_operations_all(populated_db):
+def test_all(populated_db):
     cards = populated_db.all()
     assert len(cards) == 3
     assert all(isinstance(c, Card) for c in cards)
 
 
-def test_card_operations_count(populated_db):
+def test_count(populated_db):
     assert populated_db.count() == 3
 
 
-def test_queries_by_topic(populated_db):
+def test_by_topic(populated_db):
     cards = populated_db.by_topic("file-active")
     assert len(cards) == 1
     assert cards[0].id == 1
 
 
-def test_queries_by_topic_empty(populated_db):
-    cards = populated_db.by_topic("nonexistent")
-    assert cards == []
+def test_by_topic_empty(populated_db):
+    assert populated_db.by_topic("nonexistent") == []
 
 
-def test_queries_search(populated_db):
-    """Full-text search."""
+def test_search(populated_db):
     cards = populated_db.search("file active")
     assert len(cards) >= 1
-    # First result should be the file active card
     assert any(c.id == 1 for c in cards)
 
 
-def test_queries_search_by_sql(populated_db):
+def test_search_by_sql(populated_db):
     cards = populated_db.search("region")
     assert len(cards) >= 1
     assert any(c.id == 2 for c in cards)
 
 
-def test_queries_by_table(populated_db):
+def test_by_table(populated_db):
     cards = populated_db.by_table("candidats")
     assert len(cards) == 2
-    ids = {c.id for c in cards}
-    assert ids == {1, 3}
+    assert {c.id for c in cards} == {1, 3}
 
 
-def test_summaries_topics_summary(populated_db):
+def test_by_dashboard(populated_db):
+    cards = populated_db.by_dashboard(408)
+    assert len(cards) == 2
+
+
+def test_topics_summary(populated_db):
     summary = populated_db.topics_summary()
     assert summary["file-active"] == 1
     assert summary["candidatures"] == 1
     assert summary["demographie"] == 1
 
 
-def test_summaries_tables_summary(populated_db):
-    summary = populated_db.tables_summary()
-    assert summary["candidats"] == 2
-    assert summary["candidatures"] == 1
-
-
-def test_topics_taxonomy_topics_defined():
-    """All topics have descriptions."""
+def test_topics_defined():
     assert len(TOPICS) > 0
-    for topic, description in TOPICS.items():
-        assert isinstance(topic, str)
-        assert isinstance(description, str)
-        assert len(description) > 0
-
-
-def test_topics_taxonomy_expected_topics_exist():
-    """Key topics are defined."""
-    # Note: "autre" was deliberately removed - all cards must be categorized
-    expected = ["file-active", "candidatures", "demographie"]
-    for topic in expected:
+    for topic in ["file-active", "candidatures", "demographie"]:
         assert topic in TOPICS

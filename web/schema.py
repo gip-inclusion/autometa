@@ -6,7 +6,7 @@ Called once at startup by ConversationStore.__init__().
 from .db import ConnectionWrapper, get_db
 
 # Schema version - increment when adding migrations
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 
 def get_schema_version(conn: ConnectionWrapper) -> int:
@@ -74,6 +74,8 @@ def init_db():
                     migrate_to_v21(conn)
                 if current_version < 22:
                     migrate_to_v22(conn)
+                if current_version < 23:
+                    migrate_to_v23(conn)
 
             set_schema_version(conn, SCHEMA_VERSION)
 
@@ -85,6 +87,7 @@ def init_db():
         migrate_to_v20(conn)
         migrate_to_v21(conn)
         migrate_to_v22(conn)
+        migrate_to_v23(conn)
 
 
 def migrate_to_v11(conn: ConnectionWrapper):
@@ -417,6 +420,84 @@ def migrate_to_v22(conn: ConnectionWrapper):
         DROP TABLE IF EXISTS research_pages CASCADE;
         DROP TABLE IF EXISTS research_sync_meta CASCADE;
         DROP EXTENSION IF EXISTS vector;
+    """)
+
+
+def migrate_to_v23(conn: ConnectionWrapper):
+    """Migrate to v23: add cache tables for Matomo/Metabase sync data."""
+    conn.execute_raw("""
+        CREATE TABLE IF NOT EXISTS matomo_baselines (
+            site_id INTEGER NOT NULL,
+            month TEXT NOT NULL,
+            visitors INTEGER,
+            visits INTEGER,
+            daily_avg_visitors INTEGER,
+            daily_avg_visits INTEGER,
+            bounce_rate TEXT,
+            actions_per_visit REAL,
+            avg_time_on_site INTEGER,
+            user_types JSONB,
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (site_id, month)
+        );
+
+        CREATE TABLE IF NOT EXISTS matomo_dimensions (
+            site_id INTEGER NOT NULL,
+            dimension_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            scope TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (site_id, dimension_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS matomo_segments (
+            site_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            definition TEXT,
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (site_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS matomo_events (
+            site_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            event_count INTEGER DEFAULT 0,
+            visit_count INTEGER DEFAULT 0,
+            reference_month TEXT NOT NULL,
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (site_id, name, reference_month)
+        );
+
+        CREATE TABLE IF NOT EXISTS metabase_cards (
+            id INTEGER NOT NULL,
+            instance TEXT NOT NULL,
+            name TEXT,
+            description TEXT,
+            collection_id INTEGER,
+            dashboard_id INTEGER,
+            dashboard_name TEXT,
+            topic TEXT,
+            sql_query TEXT,
+            tables_json TEXT,
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (id, instance)
+        );
+
+        CREATE TABLE IF NOT EXISTS metabase_dashboards (
+            id INTEGER NOT NULL,
+            instance TEXT NOT NULL,
+            name TEXT,
+            description TEXT,
+            topic TEXT,
+            pilotage_url TEXT,
+            collection_id INTEGER,
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (id, instance)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_metabase_cards_topic ON metabase_cards(instance, topic);
+        CREATE INDEX IF NOT EXISTS idx_metabase_cards_dashboard ON metabase_cards(instance, dashboard_id);
     """)
 
 

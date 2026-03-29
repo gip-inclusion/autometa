@@ -29,7 +29,8 @@ def truncate_all_tables():
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version,
-                wishlist
+                wishlist, matomo_baselines, matomo_dimensions, matomo_segments,
+                matomo_events, metabase_cards, metabase_dashboards
                 CASCADE;
         """)
 
