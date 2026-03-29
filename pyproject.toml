@@ -57,7 +57,7 @@ target-version = "py314"
 line-length = 120
 # evals/: experimental evaluation scripts, intentionally loose style
 # skills/: self-contained agent skill packages with their own conventions
-exclude = ["data/", ".venv/", "evals/", "skills/"]
+exclude = ["data/", ".venv/", "evals/", "skills/", "alembic/"]
 
 [tool.ruff.lint]
 preview = true

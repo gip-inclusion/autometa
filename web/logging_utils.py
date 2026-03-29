@@ -16,7 +16,7 @@ class SafeFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         msg = super().format(record)
-        msg = msg.replace("\x00", "")
+        msg = msg.replace("\x00", "").replace("\r", "").replace("\n", " ")
         msg = _ANSI_RE.sub("", msg)
         return msg
 
