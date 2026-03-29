@@ -71,6 +71,7 @@ ignore = [
 "scripts/*" = ["E402"]               # sys.path / dotenv setup before imports
 "tests/test_knowledge_sync.py" = ["E402"]  # sys.path setup before imports
 "tests/test_uploads.py" = ["E402"]         # env config before imports
+"tests/conftest.py" = ["E402"]             # DATABASE_URL override before imports
 
 # =============================================================================
 # Bandit — SAST
