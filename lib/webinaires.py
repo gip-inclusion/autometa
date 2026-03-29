@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import sqlite3
 import time
 from datetime import datetime, timezone
 from typing import Iterator
@@ -208,83 +207,6 @@ class GristClient:
         self.request_count += 1
         resp.raise_for_status()
         return resp.json().get("records", [])
-
-
-SCHEMA_SQL = f"""
-CREATE TABLE IF NOT EXISTS {T_WEBINAIRES} (
-    id TEXT PRIMARY KEY,
-    source TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    title TEXT,
-    description TEXT,
-    organizer_email TEXT,
-    product TEXT,
-    status TEXT,
-    started_at TEXT,
-    ended_at TEXT,
-    duration_minutes INTEGER,
-    capacity INTEGER,
-    registrants_count INTEGER,
-    attendees_count INTEGER,
-    registration_url TEXT,
-    webinar_url TEXT,
-    raw_json TEXT,
-    synced_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS {T_SESSIONS} (
-    id TEXT PRIMARY KEY,
-    webinar_id TEXT REFERENCES {T_WEBINAIRES}(id),
-    status TEXT,
-    started_at TEXT,
-    ended_at TEXT,
-    duration_seconds INTEGER,
-    registrants_count INTEGER,
-    attendees_count INTEGER,
-    room_link TEXT,
-    synced_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS {T_INSCRIPTIONS} (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL,
-    webinar_id TEXT NOT NULL,
-    session_id TEXT NOT NULL DEFAULT '',
-    email TEXT NOT NULL,
-    first_name TEXT,
-    last_name TEXT,
-    organisation TEXT,
-    registered INTEGER DEFAULT 1,
-    attended INTEGER,
-    attendance_rate REAL,
-    attendance_duration_seconds INTEGER,
-    has_viewed_replay INTEGER,
-    custom_fields TEXT,
-    registered_at TEXT,
-    synced_at TEXT,
-    UNIQUE(source, webinar_id, session_id, email)
-);
-
-CREATE TABLE IF NOT EXISTS {T_SYNC_META} (
-    key TEXT PRIMARY KEY,
-    value TEXT
-);
-"""
-
-INDEX_SQL = f"""
-CREATE INDEX IF NOT EXISTS idx_reg_email ON {T_INSCRIPTIONS}(email);
-CREATE INDEX IF NOT EXISTS idx_reg_org ON {T_INSCRIPTIONS}(organisation);
-CREATE INDEX IF NOT EXISTS idx_reg_webinar ON {T_INSCRIPTIONS}(webinar_id);
-CREATE INDEX IF NOT EXISTS idx_reg_source_unique
-    ON {T_INSCRIPTIONS}(source, webinar_id, session_id, email);
-CREATE INDEX IF NOT EXISTS idx_sessions_webinar ON {T_SESSIONS}(webinar_id);
-"""
-
-
-def ensure_schema(conn: sqlite3.Connection):
-    conn.executescript(SCHEMA_SQL)
-    conn.executescript(INDEX_SQL)
-    conn.commit()
 
 
 def ts_to_iso(ts) -> str | None:
