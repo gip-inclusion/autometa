@@ -130,15 +130,13 @@ class MetabaseAPI:
         try:
             resp = self._session.request(method, url, json=data if data else None, timeout=(10, timeout))
             resp.raise_for_status()
-            result = resp.json()
-
-            return result
+            return resp.json()
 
         except requests.RequestException as e:
             status = getattr(getattr(e, "response", None), "status_code", None)
             body = getattr(getattr(e, "response", None), "text", str(e))
             error_msg = f"HTTP {status}: {body}" if status else str(e)
-            raise MetabaseError(error_msg)
+            raise MetabaseError(error_msg) from e
 
     def _parse_result(self, data: dict) -> QueryResult:
         # Check for query errors (Metabase returns 202 with error in body)

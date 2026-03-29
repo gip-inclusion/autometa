@@ -9,6 +9,8 @@ import mimetypes
 import threading
 from pathlib import Path
 
+from botocore.exceptions import ClientError
+
 from . import config, s3
 from .interactive_apps import invalidate_apps_cache
 
@@ -81,6 +83,7 @@ def watch_loop():
 
             known_files = current_files
 
+        # Why: background daemon thread polling the filesystem, must not crash on transient errors.
         except Exception as e:
             logger.error(f"Error in sync watch loop: {e}")
 
@@ -103,5 +106,5 @@ def sync_interactive_file(local_path: Path, s3_module):
         else:
             logger.error(f"Failed to sync to S3: {relative_path}")
 
-    except Exception as e:
+    except (OSError, ClientError) as e:
         logger.error(f"Error uploading {local_path} to S3: {e}")

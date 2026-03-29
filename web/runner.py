@@ -188,6 +188,7 @@ class TaskRunner:
             if full_response:
                 _check_failure(conversation_id, full_response)
 
+        # Why: top-level agent error handler — must not crash the task runner event loop.
         except Exception:
             logger.exception(f"Agent error for {conversation_id}")
         finally:
@@ -284,6 +285,7 @@ def _send_failure_notification(conv_id: str, title: str, snippet: str):
                 logger.info(f"Failure notification sent to {email} for conversation {conv_id}")
             else:
                 logger.warning(f"Failed to send Slack DM to {email}")
+        # Why: runs in a background daemon thread, must not crash on transient Slack errors.
         except Exception:
             logger.exception(f"Error sending failure notification to {email}")
 

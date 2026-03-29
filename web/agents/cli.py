@@ -200,7 +200,7 @@ class CLIBackend(AgentBackend):
                     try:
                         process.kill()
                     except ProcessLookupError:
-                        pass
+                        logger.debug("Process already exited before kill")
             stderr_bytes = await stderr_task
             logger.info(f"Cleaned up conversation {conversation_id}")
 

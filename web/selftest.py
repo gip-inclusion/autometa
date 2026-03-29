@@ -88,6 +88,7 @@ def _probe(name: str, fn: Callable[[], tuple[bool, str]]) -> Check:
     try:
         ok, detail = fn()
         return Check(name, ok, detail, int((time.monotonic() - t0) * 1000))
+    # Why: probes check arbitrary external services; any error is a valid "check failed" result.
     except Exception as exc:
         logger.debug("selftest probe %s failed: %s", name, exc)
         return Check(name, False, str(exc)[:120], int((time.monotonic() - t0) * 1000))

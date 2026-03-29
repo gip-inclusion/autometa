@@ -56,7 +56,7 @@ def parse_api_signals(content: str) -> list[dict]:
             signal = json.loads(match.group(1))
             signals.append(signal)
         except json.JSONDecodeError:
-            pass
+            pass  # malformed signal, skip
     return signals
 
 

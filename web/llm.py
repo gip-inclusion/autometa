@@ -94,7 +94,7 @@ def claude_cli_generate(prompt: str, *, timeout: Optional[float]) -> str:
         )
     except subprocess.TimeoutExpired as exc:
         raise LLMError("Claude CLI timed out") from exc
-    except Exception as exc:
+    except OSError as exc:
         raise LLMError(f"Claude CLI failed: {exc}") from exc
 
     if result.returncode != 0:

@@ -37,7 +37,7 @@ class GitHubClient:
         if not resp.ok:
             try:
                 error = resp.json().get("message", resp.text)
-            except Exception:
+            except ValueError, KeyError:
                 error = resp.text
             raise GitHubError(f"GitHub API error ({resp.status_code}): {error}")
         return resp

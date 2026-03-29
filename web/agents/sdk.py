@@ -161,6 +161,8 @@ class SDKBackend(AgentBackend):
                 content=f"Process exited with code {e.exit_code}: {e.stderr or e}",
                 raw={"stderr": e.stderr, "code": e.exit_code},
             )
+        # Why: catch-all needed because the SDK may raise arbitrary errors during streaming
+        # and we must always yield an error message rather than crash the async generator.
         except Exception as e:
             logger.exception(f"SDK error for {conversation_id}")
             yield AgentMessage(type="error", content=str(e), raw={})

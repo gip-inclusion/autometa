@@ -67,7 +67,7 @@ def upload_file(path: str, content: bytes, content_type: Optional[str] = None) -
             )
             logger.debug(f"Uploaded to S3: {key}")
             return True
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"S3 upload failed for {path}: {e}")
             return False
     else:
@@ -77,7 +77,7 @@ def upload_file(path: str, content: bytes, content_type: Optional[str] = None) -
             local_path.write_bytes(content)
             logger.debug(f"Saved locally: {local_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Local save failed for {path}: {e}")
             return False
 
@@ -99,7 +99,7 @@ def download_file(path: str) -> Optional[bytes]:
                 return None
             logger.error(f"S3 download failed for {path}: {e}")
             return None
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"S3 download failed for {path}: {e}")
             return None
     else:
@@ -108,7 +108,7 @@ def download_file(path: str) -> Optional[bytes]:
             if local_path.exists():
                 return local_path.read_bytes()
             return None
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Local read failed for {path}: {e}")
             return None
 
@@ -123,7 +123,7 @@ def get_file_url(path: str, expires_in: int = 3600) -> Optional[str]:
                 ExpiresIn=expires_in,
             )
             return url
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"Failed to generate presigned URL for {path}: {e}")
             return None
     return None
@@ -154,7 +154,7 @@ def delete_file(path: str) -> bool:
             s3_client.delete_object(Bucket=config.S3_BUCKET, Key=key)
             logger.debug(f"Deleted from S3: {key}")
             return True
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"S3 delete failed for {path}: {e}")
             return False
     else:
@@ -164,7 +164,7 @@ def delete_file(path: str) -> bool:
                 local_path.unlink()
                 logger.debug(f"Deleted locally: {local_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Local delete failed for {path}: {e}")
             return False
 
@@ -186,7 +186,7 @@ def list_files(prefix: str = "") -> list[dict]:
                         "size": obj["Size"],
                         "last_modified": obj["LastModified"],
                     })
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"S3 list failed for prefix {prefix}: {e}")
     else:
         try:
@@ -201,7 +201,7 @@ def list_files(prefix: str = "") -> list[dict]:
                             "size": stat.st_size,
                             "last_modified": stat.st_mtime,
                         })
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Local list failed for prefix {prefix}: {e}")
 
     return files
@@ -227,7 +227,7 @@ def list_directories(prefix: str = "") -> list[str]:
                 else:
                     dir_name = dir_path
                 directories.add(dir_name)
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"S3 list directories failed for prefix {prefix}: {e}")
     else:
         try:
@@ -236,7 +236,7 @@ def list_directories(prefix: str = "") -> list[str]:
                 for item in base_path.iterdir():
                     if item.is_dir():
                         directories.add(item.name)
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Local list directories failed for prefix {prefix}: {e}")
 
     return sorted(directories)

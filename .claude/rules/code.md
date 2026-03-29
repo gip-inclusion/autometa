@@ -14,6 +14,8 @@ Toujours générer le code le plus court et le plus simple possible. Éviter tou
 
 Pas d'abstractions pour un seul usage, pas de paramètres "au cas où", pas de gestion d'erreur pour des cas impossibles, pas de feature flags sans besoin.
 
+Exceptions : un `try/except` est un `if` pour les cas attendus et fréquents (parsing d'input externe, appel réseau, format de fichier inconnu). Ne jamais utiliser `try/except` dans le code interne pour masquer des bugs — une exception inattendue doit crasher le programme vite et fort. Ne jamais écrire `except Exception` (catch-all) sauf justification documentée par un `# Why:` — préférer toujours l'exception spécifique. Un `except: pass` sans commentaire est interdit ; si on attrape une exception, on la traite (log, valeur par défaut, re-raise) et on explique pourquoi.
+
 Éviter au maximum l'overengineering. Ne jamais réinventer la roue : réutiliser le code existant avant d'en écrire du nouveau. Toujours opter pour la solution la plus simple. Ne jamais ajouter de traitement de cas aux limites sauf si expressément demandé. Utiliser des constructions de base (`for`, `if`, compréhensions). Minimiser le nombre de variables et de fonctions. Garder le code le plus local possible, ne pas créer de niveaux d'abstraction inutiles.
 
 Constantes nommées : ne pas en introduire une si elle n'est référencée qu'une seule fois — inliner la valeur. Pour les « magic values » peu évidentes (URL externe, identifiant tiers, seuil métier, limite API), un commentaire court au-dessus de la ligne suffit ; pas besoin de commenter des littéraux déjà explicites dans le contexte.

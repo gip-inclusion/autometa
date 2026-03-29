@@ -23,6 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, Optional, Tuple
 
+from botocore.exceptions import ClientError
+
 from . import config, s3
 from .database import UploadedFile, get_db, store
 
@@ -179,7 +181,7 @@ def is_text_file(filename: str, mime_type: Optional[str], content: bytes) -> boo
             if printable / len(text) > 0.9:
                 return True
         except UnicodeDecodeError, ZeroDivisionError:
-            pass
+            pass  # binary or empty file
 
     return False
 
@@ -240,7 +242,7 @@ def scan_with_clamav(filepath: Path) -> Tuple[bool, bool]:
     except subprocess.TimeoutExpired:
         logger.warning(f"ClamAV scan timed out for {filepath}")
         return (False, None)
-    except Exception as e:
+    except OSError as e:
         logger.warning(f"ClamAV scan failed for {filepath}: {e}")
         return (False, None)
 
@@ -252,7 +254,7 @@ def upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str]
     try:
         key = f"uploads/{relative_path}"
         return s3.upload_file(key, content, content_type)
-    except Exception as e:
+    except (OSError, ClientError) as e:
         logger.error(f"S3 upload failed for {relative_path}: {e}")
         return False
 
@@ -305,7 +307,7 @@ def upload_file(
                 try:
                     text_content = content.decode("utf-8")
                 except UnicodeDecodeError:
-                    pass
+                    logger.debug("Could not decode existing file as UTF-8")
             return new_record, text_content
 
     # Detect MIME type
@@ -335,7 +337,7 @@ def upload_file(
         try:
             storage_path.unlink()
         except OSError:
-            pass
+            logger.debug("Could not delete infected file %s", storage_path)
         raise AVScanFailedError("File failed antivirus scan")
 
     # Upload to S3 if configured
@@ -364,7 +366,7 @@ def upload_file(
         try:
             text_content = content.decode("utf-8")
         except UnicodeDecodeError:
-            pass
+            logger.debug("Could not decode uploaded file as UTF-8")
 
     logger.info(f"Uploaded file: {filename} -> {stored_filename} ({file_size} bytes, hash={sha256_hash[:16]}...)")
 
@@ -387,7 +389,7 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
         try:
             key = f"uploads/{uploaded_file.stored_filename}"
             return s3.download_file(key)
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"Failed to download from S3: {e}")
 
     return None
@@ -494,7 +496,7 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
         try:
             key = f"uploads/{uploaded_file.stored_filename}"
             s3.delete_file(key)
-        except Exception as e:
+        except ClientError as e:
             logger.error(f"Failed to delete from S3: {e}")
 
     # Delete DB record

@@ -294,7 +294,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         status = "timeout"
         output = f"Script timed out after {timeout}s"
 
-    except Exception as e:
+    except OSError as e:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
         finished_at = datetime.now()
         status = "failure"
@@ -333,6 +333,7 @@ def record_run(result: dict, trigger: str):
                     trigger,
                 ),
             )
+    # Why: recording is best-effort; a DB error must not crash the cron runner.
     except Exception as e:
         print(f"Warning: failed to record cron run: {e}", file=sys.stderr)
 
@@ -358,6 +359,7 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
                         "duration_ms": row["duration_ms"],
                         "trigger": row["trigger"],
                     })
+    # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception as e:
         print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
     return runs
@@ -386,6 +388,7 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
                 }
                 for row in rows
             ]
+    # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception as e:
         print(f"Warning: failed to read app runs: {e}", file=sys.stderr)
         return []

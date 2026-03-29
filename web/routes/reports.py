@@ -160,6 +160,8 @@ def publish_to_notion(report_id: int):
         body = e.read().decode("utf-8")[:200]
         logger.error("Notion API error %d: %s", e.code, body)
         return JSONResponse({"error": "Notion API error"}, status_code=502)
+    # Why: Notion client may raise various errors (network, JSON parsing, auth);
+    # this endpoint must return a clean HTTP error, not crash.
     except Exception:
         logger.exception("Notion publish failed")
         return JSONResponse({"error": "Failed to publish to Notion"}, status_code=500)

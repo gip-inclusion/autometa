@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Optional
 
+import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2.pool import ThreadedConnectionPool
 
@@ -172,7 +173,7 @@ def get_db():
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except psycopg2.Error:
         conn.rollback()
         raise
     finally:

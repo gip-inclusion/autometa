@@ -117,7 +117,7 @@ def list_staged_files(conv_id: str) -> list[str]:
             rel_path = f.relative_to(staging_dir)
             files.append(str(rel_path))
         except ValueError:
-            pass
+            pass  # file outside staging_dir
     return sorted(files)
 
 

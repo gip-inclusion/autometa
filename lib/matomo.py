@@ -180,7 +180,7 @@ class MatomoAPI:
             status = getattr(getattr(e, "response", None), "status_code", None)
             body = getattr(getattr(e, "response", None), "text", str(e))
             error_msg = f"HTTP {status}: {body}" if status else str(e)
-            raise MatomoError(f"Request failed: {error_msg}")
+            raise MatomoError(f"Request failed: {error_msg}") from e
 
     def request(self, method: str, timeout: int = 180, **params) -> Any:
         return self._request(method, params, timeout)

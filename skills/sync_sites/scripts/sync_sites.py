@@ -90,7 +90,7 @@ def fetch_baselines(api: MatomoAPI, site: SiteConfig, year: int) -> list[dict]:
                     kinds = api.get_dimension(site_id=site.matomo_id, dimension_id=site.user_kind_dimension, period="month", date=month_date)
                     user_types = json.dumps({k.get("label", "unknown"): k.get("nb_visits", 0) for k in kinds})
                 except MatomoError:
-                    pass
+                    pass  # dimension not available for this month
 
             rows.append({
                 "site_id": site.matomo_id,

@@ -3,6 +3,8 @@
 Called once at startup by ConversationStore.__init__().
 """
 
+import psycopg2
+
 from .db import ConnectionWrapper, get_db
 
 # Schema version - increment when adding migrations
@@ -14,9 +16,8 @@ def get_schema_version(conn: ConnectionWrapper) -> int:
     try:
         row = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1").fetchone()
         return row["version"] if row else 0
-    except Exception as e:
-        error_code = getattr(e, "pgcode", None)
-        if error_code == "42P01":  # undefined_table
+    except psycopg2.Error as e:
+        if e.pgcode == "42P01":  # undefined_table
             conn.rollback()
             return 0
         raise

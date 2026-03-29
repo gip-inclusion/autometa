@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from .matomo import MatomoAPI, MatomoError  # noqa: F401 — re-exported
-from .metabase import MetabaseAPI, MetabaseError  # noqa: F401 — re-exported
-
-# Re-export API classes and helpers for convenience
+from .matomo import MatomoAPI, MatomoError
+from .metabase import MetabaseAPI, MetabaseError
 from .sources import get_matomo, get_metabase
+
+__all__ = ["MatomoAPI", "MatomoError", "MetabaseAPI", "MetabaseError", "get_matomo", "get_metabase"]
 
 
 class CallerType(str, Enum):
@@ -71,7 +71,7 @@ def execute_metabase_query(
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
 
-    except Exception as e:
+    except (MetabaseError, ValueError) as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 
@@ -101,7 +101,7 @@ def execute_matomo_query(
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
 
-    except Exception as e:
+    except MatomoError as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 
@@ -129,7 +129,7 @@ def execute_query(
             card_id=card_id,
             timeout=timeout,
         )
-    elif source == "matomo":
+    if source == "matomo":
         return execute_matomo_query(
             instance=instance,
             caller=caller,
@@ -137,9 +137,8 @@ def execute_query(
             params=params,
             timeout=timeout,
         )
-    else:
-        return QueryResult(
-            success=False,
-            data=None,
-            error=f"Unknown source: {source}. Use 'metabase' or 'matomo'.",
-        )
+    return QueryResult(
+        success=False,
+        data=None,
+        error=f"Unknown source: {source}. Use 'metabase' or 'matomo'.",
+    )

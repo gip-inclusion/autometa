@@ -1,8 +1,11 @@
 """Scan and cache interactive apps under data/interactive (S3 or local)."""
 
+import logging
 from datetime import datetime
 
 from . import config, s3
+
+logger = logging.getLogger(__name__)
 
 apps_cache: list[dict] | None = None
 
@@ -29,7 +32,7 @@ def parse_app_md(content: str, folder_name: str) -> dict | None:
         try:
             updated = datetime.strptime(fm["updated"], "%Y-%m-%d")
         except ValueError:
-            pass
+            logger.debug("Invalid date format in APP.md: %s", fm["updated"])
 
     tags = []
     if "tags" in fm:

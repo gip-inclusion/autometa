@@ -44,6 +44,7 @@ def generate_conversation_title(user_message: str, conv_id: str) -> None:
             title = llm.generate_text(prompt, model=model, max_tokens=50).strip()[:100]
             if title:
                 store.update_conversation(conv_id, title=title)
+        # Why: runs in a background daemon thread for title generation, must not crash.
         except Exception as exc:
             logger.warning(f"Failed to generate title: {exc}")
 
@@ -171,6 +172,7 @@ Exemple: emplois, candidats, trafic, analyse"""
             if tag_names:
                 store.set_conversation_tags(conv_id, tag_names)
                 logger.info(f"Auto-tagged conversation {conv_id}: {tag_names}")
+        # Why: runs in a background daemon thread for tag generation, must not crash.
         except Exception as exc:
             logger.warning(f"Failed to generate tags: {exc}")
 
@@ -338,7 +340,7 @@ def generate_title(conv_id: str):
         store.update_conversation(conv_id, title=title)
         return {"title": title}
 
-    except Exception as exc:
+    except llm.LLMError as exc:
         logger.error(f"Failed to generate title: {exc}")
         return JSONResponse({"error": "Failed to generate title"}, status_code=500)
 
@@ -526,7 +528,7 @@ async def stream_conversation(
             try:
                 sse_data["content"] = json.loads(msg.content)
             except json.JSONDecodeError, TypeError:
-                pass
+                pass  # content stays as raw string
         elif msg.type == "system":
             try:
                 raw = json.loads(msg.content)
@@ -534,7 +536,7 @@ async def stream_conversation(
                     sse_data["raw"] = raw
                     sse_data["content"] = raw.get("subtype") or raw.get("message") or msg.content
             except json.JSONDecodeError, TypeError:
-                pass
+                pass  # content stays as raw string
         return _sse_event(msg.type, sse_data)
 
     async def _drain_unseen(last_msg_id: int) -> list[str]:
@@ -689,7 +691,7 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
     except AVScanFailedError as e:
         logger.warning("AV scan failed: %s", e)
         return JSONResponse({"error": "File failed security scan"}, status_code=422)
-    except Exception as e:
+    except OSError as e:
         logger.error(f"File upload failed: {e}")
         return JSONResponse({"error": "Upload failed"}, status_code=500)
 
