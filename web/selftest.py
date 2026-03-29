@@ -130,25 +130,30 @@ def _render_snapshot(names: list[str], results: list[Check | None]) -> str:
 
 
 def _check_postgresql() -> tuple[bool, str]:
+    from sqlalchemy import text
+
     from .db import get_db
 
-    with get_db() as conn:
-        row = conn.execute("SELECT 1 AS ok").fetchone()
-    return (bool(row and row["ok"] == 1), "")
+    with get_db() as session:
+        ok = session.scalar(text("SELECT 1"))
+    return (ok == 1, "")
 
 
 def _check_admin_users() -> tuple[bool, str]:
+    from sqlalchemy import select
+
+    from .db import get_db
+    from .models import Conversation
+
     n = len(config.ADMIN_USERS)
     if not n:
         return (False, "ADMIN_USERS is empty")
-    from .db import get_db
 
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT user_id FROM conversations WHERE user_id IN %s LIMIT 1",
-            (tuple(config.ADMIN_USERS),),
-        ).fetchall()
-    if rows:
+    with get_db() as session:
+        found = session.scalar(
+            select(Conversation.user_id).where(Conversation.user_id.in_(list(config.ADMIN_USERS))).limit(1)
+        )
+    if found:
         return (True, f"{n} configured, at least 1 active")
     return (True, f"{n} configured (none active yet)")
 
@@ -162,22 +167,19 @@ def _check_task_runner() -> tuple[bool, str]:
 
 
 def _check_conversation_roundtrip() -> tuple[bool, str]:
+    from sqlalchemy import delete
+
     from .database import store
     from .db import get_db
+    from .models import Conversation, Message
 
     conv = store.create_conversation(user_id="selftest@localhost")
     store.add_message(conv.id, "user", "selftest ping")
     msgs = store.get_messages(conv.id)
     ok = len(msgs) >= 1
-    with get_db() as conn:
-        conn.execute(
-            "DELETE FROM messages WHERE conversation_id = %s",
-            (conv.id,),
-        )
-        conn.execute(
-            "DELETE FROM conversations WHERE id = %s",
-            (conv.id,),
-        )
+    with get_db() as session:
+        session.execute(delete(Message).where(Message.conversation_id == conv.id))
+        session.execute(delete(Conversation).where(Conversation.id == conv.id))
     return (ok, "create/write/read/delete OK")
 
 

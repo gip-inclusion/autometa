@@ -7,8 +7,11 @@ Writes to DATA_DIR/cache/ which is ephemeral and not git-tracked.
 import json
 import logging
 
+from sqlalchemy import func, select
+
 from . import config
 from .db import get_db
+from .models import MatomoBaseline, MatomoDimension, MatomoEvent, MatomoSegment, MetabaseCard, MetabaseDashboard
 from .schema import init_db
 
 logger = logging.getLogger(__name__)
@@ -17,55 +20,57 @@ CACHE_DIR = config.DATA_DIR / "cache"
 
 
 def warmup_matomo_baselines():
-    with get_db() as conn:
-        sites = conn.execute("SELECT DISTINCT site_id FROM matomo_baselines ORDER BY site_id").fetchall()
+    with get_db() as session:
+        site_ids = session.scalars(select(MatomoBaseline.site_id).distinct().order_by(MatomoBaseline.site_id)).all()
 
-    if not sites:
+    if not site_ids:
         logger.info("No matomo baselines in DB, skipping")
         return
 
     out_dir = CACHE_DIR / "matomo"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for site_row in sites:
-        site_id = site_row["site_id"]
-        with get_db() as conn:
-            baselines = conn.execute(
-                "SELECT * FROM matomo_baselines WHERE site_id = %s ORDER BY month", (site_id,)
-            ).fetchall()
-            dimensions = conn.execute(
-                "SELECT * FROM matomo_dimensions WHERE site_id = %s ORDER BY dimension_id", (site_id,)
-            ).fetchall()
-            segments = conn.execute(
-                "SELECT * FROM matomo_segments WHERE site_id = %s ORDER BY name", (site_id,)
-            ).fetchall()
-            events = conn.execute(
-                "SELECT * FROM matomo_events WHERE site_id = %s ORDER BY event_count DESC LIMIT 50", (site_id,)
-            ).fetchall()
+    for site_id in site_ids:
+        with get_db() as session:
+            baselines = session.scalars(
+                select(MatomoBaseline).where(MatomoBaseline.site_id == site_id).order_by(MatomoBaseline.month)
+            ).all()
+            dimensions = session.scalars(
+                select(MatomoDimension).where(MatomoDimension.site_id == site_id).order_by(MatomoDimension.dimension_id)
+            ).all()
+            segments = session.scalars(
+                select(MatomoSegment).where(MatomoSegment.site_id == site_id).order_by(MatomoSegment.name)
+            ).all()
+            events = session.scalars(
+                select(MatomoEvent)
+                .where(MatomoEvent.site_id == site_id)
+                .order_by(MatomoEvent.event_count.desc())
+                .limit(50)
+            ).all()
 
         lines = [f"# Matomo Site {site_id} — Cached Data", ""]
 
         if baselines:
-            synced = baselines[0].get("synced_at", "")
+            synced = baselines[0].synced_at or ""
             lines += ["## Traffic Baselines", "", f"*Synced: {synced}*", ""]
             lines += ["| Month | Visitors | Visits | Bounce | Actions/Visit | Avg Time |"]
             lines += ["|-------|----------|--------|--------|---------------|----------|"]
             for b in baselines:
-                if b.get("visitors") is None:
+                if b.visitors is None:
                     continue
-                avg_time = b.get("avg_time_on_site", 0) or 0
+                avg_time = b.avg_time_on_site or 0
                 time_str = f"{avg_time // 60}m{avg_time % 60:02d}s" if avg_time else "-"
                 lines.append(
-                    f"| {b['month']} | {b.get('visitors', '-'):,} | {b.get('visits', '-'):,} "
-                    f"| {b.get('bounce_rate', '-')} | {b.get('actions_per_visit', '-')} | {time_str} |"
+                    f"| {b.month} | {b.visitors or '-':,} | {b.visits or '-':,} "
+                    f"| {b.bounce_rate or '-'} | {b.actions_per_visit or '-'} | {time_str} |"
                 )
 
-            if any(b.get("user_types") for b in baselines):
+            if any(b.user_types for b in baselines):
                 lines += ["", "### User Types (visits per month)", ""]
                 all_types = set()
                 for b in baselines:
-                    if b.get("user_types"):
-                        ut = json.loads(b["user_types"]) if isinstance(b["user_types"], str) else b["user_types"]
+                    if b.user_types:
+                        ut = json.loads(b.user_types) if isinstance(b.user_types, str) else b.user_types
                         all_types.update(ut.keys())
                 all_types = sorted(all_types)
                 if all_types:
@@ -73,98 +78,98 @@ def warmup_matomo_baselines():
                     lines.append("|-------" + "|-------" * len(all_types) + "|")
                     for b in baselines:
                         ut = {}
-                        if b.get("user_types"):
-                            ut = json.loads(b["user_types"]) if isinstance(b["user_types"], str) else b["user_types"]
-                        lines.append(
-                            "| " + b["month"] + " | " + " | ".join(str(ut.get(t, 0)) for t in all_types) + " |"
-                        )
+                        if b.user_types:
+                            ut = json.loads(b.user_types) if isinstance(b.user_types, str) else b.user_types
+                        lines.append("| " + b.month + " | " + " | ".join(str(ut.get(t, 0)) for t in all_types) + " |")
 
         if dimensions:
             lines += ["", "## Custom Dimensions", ""]
             lines += ["| ID | Scope | Name |", "|----|-------|------|"]
             for d in dimensions:
-                if d.get("active"):
-                    lines.append(f"| {d['dimension_id']} | {d.get('scope', '')} | {d['name']} |")
+                if d.active:
+                    lines.append(f"| {d.dimension_id} | {d.scope or ''} | {d.name} |")
 
         if segments:
             lines += ["", "## Saved Segments", ""]
             lines += ["| Name | Definition |", "|------|------------|"]
             for s in segments:
-                defn = (s.get("definition") or "")[:60]
-                lines.append(f"| {s['name']} | `{defn}` |")
+                defn = (s.definition or "")[:60]
+                lines.append(f"| {s.name} | `{defn}` |")
 
         if events:
             lines += ["", "## Top Events", ""]
             lines += ["| Name | Events | Visits |", "|------|--------|--------|"]
             for e in events:
-                lines.append(f"| {e['name']} | {e.get('event_count', 0):,} | {e.get('visit_count', 0):,} |")
+                lines.append(f"| {e.name} | {e.event_count or 0:,} | {e.visit_count or 0:,} |")
 
         (out_dir / f"site-{site_id}.md").write_text("\n".join(lines) + "\n")
 
-    logger.info(f"Generated {len(sites)} matomo cache files")
+    logger.info(f"Generated {len(site_ids)} matomo cache files")
 
 
 def warmup_metabase_cards():
-    with get_db() as conn:
-        instances = conn.execute("SELECT DISTINCT instance FROM metabase_cards").fetchall()
+    with get_db() as session:
+        instance_names = session.scalars(select(MetabaseCard.instance).distinct()).all()
 
-    if not instances:
+    if not instance_names:
         logger.info("No metabase cards in DB, skipping")
         return
 
-    for inst_row in instances:
-        instance = inst_row["instance"]
+    for instance in instance_names:
         out_dir = CACHE_DIR / "metabase" / instance
         cards_dir = out_dir / "cards"
         dashboards_dir = out_dir / "dashboards"
         cards_dir.mkdir(parents=True, exist_ok=True)
         dashboards_dir.mkdir(parents=True, exist_ok=True)
 
-        with get_db() as conn:
-            topics = conn.execute(
-                "SELECT topic, COUNT(*) as n FROM metabase_cards WHERE instance = %s GROUP BY topic ORDER BY n DESC",
-                (instance,),
-            ).fetchall()
+        with get_db() as session:
+            topics = session.execute(
+                select(MetabaseCard.topic, func.count())
+                .where(MetabaseCard.instance == instance)
+                .group_by(MetabaseCard.topic)
+                .order_by(func.count().desc())
+            ).all()
 
-            for topic_row in topics:
-                topic = topic_row["topic"]
-                cards = conn.execute(
-                    "SELECT * FROM metabase_cards WHERE instance = %s AND topic = %s ORDER BY id",
-                    (instance, topic),
-                ).fetchall()
+            for topic, _ in topics:
+                cards = session.scalars(
+                    select(MetabaseCard)
+                    .where(MetabaseCard.instance == instance, MetabaseCard.topic == topic)
+                    .order_by(MetabaseCard.id)
+                ).all()
 
                 lines = [f"# {topic}", "", f"**{len(cards)} cartes**", ""]
                 for c in cards:
-                    lines.append(f"## [{c['id']}] {c['name']}")
-                    if c.get("description"):
-                        lines.append(f"\n{c['description']}")
-                    if c.get("dashboard_name"):
-                        lines.append(f"\n*Dashboard: {c['dashboard_name']}*")
-                    if c.get("sql_query"):
-                        sql = c["sql_query"][:2000]
+                    lines.append(f"## [{c.id}] {c.name}")
+                    if c.description:
+                        lines.append(f"\n{c.description}")
+                    if c.dashboard_name:
+                        lines.append(f"\n*Dashboard: {c.dashboard_name}*")
+                    if c.sql_query:
+                        sql = c.sql_query[:2000]
                         lines.append(f"\n```sql\n{sql}\n```")
                     lines.append("")
 
                 (cards_dir / f"topic-{topic}.md").write_text("\n".join(lines) + "\n")
 
-            dashboards = conn.execute(
-                "SELECT * FROM metabase_dashboards WHERE instance = %s ORDER BY id", (instance,)
-            ).fetchall()
+            dashboards = session.scalars(
+                select(MetabaseDashboard).where(MetabaseDashboard.instance == instance).order_by(MetabaseDashboard.id)
+            ).all()
 
             for dash in dashboards:
-                cards = conn.execute(
-                    "SELECT * FROM metabase_cards WHERE instance = %s AND dashboard_id = %s ORDER BY id",
-                    (instance, dash["id"]),
-                ).fetchall()
-                lines = [f"# Dashboard {dash['id']}: {dash['name']}", ""]
-                if dash.get("pilotage_url"):
-                    lines.append(f"URL: {dash['pilotage_url']}")
+                cards = session.scalars(
+                    select(MetabaseCard)
+                    .where(MetabaseCard.instance == instance, MetabaseCard.dashboard_id == dash.id)
+                    .order_by(MetabaseCard.id)
+                ).all()
+                lines = [f"# Dashboard {dash.id}: {dash.name}", ""]
+                if dash.pilotage_url:
+                    lines.append(f"URL: {dash.pilotage_url}")
                 lines.append(f"\n**{len(cards)} cartes**\n")
                 for c in cards:
-                    sql_preview = (c.get("sql_query") or "")[:200].replace("\n", " ")
-                    lines.append(f"- [{c['id']}] {c['name']} ({c.get('topic', '?')}) — `{sql_preview}`")
+                    sql_preview = (c.sql_query or "")[:200].replace("\n", " ")
+                    lines.append(f"- [{c.id}] {c.name} ({c.topic or '?'}) — `{sql_preview}`")
                 lines.append("")
-                (dashboards_dir / f"dashboard-{dash['id']}.md").write_text("\n".join(lines) + "\n")
+                (dashboards_dir / f"dashboard-{dash.id}.md").write_text("\n".join(lines) + "\n")
 
         logger.info(
             f"Generated metabase cache for instance '{instance}': {len(topics)} topics, {len(dashboards)} dashboards"

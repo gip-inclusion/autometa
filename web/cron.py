@@ -10,8 +10,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import select
+
 from . import config, s3
 from .database import get_db
+from .models import CronRun
 
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
@@ -319,46 +322,47 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
 
 def record_run(result: dict, trigger: str):
     try:
-        with get_db() as conn:
-            conn.execute(
-                """INSERT INTO cron_runs (app_slug, started_at, finished_at, status, output, duration_ms, trigger)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    result["slug"],
-                    result["started_at"],
-                    result["finished_at"],
-                    result["status"],
-                    result["output"],
-                    result["duration_ms"],
-                    trigger,
-                ),
+        with get_db() as session:
+            session.add(
+                CronRun(
+                    app_slug=result["slug"],
+                    started_at=result["started_at"],
+                    finished_at=result["finished_at"],
+                    status=result["status"],
+                    output=result["output"],
+                    duration_ms=result["duration_ms"],
+                    trigger=trigger,
+                )
             )
     # Why: recording is best-effort; a DB error must not crash the cron runner.
     except Exception as e:
         print(f"Warning: failed to record cron run: {e}", file=sys.stderr)
 
 
+def _run_to_dict(run: CronRun) -> dict:
+    return {
+        "id": run.id,
+        "app_slug": run.app_slug,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "status": run.status,
+        "output": run.output,
+        "duration_ms": run.duration_ms,
+        "trigger": run.trigger,
+    }
+
+
 def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
     runs: dict[str, list[dict]] = {}
     try:
-        with get_db() as conn:
-            rows = conn.execute("SELECT * FROM cron_runs ORDER BY started_at DESC").fetchall()
-
+        with get_db() as session:
+            rows = session.scalars(select(CronRun).order_by(CronRun.started_at.desc())).all()
             for row in rows:
-                slug = row["app_slug"]
+                slug = row.app_slug
                 if slug not in runs:
                     runs[slug] = []
                 if len(runs[slug]) < limit_per_app:
-                    runs[slug].append({
-                        "id": row["id"],
-                        "app_slug": row["app_slug"],
-                        "started_at": row["started_at"],
-                        "finished_at": row["finished_at"],
-                        "status": row["status"],
-                        "output": row["output"],
-                        "duration_ms": row["duration_ms"],
-                        "trigger": row["trigger"],
-                    })
+                    runs[slug].append(_run_to_dict(row))
     # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception as e:
         print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
@@ -367,27 +371,11 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
 
 def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
     try:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT * FROM cron_runs
-                   WHERE app_slug = %s
-                   ORDER BY started_at DESC
-                   LIMIT %s""",
-                (slug, limit),
-            ).fetchall()
-            return [
-                {
-                    "id": row["id"],
-                    "app_slug": row["app_slug"],
-                    "started_at": row["started_at"],
-                    "finished_at": row["finished_at"],
-                    "status": row["status"],
-                    "output": row["output"],
-                    "duration_ms": row["duration_ms"],
-                    "trigger": row["trigger"],
-                }
-                for row in rows
-            ]
+        with get_db() as session:
+            rows = session.scalars(
+                select(CronRun).where(CronRun.app_slug == slug).order_by(CronRun.started_at.desc()).limit(limit)
+            ).all()
+            return [_run_to_dict(row) for row in rows]
     # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception as e:
         print(f"Warning: failed to read app runs: {e}", file=sys.stderr)

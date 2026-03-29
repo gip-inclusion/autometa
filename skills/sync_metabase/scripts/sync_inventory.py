@@ -9,10 +9,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
+from sqlalchemy import delete
+
 from lib.query import MetabaseError
 from lib.sources import get_metabase, get_source_config, list_instances
 from skills.metabase_query.scripts.cards_db import TOPICS, TABLE_TO_TOPIC
 from web.db import get_db
+from web.models import MetabaseCard, MetabaseDashboard
 from web.llm import generate_text
 
 
@@ -108,31 +111,38 @@ IMPORTANT:
 
 
 def save_to_db(instance: str, cards: list[dict], dashboard_metadata: dict):
-    with get_db() as conn:
-        conn.execute("DELETE FROM metabase_cards WHERE instance = %s", (instance,))
-        conn.execute("DELETE FROM metabase_dashboards WHERE instance = %s", (instance,))
+    with get_db() as session:
+        session.execute(delete(MetabaseCard).where(MetabaseCard.instance == instance))
+        session.execute(delete(MetabaseDashboard).where(MetabaseDashboard.instance == instance))
 
-        for card in cards:
-            conn.execute(
-                """INSERT INTO metabase_cards
-                   (id, instance, name, description, collection_id, dashboard_id, dashboard_name,
-                    topic, sql_query, tables_json, synced_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                (card["id"], instance, card["name"], card.get("description"),
-                 card.get("collection_id"), card.get("dashboard_id"),
-                 dashboard_metadata.get(card.get("dashboard_id"), {}).get("name"),
-                 card.get("topic", "candidatures"), card.get("sql_query", ""),
-                 json.dumps(card.get("tables_referenced", []))),
+        session.add_all([
+            MetabaseCard(
+                id=card["id"],
+                instance=instance,
+                name=card["name"],
+                description=card.get("description"),
+                collection_id=card.get("collection_id"),
+                dashboard_id=card.get("dashboard_id"),
+                dashboard_name=dashboard_metadata.get(card.get("dashboard_id"), {}).get("name"),
+                topic=card.get("topic", "candidatures"),
+                sql_query=card.get("sql_query", ""),
+                tables_json=json.dumps(card.get("tables_referenced", [])),
             )
+            for card in cards
+        ])
 
-        for dash_id, meta in dashboard_metadata.items():
-            conn.execute(
-                """INSERT INTO metabase_dashboards
-                   (id, instance, name, description, topic, pilotage_url, collection_id, synced_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())""",
-                (dash_id, instance, meta["name"], meta.get("description"),
-                 None, meta.get("pilotage_url"), meta.get("collection_id")),
+        session.add_all([
+            MetabaseDashboard(
+                id=dash_id,
+                instance=instance,
+                name=meta["name"],
+                description=meta.get("description"),
+                topic=None,
+                pilotage_url=meta.get("pilotage_url"),
+                collection_id=meta.get("collection_id"),
             )
+            for dash_id, meta in dashboard_metadata.items()
+        ])
 
 
 def sync_instance(instance_name: str, skip_categorize: bool):

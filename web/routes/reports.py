@@ -11,6 +11,7 @@ from .. import notion
 from ..config import ADMIN_USERS
 from ..database import get_db, store
 from ..deps import get_current_user
+from ..models import Report
 
 logger = logging.getLogger(__name__)
 
@@ -166,8 +167,10 @@ def publish_to_notion(report_id: int):
         logger.exception("Notion publish failed")
         return JSONResponse({"error": "Failed to publish to Notion"}, status_code=500)
 
-    with get_db() as conn:
-        conn.execute("UPDATE reports SET notion_url = %s WHERE id = %s", (url, report_id))
+    with get_db() as session:
+        report_obj = session.get(Report, report_id)
+        if report_obj:
+            report_obj.notion_url = url
 
     return {"url": url}
 

@@ -24,15 +24,19 @@ def app():
 
     yield fastapi_app
 
+    from sqlalchemy import text
+
     from web.db import get_db
 
-    with get_db() as conn:
-        conn.execute_raw("""
+    with get_db() as session:
+        session.execute(
+            text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version
                 CASCADE;
         """)
+        )
 
 
 @pytest.fixture

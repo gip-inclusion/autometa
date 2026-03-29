@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from sqlalchemy import text
+
 from lib.failure_detection import FAILURE_MARKERS, extract_snippet
 from lib.slack import lookup_user as slack_lookup_user
 from lib.slack import send_dm as slack_send_dm
@@ -23,22 +25,22 @@ def get_failed_conversations(days: int) -> list[dict]:
 
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    # Build LIKE clauses for each marker
-    like_clauses = " OR ".join(["LOWER(m.content) LIKE ?" for _ in FAILURE_MARKERS])
-    params = [f"%{marker}%" for marker in FAILURE_MARKERS]
+    like_clauses = " OR ".join([f"LOWER(m.content) LIKE :m{i}" for i in range(len(FAILURE_MARKERS))])
+    params = {f"m{i}": f"%{marker}%" for i, marker in enumerate(FAILURE_MARKERS)}
+    params["cutoff"] = cutoff
 
-    sql = f"""
+    sql = text(f"""
         SELECT DISTINCT c.id, c.title, m.content
         FROM conversations c
         JOIN messages m ON m.conversation_id = c.id
         WHERE m.role = 'assistant'
-          AND c.updated_at >= ?
+          AND c.updated_at >= :cutoff
           AND ({like_clauses})
         ORDER BY c.updated_at DESC
-    """
+    """)
 
-    with get_db() as conn:
-        rows = conn.execute(sql, (cutoff, *params)).fetchall()
+    with get_db() as session:
+        rows = session.execute(sql, params).mappings().all()
 
     # Deduplicate by conversation id, keep first match
     seen = set()

@@ -1,181 +1,82 @@
-"""Database connection infrastructure (PostgreSQL).
-
-Low-level connection management, query helpers, and column validation.
-Business logic lives in web/database.py.
-"""
+"""Database connection infrastructure (PostgreSQL + SQLAlchemy)."""
 
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Optional
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from psycopg2.pool import ThreadedConnectionPool
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from . import config
 
 logger = logging.getLogger(__name__)
 
-pg_pool: Optional[ThreadedConnectionPool] = None
+engine = None
+SessionLocal = None
 
 
-def get_pg_pool() -> ThreadedConnectionPool:
-    global pg_pool
-    if pg_pool is None or pg_pool.closed:
-        pg_pool = ThreadedConnectionPool(
-            minconn=1,
-            maxconn=10,
-            dsn=config.DATABASE_URL,
+def get_engine():
+    global engine, SessionLocal
+    if engine is None:
+        engine = create_engine(
+            config.DATABASE_URL,
+            pool_size=10,
+            max_overflow=5,
+            pool_pre_ping=True,
         )
-        logger.info("PostgreSQL connection pool created (max=10)")
-    return pg_pool
+        SessionLocal = sessionmaker(bind=engine)
+        logger.info("SQLAlchemy engine created (pool_size=10)")
+    return engine
 
 
-# Valid column names for dynamic updates (security: prevents SQL injection)
-VALID_CONVERSATION_COLUMNS = frozenset({
-    "title",
-    "session_id",
-    "user_id",
-    "status",
-    "pr_url",
-    "updated_at",
-    "pinned_at",
-    "pinned_label",
-    "needs_response",
-})
-VALID_REPORT_COLUMNS = frozenset({"title", "website", "category", "tags", "original_query", "content", "updated_at"})
+def get_session_factory():
+    get_engine()
+    return SessionLocal
 
 
-def build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, list]:
-    """
-    Build a safe UPDATE SET clause from a dict of updates.
-
-    Validates all keys against valid_columns to prevent SQL injection.
-    Returns (set_clause, values) for use in parameterized query.
-
-    Raises ValueError if any key is not in valid_columns.
-    """
-    for key in updates:
-        if key not in valid_columns:
-            raise ValueError(f"Invalid column name: {key}")
-
-    set_clause = ", ".join(f"{k} = %s" for k in updates)
-    values = [int(v) if isinstance(v, bool) else v for v in updates.values()]
-    return set_clause, values
+test_session_var: ContextVar[Optional[Session]] = ContextVar("db_test_session", default=None)
 
 
-class ConnectionWrapper:
-    """Wrapper around psycopg2 connections.
+@contextmanager
+def get_db() -> Session:
+    """Context manager yielding a SQLAlchemy Session. Auto-commits on success, rolls back on error."""
+    test_session = test_session_var.get()
+    if test_session is not None:
+        yield test_session
+        return
 
-    Provides helper methods for common patterns (insert_and_get_id, insert_ignore).
-    All SQL must use %s placeholders (native psycopg2 format).
-    """
-
-    def __init__(self, conn):
-        self._conn = conn
-        self._cursor = None
-
-    def execute(self, sql: str, params: tuple = ()) -> "ConnectionWrapper":
-        self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
-        self._cursor.execute(sql, params)
-        return self
-
-    def execute_raw(self, sql: str) -> "ConnectionWrapper":
-        self._cursor = self._conn.cursor()
-        self._cursor.execute(sql)
-        return self
-
-    def executemany(self, sql: str, params_list: list) -> "ConnectionWrapper":
-        self._cursor = self._conn.cursor()
-        self._cursor.executemany(sql, params_list)
-        return self
-
-    def fetchone(self) -> Optional[Any]:
-        if self._cursor is None:
-            return None
-        return self._cursor.fetchone()
-
-    def fetchall(self) -> list:
-        if self._cursor is None:
-            return []
-        return self._cursor.fetchall()
-
-    @property
-    def rowcount(self) -> int:
-        if self._cursor is None:
-            return 0
-        return self._cursor.rowcount
-
-    def insert_and_get_id(self, sql: str, params: tuple = ()) -> Optional[int]:
-        if "RETURNING" not in sql.upper():
-            sql = sql.rstrip().rstrip(";") + " RETURNING id"
-        self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
-        self._cursor.execute(sql, params)
-        row = self._cursor.fetchone()
-        return row["id"] if row else None
-
-    def insert_ignore(self, table: str, columns: list[str], values: tuple) -> "ConnectionWrapper":
-        placeholders = ", ".join(["%s"] * len(values))
-        cols = ", ".join(columns)
-        sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
-        self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
-        self._cursor.execute(sql, values)
-        return self
-
-    def commit(self):
-        self._conn.commit()
-
-    def rollback(self):
-        self._conn.rollback()
-
-    def close(self):
-        self._conn.close()
-
-
-def get_connection() -> ConnectionWrapper:
-    pool = get_pg_pool()
-    conn = pool.getconn()
-    return ConnectionWrapper(conn)
-
-
-test_conn_var: ContextVar[Optional[ConnectionWrapper]] = ContextVar("db_test_conn", default=None)
+    factory = get_session_factory()
+    session = factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 @contextmanager
 def test_transaction():
-    """Hold one pooled connection for a test; all ``get_db()`` calls share it and do not commit.
-
-    Rolls back on exit so tests leave no durable DB state. Used by pytest fixtures.
-    """
-    conn = get_connection()
-    token = test_conn_var.set(conn)
-    conn.rollback()
+    """Hold one session for a test; rolls back on exit so tests leave no durable DB state."""
+    factory = get_session_factory()
+    session = factory()
+    token = test_session_var.set(session)
     try:
         yield
     finally:
         try:
-            conn.rollback()
+            session.rollback()
         finally:
-            test_conn_var.reset(token)
-            pool = get_pg_pool()
-            pool.putconn(conn._conn)
+            test_session_var.reset(token)
+            session.close()
 
 
-@contextmanager
-def get_db():
-    """Context manager for database connections."""
-    test_conn = test_conn_var.get()
-    if test_conn is not None:
-        yield test_conn
-        return
-    conn = get_connection()
-    try:
-        yield conn
-        conn.commit()
-    except psycopg2.Error:
-        conn.rollback()
-        raise
-    finally:
-        pool = get_pg_pool()
-        pool.putconn(conn._conn)
+def init_tables():
+    """Create all tables from SQLAlchemy models (used in tests and initial setup)."""
+    from .models import Base
+
+    get_engine()
+    Base.metadata.create_all(engine)

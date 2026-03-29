@@ -1,6 +1,7 @@
 """Tests for usage tracking across backends."""
 
 import pytest
+from sqlalchemy import text
 
 from web.agents.base import AgentMessage
 from web.agents.cli import CLIBackend
@@ -48,22 +49,30 @@ def db_setup():
     init_db()
     yield
 
-    with get_db() as conn:
-        conn.execute_raw("""
+    with get_db() as session:
+        session.execute(
+            text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version
                 CASCADE;
         """)
+        )
 
 
 def test_database_usage_columns_conversations_table_has_usage_columns(db_setup):
 
-    with get_db() as conn:
-        cursor = conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = %s", ("conversations",)
+    with get_db() as session:
+        rows = (
+            session
+            .execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = :tbl"),
+                {"tbl": "conversations"},
+            )
+            .mappings()
+            .all()
         )
-        columns = {row["column_name"] for row in cursor.fetchall()}
+        columns = {row["column_name"] for row in rows}
         assert "usage_input_tokens" in columns
         assert "usage_output_tokens" in columns
         assert "usage_cache_creation_tokens" in columns

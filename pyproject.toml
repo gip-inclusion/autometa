@@ -7,25 +7,22 @@ dependencies = [
     "fastapi>=0.135.2",
     "uvicorn[standard]>=0.42.0",
     "python-multipart>=0.0.22",
-
     # Claude API
     "claude-agent-sdk>=0.1.52",
-
     # Templating
     "jinja2>=3.1.6",
     "markupsafe>=3.0.3",
     "markdown>=3.10",
-
     # Utils
     "python-dotenv>=1.2.2",
     "requests>=2.33.0",
     "pyyaml>=6.0.3",
-
     # Database
     "psycopg2-binary>=2.9.11",
-
     # S3-compatible object storage
     "boto3>=1.42.78",
+    "sqlalchemy>=2.0.48",
+    "alembic>=1.18.4",
 ]
 
 [dependency-groups]

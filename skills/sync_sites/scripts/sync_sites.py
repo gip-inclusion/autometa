@@ -8,9 +8,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Optional
 
+from sqlalchemy import delete
+
 from lib.query import MatomoAPI, MatomoError
 from lib.sources import get_matomo
 from web.db import get_db
+from web.models import MatomoBaseline, MatomoDimension, MatomoEvent, MatomoSegment
 
 
 def fetch_custom_dimensions(api: MatomoAPI, site_id: int) -> list[dict]:
@@ -112,56 +115,70 @@ def fetch_baselines(api: MatomoAPI, site: SiteConfig, year: int) -> list[dict]:
 
 
 def save_baselines(rows: list[dict]):
-    with get_db() as conn:
+    with get_db() as session:
         for row in rows:
-            conn.execute(
-                """INSERT INTO matomo_baselines
-                   (site_id, month, visitors, visits, daily_avg_visitors, daily_avg_visits,
-                    bounce_rate, actions_per_visit, avg_time_on_site, user_types, synced_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                   ON CONFLICT (site_id, month) DO UPDATE SET
-                    visitors=EXCLUDED.visitors, visits=EXCLUDED.visits,
-                    daily_avg_visitors=EXCLUDED.daily_avg_visitors, daily_avg_visits=EXCLUDED.daily_avg_visits,
-                    bounce_rate=EXCLUDED.bounce_rate, actions_per_visit=EXCLUDED.actions_per_visit,
-                    avg_time_on_site=EXCLUDED.avg_time_on_site, user_types=EXCLUDED.user_types,
-                    synced_at=NOW()""",
-                (row.get("site_id"), row.get("month"), row.get("visitors"), row.get("visits"),
-                 row.get("daily_avg_visitors"), row.get("daily_avg_visits"), row.get("bounce_rate"),
-                 row.get("actions_per_visit"), row.get("avg_time_on_site"), row.get("user_types")),
+            obj = MatomoBaseline(
+                site_id=row["site_id"],
+                month=row["month"],
+                visitors=row.get("visitors"),
+                visits=row.get("visits"),
+                daily_avg_visitors=row.get("daily_avg_visitors"),
+                daily_avg_visits=row.get("daily_avg_visits"),
+                bounce_rate=row.get("bounce_rate"),
+                actions_per_visit=row.get("actions_per_visit"),
+                avg_time_on_site=row.get("avg_time_on_site"),
+                user_types=row.get("user_types"),
+                synced_at=datetime.now(),
             )
+            session.merge(obj)
 
 
 def save_dimensions(site_id: int, dimensions: list[dict]):
-    with get_db() as conn:
-        conn.execute("DELETE FROM matomo_dimensions WHERE site_id = %s", (site_id,))
-        for d in dimensions:
-            conn.execute(
-                """INSERT INTO matomo_dimensions (site_id, dimension_id, name, scope, active, synced_at)
-                   VALUES (%s, %s, %s, %s, %s, NOW())""",
-                (site_id, d["id"], d["name"], d.get("scope"), d.get("active", True)),
+    with get_db() as session:
+        session.execute(delete(MatomoDimension).where(MatomoDimension.site_id == site_id))
+        session.add_all([
+            MatomoDimension(
+                site_id=site_id,
+                dimension_id=d["id"],
+                name=d["name"],
+                scope=d.get("scope"),
+                active=d.get("active", True),
+                synced_at=datetime.now(),
             )
+            for d in dimensions
+        ])
 
 
 def save_segments(site_id: int, segments: list[dict]):
-    with get_db() as conn:
-        conn.execute("DELETE FROM matomo_segments WHERE site_id = %s", (site_id,))
-        for s in segments:
-            conn.execute(
-                """INSERT INTO matomo_segments (site_id, name, definition, synced_at)
-                   VALUES (%s, %s, %s, NOW())""",
-                (site_id, s["name"], s.get("definition")),
+    with get_db() as session:
+        session.execute(delete(MatomoSegment).where(MatomoSegment.site_id == site_id))
+        session.add_all([
+            MatomoSegment(
+                site_id=site_id,
+                name=s["name"],
+                definition=s.get("definition"),
+                synced_at=datetime.now(),
             )
+            for s in segments
+        ])
 
 
 def save_events(site_id: int, events: list[dict], reference_month: str):
-    with get_db() as conn:
-        conn.execute("DELETE FROM matomo_events WHERE site_id = %s AND reference_month = %s", (site_id, reference_month))
-        for e in events:
-            conn.execute(
-                """INSERT INTO matomo_events (site_id, name, event_count, visit_count, reference_month, synced_at)
-                   VALUES (%s, %s, %s, %s, %s, NOW())""",
-                (site_id, e["name"], e.get("events", 0), e.get("visits", 0), reference_month),
+    with get_db() as session:
+        session.execute(
+            delete(MatomoEvent).where(MatomoEvent.site_id == site_id, MatomoEvent.reference_month == reference_month)
+        )
+        session.add_all([
+            MatomoEvent(
+                site_id=site_id,
+                name=e["name"],
+                event_count=e.get("events", 0),
+                visit_count=e.get("visits", 0),
+                reference_month=reference_month,
+                synced_at=datetime.now(),
             )
+            for e in events
+        ])
 
 
 def main():

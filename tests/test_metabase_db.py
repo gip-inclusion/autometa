@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from sqlalchemy import text
 
 from skills.metabase_query.scripts.cards_db import TOPICS, Card, CardsDB
 from web.database import init_db
@@ -13,18 +14,18 @@ from web.db import get_db
 def db():
     init_db()
     instance = "test"
-    with get_db() as conn:
-        conn.execute("DELETE FROM metabase_cards WHERE instance = %s", (instance,))
-        conn.execute("DELETE FROM metabase_dashboards WHERE instance = %s", (instance,))
+    with get_db() as session:
+        session.execute(text("DELETE FROM metabase_cards WHERE instance = :inst"), {"inst": instance})
+        session.execute(text("DELETE FROM metabase_dashboards WHERE instance = :inst"), {"inst": instance})
     yield CardsDB(instance=instance)
-    with get_db() as conn:
-        conn.execute("DELETE FROM metabase_cards WHERE instance = %s", (instance,))
-        conn.execute("DELETE FROM metabase_dashboards WHERE instance = %s", (instance,))
+    with get_db() as session:
+        session.execute(text("DELETE FROM metabase_cards WHERE instance = :inst"), {"inst": instance})
+        session.execute(text("DELETE FROM metabase_dashboards WHERE instance = :inst"), {"inst": instance})
 
 
 @pytest.fixture
 def populated_db(db):
-    with get_db() as conn:
+    with get_db() as session:
         for card_id, name, desc, topic, sql, tables, dash_id in [
             (
                 1,
@@ -54,10 +55,19 @@ def populated_db(db):
                 267,
             ),
         ]:
-            conn.execute(
-                """INSERT INTO metabase_cards (id, instance, name, description, topic, sql_query, tables_json, dashboard_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (card_id, db.instance, name, desc, topic, sql, json.dumps(tables), dash_id),
+            session.execute(
+                text("""INSERT INTO metabase_cards (id, instance, name, description, topic, sql_query, tables_json, dashboard_id)
+                   VALUES (:id, :inst, :name, :desc, :topic, :sql, :tables, :did)"""),
+                {
+                    "id": card_id,
+                    "inst": db.instance,
+                    "name": name,
+                    "desc": desc,
+                    "topic": topic,
+                    "sql": sql,
+                    "tables": json.dumps(tables),
+                    "did": dash_id,
+                },
             )
     return db
 

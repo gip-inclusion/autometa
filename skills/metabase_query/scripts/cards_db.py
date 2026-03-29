@@ -4,7 +4,10 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
+from sqlalchemy import func, or_, select
+
 from web.db import get_db
+from web.models import MetabaseCard, MetabaseDashboard
 
 TOPICS = {
     "file-active": "Candidats dans la file active (30+ days waiting)",
@@ -64,16 +67,16 @@ class Card:
     tables_referenced: list[str]
 
     @classmethod
-    def from_row(cls, row: dict) -> "Card":
+    def from_model(cls, m: "MetabaseCard") -> "Card":
         return cls(
-            id=row["id"],
-            name=row["name"],
-            description=row.get("description"),
-            collection_id=row.get("collection_id"),
-            dashboard_id=row.get("dashboard_id"),
-            topic=row.get("topic"),
-            sql_query=row.get("sql_query"),
-            tables_referenced=json.loads(row["tables_json"]) if row.get("tables_json") else [],
+            id=m.id,
+            name=m.name,
+            description=m.description,
+            collection_id=m.collection_id,
+            dashboard_id=m.dashboard_id,
+            topic=m.topic,
+            sql_query=m.sql_query,
+            tables_referenced=json.loads(m.tables_json) if m.tables_json else [],
         )
 
 
@@ -87,14 +90,14 @@ class Dashboard:
     collection_id: Optional[int]
 
     @classmethod
-    def from_row(cls, row: dict) -> "Dashboard":
+    def from_model(cls, m: "MetabaseDashboard") -> "Dashboard":
         return cls(
-            id=row["id"],
-            name=row["name"],
-            description=row.get("description"),
-            topic=row.get("topic"),
-            pilotage_url=row.get("pilotage_url"),
-            collection_id=row.get("collection_id"),
+            id=m.id,
+            name=m.name,
+            description=m.description,
+            topic=m.topic,
+            pilotage_url=m.pilotage_url,
+            collection_id=m.collection_id,
         )
 
 
@@ -103,84 +106,95 @@ class CardsDB:
         self.instance = instance
 
     def get(self, card_id: int) -> Optional[Card]:
-        with get_db() as conn:
-            row = conn.execute(
-                "SELECT * FROM metabase_cards WHERE id = %s AND instance = %s", (card_id, self.instance)
-            ).fetchone()
-            return Card.from_row(row) if row else None
+        with get_db() as session:
+            m = session.execute(
+                select(MetabaseCard).where(MetabaseCard.id == card_id, MetabaseCard.instance == self.instance)
+            ).scalar_one_or_none()
+            return Card.from_model(m) if m else None
 
     def all(self) -> list[Card]:
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM metabase_cards WHERE instance = %s ORDER BY id", (self.instance,)
-            ).fetchall()
-            return [Card.from_row(r) for r in rows]
+        with get_db() as session:
+            rows = session.scalars(
+                select(MetabaseCard).where(MetabaseCard.instance == self.instance).order_by(MetabaseCard.id)
+            ).all()
+            return [Card.from_model(m) for m in rows]
 
     def by_topic(self, topic: str) -> list[Card]:
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM metabase_cards WHERE instance = %s AND topic = %s ORDER BY id",
-                (self.instance, topic),
-            ).fetchall()
-            return [Card.from_row(r) for r in rows]
+        with get_db() as session:
+            rows = session.scalars(
+                select(MetabaseCard)
+                .where(MetabaseCard.instance == self.instance, MetabaseCard.topic == topic)
+                .order_by(MetabaseCard.id)
+            ).all()
+            return [Card.from_model(m) for m in rows]
 
     def search(self, query: str, limit: int = 50) -> list[Card]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT * FROM metabase_cards
-                   WHERE instance = %s
-                     AND (name ILIKE %s OR description ILIKE %s OR sql_query ILIKE %s)
-                   ORDER BY name LIMIT %s""",
-                (self.instance, f"%{query}%", f"%{query}%", f"%{query}%", limit),
-            ).fetchall()
-            return [Card.from_row(r) for r in rows]
+        pattern = f"%{query}%"
+        with get_db() as session:
+            rows = session.scalars(
+                select(MetabaseCard)
+                .where(
+                    MetabaseCard.instance == self.instance,
+                    or_(
+                        MetabaseCard.name.ilike(pattern),
+                        MetabaseCard.description.ilike(pattern),
+                        MetabaseCard.sql_query.ilike(pattern),
+                    ),
+                )
+                .order_by(MetabaseCard.name)
+                .limit(limit)
+            ).all()
+            return [Card.from_model(m) for m in rows]
 
     def by_table(self, table_name: str) -> list[Card]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT * FROM metabase_cards
-                   WHERE instance = %s AND tables_json ILIKE %s ORDER BY id""",
-                (self.instance, f"%{table_name}%"),
-            ).fetchall()
-            return [Card.from_row(r) for r in rows]
+        with get_db() as session:
+            rows = session.scalars(
+                select(MetabaseCard)
+                .where(MetabaseCard.instance == self.instance, MetabaseCard.tables_json.ilike(f"%{table_name}%"))
+                .order_by(MetabaseCard.id)
+            ).all()
+            return [Card.from_model(m) for m in rows]
 
     def by_dashboard(self, dashboard_id: int) -> list[Card]:
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM metabase_cards WHERE instance = %s AND dashboard_id = %s ORDER BY id",
-                (self.instance, dashboard_id),
-            ).fetchall()
-            return [Card.from_row(r) for r in rows]
+        with get_db() as session:
+            rows = session.scalars(
+                select(MetabaseCard)
+                .where(MetabaseCard.instance == self.instance, MetabaseCard.dashboard_id == dashboard_id)
+                .order_by(MetabaseCard.id)
+            ).all()
+            return [Card.from_model(m) for m in rows]
 
     def topics_summary(self) -> dict[str, int]:
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT topic, COUNT(*) as count FROM metabase_cards WHERE instance = %s GROUP BY topic ORDER BY count DESC",
-                (self.instance,),
-            ).fetchall()
-            return {r["topic"] or "autre": r["count"] for r in rows}
+        with get_db() as session:
+            rows = session.execute(
+                select(MetabaseCard.topic, func.count())
+                .where(MetabaseCard.instance == self.instance)
+                .group_by(MetabaseCard.topic)
+                .order_by(func.count().desc())
+            ).all()
+            return {(topic or "autre"): count for topic, count in rows}
 
     def count(self) -> int:
-        with get_db() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) as n FROM metabase_cards WHERE instance = %s", (self.instance,)
-            ).fetchone()
-            return row["n"]
+        with get_db() as session:
+            return session.scalar(
+                select(func.count()).select_from(MetabaseCard).where(MetabaseCard.instance == self.instance)
+            )
 
     def get_dashboard(self, dashboard_id: int) -> Optional[Dashboard]:
-        with get_db() as conn:
-            row = conn.execute(
-                "SELECT * FROM metabase_dashboards WHERE id = %s AND instance = %s",
-                (dashboard_id, self.instance),
-            ).fetchone()
-            return Dashboard.from_row(row) if row else None
+        with get_db() as session:
+            m = session.execute(
+                select(MetabaseDashboard).where(
+                    MetabaseDashboard.id == dashboard_id, MetabaseDashboard.instance == self.instance
+                )
+            ).scalar_one_or_none()
+            return Dashboard.from_model(m) if m else None
 
     def all_dashboards(self) -> list[Dashboard]:
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM metabase_dashboards WHERE instance = %s ORDER BY id", (self.instance,)
-            ).fetchall()
-            return [Dashboard.from_row(r) for r in rows]
+        with get_db() as session:
+            rows = session.scalars(
+                select(MetabaseDashboard).where(MetabaseDashboard.instance == self.instance).order_by(MetabaseDashboard.id)
+            ).all()
+            return [Dashboard.from_model(m) for m in rows]
 
 
 def load_cards_db(instance: str = "stats") -> CardsDB:

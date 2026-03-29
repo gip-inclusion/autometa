@@ -6,13 +6,71 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from .db import (
-    VALID_CONVERSATION_COLUMNS,
-    VALID_REPORT_COLUMNS,
-    build_update_clause,
-    get_db,
-)
-from .schema import init_db
+from sqlalchemy import func, select, text
+
+from .db import get_db, init_tables
+from .models import Conversation as ConvModel
+from .models import ConversationTag as ConvTagModel
+from .models import Message as MsgModel
+from .models import PinnedItem as PinModel
+from .models import Report as ReportModel
+from .models import ReportTag as ReportTagModel
+from .models import Tag as TagModel
+from .models import UploadedFile as FileModel
+
+VALID_CONVERSATION_COLUMNS = frozenset({
+    "title",
+    "session_id",
+    "user_id",
+    "status",
+    "pr_url",
+    "needs_response",
+    "updated_at",
+    "conv_type",
+    "file_path",
+    "forked_from",
+    "usage_input_tokens",
+    "usage_output_tokens",
+    "usage_cache_creation_tokens",
+    "usage_cache_read_tokens",
+    "usage_backend",
+    "usage_extra",
+    "pinned_at",
+    "pinned_label",
+})
+
+VALID_REPORT_COLUMNS = frozenset({
+    "title",
+    "content",
+    "website",
+    "category",
+    "tags",
+    "original_query",
+    "source_conversation_id",
+    "user_id",
+    "archived",
+    "notion_url",
+    "updated_at",
+    "version",
+    "conversation_id",
+    "message_id",
+})
+
+
+def build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, list]:
+    """Build a safe SET clause from a dict of updates, validating column names."""
+    if not updates:
+        return "", []
+    for col in updates:
+        if col not in valid_columns:
+            raise ValueError(f"Invalid column name: {col}")
+    parts = [f"{col} = %s" for col in updates]
+    return ", ".join(parts), list(updates.values())
+
+
+def init_db():
+    """Backward-compatible alias for init_tables()."""
+    init_tables()
 
 
 @dataclass
@@ -21,9 +79,9 @@ class Tag:
 
     id: Optional[int] = None
     name: str = ""
-    type: str = ""  # product | theme | source | type_demande
+    type: str = ""
     label: str = ""
-    count: int = 0  # Number of conversations/reports with this tag
+    count: int = 0
 
 
 @dataclass
@@ -31,7 +89,7 @@ class PinnedItem:
     """A pinned item (conversation, report, or app)."""
 
     id: Optional[int] = None
-    item_type: str = ""  # conversation | report | app
+    item_type: str = ""
     item_id: str = ""
     label: str = ""
     pinned_at: Optional[datetime] = None
@@ -79,7 +137,7 @@ class Message:
 
     id: Optional[int] = None
     conversation_id: Optional[str] = None
-    type: str = "user"  # user, assistant, tool_use, tool_result
+    type: str = "user"
     content: str = ""
     created_at: datetime = field(default_factory=datetime.now)
 
@@ -90,19 +148,18 @@ class Report:
 
     id: Optional[int] = None
     title: str = ""
-    content: Optional[str] = None  # the actual report markdown
+    content: Optional[str] = None
     website: Optional[str] = None
     category: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     original_query: Optional[str] = None
-    source_conversation_id: Optional[str] = None  # where it came from
+    source_conversation_id: Optional[str] = None
     user_id: Optional[str] = None
     archived: bool = False
     notion_url: Optional[str] = None
     version: int = 1
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    # Deprecated - keep for backwards compat during migration
     conversation_id: Optional[str] = None
     message_id: Optional[int] = None
 
@@ -115,23 +172,22 @@ class Conversation:
     user_id: Optional[str] = None
     title: Optional[str] = None
     session_id: Optional[str] = None
-    conv_type: str = "exploration"  # 'exploration' or 'knowledge'
-    file_path: Optional[str] = None  # for knowledge conversations
-    status: str = "active"  # 'active', 'committed', 'abandoned'
-    pr_url: Optional[str] = None  # GitHub PR URL for knowledge conversations
-    forked_from: Optional[str] = None  # ID of source conversation if forked
+    conv_type: str = "exploration"
+    file_path: Optional[str] = None
+    status: str = "active"
+    pr_url: Optional[str] = None
+    forked_from: Optional[str] = None
     messages: list[Message] = field(default_factory=list)
     report: Optional[Report] = None
-    # Usage tracking (cumulative per conversation)
     usage_input_tokens: int = 0
     usage_output_tokens: int = 0
     usage_cache_creation_tokens: int = 0
     usage_cache_read_tokens: int = 0
-    usage_backend: Optional[str] = None  # 'cli', 'sdk', ...
-    usage_extra: Optional[dict] = None  # web_search_requests, service_tier, ...
-    pinned_at: Optional[datetime] = None  # NULL = not pinned; timestamp = pinned
-    pinned_label: Optional[str] = None  # custom label shown in sidebar when pinned
-    needs_response: bool = False  # True when user sent a message and agent hasn't finished
+    usage_backend: Optional[str] = None
+    usage_extra: Optional[dict] = None
+    pinned_at: Optional[datetime] = None
+    pinned_label: Optional[str] = None
+    needs_response: bool = False
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -182,54 +238,72 @@ class Conversation:
         }
 
 
-def row_to_list_report(row) -> "Report":
+def _model_to_report(r: ReportModel) -> Report:
     return Report(
-        id=row["id"],
-        title=row["title"],
-        website=row["website"],
-        category=row["category"],
-        tags=json.loads(row["tags"]) if row["tags"] else [],
-        original_query=row["original_query"],
-        source_conversation_id=row["source_conversation_id"] if "source_conversation_id" in row.keys() else None,
-        user_id=row["user_id"] if "user_id" in row.keys() else None,
-        archived=bool(row["archived"]) if "archived" in row.keys() else False,
-        version=row["version"],
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
-        conversation_id=row["conversation_id"],
-        message_id=row["message_id"],
+        id=r.id,
+        title=r.title,
+        website=r.website,
+        category=r.category,
+        tags=json.loads(r.tags) if r.tags else [],
+        original_query=r.original_query,
+        source_conversation_id=r.source_conversation_id,
+        user_id=r.user_id,
+        archived=bool(r.archived),
+        notion_url=r.notion_url,
+        version=r.version,
+        created_at=datetime.fromisoformat(r.created_at),
+        updated_at=datetime.fromisoformat(r.updated_at),
+        conversation_id=r.conversation_id,
+        message_id=r.message_id,
     )
 
 
-def row_to_list_conversation(row) -> "Conversation":
-    return Conversation(
-        id=row["id"],
-        user_id=row["user_id"],
-        title=row["title"],
-        session_id=row["session_id"],
-        conv_type=row["conv_type"] or "exploration",
-        file_path=row["file_path"],
-        status=row["status"] or "active",
-        needs_response=bool(row["needs_response"]) if row["needs_response"] else False,
-        messages=[],
-        report=Report(id=row["report_id"], title=row["report_title"] or "") if row["report_id"] else None,
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
+def _model_to_tag(t: TagModel, count: int = 0) -> Tag:
+    return Tag(id=t.id, name=t.name, type=t.type, label=t.label, count=count)
+
+
+def _model_to_uploaded_file(f: FileModel) -> UploadedFile:
+    return UploadedFile(
+        id=f.id,
+        conversation_id=f.conversation_id,
+        user_id=f.user_id,
+        original_filename=f.original_filename,
+        stored_filename=f.stored_filename,
+        storage_path=f.storage_path,
+        file_size=f.file_size,
+        mime_type=f.mime_type,
+        sha256_hash=f.sha256_hash,
+        is_text=bool(f.is_text),
+        av_scanned=bool(f.av_scanned),
+        av_clean=bool(f.av_clean) if f.av_clean is not None else None,
+        created_at=datetime.fromisoformat(f.created_at),
     )
 
 
-def row_to_knowledge_conversation(row) -> "Conversation":
+def _model_to_message(m: MsgModel) -> Message:
+    return Message(
+        id=m.id,
+        conversation_id=m.conversation_id,
+        type=m.type or m.role,
+        content=m.content,
+        created_at=datetime.fromisoformat(m.timestamp),
+    )
+
+
+def _conv_with_report_row(row, report_id, report_title) -> Conversation:
     return Conversation(
-        id=row["id"],
-        user_id=row["user_id"],
-        title=row["title"],
-        session_id=row["session_id"],
-        conv_type=row["conv_type"],
-        file_path=row["file_path"],
-        status=row["status"],
+        id=row.id,
+        user_id=row.user_id,
+        title=row.title,
+        session_id=row.session_id,
+        conv_type=row.conv_type or "exploration",
+        file_path=row.file_path,
+        status=row.status or "active",
+        needs_response=bool(row.needs_response) if row.needs_response else False,
         messages=[],
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
+        report=Report(id=report_id, title=report_title or "") if report_id else None,
+        created_at=datetime.fromisoformat(row.created_at),
+        updated_at=datetime.fromisoformat(row.updated_at),
     )
 
 
@@ -237,7 +311,7 @@ class ConversationStore:
     """PostgreSQL-backed conversation and report store."""
 
     def __init__(self):
-        init_db()
+        init_tables()
 
     def create_conversation(
         self,
@@ -252,140 +326,84 @@ class ConversationStore:
             file_path=file_path,
         )
 
-        with get_db() as conn:
-            conn.execute(
-                """INSERT INTO conversations (id, user_id, title, session_id, conv_type, file_path, status, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    conv.id,
-                    conv.user_id,
-                    conv.title,
-                    conv.session_id,
-                    conv.conv_type,
-                    conv.file_path,
-                    conv.status,
-                    conv.created_at.isoformat(),
-                    conv.updated_at.isoformat(),
-                ),
+        with get_db() as session:
+            model = ConvModel(
+                id=conv.id,
+                user_id=conv.user_id,
+                title=conv.title,
+                session_id=conv.session_id,
+                conv_type=conv.conv_type,
+                file_path=conv.file_path,
+                status=conv.status,
+                created_at=conv.created_at.isoformat(),
+                updated_at=conv.updated_at.isoformat(),
             )
+            session.add(model)
 
         return conv
 
     def get_conversation(
         self, conv_id: str, include_messages: bool = True, user_id: Optional[str] = None
     ) -> Optional[Conversation]:
-        with get_db() as conn:
+        with get_db() as session:
+            stmt = (
+                select(ConvModel, PinModel.pinned_at, PinModel.label)
+                .outerjoin(PinModel, (PinModel.item_id == ConvModel.id) & (PinModel.item_type == "conversation"))
+                .where(ConvModel.id == conv_id)
+            )
             if user_id:
-                row = conn.execute(
-                    """SELECT c.*, p.pinned_at AS p_pinned_at, p.label AS p_label
-                       FROM conversations c
-                       LEFT JOIN pinned_items p ON p.item_id = c.id AND p.item_type = 'conversation'
-                       WHERE c.id = %s AND c.user_id = %s""",
-                    (conv_id, user_id),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    """SELECT c.*, p.pinned_at AS p_pinned_at, p.label AS p_label
-                       FROM conversations c
-                       LEFT JOIN pinned_items p ON p.item_id = c.id AND p.item_type = 'conversation'
-                       WHERE c.id = %s""",
-                    (conv_id,),
-                ).fetchone()
+                stmt = stmt.where(ConvModel.user_id == user_id)
 
+            row = session.execute(stmt).first()
             if not row:
                 return None
 
+            c, p_pinned_at, p_label = row
+
             messages = []
             if include_messages:
-                msg_rows = conn.execute(
-                    """SELECT id, conversation_id, COALESCE(type, role) as type, content, timestamp
-                       FROM messages WHERE conversation_id = %s ORDER BY timestamp""",
-                    (conv_id,),
-                ).fetchall()
+                msg_models = session.scalars(
+                    select(MsgModel).where(MsgModel.conversation_id == conv_id).order_by(MsgModel.timestamp)
+                ).all()
+                messages = [_model_to_message(m) for m in msg_models]
 
-                messages = [
-                    Message(
-                        id=m["id"],
-                        conversation_id=m["conversation_id"],
-                        type=m["type"],
-                        content=m["content"],
-                        created_at=datetime.fromisoformat(m["timestamp"]),
-                    )
-                    for m in msg_rows
-                ]
-
-            # Load report if exists
-            report_row = conn.execute("SELECT * FROM reports WHERE conversation_id = %s", (conv_id,)).fetchone()
+            report_model = session.scalars(select(ReportModel).where(ReportModel.conversation_id == conv_id)).first()
 
             report = None
-            if report_row:
-                report = Report(
-                    id=report_row["id"],
-                    title=report_row["title"],
-                    # Don't load content when loading via conversation
-                    website=report_row["website"],
-                    category=report_row["category"],
-                    tags=json.loads(report_row["tags"]) if report_row["tags"] else [],
-                    original_query=report_row["original_query"],
-                    source_conversation_id=report_row["source_conversation_id"]
-                    if "source_conversation_id" in report_row.keys()
-                    else None,
-                    user_id=report_row["user_id"] if "user_id" in report_row.keys() else None,
-                    version=report_row["version"],
-                    created_at=datetime.fromisoformat(report_row["created_at"]),
-                    updated_at=datetime.fromisoformat(report_row["updated_at"]),
-                    # Legacy fields
-                    conversation_id=report_row["conversation_id"],
-                    message_id=report_row["message_id"],
-                )
+            if report_model:
+                report = _model_to_report(report_model)
 
-            # Parse usage_extra JSON if present
             usage_extra = None
-            if "usage_extra" in row.keys() and row["usage_extra"]:
-                usage_extra = json.loads(row["usage_extra"])
+            if c.usage_extra:
+                usage_extra = json.loads(c.usage_extra)
 
             return Conversation(
-                id=row["id"],
-                user_id=row["user_id"],
-                title=row["title"],
-                session_id=row["session_id"],
-                conv_type=row["conv_type"] or "exploration",
-                file_path=row["file_path"],
-                status=row["status"] or "active",
-                pr_url=row["pr_url"] if "pr_url" in row.keys() else None,
-                forked_from=row["forked_from"] if "forked_from" in row.keys() else None,
+                id=c.id,
+                user_id=c.user_id,
+                title=c.title,
+                session_id=c.session_id,
+                conv_type=c.conv_type or "exploration",
+                file_path=c.file_path,
+                status=c.status or "active",
+                pr_url=c.pr_url,
+                forked_from=c.forked_from,
                 messages=messages,
                 report=report,
-                usage_input_tokens=row["usage_input_tokens"] if "usage_input_tokens" in row.keys() else 0,
-                usage_output_tokens=row["usage_output_tokens"] if "usage_output_tokens" in row.keys() else 0,
-                usage_cache_creation_tokens=row["usage_cache_creation_tokens"]
-                if "usage_cache_creation_tokens" in row.keys()
-                else 0,
-                usage_cache_read_tokens=row["usage_cache_read_tokens"]
-                if "usage_cache_read_tokens" in row.keys()
-                else 0,
-                usage_backend=row["usage_backend"] if "usage_backend" in row.keys() else None,
+                usage_input_tokens=c.usage_input_tokens or 0,
+                usage_output_tokens=c.usage_output_tokens or 0,
+                usage_cache_creation_tokens=c.usage_cache_creation_tokens or 0,
+                usage_cache_read_tokens=c.usage_cache_read_tokens or 0,
+                usage_backend=c.usage_backend,
                 usage_extra=usage_extra,
-                pinned_at=datetime.fromisoformat(row["p_pinned_at"])
-                if "p_pinned_at" in row.keys() and row["p_pinned_at"]
-                else None,
-                pinned_label=row["p_label"] if "p_label" in row.keys() else None,
-                needs_response=bool(row["needs_response"])
-                if "needs_response" in row.keys() and row["needs_response"]
-                else False,
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
+                pinned_at=datetime.fromisoformat(p_pinned_at) if p_pinned_at else None,
+                pinned_label=p_label,
+                needs_response=bool(c.needs_response) if c.needs_response else False,
+                created_at=datetime.fromisoformat(c.created_at),
+                updated_at=datetime.fromisoformat(c.updated_at),
             )
 
     def fork_conversation(self, source_conv_id: str, new_user_id: str) -> Optional[Conversation]:
-        """
-        Deep copy a conversation for a new user.
-
-        Creates a new conversation with all messages copied. The new conversation
-        has a new ID, belongs to new_user_id, and tracks its origin via forked_from.
-        Reports are NOT copied (they belong to the original conversation).
-        """
-        # Get source conversation with all messages
+        """Deep copy a conversation for a new user."""
         source = self.get_conversation(source_conv_id, include_messages=True)
         if not source:
             return None
@@ -393,35 +411,32 @@ class ConversationStore:
         now = datetime.now()
         new_id = str(uuid.uuid4())
 
-        with get_db() as conn:
-            # Create the new conversation
-            conn.execute(
-                """INSERT INTO conversations
-                   (id, user_id, title, session_id, conv_type, file_path, status, forked_from, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    new_id,
-                    new_user_id,
-                    source.title,
-                    None,  # New session_id (will be set when agent runs)
-                    source.conv_type,
-                    source.file_path,
-                    "active",  # Reset status
-                    source_conv_id,  # Track fork origin
-                    now.isoformat(),
-                    now.isoformat(),
-                ),
+        with get_db() as session:
+            model = ConvModel(
+                id=new_id,
+                user_id=new_user_id,
+                title=source.title,
+                session_id=None,
+                conv_type=source.conv_type,
+                file_path=source.file_path,
+                status="active",
+                forked_from=source_conv_id,
+                created_at=now.isoformat(),
+                updated_at=now.isoformat(),
             )
+            session.add(model)
 
-            # Deep copy all messages
             for msg in source.messages:
-                conn.execute(
-                    """INSERT INTO messages (conversation_id, type, role, content, timestamp)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (new_id, msg.type, msg.type, msg.content, msg.created_at.isoformat()),
+                session.add(
+                    MsgModel(
+                        conversation_id=new_id,
+                        type=msg.type,
+                        role=msg.type,
+                        content=msg.content,
+                        timestamp=msg.created_at.isoformat(),
+                    )
                 )
 
-        # Return the new conversation
         return self.get_conversation(new_id, include_messages=True)
 
     def list_conversations(
@@ -431,88 +446,90 @@ class ConversationStore:
         conv_type: Optional[str] = None,
         exclude_report_containers: bool = True,
     ) -> list[Conversation]:
-        """List recent conversations with report info.
-
-        By default, excludes conversations that were created only to contain a report
-        (identified by having a report linked via conversation_id).
-        """
-        with get_db() as conn:
+        with get_db() as session:
             conditions = []
-            params = []
+            params: dict = {}
 
             if user_id:
-                conditions.append("c.user_id = %s")
-                params.append(user_id)
+                conditions.append("c.user_id = :user_id")
+                params["user_id"] = user_id
 
             if conv_type:
-                conditions.append("c.conv_type = %s")
-                params.append(conv_type)
+                conditions.append("c.conv_type = :conv_type")
+                params["conv_type"] = conv_type
             else:
-                # By default, only show exploration conversations
                 conditions.append("(c.conv_type = 'exploration' OR c.conv_type IS NULL)")
 
             if exclude_report_containers:
-                # Exclude conversations that exist only to contain a report
                 conditions.append("r.id IS NULL")
 
             where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            params.append(limit)
+            params["lim"] = limit
 
-            query = f"""
+            query = text(f"""
                 SELECT c.*, r.id as report_id, r.title as report_title
                 FROM conversations c
                 LEFT JOIN reports r ON r.conversation_id = c.id
                 {where}
                 ORDER BY c.updated_at DESC
-                LIMIT %s
-            """
+                LIMIT :lim
+            """)
 
-            rows = conn.execute(query, params).fetchall()
-
-            return [row_to_list_conversation(row) for row in rows]
+            rows = session.execute(query, params).mappings().all()
+            return [_conv_with_report_row(row, row["report_id"], row["report_title"]) for row in rows]
 
     def pin_item(self, item_type: str, item_id: str, label: str) -> bool:
-        with get_db() as conn:
-            conn.execute(
-                """INSERT INTO pinned_items (item_type, item_id, label, pinned_at)
-                   VALUES (%s, %s, %s, %s)
-                   ON CONFLICT(item_type, item_id) DO UPDATE SET label = %s, pinned_at = %s""",
-                (item_type, str(item_id), label, datetime.now().isoformat(), label, datetime.now().isoformat()),
-            )
+        with get_db() as session:
+            now = datetime.now().isoformat()
+            existing = session.scalars(
+                select(PinModel).where(PinModel.item_type == item_type, PinModel.item_id == str(item_id))
+            ).first()
+            if existing:
+                existing.label = label
+                existing.pinned_at = now
+            else:
+                session.add(
+                    PinModel(
+                        item_type=item_type,
+                        item_id=str(item_id),
+                        label=label,
+                        pinned_at=now,
+                    )
+                )
             return True
 
     def unpin_item(self, item_type: str, item_id: str) -> bool:
-        with get_db() as conn:
-            cursor = conn.execute(
-                "DELETE FROM pinned_items WHERE item_type = %s AND item_id = %s", (item_type, str(item_id))
-            )
-            return cursor.rowcount > 0
+        with get_db() as session:
+            existing = session.scalars(
+                select(PinModel).where(PinModel.item_type == item_type, PinModel.item_id == str(item_id))
+            ).first()
+            if existing:
+                session.delete(existing)
+                return True
+            return False
 
     def list_pinned_items(self, item_type: Optional[str] = None) -> list[PinnedItem]:
-        with get_db() as conn:
+        with get_db() as session:
+            stmt = select(PinModel).order_by(PinModel.pinned_at)
             if item_type:
-                rows = conn.execute(
-                    "SELECT * FROM pinned_items WHERE item_type = %s ORDER BY pinned_at", (item_type,)
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM pinned_items ORDER BY pinned_at").fetchall()
+                stmt = stmt.where(PinModel.item_type == item_type)
+            models = session.scalars(stmt).all()
             return [
                 PinnedItem(
-                    id=row["id"],
-                    item_type=row["item_type"],
-                    item_id=row["item_id"],
-                    label=row["label"],
-                    pinned_at=datetime.fromisoformat(row["pinned_at"]),
+                    id=m.id,
+                    item_type=m.item_type,
+                    item_id=m.item_id,
+                    label=m.label,
+                    pinned_at=datetime.fromisoformat(m.pinned_at),
                 )
-                for row in rows
+                for m in models
             ]
 
     def get_pinned_ids(self) -> set[tuple[str, str]]:
-        with get_db() as conn:
-            rows = conn.execute("SELECT item_type, item_id FROM pinned_items").fetchall()
-            return {(row["item_type"], row["item_id"]) for row in rows}
+        with get_db() as session:
+            rows = session.execute(select(PinModel.item_type, PinModel.item_id)).all()
+            return {(r[0], r[1]) for r in rows}
 
-    # Backwards-compatible wrappers
     def pin_conversation(self, conv_id: str, label: str) -> bool:
         return self.pin_item("conversation", conv_id, label)
 
@@ -520,75 +537,95 @@ class ConversationStore:
         return self.unpin_item("conversation", conv_id)
 
     def list_pinned_conversations(self) -> list[Conversation]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT c.*, p.pinned_at AS p_pinned_at, p.label AS p_label
-                   FROM conversations c
-                   JOIN pinned_items p ON p.item_id = c.id AND p.item_type = 'conversation'
-                   ORDER BY p.pinned_at""",
-            ).fetchall()
+        with get_db() as session:
+            stmt = (
+                select(ConvModel, PinModel.pinned_at, PinModel.label)
+                .join(PinModel, (PinModel.item_id == ConvModel.id) & (PinModel.item_type == "conversation"))
+                .order_by(PinModel.pinned_at)
+            )
+            rows = session.execute(stmt).all()
             return [
                 Conversation(
-                    id=row["id"],
-                    user_id=row["user_id"],
-                    title=row["title"],
-                    pinned_at=datetime.fromisoformat(row["p_pinned_at"]) if row["p_pinned_at"] else None,
-                    pinned_label=row["p_label"],
-                    created_at=datetime.fromisoformat(row["created_at"]),
-                    updated_at=datetime.fromisoformat(row["updated_at"]),
+                    id=c.id,
+                    user_id=c.user_id,
+                    title=c.title,
+                    pinned_at=datetime.fromisoformat(p_at) if p_at else None,
+                    pinned_label=p_label,
+                    created_at=datetime.fromisoformat(c.created_at),
+                    updated_at=datetime.fromisoformat(c.updated_at),
                 )
-                for row in rows
+                for c, p_at, p_label in rows
             ]
 
     def get_active_knowledge_conversation(
         self, file_path: str, user_id: Optional[str] = None
     ) -> Optional[Conversation]:
-        with get_db() as conn:
+        with get_db() as session:
+            stmt = (
+                select(ConvModel)
+                .where(
+                    ConvModel.conv_type == "knowledge",
+                    ConvModel.file_path == file_path,
+                    ConvModel.status == "active",
+                )
+                .order_by(ConvModel.updated_at.desc())
+                .limit(1)
+            )
             if user_id:
-                row = conn.execute(
-                    """SELECT * FROM conversations
-                       WHERE conv_type = 'knowledge' AND file_path = %s AND status = 'active' AND user_id = %s
-                       ORDER BY updated_at DESC LIMIT 1""",
-                    (file_path, user_id),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    """SELECT * FROM conversations
-                       WHERE conv_type = 'knowledge' AND file_path = %s AND status = 'active'
-                       ORDER BY updated_at DESC LIMIT 1""",
-                    (file_path,),
-                ).fetchone()
+                stmt = stmt.where(ConvModel.user_id == user_id)
 
-            if not row:
+            c = session.scalars(stmt).first()
+            if not c:
                 return None
 
-            return row_to_knowledge_conversation(row)
+            return Conversation(
+                id=c.id,
+                user_id=c.user_id,
+                title=c.title,
+                session_id=c.session_id,
+                conv_type=c.conv_type,
+                file_path=c.file_path,
+                status=c.status,
+                messages=[],
+                created_at=datetime.fromisoformat(c.created_at),
+                updated_at=datetime.fromisoformat(c.updated_at),
+            )
 
     def list_active_knowledge_conversations(self) -> list[Conversation]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT * FROM conversations
-                   WHERE conv_type = 'knowledge' AND status = 'active'
-                   ORDER BY updated_at DESC"""
-            ).fetchall()
+        with get_db() as session:
+            models = session.scalars(
+                select(ConvModel)
+                .where(ConvModel.conv_type == "knowledge", ConvModel.status == "active")
+                .order_by(ConvModel.updated_at.desc())
+            ).all()
 
-            return [row_to_knowledge_conversation(row) for row in rows]
+            return [
+                Conversation(
+                    id=c.id,
+                    user_id=c.user_id,
+                    title=c.title,
+                    session_id=c.session_id,
+                    conv_type=c.conv_type,
+                    file_path=c.file_path,
+                    status=c.status,
+                    messages=[],
+                    created_at=datetime.fromisoformat(c.created_at),
+                    updated_at=datetime.fromisoformat(c.updated_at),
+                )
+                for c in models
+            ]
 
     def get_running_conversation_ids(self) -> list[str]:
-        with get_db() as conn:
-            rows = conn.execute("SELECT id FROM conversations WHERE needs_response = 1").fetchall()
-            return [r["id"] for r in rows]
+        with get_db() as session:
+            return list(session.scalars(select(ConvModel.id).where(ConvModel.needs_response == 1)).all())
 
     def clear_all_needs_response(self) -> list[str]:
-        """Clear needs_response for all conversations. Used on PM startup to unstick zombies.
-
-        Returns list of conversation IDs that were cleared.
-        """
-        with get_db() as conn:
-            rows = conn.execute("SELECT id FROM conversations WHERE needs_response = 1").fetchall()
-            ids = [r["id"] for r in rows]
-            if ids:
-                conn.execute("UPDATE conversations SET needs_response = 0 WHERE needs_response = 1")
+        """Clear needs_response for all conversations. Used on PM startup to unstick zombies."""
+        with get_db() as session:
+            models = session.scalars(select(ConvModel).where(ConvModel.needs_response == 1)).all()
+            ids = [c.id for c in models]
+            for c in models:
+                c.needs_response = 0
             return ids
 
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
@@ -597,14 +634,16 @@ class ConversationStore:
         if not updates:
             return False
 
-        updates["updated_at"] = datetime.now().isoformat()
-
-        set_clause, values = build_update_clause(updates, VALID_CONVERSATION_COLUMNS)
-        values.append(conv_id)
-
-        with get_db() as conn:
-            cursor = conn.execute(f"UPDATE conversations SET {set_clause} WHERE id = %s", values)
-            return cursor.rowcount > 0
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            for k, v in updates.items():
+                if k == "needs_response":
+                    v = int(v)
+                setattr(c, k, v)
+            c.updated_at = datetime.now().isoformat()
+            return True
 
     def update_conversation_usage(
         self,
@@ -617,29 +656,19 @@ class ConversationStore:
         extra: Optional[dict] = None,
     ) -> bool:
         extra_json = json.dumps(extra) if extra else None
-        with get_db() as conn:
-            cursor = conn.execute(
-                """UPDATE conversations
-                   SET usage_input_tokens = %s,
-                       usage_output_tokens = %s,
-                       usage_cache_creation_tokens = %s,
-                       usage_cache_read_tokens = %s,
-                       usage_backend = COALESCE(%s, usage_backend),
-                       usage_extra = %s,
-                       updated_at = %s
-                   WHERE id = %s""",
-                (
-                    input_tokens,
-                    output_tokens,
-                    cache_creation_tokens,
-                    cache_read_tokens,
-                    backend,
-                    extra_json,
-                    datetime.now().isoformat(),
-                    conv_id,
-                ),
-            )
-            return cursor.rowcount > 0
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            c.usage_input_tokens = input_tokens
+            c.usage_output_tokens = output_tokens
+            c.usage_cache_creation_tokens = cache_creation_tokens
+            c.usage_cache_read_tokens = cache_read_tokens
+            if backend is not None:
+                c.usage_backend = backend
+            c.usage_extra = extra_json
+            c.updated_at = datetime.now().isoformat()
+            return True
 
     def accumulate_usage(
         self,
@@ -653,36 +682,31 @@ class ConversationStore:
     ) -> bool:
         """Add usage to existing counts (for incremental updates)."""
         extra_json = json.dumps(extra) if extra else None
-        with get_db() as conn:
-            cursor = conn.execute(
-                """UPDATE conversations
-                   SET usage_input_tokens = COALESCE(usage_input_tokens, 0) + %s,
-                       usage_output_tokens = COALESCE(usage_output_tokens, 0) + %s,
-                       usage_cache_creation_tokens = COALESCE(usage_cache_creation_tokens, 0) + %s,
-                       usage_cache_read_tokens = COALESCE(usage_cache_read_tokens, 0) + %s,
-                       usage_backend = COALESCE(%s, usage_backend),
-                       usage_extra = COALESCE(%s, usage_extra),
-                       updated_at = %s
-                   WHERE id = %s""",
-                (
-                    input_tokens,
-                    output_tokens,
-                    cache_creation_tokens,
-                    cache_read_tokens,
-                    backend,
-                    extra_json,
-                    datetime.now().isoformat(),
-                    conv_id,
-                ),
-            )
-            return cursor.rowcount > 0
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            c.usage_input_tokens = (c.usage_input_tokens or 0) + input_tokens
+            c.usage_output_tokens = (c.usage_output_tokens or 0) + output_tokens
+            c.usage_cache_creation_tokens = (c.usage_cache_creation_tokens or 0) + cache_creation_tokens
+            c.usage_cache_read_tokens = (c.usage_cache_read_tokens or 0) + cache_read_tokens
+            if backend is not None:
+                c.usage_backend = backend
+            if extra_json is not None:
+                c.usage_extra = extra_json
+            c.updated_at = datetime.now().isoformat()
+            return True
 
     def delete_conversation(self, conv_id: str) -> bool:
-        with get_db() as conn:
-            conn.execute("DELETE FROM reports WHERE conversation_id = %s", (conv_id,))
-            conn.execute("DELETE FROM messages WHERE conversation_id = %s", (conv_id,))
-            cursor = conn.execute("DELETE FROM conversations WHERE id = %s", (conv_id,))
-            return cursor.rowcount > 0
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            reports = session.scalars(select(ReportModel).where(ReportModel.conversation_id == conv_id)).all()
+            for r in reports:
+                session.delete(r)
+            session.delete(c)
+            return True
 
     def add_message(
         self,
@@ -697,37 +721,36 @@ class ConversationStore:
             content=content,
         )
 
-        with get_db() as conn:
-            # Check conversation exists
-            row = conn.execute("SELECT id, title FROM conversations WHERE id = %s", (conv_id,)).fetchone()
-            if not row:
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
                 return None
 
-            # Insert message
-            msg.id = conn.insert_and_get_id(
-                """INSERT INTO messages (conversation_id, type, role, content, timestamp)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                (conv_id, type, type, content, msg.created_at.isoformat()),
+            model = MsgModel(
+                conversation_id=conv_id,
+                type=type,
+                role=type,
+                content=content,
+                timestamp=msg.created_at.isoformat(),
             )
+            session.add(model)
+            session.flush()
+            msg.id = model.id
 
-            # Update conversation timestamp
             now = datetime.now().isoformat()
-
-            # Auto-generate title from first user message
-            if row["title"] is None and type == "user":
-                title = content[:80] + ("..." if len(content) > 80 else "")
-                conn.execute(
-                    "UPDATE conversations SET title = %s, updated_at = %s WHERE id = %s", (title, now, conv_id)
-                )
-            else:
-                conn.execute("UPDATE conversations SET updated_at = %s WHERE id = %s", (now, conv_id))
+            if c.title is None and type == "user":
+                c.title = content[:80] + ("..." if len(content) > 80 else "")
+            c.updated_at = now
 
         return msg
 
     def update_message(self, message_id: int, content: str) -> bool:
-        with get_db() as conn:
-            cursor = conn.execute("UPDATE messages SET content = %s WHERE id = %s", (content, message_id))
-            return cursor.rowcount > 0
+        with get_db() as session:
+            m = session.get(MsgModel, message_id)
+            if not m:
+                return False
+            m.content = content
+            return True
 
     def get_messages(
         self,
@@ -735,34 +758,19 @@ class ConversationStore:
         types: Optional[list[str]] = None,
         limit: Optional[int] = None,
     ) -> list[Message]:
-        with get_db() as conn:
-            query = """SELECT id, conversation_id, COALESCE(type, role) as type, content, timestamp
-                       FROM messages WHERE conversation_id = %s"""
-            params = [conv_id]
+        with get_db() as session:
+            stmt = select(MsgModel).where(MsgModel.conversation_id == conv_id)
 
             if types:
-                placeholders = ",".join(["%s"] * len(types))
-                query += f" AND COALESCE(type, role) IN ({placeholders})"
-                params.extend(types)
+                stmt = stmt.where(func.coalesce(MsgModel.type, MsgModel.role).in_(types))
 
-            query += " ORDER BY timestamp"
+            stmt = stmt.order_by(MsgModel.timestamp)
 
             if limit:
-                query += " LIMIT %s"
-                params.append(limit)
+                stmt = stmt.limit(limit)
 
-            rows = conn.execute(query, params).fetchall()
-
-            return [
-                Message(
-                    id=m["id"],
-                    conversation_id=m["conversation_id"],
-                    type=m["type"],
-                    content=m["content"],
-                    created_at=datetime.fromisoformat(m["timestamp"]),
-                )
-                for m in rows
-            ]
+            models = session.scalars(stmt).all()
+            return [_model_to_message(m) for m in models]
 
     def create_report(
         self,
@@ -786,64 +794,40 @@ class ConversationStore:
             user_id=user_id,
         )
 
-        with get_db() as conn:
-            report.id = conn.insert_and_get_id(
-                """INSERT INTO reports
-                   (title, content, website, category, tags, original_query,
-                    source_conversation_id, user_id, version, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    title,
-                    content,
-                    website,
-                    category,
-                    json.dumps(tags) if tags else None,
-                    original_query,
-                    source_conversation_id,
-                    user_id,
-                    1,
-                    report.created_at.isoformat(),
-                    report.updated_at.isoformat(),
-                ),
+        with get_db() as session:
+            model = ReportModel(
+                title=title,
+                content=content,
+                website=website,
+                category=category,
+                tags=json.dumps(tags) if tags else None,
+                original_query=original_query,
+                source_conversation_id=source_conversation_id,
+                user_id=user_id,
+                version=1,
+                created_at=report.created_at.isoformat(),
+                updated_at=report.updated_at.isoformat(),
             )
+            session.add(model)
+            session.flush()
+            report.id = model.id
 
         return report
 
     def get_report(self, report_id: int) -> Optional[Report]:
-        with get_db() as conn:
-            row = conn.execute("SELECT * FROM reports WHERE id = %s", (report_id,)).fetchone()
-
-            if not row:
+        with get_db() as session:
+            r = session.get(ReportModel, report_id)
+            if not r:
                 return None
 
-            # Use content column if available, fall back to message lookup
-            content = row["content"] if "content" in row.keys() else None
-            if not content and row["message_id"]:
-                # Legacy: fetch from messages
-                msg = conn.execute("SELECT content FROM messages WHERE id = %s", (row["message_id"],)).fetchone()
-                content = msg["content"] if msg else None
+            content = r.content
+            if not content and r.message_id:
+                msg = session.get(MsgModel, r.message_id)
+                content = msg.content if msg else None
 
-            return Report(
-                id=row["id"],
-                title=row["title"],
-                content=content,
-                website=row["website"],
-                category=row["category"],
-                tags=json.loads(row["tags"]) if row["tags"] else [],
-                original_query=row["original_query"],
-                source_conversation_id=row["source_conversation_id"]
-                if "source_conversation_id" in row.keys()
-                else None,
-                user_id=row["user_id"] if "user_id" in row.keys() else None,
-                archived=bool(row["archived"]) if "archived" in row.keys() else False,
-                notion_url=row["notion_url"] if "notion_url" in row.keys() else None,
-                version=row["version"],
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
-                # Legacy fields
-                conversation_id=row["conversation_id"],
-                message_id=row["message_id"],
-            )
+            result = _model_to_report(r)
+            result.content = content
+            return result
 
     def list_reports(
         self,
@@ -852,35 +836,30 @@ class ConversationStore:
         include_archived: bool = False,
         limit: int = 50,
     ) -> list[Report]:
-        with get_db() as conn:
-            query = "SELECT * FROM reports WHERE 1=1"
-            params = []
+        with get_db() as session:
+            stmt = select(ReportModel)
 
             if not include_archived:
-                query += " AND (archived = 0 OR archived IS NULL)"
+                stmt = stmt.where((ReportModel.archived == 0) | (ReportModel.archived.is_(None)))
 
             if website:
-                query += " AND website = %s"
-                params.append(website)
+                stmt = stmt.where(ReportModel.website == website)
 
             if category:
-                query += " AND category = %s"
-                params.append(category)
+                stmt = stmt.where(ReportModel.category == category)
 
-            query += " ORDER BY updated_at DESC LIMIT %s"
-            params.append(limit)
-
-            rows = conn.execute(query, params).fetchall()
-
-            return [row_to_list_report(row) for row in rows]
+            stmt = stmt.order_by(ReportModel.updated_at.desc()).limit(limit)
+            models = session.scalars(stmt).all()
+            return [_model_to_report(r) for r in models]
 
     def archive_report(self, report_id: int) -> bool:
-        with get_db() as conn:
-            cursor = conn.execute(
-                "UPDATE reports SET archived = 1, updated_at = %s WHERE id = %s",
-                (datetime.now().isoformat(), report_id),
-            )
-            return cursor.rowcount > 0
+        with get_db() as session:
+            r = session.get(ReportModel, report_id)
+            if not r:
+                return False
+            r.archived = 1
+            r.updated_at = datetime.now().isoformat()
+            return True
 
     def update_report(self, report_id: int, **kwargs) -> bool:
         allowed = {"title", "content", "website", "category", "tags", "original_query"}
@@ -888,35 +867,36 @@ class ConversationStore:
         if not updates:
             return False
 
-        # Handle tags serialization
         if "tags" in updates:
             updates["tags"] = json.dumps(updates["tags"])
 
-        updates["updated_at"] = datetime.now().isoformat()
-
-        set_clause, values = build_update_clause(updates, VALID_REPORT_COLUMNS)
-        values.append(report_id)
-
-        with get_db() as conn:
-            # Increment version
-            conn.execute("UPDATE reports SET version = version + 1 WHERE id = %s", (report_id,))
-
-            cursor = conn.execute(f"UPDATE reports SET {set_clause} WHERE id = %s", values)
-            return cursor.rowcount > 0
+        with get_db() as session:
+            r = session.get(ReportModel, report_id)
+            if not r:
+                return False
+            for k, v in updates.items():
+                setattr(r, k, v)
+            r.version = r.version + 1
+            r.updated_at = datetime.now().isoformat()
+            return True
 
     def delete_report(self, report_id: int) -> bool:
-        with get_db() as conn:
-            cursor = conn.execute("DELETE FROM reports WHERE id = %s", (report_id,))
-            return cursor.rowcount > 0
+        with get_db() as session:
+            r = session.get(ReportModel, report_id)
+            if not r:
+                return False
+            session.delete(r)
+            return True
 
     def get_all_tags(self, tag_type: Optional[str] = None) -> list[Tag]:
-        with get_db() as conn:
+        with get_db() as session:
+            stmt = select(TagModel)
             if tag_type:
-                rows = conn.execute("SELECT * FROM tags WHERE type = %s ORDER BY label", (tag_type,)).fetchall()
+                stmt = stmt.where(TagModel.type == tag_type).order_by(TagModel.label)
             else:
-                rows = conn.execute("SELECT * FROM tags ORDER BY type, label").fetchall()
-
-            return [Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"]) for row in rows]
+                stmt = stmt.order_by(TagModel.type, TagModel.label)
+            models = session.scalars(stmt).all()
+            return [_model_to_tag(t) for t in models]
 
     def get_tags_by_type(self) -> dict[str, list[Tag]]:
         tags = self.get_all_tags()
@@ -930,39 +910,31 @@ class ConversationStore:
     def get_used_conversation_tags_by_type(
         self, active_tag_names: Optional[list[str]] = None, user_id: Optional[str] = None
     ) -> dict[str, list[Tag]]:
-        """Get tags that are actually used by conversations, grouped by type with counts.
-
-        Only returns tags that have at least 1 conversation in the database.
-        Counts show how many conversations match the current filters.
-        Tags with 0 count (due to filters) should be disabled in the UI.
-        """
-        with get_db() as conn:
-            # Build base query - only include tags used by at least one conversation
-            params = []
-
-            # Build conversation filter subquery
+        """Get tags actually used by conversations, grouped by type with counts."""
+        with get_db() as session:
+            params: dict = {}
             conv_filter = "(c.conv_type = 'exploration' OR c.conv_type IS NULL)"
 
             if user_id:
-                conv_filter += " AND c.user_id = %s"
-                params.append(user_id)
+                conv_filter += " AND c.user_id = :user_id"
+                params["user_id"] = user_id
 
             if active_tag_names:
-                # Find conversations that have all active tags
-                placeholders = ",".join(["%s"] * len(active_tag_names))
+                tag_placeholders = ", ".join(f":tn{i}" for i in range(len(active_tag_names)))
+                for i, name in enumerate(active_tag_names):
+                    params[f"tn{i}"] = name
+                params["tag_count"] = len(active_tag_names)
                 conv_filter += f"""
                     AND c.id IN (
                         SELECT conversation_id FROM conversation_tags ct2
                         JOIN tags t2 ON ct2.tag_id = t2.id
-                        WHERE t2.name IN ({placeholders})
+                        WHERE t2.name IN ({tag_placeholders})
                         GROUP BY conversation_id
-                        HAVING COUNT(DISTINCT t2.name) = %s
+                        HAVING COUNT(DISTINCT t2.name) = :tag_count
                     )
                 """
-                params.extend(active_tag_names)
-                params.append(len(active_tag_names))
 
-            query = f"""
+            query = text(f"""
                 SELECT t.*,
                        COUNT(DISTINCT CASE
                            WHEN c.id IS NOT NULL AND {conv_filter} THEN c.id
@@ -972,13 +944,12 @@ class ConversationStore:
                 INNER JOIN conversation_tags ct ON t.id = ct.tag_id
                 INNER JOIN conversations c ON ct.conversation_id = c.id
                 WHERE (c.conv_type = 'exploration' OR c.conv_type IS NULL)
-                GROUP BY t.id
+                GROUP BY t.id, t.name, t.type, t.label
                 HAVING COUNT(DISTINCT c.id) > 0
                 ORDER BY t.type, t.label
-            """
+            """)
 
-            rows = conn.execute(query, params).fetchall()
-
+            rows = session.execute(query, params).mappings().all()
             result: dict[str, list[Tag]] = {}
             for row in rows:
                 tag = Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"], count=row["count"])
@@ -988,126 +959,117 @@ class ConversationStore:
             return result
 
     def get_used_report_tags_by_type(self) -> dict[str, list[Tag]]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT DISTINCT t.* FROM tags t
-                   JOIN report_tags rt ON t.id = rt.tag_id
-                   JOIN reports r ON rt.report_id = r.id
-                   WHERE r.archived = 0 OR r.archived IS NULL
-                   ORDER BY t.type, t.label"""
-            ).fetchall()
-
+        with get_db() as session:
+            stmt = (
+                select(TagModel)
+                .join(ReportTagModel, TagModel.id == ReportTagModel.tag_id)
+                .join(ReportModel, ReportTagModel.report_id == ReportModel.id)
+                .where((ReportModel.archived == 0) | (ReportModel.archived.is_(None)))
+                .distinct()
+                .order_by(TagModel.type, TagModel.label)
+            )
+            models = session.scalars(stmt).all()
             result: dict[str, list[Tag]] = {}
-            for row in rows:
-                tag = Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"])
+            for t in models:
+                tag = _model_to_tag(t)
                 if tag.type not in result:
                     result[tag.type] = []
                 result[tag.type].append(tag)
             return result
 
     def get_tag_by_name(self, name: str) -> Optional[Tag]:
-        with get_db() as conn:
-            row = conn.execute("SELECT * FROM tags WHERE name = %s", (name,)).fetchone()
-            if row:
-                return Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"])
+        with get_db() as session:
+            t = session.scalars(select(TagModel).where(TagModel.name == name)).first()
+            if t:
+                return _model_to_tag(t)
             return None
 
     def set_conversation_tags(self, conv_id: str, tag_names: list[str], update_timestamp: bool = True) -> bool:
-        with get_db() as conn:
-            # Clear existing tags
-            conn.execute("DELETE FROM conversation_tags WHERE conversation_id = %s", (conv_id,))
+        with get_db() as session:
+            existing = session.scalars(select(ConvTagModel).where(ConvTagModel.conversation_id == conv_id)).all()
+            for ct in existing:
+                session.delete(ct)
 
-            # Add new tags
             for tag_name in tag_names:
-                tag_row = conn.execute("SELECT id FROM tags WHERE name = %s", (tag_name,)).fetchone()
-                if tag_row:
-                    conn.insert_ignore("conversation_tags", ["conversation_id", "tag_id"], (conv_id, tag_row["id"]))
+                t = session.scalars(select(TagModel).where(TagModel.name == tag_name)).first()
+                if t:
+                    session.add(ConvTagModel(conversation_id=conv_id, tag_id=t.id))
 
-            # Update conversation timestamp
             if update_timestamp:
-                conn.execute(
-                    "UPDATE conversations SET updated_at = %s WHERE id = %s", (datetime.now().isoformat(), conv_id)
-                )
+                c = session.get(ConvModel, conv_id)
+                if c:
+                    c.updated_at = datetime.now().isoformat()
             return True
 
     def get_conversation_tags(self, conv_id: str) -> list[Tag]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT t.* FROM tags t
-                   JOIN conversation_tags ct ON t.id = ct.tag_id
-                   WHERE ct.conversation_id = %s
-                   ORDER BY t.type, t.label""",
-                (conv_id,),
-            ).fetchall()
-            return [Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"]) for row in rows]
+        with get_db() as session:
+            stmt = (
+                select(TagModel)
+                .join(ConvTagModel, TagModel.id == ConvTagModel.tag_id)
+                .where(ConvTagModel.conversation_id == conv_id)
+                .order_by(TagModel.type, TagModel.label)
+            )
+            models = session.scalars(stmt).all()
+            return [_model_to_tag(t) for t in models]
 
     def get_conversation_tags_batch(self, conv_ids: list[str]) -> dict[str, list[Tag]]:
         if not conv_ids:
             return {}
-        with get_db() as conn:
-            placeholders = ",".join(["%s"] * len(conv_ids))
-            rows = conn.execute(
-                f"""SELECT ct.conversation_id, t.id, t.name, t.type, t.label
-                   FROM tags t
-                   JOIN conversation_tags ct ON t.id = ct.tag_id
-                   WHERE ct.conversation_id IN ({placeholders})
-                   ORDER BY t.type, t.label""",
-                tuple(conv_ids),
-            ).fetchall()
+        with get_db() as session:
+            stmt = (
+                select(ConvTagModel.conversation_id, TagModel)
+                .join(TagModel, ConvTagModel.tag_id == TagModel.id)
+                .where(ConvTagModel.conversation_id.in_(conv_ids))
+                .order_by(TagModel.type, TagModel.label)
+            )
+            rows = session.execute(stmt).all()
             result: dict[str, list[Tag]] = {cid: [] for cid in conv_ids}
-            for row in rows:
-                result[row["conversation_id"]].append(
-                    Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"])
-                )
+            for conv_id, t in rows:
+                result[conv_id].append(_model_to_tag(t))
             return result
 
     def set_report_tags(self, report_id: int, tag_names: list[str], update_timestamp: bool = True) -> bool:
-        with get_db() as conn:
-            # Clear existing tags
-            conn.execute("DELETE FROM report_tags WHERE report_id = %s", (report_id,))
+        with get_db() as session:
+            existing = session.scalars(select(ReportTagModel).where(ReportTagModel.report_id == report_id)).all()
+            for rt in existing:
+                session.delete(rt)
 
-            # Add new tags
             for tag_name in tag_names:
-                tag_row = conn.execute("SELECT id FROM tags WHERE name = %s", (tag_name,)).fetchone()
-                if tag_row:
-                    conn.insert_ignore("report_tags", ["report_id", "tag_id"], (report_id, tag_row["id"]))
+                t = session.scalars(select(TagModel).where(TagModel.name == tag_name)).first()
+                if t:
+                    session.add(ReportTagModel(report_id=report_id, tag_id=t.id))
 
-            # Update report timestamp
             if update_timestamp:
-                conn.execute(
-                    "UPDATE reports SET updated_at = %s WHERE id = %s", (datetime.now().isoformat(), report_id)
-                )
+                r = session.get(ReportModel, report_id)
+                if r:
+                    r.updated_at = datetime.now().isoformat()
             return True
 
     def get_report_tags(self, report_id: int) -> list[Tag]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT t.* FROM tags t
-                   JOIN report_tags rt ON t.id = rt.tag_id
-                   WHERE rt.report_id = %s
-                   ORDER BY t.type, t.label""",
-                (report_id,),
-            ).fetchall()
-            return [Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"]) for row in rows]
+        with get_db() as session:
+            stmt = (
+                select(TagModel)
+                .join(ReportTagModel, TagModel.id == ReportTagModel.tag_id)
+                .where(ReportTagModel.report_id == report_id)
+                .order_by(TagModel.type, TagModel.label)
+            )
+            models = session.scalars(stmt).all()
+            return [_model_to_tag(t) for t in models]
 
     def get_report_tags_batch(self, report_ids: list[int]) -> dict[int, list[Tag]]:
         if not report_ids:
             return {}
-        with get_db() as conn:
-            placeholders = ",".join(["%s"] * len(report_ids))
-            rows = conn.execute(
-                f"""SELECT rt.report_id, t.id, t.name, t.type, t.label
-                   FROM tags t
-                   JOIN report_tags rt ON t.id = rt.tag_id
-                   WHERE rt.report_id IN ({placeholders})
-                   ORDER BY t.type, t.label""",
-                tuple(report_ids),
-            ).fetchall()
+        with get_db() as session:
+            stmt = (
+                select(ReportTagModel.report_id, TagModel)
+                .join(TagModel, ReportTagModel.tag_id == TagModel.id)
+                .where(ReportTagModel.report_id.in_(report_ids))
+                .order_by(TagModel.type, TagModel.label)
+            )
+            rows = session.execute(stmt).all()
             result: dict[int, list[Tag]] = {rid: [] for rid in report_ids}
-            for row in rows:
-                result[row["report_id"]].append(
-                    Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"])
-                )
+            for report_id, t in rows:
+                result[report_id].append(_model_to_tag(t))
             return result
 
     def list_conversations_with_tags(
@@ -1116,64 +1078,47 @@ class ConversationStore:
         tag_names: Optional[list[str]] = None,
         limit: int = 100,
     ) -> list[tuple[Conversation, list[Tag]]]:
-        with get_db() as conn:
+        with get_db() as session:
             conditions = ["(c.conv_type = 'exploration' OR c.conv_type IS NULL)"]
-            params: list = []
+            params: dict = {}
 
             if user_id:
-                conditions.append("c.user_id = %s")
-                params.append(user_id)
+                conditions.append("c.user_id = :user_id")
+                params["user_id"] = user_id
 
-            # Filter by tags (AND logic - must have all specified tags)
             if tag_names:
-                for tag_name in tag_names:
-                    conditions.append("""
+                for i, tag_name in enumerate(tag_names):
+                    key = f"tag_{i}"
+                    conditions.append(f"""
                         EXISTS (
                             SELECT 1 FROM conversation_tags ct
                             JOIN tags t ON ct.tag_id = t.id
-                            WHERE ct.conversation_id = c.id AND t.name = %s
+                            WHERE ct.conversation_id = c.id AND t.name = :{key}
                         )
                     """)
-                    params.append(tag_name)
+                    params[key] = tag_name
 
             where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            params.append(limit)
+            params["lim"] = limit
 
-            query = f"""
+            query = text(f"""
                 SELECT c.*, r.id as report_id, r.title as report_title
                 FROM conversations c
                 LEFT JOIN reports r ON r.conversation_id = c.id AND r.id IS NULL
                 {where}
                 ORDER BY c.updated_at DESC
-                LIMIT %s
-            """
+                LIMIT :lim
+            """)
 
-            rows = conn.execute(query, params).fetchall()
+            rows = session.execute(query, params).mappings().all()
 
-            # Batch fetch tags for all conversations (1 query instead of N)
             conv_ids = [row["id"] for row in rows]
-            tags_by_conv: dict[str, list[Tag]] = {cid: [] for cid in conv_ids}
-            if conv_ids:
-                tag_ph = ",".join(["%s"] * len(conv_ids))
-                tag_rows = conn.execute(
-                    f"""SELECT ct.conversation_id, t.id, t.name, t.type, t.label
-                       FROM tags t
-                       JOIN conversation_tags ct ON t.id = ct.tag_id
-                       WHERE ct.conversation_id IN ({tag_ph})
-                       ORDER BY t.type, t.label""",
-                    tuple(conv_ids),
-                ).fetchall()
-                for tr in tag_rows:
-                    tags_by_conv[tr["conversation_id"]].append(
-                        Tag(id=tr["id"], name=tr["name"], type=tr["type"], label=tr["label"])
-                    )
+            tags_by_conv = self._batch_fetch_conv_tags(session, conv_ids)
 
-            results = []
-            for row in rows:
-                conv = row_to_list_conversation(row)
-                results.append((conv, tags_by_conv.get(row["id"], [])))
-
-            return results
+            return [
+                (_conv_with_report_row(row, row["report_id"], row["report_title"]), tags_by_conv.get(row["id"], []))
+                for row in rows
+            ]
 
     def list_reports_with_tags(
         self,
@@ -1181,62 +1126,42 @@ class ConversationStore:
         include_archived: bool = False,
         limit: int = 100,
     ) -> list[tuple[Report, list[Tag]]]:
-        with get_db() as conn:
+        with get_db() as session:
             conditions: list[str] = []
-            params: list = []
+            params: dict = {}
 
             if not include_archived:
                 conditions.append("(r.archived = 0 OR r.archived IS NULL)")
 
-            # Filter by tags (AND logic - must have all specified tags)
             if tag_names:
-                for tag_name in tag_names:
-                    conditions.append("""
+                for i, tag_name in enumerate(tag_names):
+                    key = f"tag_{i}"
+                    conditions.append(f"""
                         EXISTS (
                             SELECT 1 FROM report_tags rt
                             JOIN tags t ON rt.tag_id = t.id
-                            WHERE rt.report_id = r.id AND t.name = %s
+                            WHERE rt.report_id = r.id AND t.name = :{key}
                         )
                     """)
-                    params.append(tag_name)
+                    params[key] = tag_name
 
             where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            params.append(limit)
+            params["lim"] = limit
 
-            query = f"""
+            query = text(f"""
                 SELECT r.*
                 FROM reports r
                 {where}
                 ORDER BY r.updated_at DESC
-                LIMIT %s
-            """
+                LIMIT :lim
+            """)
 
-            rows = conn.execute(query, params).fetchall()
+            rows = session.execute(query, params).mappings().all()
 
-            # Batch fetch tags for all reports (1 query instead of N)
             report_ids = [row["id"] for row in rows]
-            tags_by_report: dict[int, list[Tag]] = {rid: [] for rid in report_ids}
-            if report_ids:
-                tag_ph = ",".join(["%s"] * len(report_ids))
-                tag_rows = conn.execute(
-                    f"""SELECT rt.report_id, t.id, t.name, t.type, t.label
-                       FROM tags t
-                       JOIN report_tags rt ON t.id = rt.tag_id
-                       WHERE rt.report_id IN ({tag_ph})
-                       ORDER BY t.type, t.label""",
-                    tuple(report_ids),
-                ).fetchall()
-                for tr in tag_rows:
-                    tags_by_report[tr["report_id"]].append(
-                        Tag(id=tr["id"], name=tr["name"], type=tr["type"], label=tr["label"])
-                    )
+            tags_by_report = self._batch_fetch_report_tags(session, report_ids)
 
-            results = []
-            for row in rows:
-                report = row_to_list_report(row)
-                results.append((report, tags_by_report.get(row["id"], [])))
-
-            return results
+            return [(_model_to_report_from_row(row), tags_by_report.get(row["id"], [])) for row in rows]
 
     def add_uploaded_file(
         self,
@@ -1267,147 +1192,136 @@ class ConversationStore:
             av_clean=av_clean,
         )
 
-        with get_db() as conn:
-            uploaded_file.id = conn.insert_and_get_id(
-                """INSERT INTO uploaded_files
-                   (conversation_id, user_id, original_filename, stored_filename,
-                    storage_path, file_size, mime_type, sha256_hash, is_text,
-                    av_scanned, av_clean, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    conversation_id,
-                    user_id,
-                    original_filename,
-                    stored_filename,
-                    storage_path,
-                    file_size,
-                    mime_type,
-                    sha256_hash,
-                    is_text,
-                    av_scanned,
-                    av_clean,
-                    uploaded_file.created_at.isoformat(),
-                ),
+        with get_db() as session:
+            model = FileModel(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                original_filename=original_filename,
+                stored_filename=stored_filename,
+                storage_path=storage_path,
+                file_size=file_size,
+                mime_type=mime_type,
+                sha256_hash=sha256_hash,
+                is_text=is_text,
+                av_scanned=av_scanned,
+                av_clean=av_clean,
+                created_at=uploaded_file.created_at.isoformat(),
             )
+            session.add(model)
+            session.flush()
+            uploaded_file.id = model.id
 
         return uploaded_file
 
     def get_uploaded_file(self, file_id: int) -> Optional[UploadedFile]:
-        with get_db() as conn:
-            row = conn.execute("SELECT * FROM uploaded_files WHERE id = %s", (file_id,)).fetchone()
-
-            if not row:
+        with get_db() as session:
+            f = session.get(FileModel, file_id)
+            if not f:
                 return None
-
-            return UploadedFile(
-                id=row["id"],
-                conversation_id=row["conversation_id"],
-                user_id=row["user_id"],
-                original_filename=row["original_filename"],
-                stored_filename=row["stored_filename"],
-                storage_path=row["storage_path"],
-                file_size=row["file_size"],
-                mime_type=row["mime_type"],
-                sha256_hash=row["sha256_hash"],
-                is_text=bool(row["is_text"]),
-                av_scanned=bool(row["av_scanned"]),
-                av_clean=bool(row["av_clean"]) if row["av_clean"] is not None else None,
-                created_at=datetime.fromisoformat(row["created_at"]),
-            )
+            return _model_to_uploaded_file(f)
 
     def get_uploaded_file_by_hash(self, sha256_hash: str) -> Optional[UploadedFile]:
-        with get_db() as conn:
-            row = conn.execute("SELECT * FROM uploaded_files WHERE sha256_hash = %s LIMIT 1", (sha256_hash,)).fetchone()
-
-            if not row:
+        with get_db() as session:
+            f = session.scalars(select(FileModel).where(FileModel.sha256_hash == sha256_hash).limit(1)).first()
+            if not f:
                 return None
-
-            return UploadedFile(
-                id=row["id"],
-                conversation_id=row["conversation_id"],
-                user_id=row["user_id"],
-                original_filename=row["original_filename"],
-                stored_filename=row["stored_filename"],
-                storage_path=row["storage_path"],
-                file_size=row["file_size"],
-                mime_type=row["mime_type"],
-                sha256_hash=row["sha256_hash"],
-                is_text=bool(row["is_text"]),
-                av_scanned=bool(row["av_scanned"]),
-                av_clean=bool(row["av_clean"]) if row["av_clean"] is not None else None,
-                created_at=datetime.fromisoformat(row["created_at"]),
-            )
+            return _model_to_uploaded_file(f)
 
     def get_conversation_files(self, conversation_id: str) -> list[UploadedFile]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT * FROM uploaded_files
-                   WHERE conversation_id = %s
-                   ORDER BY created_at""",
-                (conversation_id,),
-            ).fetchall()
-
-            return [
-                UploadedFile(
-                    id=row["id"],
-                    conversation_id=row["conversation_id"],
-                    user_id=row["user_id"],
-                    original_filename=row["original_filename"],
-                    stored_filename=row["stored_filename"],
-                    storage_path=row["storage_path"],
-                    file_size=row["file_size"],
-                    mime_type=row["mime_type"],
-                    sha256_hash=row["sha256_hash"],
-                    is_text=bool(row["is_text"]),
-                    av_scanned=bool(row["av_scanned"]),
-                    av_clean=bool(row["av_clean"]) if row["av_clean"] is not None else None,
-                    created_at=datetime.fromisoformat(row["created_at"]),
-                )
-                for row in rows
-            ]
+        with get_db() as session:
+            models = session.scalars(
+                select(FileModel).where(FileModel.conversation_id == conversation_id).order_by(FileModel.created_at)
+            ).all()
+            return [_model_to_uploaded_file(f) for f in models]
 
     def update_uploaded_file_av_status(self, file_id: int, av_scanned: bool, av_clean: Optional[bool]) -> bool:
-        with get_db() as conn:
-            cursor = conn.execute(
-                "UPDATE uploaded_files SET av_scanned = %s, av_clean = %s WHERE id = %s",
-                (av_scanned, av_clean, file_id),
-            )
-            return cursor.rowcount > 0
+        with get_db() as session:
+            f = session.get(FileModel, file_id)
+            if not f:
+                return False
+            f.av_scanned = av_scanned
+            f.av_clean = av_clean
+            return True
 
     def delete_uploaded_file(self, file_id: int) -> bool:
-        with get_db() as conn:
-            cursor = conn.execute("DELETE FROM uploaded_files WHERE id = %s", (file_id,))
-            return cursor.rowcount > 0
+        with get_db() as session:
+            f = session.get(FileModel, file_id)
+            if not f:
+                return False
+            session.delete(f)
+            return True
 
     def get_messages_since(self, conv_id: str, after_id: int) -> list[Message]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT id, conversation_id, COALESCE(type, role) as type, content, timestamp
-                   FROM messages
-                   WHERE conversation_id = %s AND id > %s
-                   ORDER BY id""",
-                (conv_id, after_id),
-            ).fetchall()
-
-            return [
-                Message(
-                    id=m["id"],
-                    conversation_id=m["conversation_id"],
-                    type=m["type"],
-                    content=m["content"],
-                    created_at=datetime.fromisoformat(m["timestamp"]),
-                )
-                for m in rows
-            ]
+        with get_db() as session:
+            models = session.scalars(
+                select(MsgModel)
+                .where(MsgModel.conversation_id == conv_id, MsgModel.id > after_id)
+                .order_by(MsgModel.id)
+            ).all()
+            return [_model_to_message(m) for m in models]
 
     def get_last_message_role(self, conversation_id: str) -> Optional[str]:
-        with get_db() as conn:
-            row = conn.execute(
-                """SELECT COALESCE(type, role) as type FROM messages
-                   WHERE conversation_id = %s ORDER BY id DESC LIMIT 1""",
-                (conversation_id,),
-            ).fetchone()
-            return row["type"] if row else None
+        with get_db() as session:
+            m = session.scalars(
+                select(MsgModel)
+                .where(MsgModel.conversation_id == conversation_id)
+                .order_by(MsgModel.id.desc())
+                .limit(1)
+            ).first()
+            if not m:
+                return None
+            return m.type or m.role
+
+    @staticmethod
+    def _batch_fetch_conv_tags(session, conv_ids: list[str]) -> dict[str, list[Tag]]:
+        result: dict[str, list[Tag]] = {cid: [] for cid in conv_ids}
+        if not conv_ids:
+            return result
+        stmt = (
+            select(ConvTagModel.conversation_id, TagModel)
+            .join(TagModel, ConvTagModel.tag_id == TagModel.id)
+            .where(ConvTagModel.conversation_id.in_(conv_ids))
+            .order_by(TagModel.type, TagModel.label)
+        )
+        rows = session.execute(stmt).all()
+        for conv_id, t in rows:
+            result[conv_id].append(_model_to_tag(t))
+        return result
+
+    @staticmethod
+    def _batch_fetch_report_tags(session, report_ids: list[int]) -> dict[int, list[Tag]]:
+        result: dict[int, list[Tag]] = {rid: [] for rid in report_ids}
+        if not report_ids:
+            return result
+        stmt = (
+            select(ReportTagModel.report_id, TagModel)
+            .join(TagModel, ReportTagModel.tag_id == TagModel.id)
+            .where(ReportTagModel.report_id.in_(report_ids))
+            .order_by(TagModel.type, TagModel.label)
+        )
+        rows = session.execute(stmt).all()
+        for report_id, t in rows:
+            result[report_id].append(_model_to_tag(t))
+        return result
+
+
+def _model_to_report_from_row(row) -> Report:
+    return Report(
+        id=row["id"],
+        title=row["title"],
+        website=row["website"],
+        category=row["category"],
+        tags=json.loads(row["tags"]) if row["tags"] else [],
+        original_query=row["original_query"],
+        source_conversation_id=row["source_conversation_id"],
+        user_id=row["user_id"],
+        archived=bool(row["archived"]) if row["archived"] else False,
+        version=row["version"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+        conversation_id=row["conversation_id"],
+        message_id=row["message_id"],
+    )
 
 
 class LazyConversationStore:

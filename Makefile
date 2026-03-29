@@ -1,7 +1,10 @@
-.PHONY: dev test lint format security ci
+.PHONY: dev test lint format security ci migrate
 
 dev:
 	.venv/bin/python3 -m web.app
+
+migrate:
+	uv run --frozen alembic upgrade head
 
 lint:
 	uv run --frozen ruff check web/ lib/ scripts/ tests/

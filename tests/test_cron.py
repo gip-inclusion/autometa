@@ -5,6 +5,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
 
 from web import config
 from web.cron import (
@@ -39,13 +40,15 @@ def db_setup(monkeypatch):
     init_db()
     yield
 
-    with get_db() as conn:
-        conn.execute_raw("""
+    with get_db() as session:
+        session.execute(
+            text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version
                 CASCADE;
         """)
+        )
 
 
 def create_interactive_app(interactive_dir, slug, cron_script=None, app_md=None):
@@ -235,8 +238,16 @@ def test_run_cron_records_in_database(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "db-app", cron_script="print('ok')")
     run_cron_task("db-app", trigger="manual")
 
-    with get_db() as conn:
-        row = conn.execute("SELECT * FROM cron_runs WHERE app_slug = %s", ("db-app",)).fetchone()
+    with get_db() as session:
+        row = (
+            session
+            .execute(
+                text("SELECT * FROM cron_runs WHERE app_slug = :slug"),
+                {"slug": "db-app"},
+            )
+            .mappings()
+            .first()
+        )
         assert row is not None
         assert row["status"] == "success"
         assert row["trigger"] == "manual"
