@@ -13,17 +13,14 @@ permissions:
   contents: read
 
 jobs:
-  # Python version pinned via .python-version (3.14), read by uv sync.
   lint:
     name: Lint & format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
-
       - run: uv sync --group dev --frozen
       - run: uv run ruff check web/ lib/ scripts/ tests/
       - run: uv run ruff format --check web/ lib/ scripts/ tests/
@@ -32,31 +29,25 @@ jobs:
     name: Security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0  # gitleaks needs full history
-
-      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
-
       - run: uv sync --group dev --frozen
 
-      # SAST — Python security scanner
       - name: Bandit (SAST)
         run: uv run bandit -r web/ lib/ scripts/ -c pyproject.toml --severity-level medium --confidence-level high -q
 
-      # Dependency vulnerability audit
       - name: pip-audit
         run: |
           uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt
-          # CVE-2026-4539 (pygments ReDoS): no PyPI release >2.19.2 yet; remove when pygments>=2.19.3 exists
           uv run pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539
 
-      # Secret detection (CLI — the gitleaks GitHub Action is not in the org allowlist)
       - name: Gitleaks
         run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar xz
           ./gitleaks detect --source . -v
 
   test:
@@ -79,15 +70,11 @@ jobs:
     env:
       DATABASE_URL: postgresql://autometa:autometa@localhost:5432/autometa_test
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
-
       - run: uv sync --group dev --frozen
-      # test_metabase_answers requires live Metabase credentials and has
-      # no @pytest.mark.integration marker, so we --ignore it explicitly.
       - name: Unit tests
         run: >
           uv run pytest tests/ -q --tb=short -m "not integration"
@@ -97,15 +84,13 @@ jobs:
     name: Docker
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      # Dockerfile best practices (CLI — the hadolint GitHub Action is not in the org allowlist)
       - name: Hadolint
         run: |
-          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 -o hadolint
+          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64 -o hadolint
           chmod +x hadolint
           ./hadolint Dockerfile --failure-threshold error
 
-      # Verify the image builds (no push)
       - name: Build
         run: docker build . --tag autometa:ci
