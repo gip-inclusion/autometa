@@ -185,8 +185,6 @@ def main():
     parser = argparse.ArgumentParser(description="Sync Matomo data to PostgreSQL")
     parser.add_argument("--site", help="Sync a single site")
     parser.add_argument("--year", type=int, default=date.today().year - 1)
-    parser.add_argument("--baselines-only", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     today = date.today()
@@ -196,14 +194,9 @@ def main():
         ref_date = date(today.year, today.month - 1, 1)
     ref_month = ref_date.strftime("%Y-%m")
 
-    print(f"Matomo Sync — year={args.year}, ref_month={ref_month}, dry_run={args.dry_run}")
+    print(f"Matomo Sync — year={args.year}, ref_month={ref_month}")
 
-    try:
-        api = get_matomo()
-        print("Matomo API connected")
-    except Exception as e:
-        print(f"Failed to connect to Matomo: {e}", file=sys.stderr)
-        sys.exit(1)
+    api = get_matomo()
 
     sites_to_sync = SITES
     if args.site:
@@ -216,45 +209,29 @@ def main():
         print(f"\n--- {site_config.name} (ID: {site_config.matomo_id}) ---")
 
         print(f"  Baselines {args.year}...", end=" ", flush=True)
-        try:
-            rows = fetch_baselines(api, site_config, args.year)
-            print(f"{len(rows)} months")
-            if not args.dry_run:
-                save_baselines(rows)
-        except Exception as e:
-            print(f"ERROR: {e}")
-
-        if args.baselines_only:
-            continue
+        rows = fetch_baselines(api, site_config, args.year)
+        print(f"{len(rows)} months")
+        save_baselines(rows)
 
         print("  Dimensions...", end=" ", flush=True)
-        try:
-            dims = fetch_custom_dimensions(api, site_config.matomo_id)
-            print(f"{len(dims)}")
-            if not args.dry_run:
-                save_dimensions(site_config.matomo_id, dims)
-        except Exception as e:
-            print(f"ERROR: {e}")
+        dims = fetch_custom_dimensions(api, site_config.matomo_id)
+        print(f"{len(dims)}")
+        save_dimensions(site_config.matomo_id, dims)
 
         print("  Segments...", end=" ", flush=True)
-        try:
-            segs = fetch_saved_segments(api, site_config.matomo_id)
-            print(f"{len(segs)}")
-            if not args.dry_run:
-                save_segments(site_config.matomo_id, segs)
-        except Exception as e:
-            print(f"ERROR: {e}")
+        segs = fetch_saved_segments(api, site_config.matomo_id)
+        print(f"{len(segs)}")
+        save_segments(site_config.matomo_id, segs)
 
         print(f"  Events ({ref_month})...", end=" ", flush=True)
-        try:
-            events = fetch_event_names(api, site_config.matomo_id, "month", ref_date.strftime("%Y-%m-%d"))
-            print(f"{len(events)}")
-            if not args.dry_run:
-                save_events(site_config.matomo_id, events, ref_month)
-        except Exception as e:
-            print(f"ERROR: {e}")
+        events = fetch_event_names(api, site_config.matomo_id, "month", ref_date.strftime("%Y-%m-%d"))
+        print(f"{len(events)}")
+        save_events(site_config.matomo_id, events, ref_month)
 
-    print("\nDone.")
+    from web.warmup import run as warmup
+
+    warmup()
+    print("Done.")
 
 
 if __name__ == "__main__":

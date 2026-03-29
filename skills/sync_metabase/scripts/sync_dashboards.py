@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Sync Metabase dashboards to SQLite database."""
 
-from pathlib import Path
+import sys
 
 from lib.query import MetabaseError
 from lib.sources import get_metabase
-from skills.metabase_query.scripts.cards_db import CardsDB, TOPICS
+from skills.metabase_query.scripts.cards_db import CardsDB
 
 # Mapping from pilotage URLs to Metabase dashboard IDs and topics
 # Based on https://pilotage.inclusion.beta.gouv.fr/tableaux-de-bord/
@@ -120,6 +120,7 @@ KNOWN_DASHBOARDS = {
     471: ("esat", "/tableaux-de-bord/zoom-esat-2025/"),
 }
 
+
 def extract_dashboard_text(dashboard_data: dict) -> str:
     texts = []
     dashcards = dashboard_data.get('dashcards', [])
@@ -133,6 +134,7 @@ def extract_dashboard_text(dashboard_data: dict) -> str:
             texts.append(text)
 
     return "\n\n".join(texts)
+
 
 def infer_topic_from_name(name: str) -> str:
     name_lower = name.lower()
@@ -163,6 +165,7 @@ def infer_topic_from_name(name: str) -> str:
         return "generalites-iae"
 
     return "autre"
+
 
 def main():
     print("=" * 70)
@@ -248,6 +251,7 @@ def main():
         print(f"  {topic}: {count}")
 
     db.close()
+
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,7 @@
 {
   "jobs": [
-    { "command": "0 2 * * * python -m skills.sync_sites.scripts.sync_sites && python -m web.warmup", "size": "L" },
-    { "command": "0 3 * * * python -m skills.sync_metabase.scripts.sync_inventory --all --skip-categorize && python -m web.warmup", "size": "L" },
+    { "command": "0 2 * * * sync-sites", "size": "L" },
+    { "command": "0 3 * * * sync-inventory", "size": "L" },
     { "command": "0 6 * * * python -m web.cron", "size": "L" }
   ]
 }

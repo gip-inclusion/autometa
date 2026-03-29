@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 """Sync Metabase cards inventory to PostgreSQL cache tables."""
 
-import argparse
 import json
 import re
-import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 
 from sqlalchemy import delete
 
 from lib.query import MetabaseError
 from lib.sources import get_metabase, get_source_config, list_instances
-from skills.metabase_query.scripts.cards_db import TOPICS, TABLE_TO_TOPIC
+from skills.metabase_query.scripts.cards_db import TABLE_TO_TOPIC
 from web.db import get_db
 from web.models import MetabaseCard, MetabaseDashboard
-from web.llm import generate_text
 
 
 def infer_topic_from_tables(tables: list[str]) -> str | None:
@@ -58,58 +53,6 @@ def extract_table_references(sql: str) -> list[str]:
     return sorted(tables)
 
 
-def categorize_cards_with_llm(cards: list[dict]) -> dict[int, tuple[str, str]]:
-    topic_list = "\n".join(f"- {topic}: {desc}" for topic, desc in TOPICS.items())
-    results = {}
-    batch_size = 15
-    total_batches = (len(cards) + batch_size - 1) // batch_size
-
-    for i in range(0, len(cards), batch_size):
-        batch_num = i // batch_size + 1
-        progress_bar(batch_num - 1, total_batches, prefix="   Categorizing", suffix=f"batch {batch_num}/{total_batches}")
-        batch = cards[i : i + batch_size]
-        card_summaries = [{"id": c["id"], "title": c["name"], "sql": c.get("sql_query", "")[:800]} for c in batch]
-
-        prompt = f"""Categorize these Metabase cards about French IAE employment data.
-
-Categories:
-{topic_list}
-
-Cards:
-{json.dumps(card_summaries, indent=2, ensure_ascii=False)}
-
-Return JSON array:
-[{{"id": 7090, "topic": "candidatures", "reason": "queries candidature table"}}, ...]
-
-IMPORTANT:
-- Use ONLY the topic slugs listed above
-- Look at SQL table names and fields to determine the topic
-- Every card MUST get a topic - pick the closest match
-- For ESAT questionnaire tables, use "esat"
-- If unsure, look at what data the card is measuring
-"""
-        try:
-            result_text = generate_text(prompt, max_tokens=4000, timeout=120)
-            json_match = re.search(r"\[[\s\S]*\]", result_text)
-            if not json_match:
-                raise ValueError("No JSON array found in response")
-            for item in json.loads(json_match.group()):
-                topic = item["topic"]
-                if topic not in TOPICS:
-                    card_data = next((c for c in batch if c["id"] == item["id"]), None)
-                    inferred = infer_topic_from_tables(card_data.get("tables_referenced", [])) if card_data else None
-                    topic = inferred or "candidatures"
-                results[item["id"]] = (topic, item.get("reason", ""))
-        except Exception as e:
-            print(f"\n   Warning: batch error: {e}")
-            for card in batch:
-                inferred = infer_topic_from_tables(card.get("tables_referenced", []))
-                results[card["id"]] = (inferred or "candidatures", "inferred from tables")
-
-    progress_bar(total_batches, total_batches, prefix="   Categorizing", suffix=f"batch {total_batches}/{total_batches}")
-    return results
-
-
 def save_to_db(instance: str, cards: list[dict], dashboard_metadata: dict):
     with get_db() as session:
         session.execute(delete(MetabaseCard).where(MetabaseCard.instance == instance))
@@ -145,22 +88,18 @@ def save_to_db(instance: str, cards: list[dict], dashboard_metadata: dict):
         ])
 
 
-def sync_instance(instance_name: str, skip_categorize: bool):
+def sync_instance(instance_name: str):
     instance_config = get_source_config("metabase", instance_name)
     public_dashboards = instance_config.get("dashboards", {})
     dashboard_ids = list(public_dashboards.keys())
 
     if not dashboard_ids:
-        print(f"  No dashboards configured for instance '{instance_name}'")
+        print(f"  No dashboards configured for '{instance_name}'")
         return
 
     print(f"\n--- Metabase sync: {instance_name} ({len(dashboard_ids)} dashboards) ---")
 
-    try:
-        api = get_metabase(instance_name)
-    except Exception as e:
-        print(f"  Failed to connect: {e}", file=sys.stderr)
-        return
+    api = get_metabase(instance_name)
 
     all_cards = []
     seen_card_ids = set()
@@ -168,32 +107,29 @@ def sync_instance(instance_name: str, skip_categorize: bool):
 
     for dash_id in dashboard_ids:
         print(f"  Dashboard {dash_id}...", end=" ", flush=True)
-        try:
-            dashboard = api.get_dashboard(dash_id)
-            dashboard_metadata[dash_id] = {
-                "name": dashboard.get("name", f"Dashboard {dash_id}"),
-                "description": dashboard.get("description"),
-                "collection_id": dashboard.get("collection_id"),
-                "pilotage_url": public_dashboards.get(dash_id),
-            }
-            for dc in dashboard.get("dashcards", []):
-                card = dc.get("card")
-                if not card or not card.get("id") or card["id"] in seen_card_ids:
-                    continue
-                name = (card.get("name") or "").strip()
-                if not name or re.match(r"^Card \d+$", name):
-                    continue
-                seen_card_ids.add(card["id"])
-                all_cards.append({
-                    "id": card["id"],
-                    "name": name,
-                    "description": card.get("description"),
-                    "collection_id": card.get("collection_id"),
-                    "dashboard_id": dash_id,
-                })
-            print(f"{len([c for c in all_cards if c.get('dashboard_id') == dash_id])} cards")
-        except MetabaseError as e:
-            print(f"Error: {e}")
+        dashboard = api.get_dashboard(dash_id)
+        dashboard_metadata[dash_id] = {
+            "name": dashboard.get("name", f"Dashboard {dash_id}"),
+            "description": dashboard.get("description"),
+            "collection_id": dashboard.get("collection_id"),
+            "pilotage_url": public_dashboards.get(dash_id),
+        }
+        for dc in dashboard.get("dashcards", []):
+            card = dc.get("card")
+            if not card or not card.get("id") or card["id"] in seen_card_ids:
+                continue
+            name = (card.get("name") or "").strip()
+            if not name or re.match(r"^Card \d+$", name):
+                continue
+            seen_card_ids.add(card["id"])
+            all_cards.append({
+                "id": card["id"],
+                "name": name,
+                "description": card.get("description"),
+                "collection_id": card.get("collection_id"),
+                "dashboard_id": dash_id,
+            })
+        print(f"{len([c for c in all_cards if c.get('dashboard_id') == dash_id])} cards")
 
     print(f"  Total: {len(all_cards)} unique cards")
 
@@ -225,38 +161,21 @@ def sync_instance(instance_name: str, skip_categorize: bool):
     has_sql = sum(1 for c in all_cards if c.get("sql_query"))
     print(f"  SQL: {has_sql}/{len(all_cards)} cards")
 
-    if skip_categorize:
-        for card in all_cards:
-            card["topic"] = infer_topic_from_tables(card.get("tables_referenced", [])) or "candidatures"
-    else:
-        categorizations = categorize_cards_with_llm(all_cards)
-        for card in all_cards:
-            topic, _ = categorizations.get(card["id"], (None, ""))
-            if not topic or topic not in TOPICS:
-                topic = infer_topic_from_tables(card.get("tables_referenced", [])) or "candidatures"
-            card["topic"] = topic
+    for card in all_cards:
+        card["topic"] = infer_topic_from_tables(card.get("tables_referenced", [])) or "candidatures"
 
     save_to_db(instance_name, all_cards, dashboard_metadata)
     print(f"  Saved {len(all_cards)} cards + {len(dashboard_metadata)} dashboards to PostgreSQL")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sync Metabase cards to PostgreSQL")
-    parser.add_argument("--instance", type=str)
-    parser.add_argument("--all", action="store_true")
-    parser.add_argument("--skip-categorize", action="store_true")
-    args = parser.parse_args()
+    for instance_name in list_instances("metabase"):
+        sync_instance(instance_name)
 
-    if not args.instance and not args.all:
-        available = list_instances("metabase")
-        print(f"Error: --instance <name> or --all required. Available: {', '.join(available)}", file=sys.stderr)
-        sys.exit(1)
+    from web.warmup import run as warmup
 
-    instances = list_instances("metabase") if args.all else [args.instance]
-    for instance_name in instances:
-        sync_instance(instance_name, args.skip_categorize)
-
-    print("\nDone.")
+    warmup()
+    print("Done.")
 
 
 if __name__ == "__main__":

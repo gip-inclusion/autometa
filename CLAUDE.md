@@ -3,10 +3,11 @@
 Assistant analytics pour l'Inclusion (Matomo + Metabase → analyses en français).
 
 ```bash
-make dev       # Serveur local
+make dev       # Serveur local (lance autometa)
 make test      # Tests (hors intégration)
 make lint      # ruff check + format check
 make format    # Auto-format
+make migrate   # Migrations Alembic
 make ci        # lint + security + test
 ```
 

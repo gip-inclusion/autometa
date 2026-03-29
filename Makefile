@@ -1,7 +1,7 @@
 .PHONY: dev test lint format security ci migrate
 
 dev:
-	.venv/bin/python3 -m web.app
+	autometa
 
 migrate:
 	uv run --frozen alembic upgrade head

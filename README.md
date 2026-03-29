@@ -180,11 +180,21 @@ git push scalingo main
 ## Développement
 
 ```bash
+make dev        # Serveur local (lance autometa)
 make test       # Tests unitaires
 make lint       # Vérification ruff
 make format     # Auto-format
+make migrate    # Appliquer les migrations Alembic
 make ci         # lint + security + test
 ```
+
+### Commandes installées
+
+| Commande | Description |
+|----------|-------------|
+| `autometa` | Lance le serveur web |
+| `sync-sites` | Synchronise les baselines Matomo → PostgreSQL + warmup |
+| `sync-inventory` | Synchronise l'inventaire Metabase → PostgreSQL + warmup |
 
 ### Backend Ollama (local, sans clé API)
 
