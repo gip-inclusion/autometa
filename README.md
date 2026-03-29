@@ -28,7 +28,7 @@ Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données m
 │   └── sync_*/          # Synchronisation des données de référence
 │
 ├── web/                 # Application web FastAPI
-│   ├── agents/          # Backends agent (cli, cli-ollama)
+│   ├── agents/          # Backends agent (CLI, SDK)
 │   ├── routes/          # Endpoints API et pages HTML
 │   ├── templates/       # Templates Jinja2
 │   └── static/          # CSS, JS, assets
@@ -103,20 +103,6 @@ make dev
 
 L'interface est accessible sur http://127.0.0.1:5000
 
-### Backends
-
-Deux backends disponibles :
-
-| Backend | Description | Prérequis |
-|---------|-------------|-----------|
-| `cli` (défaut) | Claude Code CLI avec OAuth Anthropic | Claude CLI installé |
-| `cli-ollama` | Claude Code CLI pointé vers Ollama | Ollama en local ou en conteneur |
-
-```bash
-make dev           # Backend cli (défaut)
-make dev-ollama    # Backend cli-ollama (ollama doit tourner)
-```
-
 ### Configuration
 
 Toutes les variables sont documentées dans `.env.example`. Voici les groupes principaux :
@@ -137,20 +123,15 @@ Toutes les variables sont documentées dans `.env.example`. Voici les groupes pr
 ### Docker (auto-hébergé)
 
 ```bash
-make up             # Backend cli (défaut)
-make up-ollama      # Backend cli-ollama + conteneur Ollama
-make up-eval        # Backend cli + Ollama disponible pour les evals
-make down           # Tout arrêter
+docker compose up -d
 
 # L'app écoute sur 127.0.0.1:5002
 # Configurer un reverse proxy (nginx, Caddy) pour l'exposer
 ```
 
-Le conteneur Ollama est géré via un profil Docker Compose. Il ne démarre que lorsqu'il est explicitement demandé (`make up-ollama` ou `COMPOSE_PROFILES=ollama`).
-
 ### Scalingo
 
-L'application tourne sur Scalingo dans un seul conteneur web (le process manager tourne en background dans le même process).
+L'application tourne sur Scalingo dans un seul conteneur web.
 
 ```bash
 # Créer l'application
@@ -199,17 +180,35 @@ git push scalingo main
 ## Développement
 
 ```bash
-# Tests
-make test
-
-# Evals (comparer les backends)
-make up-eval                                   # Démarrer Ollama pour les evals
-.venv/bin/python evals/run_eval.py             # Lancer les evals
-
-# Synchroniser les données de référence
-python -m skills.sync_sites.scripts.sync       # Sites Matomo
-python -m skills.sync_metabase.scripts.sync    # Cartes Metabase
+make test       # Tests unitaires
+make lint       # Vérification ruff
+make format     # Auto-format
+make ci         # lint + security + test
 ```
+
+### Backend Ollama (local, sans clé API)
+
+```bash
+# Démarrer Ollama (Docker ou natif)
+docker compose --profile ollama up -d
+# ou: ollama serve
+
+# Lancer l'app avec le backend Ollama
+AGENT_BACKEND=cli-ollama make dev
+```
+
+Variables Ollama configurables dans `.env` : `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_REQUEST_TIMEOUT`.
+
+### Evals
+
+Comparer les réponses entre backends (Claude vs Ollama) :
+
+```bash
+docker compose --profile ollama up -d
+.venv/bin/python evals/run_eval.py
+```
+
+Les résultats sont stockés dans `evals/` (gitignored).
 
 ## Licence
 
