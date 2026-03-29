@@ -45,10 +45,7 @@ def client(app):
 @pytest.fixture
 def conversation(app):
     from web.database import store
-    from web.signals import signals
 
-    store.update_pm_heartbeat()  # Simulate PM being alive
-    signals.update_pm_alive()
     conv = store.create_conversation(user_id="test@example.com")
     store.add_message(conv.id, "user", "Hello agent")
     store.update_conversation(conv.id, needs_response=True)
@@ -95,7 +92,7 @@ def _simulate_pm(conv_id, messages, delay=0.1):
     def _run():
         time.sleep(delay)
         from web.database import store
-        from web.signals import signals
+        from web.runner import runner
 
         for msg_type, content in messages:
             store.add_message(
@@ -105,15 +102,15 @@ def _simulate_pm(conv_id, messages, delay=0.1):
             )
             try:
                 loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(signals.notify_message, conv_id)
+                loop.call_soon_threadsafe(runner.notify, conv_id)
             except RuntimeError:
-                signals.notify_message(conv_id)
+                runner.notify(conv_id)
         store.update_conversation(conv_id, needs_response=False)
         try:
             loop = asyncio.get_event_loop()
-            loop.call_soon_threadsafe(signals.notify_finished, conv_id)
+            loop.call_soon_threadsafe(runner.notify_done, conv_id)
         except RuntimeError:
-            signals.notify_finished(conv_id)
+            runner.notify_done(conv_id)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -180,14 +177,14 @@ def test_sse_format_tool_events_in_sse(app, client, conversation):
 def test_race_condition_pm_writes_before_sse_connect(app, client):
     """Messages written by PM before SSE connect must still be streamed."""
     from web.database import store
-    from web.signals import signals
+    from web.runner import runner
 
     conv = store.create_conversation(user_id="test@example.com")
     user_msg = store.add_message(conv.id, "user", "Hello")
     store.update_conversation(conv.id, needs_response=True)
 
     store.add_message(conv.id, "assistant", "Fast response")
-    signals.notify_message(conv.id)
+    runner.notify(conv.id)
 
     t = _simulate_pm(conv.id, [("assistant", "Second part")])
     response = client.get(
@@ -205,16 +202,16 @@ def test_race_condition_pm_writes_before_sse_connect(app, client):
 def test_race_condition_pm_finishes_before_sse_connect(app, client):
     """PM finishes entirely before SSE connect — messages must still arrive."""
     from web.database import store
-    from web.signals import signals
+    from web.runner import runner
 
     conv = store.create_conversation(user_id="test@example.com")
     user_msg = store.add_message(conv.id, "user", "Hello")
     store.update_conversation(conv.id, needs_response=True)
 
     store.add_message(conv.id, "assistant", "Instant answer")
-    signals.notify_message(conv.id)
+    runner.notify(conv.id)
     store.update_conversation(conv.id, needs_response=False)
-    signals.notify_finished(conv.id)
+    runner.notify_done(conv.id)
 
     response = client.get(
         f"/api/conversations/{conv.id}/stream?after={user_msg.id}",
@@ -406,10 +403,4 @@ def test_client_disconnect_agent_survives_client_disconnect(app, conversation):
     asyncio.run(_run())
 
     conv = store.get_conversation(conversation.id, include_messages=False)
-    assert conv.needs_response, (
-        "Agent was stopped by client disconnect! The SSE handler must not cancel the agent when client disconnects."
-    )
-
-    pending = store.get_pending_pm_commands()
-    cancel_cmds = [c for c in pending if c["conversation_id"] == conversation.id and c["command"] == "cancel"]
-    assert not cancel_cmds, "Client disconnect enqueued a cancel command!"
+    assert conv.needs_response, "Agent was stopped by client disconnect!"

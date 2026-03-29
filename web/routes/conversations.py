@@ -14,7 +14,7 @@ from ..config import ADMIN_USERS
 from ..database import store
 from ..deps import get_current_user
 from ..helpers import KNOWLEDGE_ROOT, get_staging_dir
-from ..signals import signals
+from ..runner import runner
 from ..uploads import (
     AVScanFailedError,
     BlockedFileTypeError,
@@ -456,17 +456,7 @@ User request: """
 
         prompt = knowledge_context + prompt
 
-    # Enqueue the run command for the process manager
-    store.enqueue_pm_command(
-        conv_id,
-        "run",
-        {
-            "prompt": prompt,
-            "history": history,
-            "session_id": conv.session_id,
-            "user_email": user_email,
-        },
-    )
+    runner.submit(conv_id, prompt, history, conv.session_id, user_email)
 
     return {
         "status": "started",
@@ -508,16 +498,7 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
             history.append({"role": msg.type, "content": msg.content})
 
     store.update_conversation(conv_id, needs_response=True)
-    store.enqueue_pm_command(
-        conv_id,
-        "run",
-        {
-            "prompt": last_user_msg.content,
-            "history": history,
-            "session_id": conv.session_id,
-            "user_email": conv.user_id,
-        },
-    )
+    runner.submit(conv_id, last_user_msg.content, history, conv.session_id, conv.user_id)
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
@@ -528,17 +509,7 @@ async def stream_conversation(
     after: int = Query(default=0),
     user_email: str = Depends(get_current_user),
 ):
-    """Stream agent responses via Server-Sent Events.
-
-    Uses in-process signals (web/signals.py) for near-instant message
-    delivery, with a 5s DB fallback for robustness. Client disconnect
-    does NOT kill the agent.
-
-    The ``after`` query parameter tells the handler where to start streaming
-    from (the ID of the last message the client already has).  This prevents
-    a race condition where the PM writes messages between the client's POST
-    and the SSE connect — without ``after``, those messages would be skipped.
-    """
+    """Stream agent responses via Server-Sent Events."""
     conv = store.get_conversation(conv_id, include_messages=after == 0)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
@@ -590,13 +561,13 @@ async def stream_conversation(
         try:
             # Check if conversation is already complete (PM finished before
             # SSE connects, or conversation was never running)
-            if signals.is_finished(conv_id) or not conv.needs_response:
+            if runner.is_done(conv_id) or not conv.needs_response:
                 for chunk in await _drain_unseen(last_msg_id):
                     yield chunk
                 return
 
             while (time.monotonic() - start) < max_seconds:
-                signaled = await signals.wait_for_message(conv_id, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
+                signaled = await runner.wait_for_update(conv_id, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
                 now = time.monotonic()
 
                 if signaled:
@@ -606,7 +577,7 @@ async def stream_conversation(
                         yield _format_msg(msg)
 
                 # Completion check: in-memory flag (0 queries)
-                if signals.is_finished(conv_id):
+                if runner.is_done(conv_id):
                     for chunk in await _drain_unseen(last_msg_id):
                         yield chunk
                     return
@@ -625,19 +596,13 @@ async def stream_conversation(
                             yield chunk
                         return
 
-                # PM liveness: in-memory cache (0 queries)
-                if not signals.is_pm_alive():
-                    yield _sse_event("error", {"content": "L'agent est indisponible"})
-                    yield _sse_event("done", {"conversation_id": conv_id})
-                    return
-
-                # Heartbeat keeps proxies alive (only when idle — skip if we just yielded content)
+                # Heartbeat keeps proxies alive (only when idle)
                 if not signaled:
                     yield _sse_event("heartbeat", {})
 
             yield _sse_event("error", {"content": "Timeout waiting for agent"})
         finally:
-            signals.cleanup(conv_id)
+            runner.cleanup(conv_id)
 
     return StreamingResponse(
         generate(),
@@ -647,26 +612,12 @@ async def stream_conversation(
 
 
 @router.post("/{conv_id}/cancel")
-def cancel_conversation(conv_id: str):
-    """Cancel a running conversation via the process manager.
-
-    If no pending run command exists for this conversation (PM already picked it
-    up or crashed), force-clear needs_response so the conversation unsticks.
-    """
+async def cancel_conversation(conv_id: str):
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv or not conv.needs_response:
         return {"status": "not_running"}
 
-    store.enqueue_pm_command(conv_id, "cancel")
-
-    # If there's no pending run command, the PM either already finished
-    # (and failed to clear the flag) or crashed. Force-clear to unstick.
-    pending = store.get_pending_pm_commands()
-    has_pending_run = any(cmd["conversation_id"] == conv_id and cmd["command"] == "run" for cmd in pending)
-    if not has_pending_run:
-        store.update_conversation(conv_id, needs_response=False)
-        store.add_message(conv_id, "assistant", "*Interrompu.*")
-
+    await runner.cancel(conv_id)
     return {"status": "cancelled"}
 
 

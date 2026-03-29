@@ -152,11 +152,12 @@ def _check_admin_users() -> tuple[bool, str]:
     return (True, f"{n} configured (none active yet)")
 
 
-def _check_process_manager() -> tuple[bool, str]:
-    from .database import store
+def _check_task_runner() -> tuple[bool, str]:
+    from .runner import runner
 
-    alive = store.is_pm_alive(max_age_seconds=30)
-    return (alive, "heartbeat OK" if alive else "no recent heartbeat")
+    running = len(runner._running)
+    queued = len(runner._queue)
+    return (True, f"{running} running, {queued} queued")
 
 
 def _check_conversation_roundtrip() -> tuple[bool, str]:
@@ -355,7 +356,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     specs: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
         ("PostgreSQL", _check_postgresql),
         ("Admin users", _check_admin_users),
-        ("Process Manager", _check_process_manager),
+        ("Task Runner", _check_task_runner),
         ("Conversation roundtrip", _check_conversation_roundtrip),
         ("Claude CLI", _check_claude_cli),
         ("Claude status page", _check_claude_status_page),

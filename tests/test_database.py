@@ -86,13 +86,12 @@ def test_cancel_unstick_zombie_conversation(client):
     assert not updated.needs_response
 
 
-def test_cancel_unstick_keeps_needs_response_when_pending(client):
+def test_cancel_clears_needs_response(client):
     conv = store.create_conversation(user_id="test@test.com")
     store.update_conversation(conv.id, needs_response=True)
-    store.enqueue_pm_command(conv.id, "run", {"prompt": "test"})
 
     resp = client.post(f"/api/conversations/{conv.id}/cancel")
 
     assert resp.status_code == 200
     updated = store.get_conversation(conv.id, include_messages=False)
-    assert updated.needs_response
+    assert not updated.needs_response

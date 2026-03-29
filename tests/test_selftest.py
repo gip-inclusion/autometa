@@ -208,7 +208,7 @@ def test_run_all_checks_produces_check_instances(mocker):
 
     mocker.patch("web.selftest._check_postgresql", return_value=(True, ""))
     mocker.patch("web.selftest._check_admin_users", return_value=(True, "1 configured"))
-    mocker.patch("web.selftest._check_process_manager", return_value=(True, "heartbeat OK"))
+    mocker.patch("web.selftest._check_task_runner", return_value=(True, "0 running, 0 queued"))
     mocker.patch("web.selftest._check_conversation_roundtrip", return_value=(True, "OK"))
     mocker.patch("web.selftest._check_claude_cli", return_value=(True, "1.0.0; 3 skills: a, b, c"))
     mocker.patch("web.selftest._check_claude_status_page", return_value=(True, "page OK"))

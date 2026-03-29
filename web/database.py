@@ -591,22 +591,6 @@ class ConversationStore:
                 conn.execute("UPDATE conversations SET needs_response = 0 WHERE needs_response = 1")
             return ids
 
-    def update_pm_heartbeat(self):
-        now = datetime.now().isoformat()
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO pm_heartbeat (id, last_seen) VALUES (1, %s) ON CONFLICT (id) DO UPDATE SET last_seen = %s",
-                (now, now),
-            )
-
-    def is_pm_alive(self, max_age_seconds: int = 30) -> bool:
-        with get_db() as conn:
-            row = conn.execute("SELECT last_seen FROM pm_heartbeat WHERE id = 1").fetchone()
-            if not row:
-                return False
-            last_seen = datetime.fromisoformat(row["last_seen"])
-            return (datetime.now() - last_seen).total_seconds() < max_age_seconds
-
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
         allowed = {"title", "session_id", "user_id", "status", "pr_url", "needs_response"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
@@ -1424,62 +1408,6 @@ class ConversationStore:
                 (conversation_id,),
             ).fetchone()
             return row["type"] if row else None
-
-    def enqueue_pm_command(self, conversation_id: str, command: str, payload: Optional[dict] = None) -> int:
-        """Queue a command for the process manager. Returns the command ID."""
-        with get_db() as conn:
-            return conn.insert_and_get_id(
-                """INSERT INTO pm_commands (conversation_id, command, payload, created_at)
-                   VALUES (%s, %s, %s, %s)""",
-                (conversation_id, command, json.dumps(payload) if payload else None, datetime.now().isoformat()),
-            )
-
-    def claim_pending_pm_commands(self) -> list[dict]:
-        """Atomically claim and return unprocessed PM commands.
-
-        Uses UPDATE ... RETURNING to prevent two PM instances from
-        processing the same command (the SELECT+UPDATE race condition).
-        """
-        now = datetime.now().isoformat()
-        with get_db() as conn:
-            rows = conn.execute(
-                """UPDATE pm_commands
-                   SET processed_at = %s
-                   WHERE processed_at IS NULL
-                   RETURNING id, conversation_id, command, payload, created_at""",
-                (now,),
-            ).fetchall()
-
-            return [
-                {
-                    "id": r["id"],
-                    "conversation_id": r["conversation_id"],
-                    "command": r["command"],
-                    "payload": json.loads(r["payload"]) if r["payload"] else None,
-                    "created_at": r["created_at"],
-                }
-                for r in rows
-            ]
-
-    def get_pending_pm_commands(self) -> list[dict]:
-        with get_db() as conn:
-            rows = conn.execute(
-                """SELECT id, conversation_id, command, payload, created_at
-                   FROM pm_commands
-                   WHERE processed_at IS NULL
-                   ORDER BY id"""
-            ).fetchall()
-
-            return [
-                {
-                    "id": r["id"],
-                    "conversation_id": r["conversation_id"],
-                    "command": r["command"],
-                    "payload": json.loads(r["payload"]) if r["payload"] else None,
-                    "created_at": r["created_at"],
-                }
-                for r in rows
-            ]
 
 
 class LazyConversationStore:

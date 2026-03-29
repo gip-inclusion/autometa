@@ -14,7 +14,7 @@ from . import config, sync_to_s3
 from . import s3 as s3_module
 from .interactive_apps import scan_interactive_apps
 from .logging_utils import setup_logging
-from .pm import ProcessManager
+from .runner import runner
 
 setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
 # Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
@@ -31,16 +31,11 @@ async def lifespan(app: FastAPI):
     if config.USE_S3:
         await asyncio.to_thread(scan_interactive_apps)
 
-    pm = ProcessManager()
-    pm_task = asyncio.create_task(pm.run())
+    await runner.startup()
 
     yield
 
-    pm_task.cancel()
-    try:
-        await pm_task
-    except asyncio.CancelledError:
-        pass
+    await runner.shutdown()
 
 
 # Create FastAPI app
