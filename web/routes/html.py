@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
 from .. import helpers
-from ..config import ADMIN_USERS, FEATURE_KNOWLEDGE_CHAT
+from ..config import ADMIN_USERS
 from ..database import store
 from ..deps import get_current_user, templates
 from ..helpers import (
@@ -492,7 +492,7 @@ def connaissances(
             "staged_files": [],
             "active_files": active_files,
             "active_conversations": active_conversations,
-            "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+            "feature_knowledge_chat": False,
             **data,
         },
     )
@@ -518,7 +518,7 @@ def connaissances_file(
                 "error": "Fichier non trouvé",
                 "categories": list_knowledge_files(),
                 "active_conversations": store.list_active_knowledge_conversations(),
-                "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+                "feature_knowledge_chat": False,
                 **data,
             },
         )
@@ -551,7 +551,7 @@ def connaissances_file(
             "staged_files": staged_files,
             "active_files": active_files,
             "active_conversations": active_conversations,
-            "feature_knowledge_chat": FEATURE_KNOWLEDGE_CHAT,
+            "feature_knowledge_chat": False,
             **data,
         },
     )

@@ -133,10 +133,6 @@ NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
 NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 
-# GitHub PR integration
-GITHUB_PR_TOKEN = os.getenv("GITHUB_PR_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO")
-GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
 # Slack notifications
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
@@ -151,6 +147,3 @@ LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 
 # Additional directories the agent can access (beyond working directory)
 ADDITIONAL_DIRS = ["/tmp"]
-
-# Feature flags
-FEATURE_KNOWLEDGE_CHAT = False  # Chat from Connaissance tab disabled (requires GitHub PAT)

@@ -10,7 +10,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..database import store
 from ..deps import get_current_user
-from ..github import GitHubClient, GitHubError
 from ..helpers import (
     get_staging_dir,
     list_knowledge_files,
@@ -108,64 +107,7 @@ def get_staged_files(conv_id: str):
 
 @router.post("/conversations/{conv_id}/commit")
 async def commit_knowledge_changes(conv_id: str, request: Request):
-    conv = store.get_conversation(conv_id, include_messages=False)
-    if not conv or conv.conv_type != "knowledge":
-        return JSONResponse({"error": "Knowledge conversation not found"}, status_code=404)
-
-    if conv.status != "active":
-        return JSONResponse({"error": "Conversation is not active"}, status_code=400)
-
-    staging_dir = get_staging_dir(conv_id)
-    if not staging_dir.exists():
-        return JSONResponse({"error": "No staged files"}, status_code=400)
-
-    staged_files = list_staged_files(conv_id)
-    if not staged_files:
-        return JSONResponse({"error": "No staged files"}, status_code=400)
-
-    body = await request.body()
-    data = (await request.json()) if body else {}
-    summary = data.get("summary", "Knowledge update")
-
-    # Collect file contents
-    files = {}
-    for rel_path in staged_files:
-        src = (staging_dir / rel_path).resolve()
-        if not str(src).startswith(str(staging_dir.resolve())) or not src.exists():
-            continue
-        # Path in repo includes knowledge/ prefix
-        repo_path = f"knowledge/{rel_path}"
-        files[repo_path] = src.read_text()
-
-    # Create GitHub PR
-    try:
-        github = GitHubClient()
-        pr_url = github.create_knowledge_pr(
-            files=files,
-            summary=summary,
-            conversation_id=conv_id,
-        )
-    except GitHubError as e:
-        logger.error("GitHub PR creation failed: %s", e)
-        return JSONResponse({"error": "GitHub PR creation failed"}, status_code=500)
-
-    # Clean up staging
-    shutil.rmtree(staging_dir, ignore_errors=True)
-    store.update_conversation(conv_id, status="committed", pr_url=pr_url)
-
-    # Add system message to conversation with PR link
-    store.add_message(
-        conv_id,
-        type="system",
-        content=f"Changes submitted as pull request: {pr_url}",
-    )
-
-    return {
-        "status": "committed",
-        "files": list(files.keys()),
-        "conversation_id": conv_id,
-        "pr_url": pr_url,
-    }
+    return JSONResponse({"error": "Feature disabled"}, status_code=501)
 
 
 @router.post("/conversations/{conv_id}/abandon")

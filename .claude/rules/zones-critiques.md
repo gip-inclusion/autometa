@@ -4,10 +4,10 @@ Si tu touches à l'un de ces sujets, tu DOIS le signaler explicitement dans ta r
 
 Zones :
 
-- `web/schema.py` — Migrations de base de données. Une migration cassée corrompt la production. Ne jamais modifier une migration existante, uniquement en ajouter.
-- `web/db.py` — ConnectionWrapper (abstraction SQLite/PostgreSQL). Tout changement impacte chaque requête de l'application.
-- `web/signals.py` — SignalRegistry (communication PM → SSE). Contraint à un seul worker. Un bug ici casse le streaming en temps réel.
-- `web/pm.py` — ProcessManager. Orchestre les agents, persiste les événements. Un bug ici casse toutes les conversations.
+- `web/models.py` — Modèles SQLAlchemy (source de vérité du schéma). Toute modification génère une migration Alembic.
+- `web/db.py` — Engine et session SQLAlchemy. Tout changement impacte chaque requête de l'application.
+- `web/runner.py` — TaskRunner. Orchestre les agents, persiste les événements. Un bug ici casse toutes les conversations.
+- `alembic/` — Migrations Alembic. Ne jamais modifier une migration existante, uniquement en ajouter.
 - `web/agents/base.py` — Interface des backends agent et construction du system prompt.
 - `docker-compose.yml`, `Dockerfile`, `entrypoint.sh` — Infrastructure de déploiement. Impact sur la production.
 - `web/uploads.py` — Gestion des fichiers uploadés, scan antivirus. Surface de sécurité.
@@ -18,13 +18,12 @@ Zones :
 
 Les clients d'API et modules qui interagissent avec des systèmes extérieurs sont des points de fragilité : un crash ou une régression peut mettre à plat l'ensemble du logiciel (conversations bloquées, données incorrectes, timeouts en cascade).
 
-- `lib/_matomo.py` — Client Matomo (HTTP, retry, parsing de réponses)
-- `lib/_metabase.py` — Client Metabase (HTTP, retry, parsing de résultats SQL)
-- `lib/_sources.py` — Résolution des credentials et URLs des sources
-- `lib/api_signals.py` — Émission des signaux d'observabilité (parsés par le PM)
+- `lib/matomo.py` — Client Matomo (HTTP, retry, parsing de réponses)
+- `lib/metabase.py` — Client Metabase (HTTP, retry, parsing de résultats SQL)
+- `lib/sources.py` — Résolution des credentials et URLs des sources
+- `lib/api_signals.py` — Émission des signaux d'observabilité
 - `web/s3.py` — Client S3 (stockage fichiers, sync)
-- `web/notion.py` — Client Notion (publication, sync corpus)
-- `web/github.py` — Client GitHub (exploration de code)
+- `web/notion.py` — Client Notion (publication rapports)
 - `web/agents/cli.py` — Spawn et parsing du subprocess Claude CLI
 - `web/agents/sdk.py` — Intégration claude-agent-sdk
 

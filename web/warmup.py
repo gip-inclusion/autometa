@@ -20,18 +20,14 @@ CACHE_DIR = config.DATA_DIR / "cache"
 
 
 def warmup_matomo_baselines():
+    out_dir = CACHE_DIR / "matomo"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+
     with get_db() as session:
         site_ids = session.scalars(select(MatomoBaseline.site_id).distinct().order_by(MatomoBaseline.site_id)).all()
 
-    if not site_ids:
-        logger.info("No matomo baselines in DB, skipping")
-        return
-
-    out_dir = CACHE_DIR / "matomo"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    for site_id in site_ids:
-        with get_db() as session:
+        for site_id in site_ids:
             baselines = session.scalars(
                 select(MatomoBaseline).where(MatomoBaseline.site_id == site_id).order_by(MatomoBaseline.month)
             ).all()
@@ -48,63 +44,69 @@ def warmup_matomo_baselines():
                 .limit(50)
             ).all()
 
-        lines = [f"# Matomo Site {site_id} — Cached Data", ""]
+            lines = [f"# Matomo Site {site_id} — Cached Data", ""]
 
-        if baselines:
-            synced = baselines[0].synced_at or ""
-            lines += ["## Traffic Baselines", "", f"*Synced: {synced}*", ""]
-            lines += ["| Month | Visitors | Visits | Bounce | Actions/Visit | Avg Time |"]
-            lines += ["|-------|----------|--------|--------|---------------|----------|"]
-            for b in baselines:
-                if b.visitors is None:
-                    continue
-                avg_time = b.avg_time_on_site or 0
-                time_str = f"{avg_time // 60}m{avg_time % 60:02d}s" if avg_time else "-"
-                lines.append(
-                    f"| {b.month} | {b.visitors or '-':,} | {b.visits or '-':,} "
-                    f"| {b.bounce_rate or '-'} | {b.actions_per_visit or '-'} | {time_str} |"
-                )
-
-            if any(b.user_types for b in baselines):
-                lines += ["", "### User Types (visits per month)", ""]
-                all_types = set()
+            if baselines:
+                synced = baselines[0].synced_at or ""
+                lines += ["## Traffic Baselines", "", f"*Synced: {synced}*", ""]
+                lines += ["| Month | Visitors | Visits | Bounce | Actions/Visit | Avg Time |"]
+                lines += ["|-------|----------|--------|--------|---------------|----------|"]
                 for b in baselines:
-                    if b.user_types:
-                        ut = json.loads(b.user_types) if isinstance(b.user_types, str) else b.user_types
-                        all_types.update(ut.keys())
-                all_types = sorted(all_types)
-                if all_types:
-                    lines.append("| Month | " + " | ".join(all_types) + " |")
-                    lines.append("|-------" + "|-------" * len(all_types) + "|")
+                    if b.visitors is None:
+                        continue
+                    avg_time = b.avg_time_on_site or 0
+                    time_str = f"{avg_time // 60}m{avg_time % 60:02d}s" if avg_time else "-"
+                    lines.append(
+                        f"| {b.month} | {b.visitors:,} | {b.visits:,} "
+                        f"| {b.bounce_rate or '-'} | {b.actions_per_visit or '-'} | {time_str} |"
+                    )
+
+                if any(b.user_types for b in baselines):
+                    lines += ["", "### User Types (visits per month)", ""]
+                    all_types = set()
                     for b in baselines:
-                        ut = {}
                         if b.user_types:
                             ut = json.loads(b.user_types) if isinstance(b.user_types, str) else b.user_types
-                        lines.append("| " + b.month + " | " + " | ".join(str(ut.get(t, 0)) for t in all_types) + " |")
+                            all_types.update(ut.keys())
+                    all_types = sorted(all_types)
+                    if all_types:
+                        lines.append("| Month | " + " | ".join(all_types) + " |")
+                        lines.append("|-------" + "|-------" * len(all_types) + "|")
+                        for b in baselines:
+                            ut = {}
+                            if b.user_types:
+                                ut = json.loads(b.user_types) if isinstance(b.user_types, str) else b.user_types
+                            lines.append(
+                                "| " + b.month + " | " + " | ".join(str(ut.get(t, 0)) for t in all_types) + " |"
+                            )
 
-        if dimensions:
-            lines += ["", "## Custom Dimensions", ""]
-            lines += ["| ID | Scope | Name |", "|----|-------|------|"]
-            for d in dimensions:
-                if d.active:
-                    lines.append(f"| {d.dimension_id} | {d.scope or ''} | {d.name} |")
+            if dimensions:
+                lines += ["", "## Custom Dimensions", ""]
+                lines += ["| ID | Scope | Name |", "|----|-------|------|"]
+                for d in dimensions:
+                    if d.active:
+                        lines.append(f"| {d.dimension_id} | {d.scope or ''} | {d.name} |")
 
-        if segments:
-            lines += ["", "## Saved Segments", ""]
-            lines += ["| Name | Definition |", "|------|------------|"]
-            for s in segments:
-                defn = (s.definition or "")[:60]
-                lines.append(f"| {s.name} | `{defn}` |")
+            if segments:
+                lines += ["", "## Saved Segments", ""]
+                lines += ["| Name | Definition |", "|------|------------|"]
+                for s in segments:
+                    defn = (s.definition or "")[:60]
+                    lines.append(f"| {s.name} | `{defn}` |")
 
-        if events:
-            lines += ["", "## Top Events", ""]
-            lines += ["| Name | Events | Visits |", "|------|--------|--------|"]
-            for e in events:
-                lines.append(f"| {e.name} | {e.event_count or 0:,} | {e.visit_count or 0:,} |")
+            if events:
+                lines += ["", "## Top Events", ""]
+                lines += ["| Name | Events | Visits |", "|------|--------|--------|"]
+                for e in events:
+                    lines.append(f"| {e.name} | {e.event_count or 0:,} | {e.visit_count or 0:,} |")
 
-        (out_dir / f"site-{site_id}.md").write_text("\n".join(lines) + "\n")
+            (out_dir / f"site-{site_id}.md").write_text("\n".join(lines) + "\n")
+            count += 1
 
-    logger.info(f"Generated {len(site_ids)} matomo cache files")
+    if count:
+        logger.info(f"Generated {count} matomo cache files")
+    else:
+        logger.info("No matomo baselines in DB, skipping")
 
 
 def warmup_metabase_cards():
