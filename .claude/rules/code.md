@@ -12,7 +12,11 @@ Toujours générer le code le plus court et le plus simple possible. Éviter tou
 
 Pas d'abstractions pour un seul usage, pas de paramètres "au cas où", pas de gestion d'erreur pour des cas impossibles, pas de feature flags sans besoin.
 
+Éviter au maximum l'overengineering. Ne jamais réinventer la roue : réutiliser le code existant avant d'en écrire du nouveau. Toujours opter pour la solution la plus simple. Ne jamais ajouter de traitement de cas aux limites sauf si expressément demandé. Utiliser des constructions de base (`for`, `if`, compréhensions). Minimiser le nombre de variables et de fonctions. Garder le code le plus local possible, ne pas créer de niveaux d'abstraction inutiles.
+
 Constantes nommées : ne pas en introduire une si elle n'est référencée qu'une seule fois — inliner la valeur. Pour les « magic values » peu évidentes (URL externe, identifiant tiers, seuil métier, limite API), un commentaire court au-dessus de la ligne suffit ; pas besoin de commenter des littéraux déjà explicites dans le contexte.
+
+Variables d'environnement : toute lecture de variable d'environnement passe par `web/config.py`. Ne jamais utiliser `os.getenv`, `os.environ.get` ou `os.environ[...]` en dehors de ce fichier pour lire une valeur de configuration. Seules exceptions : passage de l'environnement complet à un sous-processus (`dict(os.environ)`, `**os.environ`) et substitution dynamique de patterns `${env.VAR}` dans des fichiers de configuration.
 
 Respecter les patterns du fichier et du module. Ne pas introduire un nouveau pattern sans raison. Nommage en français pour le domaine métier, en anglais pour le code technique.
 

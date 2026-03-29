@@ -9,9 +9,13 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import boto3
 import psycopg2
 from botocore.config import Config as BotoConfig
+
+from web import config
 
 SQL_KEY = "_migration/migration.sql"
 LOCAL_PATH = "/tmp/migration.sql"
@@ -22,18 +26,18 @@ def main():
     print("Downloading migration.sql from S3...")
     client = boto3.client(
         "s3",
-        endpoint_url=os.environ.get("S3_ENDPOINT"),
-        aws_access_key_id=os.environ["S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["S3_SECRET_KEY"],
-        region_name=os.environ.get("S3_REGION", "fr-par"),
+        endpoint_url=config.S3_ENDPOINT,
+        aws_access_key_id=config.S3_ACCESS_KEY,
+        aws_secret_access_key=config.S3_SECRET_KEY,
+        region_name=config.S3_REGION,
         config=BotoConfig(signature_version="s3v4"),
     )
-    client.download_file(os.environ["S3_BUCKET"], SQL_KEY, LOCAL_PATH)
+    client.download_file(config.S3_BUCKET, SQL_KEY, LOCAL_PATH)
     size = os.path.getsize(LOCAL_PATH)
     print(f"  Downloaded: {size:,} bytes")
 
     # Import into PG
-    database_url = os.environ.get("DATABASE_URL") or os.environ.get("SCALINGO_POSTGRESQL_URL")
+    database_url = config.DATABASE_URL or os.environ.get("SCALINGO_POSTGRESQL_URL")
     if not database_url:
         print("ERROR: DATABASE_URL not set")
         sys.exit(1)

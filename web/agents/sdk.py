@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 from typing import AsyncIterator, Optional
 
 from claude_agent_sdk import (
@@ -55,7 +54,7 @@ class SDKBackend(AgentBackend):
         system_prompt = build_system_prompt()
 
         # Permissions
-        if os.getenv("CONTAINER_ENV"):
+        if config.CONTAINER_ENV:
             permission_mode = "bypassPermissions"
             allowed_tools = []
         elif config.ALLOWED_TOOLS:

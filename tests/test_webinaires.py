@@ -30,13 +30,8 @@ def db():
 
 @pytest.fixture
 def grist_client(mocker):
-    mocker.patch.dict(
-        "os.environ",
-        {
-            "GRIST_API_KEY": "fake-key",
-            "GRIST_WEBINAIRES_DOC_ID": "fake-doc",
-        },
-    )
+    mocker.patch("lib.webinaires.config.GRIST_API_KEY", "fake-key")
+    mocker.patch("lib.webinaires.config.GRIST_WEBINAIRES_DOC_ID", "fake-doc")
     client = GristClient()
     client._session = mocker.MagicMock()
     return client

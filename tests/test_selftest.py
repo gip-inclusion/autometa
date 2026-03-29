@@ -185,7 +185,6 @@ def test_fmt(check, expect_ok_glyph, expect_fail_glyph, extra_assert):
 
 
 def test_run_all_checks_produces_check_instances(mocker):
-    mock_getenv = mocker.patch("web.selftest.os.getenv")
     mock_head = mocker.patch("web.selftest.requests.head")
     mock_get = mocker.patch("web.selftest.requests.get")
     mock_subprocess = mocker.patch("web.selftest.subprocess.run")
@@ -194,7 +193,11 @@ def test_run_all_checks_produces_check_instances(mocker):
     mock_config.ADMIN_USERS = ["admin@localhost"]
     mock_config.USE_S3 = False
     mock_config.CLAUDE_CLI = "claude"
-    mock_getenv.return_value = None
+    mock_config.NOTION_TOKEN = None
+    mock_config.GRIST_API_KEY = None
+    mock_config.GRIST_WEBINAIRES_DOC_ID = None
+    mock_config.LIVESTORM_API_KEY = None
+    mock_config.SLACK_BOT_TOKEN = ""
 
     mock_subprocess.return_value = mocker.MagicMock(returncode=0, stdout="1.0.0\n", stderr="")
 

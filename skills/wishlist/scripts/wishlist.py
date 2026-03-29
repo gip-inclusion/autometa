@@ -4,22 +4,22 @@
 import argparse
 import json
 import os
+import sys
 import urllib.request
 from datetime import datetime
-from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
+from web import config
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = config.DATABASE_URL
 
 # Notion config
-NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
+NOTION_TOKEN = config.NOTION_TOKEN
+NOTION_WISHLIST_DB = config.NOTION_WISHLIST_DB
 
 CATEGORIES = ["permission", "tool", "knowledge", "skill", "workflow", "other"]
 

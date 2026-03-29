@@ -38,7 +38,7 @@ def slack_send_dm(token: str, user_id: str, text: str) -> bool:
     return resp.json().get("ok", False)
 
 
-NOTIFY_EMAIL = os.getenv("EMAIL_ANNAELLE", "")
+NOTIFY_EMAILS = config.FAILURE_NOTIFY_EMAILS
 
 
 def get_failed_conversations(days: int) -> list[dict]:
@@ -115,26 +115,26 @@ def main():
         print(build_slack_message(conversations))
         return
 
-    token = os.getenv("SLACK_BOT_TOKEN", "")
+    token = config.SLACK_BOT_TOKEN
     if not token:
         print("ERROR: SLACK_BOT_TOKEN is not set", file=sys.stderr)
         sys.exit(1)
 
-    if not NOTIFY_EMAIL:
-        print("ERROR: EMAIL_ANNAELLE is not set", file=sys.stderr)
-        sys.exit(1)
-
-    slack_id = slack_lookup_user(token, NOTIFY_EMAIL)
-    if not slack_id:
-        print(f"ERROR: Could not find Slack user for {NOTIFY_EMAIL}", file=sys.stderr)
+    if not NOTIFY_EMAILS:
+        print("ERROR: FAILURE_NOTIFY_EMAILS is not set", file=sys.stderr)
         sys.exit(1)
 
     message = build_slack_message(conversations)
-    ok = slack_send_dm(token, slack_id, message)
-    if ok:
-        print(f"Slack DM sent to {NOTIFY_EMAIL}")
-    else:
-        print(f"FAILED to send Slack DM to {NOTIFY_EMAIL}", file=sys.stderr)
+    for email in NOTIFY_EMAILS:
+        slack_id = slack_lookup_user(token, email)
+        if not slack_id:
+            print(f"WARNING: Could not find Slack user for {email}", file=sys.stderr)
+            continue
+        ok = slack_send_dm(token, slack_id, message)
+        if ok:
+            print(f"Slack DM sent to {email}")
+        else:
+            print(f"FAILED to send Slack DM to {email}", file=sys.stderr)
         sys.exit(1)
 
 

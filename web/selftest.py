@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -292,7 +291,7 @@ def _check_metabase_instance(instance: str) -> tuple[bool, str]:
 
 
 def _check_notion() -> tuple[bool, str]:
-    token = os.getenv("NOTION_TOKEN")
+    token = config.NOTION_TOKEN
     if not token:
         return (False, "NOTION_TOKEN not set")
     resp = requests.get(
@@ -309,8 +308,8 @@ def _check_notion() -> tuple[bool, str]:
 
 
 def _check_grist() -> tuple[bool, str]:
-    api_key = os.getenv("GRIST_API_KEY")
-    doc_id = os.getenv("GRIST_WEBINAIRES_DOC_ID")
+    api_key = config.GRIST_API_KEY
+    doc_id = config.GRIST_WEBINAIRES_DOC_ID
     if not api_key or not doc_id:
         return (False, "GRIST_API_KEY or DOC_ID not set")
     resp = requests.get(
@@ -325,7 +324,7 @@ def _check_grist() -> tuple[bool, str]:
 
 
 def _check_livestorm() -> tuple[bool, str]:
-    api_key = os.getenv("LIVESTORM_API_KEY")
+    api_key = config.LIVESTORM_API_KEY
     if not api_key:
         return (False, "LIVESTORM_API_KEY not set")
     resp = requests.get(
@@ -339,7 +338,7 @@ def _check_livestorm() -> tuple[bool, str]:
 
 
 def _check_slack() -> tuple[bool, str]:
-    token = os.getenv("SLACK_BOT_TOKEN")
+    token = config.SLACK_BOT_TOKEN
     if not token:
         return (False, "SLACK_BOT_TOKEN not set")
     resp = requests.head(

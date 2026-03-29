@@ -2,20 +2,16 @@
 
 import json
 import logging
-import os
 import re
 import sqlite3
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Iterator
 
 import requests
-from dotenv import load_dotenv
 
 from lib.query import CallerType, execute_metabase_query
-
-load_dotenv(Path(__file__).parent.parent / ".env")
+from web import config
 
 log = logging.getLogger(__name__)
 
@@ -126,7 +122,7 @@ class LivestormClient:
     PAGE_SIZE = 50
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("LIVESTORM_API_KEY")
+        self.api_key = api_key or config.LIVESTORM_API_KEY
         if not self.api_key:
             raise ValueError("LIVESTORM_API_KEY not set")
         self._session = requests.Session()
@@ -196,8 +192,8 @@ class GristClient:
         api_key: str | None = None,
         doc_id: str | None = None,
     ):
-        self.api_key = api_key or os.getenv("GRIST_API_KEY")
-        self.doc_id = doc_id or os.getenv("GRIST_WEBINAIRES_DOC_ID")
+        self.api_key = api_key or config.GRIST_API_KEY
+        self.doc_id = doc_id or config.GRIST_WEBINAIRES_DOC_ID
         if not self.api_key:
             raise ValueError("GRIST_API_KEY not set")
         if not self.doc_id:

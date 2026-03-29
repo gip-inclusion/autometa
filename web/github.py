@@ -1,10 +1,11 @@
 """GitHub API integration for PR-based persistence."""
 
 import base64
-import os
 from typing import Optional
 
 import requests
+
+from . import config
 
 GITHUB_API = "https://api.github.com"
 
@@ -17,9 +18,9 @@ class GitHubError(Exception):
 
 class GitHubClient:
     def __init__(self):
-        self.token = os.environ.get("GITHUB_PR_TOKEN")
-        self.repo = os.environ.get("GITHUB_REPO")
-        self.base_branch = os.environ.get("GITHUB_BRANCH", "main")
+        self.token = config.GITHUB_PR_TOKEN
+        self.repo = config.GITHUB_REPO
+        self.base_branch = config.GITHUB_BRANCH
 
         if not self.token or not self.repo:
             raise GitHubError("GITHUB_PR_TOKEN and GITHUB_REPO must be set")

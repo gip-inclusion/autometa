@@ -8,7 +8,6 @@ and the pm_commands table (input).
 import asyncio
 import json
 import logging
-import os
 import threading
 
 import requests as req
@@ -26,7 +25,7 @@ from .signals import signals
 
 logger = logging.getLogger(__name__)
 
-MAX_CONCURRENT_AGENTS = int(os.environ.get("MAX_CONCURRENT_AGENTS", "2"))
+MAX_CONCURRENT_AGENTS = config.MAX_CONCURRENT_AGENTS
 
 
 class ProcessManager:
@@ -237,11 +236,10 @@ class ProcessManager:
 
     @staticmethod
     def _send_failure_notification(conv_id: str, title: str, snippet: str):
-        notify_email = os.environ.get("EMAIL_ANNAELLE", "")
-        if not notify_email:
-            logger.warning("EMAIL_ANNAELLE not set, skipping failure notification")
+        if not config.FAILURE_NOTIFY_EMAILS:
+            logger.warning("FAILURE_NOTIFY_EMAILS not set, skipping failure notification")
             return
-        token = os.environ.get("SLACK_BOT_TOKEN", "")
+        token = config.SLACK_BOT_TOKEN
         if not token:
             logger.warning("SLACK_BOT_TOKEN not set, skipping failure notification")
             return
@@ -254,34 +252,33 @@ class ProcessManager:
             f"_Vérifiez que la réponse est correcte._"
         )
 
-        try:
-            # Resolve Slack user ID
-            resp = req.get(
-                "https://slack.com/api/users.lookupByEmail",
-                headers={"Authorization": f"Bearer {token}"},
-                params={"email": notify_email},
-                timeout=10,
-            )
-            data = resp.json()
-            if not data.get("ok"):
-                logger.warning(f"Slack user not found for {notify_email}")
-                return
+        for email in config.FAILURE_NOTIFY_EMAILS:
+            try:
+                resp = req.get(
+                    "https://slack.com/api/users.lookupByEmail",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"email": email},
+                    timeout=10,
+                )
+                data = resp.json()
+                if not data.get("ok"):
+                    logger.warning(f"Slack user not found for {email}")
+                    continue
 
-            slack_id = data["user"]["id"]
+                slack_id = data["user"]["id"]
 
-            # Send DM
-            resp = req.post(
-                "https://slack.com/api/chat.postMessage",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"channel": slack_id, "text": message},
-                timeout=10,
-            )
-            if resp.json().get("ok"):
-                logger.info(f"Failure notification sent for conversation {conv_id}")
-            else:
-                logger.warning(f"Failed to send Slack DM: {resp.json()}")
-        except Exception:
-            logger.exception("Error sending failure notification")
+                resp = req.post(
+                    "https://slack.com/api/chat.postMessage",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"channel": slack_id, "text": message},
+                    timeout=10,
+                )
+                if resp.json().get("ok"):
+                    logger.info(f"Failure notification sent to {email} for conversation {conv_id}")
+                else:
+                    logger.warning(f"Failed to send Slack DM to {email}: {resp.json()}")
+            except Exception:
+                logger.exception(f"Error sending failure notification to {email}")
 
 
 async def main():

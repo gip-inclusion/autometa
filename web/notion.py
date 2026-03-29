@@ -1,12 +1,13 @@
 """Publish reports to Notion as pages in the 'Rapports publics' database."""
 
 import json
-import os
 import re
 import urllib.request
 
-NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
+from . import config
+
+NOTION_TOKEN = config.NOTION_TOKEN
+NOTION_REPORTS_DB = config.NOTION_REPORTS_DB
 
 
 def is_configured() -> bool:

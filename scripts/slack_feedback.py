@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests
 
+from web import config
 from web.database import get_db, init_db
 
 TALLY_FORM_URL = "https://tally.so/r/9qdZvp"
@@ -82,7 +83,7 @@ def main():
     parser.add_argument("--test", metavar="EMAIL", help="Send a single test DM to this email")
     args = parser.parse_args()
 
-    token = os.getenv("SLACK_BOT_TOKEN", "")
+    token = config.SLACK_BOT_TOKEN
     if not token and not args.dry_run:
         print("ERROR: SLACK_BOT_TOKEN is not set", file=sys.stderr)
         sys.exit(1)

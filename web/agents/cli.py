@@ -124,7 +124,7 @@ class CLIBackend(AgentBackend):
 
         # In a container, skip permission checks (container is the security boundary).
         # Outside containers, restrict tools to a whitelist.
-        if os.getenv("CONTAINER_ENV"):
+        if config.CONTAINER_ENV:
             cmd.append("--dangerously-skip-permissions")
         elif config.ALLOWED_TOOLS:
             cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])

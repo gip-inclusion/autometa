@@ -116,6 +116,39 @@ S3_PREFIX = os.getenv("S3_PREFIX", "interactive/")  # Key prefix for all files
 # S3 is enabled if bucket and credentials are configured
 USE_S3 = bool(S3_BUCKET and S3_ACCESS_KEY and S3_SECRET_KEY)
 
+# Container environment flag (set in Docker — bypasses permission checks)
+CONTAINER_ENV = bool(os.getenv("CONTAINER_ENV"))
+
+# Claude Code OAuth token (injected by oauth-proxy or set manually)
+CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+
+# Skip CLI auth check (local dev convenience)
+SKIP_CLI_AUTH_CHECK = os.getenv("SKIP_CLI_AUTH_CHECK", "false").lower() == "true"
+
+# Max concurrent agent processes
+MAX_CONCURRENT_AGENTS = int(os.getenv("MAX_CONCURRENT_AGENTS", "2"))
+
+# Notion integration
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
+NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
+
+# GitHub PR integration
+GITHUB_PR_TOKEN = os.getenv("GITHUB_PR_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO")
+GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
+
+# Slack notifications
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+FAILURE_NOTIFY_EMAILS = [email.strip() for email in os.getenv("FAILURE_NOTIFY_EMAILS", "").split(",") if email.strip()]
+
+# Grist (webinaire data)
+GRIST_API_KEY = os.getenv("GRIST_API_KEY")
+GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
+
+# Livestorm API
+LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
+
 # Additional directories the agent can access (beyond working directory)
 ADDITIONAL_DIRS = ["/tmp"]
 
