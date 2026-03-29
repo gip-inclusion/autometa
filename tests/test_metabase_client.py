@@ -10,9 +10,9 @@ import json
 
 import pytest
 
-from lib._metabase import QueryResult, build_sql_url
-from lib._sources import get_metabase
+from lib.metabase import QueryResult, build_sql_url
 from lib.query import MetabaseError
+from lib.sources import get_metabase
 
 
 class TestBuildSqlUrl:

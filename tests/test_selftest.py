@@ -220,7 +220,7 @@ def test_run_all_checks_produces_check_instances(mocker):
     mocker.patch("web.selftest._check_grist", return_value=(False, "not set"))
     mocker.patch("web.selftest._check_livestorm", return_value=(False, "not set"))
     mocker.patch("web.selftest._check_slack", return_value=(False, "not set"))
-    mocker.patch("lib._sources.list_instances", return_value=["stats"])
+    mocker.patch("lib.sources.list_instances", return_value=["stats"])
 
     checks = _run_all_checks()
 

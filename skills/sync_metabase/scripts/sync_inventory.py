@@ -19,7 +19,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(project_root / ".env")
 
-from lib._sources import get_metabase, get_source_config, list_instances  # noqa: E402
+from lib.sources import get_metabase, get_source_config, list_instances  # noqa: E402
 from skills.metabase_query.scripts.cards_db import DB_PATH, TABLE_TO_TOPIC, TOPICS, CardsDB  # noqa: E402
 from skills.metabase_query.scripts.metabase import MetabaseError  # noqa: E402
 from web.llm import generate_text  # noqa: E402

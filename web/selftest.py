@@ -12,7 +12,7 @@ import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from lib._sources import list_instances
+from lib.sources import list_instances
 
 from . import config
 
@@ -280,7 +280,7 @@ def _check_matomo() -> tuple[bool, str]:
 
 
 def _check_metabase_instance(instance: str) -> tuple[bool, str]:
-    from lib._sources import get_source_config
+    from lib.sources import get_source_config
 
     cfg = get_source_config("metabase", instance)
     url = cfg["url"].rstrip("/") + "/api/health"

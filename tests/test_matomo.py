@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from lib._matomo_ui import (
+from lib.matomo_ui import (
     UI_MAPPING,
     format_data_source,
     get_ui_url,
 )
-from lib._sources import get_matomo
 from lib.query import MatomoAPI, MatomoError
+from lib.sources import get_matomo
 from tests.conftest import (
     MATOMO_TEST_DATE,
     MATOMO_TEST_DIMENSION_ID,
@@ -21,20 +21,20 @@ from tests.conftest import (
 
 
 def test_matomo_module_imports():
-    from lib import _matomo, query
+    from lib import matomo, query
 
     assert hasattr(query, "MatomoAPI")
     assert hasattr(query, "MatomoError")
-    assert hasattr(_matomo, "MatomoAPI")
-    assert hasattr(_matomo, "MatomoError")
+    assert hasattr(matomo, "MatomoAPI")
+    assert hasattr(matomo, "MatomoError")
 
 
 def test_ui_mapping_module_imports():
-    from lib import _matomo_ui
+    from lib import matomo_ui
 
-    assert hasattr(_matomo_ui, "UI_MAPPING")
-    assert hasattr(_matomo_ui, "get_ui_url")
-    assert hasattr(_matomo_ui, "format_data_source")
+    assert hasattr(matomo_ui, "UI_MAPPING")
+    assert hasattr(matomo_ui, "get_ui_url")
+    assert hasattr(matomo_ui, "format_data_source")
 
 
 def test_ui_mapping_is_dict():

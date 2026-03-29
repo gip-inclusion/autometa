@@ -13,7 +13,7 @@ class TestClassifyTool:
     # --- Bash: API calls ---
 
     def test_bash_matomo_api(self):
-        result = classify_tool("Bash", {"command": "python -c 'from lib._matomo import MatomoAPI'"})
+        result = classify_tool("Bash", {"command": "python -c 'from lib.matomo import MatomoAPI'"})
         assert result == "API: Matomo"
 
     def test_bash_matomo_api_instance(self):
@@ -21,7 +21,7 @@ class TestClassifyTool:
         assert result == "API: Matomo"
 
     def test_bash_metabase_api(self):
-        result = classify_tool("Bash", {"command": "python -c 'from lib._metabase import MetabaseAPI'"})
+        result = classify_tool("Bash", {"command": "python -c 'from lib.metabase import MetabaseAPI'"})
         assert result == "API: Metabase"
 
     def test_bash_metabase_execute_sql(self):
@@ -30,7 +30,7 @@ class TestClassifyTool:
 
     def test_bash_both_apis(self):
         result = classify_tool(
-            "Bash", {"command": "from lib._matomo import MatomoAPI; from lib._metabase import MetabaseAPI"}
+            "Bash", {"command": "from lib.matomo import MatomoAPI; from lib.metabase import MetabaseAPI"}
         )
         assert result == "API: Matomo + Metabase"
 

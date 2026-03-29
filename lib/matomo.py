@@ -8,8 +8,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from ._matomo_ui import get_ui_url
 from .api_signals import emit_api_signal
+from .matomo_ui import get_ui_url
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional
 
-from lib._matomo_ui import UI_MAPPING
+from lib.matomo_ui import UI_MAPPING
 
 
 def load_cookie() -> str:

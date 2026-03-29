@@ -34,12 +34,6 @@ def test_query_result_dataclass():
     assert result.execution_time_ms == 100
 
 
-def test_sources_module_is_private():
-    from lib import _sources
-
-    assert "PRIVATE" in _sources.__doc__
-
-
 def test_public_api_exports():
     from lib import query
 
@@ -51,7 +45,7 @@ def test_public_api_exports():
 
 
 def metabase_api_mock(mocker):
-    from lib._metabase import QueryResult as MetabaseQueryResult
+    from lib.metabase import QueryResult as MetabaseQueryResult
 
     mock_result = MetabaseQueryResult(
         columns=["id", "name"],
@@ -182,7 +176,7 @@ def test_execute_query_unknown_source():
 
 
 def test_reads_conversation_id_from_env(mocker):
-    from lib._metabase import QueryResult as MetabaseQueryResult
+    from lib.metabase import QueryResult as MetabaseQueryResult
     from lib.query import CallerType, execute_metabase_query
 
     mock_result = MetabaseQueryResult(columns=["x"], rows=[[1]], row_count=1)

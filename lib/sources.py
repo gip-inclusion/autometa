@@ -1,11 +1,4 @@
-"""
-PRIVATE MODULE - Do not import directly.
-
-Use lib.query for all queries (provides logging):
-    from lib.query import execute_query, execute_metabase_query, execute_matomo_query
-
-This module provides the underlying client factories for internal use only.
-"""
+"""Source configuration: client factories for Matomo and Metabase instances."""
 
 import os
 import re
@@ -14,8 +7,8 @@ from typing import Any
 
 import yaml
 
-from ._matomo import MatomoAPI
-from ._metabase import MetabaseAPI
+from .matomo import MatomoAPI
+from .metabase import MetabaseAPI
 
 # Config file location
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "sources.yaml"

@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from ._matomo import MatomoAPI, MatomoError  # noqa: F401 — re-exported
-from ._metabase import MetabaseAPI, MetabaseError  # noqa: F401 — re-exported
+from .matomo import MatomoAPI, MatomoError  # noqa: F401 — re-exported
+from .metabase import MetabaseAPI, MetabaseError  # noqa: F401 — re-exported
 
 # Re-export API classes and helpers for convenience
-from ._sources import get_matomo, get_metabase
+from .sources import get_matomo, get_metabase
 
 
 class CallerType(str, Enum):

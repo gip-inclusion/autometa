@@ -18,14 +18,14 @@ import pytest
     ],
 )
 def test_substitute_env_vars_strict_raises(nested, match):
-    from lib._sources import substitute_env_vars
+    from lib.sources import substitute_env_vars
 
     with pytest.raises(ValueError, match=match):
         substitute_env_vars(nested, strict=True)
 
 
 def test_substitute_env_vars_non_strict_preserves_missing():
-    from lib._sources import substitute_env_vars
+    from lib.sources import substitute_env_vars
 
     nested = {"key": "${env.TOTALLY_MISSING_VAR}"}
     result = substitute_env_vars(nested, strict=False)
@@ -33,7 +33,7 @@ def test_substitute_env_vars_non_strict_preserves_missing():
 
 
 def test_execute_metabase_query_sql_without_database_id(mocker):
-    from lib._metabase import QueryResult as MQR
+    from lib.metabase import QueryResult as MQR
     from lib.query import CallerType, execute_metabase_query
 
     mock_api = mocker.MagicMock()
@@ -52,7 +52,7 @@ def test_execute_metabase_query_sql_without_database_id(mocker):
 
 
 def test_matomo_error_on_api_error(mocker):
-    from lib._matomo import MatomoAPI, MatomoError
+    from lib.matomo import MatomoAPI, MatomoError
 
     api = MatomoAPI(url="fake.example.com", token="fake", instance="test")
 
@@ -86,7 +86,7 @@ def test_matomo_error_on_api_error(mocker):
     ],
 )
 def test_metabase_failed_status_raises(failed_response, match):
-    from lib._metabase import MetabaseAPI, MetabaseError
+    from lib.metabase import MetabaseAPI, MetabaseError
 
     api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=2)
 
@@ -95,14 +95,14 @@ def test_metabase_failed_status_raises(failed_response, match):
 
 
 def test_metabase_database_id_zero_preserved():
-    from lib._metabase import MetabaseAPI
+    from lib.metabase import MetabaseAPI
 
     api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=0)
     assert api.database_id == 0
 
 
 def test_metabase_database_id_none_defaults():
-    from lib._metabase import MetabaseAPI
+    from lib.metabase import MetabaseAPI
 
     api = MetabaseAPI(url="https://fake.example.com", api_key="fake", database_id=None)
     assert api.database_id == 2
@@ -127,7 +127,7 @@ def test_api_signal_card_id_zero(mocker):
 
 
 def test_matomo_html_timeout_raises_matomo_error(mocker):
-    from lib._matomo import MatomoAPI, MatomoError
+    from lib.matomo import MatomoAPI, MatomoError
 
     api = MatomoAPI(url="fake.example.com", token="fake", instance="test")
 
@@ -223,7 +223,7 @@ def test_unfinished_signals_never_evicted():
 
 
 def test_search_cards_returns_data(mocker):
-    from lib._metabase import MetabaseAPI
+    from lib.metabase import MetabaseAPI
 
     api = MetabaseAPI(url="https://fake.example.com", api_key="fake")
 
