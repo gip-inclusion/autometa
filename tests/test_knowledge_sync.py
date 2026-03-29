@@ -164,8 +164,7 @@ def test_update_doc_section_existing_section():
     doc_path.unlink()
 
 
-def test_update_doc_section_nonexistent_section_returns_false():
-    """Non-existent section returns False."""
+def test_update_doc_section_nonexistent_section_appends():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
         f.write("# Site\n\n## Other Section\n\nContent.\n")
         f.flush()
@@ -174,7 +173,10 @@ def test_update_doc_section_nonexistent_section_returns_false():
     new_content = "## Missing Section\n\nNew content."
     result = update_doc_section(doc_path, "Missing Section", new_content, dry_run=False)
 
-    assert result is False
+    assert result is True
+    text = doc_path.read_text()
+    assert "## Missing Section" in text
+    assert "New content." in text
 
     doc_path.unlink()
 

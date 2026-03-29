@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Sync Metabase dashboards to SQLite database."""
 
-import sys
 from pathlib import Path
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from skills.metabase_query.scripts.metabase import MetabaseAPI, MetabaseError
+from lib.query import MetabaseError
+from lib.sources import get_metabase
 from skills.metabase_query.scripts.cards_db import CardsDB, TOPICS
 
 # Mapping from pilotage URLs to Metabase dashboard IDs and topics
@@ -175,7 +172,7 @@ def main():
 
     # Initialize API and DB
     try:
-        api = MetabaseAPI()
+        api = get_metabase()
         print("✅ Metabase API connected")
     except Exception as e:
         print(f"❌ Failed to connect to Metabase: {e}")

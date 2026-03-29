@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from lib.query import MatomoAPI, MatomoError
+from lib.sources import get_matomo
 
 def fetch_custom_dimensions(api: MatomoAPI, site_id: int) -> list[dict]:
     try:
@@ -452,15 +453,7 @@ def update_doc_section(
     dry_run: bool = False,
     max_lines_to_overwrite: int = 5,
 ) -> bool:
-    """
-    Update a specific section in a site doc.
-
-    VERY CONSERVATIVE: Only updates if the existing section has fewer than
-    `max_lines_to_overwrite` lines (default: 5). This prevents overwriting
-    any manually curated content.
-
-    Returns True if file was modified.
-    """
+    """Update or append a section, preserving manual content (>max_lines_to_overwrite lines)."""
     if not doc_path.exists():
         return False
 
@@ -476,14 +469,14 @@ def update_doc_section(
             print(f"   Skipping {section_title}: has manual content ({existing_lines} lines)")
             return False
 
-        new_content_with_newline = new_content + "\n"
-        new_doc = re.sub(pattern, new_content_with_newline, content, flags=re.DOTALL)
-        if new_doc != content:
-            if not dry_run:
-                doc_path.write_text(new_doc)
-            return True
+        new_doc = re.sub(pattern, new_content + "\n", content, flags=re.DOTALL)
     else:
-        print(f"   Section '{section_title}' not found")
+        new_doc = content.rstrip() + "\n\n" + new_content + "\n"
+
+    if new_doc != content:
+        if not dry_run:
+            doc_path.write_text(new_doc)
+        return True
     return False
 
 def update_doc_baselines(doc_path: Path, baselines_section: str, dry_run: bool = False) -> bool:
@@ -561,7 +554,7 @@ def main():
 
     # Initialize API
     try:
-        api = MatomoAPI()
+        api = get_matomo()
         print("Matomo API connected")
     except Exception as e:
         print(f"Failed to connect to Matomo: {e}")

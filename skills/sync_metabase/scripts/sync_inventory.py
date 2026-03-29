@@ -10,19 +10,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-# Load .env file
-from dotenv import load_dotenv  # noqa: E402
-
-load_dotenv(project_root / ".env")
-
-from lib.sources import get_metabase, get_source_config, list_instances  # noqa: E402
-from skills.metabase_query.scripts.cards_db import DB_PATH, TABLE_TO_TOPIC, TOPICS, CardsDB  # noqa: E402
-from skills.metabase_query.scripts.metabase import MetabaseError  # noqa: E402
-from web.llm import generate_text  # noqa: E402
+from lib.query import MetabaseError
+from lib.sources import get_metabase, get_source_config, list_instances
+from web import config
+from skills.metabase_query.scripts.cards_db import DB_PATH, TABLE_TO_TOPIC, TOPICS, CardsDB
+from web.llm import generate_text
 
 
 def infer_topic_from_tables(tables: list[str]) -> str | None:
@@ -487,7 +479,7 @@ def sync_instance(instance_name: str, args):
         return
 
     # Output directories
-    stats_dir = project_root / knowledge_path
+    stats_dir = config.BASE_DIR / knowledge_path
     cards_dir = stats_dir / "cards"
     dashboards_dir = stats_dir / "dashboards"
 
