@@ -148,4 +148,4 @@ GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
 LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 
 # Additional directories the agent can access (beyond working directory)
-ADDITIONAL_DIRS = ["/tmp"]
+ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache")]

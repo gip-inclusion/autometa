@@ -77,8 +77,8 @@ Invoquer via l'outil `Skill` :
 | `config/sources.yaml` | Configuration des sources de données |
 | `knowledge/sites/` | Contexte par site — lire avant de requêter |
 | `knowledge/matomo/README.md` | Référence API Matomo |
-| `knowledge/stats/` | Contexte Metabase stats (IAE) |
-| `knowledge/stats/nexus.md` | Nexus (application unifiée, database_id=17) |
+| `data/cache/matomo/` | Baselines Matomo par site (synchro quotidienne depuis PostgreSQL) |
+| `data/cache/metabase/` | Inventaire cartes et dashboards Metabase (synchro quotidienne) |
 | `DATABASE_URL` (PostgreSQL) | Conversations, rapports, files d’attente agent, etc. |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
 
