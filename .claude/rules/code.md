@@ -22,6 +22,8 @@ Constantes nommées : ne pas en introduire une si elle n'est référencée qu'un
 
 Variables d'environnement : toute lecture de variable d'environnement passe par `web/config.py`. Ne jamais utiliser `os.getenv`, `os.environ.get` ou `os.environ[...]` en dehors de ce fichier pour lire une valeur de configuration. Seules exceptions : passage de l'environnement complet à un sous-processus (`dict(os.environ)`, `**os.environ`) et substitution dynamique de patterns `${env.VAR}` dans des fichiers de configuration.
 
+HTTP : utiliser exclusivement `httpx` pour toutes les requêtes HTTP. Ne jamais utiliser `requests`, `urllib.request`, ni `urllib3` directement. Chaque appel `httpx.get/post/request()` doit avoir un `timeout=` explicite (5s par défaut, plus long seulement si justifié par l'API cible). Pour les sessions avec headers/retries : `httpx.Client(transport=httpx.HTTPTransport(retries=N))`.
+
 Respecter les patterns du fichier et du module. Ne pas introduire un nouveau pattern sans raison. Nommage en français pour le domaine métier, en anglais pour le code technique.
 
 Ne jamais détailler l'implémentation dans les spécifications (CLAUDE.md, SKILL.md, knowledge, rules). Décrire le quoi et le pourquoi, pas le comment. Le code source est la référence pour l'implémentation.

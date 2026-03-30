@@ -1,8 +1,8 @@
 """Publish reports to Notion as pages in the 'Rapports publics' database."""
 
-import json
 import re
-import urllib.request
+
+import httpx
 
 from . import config
 
@@ -211,10 +211,9 @@ def notion_request(method: str, endpoint: str, payload: dict = None) -> dict:
         "Content-Type": "application/json",
     }
     url = f"https://api.notion.com/v1/{endpoint}"
-    data = json.dumps(payload).encode("utf-8") if payload else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    resp = httpx.request(method, url, json=payload, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def publish_report(
@@ -226,7 +225,7 @@ def publish_report(
 ) -> tuple[str, str]:
     """Publish markdown content to Notion. Returns (page_id, url).
 
-    Raises on API errors (urllib.error.HTTPError).
+    Raises on API errors (httpx.HTTPStatusError).
     """
     if not is_configured():
         raise RuntimeError("Notion not configured (NOTION_TOKEN / NOTION_REPORTS_DB)")

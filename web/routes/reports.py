@@ -2,8 +2,8 @@
 
 import json
 import logging
-import urllib.error
 
+import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -157,9 +157,9 @@ def publish_to_notion(report_id: int):
             website=report.website,
             original_query=report.original_query,
         )
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")[:200]
-        logger.error("Notion API error %d: %s", e.code, body)
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:200]
+        logger.error("Notion API error %d: %s", e.response.status_code, body)
         return JSONResponse({"error": "Notion API error"}, status_code=502)
     # Why: Notion client may raise various errors (network, JSON parsing, auth);
     # this endpoint must return a clean HTTP error, not crash.

@@ -6,7 +6,7 @@ import logging
 import subprocess
 from typing import Optional
 
-import requests
+import httpx
 
 from . import config
 
@@ -73,12 +73,14 @@ def ollama_generate(
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=timeout)
+        response = httpx.post(url, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         text = data.get("response", "")
         return text.strip()
-    except requests.RequestException as exc:
+    except httpx.RequestError as exc:
+        raise LLMError(f"Ollama request failed: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
         raise LLMError(f"Ollama request failed: {exc}") from exc
 
 

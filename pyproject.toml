@@ -15,7 +15,6 @@ dependencies = [
     "markdown>=3.10",
     # Utils
     "python-dotenv>=1.2.2",
-    "requests>=2.33.0",
     "pyyaml>=6.0.3",
     # Database
     "psycopg2-binary>=2.9.11",
@@ -24,6 +23,7 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "alembic>=1.18.4",
     "redis[hiredis]>=5.0.0",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
@@ -91,7 +91,6 @@ markers = [
 [tool.bandit]
 exclude_dirs = ["tests", "evals", "data", "skills"]
 skips = [
-    "B310",  # urllib.request.urlopen — used for Notion API calls and research sync (controlled URLs)
     "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]
 

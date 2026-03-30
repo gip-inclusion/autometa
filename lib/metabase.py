@@ -7,9 +7,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import httpx
 
 from .api_signals import emit_api_signal
 
@@ -73,9 +71,8 @@ class MetabaseAPI:
     """
     Client for querying the Metabase API.
 
-    Uses requests.Session for connection pooling (reuses TCP+TLS across calls).
-    Retries up to 2 times on 429/5xx errors with exponential backoff via
-    urllib3.util.retry.Retry.
+    Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
+    Retries up to 2 times on transient errors via httpx.HTTPTransport.
 
     Worst-case for a fully-failing request: ~3 min (3 attempts x ~60s read
     timeout + backoff). Pass a lower timeout if tighter bounds are needed.
@@ -95,18 +92,11 @@ class MetabaseAPI:
         self.instance = instance
         self.caller = caller
 
-        self._session = requests.Session()
-        self._session.headers["X-API-KEY"] = self.api_key
-        self._session.headers["Content-Type"] = "application/json"
-        retry = Retry(
-            total=2,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET", "POST"],
-            respect_retry_after_header=True,
+        transport = httpx.HTTPTransport(retries=2)
+        self._session = httpx.Client(
+            transport=transport,
+            headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
         )
-        self._session.mount("https://", HTTPAdapter(max_retries=retry))
-        self._session.mount("http://", HTTPAdapter(max_retries=retry))
 
     def close(self) -> None:
         self._session.close()
@@ -128,15 +118,17 @@ class MetabaseAPI:
         url = f"{self.url}{endpoint}"
 
         try:
-            resp = self._session.request(method, url, json=data if data else None, timeout=(10, timeout))
+            resp = self._session.request(
+                method, url, json=data if data else None, timeout=httpx.Timeout(timeout, connect=10)
+            )
             resp.raise_for_status()
             return resp.json()
 
-        except requests.RequestException as e:
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            body = getattr(getattr(e, "response", None), "text", str(e))
-            error_msg = f"HTTP {status}: {body}" if status else str(e)
-            raise MetabaseError(error_msg) from e
+        except httpx.HTTPStatusError as e:
+            raise MetabaseError(f"HTTP {e.response.status_code}: {e.response.text}") from e
+
+        except httpx.RequestError as e:
+            raise MetabaseError(str(e)) from e
 
     def _parse_result(self, data: dict) -> QueryResult:
         # Check for query errors (Metabase returns 202 with error in body)

@@ -4,9 +4,7 @@ import logging
 import urllib.parse
 from typing import Any, Optional
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import httpx
 
 from .api_signals import emit_api_signal
 from .matomo_ui import get_ui_url
@@ -76,9 +74,8 @@ class MatomoAPI:
     """
     Client for querying the Matomo API.
 
-    Uses requests.Session for connection pooling (reuses TCP+TLS across calls).
-    Retries up to 2 times on 429/5xx errors with exponential backoff via
-    urllib3.util.retry.Retry.
+    Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
+    Retries up to 2 times on transient errors via httpx.HTTPTransport.
 
     Worst-case for a fully-failing request: ~9 min (3 attempts x ~180s read
     timeout + backoff). Pass a lower timeout if tighter bounds are needed.
@@ -96,16 +93,8 @@ class MatomoAPI:
         self.instance = instance
         self.caller = caller
 
-        self._session = requests.Session()
-        retry = Retry(
-            total=2,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"],
-            respect_retry_after_header=True,
-        )
-        self._session.mount("https://", HTTPAdapter(max_retries=retry))
-        self._session.mount("http://", HTTPAdapter(max_retries=retry))
+        transport = httpx.HTTPTransport(retries=2)
+        self._session = httpx.Client(transport=transport)
 
     def close(self) -> None:
         self._session.close()
@@ -131,11 +120,11 @@ class MatomoAPI:
                 # POST: flatten nested params and use data= (form-encoded)
                 flattened = self._flatten_params(params)
                 base_params.update(flattened)
-                resp = self._session.post(url, data=base_params, timeout=(10, timeout))
+                resp = self._session.post(url, data=base_params, timeout=httpx.Timeout(timeout, connect=10))
             else:
                 # GET: use params= (query string)
                 base_params.update(params)
-                resp = self._session.get(url, params=base_params, timeout=(10, timeout))
+                resp = self._session.get(url, params=base_params, timeout=httpx.Timeout(timeout, connect=10))
 
             resp.raise_for_status()
 
@@ -176,11 +165,11 @@ class MatomoAPI:
         except MatomoError:
             raise
 
-        except requests.RequestException as e:
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            body = getattr(getattr(e, "response", None), "text", str(e))
-            error_msg = f"HTTP {status}: {body}" if status else str(e)
-            raise MatomoError(f"Request failed: {error_msg}") from e
+        except httpx.HTTPStatusError as e:
+            raise MatomoError(f"Request failed: HTTP {e.response.status_code}: {e.response.text}") from e
+
+        except httpx.RequestError as e:
+            raise MatomoError(f"Request failed: {e}") from e
 
     def request(self, method: str, timeout: int = 180, **params) -> Any:
         return self._request(method, params, timeout)

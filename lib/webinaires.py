@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Iterator
 
-import requests
+import httpx
 
 from lib.query import CallerType, execute_metabase_query
 from web import config
@@ -124,8 +124,7 @@ class LivestormClient:
         self.api_key = api_key or config.LIVESTORM_API_KEY
         if not self.api_key:
             raise ValueError("LIVESTORM_API_KEY not set")
-        self._session = requests.Session()
-        self._session.headers["Authorization"] = self.api_key
+        self._session = httpx.Client(headers={"Authorization": self.api_key})
         self.request_count = 0
         self.monthly_remaining = None
 
@@ -151,8 +150,9 @@ class LivestormClient:
                 continue
             resp.raise_for_status()
             return resp.json()
-        raise requests.HTTPError(
+        raise httpx.HTTPStatusError(
             f"Failed after {retries} retries: {resp.status_code} {path}",
+            request=resp.request,
             response=resp,
         )
 
@@ -197,8 +197,7 @@ class GristClient:
             raise ValueError("GRIST_API_KEY not set")
         if not self.doc_id:
             raise ValueError("GRIST_WEBINAIRES_DOC_ID not set")
-        self._session = requests.Session()
-        self._session.headers["Authorization"] = f"Bearer {self.api_key}"
+        self._session = httpx.Client(headers={"Authorization": f"Bearer {self.api_key}"})
         self.request_count = 0
 
     def get_records(self, table_id: str) -> list[dict]:

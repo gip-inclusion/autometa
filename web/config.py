@@ -147,8 +147,8 @@ GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
 # Livestorm API
 LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 
-# Redis
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# Redis (Scalingo provides SCALINGO_REDIS_URL)
+REDIS_URL = os.getenv("REDIS_URL") or os.getenv("SCALINGO_REDIS_URL") or "redis://localhost:6379/0"
 
 # Web server
 WEB_WORKERS = int(os.getenv("WEB_WORKERS", os.cpu_count() or 1))

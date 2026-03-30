@@ -5,11 +5,11 @@ import argparse
 import json
 import os
 import sys
-import urllib.request
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
+import httpx
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -56,21 +56,20 @@ def push_to_notion(title: str, category: str, description: str = None) -> str | 
     }
 
     try:
-        req = urllib.request.Request(
+        resp = httpx.post(
             "https://api.notion.com/v1/pages",
-            data=json.dumps(payload).encode("utf-8"),
+            json=payload,
             headers=headers,
-            method="POST",
+            timeout=10,
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode("utf-8"))
-                page_id = data.get("id")
-                print("  → Synced to Notion")
-                return page_id
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")[:100]
-        print(f"  → Notion sync failed: {e.code} {body}")
+        resp.raise_for_status()
+        data = resp.json()
+        page_id = data.get("id")
+        print("  → Synced to Notion")
+        return page_id
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:100]
+        print(f"  → Notion sync failed: {e.response.status_code} {body}")
         return None
     except Exception as e:
         print(f"  → Notion sync error: {e}")

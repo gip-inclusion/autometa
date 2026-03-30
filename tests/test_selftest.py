@@ -56,7 +56,7 @@ def _selftest_client():
     ],
 )
 def test_claude_status_page_payload(mocker, json_payload, expect_ok, detail_substr, also_in_detail):
-    mock_get = mocker.patch("web.selftest.requests.get")
+    mock_get = mocker.patch("web.selftest.httpx.get")
     mock_resp = mocker.MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = json_payload
@@ -75,7 +75,7 @@ def test_claude_status_page_payload(mocker, json_payload, expect_ok, detail_subs
 
 def test_claude_status_page_http_error(mocker):
     mocker.patch(
-        "web.selftest.requests.get",
+        "web.selftest.httpx.get",
         return_value=mocker.MagicMock(status_code=503, text=""),
     )
     ok, detail = _check_claude_status_page()
@@ -84,7 +84,7 @@ def test_claude_status_page_http_error(mocker):
 
 
 def test_claude_status_page_invalid_json(mocker):
-    mock_get = mocker.patch("web.selftest.requests.get")
+    mock_get = mocker.patch("web.selftest.httpx.get")
     mock_resp = mocker.MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.side_effect = json.JSONDecodeError("msg", "", 0)
@@ -185,8 +185,8 @@ def test_fmt(check, expect_ok_glyph, expect_fail_glyph, extra_assert):
 
 
 def test_run_all_checks_produces_check_instances(mocker):
-    mock_head = mocker.patch("web.selftest.requests.head")
-    mock_get = mocker.patch("web.selftest.requests.get")
+    mock_head = mocker.patch("web.selftest.httpx.head")
+    mock_get = mocker.patch("web.selftest.httpx.get")
     mock_subprocess = mocker.patch("web.selftest.subprocess.run")
     mock_config = mocker.patch("web.selftest.config")
     mock_config.BASE_DIR = BASE_DIR

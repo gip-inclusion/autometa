@@ -52,7 +52,7 @@ def test_flatten_params(params, expected):
 
 def test_post_support_request_uses_post_when_specified(mocker):
     """_request uses POST method when http_method='POST'."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -74,7 +74,7 @@ def test_post_support_request_uses_post_when_specified(mocker):
 
 def test_post_support_post_flattens_parameters(mocker):
     """POST requests flatten nested parameters."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -103,7 +103,7 @@ def test_post_support_post_flattens_parameters(mocker):
 
 def test_post_support_get_still_works_with_default(mocker):
     """GET requests still work (backward compatibility)."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -125,7 +125,7 @@ def test_post_support_get_still_works_with_default(mocker):
 
 def test_post_support_post_method_convenience(mocker):
     """post() method is a convenience wrapper for POST requests."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -150,7 +150,7 @@ def test_post_support_post_method_convenience(mocker):
 
 def test_container_helpers_get_container(mocker):
     """get_container retrieves container with draft and releases."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -177,7 +177,7 @@ def test_container_helpers_get_container(mocker):
 
 def test_container_helpers_get_draft_version(mocker):
     """get_draft_version extracts draft ID from container."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -197,7 +197,7 @@ def test_container_helpers_get_draft_version(mocker):
 
 def test_trigger_helpers_add_trigger_valid_type(mocker):
     """add_trigger creates trigger with valid type."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -243,7 +243,7 @@ def test_trigger_helpers_add_trigger_invalid_type_raises():
 
 def test_trigger_helpers_update_trigger(mocker):
     """update_trigger modifies existing trigger."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -265,7 +265,7 @@ def test_trigger_helpers_update_trigger(mocker):
 
 def test_trigger_helpers_delete_trigger(mocker):
     """delete_trigger removes trigger from version."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -285,7 +285,7 @@ def test_trigger_helpers_delete_trigger(mocker):
 
 def test_tag_helpers_add_tag_valid_params(mocker):
     """add_tag creates tag with valid parameters."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -373,7 +373,7 @@ def test_tag_helpers_add_tag_invalid_html_position_raises():
 
 def test_tag_helpers_update_tag(mocker):
     """update_tag modifies existing tag."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -393,7 +393,7 @@ def test_tag_helpers_update_tag(mocker):
 
 def test_tag_helpers_delete_tag(mocker):
     """delete_tag removes tag."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -412,7 +412,7 @@ def test_tag_helpers_delete_tag(mocker):
 
 def test_tag_helpers_pause_tag(mocker):
     """pause_tag sets status to paused."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -431,7 +431,7 @@ def test_tag_helpers_pause_tag(mocker):
 
 def test_tag_helpers_resume_tag(mocker):
     """resume_tag sets status to active."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -450,7 +450,7 @@ def test_tag_helpers_resume_tag(mocker):
 
 def test_workflow_helpers_publish_version_valid_environment(mocker):
     """publish_version publishes to valid environment."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -481,7 +481,7 @@ def test_workflow_helpers_publish_version_invalid_environment_raises():
 
 def test_workflow_helpers_enable_preview(mocker):
     """enable_preview activates preview mode."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -500,7 +500,7 @@ def test_workflow_helpers_enable_preview(mocker):
 
 def test_workflow_helpers_disable_preview(mocker):
     """disable_preview deactivates preview mode."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200
@@ -519,7 +519,7 @@ def test_workflow_helpers_disable_preview(mocker):
 
 def test_workflow_helpers_export_version(mocker):
     """export_version retrieves version data."""
-    mock_session_class = mocker.patch("lib.matomo.requests.Session")
+    mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
     mock_response.status_code = 200

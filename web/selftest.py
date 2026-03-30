@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-import requests
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
@@ -225,7 +225,7 @@ def _check_claude_cli() -> tuple[bool, str]:
 
 def _check_claude_status_page() -> tuple[bool, str]:
     url = "https://status.claude.com/api/v2/summary.json"
-    resp = requests.get(url, timeout=5, headers={"Accept": "application/json"})
+    resp = httpx.get(url, timeout=5, headers={"Accept": "application/json"})
     if resp.status_code != 200:
         return (False, f"HTTP {resp.status_code}")
     try:
@@ -282,7 +282,7 @@ def _check_matomo() -> tuple[bool, str]:
     from lib.query import get_matomo
 
     api = get_matomo("inclusion")
-    resp = requests.get(
+    resp = httpx.get(
         f"https://{api.url}/index.php",
         params={
             "module": "API",
@@ -302,7 +302,7 @@ def _check_metabase_instance(instance: str) -> tuple[bool, str]:
 
     cfg = get_source_config("metabase", instance)
     url = cfg["url"].rstrip("/") + "/api/health"
-    resp = requests.get(url, timeout=SELFTEST_TIMEOUT_SEC)
+    resp = httpx.get(url, timeout=SELFTEST_TIMEOUT_SEC)
     if resp.status_code == 200:
         return (True, "healthy")
     return (False, f"HTTP {resp.status_code}")
@@ -312,7 +312,7 @@ def _check_notion() -> tuple[bool, str]:
     token = config.NOTION_TOKEN
     if not token:
         return (False, "NOTION_TOKEN not set")
-    resp = requests.get(
+    resp = httpx.get(
         "https://api.notion.com/v1/users/me",
         headers={
             "Authorization": f"Bearer {token}",
@@ -330,7 +330,7 @@ def _check_grist() -> tuple[bool, str]:
     doc_id = config.GRIST_WEBINAIRES_DOC_ID
     if not api_key or not doc_id:
         return (False, "GRIST_API_KEY or DOC_ID not set")
-    resp = requests.get(
+    resp = httpx.get(
         f"https://grist.numerique.gouv.fr/api/docs/{doc_id}/tables",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=SELFTEST_TIMEOUT_SEC,
@@ -345,7 +345,7 @@ def _check_livestorm() -> tuple[bool, str]:
     api_key = config.LIVESTORM_API_KEY
     if not api_key:
         return (False, "LIVESTORM_API_KEY not set")
-    resp = requests.get(
+    resp = httpx.get(
         "https://api.livestorm.co/v1/ping",
         headers={"Authorization": api_key},
         timeout=SELFTEST_TIMEOUT_SEC,
@@ -359,7 +359,7 @@ def _check_slack() -> tuple[bool, str]:
     token = config.SLACK_BOT_TOKEN
     if not token:
         return (False, "SLACK_BOT_TOKEN not set")
-    resp = requests.head(
+    resp = httpx.head(
         "https://slack.com/api/auth.test",
         headers={"Authorization": f"Bearer {token}"},
         timeout=SELFTEST_TIMEOUT_SEC,
