@@ -1,15 +1,14 @@
-"""Task runner: runs agent tasks and notifies SSE handlers.
+"""Task runner: distributed agent execution via Redis.
 
-Replaces the former ProcessManager + SignalRegistry. Tasks are submitted
-directly (no DB polling) and notifications use in-memory asyncio.Events.
+Each uvicorn worker runs a consumer loop that picks tasks from a shared Redis
+list. SSE notifications use Redis pub/sub so any worker can serve any stream.
 """
 
 import asyncio
 import json
 import logging
 import threading
-import time
-from dataclasses import dataclass, field
+import uuid
 
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
@@ -18,45 +17,44 @@ from lib.tool_taxonomy import classify_tool
 from . import config
 from .agents import get_agent
 from .database import store
+from .redis_conn import get_redis
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class _Signal:
-    event: asyncio.Event = field(default_factory=asyncio.Event)
-    done: bool = False
-    counter: int = 0
-    created_at: float = field(default_factory=time.monotonic)
+PREFIX = "autometa"
 
 
 class TaskRunner:
     def __init__(self):
         self.backend = get_agent()
         self._running: dict[str, asyncio.Task] = {}
-        self._queue: list[tuple] = []
-        self._signals: dict[str, _Signal] = {}
-        self._eviction_task: asyncio.Task | None = None
+        self._cancel_tasks: dict[str, asyncio.Task] = {}
+        self._worker_id = uuid.uuid4().hex[:12]
+        self._consumer_task: asyncio.Task | None = None
+        self._heartbeat_task: asyncio.Task | None = None
 
     async def startup(self):
-        cleared = await asyncio.to_thread(store.clear_all_needs_response)
-        if cleared:
-            for conv_id in cleared:
-                store.add_message(conv_id, "assistant", "*Interrompu (redémarrage serveur).*")
-            logger.info(f"Cleared {len(cleared)} stuck conversations on startup")
-        self._eviction_task = asyncio.create_task(self._evict_loop())
-        logger.info(f"Task runner started (max_concurrent={config.MAX_CONCURRENT_AGENTS})")
+        r = await get_redis()
+        await self._recover_stuck(r)
+        self._consumer_task = asyncio.create_task(self._consumer_loop())
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        logger.info(f"Task runner started (worker={self._worker_id}, max_concurrent={config.MAX_CONCURRENT_AGENTS})")
 
     async def shutdown(self):
-        if self._eviction_task:
-            self._eviction_task.cancel()
+        for task in (self._consumer_task, self._heartbeat_task):
+            if task:
+                task.cancel()
+        for task in self._cancel_tasks.values():
+            task.cancel()
         for task in self._running.values():
             task.cancel()
         if self._running:
             await asyncio.gather(*self._running.values(), return_exceptions=True)
+        r = await get_redis()
+        await r.delete(f"{PREFIX}:worker:{self._worker_id}")
         logger.info("Task runner stopped")
 
-    def submit(
+    async def submit(
         self,
         conv_id: str,
         prompt: str,
@@ -64,80 +62,124 @@ class TaskRunner:
         session_id: str | None = None,
         user_email: str | None = None,
     ):
-        payload = (conv_id, prompt, history, session_id, user_email)
-        if conv_id in self._running:
-            logger.warning(f"Task already running for {conv_id}, ignoring")
-            return
-        if len(self._running) < config.MAX_CONCURRENT_AGENTS:
-            self._start(payload)
-        else:
-            logger.info(f"Task queued for {conv_id} ({len(self._running)} running, {len(self._queue)} queued)")
-            self._queue.append(payload)
+        r = await get_redis()
+        payload = json.dumps({
+            "conv_id": conv_id,
+            "prompt": prompt,
+            "history": history,
+            "session_id": session_id,
+            "user_email": user_email,
+        })
+        await r.rpush(f"{PREFIX}:tasks", payload)
 
     async def cancel(self, conv_id: str) -> bool:
-        self._queue = [p for p in self._queue if p[0] != conv_id]
+        r = await get_redis()
+        await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
         if conv_id in self._running:
             await self.backend.cancel(conv_id)
             self._running.pop(conv_id, None)
         store.update_conversation(conv_id, needs_response=False)
         store.add_message(conv_id, "assistant", "*Interrompu.*")
-        self.notify_done(conv_id)
+        await self._notify_done(conv_id)
         return True
 
-    def is_running(self, conv_id: str) -> bool:
-        task = self._running.get(conv_id)
-        return task is not None and not task.done()
+    async def notify(self, conv_id: str):
+        r = await get_redis()
+        await r.publish(f"{PREFIX}:conv:{conv_id}", "update")
 
-    def notify(self, conv_id: str):
-        sig = self._signals.get(conv_id)
-        if sig is None:
-            return
-        sig.counter += 1
-        sig.event.set()
+    async def notify_done(self, conv_id: str):
+        await self._notify_done(conv_id)
 
-    def notify_done(self, conv_id: str):
-        sig = self._get_or_create_signal(conv_id)
-        sig.done = True
-        sig.counter += 1
-        sig.event.set()
+    async def _notify_done(self, conv_id: str):
+        r = await get_redis()
+        await r.set(f"{PREFIX}:done:{conv_id}", "1", ex=600)
+        await r.publish(f"{PREFIX}:conv:{conv_id}", "done")
 
-    async def wait_for_update(self, conv_id: str, timeout: float = 3.0) -> bool:
-        sig = self._get_or_create_signal(conv_id)
-        counter_before = sig.counter
+    async def is_done(self, conv_id: str) -> bool:
+        r = await get_redis()
+        return await r.exists(f"{PREFIX}:done:{conv_id}") > 0
+
+    async def cleanup(self, conv_id: str):
+        r = await get_redis()
+        await r.delete(f"{PREFIX}:done:{conv_id}")
+
+    async def subscribe(self, conv_id: str):
+        r = await get_redis()
+        pubsub = r.pubsub()
+        await pubsub.subscribe(f"{PREFIX}:conv:{conv_id}")
+        return pubsub
+
+    async def _consumer_loop(self):
+        r = await get_redis()
+        while True:
+            if len(self._running) >= config.MAX_CONCURRENT_AGENTS:
+                await asyncio.sleep(0.5)
+                continue
+            result = await r.blpop(f"{PREFIX}:tasks", timeout=1)
+            if result is None:
+                continue
+            _, payload_str = result
+            payload = json.loads(payload_str)
+            conv_id = payload["conv_id"]
+            if conv_id in self._running:
+                continue
+            # Skip stale tasks (already handled or cancelled)
+            conv = store.get_conversation(conv_id, include_messages=False)
+            if not conv or not conv.needs_response:
+                continue
+            await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
+            task = asyncio.create_task(
+                self._run_agent(
+                    conv_id,
+                    payload["prompt"],
+                    payload["history"],
+                    payload.get("session_id"),
+                    payload.get("user_email"),
+                )
+            )
+            self._running[conv_id] = task
+
+    async def _heartbeat_loop(self):
+        r = await get_redis()
+        while True:
+            await r.set(f"{PREFIX}:worker:{self._worker_id}", "1", ex=30)
+            for conv_id in list(self._running):
+                await r.expire(f"{PREFIX}:running:{conv_id}", 300)
+            await asyncio.sleep(10)
+
+    async def _recover_stuck(self, r):
+        stuck = store.get_running_conversation_ids()
+        cleared = 0
+        for conv_id in stuck:
+            worker = await r.get(f"{PREFIX}:running:{conv_id}")
+            if worker and await r.exists(f"{PREFIX}:worker:{worker}"):
+                continue
+            store.update_conversation(conv_id, needs_response=False)
+            store.add_message(conv_id, "assistant", "*Interrompu (redémarrage serveur).*")
+            await r.delete(f"{PREFIX}:running:{conv_id}")
+            cleared += 1
+        if cleared:
+            logger.info(f"Cleared {cleared} stuck conversations on startup")
+
+    async def _listen_cancel(self, conv_id: str):
+        r = await get_redis()
+        pubsub = r.pubsub()
+        await pubsub.subscribe(f"{PREFIX}:cancel:{conv_id}")
         try:
-            await asyncio.wait_for(sig.event.wait(), timeout=timeout)
-            sig.event.clear()
-            return True
-        except asyncio.TimeoutError:
-            return sig.counter > counter_before
-
-    def is_done(self, conv_id: str) -> bool:
-        sig = self._signals.get(conv_id)
-        return sig is not None and sig.done
-
-    def cleanup(self, conv_id: str):
-        self._signals.pop(conv_id, None)
-
-    def _get_or_create_signal(self, conv_id: str) -> _Signal:
-        if conv_id not in self._signals:
-            self._signals[conv_id] = _Signal()
-        return self._signals[conv_id]
-
-    def _start(self, payload: tuple):
-        conv_id = payload[0]
-        task = asyncio.create_task(self._run_agent(*payload))
-        self._running[conv_id] = task
-
-    def _drain_queue(self):
-        while self._queue and len(self._running) < config.MAX_CONCURRENT_AGENTS:
-            payload = self._queue.pop(0)
-            if payload[0] not in self._running:
-                logger.info(f"Starting queued task for {payload[0]}")
-                self._start(payload)
+            async for msg in pubsub.listen():
+                if msg["type"] == "message":
+                    await self.backend.cancel(conv_id)
+                    break
+        finally:
+            await pubsub.unsubscribe()
+            await pubsub.aclose()
 
     async def _run_agent(
         self, conversation_id: str, prompt: str, history: list[dict], session_id: str | None, user_email: str | None
     ):
+        cancel_task = asyncio.create_task(self._listen_cancel(conversation_id))
+        self._cancel_tasks[conversation_id] = cancel_task
+
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
@@ -158,7 +200,7 @@ class TaskRunner:
                         assistant_msg_id = msg.id if msg else None
                     else:
                         store.update_message(assistant_msg_id, full_text)
-                    self.notify(conversation_id)
+                    await self.notify(conversation_id)
 
                 elif event.type in ("tool_use", "tool_result"):
                     if event.type == "tool_use":
@@ -168,7 +210,7 @@ class TaskRunner:
                         assistant_text_parts = []
                     content = _serialize_tool_event(event, conversation_id, user_email)
                     store.add_message(conversation_id, event.type, content)
-                    self.notify(conversation_id)
+                    await self.notify(conversation_id)
 
                 elif event.type == "system":
                     if event.raw.get("subtype") == "init":
@@ -179,7 +221,7 @@ class TaskRunner:
                         _persist_usage(conversation_id, event.raw["usage"])
                     if event.raw.get("subtype") == "api_retry":
                         store.add_message(conversation_id, "system", json.dumps(event.raw))
-                        self.notify(conversation_id)
+                        await self.notify(conversation_id)
 
             if assistant_text_parts:
                 all_assistant_texts.extend(assistant_text_parts)
@@ -188,23 +230,18 @@ class TaskRunner:
             if full_response:
                 _check_failure(conversation_id, full_response)
 
-        # Why: top-level agent error handler — must not crash the task runner event loop.
+        # Why: top-level agent error handler — must not crash the consumer loop.
         except Exception:
             logger.exception(f"Agent error for {conversation_id}")
         finally:
             store.update_conversation(conversation_id, needs_response=False)
-            self.notify_done(conversation_id)
+            await self.notify_done(conversation_id)
             self._running.pop(conversation_id, None)
-            self._drain_queue()
+            cancel_task.cancel()
+            self._cancel_tasks.pop(conversation_id, None)
+            r = await get_redis()
+            await r.delete(f"{PREFIX}:running:{conversation_id}")
             logger.info(f"Agent finished for {conversation_id}")
-
-    async def _evict_loop(self):
-        while True:
-            await asyncio.sleep(30)
-            now = time.monotonic()
-            stale = [cid for cid, sig in self._signals.items() if sig.done and (now - sig.created_at) > 600]
-            for cid in stale:
-                del self._signals[cid]
 
 
 def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -> str:

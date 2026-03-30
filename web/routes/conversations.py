@@ -458,7 +458,7 @@ User request: """
 
         prompt = knowledge_context + prompt
 
-    runner.submit(conv_id, prompt, history, conv.session_id, user_email)
+    await runner.submit(conv_id, prompt, history, conv.session_id, user_email)
 
     return {
         "status": "started",
@@ -500,7 +500,7 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
             history.append({"role": msg.type, "content": msg.content})
 
     store.update_conversation(conv_id, needs_response=True)
-    runner.submit(conv_id, last_user_msg.content, history, conv.session_id, conv.user_id)
+    await runner.submit(conv_id, last_user_msg.content, history, conv.session_id, conv.user_id)
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
@@ -549,62 +549,53 @@ async def stream_conversation(
 
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
-        logger.debug(
-            "SSE stream start: conv=%s, after=%d, watermark=%d",
-            conv_id,
-            after,
-            last_msg_id,
-        )
         max_seconds = 300
-        fallback_interval = 5  # safety-net DB poll every 5s
+        fallback_interval = 5
         start = time.monotonic()
         last_fallback = start
 
-        try:
-            # Check if conversation is already complete (PM finished before
-            # SSE connects, or conversation was never running)
-            if runner.is_done(conv_id) or not conv.needs_response:
-                for chunk in await _drain_unseen(last_msg_id):
-                    yield chunk
-                return
+        if await runner.is_done(conv_id) or not conv.needs_response:
+            for chunk in await _drain_unseen(last_msg_id):
+                yield chunk
+            return
 
+        pubsub = await runner.subscribe(conv_id)
+        try:
             while (time.monotonic() - start) < max_seconds:
-                signaled = await runner.wait_for_update(conv_id, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
                 now = time.monotonic()
 
-                if signaled:
+                if msg and msg["type"] == "message":
                     new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
-                    for msg in new_messages:
-                        last_msg_id = msg.id
-                        yield _format_msg(msg)
+                    for m in new_messages:
+                        last_msg_id = m.id
+                        yield _format_msg(m)
 
-                # Completion check: in-memory flag (0 queries)
-                if runner.is_done(conv_id):
-                    for chunk in await _drain_unseen(last_msg_id):
-                        yield chunk
-                    return
-
-                # Safety-net fallback: check DB every 5s for missed signals
-                if not signaled and (now - last_fallback) >= fallback_interval:
-                    last_fallback = now
-                    new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
-                    for msg in new_messages:
-                        last_msg_id = msg.id
-                        yield _format_msg(msg)
-
-                    updated = await asyncio.to_thread(store.get_conversation, conv_id, False)
-                    if updated and not updated.needs_response:
+                    if msg["data"] == "done":
                         for chunk in await _drain_unseen(last_msg_id):
                             yield chunk
                         return
 
-                # Heartbeat keeps proxies alive (only when idle)
-                if not signaled:
+                if not msg and (now - last_fallback) >= fallback_interval:
+                    last_fallback = now
+                    new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
+                    for m in new_messages:
+                        last_msg_id = m.id
+                        yield _format_msg(m)
+
+                    if await runner.is_done(conv_id):
+                        for chunk in await _drain_unseen(last_msg_id):
+                            yield chunk
+                        return
+
+                if not msg:
                     yield _sse_event("heartbeat", {})
 
             yield _sse_event("error", {"content": "Timeout waiting for agent"})
         finally:
-            runner.cleanup(conv_id)
+            await pubsub.unsubscribe()
+            await pubsub.aclose()
+            await runner.cleanup(conv_id)
 
     return StreamingResponse(
         generate(),

@@ -1,8 +1,4 @@
-"""
-Tests for SSE streaming and event storage.
-
-Run with: pytest tests/test_sse_streaming.py -v
-"""
+"""Tests for SSE streaming and event storage."""
 
 import asyncio
 import importlib
@@ -91,30 +87,23 @@ def _parse_sse_events(response_data: bytes) -> list[dict]:
 
 
 def _simulate_pm(conv_id, messages, delay=0.1):
-    """Simulate the process manager writing messages then clearing needs_response."""
+    """Simulate the task runner writing messages then signaling done via Redis."""
 
     def _run():
         time.sleep(delay)
-        from web.database import store
-        from web.runner import runner
+        import redis as sync_redis
 
+        from web import config
+        from web.database import store
+
+        r = sync_redis.from_url(config.REDIS_URL, decode_responses=True)
         for msg_type, content in messages:
-            store.add_message(
-                conv_id,
-                msg_type,
-                content if isinstance(content, str) else json.dumps(content),
-            )
-            try:
-                loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(runner.notify, conv_id)
-            except RuntimeError:
-                runner.notify(conv_id)
+            store.add_message(conv_id, msg_type, content if isinstance(content, str) else json.dumps(content))
+            r.publish(f"autometa:conv:{conv_id}", "update")
         store.update_conversation(conv_id, needs_response=False)
-        try:
-            loop = asyncio.get_event_loop()
-            loop.call_soon_threadsafe(runner.notify_done, conv_id)
-        except RuntimeError:
-            runner.notify_done(conv_id)
+        r.set(f"autometa:done:{conv_id}", "1", ex=600)
+        r.publish(f"autometa:conv:{conv_id}", "done")
+        r.close()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -178,17 +167,24 @@ def test_sse_format_tool_events_in_sse(app, client, conversation):
     assert "assistant" in types
 
 
+def _sync_redis():
+    import redis as sync_redis
+
+    from web import config
+
+    return sync_redis.from_url(config.REDIS_URL, decode_responses=True)
+
+
 def test_race_condition_pm_writes_before_sse_connect(app, client):
-    """Messages written by PM before SSE connect must still be streamed."""
     from web.database import store
-    from web.runner import runner
 
     conv = store.create_conversation(user_id="test@example.com")
     user_msg = store.add_message(conv.id, "user", "Hello")
     store.update_conversation(conv.id, needs_response=True)
 
     store.add_message(conv.id, "assistant", "Fast response")
-    runner.notify(conv.id)
+    r = _sync_redis()
+    r.publish(f"autometa:conv:{conv.id}", "update")
 
     t = _simulate_pm(conv.id, [("assistant", "Second part")])
     response = client.get(
@@ -196,26 +192,28 @@ def test_race_condition_pm_writes_before_sse_connect(app, client):
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     t.join()
+    r.close()
     events = _parse_sse_events(response.content)
     assistant = [e for e in events if e["event"] == "assistant"]
 
-    assert len(assistant) >= 1, "No assistant events in SSE stream! Messages written before SSE connect were lost."
+    assert len(assistant) >= 1
     assert assistant[0]["data"]["content"] == "Fast response"
 
 
 def test_race_condition_pm_finishes_before_sse_connect(app, client):
-    """PM finishes entirely before SSE connect — messages must still arrive."""
     from web.database import store
-    from web.runner import runner
 
     conv = store.create_conversation(user_id="test@example.com")
     user_msg = store.add_message(conv.id, "user", "Hello")
     store.update_conversation(conv.id, needs_response=True)
 
     store.add_message(conv.id, "assistant", "Instant answer")
-    runner.notify(conv.id)
+    r = _sync_redis()
+    r.publish(f"autometa:conv:{conv.id}", "update")
     store.update_conversation(conv.id, needs_response=False)
-    runner.notify_done(conv.id)
+    r.set(f"autometa:done:{conv.id}", "1", ex=600)
+    r.publish(f"autometa:conv:{conv.id}", "done")
+    r.close()
 
     response = client.get(
         f"/api/conversations/{conv.id}/stream?after={user_msg.id}",

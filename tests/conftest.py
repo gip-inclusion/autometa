@@ -69,7 +69,10 @@ def truncate_all_tables():
 
 @pytest.fixture
 def app():
+    import web.redis_conn
     from web import database
+
+    web.redis_conn._pool = None
 
     importlib.reload(database)
 
@@ -78,6 +81,7 @@ def app():
     yield fastapi_app
 
     truncate_all_tables()
+    web.redis_conn._pool = None
 
 
 @pytest.fixture

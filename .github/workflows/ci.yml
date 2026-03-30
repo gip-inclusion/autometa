@@ -67,8 +67,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 3
     env:
       DATABASE_URL: postgresql://autometa:autometa@localhost:5432/autometa_test
+      REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -76,9 +86,7 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev --frozen
       - name: Unit tests
-        run: >
-          uv run pytest tests/ -q --tb=short -m "not integration"
-          --ignore=tests/test_metabase_answers.py
+        run: uv run pytest tests/ -q --tb=short -m "not integration"
 
   docker:
     name: Docker

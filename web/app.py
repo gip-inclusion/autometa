@@ -14,6 +14,7 @@ from . import config, sync_to_s3
 from . import s3 as s3_module
 from .interactive_apps import scan_interactive_apps
 from .logging_utils import setup_logging
+from .redis_conn import close_redis
 from .runner import runner
 
 setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI):
     yield
 
     await runner.shutdown()
+    await close_redis()
 
 
 # Create FastAPI app
@@ -135,7 +137,7 @@ def main():
         host=config.HOST,
         port=config.PORT,
         reload=config.DEBUG,
-        workers=1,  # required: PM ↔ SSE signals are in-process (see lifespan)
+        workers=config.WEB_WORKERS,
     )
 
 

@@ -19,6 +19,6 @@ security:
 	uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt && uv run --frozen pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539
 
 test:
-	uv run --frozen pytest tests/ -q --tb=short -m "not integration" --ignore=tests/test_metabase_answers.py
+	uv run --frozen pytest tests/ -q --tb=short -m "not integration"
 
 ci: lint security test

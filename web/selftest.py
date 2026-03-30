@@ -162,8 +162,22 @@ def _check_task_runner() -> tuple[bool, str]:
     from .runner import runner
 
     running = len(runner._running)
-    queued = len(runner._queue)
-    return (True, f"{running} running, {queued} queued")
+    return (True, f"{running} running on worker {runner._worker_id}")
+
+
+def _check_redis() -> tuple[bool, str]:
+    import time
+
+    import redis
+
+    from . import config
+
+    t0 = time.monotonic()
+    r = redis.from_url(config.REDIS_URL)
+    r.ping()
+    latency_ms = int((time.monotonic() - t0) * 1000)
+    r.close()
+    return (True, f"ping {latency_ms}ms")
 
 
 def _check_conversation_roundtrip() -> tuple[bool, str]:
@@ -359,6 +373,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     specs: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
         ("PostgreSQL", _check_postgresql),
         ("Admin users", _check_admin_users),
+        ("Redis", _check_redis),
         ("Task Runner", _check_task_runner),
         ("Conversation roundtrip", _check_conversation_roundtrip),
         ("Claude CLI", _check_claude_cli),

@@ -71,7 +71,7 @@ def api():
     return get_metabase(instance="stats")
 
 
-@requires_credentials
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "case",
     KNOWN_ANSWERS,
@@ -97,28 +97,28 @@ def test_known_answers(api, case: ExpectedAnswer):
             assert expected in all_text, f"Expected '{expected}' not found in results for question: {case.question}"
 
 
+@pytest.mark.integration
 def test_card_discovery_search_file_active():
-    """Can find cards about file active."""
     db = load_cards_db()
     cards = db.search("file active")
-    assert len(cards) > 0, "Should find cards about file active"
+    assert len(cards) > 0
 
 
+@pytest.mark.integration
 def test_card_discovery_search_candidatures():
-    """Can find cards about candidatures."""
     db = load_cards_db()
     cards = db.search("candidature")
-    assert len(cards) > 0, "Should find cards about candidatures"
+    assert len(cards) > 0
 
 
+@pytest.mark.integration
 def test_card_discovery_search_by_table():
-    """Can find cards by table name."""
     db = load_cards_db()
     cards = db.by_table("candidatures_echelle_locale")
-    assert len(cards) > 0, "Should find cards using this table"
+    assert len(cards) > 0
 
 
-@requires_credentials
+@pytest.mark.integration
 def test_end_to_end_find_and_execute_card(api):
     db = load_cards_db()
 
@@ -132,7 +132,7 @@ def test_end_to_end_find_and_execute_card(api):
     assert len(result.columns) > 0
 
 
-@requires_credentials
+@pytest.mark.integration
 def test_end_to_end_card_sql_is_valid(api):
     """Cards with SQL can be used to understand the query."""
     db = load_cards_db()
