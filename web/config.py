@@ -74,7 +74,13 @@ ADMIN_USERS = [
 ]
 
 # Database: PostgreSQL via DATABASE_URL (required)
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Scalingo provides postgres:// but SQLAlchemy requires postgresql://
+_raw_db_url = os.getenv("DATABASE_URL") or ""
+DATABASE_URL = (
+    _raw_db_url.replace("postgres://", "postgresql://", 1)
+    if _raw_db_url.startswith("postgres://")
+    else _raw_db_url or None
+)
 
 SSE_MESSAGE_WAIT_TIMEOUT = float(os.getenv("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "3"))
 
