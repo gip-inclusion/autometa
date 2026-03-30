@@ -26,6 +26,6 @@ Respecter les patterns du fichier et du module. Ne pas introduire un nouveau pat
 
 Ne jamais détailler l'implémentation dans les spécifications (CLAUDE.md, SKILL.md, knowledge, rules). Décrire le quoi et le pourquoi, pas le comment. Le code source est la référence pour l'implémentation.
 
-Messages de commit en anglais, concis. Ne pas commiter ni pousser sauf demande explicite.
+Messages de commit en anglais, concis. Ne pas commiter ni pousser sauf demande explicite. Ne JAMAIS exécuter `git push` — ni sur main, ni sur les branches utilisateur. Seul l'utilisateur pousse.
 
 Ne lancer `make test` et `make lint` que quand des fichiers Python (`.py`) sont modifiés. Ne pas les lancer pour des modifications de fichiers Markdown, de skills, de knowledge, de configuration YAML, ou de documentation.
