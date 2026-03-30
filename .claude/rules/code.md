@@ -30,4 +30,6 @@ Ne jamais détailler l'implémentation dans les spécifications (CLAUDE.md, SKIL
 
 Messages de commit en anglais, concis. Ne pas commiter ni pousser sauf demande explicite. Ne JAMAIS exécuter `git push` — ni sur main, ni sur les branches utilisateur. Seul l'utilisateur pousse.
 
+Apps interactives (`data/interactive/`) : ces apps sont générées par l'agent et tournent via le système de cron. Elles DOIVENT utiliser les mêmes conventions que le reste du code : `httpx` pour le HTTP, `web.db.get_db` + SQLAlchemy pour la base, `web.config` pour les variables d'environnement, `lib.query` pour les APIs Matomo/Metabase. Ne jamais utiliser `psycopg2`, `requests`, `urllib.request`, ou `os.environ` directement dans ces apps. **Attention** : toute modification d'une API dans `web/`, `lib/` ou `skills/` (renommage, suppression, changement de signature) peut casser des apps interactives en production. Si tu modifies un module importé par ces apps (`lib.query`, `web.database`, `web.db`, `web.config`), tu DOIS le signaler dans ta réponse et vérifier les impacts sur `data/interactive/`.
+
 Ne lancer `make test` et `make lint` que quand des fichiers Python (`.py`) sont modifiés. Ne pas les lancer pour des modifications de fichiers Markdown, de skills, de knowledge, de configuration YAML, ou de documentation.
