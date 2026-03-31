@@ -9,7 +9,7 @@ Zones :
 - `web/runner.py` — TaskRunner. Orchestre les agents, persiste les événements. Un bug ici casse toutes les conversations.
 - `alembic/` — Migrations Alembic. Ne jamais modifier une migration existante, uniquement en ajouter.
 - `web/agents/base.py` — Interface des backends agent et construction du system prompt.
-- `docker-compose.yml`, `Dockerfile`, `entrypoint.sh` — Infrastructure de déploiement. Impact sur la production.
+- `docker-compose.yml`, `Dockerfile` — Infrastructure de déploiement. Impact sur la production.
 - `web/uploads.py` — Gestion des fichiers uploadés, scan antivirus. Surface de sécurité.
 - `.claude/settings.json` — Permissions et skills de l'agent. Impact sur les capacités en production.
 - `config/sources.yaml` — Credentials et URLs des sources de données.

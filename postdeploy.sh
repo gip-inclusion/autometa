@@ -14,4 +14,3 @@ print('yes' if inspect(get_engine()).has_table('alembic_version') else 'no')
 fi
 
 alembic upgrade head
-python -m web.warmup

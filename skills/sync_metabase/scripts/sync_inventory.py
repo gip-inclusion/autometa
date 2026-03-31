@@ -172,9 +172,6 @@ def main():
     for instance_name in list_instances("metabase"):
         sync_instance(instance_name)
 
-    from web.warmup import run as warmup
-
-    warmup()
     print("Done.")
 
 

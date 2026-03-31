@@ -1,6 +1,6 @@
 """Generate cache files from PostgreSQL for the agent to read.
 
-Called at startup (entrypoint.sh) and after sync cron jobs.
+Called at startup (FastAPI lifespan) and after sync cron jobs.
 Writes to DATA_DIR/cache/ which is ephemeral and not git-tracked.
 """
 

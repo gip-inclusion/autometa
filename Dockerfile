@@ -36,4 +36,4 @@ ENV AGENT_BACKEND=sdk \
 
 EXPOSE 5000
 
-CMD ["./entrypoint.sh"]
+CMD ["uv", "run", "autometa"]

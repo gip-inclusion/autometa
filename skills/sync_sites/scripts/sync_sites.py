@@ -228,9 +228,6 @@ def main():
         print(f"{len(events)}")
         save_events(site_config.matomo_id, events, ref_month)
 
-    from web.warmup import run as warmup
-
-    warmup()
     print("Done.")
 
 

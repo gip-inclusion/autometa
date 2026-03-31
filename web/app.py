@@ -18,6 +18,7 @@ from .logging_utils import setup_logging
 from .redis_conn import close_redis
 from .runner import runner
 from .sentry import init_sentry, set_user_context
+from .warmup import run as warmup
 
 setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
 # Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
@@ -31,6 +32,7 @@ init_sentry()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown tasks."""
+    await asyncio.to_thread(warmup)
     sync_to_s3.start_sync_watcher()
 
     await asyncio.to_thread(scan_interactive_apps)
