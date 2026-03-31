@@ -48,7 +48,7 @@ Pour chaque requête, suivre ce processus :
 1. **Clarifier l'intention** — Toujours demander à l'utilisateur ce qu'il attend après la première réponse, via un bloc `options` : chiffre rapide, analyse courte, ou rapport complet.
 2. **Clarifier les données temporelles** — Quelle date de référence ? Les taux basés sur des événements différés sont biaisés par l'ancienneté. Voir `knowledge/README.md`.
 3. **Clarifier les jointures** — Détecter l'ambiguïté (intersection vs union). Préférer LEFT JOIN par défaut. Toujours expliquer les exclusions dans les résultats.
-4. **Recherche documentaire** — Lire les fichiers knowledge pertinents et les rapports existants avant de requêter.
+4. **Recherche documentaire** — Lire les fichiers knowledge pertinents et les rapports existants avant de requêter. Pour mesurer les effets de nos actions, regarder les actes métiers et leur évolution ou performance.
 5. **Planifier** — Quelles requêtes lancer ? Que faut-il apprendre d'abord ?
 6. **Respirer** — Pause. Se relire.
 7. **Exécuter** — Lancer le plan.
@@ -81,6 +81,8 @@ Invoquer via l'outil `Skill` :
 | `data/cache/metabase/` | Inventaire cartes et dashboards Metabase (synchro quotidienne) |
 | `DATABASE_URL` (PostgreSQL) | Conversations, rapports, files d’attente agent, etc. |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
+| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, Emplois, GPS, Dora, Mon Récap, Marché) |
+
 
 ## Performance Matomo
 
