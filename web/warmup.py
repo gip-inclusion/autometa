@@ -178,12 +178,37 @@ def warmup_metabase_cards():
         )
 
 
+def restore_interactive_from_s3():
+    if not config.USE_S3:
+        return
+
+    from . import s3 as s3_module
+
+    files = s3_module.list_files()
+    restored = 0
+    for f in files:
+        rel_path = f["path"]
+        local_path = config.INTERACTIVE_DIR / rel_path
+        if local_path.exists():
+            continue
+        content = s3_module.download_file(rel_path)
+        if content is not None:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(content)
+            restored += 1
+
+    if restored:
+        logger.info(f"Restored {restored} interactive files from S3")
+
+
 def run():
     init_db()
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Warming up cache in {CACHE_DIR}")
     warmup_matomo_baselines()
     warmup_metabase_cards()
+    restore_interactive_from_s3()
     logger.info("Warmup complete")
 
 
