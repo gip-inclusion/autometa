@@ -4,7 +4,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator
 
 from .. import config
 
@@ -48,7 +48,6 @@ class AgentBackend(ABC):
         conversation_id: str,
         message: str,
         history: list[dict],
-        session_id: Optional[str] = None,
     ) -> AsyncIterator[AgentMessage]:
         pass
 

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 import sentry_sdk
 from claude_agent_sdk import (
@@ -51,10 +51,9 @@ class SDKBackend(AgentBackend):
     # SDK options construction
     # ------------------------------------------------------------------
 
-    def _build_options(self, conversation_id: str, session_id: Optional[str]) -> ClaudeAgentOptions:
+    def _build_options(self, conversation_id: str) -> ClaudeAgentOptions:
         system_prompt = build_system_prompt()
 
-        # Permissions
         if config.CONTAINER_ENV:
             permission_mode = "bypassPermissions"
             allowed_tools = []
@@ -65,21 +64,14 @@ class SDKBackend(AgentBackend):
             permission_mode = "default"
             allowed_tools = []
 
-        # Env: strip ANTHROPIC_API_KEY (override with empty string so
-        # CLAUDE_CODE_OAUTH_TOKEN from os.environ is used for auth).
-        env = {
-            "ANTHROPIC_API_KEY": "",
-        }
-
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             permission_mode=permission_mode,
             allowed_tools=allowed_tools,
-            resume=session_id,
             cwd=str(config.BASE_DIR),
             cli_path=config.CLAUDE_CLI,
             add_dirs=list(config.ADDITIONAL_DIRS),
-            env=env,
+            env={"ANTHROPIC_API_KEY": ""},
             max_buffer_size=10 * 1024 * 1024,
         )
 
@@ -92,65 +84,15 @@ class SDKBackend(AgentBackend):
         conversation_id: str,
         message: str,
         history: list[dict],
-        session_id: Optional[str] = None,
     ) -> AsyncIterator[AgentMessage]:
-        if not session_id:
-            async for msg in self._run_sdk(conversation_id, message, history, None):
-                yield msg
-            return
-
-        # Try with session first, retry without on failure
-        retry_without_session = False
-        had_useful_output = False
-
-        async for msg in self._run_sdk(conversation_id, message, history, session_id):
-            if msg.type == "error":
-                error_str = str(msg.content)
-                if "tool_use ids must be unique" in error_str:
-                    logger.warning(f"Session {session_id} corrupted (duplicate IDs), retrying without resume")
-                    retry_without_session = True
-                    break
-                if not had_useful_output:
-                    logger.warning(f"Session {session_id} failed (no output), retrying without resume")
-                    retry_without_session = True
-                    break
-            if msg.type in ("assistant", "tool_use"):
-                had_useful_output = True
-            yield msg
-
-        if retry_without_session:
-            yield AgentMessage(
-                type="system",
-                content="Session corrompue, redémarrage...",
-                raw={"subtype": "session_reset"},
-            )
-            async for msg in self._run_sdk(conversation_id, message, history, None):
-                yield msg
-
-    # ------------------------------------------------------------------
-    # Internal: call query()
-    # ------------------------------------------------------------------
-
-    async def _run_sdk(
-        self,
-        conversation_id: str,
-        message: str,
-        history: list[dict],
-        session_id: Optional[str],
-    ) -> AsyncIterator[AgentMessage]:
-        if session_id:
-            prompt = message
-        else:
-            prompt = self._build_prompt(message, history)
-
-        options = self._build_options(conversation_id, session_id)
+        prompt = self._build_prompt(message, history)
+        options = self._build_options(conversation_id)
         cancel_event = asyncio.Event()
         self._cancel_events[conversation_id] = cancel_event
 
-        logger.info(f"Starting SDK query (prompt length: {len(prompt)}, session: {session_id or 'none'})")
+        logger.info(f"Starting SDK query (prompt length: {len(prompt)})")
 
         with sentry_sdk.start_span(op="agent.sdk.query", name="claude-agent-sdk query") as span:
-            span.set_data("session_id", session_id or "none")
             span.set_data("prompt_length", len(prompt))
             try:
                 async for sdk_msg in query(prompt=prompt, options=options):
@@ -205,7 +147,7 @@ class SDKBackend(AgentBackend):
             msgs.append(AgentMessage(type="system", content=sdk_msg.subtype, raw=raw))
 
         elif isinstance(sdk_msg, ResultMessage):
-            raw = {"subtype": sdk_msg.subtype, "type": "result", "session_id": sdk_msg.session_id}
+            raw = {"subtype": sdk_msg.subtype, "type": "result"}
             if sdk_msg.usage:
                 raw["usage"] = sdk_msg.usage
             if sdk_msg.total_cost_usd is not None:

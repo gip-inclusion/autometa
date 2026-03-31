@@ -62,7 +62,6 @@ class TaskRunner:
         conv_id: str,
         prompt: str,
         history: list[dict],
-        session_id: str | None = None,
         user_email: str | None = None,
     ):
         r = await get_redis()
@@ -70,7 +69,6 @@ class TaskRunner:
             "conv_id": conv_id,
             "prompt": prompt,
             "history": history,
-            "session_id": session_id,
             "user_email": user_email,
             "sentry_trace": get_trace_headers(),
         })
@@ -137,7 +135,6 @@ class TaskRunner:
                     conv_id,
                     payload["prompt"],
                     payload["history"],
-                    payload.get("session_id"),
                     payload.get("user_email"),
                     payload.get("sentry_trace", {}),
                 )
@@ -184,7 +181,6 @@ class TaskRunner:
         conversation_id: str,
         prompt: str,
         history: list[dict],
-        session_id: str | None,
         user_email: str | None,
         sentry_trace: dict | None = None,
     ):
@@ -211,7 +207,6 @@ class TaskRunner:
                     conversation_id=conversation_id,
                     message=prompt,
                     history=history,
-                    session_id=session_id,
                 ):
                     if event.type == "assistant":
                         assistant_text_parts.append(str(event.content))
@@ -244,12 +239,6 @@ class TaskRunner:
                         await self.notify(conversation_id)
 
                     elif event.type == "system":
-                        if event.raw.get("subtype") == "session_reset":
-                            store.update_conversation(conversation_id, session_id=None)
-                        elif event.raw.get("subtype") == "init":
-                            new_session_id = event.raw.get("session_id")
-                            if new_session_id:
-                                store.update_conversation(conversation_id, session_id=new_session_id)
                         if event.raw.get("usage"):
                             _persist_usage(conversation_id, event.raw["usage"])
                         if event.raw.get("subtype") == "api_retry":

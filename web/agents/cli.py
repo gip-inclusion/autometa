@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import signal
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 import sentry_sdk
 
@@ -52,61 +52,8 @@ class CLIBackend(AgentBackend):
         conversation_id: str,
         message: str,
         history: list[dict],
-        session_id: Optional[str] = None,
     ) -> AsyncIterator[AgentMessage]:
-        """Spawn claude CLI and stream responses.
-
-        If session resume fails (corruption, crash with no output, etc.),
-        automatically retries without session (using history instead).
-        """
-        if not session_id:
-            async for msg in self._run_cli(conversation_id, message, history, None):
-                yield msg
-            return
-
-        # Try with session first, retry without on failure
-        retry_without_session = False
-        had_useful_output = False
-
-        async for msg in self._run_cli(conversation_id, message, history, session_id):
-            if msg.type == "error":
-                error_str = str(msg.content)
-                if "tool_use ids must be unique" in error_str:
-                    logger.warning(f"Session {session_id} corrupted (duplicate IDs), retrying without resume")
-                    retry_without_session = True
-                    break
-                # CLI crashed with no useful output — likely session corruption
-                if not had_useful_output:
-                    logger.warning(f"Session {session_id} failed (exit with no output), retrying without resume")
-                    retry_without_session = True
-                    break
-            if msg.type in ("assistant", "tool_use"):
-                had_useful_output = True
-            yield msg
-
-        if retry_without_session:
-            yield AgentMessage(
-                type="system",
-                content="Session corrompue, redémarrage...",
-                raw={"subtype": "session_reset"},
-            )
-            async for msg in self._run_cli(conversation_id, message, history, None):
-                yield msg
-
-    async def _run_cli(
-        self,
-        conversation_id: str,
-        message: str,
-        history: list[dict],
-        session_id: Optional[str],
-    ) -> AsyncIterator[AgentMessage]:
-        """Internal: run the CLI process."""
-        # When resuming a session, don't include history in prompt (session already has it)
-        # This prevents duplicate tool_use IDs which cause API errors
-        if session_id:
-            prompt = message
-        else:
-            prompt = self._build_prompt(message, history)
+        prompt = self._build_prompt(message, history)
 
         cmd = [
             config.CLAUDE_CLI,
@@ -115,38 +62,26 @@ class CLIBackend(AgentBackend):
             "--verbose",
         ]
 
-        # Add additional directories the agent can access
         for d in config.ADDITIONAL_DIRS:
             cmd.extend(["--add-dir", d])
 
-        # Add CLAUDE.md as system prompt
         system_prompt = build_system_prompt()
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
-        # In a container, skip permission checks (container is the security boundary).
-        # Outside containers, restrict tools to a whitelist.
         if config.CONTAINER_ENV:
             cmd.append("--dangerously-skip-permissions")
         elif config.ALLOWED_TOOLS:
             cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])
 
         cmd.extend(["-p", prompt])
-
-        # Add resume flag if we have a session
-        if session_id:
-            cmd.extend(["--resume", session_id])
-
         cmd.extend(self._extra_cmd_args())
 
-        logger.info(
-            f"Starting claude CLI: {' '.join(cmd[:4])}... (prompt length: {len(prompt)}, session: {session_id or 'none'})"
-        )
+        logger.info(f"Starting claude CLI: {' '.join(cmd[:4])}... (prompt length: {len(prompt)})")
 
         env = self._build_env()
 
         span = sentry_sdk.start_span(op="agent.cli.process", name="claude CLI subprocess")
-        span.set_data("session_id", session_id or "none")
         span.set_data("prompt_length", len(prompt))
 
         # Spawn process (10 MB buffer to handle large tool results)

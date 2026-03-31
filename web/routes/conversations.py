@@ -458,7 +458,7 @@ User request: """
 
         prompt = knowledge_context + prompt
 
-    await runner.submit(conv_id, prompt, history, conv.session_id, user_email)
+    await runner.submit(conv_id, prompt, history, user_email)
 
     return {
         "status": "started",
@@ -500,7 +500,7 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
             history.append({"role": msg.type, "content": msg.content})
 
     store.update_conversation(conv_id, needs_response=True)
-    await runner.submit(conv_id, last_user_msg.content, history, conv.session_id, conv.user_id)
+    await runner.submit(conv_id, last_user_msg.content, history, conv.user_id)
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
