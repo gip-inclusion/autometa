@@ -121,7 +121,7 @@ class SDKBackend(AgentBackend):
             yield AgentMessage(
                 type="system",
                 content="Session corrompue, redémarrage...",
-                raw={"retry": True},
+                raw={"subtype": "session_reset"},
             )
             async for msg in self._run_sdk(conversation_id, message, history, None):
                 yield msg

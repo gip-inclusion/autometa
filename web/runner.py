@@ -213,7 +213,9 @@ class TaskRunner:
                     await self.notify(conversation_id)
 
                 elif event.type == "system":
-                    if event.raw.get("subtype") == "init":
+                    if event.raw.get("subtype") == "session_reset":
+                        store.update_conversation(conversation_id, session_id=None)
+                    elif event.raw.get("subtype") == "init":
                         new_session_id = event.raw.get("session_id")
                         if new_session_id:
                             store.update_conversation(conversation_id, session_id=new_session_id)
