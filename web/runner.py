@@ -10,6 +10,8 @@ import logging
 import threading
 import uuid
 
+import sentry_sdk
+
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
 from lib.tool_taxonomy import classify_tool
@@ -18,6 +20,7 @@ from . import config
 from .agents import get_agent
 from .database import store
 from .redis_conn import get_redis
+from .sentry import continue_trace, get_trace_headers, set_conversation_context, set_user_context
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,7 @@ class TaskRunner:
             "history": history,
             "session_id": session_id,
             "user_email": user_email,
+            "sentry_trace": get_trace_headers(),
         })
         await r.rpush(f"{PREFIX}:tasks", payload)
 
@@ -135,6 +139,7 @@ class TaskRunner:
                     payload["history"],
                     payload.get("session_id"),
                     payload.get("user_email"),
+                    payload.get("sentry_trace", {}),
                 )
             )
             self._running[conv_id] = task
@@ -175,75 +180,111 @@ class TaskRunner:
             await pubsub.aclose()
 
     async def _run_agent(
-        self, conversation_id: str, prompt: str, history: list[dict], session_id: str | None, user_email: str | None
+        self,
+        conversation_id: str,
+        prompt: str,
+        history: list[dict],
+        session_id: str | None,
+        user_email: str | None,
+        sentry_trace: dict | None = None,
     ):
+        # Continue the Sentry trace from the HTTP request that submitted this task
+        continue_trace(sentry_trace or {})
+
         cancel_task = asyncio.create_task(self._listen_cancel(conversation_id))
         self._cancel_tasks[conversation_id] = cancel_task
 
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
+        tool_span = None
 
-        try:
-            async for event in self.backend.send_message(
-                conversation_id=conversation_id,
-                message=prompt,
-                history=history,
-                session_id=session_id,
-            ):
-                if event.type == "assistant":
-                    assistant_text_parts.append(str(event.content))
-                    append_mode = bool(getattr(event, "raw", {}).get("append"))
-                    full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
-                    if assistant_msg_id is None:
-                        msg = store.add_message(conversation_id, "assistant", full_text)
-                        assistant_msg_id = msg.id if msg else None
-                    else:
-                        store.update_message(assistant_msg_id, full_text)
-                    await self.notify(conversation_id)
+        with sentry_sdk.start_transaction(op="agent.run", name=f"agent {config.AGENT_BACKEND}") as txn:
+            txn.set_tag("conversation_id", conversation_id)
+            txn.set_tag("agent_backend", config.AGENT_BACKEND)
+            if user_email:
+                set_user_context(user_email)
+            set_conversation_context(conversation_id, config.AGENT_BACKEND)
 
-                elif event.type in ("tool_use", "tool_result"):
-                    if event.type == "tool_use":
-                        if assistant_text_parts:
-                            all_assistant_texts.extend(assistant_text_parts)
-                        assistant_msg_id = None
-                        assistant_text_parts = []
-                    content = _serialize_tool_event(event, conversation_id, user_email)
-                    store.add_message(conversation_id, event.type, content)
-                    await self.notify(conversation_id)
-
-                elif event.type == "system":
-                    if event.raw.get("subtype") == "session_reset":
-                        store.update_conversation(conversation_id, session_id=None)
-                    elif event.raw.get("subtype") == "init":
-                        new_session_id = event.raw.get("session_id")
-                        if new_session_id:
-                            store.update_conversation(conversation_id, session_id=new_session_id)
-                    if event.raw.get("usage"):
-                        _persist_usage(conversation_id, event.raw["usage"])
-                    if event.raw.get("subtype") == "api_retry":
-                        store.add_message(conversation_id, "system", json.dumps(event.raw))
+            try:
+                async for event in self.backend.send_message(
+                    conversation_id=conversation_id,
+                    message=prompt,
+                    history=history,
+                    session_id=session_id,
+                ):
+                    if event.type == "assistant":
+                        assistant_text_parts.append(str(event.content))
+                        append_mode = bool(getattr(event, "raw", {}).get("append"))
+                        full_text = "".join(assistant_text_parts) if append_mode else "\n".join(assistant_text_parts)
+                        if assistant_msg_id is None:
+                            msg = store.add_message(conversation_id, "assistant", full_text)
+                            assistant_msg_id = msg.id if msg else None
+                        else:
+                            store.update_message(assistant_msg_id, full_text)
                         await self.notify(conversation_id)
 
-            if assistant_text_parts:
-                all_assistant_texts.extend(assistant_text_parts)
+                    elif event.type in ("tool_use", "tool_result"):
+                        if event.type == "tool_use":
+                            if tool_span:
+                                tool_span.finish()
+                            tool_name = (
+                                event.content.get("tool", "unknown") if isinstance(event.content, dict) else "unknown"
+                            )
+                            tool_span = sentry_sdk.start_span(op="agent.tool", name=tool_name)
+                            if assistant_text_parts:
+                                all_assistant_texts.extend(assistant_text_parts)
+                            assistant_msg_id = None
+                            assistant_text_parts = []
+                        elif event.type == "tool_result" and tool_span:
+                            tool_span.finish()
+                            tool_span = None
+                        content = _serialize_tool_event(event, conversation_id, user_email)
+                        store.add_message(conversation_id, event.type, content)
+                        await self.notify(conversation_id)
 
-            full_response = " ".join(all_assistant_texts)
-            if full_response:
-                _check_failure(conversation_id, full_response)
+                    elif event.type == "system":
+                        if event.raw.get("subtype") == "session_reset":
+                            store.update_conversation(conversation_id, session_id=None)
+                        elif event.raw.get("subtype") == "init":
+                            new_session_id = event.raw.get("session_id")
+                            if new_session_id:
+                                store.update_conversation(conversation_id, session_id=new_session_id)
+                        if event.raw.get("usage"):
+                            _persist_usage(conversation_id, event.raw["usage"])
+                        if event.raw.get("subtype") == "api_retry":
+                            store.add_message(conversation_id, "system", json.dumps(event.raw))
+                            await self.notify(conversation_id)
 
-        # Why: top-level agent error handler — must not crash the consumer loop.
-        except Exception:
-            logger.exception(f"Agent error for {conversation_id}")
-        finally:
-            store.update_conversation(conversation_id, needs_response=False)
-            await self.notify_done(conversation_id)
-            self._running.pop(conversation_id, None)
-            cancel_task.cancel()
-            self._cancel_tasks.pop(conversation_id, None)
-            r = await get_redis()
-            await r.delete(f"{PREFIX}:running:{conversation_id}")
-            logger.info(f"Agent finished for {conversation_id}")
+                if tool_span:
+                    tool_span.finish()
+                    tool_span = None
+
+                if assistant_text_parts:
+                    all_assistant_texts.extend(assistant_text_parts)
+
+                full_response = " ".join(all_assistant_texts)
+                if full_response:
+                    _check_failure(conversation_id, full_response)
+
+                txn.set_status("ok")
+
+            # Why: top-level agent error handler — must not crash the consumer loop.
+            except Exception:
+                logger.exception(f"Agent error for {conversation_id}")
+                txn.set_status("internal_error")
+                sentry_sdk.capture_exception()
+            finally:
+                if tool_span:
+                    tool_span.finish()
+                store.update_conversation(conversation_id, needs_response=False)
+                await self.notify_done(conversation_id)
+                self._running.pop(conversation_id, None)
+                cancel_task.cancel()
+                self._cancel_tasks.pop(conversation_id, None)
+                r = await get_redis()
+                await r.delete(f"{PREFIX}:running:{conversation_id}")
+                logger.info(f"Agent finished for {conversation_id}")
 
 
 def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -> str:
