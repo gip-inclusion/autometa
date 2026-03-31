@@ -4,9 +4,11 @@ import asyncio
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
+from pathlib import PurePosixPath
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, sync_to_s3
@@ -58,17 +60,33 @@ if config.COMMON_DIR.exists():
     app.mount("/common", StaticFiles(directory=str(config.COMMON_DIR)), name="common")
 
 
+_STATIC_ASSET_EXTS = frozenset({
+    ".css",
+    ".js",
+    ".mjs",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".map",
+})
+
+
 @app.get("/interactive/{filename:path}")
 @app.get("/interactive/")
 def serve_interactive(request: Request, filename: str = ""):
-    """Serve static files from S3, proxied to avoid exposing internal endpoints."""
     if filename.endswith(".py"):
         raise HTTPException(status_code=404)
 
     if not filename or filename.endswith("/"):
         filename = filename + "index.html"
 
-    # Path traversal protection
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=404)
 
@@ -76,13 +94,19 @@ def serve_interactive(request: Request, filename: str = ""):
     mime_type = mime_type or "application/octet-stream"
     cache_control = "no-cache" if mime_type == "text/html" else "public, max-age=3600"
 
-    content = s3_module.download_file(filename)
-    if content is not None:
-        return Response(
-            content=content,
-            media_type=mime_type,
-            headers={"Cache-Control": cache_control},
-        )
+    suffix = PurePosixPath(filename).suffix.lower()
+    if suffix in _STATIC_ASSET_EXTS and s3_module.file_exists(filename):
+        url = s3_module.get_file_url(filename, expires_in=300)
+        if url is not None:
+            return RedirectResponse(
+                url,
+                status_code=307,
+                headers={"Cache-Control": "private, max-age=300", "Referrer-Policy": "no-referrer"},
+            )
+
+    stream = s3_module.stream_file(filename)
+    if stream is not None:
+        return StreamingResponse(stream, media_type=mime_type, headers={"Cache-Control": cache_control})
 
     raise HTTPException(status_code=404)
 

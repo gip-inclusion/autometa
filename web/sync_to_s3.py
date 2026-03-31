@@ -51,18 +51,18 @@ def watch_loop():
     """Main watch loop using polling (simple, no external dependencies)."""
     known_files: dict[Path, float] = {}  # path -> mtime
 
-    # Initial sync: upload all existing local files to S3 (if not already there)
+    # Initial sync: batch-list S3 once, then upload only missing local files
+    s3_paths = {f["path"] for f in s3.list_files()}
     initial_count = 0
     for path in config.INTERACTIVE_DIR.rglob("*"):
         if path.is_file():
             initial_count += 1
-            relative_path = path.relative_to(config.INTERACTIVE_DIR)
-            # Upload if not in S3
-            if not s3.file_exists(str(relative_path)):
+            relative_path = str(path.relative_to(config.INTERACTIVE_DIR))
+            if relative_path not in s3_paths:
                 sync_interactive_file(path, s3)
             known_files[path] = path.stat().st_mtime
 
-    logger.debug(f"Initial scan found {initial_count} files")
+    logger.debug(f"Initial scan: {initial_count} local files, {len(s3_paths)} in S3")
 
     while not stop_event.is_set():
         try:

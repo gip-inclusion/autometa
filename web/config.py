@@ -103,15 +103,12 @@ MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", 200 * 1024 * 1024))  # 200 MB
 # Text file size threshold for including content directly in conversation
 TEXT_FILE_INLINE_LIMIT = int(os.getenv("TEXT_FILE_INLINE_LIMIT", 50 * 1024))  # 50 KB default
 
-# S3-compatible object storage for interactive files
-# If configured, files are stored in S3 instead of local filesystem
-# Works with AWS S3, Scaleway Object Storage, MinIO, etc.
 S3_BUCKET = os.getenv("S3_BUCKET")
-S3_ENDPOINT = os.getenv("S3_ENDPOINT")  # e.g., https://s3.fr-par.scw.cloud
+S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
-S3_PREFIX = os.getenv("S3_PREFIX", "interactive/")  # Key prefix for all files
+S3_PREFIX = os.getenv("S3_PREFIX", "interactive/")
 
 
 # Container environment flag (set in Docker — bypasses permission checks)

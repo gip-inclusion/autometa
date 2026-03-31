@@ -1,6 +1,8 @@
 """Cron runner for data refresh scripts."""
 
 import argparse
+import hashlib
+import logging
 import os
 import shutil
 import subprocess
@@ -16,6 +18,8 @@ from sqlalchemy import select
 from . import config, s3
 from .database import get_db
 from .models import CronRun
+
+logger = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
@@ -196,28 +200,29 @@ def find_task(slug: str) -> dict | None:
     return None
 
 
-def prepare_s3_workdir(slug: str) -> Path:
+def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{slug}-"))
+    pre_hashes: dict[str, str] = {}
     for entry in s3.list_files(f"{slug}/"):
         rel_path = entry["path"]
-        # rel_path is like "slug/cron.py" — strip the slug prefix
         local_name = rel_path[len(slug) + 1 :]
         if not local_name or ".." in local_name:
             continue
         content = s3.download_file(rel_path)
         if content is not None:
             local_file = (workdir / local_name).resolve()
-            # Path traversal protection
             try:
                 local_file.relative_to(workdir.resolve())
             except ValueError:
                 continue
             local_file.parent.mkdir(parents=True, exist_ok=True)
             local_file.write_bytes(content)
-    return workdir
+            pre_hashes[local_name] = hashlib.md5(content).hexdigest()
+    return workdir, pre_hashes
 
 
-def upload_s3_results(slug: str, workdir: Path):
+def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
+    uploaded = skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
         if not path.is_file():
@@ -226,9 +231,15 @@ def upload_s3_results(slug: str, workdir: Path):
             path.resolve().relative_to(workdir_resolved)
         except ValueError:
             continue
-        rel = path.relative_to(workdir)
-        s3_key = f"{slug}/{rel}"
-        s3.upload_file(s3_key, path.read_bytes())
+        rel = str(path.relative_to(workdir))
+        content = path.read_bytes()
+        if pre_hashes.get(rel) == hashlib.md5(content).hexdigest():
+            skipped += 1
+            continue
+        s3.upload_file(f"{slug}/{rel}", content)
+        uploaded += 1
+    if uploaded:
+        logger.info(f"Cron upload {slug}: {uploaded} uploaded, {skipped} unchanged")
 
 
 def _sentry_monitor_config(task: dict) -> dict:
@@ -274,6 +285,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
     is_s3 = task.get("source") == "s3"
     timeout = task["timeout"]
     workdir = None
+    pre_hashes: dict[str, str] = {}
 
     started_at = datetime.now()
     start_time = time.monotonic()
@@ -285,7 +297,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
 
     try:
         if is_s3:
-            workdir = prepare_s3_workdir(slug)
+            workdir, pre_hashes = prepare_s3_workdir(slug)
             cron_script = str(workdir / "cron.py")
             cwd = str(workdir)
         else:
@@ -311,7 +323,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         status = "success" if result.returncode == 0 else "failure"
 
         if is_s3 and status == "success" and workdir:
-            upload_s3_results(slug, workdir)
+            upload_s3_results(slug, workdir, pre_hashes)
 
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)

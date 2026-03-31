@@ -17,7 +17,7 @@ RUN useradd -m -s /bin/bash -u 1004 autometa
 WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
-ENV UV_SYSTEM_PYTHON=1 UV_COMPILE_BYTECODE=1
+ENV UV_COMPILE_BYTECODE=1
 
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-editable
@@ -25,7 +25,7 @@ RUN uv sync --frozen --no-dev --no-editable
 COPY --chown=autometa:autometa . .
 
 RUN mkdir -p /app/data/uploads /app/data/modified \
-    && chown -R autometa:autometa /app/data
+    && chown -R autometa:autometa /app/data /app/.venv
 
 USER autometa
 

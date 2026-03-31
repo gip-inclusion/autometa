@@ -1,5 +1,3 @@
-"""S3-compatible object storage for interactive files."""
-
 import logging
 import mimetypes
 from typing import BinaryIO, Optional
@@ -24,7 +22,6 @@ logger.info(f"S3 storage: bucket={config.S3_BUCKET}, endpoint={config.S3_ENDPOIN
 
 
 def get_s3_key(path: str) -> str:
-    # Normalize path separators and remove leading slash
     path = path.replace("\\", "/").lstrip("/")
     return f"{config.S3_PREFIX}{path}"
 
@@ -77,6 +74,31 @@ def get_file_url(path: str, expires_in: int = 3600) -> Optional[str]:
         )
     except ClientError as e:
         logger.error(f"Failed to generate presigned URL for {path}: {e}")
+        return None
+
+
+def stream_file(path: str, chunk_size: int = 65_536):
+    try:
+        key = get_s3_key(path)
+        response = s3_client.get_object(Bucket=config.S3_BUCKET, Key=key)
+        body = response["Body"]
+
+        def chunks():
+            try:
+                while True:
+                    chunk = body.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                body.close()
+
+        return chunks()
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            logger.debug(f"S3 file not found: {path}")
+            return None
+        logger.error(f"S3 stream failed for {path}: {e}")
         return None
 
 
