@@ -60,7 +60,7 @@ def build_context_index() -> str:
 
 
 def build_system_prompt() -> str | None:
-    agents_md_path = config.BASE_DIR / "CLAUDE.md"
+    agents_md_path = config.BASE_DIR / "AGENT.md"
     if not agents_md_path.exists():
         return None
     today = date.today().strftime("%A %d %B %Y")
