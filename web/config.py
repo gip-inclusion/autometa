@@ -155,3 +155,8 @@ WEB_WORKERS = int(os.getenv("WEB_WORKERS", os.cpu_count() or 1))
 
 # Additional directories the agent can access (beyond working directory)
 ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache")]
+
+# Sentry
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+SENTRY_ENVIRONMENT = "prod"
+SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))

@@ -7,6 +7,8 @@ import os
 import signal
 from typing import AsyncIterator, Optional
 
+import sentry_sdk
+
 from .. import config
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
@@ -143,6 +145,10 @@ class CLIBackend(AgentBackend):
 
         env = self._build_env()
 
+        span = sentry_sdk.start_span(op="agent.cli.process", name="claude CLI subprocess")
+        span.set_data("session_id", session_id or "none")
+        span.set_data("prompt_length", len(prompt))
+
         # Spawn process (10 MB buffer to handle large tool results)
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -207,11 +213,13 @@ class CLIBackend(AgentBackend):
         stderr_str = stderr_bytes.decode("utf-8", errors="replace")
         if process.returncode != 0:
             logger.error(f"Process error: {stderr_str}")
+            span.set_status("internal_error")
             yield AgentMessage(
                 type="error",
                 content=f"Process exited with code {process.returncode}: {stderr_str}",
                 raw={"stderr": stderr_str, "code": process.returncode},
             )
+        span.finish()
 
     @staticmethod
     async def _drain_stderr(stream: asyncio.StreamReader) -> bytes:

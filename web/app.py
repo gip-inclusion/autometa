@@ -16,12 +16,15 @@ from .interactive_apps import scan_interactive_apps
 from .logging_utils import setup_logging
 from .redis_conn import close_redis
 from .runner import runner
+from .sentry import init_sentry, set_user_context
 
 setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
 # Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
 for _logger_name in ("botocore", "boto3", "urllib3", "s3transfer"):
     logging.getLogger(_logger_name).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+init_sentry()
 
 
 @asynccontextmanager
@@ -42,6 +45,15 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def sentry_user_middleware(request: Request, call_next):
+    """Attach the authenticated user to every Sentry event/transaction."""
+    email = request.headers.get("X-Forwarded-Email") or config.DEFAULT_USER
+    set_user_context(email)
+    return await call_next(request)
+
 
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 

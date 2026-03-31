@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import AsyncIterator, Optional
 
+import sentry_sdk
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -148,27 +149,33 @@ class SDKBackend(AgentBackend):
 
         logger.info(f"Starting SDK query (prompt length: {len(prompt)}, session: {session_id or 'none'})")
 
-        try:
-            async for sdk_msg in query(prompt=prompt, options=options):
-                if cancel_event.is_set():
-                    break
-                for agent_msg in self._translate_message(sdk_msg):
-                    yield agent_msg
-        except ProcessError as e:
-            logger.error(f"SDK ProcessError: {e} (exit_code={e.exit_code})")
-            yield AgentMessage(
-                type="error",
-                content=f"Process exited with code {e.exit_code}: {e.stderr or e}",
-                raw={"stderr": e.stderr, "code": e.exit_code},
-            )
-        # Why: catch-all needed because the SDK may raise arbitrary errors during streaming
-        # and we must always yield an error message rather than crash the async generator.
-        except Exception as e:
-            logger.exception(f"SDK error for {conversation_id}")
-            yield AgentMessage(type="error", content=str(e), raw={})
-        finally:
-            self._cancel_events.pop(conversation_id, None)
-            logger.info(f"SDK query finished for {conversation_id}")
+        with sentry_sdk.start_span(op="agent.sdk.query", name="claude-agent-sdk query") as span:
+            span.set_data("session_id", session_id or "none")
+            span.set_data("prompt_length", len(prompt))
+            try:
+                async for sdk_msg in query(prompt=prompt, options=options):
+                    if cancel_event.is_set():
+                        break
+                    for agent_msg in self._translate_message(sdk_msg):
+                        yield agent_msg
+            except ProcessError as e:
+                logger.error(f"SDK ProcessError: {e} (exit_code={e.exit_code})")
+                span.set_status("internal_error")
+                yield AgentMessage(
+                    type="error",
+                    content=f"Process exited with code {e.exit_code}: {e.stderr or e}",
+                    raw={"stderr": e.stderr, "code": e.exit_code},
+                )
+            # Why: catch-all needed because the SDK may raise arbitrary errors during streaming
+            # and we must always yield an error message rather than crash the async generator.
+            except Exception as e:
+                logger.exception(f"SDK error for {conversation_id}")
+                span.set_status("internal_error")
+                sentry_sdk.capture_exception()
+                yield AgentMessage(type="error", content=str(e), raw={})
+            finally:
+                self._cancel_events.pop(conversation_id, None)
+                logger.info(f"SDK query finished for {conversation_id}")
 
     # ------------------------------------------------------------------
     # Message translation

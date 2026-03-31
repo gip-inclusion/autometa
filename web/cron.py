@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import sentry_sdk
 from sqlalchemy import select
 
 from . import config, s3
@@ -233,6 +234,22 @@ def upload_s3_results(slug: str, workdir: Path):
         s3.upload_file(s3_key, path.read_bytes())
 
 
+def _sentry_monitor_config(task: dict) -> dict:
+    """Build Sentry Crons monitor config from task metadata."""
+    schedule = task.get("schedule", "daily")
+    if schedule == "weekly":
+        crontab = "0 6 * * 1"
+    else:
+        crontab = "0 6 * * *"
+    return {
+        "schedule": {"type": "crontab", "value": crontab},
+        "checkin_margin": 30,
+        "max_runtime": task.get("timeout", DEFAULT_TIMEOUT) // 60 + 1,
+        "failure_issue_threshold": 2,
+        "recovery_threshold": 1,
+    }
+
+
 def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
     """Run a single cron task by slug.
 
@@ -248,6 +265,14 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             "started_at": datetime.now().isoformat(),
             "finished_at": datetime.now().isoformat(),
         }
+
+    monitor_slug = f"cron-{slug}"
+    monitor_config = _sentry_monitor_config(task)
+    check_in_id = sentry_sdk.crons.api.capture_checkin(
+        monitor_slug=monitor_slug,
+        status=sentry_sdk.crons.consts.MonitorStatus.IN_PROGRESS,
+        monitor_config=monitor_config,
+    )
 
     is_s3 = task.get("source") == "s3"
     timeout = task["timeout"]
@@ -315,6 +340,17 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         "started_at": started_at.isoformat(),
         "finished_at": finished_at.isoformat(),
     }
+
+    sentry_status = (
+        sentry_sdk.crons.consts.MonitorStatus.OK if status == "success" else sentry_sdk.crons.consts.MonitorStatus.ERROR
+    )
+    sentry_sdk.crons.api.capture_checkin(
+        monitor_slug=monitor_slug,
+        status=sentry_status,
+        check_in_id=check_in_id,
+        duration=elapsed_ms / 1000,
+        monitor_config=monitor_config,
+    )
 
     record_run(run_result, trigger)
     return run_result
