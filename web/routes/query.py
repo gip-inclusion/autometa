@@ -96,12 +96,22 @@ async def query(request: Request):
         timeout=data.get("timeout", 60),
     )
 
-    response = {
-        "success": result.success,
-        "data": result.data,
-        "error": result.error,
-        "execution_time_ms": result.execution_time_ms,
-    }
+    if not result.success:
+        return JSONResponse(
+            {
+                "error": f"Requête {source} ({instance}) échouée : {result.error}",
+                "execution_time_ms": result.execution_time_ms,
+            },
+            status_code=502,
+            headers=cors,
+        )
 
-    status = 200 if result.success else 500
-    return JSONResponse(response, status_code=status, headers=cors)
+    return JSONResponse(
+        {
+            "success": True,
+            "data": result.data,
+            "execution_time_ms": result.execution_time_ms,
+        },
+        status_code=200,
+        headers=cors,
+    )
