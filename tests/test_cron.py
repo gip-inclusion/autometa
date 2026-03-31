@@ -359,6 +359,7 @@ def s3_cron_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "INTERACTIVE_DIR", interactive_dir)
     monkeypatch.setattr(config, "CRON_DIR", cron_dir)
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "S3_BUCKET", "test-bucket")
     return {"cron_dir": cron_dir, "interactive_dir": interactive_dir}
 
 
