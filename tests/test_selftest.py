@@ -191,7 +191,7 @@ def test_run_all_checks_produces_check_instances(mocker):
     mock_config = mocker.patch("web.selftest.config")
     mock_config.BASE_DIR = BASE_DIR
     mock_config.ADMIN_USERS = ["admin@localhost"]
-    mock_config.USE_S3 = False
+    mock_config.S3_BUCKET = "test-bucket"
     mock_config.CLAUDE_CLI = "claude"
     mock_config.NOTION_TOKEN = None
     mock_config.GRIST_API_KEY = None

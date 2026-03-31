@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 
-from . import config, s3
+from . import s3
 
 logger = logging.getLogger(__name__)
 
@@ -88,35 +88,16 @@ def scan_interactive_apps():
 
 def scan_interactive_apps_uncached():
     apps = []
-
-    if config.USE_S3:
-        directories = s3.list_directories()
-        for folder_name in directories:
-            app_md_content = s3.download_file(f"{folder_name}/APP.md")
-            if app_md_content:
-                try:
-                    content = app_md_content.decode("utf-8")
-                    app = parse_app_md(content, folder_name)
-                    if app:
-                        apps.append(app)
-                except UnicodeDecodeError:
-                    continue
-    else:
-        if not config.INTERACTIVE_DIR.exists():
-            return []
-
-        for folder in config.INTERACTIVE_DIR.iterdir():
-            if not folder.is_dir():
+    for folder_name in s3.list_directories():
+        app_md_content = s3.download_file(f"{folder_name}/APP.md")
+        if app_md_content:
+            try:
+                content = app_md_content.decode("utf-8")
+                app = parse_app_md(content, folder_name)
+                if app:
+                    apps.append(app)
+            except UnicodeDecodeError:
                 continue
-
-            app_md = folder / "APP.md"
-            if not app_md.exists():
-                continue
-
-            content = app_md.read_text()
-            app = parse_app_md(content, folder.name)
-            if app:
-                apps.append(app)
 
     apps.sort(key=lambda a: (a["updated"] or datetime.min, a["title"]), reverse=True)
     return apps

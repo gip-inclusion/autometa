@@ -39,7 +39,6 @@ config.UPLOADS_DIR = Path(_tmp_dir) / "uploads"
 config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 config.MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 config.TEXT_FILE_INLINE_LIMIT = 1024
-config.USE_S3 = False
 
 # Create a fresh store for tests
 init_db()
@@ -56,6 +55,10 @@ def setup_db(tmp_path, monkeypatch):
         "web.uploads.scan_with_clamav",
         lambda _path: (False, None),
     )
+    monkeypatch.setattr(
+        "web.uploads.upload_to_s3",
+        lambda *_args, **_kw: True,
+    )
 
     with test_transaction():
         config.DATA_DIR = tmp_path
@@ -63,7 +66,6 @@ def setup_db(tmp_path, monkeypatch):
         config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
         config.MAX_UPLOAD_SIZE = 10 * 1024 * 1024
         config.TEXT_FILE_INLINE_LIMIT = 1024
-        config.USE_S3 = False
 
         yield tmp_path
 

@@ -3,7 +3,6 @@ import pytest
 
 @pytest.fixture
 def s3_env(monkeypatch, tmp_path):
-    monkeypatch.setattr("web.config.USE_S3", True)
     interactive = tmp_path / "interactive"
     interactive.mkdir()
     monkeypatch.setattr("web.config.INTERACTIVE_DIR", interactive)
@@ -44,17 +43,6 @@ def test_restore_downloads_missing_files(s3_env, mocker):
 
     assert (s3_env / "app1" / "index.html").read_bytes() == b"<html>from-s3</html>"
     assert (s3_env / "app1" / "style.css").read_bytes() == b"body{}"
-
-
-def test_restore_skipped_when_s3_disabled(monkeypatch, mocker):
-    monkeypatch.setattr("web.config.USE_S3", False)
-    mock_list = mocker.patch("web.s3.list_files")
-
-    from web.warmup import restore_interactive_from_s3
-
-    restore_interactive_from_s3()
-
-    mock_list.assert_not_called()
 
 
 def test_restore_handles_failed_download(s3_env, mocker):

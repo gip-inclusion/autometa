@@ -184,10 +184,7 @@ def discover_cron_tasks() -> list[dict]:
     System tasks (cron/) come first, then app tasks (data/interactive/ or S3).
     """
     tasks = discover_from_dir(config.CRON_DIR, "CRON.md", "system")
-    if config.USE_S3:
-        tasks += discover_from_s3()
-    else:
-        tasks += discover_from_dir(config.INTERACTIVE_DIR, "APP.md", "app")
+    tasks += discover_from_s3()
     return tasks
 
 

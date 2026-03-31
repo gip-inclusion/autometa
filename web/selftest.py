@@ -268,8 +268,6 @@ def _check_claude_code_ping() -> tuple[bool, str]:
 
 
 def _check_s3() -> tuple[bool, str]:
-    if not config.USE_S3:
-        return (False, "not configured (USE_S3=false)")
     from . import s3
 
     filename = "apps-list.json"

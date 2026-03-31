@@ -113,8 +113,6 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
 S3_PREFIX = os.getenv("S3_PREFIX", "interactive/")  # Key prefix for all files
 
-# S3 is enabled if bucket and credentials are configured
-USE_S3 = bool(S3_BUCKET and S3_ACCESS_KEY and S3_SECRET_KEY)
 
 # Container environment flag (set in Docker — bypasses permission checks)
 CONTAINER_ENV = bool(os.getenv("CONTAINER_ENV"))

@@ -179,9 +179,6 @@ def warmup_metabase_cards():
 
 
 def restore_interactive_from_s3():
-    if not config.USE_S3:
-        return
-
     from . import s3 as s3_module
 
     files = s3_module.list_files()

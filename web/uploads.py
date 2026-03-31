@@ -248,9 +248,6 @@ def scan_with_clamav(filepath: Path) -> Tuple[bool, bool]:
 
 
 def upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str] = None) -> bool:
-    if not config.USE_S3:
-        return True  # No S3, local storage is fine
-
     try:
         key = f"uploads/{relative_path}"
         return s3.upload_file(key, content, content_type)
@@ -384,15 +381,13 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
     if local_path.exists():
         return local_path.read_bytes()
 
-    # Try S3 if configured
-    if config.USE_S3:
-        try:
-            key = f"uploads/{uploaded_file.stored_filename}"
-            return s3.download_file(key)
-        except ClientError as e:
-            logger.error(f"Failed to download from S3: {e}")
-
-    return None
+    # Try S3
+    try:
+        key = f"uploads/{uploaded_file.stored_filename}"
+        return s3.download_file(key)
+    except ClientError as e:
+        logger.error(f"Failed to download from S3: {e}")
+        return None
 
 
 def copy_file_for_modification(
@@ -491,13 +486,12 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
         except OSError as e:
             logger.error(f"Failed to delete file {local_path}: {e}")
 
-    # Delete from S3 if configured
-    if config.USE_S3:
-        try:
-            key = f"uploads/{uploaded_file.stored_filename}"
-            s3.delete_file(key)
-        except ClientError as e:
-            logger.error(f"Failed to delete from S3: {e}")
+    # Delete from S3
+    try:
+        key = f"uploads/{uploaded_file.stored_filename}"
+        s3.delete_file(key)
+    except ClientError as e:
+        logger.error(f"Failed to delete from S3: {e}")
 
     # Delete DB record
     store.delete_uploaded_file(uploaded_file.id)

@@ -10,6 +10,7 @@ from sqlalchemy import text
 from web import config
 from web.cron import (
     discover_cron_tasks,
+    discover_from_dir,
     get_app_runs,
     get_last_runs,
     get_schedule,
@@ -31,7 +32,7 @@ def interactive_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "INTERACTIVE_DIR", d)
     monkeypatch.setattr(config, "CRON_DIR", cron_dir)
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
-    monkeypatch.setattr(config, "USE_S3", False)
+    monkeypatch.setattr("web.cron.discover_from_s3", lambda: discover_from_dir(d, "APP.md", "app"))
     return d
 
 
@@ -351,14 +352,13 @@ def test_set_cron_enabled_roundtrip(interactive_dir):
 
 @pytest.fixture
 def s3_cron_env(tmp_path, monkeypatch):
-    """Simulate an S3-backed server: no local interactive dir, USE_S3=True."""
+    """Simulate an S3-backed server with mocked S3 functions."""
     cron_dir = tmp_path / "cron"
     cron_dir.mkdir()
     interactive_dir = tmp_path / "interactive"
     monkeypatch.setattr(config, "INTERACTIVE_DIR", interactive_dir)
     monkeypatch.setattr(config, "CRON_DIR", cron_dir)
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
-    monkeypatch.setattr(config, "USE_S3", True)
     return {"cron_dir": cron_dir, "interactive_dir": interactive_dir}
 
 
@@ -486,11 +486,6 @@ def test_discover_s3_multiple_apps_sorted(mocker, s3_cron_env):
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
     assert [t["slug"] for t in tasks] == ["alpha-app", "zeta-app"]
-
-
-def test_discover_no_s3_when_use_s3_false(interactive_dir, monkeypatch):
-    monkeypatch.setattr(config, "USE_S3", False)
-    assert discover_cron_tasks() == []
 
 
 def test_run_s3_executes_script(mocker, s3_cron_env, db_setup):
