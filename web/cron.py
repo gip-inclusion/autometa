@@ -159,6 +159,8 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
 def discover_from_s3() -> list[dict]:
     """Discover cron tasks from S3-stored interactive apps."""
+    if not config.S3_BUCKET:
+        return []
     tasks = []
     for slug in s3.list_directories():
         if not s3.file_exists(f"{slug}/cron.py"):
@@ -217,7 +219,7 @@ def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
                 continue
             local_file.parent.mkdir(parents=True, exist_ok=True)
             local_file.write_bytes(content)
-            pre_hashes[local_name] = hashlib.md5(content).hexdigest()
+            pre_hashes[local_name] = hashlib.md5(content, usedforsecurity=False).hexdigest()
     return workdir, pre_hashes
 
 
@@ -233,7 +235,7 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
             continue
         rel = str(path.relative_to(workdir))
         content = path.read_bytes()
-        if pre_hashes.get(rel) == hashlib.md5(content).hexdigest():
+        if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
             skipped += 1
             continue
         s3.upload_file(f"{slug}/{rel}", content)
