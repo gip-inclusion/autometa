@@ -21,12 +21,12 @@ def get_engine():
     if engine is None:
         engine = create_engine(
             config.DATABASE_URL,
-            pool_size=10,
-            max_overflow=5,
+            pool_size=2,
+            max_overflow=3,
             pool_pre_ping=True,
         )
         SessionLocal = sessionmaker(bind=engine)
-        logger.info("SQLAlchemy engine created (pool_size=10)")
+        logger.info("SQLAlchemy engine created (pool_size=2, max_overflow=3)")
     return engine
 
 

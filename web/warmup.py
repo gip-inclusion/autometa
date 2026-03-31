@@ -6,6 +6,7 @@ Writes to DATA_DIR/cache/ which is ephemeral and not git-tracked.
 
 import json
 import logging
+import time
 
 from sqlalchemy import func, select
 
@@ -199,10 +200,21 @@ def restore_interactive_from_s3():
 
 
 def run():
-    init_db()
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Warming up cache in {CACHE_DIR} (exists={CACHE_DIR.exists()})")
+    logger.info(f"Warming up cache in {CACHE_DIR}")
+
+    for attempt in range(3):
+        try:
+            init_db()
+            break
+        except Exception:
+            if attempt == 2:
+                logger.exception("Warmup failed after 3 attempts: cannot connect to database")
+                return
+            logger.warning(f"Database unavailable (attempt {attempt + 1}/3), retrying in 5s...")
+            time.sleep(5)
+
     warmup_matomo_baselines()
     warmup_metabase_cards()
     restore_interactive_from_s3()
