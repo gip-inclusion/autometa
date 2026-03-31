@@ -202,11 +202,12 @@ def run():
     init_db()
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Warming up cache in {CACHE_DIR}")
+    logger.info(f"Warming up cache in {CACHE_DIR} (exists={CACHE_DIR.exists()})")
     warmup_matomo_baselines()
     warmup_metabase_cards()
     restore_interactive_from_s3()
-    logger.info("Warmup complete")
+    cache_files = list(CACHE_DIR.rglob("*.md"))
+    logger.info(f"Warmup complete — {len(cache_files)} cache files in {CACHE_DIR}")
 
 
 if __name__ == "__main__":

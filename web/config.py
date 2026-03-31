@@ -149,7 +149,8 @@ REDIS_URL = os.getenv("REDIS_URL") or os.getenv("SCALINGO_REDIS_URL") or "redis:
 WEB_WORKERS = int(os.getenv("WEB_WORKERS", os.cpu_count() or 1))
 
 # Additional directories the agent can access (beyond working directory)
-ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR)]
+KNOWLEDGE_DIR = BASE_DIR / "knowledge"
+ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KNOWLEDGE_DIR)]
 
 # Sentry
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
