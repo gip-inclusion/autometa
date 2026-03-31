@@ -259,6 +259,22 @@ Candidats (demandeurs d'emploi) du service Emplois.
 
 **⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs`.
 
+### public.candidatures_echelle_locale
+
+**Table prioritaire pour les analyses de candidatures.** Vue dénormalisée enrichie avec
+le contexte géographique, prescripteur, structure et candidat.
+
+**Volumétrie :** ~2,6 millions de lignes · **Mise à jour :** quotidienne
+
+⚠️ **Retour au candidat selon l'état :**
+- ❌ Sans retour : `Nouvelle candidature`, `Candidature en attente`, `Candidature à l'étude`
+- ✅ Avec retour : tous les autres états (acceptée, refusée, embauché ailleurs, annulée, vivier, APAE)
+
+**Colonnes clés :** `état`, `date_candidature`, `date_embauche`, `temps_de_reponse`,
+`type_structure`, `département_structure`, `nom_org_prescripteur`, `tranche_age`, `genre_candidat`
+
+Voir [documentation complète](../stats/candidatures.md).
+
 ### suivi_utilisateurs_tb_prive_semaine
 
 Utilisateurs du service Pilotage (tableaux de bord privés).
