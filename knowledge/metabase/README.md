@@ -134,6 +134,22 @@ Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspe
 
 **⚠️ Utilisateurs pros uniquement.** Les candidats (demandeurs d'emploi) ne sont pas dans cette table — ils sont dans `public.candidats` (voir section dédiée).
 
+### public.candidatures_echelle_locale
+
+**Table prioritaire pour les analyses de candidatures.** Vue dénormalisée enrichie avec
+le contexte géographique, prescripteur, structure et candidat.
+
+**Volumétrie :** ~2,6 millions de lignes · **Mise à jour :** quotidienne
+
+⚠️ **Retour au candidat selon l'état :**
+- ❌ Sans retour : `Nouvelle candidature`, `Candidature en attente`, `Candidature à l'étude`
+- ✅ Avec retour : tous les autres états (acceptée, refusée, embauché ailleurs, annulée, vivier, APAE)
+
+**Colonnes clés :** `état`, `date_candidature`, `date_embauche`, `temps_de_reponse`,
+`type_structure`, `département_structure`, `nom_org_prescripteur`, `tranche_age`, `genre_candidat`
+
+Voir [documentation complète](../stats/candidatures.md).
+
 **Note:** Pas de lien direct au département. Utiliser `tmp_utilisateurs_avec_departement` pour les analyses géographiques.
 
 Voir aussi [knowledge/stats/users.md](../stats/users.md) pour les requêtes courantes.
