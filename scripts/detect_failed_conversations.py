@@ -19,6 +19,8 @@ from web.schema import init_db
 
 NOTIFY_EMAILS = config.FAILURE_NOTIFY_EMAILS
 
+# FIXME(vperron): this file seems unused ?
+
 
 def get_failed_conversations(days: int) -> list[dict]:
     init_db()

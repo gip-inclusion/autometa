@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# FIXME(vperron): OH MY GOD - this is all VERY, VERY bad practice.
+
 
 def humanize_title(title: str) -> str:
     if not title:

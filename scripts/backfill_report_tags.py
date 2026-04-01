@@ -4,6 +4,8 @@
 import os
 import sys
 
+# FIXME(vperron): this file seems unused ?
+
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

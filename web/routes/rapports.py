@@ -1,5 +1,7 @@
 """Rapports HTML routes."""
 
+# FIXME(vperron): this file seems unused. What is the difference with the reports API ?
+
 import re
 
 import markdown as md

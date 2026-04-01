@@ -21,6 +21,8 @@ from .base import AgentBackend, AgentMessage, build_system_prompt
 
 logger = logging.getLogger(__name__)
 
+# FIXME(vperron): clarify why we use the SDK here and subrpocess elsewhere.
+
 
 class SDKBackend(AgentBackend):
     """Agent backend using the Claude Agent SDK (query + resume)."""
@@ -71,7 +73,7 @@ class SDKBackend(AgentBackend):
             cwd=str(config.BASE_DIR),
             cli_path=config.CLAUDE_CLI,
             add_dirs=list(config.ADDITIONAL_DIRS),
-            env={"ANTHROPIC_API_KEY": ""},
+            env={"ANTHROPIC_API_KEY": ""},  # FXIME(vperron): why is this empty ?
             max_buffer_size=10 * 1024 * 1024,
         )
 

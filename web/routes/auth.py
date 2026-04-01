@@ -10,6 +10,9 @@ router = APIRouter(prefix="/api/auth")
 
 CREDENTIALS_FILE = Path.home() / ".claude" / ".credentials.json"
 
+# FIXME(vperron): I am not sure why this is useful ?
+# FIXME(vperron): But the selftest should absolutely have a check for the knowledge bases it knows.
+
 
 @router.get("/status")
 def status():
