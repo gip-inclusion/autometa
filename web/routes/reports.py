@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
+# FIXME(vperron): we should never have relative imports to the parent folder.
 from .. import notion
 from ..config import ADMIN_USERS
 from ..database import get_db, store
@@ -78,6 +79,9 @@ def get_report(report_id: int):
             "view": f"/rapports/{report.id}",
         },
     }
+
+
+# FIXME(vperron): thoss functions are a mess in their conditions.
 
 
 @router.delete("/{report_id}")

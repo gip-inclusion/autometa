@@ -14,6 +14,8 @@ from lib.query import CallerType, execute_query
 router = APIRouter(prefix="/api")
 
 # Allowed origins for CORS
+# FIXME(vperron): seems that there SHOULD be an already existing library for CORS handling.
+# Plus those should be parametrized in the settings.
 ALLOWED_ORIGINS = {
     "https://matometa.osc-fr1.scalingo.io",
     "https://matometa.inclusion.gouv.fr",
@@ -33,6 +35,12 @@ def cors_headers(origin: str | None) -> dict:
     return headers
 
 
+# FIXME(vperron): many code smells here.
+# - the variable bodies but a dingle API entry seems like a bad practice,
+#   we should probably have a metabase query and a matomo query endpoints.
+# - we should check that caller & tiemout are actually used.
+# - manual handling of every possible exception : we should RAISE.
+# In general the function makes me nervous.
 @router.api_route("/query", methods=["POST", "OPTIONS"])
 async def query(request: Request):
     """
@@ -41,6 +49,7 @@ async def query(request: Request):
     Request body (JSON):
         source: "metabase" or "matomo"
         instance: Instance name (e.g., "stats", "datalake", "inclusion")
+        caller: "app" or "agent"
 
         # For Metabase:
         sql: SQL query string (with database_id)

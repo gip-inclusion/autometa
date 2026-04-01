@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from web.database import get_db, init_db
 
+# FIXME(vperron): this file seems unused ?
+
 
 def fix_updated_at():
     """Reset updated_at for all conversations to their last message timestamp."""

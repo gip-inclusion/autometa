@@ -20,12 +20,15 @@ from .runner import runner
 from .sentry import init_sentry, set_user_context
 from .warmup import run as warmup
 
+# FIXME(vperron): have a logging level config ?
 setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
 # Silence noisy third-party loggers (boto generates ~30 debug lines per S3 request)
+# FIXME(vperron): There were other noisy ones.
 for _logger_name in ("botocore", "boto3", "urllib3", "s3transfer"):
     logging.getLogger(_logger_name).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# FIXME(vperron): In main() maybe ?
 init_sentry()
 
 
