@@ -268,7 +268,7 @@ def test_persist_usage(mocker):
 
 def test_persist_usage_no_extra(mocker):
     mock_store = mocker.patch("web.runner.store")
-    mocker.patch("web.runner.config.AGENT_BACKEND", "sdk")
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     _persist_usage("c1", {"input_tokens": 10, "output_tokens": 5})
     call_kwargs = mock_store.accumulate_usage.call_args[1]
     assert call_kwargs["extra"] is None

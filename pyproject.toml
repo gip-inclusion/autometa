@@ -7,8 +7,6 @@ dependencies = [
     "fastapi>=0.135.2",
     "uvicorn[standard]>=0.42.0",
     "python-multipart>=0.0.22",
-    # Claude API
-    "claude-agent-sdk>=0.1.52",
     # Templating
     "jinja2>=3.1.6",
     "markupsafe>=3.0.3",

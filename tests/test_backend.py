@@ -7,7 +7,6 @@ import pytest
     "name,cls_name",
     [
         ("cli", "CLIBackend"),
-        ("sdk", "SDKBackend"),
         ("cli-ollama", "CLIOllamaBackend"),
     ],
 )

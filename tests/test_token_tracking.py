@@ -107,7 +107,7 @@ def test_database_usage_columns_update_conversation_usage(db_setup):
         output_tokens=800,
         cache_creation_tokens=100,
         cache_read_tokens=500,
-        backend="sdk",
+        backend="cli",
         extra={"service_tier": "priority", "web_search_requests": 2},
     )
 
@@ -116,7 +116,7 @@ def test_database_usage_columns_update_conversation_usage(db_setup):
     assert loaded.usage_output_tokens == 800
     assert loaded.usage_cache_creation_tokens == 100
     assert loaded.usage_cache_read_tokens == 500
-    assert loaded.usage_backend == "sdk"
+    assert loaded.usage_backend == "cli"
     assert loaded.usage_extra == {"service_tier": "priority", "web_search_requests": 2}
 
 
