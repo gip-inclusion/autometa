@@ -92,58 +92,63 @@ Tables `stg_<source>__<entité>` + tables de jonction `stg_<source>__<entité>__
 | stg_decoupage_administratif__communes_associees_deleguees [9 cols] | 376 kB |
 | stg_etat_civil__prenoms [1 col] | 520 kB |
 
+### Colonnes staging Dora (source principale)
+
+**stg_dora__structures** (21 cols) : id, nom, source, siret, lien_source, date_maj (timestamptz), adresse, complement_adresse, commune, code_postal, code_insee, latitude (float), longitude (float), telephone, courriel, site_web, presentation_resume, presentation_detail, horaires_ouverture, accessibilite, typologie.
+
+**stg_dora__services** (31 cols) : id, nom, source, structure_id, lien_source, date_maj (timestamptz), adresse, complement_adresse, commune, code_postal, code_insee, latitude (float), longitude (float), telephone, courriel, contact_nom_prenom, presentation_resume, presentation_detail, frais, frais_autres, publics_precisions, recurrence, formulaire_en_ligne, prise_rdv, zone_diffusion_type, zone_diffusion_code, zone_diffusion_nom, modes_orientation_accompagnateur_autres, modes_orientation_beneficiaire_autres, temps_passe_semaines (int), temps_passe_duree_hebdomadaire (float).
+
+Les tables de jonction staging (`stg_dora__services__thematiques`, etc.) ont 2 colonnes : `id` (FK service) + `value`.
+
 ## Schéma `public_intermediate` (140 tables)
 
 Toutes les tables utilisent le suffixe `_v1`.
 
 ### Mappings (`int_<source>__<entité>_v1`)
 
-Chaque source produit 3 modèles standardisés :
-- `int_<source>__adresses_v1` [9 cols]
-- `int_<source>__structures_v1` [14 cols]
-- `int_<source>__services_v1` [26-28 cols]
+Chaque source produit 3 modèles standardisés. Colonnes détaillées pour Dora (même schéma pour les autres sources) :
+
+**int_dora__structures_v1** (14 cols) : source, id, adresse_id, nom, description, siret, date_maj (date), lien_source, telephone, courriel, site_web, horaires_accueil, accessibilite_lieu, reseaux_porteurs (array).
+
+**int_dora__services_v1** (27 cols) : source, id, structure_id, adresse_id, nom, description, date_maj (date), lien_source, conditions_acces, thematiques (array), modes_accueil (array), modes_mobilisation (array), mobilisable_par (array), mobilisation_precisions, publics (array), publics_precisions, type, frais, frais_precisions, nombre_semaines (int), volume_horaire_hebdomadaire (float), zone_eligibilite (array), contact_nom_prenom, courriel, telephone, lien_mobilisation, horaires_accueil.
+
+**int_dora__adresses_v1** (9 cols) : source, id, adresse, complement_adresse, commune, code_postal, code_insee, latitude (float), longitude (float).
 
 Sources : action_logement, agefiph, carif_oref, cd35, dora, emplois_de_linclusion, france_travail, fredo, ma_boussole_aidants, mediation_numerique, mes_aides (garages + aides + permis_velo), monenfant, reseau_alpha, soliguide.
 
 ### Unions
 
-| Table | Colonnes | Taille | Lignes |
-|---|---|---|---|
-| int__union_structures_v1 | 15 | 93 MB | 110 071 |
-| int__union_services_v1 | 30 | 317 MB | 180 100 |
-| int__union_adresses_v1 | 10 | 20 MB | |
-| int__union_contacts_v1 | 5 | 21 MB | |
-| int__union_urls_v1 | 1 | 38 MB | |
+**int__union_structures_v1** (15 cols, 93 MB, 110k lignes) : source, id, adresse_id, nom, date_maj (date), lien_source, siret, telephone, courriel, site_web, description, horaires_accueil, accessibilite_lieu, reseaux_porteurs (array), hash_id.
+
+**int__union_services_v1** (30 cols, 317 MB, 180k lignes) : source, id, structure_id, adresse_id, nom, description, date_maj (date), lien_source, type, thematiques (array), frais, frais_precisions, frais_autres, publics (array), publics_precisions, conditions_acces, telephone, courriel, contact_nom_prenom, modes_accueil (array), modes_mobilisation (array), mobilisable_par (array), lien_mobilisation, mobilisation_precisions, zone_eligibilite (array), zone_eligibilite_type, volume_horaire_hebdomadaire (float), nombre_semaines (int), horaires_accueil, _extra (jsonb).
+
+int__union_adresses_v1 (10 cols, 20 MB), int__union_contacts_v1 (5 cols, 21 MB), int__union_urls_v1 (1 col, 38 MB).
 
 ### Enrichissements
 
-| Table | Colonnes | Taille | Lignes |
-|---|---|---|---|
-| int__geocodages_v1 | 15 | 30 MB | 127 906 |
-| int__sirets_v1 | 5 | 5.3 MB | |
-| int__courriels_verifies_v1 | 3 | 1.6 MB | |
-| int__courriels_personnels_v1 | 1 | 40 kB | |
-| int__contacts_v1 | 6 | 19 MB | |
-| int__urls_v1 | 6 | 109 MB | |
-| int__adresses_v1 | 12 | 21 MB | |
+**int__geocodages_v1** (15 cols, 30 MB, 128k lignes) : adresse_id, input_adresse, input_code_postal, input_code_insee, input_commune, commune, adresse, code_postal, code_commune, code_arrondissement, score (float), type, longitude (float), latitude (float), geocoded_at (timestamp).
+
+**int__sirets_v1** (5 cols, 5.3 MB) : id, siret, statut, date_fermeture (date), siret_successeur.
+
+**int__courriels_verifies_v1** (3 cols, 1.6 MB) : courriel, has_hardbounced, was_objected_to.
+
+int__courriels_personnels_v1 (1 col), int__contacts_v1 (6 cols), int__urls_v1 (6 cols), int__adresses_v1 (12 cols).
 
 ### Finals
 
-| Table | Colonnes | Taille | Lignes |
-|---|---|---|---|
-| int__structures_v1 | 21 | 101 MB | 110 077 |
-| int__services_v1 | 35 | 328 MB | 180 160 |
-| int__erreurs_validation_v1 | 9 | 288 kB | 605 |
-| int__criteres_qualite_v1 | 5 | 212 MB | |
+Les colonnes de `int__structures_v1` et `int__services_v1` sont les mêmes que les marts (voir section `public_marts`) sans les flags qualité `_is_valid`, `_is_closed`, etc. qui sont ajoutés au passage en marts.
+
+**int__erreurs_validation_v1** (9 cols, 605 lignes) : id, source, resource_type, schema_version, model_class, type, loc, msg, input (jsonb).
+
+**int__criteres_qualite_v1** (5 cols, 212 MB) : service_id, nom_critere, score_critere, score_ligne, schema_version.
 
 ### Déduplication
 
-| Table | Colonnes | Taille | Lignes |
-|---|---|---|---|
-| int__doublons_structures_v1 | 5 | 2.6 MB | 21 426 |
-| int__doublons_paires_structures_v1 | 6 | 2.8 MB | |
-| int__doublons_nb_mono_source_v1 | 3 | 16 kB | |
-| int__doublons_nb_cross_source_v1 | 6 | 16 kB | |
+**int__doublons_structures_v1** (5 cols, 2.6 MB, 21k lignes) : cluster_id, structure_id, source, score (float), size (bigint).
+
+**int__doublons_paires_structures_v1** (6 cols) : cluster_id, structure_id_1, structure_id_2, source_1, source_2, size.
+
+int__doublons_nb_mono_source_v1 (3 cols), int__doublons_nb_cross_source_v1 (6 cols).
 
 ## Schéma `public_marts` (22 tables)
 

@@ -35,6 +35,21 @@ Conséquence : si un service existe dans Dora mais ne remonte pas dans la recher
 | `public_schema` | 18 tables d'énumération (thématiques, publics, modes, typologies) |
 | `public` | Tables API (events, requests, `api__search_services_events_v1`) |
 
+## Colonnes des tables brutes (schéma `dora`)
+
+Les données brutes sont en jsonb (colonne `data`). Accès via `data->>'field'`. **Ne pas faire de requêtes information_schema** — les colonnes sont documentées ici.
+
+**dora.services** (44 clés) : id, nom, source, structure_id, lien_source, date_maj, date_creation, date_suspension, presentation_resume, presentation_detail, adresse, complement_adresse, commune, code_postal, code_insee, latitude, longitude, telephone, courriel, contact_nom_prenom, contact_public, thematiques, types, publics, publics_precisions, profils, modes_accueil, modes_orientation_accompagnateur, modes_orientation_accompagnateur_autres, modes_orientation_beneficiaire, modes_orientation_beneficiaire_autres, frais, frais_autres, justificatifs, pre_requis, cumulable, formulaire_en_ligne, prise_rdv, recurrence, zone_diffusion_type, zone_diffusion_code, zone_diffusion_nom, temps_passe_duree_hebdomadaire, temps_passe_semaines.
+
+**dora.structures** (27 clés) : id, nom, source, siret, parent_siret, rna, lien_source, date_maj, presentation_resume, presentation_detail, adresse, complement_adresse, commune, code_postal, code_insee, latitude, longitude, telephone, courriel, site_web, horaires_ouverture, accessibilite, typologie, thematiques, labels_nationaux, labels_autres, antenne.
+
+## Performance
+
+Chaque requête ouvre un tunnel SSH (~200ms overhead). Pour minimiser les allers-retours :
+- **Combiner plusieurs SELECT dans une seule requête** plutôt que de faire des requêtes séparées
+- **Ne jamais interroger information_schema** — les schémas sont documentés dans `knowledge/data_inclusion/README.md`
+- Aller directement aux tables pertinentes plutôt que d'explorer
+
 ## Usage
 
 ```python
@@ -48,8 +63,6 @@ result = execute_data_inclusion_query(
 if result.success:
     print(result.data)  # {"columns": [...], "rows": [...], "row_count": N}
 ```
-
-Chaque appel ouvre un tunnel SSH, exécute la requête, et ferme tout.
 
 ## Investigation : un service Dora ne remonte pas dans la recherche
 
@@ -65,38 +78,44 @@ Procédure systématique. À chaque étape, si la donnée est trouvée, passer �
 
 Depuis l'URL Dora (`/services/<slug>`), extraire le nom de la structure et/ou le nom du service. Si un code INSEE est dans l'URL de recherche (`city=<code>`), le noter.
 
-### Étape 2 — Chercher dans les marts (ce que l'API retourne)
+### Étape 2 — Trace rapide (une seule requête)
 
-Par nom de structure :
+Lancer cette requête combinée en premier pour savoir immédiatement à quel niveau la donnée se trouve ou disparaît. Adapter le filtre (`nom ILIKE`, `code_postal LIKE`, etc.) selon le cas :
 
 ```sql
-SELECT id, source, nom, siret, _is_valid, _is_closed, _in_opendata, _cluster_id
-FROM public_marts.marts__structures_v1
-WHERE source = 'dora' AND nom ILIKE '%nom de la structure%'
+SELECT 'brut' as couche, data->>'id' as id, data->>'nom' as nom, NULL as is_valid
+FROM dora.services WHERE data->>'nom' ILIKE '%mot-clé%'
+UNION ALL
+SELECT 'staging', id, nom, NULL
+FROM public_staging.stg_dora__services WHERE nom ILIKE '%mot-clé%'
+UNION ALL
+SELECT 'intermediate', id, nom, NULL
+FROM public_intermediate.int_dora__services_v1 WHERE nom ILIKE '%mot-clé%'
+UNION ALL
+SELECT 'union', id, nom, NULL
+FROM public_intermediate.int__union_services_v1 WHERE source = 'dora' AND nom ILIKE '%mot-clé%'
+UNION ALL
+SELECT 'finals', id, nom, _is_valid::text
+FROM public_intermediate.int__services_v1 WHERE source = 'dora' AND nom ILIKE '%mot-clé%'
+UNION ALL
+SELECT 'marts', id, nom, _is_valid::text
+FROM public_marts.marts__services_v1 WHERE source = 'dora' AND nom ILIKE '%mot-clé%'
 ```
 
-Par code INSEE (département entier ou commune) :
+Si la donnée apparaît dans une couche mais pas la suivante, c'est là qu'elle est perdue. Approfondir ensuite avec les requêtes ciblées ci-dessous.
+
+### Étape 3 — Requêtes ciblées par couche
+
+**Marts** (ce que l'API retourne) :
 
 ```sql
-SELECT s.id, s.nom, svc.id as service_id, svc.nom as service_nom, svc.thematiques
-FROM public_marts.marts__structures_v1 s
-JOIN public_marts.marts__services_v1 svc ON svc.structure_id = s.id
-WHERE s.source = 'dora' AND svc.code_insee = '85151'
-```
-
-Par thématique dans une zone :
-
-```sql
-SELECT svc.id, svc.nom, svc.commune, s.nom as structure
+SELECT svc.id, svc.nom, svc.commune, svc.thematiques, svc._is_valid, svc._in_opendata, s.nom as structure
 FROM public_marts.marts__services_v1 svc
 JOIN public_marts.marts__structures_v1 s ON s.id = svc.structure_id
-JOIN public_marts.marts__services_thematiques_v1 t ON t.service_id = svc.id
-WHERE t.value LIKE 'mobilite%' AND svc.code_postal LIKE '85%'
+WHERE svc.source = 'dora' AND svc.code_postal LIKE '85%'
 ```
 
-**Si absent des marts** → la donnée a été perdue en amont. Continuer.
-
-### Étape 3 — Chercher dans les finals intermediate
+**Finals** (après validation + dédup) :
 
 ```sql
 SELECT id, source, nom, adresse_id, _is_valid, _is_closed
@@ -131,16 +150,16 @@ WHERE nom ILIKE '%nom du service%'
 Les données brutes sont stockées en jsonb dans la colonne `data` :
 
 ```sql
-SELECT data->>'name' as nom, data->>'slug' as slug, data->>'siret' as siret
+SELECT data->>'id' as id, data->>'nom' as nom, data->>'siret' as siret, data->>'lien_source' as lien_source
 FROM dora.structures
-WHERE data->>'name' ILIKE '%nom de la structure%'
+WHERE data->>'nom' ILIKE '%nom de la structure%'
 LIMIT 10
 ```
 
 ```sql
-SELECT data->>'name' as nom, data->>'slug' as slug, data->>'structure' as structure_id
+SELECT data->>'id' as id, data->>'nom' as nom, data->>'structure_id' as structure_id, data->>'lien_source' as lien_source
 FROM dora.services
-WHERE data->>'name' ILIKE '%nom du service%'
+WHERE data->>'nom' ILIKE '%nom du service%'
 LIMIT 10
 ```
 
