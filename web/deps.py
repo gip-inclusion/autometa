@@ -42,3 +42,16 @@ templates.env.globals["static_url"] = static_url
 
 templates.env.globals["format_relative_date"] = format_relative_date
 templates.env.globals["config"] = config
+
+
+def conv_url(conv) -> str:
+    """Return the URL for a conversation (expert workspace or explorations)."""
+    if getattr(conv, "project_id", None):
+        from .database import store
+        project = store.get_project(conv.project_id)
+        if project:
+            return f"/expert/{project.slug}/{conv.id}"
+    return f"/explorations/{conv.id}"
+
+
+templates.env.globals["conv_url"] = conv_url
