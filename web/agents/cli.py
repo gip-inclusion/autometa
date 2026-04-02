@@ -12,8 +12,6 @@ import sentry_sdk
 from .. import config
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
