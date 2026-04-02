@@ -4,7 +4,6 @@ from .. import config
 from .base import AgentBackend, AgentMessage
 from .cli import CLIBackend
 from .cli_ollama import CLIOllamaBackend
-from .sdk import SDKBackend
 
 __all__ = [
     "AgentBackend",
@@ -12,16 +11,12 @@ __all__ = [
     "get_agent",
 ]
 
-# FIXME(vperron): weird way to implement backends.
-
 
 def get_agent() -> AgentBackend:
     backend = config.AGENT_BACKEND
 
     if backend == "cli":
         return CLIBackend()
-    if backend == "sdk":
-        return SDKBackend()
     if backend == "cli-ollama":
         return CLIOllamaBackend()
 

@@ -25,7 +25,6 @@ Les clients d'API et modules qui interagissent avec des systèmes extérieurs so
 - `web/s3.py` — Client S3 (stockage fichiers, sync)
 - `web/notion.py` — Client Notion (publication rapports)
 - `web/agents/cli.py` — Spawn et parsing du subprocess Claude CLI
-- `web/agents/sdk.py` — Intégration claude-agent-sdk
 
 Toute modification de ces modules doit :
 

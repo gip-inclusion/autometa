@@ -48,11 +48,11 @@ def test_set_user_context():
 def test_set_conversation_context():
     from web.sentry import set_conversation_context
 
-    set_conversation_context("conv-123", backend="sdk")
+    set_conversation_context("conv-123", backend="cli")
     scope = sentry_sdk.get_isolation_scope()
     tags = scope._tags or {}
     assert tags.get("conversation_id") == "conv-123"
-    assert tags.get("agent_backend") == "sdk"
+    assert tags.get("agent_backend") == "cli"
 
 
 def test_get_trace_headers_returns_dict():
