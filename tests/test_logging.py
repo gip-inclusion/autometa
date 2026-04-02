@@ -55,6 +55,22 @@ def test_setup_logging_adds_datadog_handler_when_configured(mocker):
             logging.root.removeHandler(h)
 
 
+def test_setup_logging_suppresses_httpx_logs(mocker):
+    mocker.patch("web.config.DATADOG_API_KEY", "test-key")
+    mocker.patch("web.config.HOST", "test-host")
+    mocker.patch("httpx.Client.post")
+
+    setup_logging(level=logging.INFO)
+
+    assert logging.getLogger("httpx").level >= logging.WARNING
+    assert logging.getLogger("httpcore").level >= logging.WARNING
+
+    for h in logging.root.handlers[:]:
+        if isinstance(h, DatadogHandler):
+            h.close()
+            logging.root.removeHandler(h)
+
+
 def test_setup_logging_no_datadog_without_key(mocker):
     mocker.patch("web.config.DATADOG_API_KEY", "")
 
