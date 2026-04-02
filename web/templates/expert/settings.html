@@ -88,6 +88,31 @@
             <pre class="mt-2 p-2 bg-dark text-light small" id="productionLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
           </div>
         </div>
+
+          <!-- Option 2: Scaleway Serverless -->
+          {% if scaleway_available %}
+          <div class="border rounded p-3 border-info mt-3">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="deploy-dot" id="scalewayDot"></span>
+              <strong>Scaleway Serverless</strong>
+              <span class="badge bg-info text-dark">cloud</span>
+            </div>
+            <p class="text-muted small mb-2" id="scalewayStatusText">Chargement...</p>
+            <div class="d-flex flex-wrap gap-2">
+              <a href="#" target="_blank" class="btn btn-sm btn-outline-info" id="scalewayOpenBtn" style="display:none;">
+                <i class="ri-external-link-line"></i> Ouvrir
+              </a>
+              <button type="button" class="btn btn-sm btn-info" id="publishScalewayBtn">
+                <i class="ri-cloud-line"></i> Publier sur Scaleway
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-danger" id="unpublishScalewayBtn" style="display:none;">
+                <i class="ri-delete-bin-line"></i> Retirer
+              </button>
+            </div>
+            <div class="mt-2 p-2 bg-light small" id="scalewayProgress" style="display:none;border-radius:6px;"></div>
+          </div>
+          {% endif %}
+        </div>
       </div>
 
       <!-- Project info -->
@@ -270,6 +295,82 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(refreshStatus, 15000);
 
   document.getElementById('refreshStatusBtn')?.addEventListener('click', refreshStatus);
+
+  // --- Scaleway publish ---
+  const scwBtn = document.getElementById('publishScalewayBtn');
+  const scwUnpubBtn = document.getElementById('unpublishScalewayBtn');
+  const scwProgress = document.getElementById('scalewayProgress');
+
+  async function refreshScalewayStatus() {
+    try {
+      const res = await fetch(`/api/expert/projects/${PROJECT_ID}/scaleway-status`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const dot = document.getElementById('scalewayDot');
+      const text = document.getElementById('scalewayStatusText');
+      const openBtn = document.getElementById('scalewayOpenBtn');
+      if (!dot) return;
+      dot.className = 'deploy-dot';
+      const st = data.status || 'not_published';
+      if (st === 'not_published') {
+        dot.classList.add('deploy-dot-unknown');
+        text.textContent = 'Non publié';
+        if (openBtn) openBtn.style.display = 'none';
+        if (scwUnpubBtn) scwUnpubBtn.style.display = 'none';
+      } else if (st === 'ready') {
+        dot.classList.add('deploy-dot-running');
+        text.textContent = 'En ligne';
+        if (openBtn && data.scaleway_url) { openBtn.href = data.scaleway_url; openBtn.style.display = ''; }
+        if (scwUnpubBtn) scwUnpubBtn.style.display = '';
+      } else if (st === 'pending' || st === 'creating' || st === 'deploying') {
+        dot.classList.add('deploy-dot-deploying');
+        text.textContent = 'Déploiement...';
+      } else {
+        dot.classList.add('deploy-dot-error');
+        text.textContent = st;
+        if (scwUnpubBtn) scwUnpubBtn.style.display = '';
+      }
+    } catch (err) { console.warn('SCW status failed:', err); }
+  }
+
+  if (scwBtn) {
+    scwBtn.addEventListener('click', async () => {
+      if (!confirm('Publier sur Scaleway ?\n\nCela va créer un conteneur serverless public accessible sur Internet.')) return;
+      scwBtn.disabled = true;
+      scwBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Publication...';
+      if (scwProgress) { scwProgress.style.display = ''; scwProgress.textContent = 'Construction de l\'image...'; }
+      try {
+        const res = await fetch(`/api/expert/projects/${PROJECT_ID}/publish-scaleway`, { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'published' || data.status === 'published_unverified') {
+          if (scwProgress) scwProgress.innerHTML = `<i class="ri-check-line text-success"></i> Publié : <a href="${data.url}" target="_blank">${data.url}</a>`;
+        } else {
+          if (scwProgress) scwProgress.innerHTML = `<i class="ri-error-warning-line text-danger"></i> Erreur (${data.step || '?'}): ${data.error || 'Inconnu'}`;
+        }
+        await refreshScalewayStatus();
+      } catch (err) {
+        if (scwProgress) scwProgress.textContent = 'Erreur: ' + err.message;
+      } finally {
+        scwBtn.disabled = false;
+        scwBtn.innerHTML = '<i class="ri-cloud-line"></i> Publier sur Scaleway';
+      }
+    });
+  }
+
+  if (scwUnpubBtn) {
+    scwUnpubBtn.addEventListener('click', async () => {
+      if (!confirm('Retirer de Scaleway ?\n\nLa base de données sera conservée.')) return;
+      scwUnpubBtn.disabled = true;
+      try {
+        await fetch(`/api/expert/projects/${PROJECT_ID}/publish-scaleway`, { method: 'DELETE' });
+        if (scwProgress) { scwProgress.style.display = ''; scwProgress.textContent = 'Retiré de Scaleway.'; }
+        await refreshScalewayStatus();
+      } catch (err) { alert('Erreur: ' + err.message); }
+      finally { scwUnpubBtn.disabled = false; }
+    });
+  }
+
+  if (scwBtn) refreshScalewayStatus();
 
   const stagingBtn = document.getElementById('deployStagingBtn');
   if (stagingBtn) stagingBtn.addEventListener('click', () => deployAction(`/api/expert/projects/${PROJECT_ID}/deploy-staging`, stagingBtn));

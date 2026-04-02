@@ -39,6 +39,9 @@ class Project(Base):
     production_deploy_url: Mapped[str | None] = mapped_column(Text)
     tech_stack: Mapped[str | None] = mapped_column(Text)
     boilerplate: Mapped[str | None] = mapped_column(Text)
+    scaleway_container_id: Mapped[str | None] = mapped_column(Text)
+    scaleway_url: Mapped[str | None] = mapped_column(Text)
+    scaleway_db_url: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
 

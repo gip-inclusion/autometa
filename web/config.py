@@ -27,6 +27,18 @@ PROJECTS_DIR = DATA_DIR / "projects"
 SYNTHETIC_API_URL = os.getenv("SYNTHETIC_API_URL", "https://api.synthetic.new/openai/v1")
 SYNTHETIC_API_KEY = os.getenv("SYNTHETIC_API_KEY", "")
 
+# Scaleway Serverless Containers
+SCW_SECRET_KEY = os.getenv("SCW_SECRET_KEY", "")
+SCW_ACCESS_KEY = os.getenv("SCW_ACCESS_KEY", "")
+SCW_PROJECT_ID = os.getenv("SCW_PROJECT_ID", "")
+SCW_REGION = os.getenv("SCW_REGION", "fr-par")
+SCW_REGISTRY_ENDPOINT = os.getenv("SCW_REGISTRY_ENDPOINT", "")
+SCW_CONTAINER_NAMESPACE_ID = os.getenv("SCW_CONTAINER_NAMESPACE_ID", "")
+SCW_RDB_HOST = os.getenv("SCW_RDB_HOST", "")
+SCW_RDB_PORT = os.getenv("SCW_RDB_PORT", "5432")
+SCW_RDB_ADMIN_USER = os.getenv("SCW_RDB_ADMIN_USER", "")
+SCW_RDB_ADMIN_PASSWORD = os.getenv("SCW_RDB_ADMIN_PASSWORD", "")
+
 # Agent backend: "cli", "sdk", or "cli-ollama"
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 

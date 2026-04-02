@@ -87,6 +87,10 @@ def scan_interactive_apps():
 
 
 def scan_interactive_apps_uncached():
+    from . import config
+    if not config.S3_BUCKET:
+        logger.info("S3 not configured, skipping interactive apps scan")
+        return []
     apps = []
     for folder_name in s3.list_directories():
         app_md_content = s3.download_file(f"{folder_name}/APP.md")

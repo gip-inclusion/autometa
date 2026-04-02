@@ -1369,6 +1369,7 @@ class ConversationStore:
         "name", "description", "spec", "status", "workflow_phase",
         "gitea_repo_id", "gitea_url", "staging_branch", "production_branch",
         "staging_deploy_url", "production_deploy_url", "tech_stack", "boilerplate",
+        "scaleway_container_id", "scaleway_url", "scaleway_db_url",
     })
 
     def update_project(self, project_id: str, **kwargs) -> bool:
@@ -1440,6 +1441,9 @@ class Project:
     production_deploy_url: Optional[str] = None
     tech_stack: Optional[str] = None
     boilerplate: Optional[str] = None
+    scaleway_container_id: Optional[str] = None
+    scaleway_url: Optional[str] = None
+    scaleway_db_url: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -1462,6 +1466,9 @@ def _model_to_project(p: ProjectModel) -> Project:
         production_deploy_url=p.production_deploy_url,
         tech_stack=p.tech_stack,
         boilerplate=p.boilerplate,
+        scaleway_container_id=p.scaleway_container_id,
+        scaleway_url=p.scaleway_url,
+        scaleway_db_url=p.scaleway_db_url,
         created_at=datetime.fromisoformat(p.created_at),
         updated_at=datetime.fromisoformat(p.updated_at),
     )

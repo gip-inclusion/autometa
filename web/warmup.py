@@ -180,6 +180,10 @@ def warmup_metabase_cards():
 
 
 def restore_interactive_from_s3():
+    if not config.S3_BUCKET:
+        logger.info("S3 not configured, skipping restore")
+        return
+
     from . import s3 as s3_module
 
     files = s3_module.list_files()
