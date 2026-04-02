@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
-from .. import helpers
-from ..config import ADMIN_USERS
-from ..database import store
-from ..deps import get_current_user, templates
-from ..helpers import (
+from web import helpers
+from web.config import ADMIN_USERS
+from web.database import store
+from web.deps import get_current_user, templates
+from web.helpers import (
     format_relative_date,
     list_knowledge_files,
     list_knowledge_sections,
@@ -20,7 +20,7 @@ from ..helpers import (
     validate_conv_id,
     validate_knowledge_path,
 )
-from ..interactive_apps import scan_interactive_apps
+from web.interactive_apps import scan_interactive_apps
 
 logger = logging.getLogger(__name__)
 

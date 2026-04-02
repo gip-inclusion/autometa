@@ -8,9 +8,9 @@ import markdown
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from ..database import store
-from ..deps import get_current_user
-from ..helpers import (
+from web.database import store
+from web.deps import get_current_user
+from web.helpers import (
     get_staging_dir,
     list_knowledge_files,
     list_staged_files,

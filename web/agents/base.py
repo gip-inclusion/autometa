@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from .. import config
+from web import config
 
 logger = logging.getLogger(__name__)
 

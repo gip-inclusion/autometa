@@ -6,9 +6,10 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from ..cron import discover_cron_tasks, find_task, get_app_runs, get_last_runs, run_cron_task, set_cron_enabled
-from ..deps import get_current_user, templates
-from ..helpers import format_relative_date
+from web.cron import discover_cron_tasks, find_task, get_app_runs, get_last_runs, run_cron_task, set_cron_enabled
+from web.deps import get_current_user, templates
+from web.helpers import format_relative_date
+
 from .html import get_sidebar_data
 
 router = APIRouter()

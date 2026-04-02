@@ -10,12 +10,13 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from markupsafe import Markup
 
-from .. import notion
-from ..config import ADMIN_USERS
-from ..database import get_db, store
-from ..deps import get_current_user, templates
-from ..interactive_apps import scan_interactive_apps
-from ..models import Report
+from web import notion
+from web.config import ADMIN_USERS
+from web.database import get_db, store
+from web.deps import get_current_user, templates
+from web.interactive_apps import scan_interactive_apps
+from web.models import Report
+
 from .html import get_sidebar_data
 
 logger = logging.getLogger(__name__)

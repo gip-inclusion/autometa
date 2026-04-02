@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, sync_to_s3
 from . import s3 as s3_module
 from .interactive_apps import scan_interactive_apps
-from .logging import setup_logging
+from .log import setup_logging
 from .redis_conn import close_redis
 from .runner import runner
 from .sentry import init_sentry, set_user_context

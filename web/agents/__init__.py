@@ -1,6 +1,7 @@
 """Agent backend implementations."""
 
-from .. import config
+from web import config
+
 from .base import AgentBackend, AgentMessage
 from .cli import CLIBackend
 from .cli_ollama import CLIOllamaBackend

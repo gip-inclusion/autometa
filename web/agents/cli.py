@@ -9,7 +9,8 @@ from typing import AsyncIterator
 
 import sentry_sdk
 
-from .. import config
+from web import config
+
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
 logger = logging.getLogger(__name__)

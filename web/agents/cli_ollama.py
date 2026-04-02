@@ -2,7 +2,8 @@
 
 import os
 
-from .. import config
+from web import config
+
 from .cli import CLIBackend
 
 
