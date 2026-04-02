@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} – {{ project.name }} – Paramètres{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ static_url('css/expert.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-expert">
+  <div class="section-header">
+    <div class="container">
+      <div class="conv-header-row">
+        <a href="/expert/{{ project.slug }}" class="conv-back-link">
+          <i class="ri-arrow-left-line ri-xl"></i>
+        </a>
+        <div class="conv-title-wrapper">
+          <p class="conv-meta-row text-muted mb-0 small">
+            <a href="/expert" class="text-muted">Expert</a> · {{ project.name }}
+          </p>
+          <h1 class="mb-0">Paramètres</h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container py-4" style="max-width: 720px;">
+
+      <!-- Staging -->
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <strong><i class="ri-code-s-slash-line me-1"></i> Staging</strong>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshStatusBtn">
+            <i class="ri-refresh-line"></i>
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="deploy-dot deploy-dot-unknown" id="stagingDot"></span>
+            <span class="small" id="stagingStatusText">Chargement...</span>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <a href="/expert/{{ project.slug }}/preview/staging/" target="_blank" class="btn btn-sm btn-outline-secondary" id="stagingOpenBtn" style="display:none;">
+              <i class="ri-external-link-line"></i> Ouvrir
+            </a>
+            <button type="button" class="btn btn-sm btn-outline-info" id="stagingLogsBtn" style="display:none;">
+              <i class="ri-terminal-line"></i> Logs
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-warning" id="stagingRestartBtn" style="display:none;">
+              <i class="ri-restart-line"></i> Restart
+            </button>
+            <button type="button" class="btn btn-sm btn-warning" id="deployStagingBtn" {% if not project.gitea_url %}disabled{% endif %}>
+              <i class="ri-upload-cloud-line"></i> Deployer staging
+            </button>
+          </div>
+          <pre class="mt-2 p-2 bg-dark text-light small" id="stagingLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+        </div>
+      </div>
+
+      <!-- Production -->
+      <div class="card mb-4">
+        <div class="card-header"><strong><i class="ri-rocket-line me-1"></i> Production</strong></div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">Promouvoir la branche staging vers production.</p>
+
+          <div class="border rounded p-3 mb-3">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="deploy-dot deploy-dot-unknown" id="productionDot"></span>
+              <strong>Serveur Docker</strong>
+              <span class="badge bg-secondary">local</span>
+            </div>
+            <p class="text-muted small mb-2" id="productionStatusText">Chargement...</p>
+            <div class="d-flex flex-wrap gap-2">
+              <a href="/expert/{{ project.slug }}/preview/production/" target="_blank" class="btn btn-sm btn-outline-success" id="productionOpenBtn" style="display:none;">
+                <i class="ri-external-link-line"></i> Ouvrir
+              </a>
+              <button type="button" class="btn btn-sm btn-outline-info" id="productionLogsBtn" style="display:none;">
+                <i class="ri-terminal-line"></i> Logs
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-warning" id="productionRestartBtn" style="display:none;">
+                <i class="ri-restart-line"></i> Restart
+              </button>
+              <button type="button" class="btn btn-sm btn-primary" id="deployProductionBtn" {% if not project.gitea_url %}disabled{% endif %}>
+                <i class="ri-server-line"></i> Deployer sur le serveur
+              </button>
+            </div>
+            <pre class="mt-2 p-2 bg-dark text-light small" id="productionLogsPanel" style="display:none;max-height:300px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Project info -->
+      <div class="card mb-4">
+        <div class="card-header"><strong>Projet</strong></div>
+        <div class="card-body">
+          <table class="table table-sm mb-0">
+            <tbody>
+              <tr>
+                <td class="text-muted" style="width: 140px;">Nom</td>
+                <td>{{ project.name }}</td>
+              </tr>
+              <tr>
+                <td class="text-muted">Slug</td>
+                <td><code>{{ project.slug }}</code></td>
+              </tr>
+              <tr>
+                <td class="text-muted">Statut</td>
+                <td>
+                  <span class="badge {% if project.status == 'deployed' %}bg-success{% elif project.status == 'active' %}bg-primary{% elif project.status == 'archived' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+                    {{ project.status }}
+                  </span>
+                </td>
+              </tr>
+              <tr>
+                <td class="text-muted">Repository</td>
+                <td>
+                  {% if project.gitea_url %}
+                  <a href="{{ project.gitea_url }}" target="_blank">{{ project.gitea_url }}</a>
+                  {% else %}
+                  <span class="text-danger">Non initialise</span>
+                  <button type="button" class="btn btn-sm btn-outline-warning ms-2" id="retryGiteaBtn">
+                    <i class="ri-refresh-line"></i> Creer le depot
+                  </button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% if project.staging_deploy_url %}
+              <tr>
+                <td class="text-muted">URL staging</td>
+                <td><code class="small">{{ project.staging_deploy_url }}</code></td>
+              </tr>
+              {% endif %}
+              {% if project.production_deploy_url %}
+              <tr>
+                <td class="text-muted">URL production</td>
+                <td><code class="small">{{ project.production_deploy_url }}</code></td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PROJECT_ID = '{{ project.id }}';
+
+function updateDot(dotId, statusTextId, envData) {
+  const dot = document.getElementById(dotId);
+  const text = document.getElementById(statusTextId);
+  if (!dot) return;
+
+  const env = dotId.replace('Dot', '');
+  const openBtn = document.getElementById(env + 'OpenBtn');
+  const logsBtn = document.getElementById(env + 'LogsBtn');
+  const restartBtn = document.getElementById(env + 'RestartBtn');
+
+  dot.className = 'deploy-dot';
+  let label = 'Inconnu';
+  const st = envData?.status || '';
+
+  if (!envData || st === 'not_deployed') {
+    dot.classList.add('deploy-dot-unknown');
+    label = 'Non deploye';
+  } else if (st === 'running' || st.startsWith('running:')) {
+    dot.classList.add('deploy-dot-running');
+    label = 'En ligne';
+  } else if (st === 'deploying' || st === 'starting') {
+    dot.classList.add('deploy-dot-deploying');
+    label = 'Deploiement en cours...';
+  } else if (st === 'stopped' || st === 'exited') {
+    dot.classList.add('deploy-dot-stopped');
+    label = 'Arrete';
+  } else if (st === 'error' || st === 'degraded' || st.includes('unhealthy')) {
+    dot.classList.add('deploy-dot-error');
+    label = st;
+  } else {
+    dot.classList.add('deploy-dot-unknown');
+    label = st || 'Inconnu';
+  }
+
+  if (text) text.textContent = label;
+
+  const deployed = envData && st !== 'not_deployed';
+  if (openBtn) openBtn.style.display = deployed && envData.deploy_url ? '' : 'none';
+  if (logsBtn) logsBtn.style.display = deployed ? '' : 'none';
+  if (restartBtn) restartBtn.style.display = (deployed && st !== 'running') ? '' : 'none';
+}
+
+async function refreshStatus() {
+  try {
+    const res = await fetch(`/api/expert/projects/${PROJECT_ID}/deploy-status`);
+    if (!res.ok) return;
+    const data = await res.json();
+    updateDot('stagingDot', 'stagingStatusText', data.staging);
+    updateDot('productionDot', 'productionStatusText', data.production);
+  } catch (err) {
+    console.warn('Status refresh failed:', err);
+  }
+}
+
+async function deployAction(url, btn) {
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> En cours...';
+  try {
+    const res = await fetch(url, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) alert(data.error || 'Erreur');
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      await refreshStatus();
+    }
+  } catch (err) {
+    alert('Erreur: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
+async function showLogs(env) {
+  const panel = document.getElementById(env + 'LogsPanel');
+  if (!panel) return;
+
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.textContent = 'Chargement...';
+  panel.style.display = '';
+
+  try {
+    const res = await fetch(`/api/expert/projects/${PROJECT_ID}/logs/${env}`);
+    const data = await res.json();
+    panel.textContent = data.logs || 'Pas de logs';
+    panel.scrollTop = panel.scrollHeight;
+  } catch (err) {
+    panel.textContent = 'Erreur: ' + err.message;
+  }
+}
+
+async function restartEnv(env, btn) {
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+  try {
+    const res = await fetch(`/api/expert/projects/${PROJECT_ID}/restart/${env}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status !== 'running') alert(data.error || 'Restart echoue');
+    await new Promise(r => setTimeout(r, 2000));
+    await refreshStatus();
+  } catch (err) {
+    alert('Erreur: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshStatus();
+  setInterval(refreshStatus, 15000);
+
+  document.getElementById('refreshStatusBtn')?.addEventListener('click', refreshStatus);
+
+  const stagingBtn = document.getElementById('deployStagingBtn');
+  if (stagingBtn) stagingBtn.addEventListener('click', () => deployAction(`/api/expert/projects/${PROJECT_ID}/deploy-staging`, stagingBtn));
+
+  const prodBtn = document.getElementById('deployProductionBtn');
+  if (prodBtn) prodBtn.addEventListener('click', () => deployAction(`/api/expert/projects/${PROJECT_ID}/deploy`, prodBtn));
+
+  document.getElementById('stagingLogsBtn')?.addEventListener('click', () => showLogs('staging'));
+  document.getElementById('productionLogsBtn')?.addEventListener('click', () => showLogs('production'));
+
+  const sr = document.getElementById('stagingRestartBtn');
+  if (sr) sr.addEventListener('click', () => restartEnv('staging', sr));
+  const pr = document.getElementById('productionRestartBtn');
+  if (pr) pr.addEventListener('click', () => restartEnv('production', pr));
+
+  const retryBtn = document.getElementById('retryGiteaBtn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', async () => {
+      retryBtn.disabled = true;
+      retryBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Creation...';
+      try {
+        const res = await fetch(`/api/expert/projects/${PROJECT_ID}/retry-gitea`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.gitea_url) {
+          retryBtn.parentElement.innerHTML = `<a href="${data.gitea_url}" target="_blank">${data.gitea_url}</a>`;
+          document.getElementById('deployStagingBtn')?.removeAttribute('disabled');
+          document.getElementById('deployProductionBtn')?.removeAttribute('disabled');
+        } else {
+          alert(data.error || 'Echec de la creation du depot');
+          retryBtn.disabled = false;
+          retryBtn.innerHTML = '<i class="ri-refresh-line"></i> Reessayer';
+        }
+      } catch (err) {
+        alert('Erreur: ' + err.message);
+        retryBtn.disabled = false;
+        retryBtn.innerHTML = '<i class="ri-refresh-line"></i> Reessayer';
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

@@ -1367,6 +1367,8 @@ class ConversationStore:
 
     VALID_PROJECT_COLUMNS = frozenset({
         "name", "description", "spec", "status", "workflow_phase",
+        "gitea_repo_id", "gitea_url", "staging_branch", "production_branch",
+        "staging_deploy_url", "production_deploy_url", "tech_stack", "boilerplate",
     })
 
     def update_project(self, project_id: str, **kwargs) -> bool:
@@ -1430,6 +1432,14 @@ class Project:
     spec: Optional[str] = None
     status: str = "draft"
     workflow_phase: str = "planning"
+    gitea_repo_id: Optional[int] = None
+    gitea_url: Optional[str] = None
+    staging_branch: str = "staging"
+    production_branch: str = "prod"
+    staging_deploy_url: Optional[str] = None
+    production_deploy_url: Optional[str] = None
+    tech_stack: Optional[str] = None
+    boilerplate: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -1444,6 +1454,14 @@ def _model_to_project(p: ProjectModel) -> Project:
         spec=p.spec,
         status=p.status or "draft",
         workflow_phase=p.workflow_phase or "planning",
+        gitea_repo_id=p.gitea_repo_id,
+        gitea_url=p.gitea_url,
+        staging_branch=p.staging_branch or "staging",
+        production_branch=p.production_branch or "prod",
+        staging_deploy_url=p.staging_deploy_url,
+        production_deploy_url=p.production_deploy_url,
+        tech_stack=p.tech_stack,
+        boilerplate=p.boilerplate,
         created_at=datetime.fromisoformat(p.created_at),
         updated_at=datetime.fromisoformat(p.updated_at),
     )

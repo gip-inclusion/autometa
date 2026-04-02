@@ -180,6 +180,92 @@
 }
 
 /* =============================================================================
+   Deploy bar
+   ============================================================================= */
+
+.deploy-bar {
+  border-top: 1px solid var(--bs-border-color, #dee2e6);
+  background: var(--bs-body-bg, #fff);
+  padding: 0.375rem 1rem;
+  flex-shrink: 0;
+}
+
+.deploy-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.deploy-env {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+}
+
+.deploy-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.deploy-dot-running { background: #198754; }
+.deploy-dot-deploying { background: #e57200; animation: pulse 1.5s infinite; }
+.deploy-dot-stopped { background: #6c757d; }
+.deploy-dot-unknown { background: #adb5bd; }
+.deploy-dot-error { background: #dc3545; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.deploy-label {
+  color: var(--bs-secondary-color, #6c757d);
+  font-weight: 500;
+}
+
+.deploy-link {
+  color: var(--bs-secondary-color, #6c757d);
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+
+.deploy-link:hover {
+  color: var(--bs-primary, #0d6efd);
+}
+
+.deploy-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.375rem;
+}
+
+.deploy-action-inline {
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color, #6c757d);
+  padding: 0;
+  line-height: 1;
+}
+
+.deploy-action-inline:hover {
+  color: var(--bs-warning, #ffc107);
+}
+
+.deploy-dot[role="button"] {
+  cursor: pointer;
+}
+
+.deploy-dot[role="button"]:hover {
+  transform: scale(1.5);
+  transition: transform 0.15s;
+}
+
+/* =============================================================================
    Conversation selector
    ============================================================================= */
 
@@ -274,5 +360,10 @@
 
   .conv-selector .form-select {
     max-width: 160px;
+  }
+
+  .deploy-bar-inner {
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 }

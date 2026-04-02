@@ -15,6 +15,13 @@ load_dotenv(BASE_DIR / ".env")
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 
 EXPERT_MODE_ENABLED = os.getenv("EXPERT_MODE_ENABLED", "").lower() in ("1", "true", "yes")
+
+GITEA_URL = os.getenv("GITEA_URL", "http://localhost:3300")
+GITEA_API_TOKEN = os.getenv("GITEA_API_TOKEN")
+GITEA_ORG = os.getenv("GITEA_ORG", "apps")
+
+EXPERT_DEPLOY_PUBLIC_HOST = os.getenv("EXPERT_DEPLOY_PUBLIC_HOST", "").strip()
+DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 PROJECTS_DIR = DATA_DIR / "projects"
 
 # Agent backend: "cli", "sdk", or "cli-ollama"

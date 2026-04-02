@@ -594,6 +594,105 @@ async def stream_conversation(
         chunks.append(_sse_event("done", {"conversation_id": conv_id}))
         return chunks
 
+    async def _expert_post_run_hook():
+        """Expert-mode post-run hook: commit/push staged changes and trigger staging deploy."""
+        updated = await asyncio.to_thread(store.get_conversation, conv_id, False)
+        if not updated or updated.conv_type not in ("expert", "project") or not updated.project_id:
+            return
+
+        try:
+            from lib.expert_git import commit_and_push_staging_if_changed
+
+            project = await asyncio.to_thread(store.get_project, updated.project_id)
+            if not project:
+                return
+
+            commit_result = await asyncio.to_thread(
+                commit_and_push_staging_if_changed,
+                project,
+                conv_id,
+            )
+            if not commit_result:
+                return
+
+            deploy_triggered = False
+            deploy_result = None
+            review_result = None
+
+            deploy_task = None
+            review_task = None
+
+            try:
+                from lib import docker_deploy
+                if docker_deploy.docker_available():
+                    compose_file = config.PROJECTS_DIR / project.id / "docker-compose.yml"
+                    if compose_file.exists():
+                        deploy_task = asyncio.create_task(
+                            asyncio.to_thread(
+                                docker_deploy.deploy, project.id, "staging"
+                            )
+                        )
+            except Exception as deploy_exc:
+                logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
+
+            try:
+                from lib.expert_review import review_commit
+                review_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        review_commit, project.id, commit_result["commit"]
+                    )
+                )
+            except Exception as review_exc:
+                logger.warning("Code review setup error for %s: %s", conv_id, review_exc)
+
+            if deploy_task:
+                try:
+                    deploy_result = await deploy_task
+                    deploy_triggered = deploy_result.get("status") == "running"
+                    if not deploy_triggered:
+                        logger.warning(
+                            "Auto-deploy staging failed for %s: %s",
+                            project.slug, deploy_result.get("error", "unknown"),
+                        )
+                except Exception as deploy_exc:
+                    logger.warning("Auto-deploy staging error for %s: %s", conv_id, deploy_exc)
+
+            if review_task:
+                try:
+                    review_result = await review_task
+                except Exception as review_exc:
+                    logger.warning("Code review error for %s: %s", conv_id, review_exc)
+
+            sse_content = {
+                "subtype": "auto_commit",
+                "branch": commit_result["branch"],
+                "commit": commit_result["commit"],
+                "files_changed": len(commit_result["files"]),
+                "staging_deploy_triggered": deploy_triggered,
+            }
+            if commit_result.get("lint_warnings"):
+                sse_content["lint_warnings"] = commit_result["lint_warnings"]
+            if deploy_triggered and deploy_result and deploy_result.get("smoke_test"):
+                sse_content["smoke_test"] = deploy_result["smoke_test"]
+
+            yield _sse_event(
+                "system",
+                {"type": "system", "content": sse_content},
+            )
+
+            if review_result:
+                yield _sse_event(
+                    "system",
+                    {"type": "system", "content": {
+                        "subtype": "code_review",
+                        "review": review_result["review"],
+                        "model": review_result["model"],
+                        "commit": commit_result["commit"],
+                    }},
+                )
+        except Exception as exc:
+            logger.warning("Expert auto-commit failed for conversation %s: %s", conv_id, exc)
+
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
         max_seconds = 300
@@ -604,6 +703,8 @@ async def stream_conversation(
         if await runner.is_done(conv_id) or not conv.needs_response:
             for chunk in await _drain_unseen(last_msg_id):
                 yield chunk
+            async for evt in _expert_post_run_hook():
+                yield evt
             return
 
         pubsub = await runner.subscribe(conv_id)
@@ -621,6 +722,8 @@ async def stream_conversation(
                     if msg["data"] == "done":
                         for chunk in await _drain_unseen(last_msg_id):
                             yield chunk
+                        async for evt in _expert_post_run_hook():
+                            yield evt
                         return
 
                 if not msg and (now - last_fallback) >= fallback_interval:
@@ -633,6 +736,8 @@ async def stream_conversation(
                     if await runner.is_done(conv_id):
                         for chunk in await _drain_unseen(last_msg_id):
                             yield chunk
+                        async for evt in _expert_post_run_hook():
+                            yield evt
                         return
 
                 if not msg:

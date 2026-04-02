@@ -21,6 +21,15 @@
             <span class="badge {% if project.status == 'deployed' %}bg-success{% elif project.status == 'active' %}bg-primary{% elif project.status == 'archived' %}bg-secondary{% else %}bg-warning text-dark{% endif %} ms-1">
               {{ project.status }}
             </span>
+            {% if project.gitea_url %}
+            · <a href="{{ project.gitea_url }}" target="_blank" class="text-muted" title="Repository"><i class="ri-git-repository-line"></i></a>
+            {% endif %}
+            {% if project.production_deploy_url %}
+            · <a href="/expert/{{ project.slug }}/preview/production/" target="_blank" class="text-muted" title="Ouvrir production"><i class="ri-external-link-line"></i> Production</a>
+            {% elif project.staging_deploy_url %}
+            · <a href="/expert/{{ project.slug }}/preview/staging/" target="_blank" class="text-muted" title="Ouvrir staging"><i class="ri-external-link-line"></i> Staging</a>
+            {% endif %}
+            · <a href="/expert/{{ project.slug }}/settings" class="text-muted" title="Parametres"><i class="ri-settings-3-line"></i></a>
           </p>
           <div class="conv-title-display" id="projectTitleDisplay">
             <h1 class="mb-0" id="projectNameText" style="cursor: pointer;" title="Cliquer pour renommer">{{ project.name }} <i class="ri-pencil-line text-muted" style="font-size: 0.5em; vertical-align: middle;"></i></h1>
@@ -87,6 +96,30 @@
               <div class="spinner"></div> Chargement...
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staging bar -->
+    <div class="deploy-bar" id="deployBar">
+      <div class="deploy-bar-inner">
+        <div class="deploy-env">
+          <span class="deploy-dot deploy-dot-unknown" id="stagingDot" role="button" title="Ouvrir staging"></span>
+          <span class="deploy-label">staging</span>
+          <a href="#" class="deploy-link" id="stagingLink" target="_blank" style="display:none;">
+            <i class="ri-external-link-line"></i>
+          </a>
+          <button type="button" class="btn btn-sm btn-link p-0 ms-1 deploy-action-inline" id="stagingRestartInline" style="display:none;" title="Redemarrer staging">
+            <i class="ri-restart-line"></i>
+          </button>
+        </div>
+        <div class="deploy-actions">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="deployStagingBtn" title="Deployer staging">
+            <i class="ri-upload-cloud-line"></i> Staging
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="deployRefreshBtn" title="Rafraichir">
+            <i class="ri-refresh-line"></i>
+          </button>
         </div>
       </div>
     </div>
