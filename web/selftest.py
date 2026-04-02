@@ -267,6 +267,57 @@ def _check_claude_code_ping() -> tuple[bool, str]:
     return (False, "no pong in output")
 
 
+_INVENTORY_PROMPT = """\
+Liste TOUTES les ressources auxquelles tu as accès, en tableau Markdown avec les colonnes : Catégorie | Nom | Chemin.
+Catégories : Source de données, Knowledge, Skill, Cache.
+Pas d'appels HTTP, utilise uniquement ton system prompt et le contenu des répertoires skills/, knowledge/, data/cache/ et config/sources.yaml.
+Trie par nom alphabétique à l'intérieur de chaque catégorie.
+Aucune explication, juste le tableau."""
+
+
+def _parse_inventory_rows(output: str) -> list[tuple[str, str, str]]:
+    rows = []
+    for line in output.splitlines():
+        if "|" not in line or "---" in line:
+            continue
+        cells = [c.strip().strip("`") for c in line.split("|") if c.strip()]
+        if len(cells) >= 3 and cells[0] != "Catégorie":
+            rows.append((cells[0], cells[1], cells[2]))
+    rows.sort(key=lambda r: (r[0], r[1].lower()))
+    return rows
+
+
+def _format_inventory_table(rows: list[tuple[str, str, str]]) -> str:
+    cat_w = max(len("Catégorie"), *(len(r[0]) for r in rows))
+    nom_w = max(len("Nom"), *(len(r[1]) for r in rows))
+    path_w = max(len("Chemin"), *(len(r[2]) for r in rows))
+
+    fmt = f"  {{:<{cat_w}}}   {{:<{nom_w}}}   {{:<{path_w}}}"
+    lines = [fmt.format("Catégorie", "Nom", "Chemin"), fmt.format("-" * cat_w, "-" * nom_w, "-" * path_w)]
+    lines.extend(fmt.format(c, n, p) for c, n, p in rows)
+    return "\n".join(lines)
+
+
+def _check_claude_code_inventory() -> tuple[bool, str]:
+    result = subprocess.run(
+        [config.CLAUDE_CLI, "--print", "-p", _INVENTORY_PROMPT],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(config.BASE_DIR),
+    )
+    if result.returncode != 0:
+        return (False, (result.stderr or result.stdout).strip()[:120])
+
+    rows = _parse_inventory_rows(result.stdout)
+    table = _format_inventory_table(rows)
+    categories = {r[0] for r in rows}
+    missing = {"Source de données", "Knowledge", "Skill", "Cache"} - categories
+    if missing:
+        return (False, f"catégories manquantes : {', '.join(sorted(missing))}\n{table}")
+    return (True, f"{len(rows)} ressources\n{table}")
+
+
 def _check_s3() -> tuple[bool, str]:
     from . import s3
 
@@ -377,6 +428,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Claude CLI", _check_claude_cli),
         ("Claude status page", _check_claude_status_page),
         ("Claude Code API ping", _check_claude_code_ping),
+        ("Ressources offline accessibles", _check_claude_code_inventory),
         ("S3", _check_s3),
         ("Matomo", _check_matomo),
     ]
