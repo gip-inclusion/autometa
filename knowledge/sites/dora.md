@@ -18,6 +18,10 @@ Dora has two knowledge files:
 
 **Use `knowledge/dora/`** for: querying the database, understanding the domain model (Structure → Service → Orientation), search analytics by organization, content freshness metrics.
 
+## Backend de recherche
+
+La recherche de services Dora (`/recherche?...`) utilise l'API data·inclusion (`/search/services`) comme backend. Les résultats viennent du datawarehouse data·inclusion (tables `public_marts`). Si un service saisi dans Dora ne remonte pas dans la recherche, utiliser la skill `data_inclusion` pour investiguer le pipeline (staging → intermediate → marts).
+
 ## Traffic Baselines (2025)
 
 Data retrieved 2026-03-29 via Matomo API.
