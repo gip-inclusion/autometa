@@ -24,6 +24,10 @@ def start_sync_watcher():
     """Start the background file watcher if S3 is configured."""
     global watcher_thread
 
+    if not config.S3_BUCKET:
+        logger.info("S3 not configured, skipping sync watcher")
+        return
+
     if watcher_thread is not None and watcher_thread.is_alive():
         logger.debug("Sync watcher already running")
         return
