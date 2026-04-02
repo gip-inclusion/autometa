@@ -64,6 +64,7 @@ def test_setup_logging_suppresses_httpx_logs(mocker):
 
     assert logging.getLogger("httpx").level >= logging.WARNING
     assert logging.getLogger("httpcore").level >= logging.WARNING
+    assert logging.getLogger("paramiko").level >= logging.WARNING
 
     for h in logging.root.handlers[:]:
         if isinstance(h, DatadogHandler):

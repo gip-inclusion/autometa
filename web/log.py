@@ -111,6 +111,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     # generates an httpx log, which would itself be sent to Datadog, and so on.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
 
     if config.DATADOG_API_KEY:
         dd = DatadogHandler(config.DATADOG_API_KEY)
