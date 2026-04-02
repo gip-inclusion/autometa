@@ -418,6 +418,17 @@ def _check_slack() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
+def _check_data_inclusion() -> tuple[bool, str]:
+    from lib.query import CallerType, execute_data_inclusion_query
+
+    if not config.DATA_INCLUSION_DATABASE_URL:
+        return (False, "DATA_INCLUSION_DATABASE_URL not set")
+    result = execute_data_inclusion_query("SELECT 1", caller=CallerType.APP)
+    if result.success:
+        return (True, f"connected ({result.execution_time_ms}ms)")
+    return (False, result.error or "query failed")
+
+
 def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     specs: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
         ("PostgreSQL", _check_postgresql),
@@ -435,6 +446,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     for inst in list_instances("metabase"):
         specs.append((f"Metabase ({inst})", lambda i=inst: _check_metabase_instance(i)))
     specs += [
+        ("data·inclusion", _check_data_inclusion),
         ("Notion", _check_notion),
         ("Grist", _check_grist),
         ("Livestorm", _check_livestorm),

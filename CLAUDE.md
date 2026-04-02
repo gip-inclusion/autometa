@@ -27,6 +27,7 @@ Sources de données :
 
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
+- **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH)
 
 ## Sites web
 
@@ -50,6 +51,7 @@ Sources de données :
 | `knowledge/matomo/README.md` | Référence API Matomo |
 | `data/cache/matomo/` | Baselines Matomo par site (synchro quotidienne depuis PostgreSQL) |
 | `data/cache/metabase/` | Inventaire cartes et dashboards Metabase (synchro quotidienne) |
+| `knowledge/data_inclusion/README.md` | Architecture pipeline data·inclusion (dbt layers, sources, traçabilité) |
 | `DATABASE_URL` (PostgreSQL) | Conversations, rapports, files d'attente agent, etc. |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
 
@@ -62,6 +64,7 @@ Sources de données :
 | Communauté | `gip-inclusion/la-communaute` | master |
 | Pilotage | `gip-inclusion/pilotage` | master |
 | Dora | `gip-inclusion/dora` | master |
+| data·inclusion | `gip-inclusion/data-inclusion` | main |
 | RDV-Insertion | `gip-inclusion/rdv-insertion` | master |
 
 Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.
