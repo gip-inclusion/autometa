@@ -82,7 +82,9 @@ class CLIBackend(AgentBackend):
         env = self._build_env()
 
         span = sentry_sdk.start_span(op="agent.cli.process", name="claude CLI subprocess")
+        span.set_data("conversation_id", conversation_id)
         span.set_data("prompt_length", len(prompt))
+        span.set_data("prompt_snippet", prompt[:500])
 
         # Spawn process (10 MB buffer to handle large tool results)
         process = await asyncio.create_subprocess_exec(
@@ -99,6 +101,8 @@ class CLIBackend(AgentBackend):
         self._processes[conversation_id] = process
 
         stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
+
+        last_events: list[str] = []
 
         try:
             # Read stdout line by line (stderr drained in parallel to avoid pipe deadlock)
@@ -120,6 +124,9 @@ class CLIBackend(AgentBackend):
                     event = json.loads(line_str)
                     for agent_msg in self._parse_events(event):
                         logger.debug(f"Parsed event: {agent_msg.type}")
+                        last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
+                        if len(last_events) > 10:
+                            last_events.pop(0)
                         yield agent_msg
                 except json.JSONDecodeError:
                     logger.warning("Non-JSON line: %s", line_str)
@@ -130,6 +137,7 @@ class CLIBackend(AgentBackend):
                     )
 
             await process.wait()
+            span.set_data("line_count", line_count)
             logger.info(f"Process exited with code: {process.returncode}")
         finally:
             self._processes.pop(conversation_id, None)
@@ -146,9 +154,32 @@ class CLIBackend(AgentBackend):
             logger.info(f"Cleaned up conversation {conversation_id}")
 
         stderr_str = stderr_bytes.decode("utf-8", errors="replace")
+        span.set_data("exit_code", process.returncode)
+
         if process.returncode != 0:
-            logger.error(f"Process error: {stderr_str}")
+            stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
             span.set_status("internal_error")
+            span.set_data("stderr", stderr_tail)
+            span.set_data("last_events", last_events)
+
+            with sentry_sdk.push_scope() as scope:
+                scope.set_extra("conversation_id", conversation_id)
+                scope.set_extra("exit_code", process.returncode)
+                scope.set_extra("stderr", stderr_tail)
+                scope.set_extra("prompt_snippet", prompt[:500])
+                scope.set_extra("last_events", last_events)
+                sentry_sdk.capture_message(
+                    f"CLI process error (exit {process.returncode})",
+                    level="error",
+                    scope=scope,
+                )
+            logger.error(
+                "CLI process error: conversation=%s exit_code=%s stderr=%s",
+                conversation_id,
+                process.returncode,
+                stderr_tail,
+            )
+
             yield AgentMessage(
                 type="error",
                 content=f"Process exited with code {process.returncode}: {stderr_str}",
