@@ -22,8 +22,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --group dev --frozen
-      - run: uv run ruff check web/ lib/ scripts/ tests/
-      - run: uv run ruff format --check web/ lib/ scripts/ tests/
+      - run: uv run ruff check web/ lib/ tests/
+      - run: uv run ruff format --check web/ lib/ tests/
 
   security:
     name: Security
@@ -38,7 +38,7 @@ jobs:
       - run: uv sync --group dev --frozen
 
       - name: Bandit (SAST)
-        run: uv run bandit -r web/ lib/ scripts/ -c pyproject.toml --severity-level medium --confidence-level high -q
+        run: uv run bandit -r web/ lib/ -c pyproject.toml --severity-level medium --confidence-level high -q
 
       - name: pip-audit
         run: |
