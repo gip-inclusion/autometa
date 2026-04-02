@@ -39,6 +39,11 @@ SCW_RDB_PORT = os.getenv("SCW_RDB_PORT", "5432")
 SCW_RDB_ADMIN_USER = os.getenv("SCW_RDB_ADMIN_USER", "")
 SCW_RDB_ADMIN_PASSWORD = os.getenv("SCW_RDB_ADMIN_PASSWORD", "")
 
+# Recettes (A/B testing existing PDI apps)
+RECETTES_ENABLED = os.getenv("RECETTES_ENABLED", "").lower() in ("1", "true", "yes")
+RECETTES_DIR = DATA_DIR / "recettes"
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+
 # Agent backend: "cli", "sdk", or "cli-ollama"
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 

@@ -342,3 +342,30 @@ class MetabaseDashboard(Base):
     pilotage_url: Mapped[str | None] = mapped_column(Text)
     collection_id: Mapped[int | None] = mapped_column(Integer)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=func.now())
+
+
+class Recette(Base):
+    __tablename__ = "recettes"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    github_repo: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="cloned")
+    project_id: Mapped[str | None] = mapped_column(Text, ForeignKey("projects.id"))
+    branch_a: Mapped[str] = mapped_column(Text, default="main")
+    branch_b: Mapped[str | None] = mapped_column(Text)
+    port_a: Mapped[int | None] = mapped_column(Integer)
+    port_b: Mapped[int | None] = mapped_column(Integer)
+    deploy_url_a: Mapped[str | None] = mapped_column(Text)
+    deploy_url_b: Mapped[str | None] = mapped_column(Text)
+    pr_url: Mapped[str | None] = mapped_column(Text)
+    pr_status: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("idx_recettes_user", "user_id"),
+        Index("idx_recettes_slug", "slug"),
+    )

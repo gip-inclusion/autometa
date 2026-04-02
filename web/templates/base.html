@@ -73,6 +73,15 @@
           </a>
         </li>
         {% endif %}
+        {% if config.RECETTES_ENABLED %}
+        <li class="nav-item">
+          <a href="/recettes" class="nav-link {% if section == 'recettes' %}active{% endif %}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-flask-line" aria-hidden="true"></i>
+            <span>Recettes</span>
+          </a>
+        </li>
+        {% endif %}
 
       </ul>
 
@@ -142,6 +151,13 @@
           <li class="nav-item">
             <a href="/expert" class="nav-link {% if section == 'expert' %}active{% endif %}">
               <i class="ri-code-s-slash-line me-2"></i>Expert
+            </a>
+          </li>
+          {% endif %}
+          {% if config.RECETTES_ENABLED %}
+          <li class="nav-item">
+            <a href="/recettes" class="nav-link {% if section == 'recettes' %}active{% endif %}">
+              <i class="ri-flask-line me-2"></i>Recettes
             </a>
           </li>
           {% endif %}

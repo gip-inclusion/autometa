@@ -62,7 +62,7 @@ def truncate_all_tables():
                 pm_heartbeat, reports, conversations, tags, schema_version,
                 wishlist, matomo_baselines, matomo_dimensions, matomo_segments,
                 matomo_events, metabase_cards, metabase_dashboards,
-                projects
+                recettes, projects
                 CASCADE;
         """)
         )

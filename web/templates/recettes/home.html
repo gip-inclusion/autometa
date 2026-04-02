@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} – Recettes{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ static_url('css/expert.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-recettes">
+  <div class="section-header">
+    <div class="container">
+      <h1 class="mb-0"><i class="ri-flask-line me-2"></i>Recettes</h1>
+      <p class="text-muted small mb-0">Tester des fonctionnalites sur les apps PDI</p>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container py-4" style="max-width: 720px;">
+
+      <!-- Create form -->
+      <div class="card mb-4">
+        <div class="card-header"><strong>Cloner un depot</strong></div>
+        <div class="card-body">
+          <form id="createForm" class="d-flex gap-2">
+            <input type="text" class="form-control" name="github_repo"
+                   placeholder="gip-inclusion/les-emplois" required>
+            <input type="text" class="form-control" name="branch" placeholder="main" style="max-width:150px;">
+            <button type="submit" class="btn btn-primary" id="cloneBtn">
+              <i class="ri-git-pull-request-line"></i> Cloner
+            </button>
+          </form>
+          <div class="mt-2 small text-muted" id="createStatus" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- List -->
+      {% if recettes %}
+      {% for r in recettes %}
+      <div class="card mb-3">
+        <div class="card-body d-flex align-items-center justify-content-between">
+          <div>
+            <a href="/recettes/{{ r.id }}" class="fw-bold text-decoration-none">{{ r.name }}</a>
+            <span class="badge {% if r.status == 'running' %}bg-success{% elif r.status == 'error' %}bg-danger{% elif r.status == 'stopped' %}bg-secondary{% else %}bg-warning text-dark{% endif %} ms-2">
+              {{ r.status }}
+            </span>
+            <div class="text-muted small">
+              <code>{{ r.github_repo }}</code>
+              · <code>{{ r.branch_a }}</code>
+              {% if r.branch_b %} vs <code>{{ r.branch_b }}</code>{% endif %}
+            </div>
+          </div>
+          <a href="/recettes/{{ r.id }}" class="btn btn-sm btn-outline-primary">
+            <i class="ri-arrow-right-line"></i>
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p class="text-muted text-center">Aucune recette. Clonez un depot pour commencer.</p>
+      {% endif %}
+
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('createForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('cloneBtn');
+  const status = document.getElementById('createStatus');
+  const repo = e.target.github_repo.value.trim();
+  const branch = e.target.branch.value.trim() || 'main';
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Clonage...';
+  status.style.display = '';
+  status.textContent = 'Clonage en cours...';
+
+  try {
+    const res = await fetch('/api/recettes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({github_repo: repo, branch}),
+    });
+    const data = await res.json();
+    if (data.redirect) {
+      status.textContent = 'Clone lance, redirection...';
+      window.location.href = data.redirect;
+    } else {
+      status.textContent = data.error || 'Erreur';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-git-pull-request-line"></i> Cloner';
+    }
+  } catch (err) {
+    status.textContent = 'Erreur: ' + err.message;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-git-pull-request-line"></i> Cloner';
+  }
+});
+</script>
+{% endblock %}

@@ -15,6 +15,7 @@ from .models import ConversationTag as ConvTagModel
 from .models import Message as MsgModel
 from .models import PinnedItem as PinModel
 from .models import Project as ProjectModel
+from .models import Recette as RecetteModel
 from .models import Report as ReportModel
 from .models import ReportTag as ReportTagModel
 from .models import Tag as TagModel
@@ -1409,6 +1410,68 @@ class ConversationStore:
                 for c in models
             ]
 
+    # ── Recette CRUD ───────────────────────────────────────────
+
+    def create_recette(self, user_id: str, name: str, github_repo: str) -> Recette:
+        recette_id = str(uuid.uuid4())
+        slug = github_repo.split("/")[-1]
+        now = datetime.now()
+        with get_db() as session:
+            existing = session.execute(
+                select(RecetteModel).where(RecetteModel.slug == slug)
+            ).scalar_one_or_none()
+            if existing:
+                slug = f"{slug}-{recette_id[:6]}"
+            model = RecetteModel(
+                id=recette_id,
+                user_id=user_id,
+                name=name,
+                slug=slug,
+                github_repo=github_repo,
+                created_at=now.isoformat(),
+                updated_at=now.isoformat(),
+            )
+            session.add(model)
+        return Recette(id=recette_id, user_id=user_id, name=name, slug=slug,
+                       github_repo=github_repo, created_at=now, updated_at=now)
+
+    def get_recette(self, recette_id: str) -> Optional[Recette]:
+        with get_db() as session:
+            model = session.execute(
+                select(RecetteModel).where(RecetteModel.id == recette_id)
+            ).scalar_one_or_none()
+            return _model_to_recette(model) if model else None
+
+    def list_recettes(self, user_id: Optional[str] = None) -> list[Recette]:
+        with get_db() as session:
+            stmt = select(RecetteModel).order_by(RecetteModel.updated_at.desc())
+            if user_id:
+                stmt = stmt.where(RecetteModel.user_id == user_id)
+            models = session.scalars(stmt).all()
+            return [_model_to_recette(m) for m in models]
+
+    VALID_RECETTE_COLUMNS = frozenset({
+        "name", "status", "project_id", "branch_a", "branch_b",
+        "port_a", "port_b", "deploy_url_a", "deploy_url_b",
+        "pr_url", "pr_status",
+    })
+
+    def update_recette(self, recette_id: str, **kwargs) -> bool:
+        updates = {k: v for k, v in kwargs.items() if k in self.VALID_RECETTE_COLUMNS}
+        if not updates:
+            return False
+        updates["updated_at"] = datetime.now().isoformat()
+        with get_db() as session:
+            model = session.execute(
+                select(RecetteModel).where(RecetteModel.id == recette_id)
+            ).scalar_one_or_none()
+            if not model:
+                return False
+            for key, value in updates.items():
+                setattr(model, key, value)
+            return True
+
+
 ADJECTIVES = [
     "swift", "bright", "calm", "dark", "eager", "fair", "gentle", "happy",
     "keen", "lively", "merry", "noble", "proud", "quiet", "rare", "sharp",
@@ -1448,6 +1511,29 @@ class Project:
     updated_at: datetime = field(default_factory=datetime.now)
 
 
+@dataclass
+class Recette:
+    """A recette — testing an existing PDI app."""
+
+    id: str = ""
+    user_id: Optional[str] = None
+    name: str = ""
+    slug: str = ""
+    github_repo: str = ""
+    status: str = "cloned"
+    project_id: Optional[str] = None
+    branch_a: str = "main"
+    branch_b: Optional[str] = None
+    port_a: Optional[int] = None
+    port_b: Optional[int] = None
+    deploy_url_a: Optional[str] = None
+    deploy_url_b: Optional[str] = None
+    pr_url: Optional[str] = None
+    pr_status: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+
 def _model_to_project(p: ProjectModel) -> Project:
     return Project(
         id=p.id,
@@ -1471,6 +1557,28 @@ def _model_to_project(p: ProjectModel) -> Project:
         scaleway_db_url=p.scaleway_db_url,
         created_at=datetime.fromisoformat(p.created_at),
         updated_at=datetime.fromisoformat(p.updated_at),
+    )
+
+
+def _model_to_recette(r: RecetteModel) -> Recette:
+    return Recette(
+        id=r.id,
+        user_id=r.user_id,
+        name=r.name,
+        slug=r.slug,
+        github_repo=r.github_repo,
+        status=r.status or "cloned",
+        project_id=r.project_id,
+        branch_a=r.branch_a or "main",
+        branch_b=r.branch_b,
+        port_a=r.port_a,
+        port_b=r.port_b,
+        deploy_url_a=r.deploy_url_a,
+        deploy_url_b=r.deploy_url_b,
+        pr_url=r.pr_url,
+        pr_status=r.pr_status,
+        created_at=datetime.fromisoformat(r.created_at),
+        updated_at=datetime.fromisoformat(r.updated_at),
     )
 
 

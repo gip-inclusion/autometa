@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} – {{ recette.name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ static_url('css/expert.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-recettes">
+  <div class="section-header">
+    <div class="container">
+      <div class="conv-header-row">
+        <a href="/recettes" class="conv-back-link"><i class="ri-arrow-left-line ri-xl"></i></a>
+        <div class="conv-title-wrapper">
+          <p class="conv-meta-row text-muted mb-0 small">
+            <a href="/recettes" class="text-muted">Recettes</a> ·
+            <a href="https://github.com/{{ recette.github_repo }}" target="_blank" class="text-muted">
+              <i class="ri-github-line"></i> {{ recette.github_repo }}
+            </a>
+            <span class="badge {% if recette.status == 'running' %}bg-success{% elif recette.status == 'error' %}bg-danger{% else %}bg-secondary{% endif %} ms-1">{{ recette.status }}</span>
+          </p>
+          <h1 class="mb-0">{{ recette.name }}</h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container py-4" style="max-width: 900px;">
+
+      <!-- Agent conversations -->
+      {% if project and conversations %}
+      <div class="alert alert-info mb-4">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <i class="ri-robot-line ri-lg"></i>
+          <strong>Conversations agent</strong>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          {% for conv in conversations %}
+          <a href="/expert/{{ project.slug }}/{{ conv.id }}" class="btn btn-sm btn-outline-info">
+            <i class="ri-chat-3-line"></i>
+            {% if loop.index == 1 %}Setup / Deploy (A){% elif loop.index == 2 %}Feature (B){% else %}Conv {{ loop.index }}{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- A/B comparison -->
+      <div class="row g-4 mb-4">
+        <!-- Side A -->
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-header"><strong>A — <code>{{ recette.branch_a }}</code></strong></div>
+            <div class="card-body">
+              <div class="d-flex flex-wrap gap-2">
+                {% if recette.deploy_url_a %}
+                <a href="/recettes/{{ recette.id }}/preview/a/" target="_blank" class="btn btn-sm btn-outline-success">
+                  <i class="ri-external-link-line"></i> Ouvrir
+                </a>
+                {% endif %}
+                <button class="btn btn-sm btn-outline-info" onclick="showLogs('a')">
+                  <i class="ri-terminal-line"></i> Logs
+                </button>
+              </div>
+              <pre class="p-2 bg-dark text-light small mt-2" id="logsA" style="display:none;max-height:250px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Side B -->
+        <div class="col-md-6">
+          <div class="card h-100 {% if recette.branch_b %}border-info{% endif %}">
+            <div class="card-header"><strong>B — <code>{{ recette.branch_b or 'non defini' }}</code></strong></div>
+            <div class="card-body">
+              {% if not recette.branch_b %}
+              <form id="branchBForm" class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" name="branch" placeholder="feat/my-feature" required>
+                <button type="submit" class="btn btn-sm btn-info"><i class="ri-git-branch-line"></i> Set</button>
+              </form>
+              {% else %}
+              <div class="d-flex flex-wrap gap-2">
+                {% if recette.deploy_url_b %}
+                <a href="/recettes/{{ recette.id }}/preview/b/" target="_blank" class="btn btn-sm btn-outline-success">
+                  <i class="ri-external-link-line"></i> Ouvrir
+                </a>
+                {% endif %}
+                <button class="btn btn-sm btn-outline-info" onclick="showLogs('b')">
+                  <i class="ri-terminal-line"></i> Logs
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="removeBranchB()">
+                  <i class="ri-delete-bin-line"></i>
+                </button>
+              </div>
+              <pre class="p-2 bg-dark text-light small mt-2" id="logsB" style="display:none;max-height:250px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PR Pipeline (only shown when branch B exists) -->
+      {% if recette.branch_b %}
+      <div class="card">
+        <div class="card-header"><strong><i class="ri-git-pull-request-line me-1"></i> Pull Request Pipeline</strong></div>
+        <div class="card-body">
+
+          {% if recette.pr_url %}
+          <!-- PR already created -->
+          <div class="alert alert-success">
+            <i class="ri-check-double-line"></i> PR cree :
+            <a href="{{ recette.pr_url }}" target="_blank">{{ recette.pr_url }}</a>
+          </div>
+          {% else %}
+          <!-- Pipeline steps -->
+          <div class="d-flex flex-column gap-3">
+
+            <!-- Step 1: Check -->
+            <div class="d-flex align-items-center gap-3 p-2 border rounded">
+              <span class="badge bg-{{ 'success' if recette.pr_status in ('checks_passed', 'rebased') else 'danger' if recette.pr_status == 'checks_failed' else 'secondary' }}">1</span>
+              <div class="flex-grow-1">
+                <strong>Verifier</strong>
+                <span class="text-muted small">— ruff, djlint, tests du repo</span>
+              </div>
+              <button class="btn btn-sm btn-outline-primary" id="checkBtn" onclick="prStep('check', this)">
+                <i class="ri-checkbox-circle-line"></i> Lancer
+              </button>
+            </div>
+            <pre class="p-2 bg-light small" id="checkOutput" style="display:none;max-height:200px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+
+            <!-- Step 2: Rebase -->
+            <div class="d-flex align-items-center gap-3 p-2 border rounded">
+              <span class="badge bg-{{ 'success' if recette.pr_status == 'rebased' else 'secondary' }}">2</span>
+              <div class="flex-grow-1">
+                <strong>Rebase</strong>
+                <span class="text-muted small">— sur main, resoudre conflits</span>
+              </div>
+              <button class="btn btn-sm btn-outline-primary" id="rebaseBtn" onclick="prStep('rebase', this)"
+                {% if recette.pr_status not in ('checks_passed', 'checks_failed') %}disabled{% endif %}>
+                <i class="ri-git-merge-line"></i> Rebaser
+              </button>
+            </div>
+            <pre class="p-2 bg-light small" id="rebaseOutput" style="display:none;max-height:200px;overflow-y:auto;border-radius:6px;font-size:11px;"></pre>
+
+            <!-- Step 3: Review diff -->
+            <div class="d-flex align-items-center gap-3 p-2 border rounded">
+              <span class="badge bg-secondary">3</span>
+              <div class="flex-grow-1">
+                <strong>Relire le diff</strong>
+                <span class="text-muted small">— avant de publier</span>
+              </div>
+              <button class="btn btn-sm btn-outline-primary" id="diffBtn" onclick="showDiff()"
+                {% if recette.pr_status != 'rebased' %}disabled{% endif %}>
+                <i class="ri-file-list-line"></i> Voir
+              </button>
+            </div>
+            <pre class="p-2 bg-light small" id="diffOutput" style="display:none;max-height:400px;overflow-y:auto;border-radius:6px;font-size:11px;white-space:pre-wrap;"></pre>
+
+            <!-- Step 4: Create PR -->
+            <div class="p-3 border rounded {% if recette.pr_status == 'rebased' %}border-primary{% endif %}">
+              <div class="d-flex align-items-center gap-3 mb-2">
+                <span class="badge bg-{{ 'primary' if recette.pr_status == 'rebased' else 'secondary' }}">4</span>
+                <strong>Creer la PR</strong>
+              </div>
+              <form id="prForm" class="d-flex flex-column gap-2">
+                <input type="text" class="form-control" name="title" placeholder="Titre" value="feat: {{ recette.branch_b }}"
+                  {% if recette.pr_status != 'rebased' %}disabled{% endif %}>
+                <textarea class="form-control" name="body" rows="3" placeholder="Description..."
+                  {% if recette.pr_status != 'rebased' %}disabled{% endif %}></textarea>
+                <button type="submit" class="btn btn-primary align-self-start" id="prBtn"
+                  {% if recette.pr_status != 'rebased' %}disabled{% endif %}>
+                  <i class="ri-git-pull-request-line"></i> Creer la PR sur GitHub
+                </button>
+              </form>
+              {% if recette.pr_status != 'rebased' %}
+              <p class="text-muted small mt-2 mb-0">
+                <i class="ri-lock-line"></i> Completez les etapes 1-3 avant de creer la PR.
+              </p>
+              {% endif %}
+              <div class="mt-2 small" id="prStatus" style="display:none;"></div>
+            </div>
+          </div>
+          {% endif %}
+
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RID = '{{ recette.id }}';
+const API = `/api/recettes/${RID}`;
+
+async function showLogs(side) {
+  const panel = document.getElementById('logs' + side.toUpperCase());
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  panel.textContent = 'Chargement...';
+  panel.style.display = '';
+  try {
+    const res = await fetch(`${API}/logs/${side}`);
+    const data = await res.json();
+    panel.textContent = data.logs || 'Pas de logs';
+    panel.scrollTop = panel.scrollHeight;
+  } catch (e) { panel.textContent = 'Erreur: ' + e.message; }
+}
+
+async function removeBranchB() {
+  if (!confirm('Supprimer la branche B ?')) return;
+  await fetch(`${API}/branch-b`, {method: 'DELETE'});
+  location.reload();
+}
+
+// Branch B form
+document.getElementById('branchBForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const branch = e.target.branch.value.trim();
+  if (!branch) return;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+  try {
+    const res = await fetch(`${API}/branch-b`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({branch}),
+    });
+    const data = await res.json();
+    if (data.error) alert(data.error);
+    else location.reload();
+  } catch (e) { alert(e.message); }
+  finally { btn.disabled = false; }
+});
+
+// PR pipeline steps
+async function prStep(step, btn) {
+  const orig = btn.innerHTML;
+  const outputEl = document.getElementById(step + 'Output');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+  if (outputEl) { outputEl.style.display = ''; outputEl.textContent = 'En cours...'; }
+  try {
+    const res = await fetch(`${API}/pr/${step}`, {method: 'POST'});
+    const data = await res.json();
+    if (outputEl) outputEl.textContent = data.output || data.error || JSON.stringify(data);
+    setTimeout(() => location.reload(), 1000);
+  } catch (e) {
+    if (outputEl) outputEl.textContent = 'Erreur: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+async function showDiff() {
+  const el = document.getElementById('diffOutput');
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.textContent = 'Chargement...';
+  try {
+    const res = await fetch(`${API}/pr/diff`);
+    const data = await res.json();
+    el.textContent = (data.stat || '') + '\n\n' + (data.diff || '');
+  } catch (e) { el.textContent = 'Erreur: ' + e.message; }
+}
+
+// PR form
+document.getElementById('prForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('prBtn');
+  const status = document.getElementById('prStatus');
+  if (!confirm('Creer la PR sur le repo officiel ?\n\nCette action est irreversible.')) return;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Creation...';
+  status.style.display = '';
+  try {
+    const res = await fetch(`${API}/pr/create`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title: e.target.title.value, body: e.target.body.value}),
+    });
+    const data = await res.json();
+    if (data.pr_url) {
+      status.innerHTML = `<i class="ri-check-line text-success"></i> <a href="${data.pr_url}" target="_blank">${data.pr_url}</a>`;
+      setTimeout(() => location.reload(), 2000);
+    } else {
+      status.textContent = data.error || 'Erreur';
+    }
+  } catch (e) { status.textContent = 'Erreur: ' + e.message; }
+  finally { btn.disabled = false; btn.innerHTML = '<i class="ri-git-pull-request-line"></i> Creer la PR sur GitHub'; }
+});
+</script>
+{% endblock %}
