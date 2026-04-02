@@ -256,6 +256,11 @@
         <button type="button" class="chat-cancel-btn" id="chatCancelBtn" title="Annuler" style="display: none;">
           <i class="ri-stop-fill"></i>
         </button>
+        {% if current_conv %}
+        <button type="button" class="chat-flag-btn{% if current_conv.flagged_at %} flagged{% endif %}" id="chatFlagBtn" title="Signaler un problème">
+          <i class="ri-flag-{% if current_conv.flagged_at %}fill{% else %}line{% endif %}"></i>
+        </button>
+        {% endif %}
       </div>
       {% endif %}
     </div>

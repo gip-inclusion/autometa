@@ -461,6 +461,38 @@ body.has-sidebar {
   background: #c82333;
 }
 
+.chat-flag-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 2px solid #dee2e6;
+  border-radius: 50%;
+  color: #6c757d;
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.chat-flag-btn:hover {
+  border-color: #dc3545;
+  color: #dc3545;
+}
+
+.chat-flag-btn.flagged {
+  background: #dc3545;
+  border-color: #dc3545;
+  color: white;
+}
+
+.chat-flag-btn.flagged:hover {
+  background: #c82333;
+  border-color: #c82333;
+}
+
 /* Pending files: top section of the rounded rect */
 .chat-pending-files {
   display: none;
@@ -1198,7 +1230,8 @@ body.has-sidebar {
   }
 
   .chat-send-btn,
-  .chat-cancel-btn {
+  .chat-cancel-btn,
+  .chat-flag-btn {
     width: 38px;
     height: 38px;
   }

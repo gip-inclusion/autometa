@@ -37,6 +37,8 @@ VALID_CONVERSATION_COLUMNS = frozenset({
     "usage_extra",
     "pinned_at",
     "pinned_label",
+    "flagged_at",
+    "flag_reason",
 })
 
 VALID_REPORT_COLUMNS = frozenset({
@@ -188,6 +190,8 @@ class Conversation:
     pinned_at: Optional[datetime] = None
     pinned_label: Optional[str] = None
     needs_response: bool = False
+    flagged_at: Optional[datetime] = None
+    flag_reason: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -214,6 +218,8 @@ class Conversation:
             "usage_extra": self.usage_extra,
             "pinned_at": self.pinned_at.isoformat() if self.pinned_at else None,
             "pinned_label": self.pinned_label,
+            "flagged_at": self.flagged_at.isoformat() if self.flagged_at else None,
+            "flag_reason": self.flag_reason,
             "messages": [
                 {
                     "id": m.id,
@@ -398,6 +404,8 @@ class ConversationStore:
                 pinned_at=datetime.fromisoformat(p_pinned_at) if p_pinned_at else None,
                 pinned_label=p_label,
                 needs_response=bool(c.needs_response) if c.needs_response else False,
+                flagged_at=datetime.fromisoformat(c.flagged_at) if c.flagged_at else None,
+                flag_reason=c.flag_reason,
                 created_at=datetime.fromisoformat(c.created_at),
                 updated_at=datetime.fromisoformat(c.updated_at),
             )
@@ -477,6 +485,29 @@ class ConversationStore:
 
             rows = session.execute(query, params).mappings().all()
             return [_conv_with_report_row(row, row["report_id"], row["report_title"]) for row in rows]
+
+    def list_flagged_conversations(self) -> list[dict]:
+        """List all conversations flagged by users, most recent first."""
+        with get_db() as session:
+            rows = session.execute(text(
+                """SELECT id, user_id, title, flagged_at, flag_reason, created_at, updated_at
+                   FROM conversations
+                   WHERE flagged_at IS NOT NULL
+                   ORDER BY flagged_at DESC"""
+            )).mappings().all()
+
+            return [
+                {
+                    "id": row["id"],
+                    "user_id": row["user_id"],
+                    "title": row["title"] or "Sans titre",
+                    "flagged_at": row["flagged_at"],
+                    "flag_reason": row["flag_reason"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in rows
+            ]
 
     def pin_item(self, item_type: str, item_id: str, label: str) -> bool:
         with get_db() as session:
@@ -629,7 +660,7 @@ class ConversationStore:
             return ids
 
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
-        allowed = {"title", "session_id", "user_id", "status", "pr_url", "needs_response"}
+        allowed = {"title", "session_id", "user_id", "status", "pr_url", "needs_response", "flagged_at", "flag_reason"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
