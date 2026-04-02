@@ -35,7 +35,8 @@ init_sentry()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown tasks."""
-    await asyncio.to_thread(warmup)
+    # Warmup (cache rebuild) runs in background — app serves requests immediately
+    warmup_task = asyncio.create_task(asyncio.to_thread(warmup))
     sync_to_s3.start_sync_watcher()
 
     await asyncio.to_thread(scan_interactive_apps)
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    warmup_task.cancel()
     await runner.shutdown()
     await close_redis()
 
