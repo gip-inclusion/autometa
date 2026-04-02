@@ -25,8 +25,7 @@ Période couverte : février 2022 → aujourd'hui.
 | `matometa_webinaire_sync_meta` | Métadonnées de synchronisation |
 
 Sync :
-- **Grist** : quotidien via `cron/webinaires/` (2 appels API)
-- **Livestorm** : manuel via `python scripts/sync_webinaires.py --livestorm-only` (~1 900 appels, budget 10 000/mois)
+- **Grist + Livestorm** : quotidien via `sync-webinaires` (entry point `lib.webinaires:main`)
 
 ## Modèle de données
 
@@ -277,11 +276,7 @@ ORDER BY n DESC;
 
 | Fichier | Rôle |
 |---------|------|
-| `lib/webinaires.py` | Clients API (Livestorm, Grist), DatalakeWriter, logique de sync |
-| `scripts/sync_webinaires.py` | CLI : `--grist-only`, `--livestorm-only` |
-| `scripts/datalake_create_webinaires.py` | *(supprimé)* |
-| `cron/webinaires/cron.py` | Cron quotidien : Grist uniquement |
-| `cron/webinaires/CRON.md` | Métadonnées cron (daily, timeout 600s) |
+| `lib/webinaires.py` | Clients API (Livestorm, Grist), DatalakeWriter, logique de sync, CLI `main()` |
 | `tests/test_webinaires.py` | 43 tests (helpers, schema, sync Grist mocké) |
 
 ## Limites

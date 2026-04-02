@@ -135,6 +135,4 @@ api.get_event_actions(site_id, period, date, segment=None)            # Events.g
 api.get_event_names(site_id, period, date, segment=None)              # Events.getName
 api.get_referrers(site_id, period, date, segment=None)                # Referrers.getReferrerType
 api.get_transitions(site_id, period, date, page_url, segment=None)    # Transitions
-
-# Run scripts with: PYTHONPATH=. .venv/bin/python scripts/my_script.py
 ```
