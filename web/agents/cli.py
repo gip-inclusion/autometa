@@ -51,6 +51,10 @@ class CLIBackend(AgentBackend):
 
     def _build_env(self) -> dict:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        if config.SYNTHETIC_API_URL:
+            env["SYNTHETIC_API_URL"] = config.SYNTHETIC_API_URL
+        if config.SYNTHETIC_API_KEY:
+            env["SYNTHETIC_API_KEY"] = config.SYNTHETIC_API_KEY
         return env
 
     def _extra_cmd_args(self) -> list[str]:

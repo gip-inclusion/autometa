@@ -24,6 +24,9 @@ EXPERT_DEPLOY_PUBLIC_HOST = os.getenv("EXPERT_DEPLOY_PUBLIC_HOST", "").strip()
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 PROJECTS_DIR = DATA_DIR / "projects"
 
+SYNTHETIC_API_URL = os.getenv("SYNTHETIC_API_URL", "https://api.synthetic.new/openai/v1")
+SYNTHETIC_API_KEY = os.getenv("SYNTHETIC_API_KEY", "")
+
 # Agent backend: "cli", "sdk", or "cli-ollama"
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 

@@ -61,6 +61,14 @@ def _build_project_prompt(*, project, content: str, workdir: str, is_first_proje
         if not specify_exists and project.spec:
             project_context += "\nSPEC:\n---\n" f"{project.spec}\n" "---\n"
 
+        if config.SYNTHETIC_API_KEY:
+            project_context += (
+                "\nLLM available for this app:\n"
+                f"  SYNTHETIC_API_URL={config.SYNTHETIC_API_URL}\n"
+                f"  SYNTHETIC_API_KEY=(injected at deploy — use os.getenv in code, never hardcode)\n"
+                "  See skills/expert_llm/SKILL.md for code templates.\n"
+            )
+
         project_context += "\nUser: "
 
     return project_context + content
