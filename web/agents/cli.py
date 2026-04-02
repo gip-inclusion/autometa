@@ -17,6 +17,32 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
+def _read_specify_context(workdir: str) -> str:
+    """Read .specify/ artifacts to include in the agent's system prompt."""
+    from pathlib import Path
+
+    specify = Path(workdir) / ".specify"
+    if not specify.exists():
+        return ""
+
+    parts = []
+    specs_dir = specify / "specs"
+    if specs_dir.exists():
+        versions = sorted([d for d in specs_dir.iterdir() if d.is_dir()], reverse=True)
+        if versions:
+            latest = versions[0]
+            for name in ("spec.md", "plan.md", "tasks.md", "checklist.md"):
+                f = latest / name
+                if f.exists():
+                    parts.append(f"## {name}\n{f.read_text()}")
+
+    constitution = specify / "memory" / "constitution.md"
+    if constitution.exists():
+        parts.append(f"## Constitution\n{constitution.read_text()}")
+
+    return "\n\n".join(parts)
+
+
 class CLIBackend(AgentBackend):
     """Agent backend that spawns the claude CLI."""
 
@@ -137,7 +163,7 @@ class CLIBackend(AgentBackend):
                 try:
                     process.send_signal(signal.SIGTERM)
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError, ProcessLookupError:
+                except (asyncio.TimeoutError, ProcessLookupError):
                     try:
                         process.kill()
                     except ProcessLookupError:

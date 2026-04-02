@@ -32,6 +32,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/conversations")
 
 
+def _project_in_planning(project) -> bool:
+    workflow_phase = getattr(project, "workflow_phase", None)
+    if workflow_phase:
+        return workflow_phase == "planning"
+    return getattr(project, "status", None) == "draft"
+
+
+def _build_project_prompt(*, project, content: str, workdir: str, is_first_project_message: bool) -> str:
+    """Build the expert-mode prompt with project context."""
+    from pathlib import Path
+
+    specify_exists = (Path(workdir) / ".specify" / "specs").exists()
+
+    if _project_in_planning(project) and is_first_project_message:
+        project_context = (
+            f"Project: {project.name}\n"
+            f"Working directory: {workdir}/\n"
+            f"No spec exists yet. Use /speckit.specify to help the user design the app.\n\n"
+            "User: "
+        )
+    else:
+        project_context = (
+            f"Project: {project.name}\n"
+            f"Working directory: {workdir}/\n"
+            f"Status: {project.status}\n"
+        )
+        if not specify_exists and project.spec:
+            project_context += "\nSPEC:\n---\n" f"{project.spec}\n" "---\n"
+
+        project_context += "\nUser: "
+
+    return project_context + content
+
+
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
 
     def _generate():
@@ -458,6 +492,19 @@ User request: """
 
         prompt = knowledge_context + prompt
 
+    # Inject project context for expert-mode conversations
+    if conv.project_id:
+        project = store.get_project(conv.project_id)
+        if project:
+            workdir = str(config.PROJECTS_DIR / project.slug)
+            is_first_project_message = not any(m.type == "user" for m in conv.messages[:-1])
+            prompt = _build_project_prompt(
+                project=project,
+                content=prompt,
+                workdir=workdir,
+                is_first_project_message=is_first_project_message,
+            )
+
     await runner.submit(conv_id, prompt, history, user_email)
 
     return {
@@ -527,7 +574,7 @@ async def stream_conversation(
         if msg.type in ("tool_use", "tool_result"):
             try:
                 sse_data["content"] = json.loads(msg.content)
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 pass  # content stays as raw string
         elif msg.type == "system":
             try:
@@ -535,7 +582,7 @@ async def stream_conversation(
                 if isinstance(raw, dict):
                     sse_data["raw"] = raw
                     sse_data["content"] = raw.get("subtype") or raw.get("message") or msg.content
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 pass  # content stays as raw string
         return _sse_event(msg.type, sse_data)
 
@@ -612,6 +659,35 @@ async def cancel_conversation(conv_id: str):
 
     await runner.cancel(conv_id)
     return {"status": "cancelled"}
+
+
+@router.post("/{conv_id}/welcome")
+async def welcome_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
+    """Auto-trigger first assistant message for project planning conversations."""
+    conv = store.get_conversation(conv_id, include_messages=True)
+    if not conv or not conv.project_id:
+        return JSONResponse({"status": "skipped"})
+    if conv.messages:
+        return JSONResponse({"status": "already_started"})
+
+    project = store.get_project(conv.project_id)
+    if not project:
+        return JSONResponse({"status": "skipped"})
+
+    if not _project_in_planning(project):
+        return JSONResponse({"status": "not_planning"})
+
+    workdir = str(config.PROJECTS_DIR / project.slug)
+    prompt = _build_project_prompt(
+        project=project,
+        content="Commence le workflow speckit.",
+        workdir=workdir,
+        is_first_project_message=True,
+    )
+
+    store.update_conversation(conv_id, needs_response=True)
+    await runner.submit(conv_id, prompt, [], user_email)
+    return JSONResponse({"status": "started", "stream": f"/api/conversations/{conv_id}/stream"})
 
 
 @router.get("/{conv_id}/tags")

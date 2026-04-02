@@ -20,6 +20,26 @@ class Base(DeclarativeBase):
     pass
 
 
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    spec: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="draft")
+    workflow_phase: Mapped[str] = mapped_column(Text, default="planning")
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("idx_projects_user", "user_id"),
+        Index("idx_projects_slug", "slug"),
+    )
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
@@ -32,6 +52,7 @@ class Conversation(Base):
     status: Mapped[str] = mapped_column(Text, default="active")
     pr_url: Mapped[str | None] = mapped_column(Text)
     forked_from: Mapped[str | None] = mapped_column(Text)
+    project_id: Mapped[str | None] = mapped_column(Text, ForeignKey("projects.id"))
     usage_input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     usage_output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     usage_cache_creation_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -51,6 +72,7 @@ class Conversation(Base):
         Index("idx_conversations_type_status", "conv_type", "status"),
         Index("idx_conversations_user_updated", "user_id", "updated_at", postgresql_ops={"updated_at": "DESC"}),
         Index("idx_conversations_needs_response", "needs_response", postgresql_where="needs_response = 1"),
+        Index("idx_conversations_project", "project_id"),
     )
 
 

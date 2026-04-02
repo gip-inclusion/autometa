@@ -1,6 +1,7 @@
 """Database models and ConversationStore for conversation/report persistence."""
 
 import json
+import random
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,6 +14,7 @@ from .models import Conversation as ConvModel
 from .models import ConversationTag as ConvTagModel
 from .models import Message as MsgModel
 from .models import PinnedItem as PinModel
+from .models import Project as ProjectModel
 from .models import Report as ReportModel
 from .models import ReportTag as ReportTagModel
 from .models import Tag as TagModel
@@ -37,6 +39,7 @@ VALID_CONVERSATION_COLUMNS = frozenset({
     "usage_extra",
     "pinned_at",
     "pinned_label",
+    "project_id",
 })
 
 VALID_REPORT_COLUMNS = frozenset({
@@ -177,6 +180,7 @@ class Conversation:
     status: str = "active"
     pr_url: Optional[str] = None
     forked_from: Optional[str] = None
+    project_id: Optional[str] = None
     messages: list[Message] = field(default_factory=list)
     report: Optional[Report] = None
     usage_input_tokens: int = 0
@@ -205,6 +209,7 @@ class Conversation:
             "file_path": self.file_path,
             "status": self.status,
             "pr_url": self.pr_url,
+            "project_id": self.project_id,
             "has_report": self.has_report,
             "usage_input_tokens": self.usage_input_tokens,
             "usage_output_tokens": self.usage_output_tokens,
@@ -299,6 +304,7 @@ def _conv_with_report_row(row, report_id, report_title) -> Conversation:
         conv_type=row.conv_type or "exploration",
         file_path=row.file_path,
         status=row.status or "active",
+        project_id=getattr(row, "project_id", None),
         needs_response=bool(row.needs_response) if row.needs_response else False,
         messages=[],
         report=Report(id=report_id, title=report_title or "") if report_id else None,
@@ -318,12 +324,14 @@ class ConversationStore:
         user_id: Optional[str] = None,
         conv_type: str = "exploration",
         file_path: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Conversation:
         conv = Conversation(
             id=str(uuid.uuid4()),
             user_id=user_id,
             conv_type=conv_type,
             file_path=file_path,
+            project_id=project_id,
         )
 
         with get_db() as session:
@@ -334,6 +342,7 @@ class ConversationStore:
                 session_id=conv.session_id,
                 conv_type=conv.conv_type,
                 file_path=conv.file_path,
+                project_id=conv.project_id,
                 status=conv.status,
                 created_at=conv.created_at.isoformat(),
                 updated_at=conv.updated_at.isoformat(),
@@ -387,6 +396,7 @@ class ConversationStore:
                 status=c.status or "active",
                 pr_url=c.pr_url,
                 forked_from=c.forked_from,
+                project_id=c.project_id,
                 messages=messages,
                 report=report,
                 usage_input_tokens=c.usage_input_tokens or 0,
@@ -1303,6 +1313,140 @@ class ConversationStore:
         for report_id, t in rows:
             result[report_id].append(_model_to_tag(t))
         return result
+
+    def _generate_unique_slug(self) -> str:
+        with get_db() as session:
+            for _ in range(100):
+                slug = f"{random.choice(ADJECTIVES)}-{random.choice(NOUNS)}"
+                existing = session.execute(
+                    select(ProjectModel).where(ProjectModel.slug == slug)
+                ).scalar_one_or_none()
+                if not existing:
+                    return slug
+            return f"project-{uuid.uuid4().hex[:8]}"
+
+    def create_project(self, name: str, user_id: Optional[str] = None, description: Optional[str] = None) -> Project:
+        project_id = str(uuid.uuid4())
+        slug = self._generate_unique_slug()
+        now = datetime.now()
+        with get_db() as session:
+            model = ProjectModel(
+                id=project_id,
+                user_id=user_id,
+                name=name,
+                slug=slug,
+                description=description,
+                created_at=now.isoformat(),
+                updated_at=now.isoformat(),
+            )
+            session.add(model)
+        return Project(id=project_id, user_id=user_id, name=name, slug=slug,
+                       description=description, created_at=now, updated_at=now)
+
+    def get_project(self, project_id: str) -> Optional[Project]:
+        with get_db() as session:
+            model = session.execute(
+                select(ProjectModel).where(ProjectModel.id == project_id)
+            ).scalar_one_or_none()
+            return _model_to_project(model) if model else None
+
+    def get_project_by_slug(self, slug: str) -> Optional[Project]:
+        with get_db() as session:
+            model = session.execute(
+                select(ProjectModel).where(ProjectModel.slug == slug)
+            ).scalar_one_or_none()
+            return _model_to_project(model) if model else None
+
+    def list_projects(self, user_id: Optional[str] = None, limit: int = 100) -> list[Project]:
+        with get_db() as session:
+            stmt = select(ProjectModel).order_by(ProjectModel.updated_at.desc()).limit(limit)
+            if user_id:
+                stmt = stmt.where(ProjectModel.user_id == user_id)
+            models = session.scalars(stmt).all()
+            return [_model_to_project(m) for m in models]
+
+    VALID_PROJECT_COLUMNS = frozenset({
+        "name", "description", "spec", "status", "workflow_phase",
+    })
+
+    def update_project(self, project_id: str, **kwargs) -> bool:
+        updates = {k: v for k, v in kwargs.items() if k in self.VALID_PROJECT_COLUMNS}
+        if not updates:
+            return False
+        updates["updated_at"] = datetime.now().isoformat()
+        with get_db() as session:
+            model = session.execute(
+                select(ProjectModel).where(ProjectModel.id == project_id)
+            ).scalar_one_or_none()
+            if not model:
+                return False
+            for key, value in updates.items():
+                setattr(model, key, value)
+            return True
+
+    def list_project_conversations(self, project_id: str) -> list[Conversation]:
+        with get_db() as session:
+            models = session.scalars(
+                select(ConvModel)
+                .where(ConvModel.project_id == project_id)
+                .order_by(ConvModel.updated_at.desc())
+            ).all()
+            return [
+                Conversation(
+                    id=c.id,
+                    user_id=c.user_id,
+                    title=c.title,
+                    conv_type=c.conv_type or "exploration",
+                    status=c.status or "active",
+                    project_id=c.project_id,
+                    needs_response=bool(c.needs_response) if c.needs_response else False,
+                    created_at=datetime.fromisoformat(c.created_at),
+                    updated_at=datetime.fromisoformat(c.updated_at),
+                )
+                for c in models
+            ]
+
+ADJECTIVES = [
+    "swift", "bright", "calm", "dark", "eager", "fair", "gentle", "happy",
+    "keen", "lively", "merry", "noble", "proud", "quiet", "rare", "sharp",
+    "true", "vivid", "warm", "wise",
+]
+NOUNS = [
+    "brook", "cloud", "dawn", "elm", "fern", "grove", "hawk", "iris",
+    "jade", "knoll", "lake", "moss", "oak", "pine", "reef", "sage",
+    "thorn", "vale", "wave", "wren",
+]
+
+
+@dataclass
+class Project:
+    """Expert-mode project."""
+
+    id: str = ""
+    user_id: Optional[str] = None
+    name: str = ""
+    slug: str = ""
+    description: Optional[str] = None
+    spec: Optional[str] = None
+    status: str = "draft"
+    workflow_phase: str = "planning"
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+
+def _model_to_project(p: ProjectModel) -> Project:
+    return Project(
+        id=p.id,
+        user_id=p.user_id,
+        name=p.name,
+        slug=p.slug,
+        description=p.description,
+        spec=p.spec,
+        status=p.status or "draft",
+        workflow_phase=p.workflow_phase or "planning",
+        created_at=datetime.fromisoformat(p.created_at),
+        updated_at=datetime.fromisoformat(p.updated_at),
+    )
 
 
 def _model_to_report_from_row(row) -> Report:

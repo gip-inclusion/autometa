@@ -41,3 +41,4 @@ def static_url(path: str) -> str:
 templates.env.globals["static_url"] = static_url
 
 templates.env.globals["format_relative_date"] = format_relative_date
+templates.env.globals["config"] = config

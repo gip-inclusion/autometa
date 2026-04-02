@@ -14,6 +14,9 @@ load_dotenv(BASE_DIR / ".env")
 # Default: ./data (relative to BASE_DIR)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 
+EXPERT_MODE_ENABLED = os.getenv("EXPERT_MODE_ENABLED", "").lower() in ("1", "true", "yes")
+PROJECTS_DIR = DATA_DIR / "projects"
+
 # Agent backend: "cli", "sdk", or "cli-ollama"
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 

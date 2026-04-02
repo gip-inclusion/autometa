@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} – Expert{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ static_url('css/expert.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-expert">
+  <div class="section-header">
+    <div class="container">
+      <div class="conv-header-row">
+        <div class="conv-title-wrapper">
+          <p class="conv-meta-row text-muted mb-0 small">Mode Expert</p>
+          <div class="conv-title-display">
+            <h1 class="mb-0">Mes applications</h1>
+          </div>
+        </div>
+        <a href="/expert/nouveau" class="btn btn-primary ms-auto">
+          <i class="ri-add-line"></i> Nouvelle app
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container py-4">
+      {% if projects %}
+      <ul class="expert-project-list">
+        {% for project in projects %}
+        <li>
+          <a href="/expert/{{ project.slug }}" class="expert-project-item">
+            <span class="expert-project-name">{{ project.name }}</span>
+            <span class="badge {% if project.status == 'deployed' %}bg-success{% elif project.status == 'active' %}bg-primary{% elif project.status == 'archived' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+              {{ project.status }}
+            </span>
+            <span class="expert-project-meta">{{ project.updated_at.strftime('%d/%m') }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-center py-5">
+        <i class="ri-code-s-slash-line ri-4x text-disabled mb-3"></i>
+        <p class="text-muted mb-3">Aucune application pour le moment.</p>
+        <a href="/expert/nouveau" class="btn btn-primary">
+          <i class="ri-add-line"></i> Creer ma premiere app
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -700,8 +700,11 @@ async function loadConversation(convId, { autoStream = true } = {}) {
     }
 
     // Update URL without reload (preserve hash if present)
-    const hash = window.location.hash;
-    window.history.replaceState({}, '', `/explorations/${convId}${hash}`);
+    // Skip for expert workspace (URLs are managed by the workspace router)
+    if (!window.location.pathname.startsWith('/expert/')) {
+      const hash = window.location.hash;
+      window.history.replaceState({}, '', `/explorations/${convId}${hash}`);
+    }
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
@@ -757,8 +760,10 @@ function startFreshConversation() {
     `;
   }
 
-  // Update URL
-  window.history.replaceState({}, '', '/explorations/new');
+  // Update URL (skip for expert workspace)
+  if (!window.location.pathname.startsWith('/expert/')) {
+    window.history.replaceState({}, '', '/explorations/new');
+  }
 
   // Focus input
   const input = document.getElementById('chatInput');

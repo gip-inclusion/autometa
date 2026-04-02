@@ -557,5 +557,14 @@ def connaissances_file(
     )
 
 
+def conv_url(conv) -> str:
+    """Return the URL for a conversation (expert workspace or explorations)."""
+    if conv.project_id:
+        project = store.get_project(conv.project_id)
+        if project:
+            return f"/expert/{project.slug}/{conv.id}"
+    return f"/explorations/{conv.id}"
+
+
 def is_admin(user_email: str | None) -> bool:
     return user_email in ADMIN_USERS

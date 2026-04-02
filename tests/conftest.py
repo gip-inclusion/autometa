@@ -61,7 +61,8 @@ def truncate_all_tables():
                 uploaded_files, cron_runs, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version,
                 wishlist, matomo_baselines, matomo_dimensions, matomo_segments,
-                matomo_events, metabase_cards, metabase_dashboards
+                matomo_events, metabase_cards, metabase_dashboards,
+                projects
                 CASCADE;
         """)
         )
