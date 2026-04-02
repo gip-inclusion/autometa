@@ -117,7 +117,7 @@ def serve_interactive(request: Request, filename: str = ""):
 
 
 from .benchmark import router as benchmark_router  # noqa: E402
-from .routes import auth, conversations, cron, html, knowledge, query, rapports, reports  # noqa: E402
+from .routes import auth, conversations, cron, html, knowledge, query, reports  # noqa: E402
 from .selftest import router as selftest_router  # noqa: E402
 
 app.include_router(selftest_router)
@@ -125,10 +125,10 @@ app.include_router(benchmark_router)
 app.include_router(query.router)
 app.include_router(auth.router)
 app.include_router(knowledge.router)
-app.include_router(reports.router)
+app.include_router(reports.api_router)
 app.include_router(conversations.router)
 # Template-serving routers last (they have catch-all-ish paths)
-app.include_router(rapports.router)
+app.include_router(reports.html_router)
 app.include_router(cron.router)
 app.include_router(html.router)
 
