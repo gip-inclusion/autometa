@@ -14,6 +14,8 @@ import httpx
 
 from . import config
 
+logger = logging.getLogger(__name__)
+
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
@@ -26,6 +28,7 @@ class DatadogHandler(logging.Handler):
         self._batch_size = batch_size
         self._flush_interval = flush_interval
         self._queue: queue.Queue[dict] = queue.Queue(maxsize=10_000)
+        self._dropped_count = 0
         self._shutdown = threading.Event()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
@@ -44,7 +47,8 @@ class DatadogHandler(logging.Handler):
         try:
             self._queue.put_nowait(entry)
         except queue.Full:
-            pass
+            # Drop log message rather than blocking the application when buffer is full.
+            self._dropped_count += 1
 
     def _worker(self) -> None:
         client = httpx.Client(timeout=10)
@@ -79,13 +83,16 @@ class DatadogHandler(logging.Handler):
                     "Content-Type": "application/json",
                 },
             )
-        # Why: background thread must not crash on transient network errors.
+        except httpx.RequestError as e:
+            logger.debug("Datadog send failed: %s", e)
         except Exception:
-            pass
+            logger.warning("Datadog send unexpected error", exc_info=True)
 
     def close(self) -> None:
         self._shutdown.set()
         self._thread.join(timeout=5)
+        if self._dropped_count:
+            logger.warning("Datadog handler dropped %d log messages (queue full)", self._dropped_count)
         super().close()
 
 

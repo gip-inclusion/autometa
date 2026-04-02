@@ -9,13 +9,13 @@ import time
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from .. import config, llm
-from ..config import ADMIN_USERS
-from ..database import store
-from ..deps import get_current_user
-from ..helpers import KNOWLEDGE_ROOT, get_staging_dir
-from ..runner import runner
-from ..uploads import (
+from web import config, llm
+from web.config import ADMIN_USERS
+from web.database import store
+from web.deps import get_current_user
+from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
+from web.runner import runner
+from web.uploads import (
     AVScanFailedError,
     BlockedFileTypeError,
     FileTooLargeError,
@@ -23,7 +23,7 @@ from ..uploads import (
     format_file_for_context,
     get_file_content,
 )
-from ..uploads import (
+from web.uploads import (
     upload_file as do_upload_file,
 )
 

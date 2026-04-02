@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from .data_inclusion import DataInclusionError
 from .data_inclusion import execute_sql as _di_execute_sql
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
@@ -111,6 +110,7 @@ def execute_matomo_query(
 def execute_data_inclusion_query(
     sql: str,
     caller: CallerType,
+    timeout: int = 60,
 ) -> QueryResult:
     """Execute a SQL query on the data·inclusion datawarehouse. Returns QueryResult (never raises)."""
     from web import config
@@ -132,7 +132,8 @@ def execute_data_inclusion_query(
         }
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
-    except (DataInclusionError, Exception) as e:
+    # Why: query executor must return QueryResult, not raise — caller checks result.success.
+    except Exception as e:
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 

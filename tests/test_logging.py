@@ -1,7 +1,7 @@
 import logging
 import time
 
-from web.logging import DatadogHandler, setup_logging
+from web.log import DatadogHandler, setup_logging
 
 
 def test_datadog_handler_queues_and_sends(mocker):

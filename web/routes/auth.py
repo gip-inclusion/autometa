@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from .. import config
+from web import config
 
 router = APIRouter(prefix="/api/auth")
 
