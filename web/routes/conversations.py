@@ -40,8 +40,8 @@ def extract_tool_output(content: str) -> str:
             if isinstance(output, dict):
                 return str(output.get("output", ""))
             return str(output)
-    except json.JSONDecodeError, TypeError:
-        pass
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.debug("JSON parse failed in extract_tool_output: %s", exc)
     return str(content) if content else ""
 
 
@@ -585,16 +585,16 @@ async def stream_conversation(
         if msg.type in ("tool_use", "tool_result"):
             try:
                 sse_data["content"] = json.loads(msg.content)
-            except json.JSONDecodeError, TypeError:
-                pass  # content stays as raw string
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.debug("JSON parse failed for tool message: %s", exc)
         elif msg.type == "system":
             try:
                 raw = json.loads(msg.content)
                 if isinstance(raw, dict):
                     sse_data["raw"] = raw
                     sse_data["content"] = raw.get("subtype") or raw.get("message") or msg.content
-            except json.JSONDecodeError, TypeError:
-                pass  # content stays as raw string
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.debug("JSON parse failed for system message: %s", exc)
         return _sse_event(msg.type, sse_data)
 
     async def _drain_unseen(last_msg_id: int) -> list[str]:

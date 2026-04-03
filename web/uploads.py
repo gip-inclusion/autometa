@@ -181,7 +181,7 @@ def is_text_file(filename: str, mime_type: Optional[str], content: bytes) -> boo
             if printable / len(text) > 0.9:
                 return True
         except UnicodeDecodeError, ZeroDivisionError:
-            pass  # binary or empty file
+            return False
 
     return False
 

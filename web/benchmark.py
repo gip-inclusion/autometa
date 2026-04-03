@@ -54,7 +54,7 @@ def _original_metrics(conv):
             if "category" in data:
                 categories[data["category"]] += 1
         except json.JSONDecodeError, TypeError:
-            pass  # malformed tool_use content, skip
+            continue
 
     return {
         "prompt_durations": prompt_durations,
