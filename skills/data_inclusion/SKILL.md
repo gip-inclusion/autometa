@@ -7,6 +7,17 @@ description: Query the data·inclusion datawarehouse to trace data through the d
 
 Interroge le datawarehouse data·inclusion (PostgreSQL via tunnel SSH) pour tracer des données à travers le pipeline dbt. 110k structures, 180k services, 17 sources.
 
+## Discipline d'investigation
+
+Ces règles sont **obligatoires**. Un non-respect entraîne des conversations lentes (40+ min) et un gaspillage massif de ressources.
+
+1. **Toujours commencer par la trace rapide** (Étape 2 ci-dessous). Ne jamais lancer de requêtes individuelles par couche avant d'avoir le résultat de la trace rapide.
+2. **Maximum 10 requêtes SQL par investigation.** Si 10 requêtes ne suffisent pas, résumer les trouvailles et demander à l'utilisateur comment continuer.
+3. **Combiner les requêtes** : ne jamais lancer 2 SELECT séparés quand un seul avec UNION ALL, des sous-requêtes ou des CTE suffit. Chaque requête ouvre un tunnel SSH (~200ms).
+4. **Ne jamais interroger `information_schema`** — les schémas et colonnes sont documentés dans ce skill et dans `knowledge/data_inclusion/README.md`.
+5. **Ne pas explorer GitHub** pour les modèles dbt courants — le code des transformations clés est documenté dans `knowledge/data_inclusion/README.md`. N'utiliser WebFetch sur GitHub que pour des modèles non documentés ou du code applicatif (API, filtres).
+6. **Aller droit au but** : pas d'exploration exploratoire. Former une hypothèse → tester avec une requête ciblée → conclure. Pas de boucle hypothèse → test → nouvelle hypothèse → test ad infinitum.
+
 ## Contexte : Dora et data·inclusion
 
 Dora (dora.inclusion.gouv.fr) utilise l'API data·inclusion comme backend de recherche. Quand un utilisateur cherche un service sur Dora via `/recherche?...`, Dora appelle l'API data·inclusion route `/search/services`. Les résultats viennent des tables `public_marts` du datawarehouse.
