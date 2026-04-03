@@ -32,6 +32,53 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/conversations")
 
 
+def extract_tool_output(content: str) -> str:
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict):
+            output = data.get("output", "")
+            if isinstance(output, dict):
+                return str(output.get("output", ""))
+            return str(output)
+    except json.JSONDecodeError, TypeError:
+        pass
+    return str(content) if content else ""
+
+
+def extract_previous_findings(messages: list) -> str:
+    results = []
+    for msg in reversed(messages):
+        if msg.type == "user":
+            break
+        if msg.type == "tool_result":
+            results.append(msg.content)
+
+    results.reverse()
+
+    if not results:
+        return ""
+
+    findings = []
+    total = 0
+    for content in results:
+        output = extract_tool_output(content)
+        if not output or len(output) < 30:
+            continue
+        truncated = output[:400] + ("…" if len(output) > 400 else "")
+        if total + len(truncated) > 5000:
+            remaining = len(results) - len(findings)
+            if remaining > 0:
+                findings.append(f"(… {remaining} résultats supplémentaires omis)")
+            break
+        findings.append(truncated)
+        total += len(truncated)
+
+    if not findings:
+        return ""
+
+    return "\n---\n".join(findings)
+
+
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
 
     def _generate():
@@ -416,6 +463,17 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
             history.append({"role": msg.type, "content": msg.content})
 
     prompt = content
+
+    # Inject condensed tool results from the previous turn so the agent
+    # doesn't re-query data it already obtained.
+    if not is_first_message:
+        findings = extract_previous_findings(conv.messages)
+        if findings:
+            prompt = (
+                "[Résultats d'outils de l'analyse précédente — ne pas re-requêter ces données]\n\n"
+                f"{findings}\n\n---\n\n"
+                f"{prompt}"
+            )
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:

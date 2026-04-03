@@ -123,6 +123,10 @@ SKIP_CLI_AUTH_CHECK = os.getenv("SKIP_CLI_AUTH_CHECK", "false").lower() == "true
 # Max concurrent agent processes
 MAX_CONCURRENT_AGENTS = int(os.getenv("MAX_CONCURRENT_AGENTS", "2"))
 
+# Tool call budget per agent turn (0 = unlimited)
+MAX_TOOL_CALLS = int(os.getenv("MAX_TOOL_CALLS", "200"))
+TOOL_CALL_WARNING = int(os.getenv("TOOL_CALL_WARNING", "50"))
+
 # Notion integration
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")

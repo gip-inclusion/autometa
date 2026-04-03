@@ -272,3 +272,72 @@ def test_persist_usage_no_extra(mocker):
     _persist_usage("c1", {"input_tokens": 10, "output_tokens": 5})
     call_kwargs = mock_store.accumulate_usage.call_args[1]
     assert call_kwargs["extra"] is None
+
+
+def test_run_agent_tool_call_budget_exceeded(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch("web.runner.config.MAX_TOOL_CALLS", 3)
+    mocker.patch("web.runner.config.TOOL_CALL_WARNING", 2)
+    mock_store = mocker.patch("web.runner.store")
+    mock_msg = mocker.MagicMock()
+    mock_msg.id = 1
+    mock_store.add_message.return_value = mock_msg
+
+    events = []
+    for i in range(10):
+        events.append(make_event("tool_use", {"tool": "Bash", "input": {"command": f"echo {i}"}}))
+        events.append(make_event("tool_result", {"tool": "Bash", "output": f"result {i}"}))
+    events.append(make_event("assistant", "Done"))
+
+    async def mock_stream(*args, **kwargs):
+        for e in events:
+            yield e
+
+    runner.backend.send_message = mock_stream
+
+    async def _run():
+        await runner._run_agent("c1", "prompt", [], None, None)
+        # The budget message should have been stored
+        budget_calls = [
+            call
+            for call in mock_store.add_message.call_args_list
+            if len(call.args) >= 3 and call.args[1] == "assistant" and "Budget" in str(call.args[2])
+        ]
+        assert len(budget_calls) == 1
+        assert "200" not in budget_calls[0].args[2]  # should use the mocked value 3
+        assert "3" in budget_calls[0].args[2]
+
+    asyncio.run(_run())
+
+
+def test_run_agent_no_budget_when_disabled(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch("web.runner.config.MAX_TOOL_CALLS", 0)
+    mocker.patch("web.runner.config.TOOL_CALL_WARNING", 0)
+    mock_store = mocker.patch("web.runner.store")
+    mock_msg = mocker.MagicMock()
+    mock_msg.id = 1
+    mock_store.add_message.return_value = mock_msg
+
+    events = [
+        make_event("tool_use", {"tool": "Bash", "input": {"command": "echo 1"}}),
+        make_event("tool_result", {"tool": "Bash", "output": "1"}),
+        make_event("assistant", "Done"),
+    ]
+
+    async def mock_stream(*args, **kwargs):
+        for e in events:
+            yield e
+
+    runner.backend.send_message = mock_stream
+
+    async def _run():
+        await runner._run_agent("c1", "prompt", [], None, None)
+        budget_calls = [
+            call
+            for call in mock_store.add_message.call_args_list
+            if len(call.args) >= 3 and "Budget" in str(call.args[2])
+        ]
+        assert len(budget_calls) == 0
+
+    asyncio.run(_run())

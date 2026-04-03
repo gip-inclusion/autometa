@@ -194,6 +194,7 @@ class TaskRunner:
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
         tool_span = None
+        tool_call_count = 0
 
         with sentry_sdk.start_transaction(op="agent.run", name=f"agent {config.AGENT_BACKEND}") as txn:
             txn.set_tag("conversation_id", conversation_id)
@@ -221,6 +222,29 @@ class TaskRunner:
 
                     elif event.type in ("tool_use", "tool_result"):
                         if event.type == "tool_use":
+                            tool_call_count += 1
+                            if config.TOOL_CALL_WARNING and tool_call_count == config.TOOL_CALL_WARNING:
+                                logger.warning("Agent reached %d tool calls for %s", tool_call_count, conversation_id)
+                            if config.MAX_TOOL_CALLS and tool_call_count >= config.MAX_TOOL_CALLS:
+                                logger.warning(
+                                    "Agent exceeded tool call budget (%d) for %s",
+                                    config.MAX_TOOL_CALLS,
+                                    conversation_id,
+                                )
+                                sentry_sdk.add_breadcrumb(
+                                    message=f"Tool call budget exceeded: {tool_call_count}",
+                                    category="agent",
+                                    level="warning",
+                                )
+                                await self.backend.cancel(conversation_id)
+                                store.add_message(
+                                    conversation_id,
+                                    "assistant",
+                                    f"*Budget de {config.MAX_TOOL_CALLS} appels d'outils dépassé "
+                                    "— arrêt automatique. Relancez avec une question plus ciblée.*",
+                                )
+                                await self.notify(conversation_id)
+                                break
                             if tool_span:
                                 tool_span.finish()
                             tool_name = (
