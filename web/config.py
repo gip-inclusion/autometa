@@ -160,6 +160,7 @@ ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KN
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 SENTRY_ENVIRONMENT = "prod"
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
+SENTRY_PROFILES_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0"))
 
 # Data Inclusion datawarehouse (PostgreSQL via SSH tunnel)
 DATA_INCLUSION_DATABASE_URL = os.getenv("DATA_INCLUSION_DATABASE_URL", "")
