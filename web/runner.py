@@ -269,6 +269,9 @@ class TaskRunner:
                             store.add_message(conversation_id, "system", json.dumps(event.raw))
                             await self.notify(conversation_id)
 
+                    # Why: raw holds the full CLI JSON event — can be MBs for tool results
+                    event.raw = {}
+
                 if tool_span:
                     tool_span.finish()
                     tool_span = None

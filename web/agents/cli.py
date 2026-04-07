@@ -187,14 +187,16 @@ class CLIBackend(AgentBackend):
         span.finish()
 
     @staticmethod
-    async def _drain_stderr(stream: asyncio.StreamReader) -> bytes:
-        chunks: list[bytes] = []
+    async def _drain_stderr(stream: asyncio.StreamReader, max_bytes: int = 10 * 1024) -> bytes:
+        buf = bytearray()
         while True:
             line = await stream.readline()
             if not line:
                 break
-            chunks.append(line)
-        return b"".join(chunks)
+            buf.extend(line)
+            if len(buf) > max_bytes:
+                buf = buf[-max_bytes:]
+        return bytes(buf)
 
     def _parse_events(self, event: dict) -> list[AgentMessage]:
         event_type = event.get("type")

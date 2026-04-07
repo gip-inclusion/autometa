@@ -32,7 +32,7 @@ def init_sentry():
         dsn=config.SENTRY_DSN,
         environment=config.SENTRY_ENVIRONMENT,
         traces_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
-        profiles_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
+        profiles_sample_rate=config.SENTRY_PROFILES_SAMPLE_RATE,
         send_default_pii=False,
         before_send=_before_send,
         # Attach server_name so we can tell workers apart in multi-process deploys
