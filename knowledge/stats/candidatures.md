@@ -25,7 +25,7 @@ Le champ `état` indique l'avancement du traitement par l'employeur.
 | `Vivier de candidatures` | ✅ Oui |
 | `Action préalable à l'embauche` | ✅ Oui |
 
-Pour les taux de réponse, voir [methodology.md](../methodology.md) : utiliser une fenêtre
+Pour les taux de réponse, voir [knowledge/README.md](../README.md) : utiliser une fenêtre
 fixe (ex : réponse dans les 30 jours) et exclure les candidatures trop récentes.
 
 ## Colonnes principales
@@ -138,4 +138,4 @@ Selon l'analyse, choisir la bonne date de référence :
 | Délais de traitement | `date_candidature` + `temps_de_reponse` |
 
 L'écart entre `date_candidature` et `date_embauche` peut dépasser 30 jours.
-Voir [methodology.md](../methodology.md).
+Voir [knowledge/README.md](../README.md).
