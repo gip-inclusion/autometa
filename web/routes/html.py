@@ -3,7 +3,7 @@
 import logging
 import re
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -179,6 +179,11 @@ def group_items_by_date(items):
     }
 
     for item in items:
+        if item["sort_date"] is None:
+            groups.setdefault("sans date", [])
+            groups["sans date"].append(item)
+            continue
+
         item_date = helpers.to_local(item["sort_date"]).date()
 
         if item_date == today:
@@ -306,16 +311,13 @@ def rechercher(
             if tag_params and not all(t in app_tags for t in tag_params):
                 continue
 
-            sort_date = app.get("updated") or datetime.min.replace(tzinfo=timezone.utc)
             items.append({
                 "type": "app",
                 "app": app,
                 "tags": [],
                 "icon": "ri-window-fill",
-                "sort_date": sort_date,
-                "formatted_date": format_relative_date(sort_date)
-                if sort_date != datetime.min.replace(tzinfo=timezone.utc)
-                else "",
+                "sort_date": app.get("updated"),
+                "formatted_date": format_relative_date(app["updated"]) if app.get("updated") else "",
                 "search": " ".join(
                     filter(
                         None,
@@ -329,8 +331,11 @@ def rechercher(
                 ),
             })
 
-    # Sort by date descending
-    items.sort(key=lambda x: x["sort_date"], reverse=True)
+    # Sort by date descending, undated items last
+    dated = [i for i in items if i["sort_date"] is not None]
+    undated = [i for i in items if i["sort_date"] is None]
+    dated.sort(key=lambda x: x["sort_date"], reverse=True)
+    items = dated + undated
 
     # Group by date
     grouped_items = group_items_by_date(items)

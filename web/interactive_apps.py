@@ -99,5 +99,9 @@ def scan_interactive_apps_uncached():
             except UnicodeDecodeError:
                 continue
 
-    apps.sort(key=lambda a: (a["updated"] or datetime.min.replace(tzinfo=timezone.utc), a["title"]), reverse=True)
+    dated = [a for a in apps if a["updated"] is not None]
+    undated = [a for a in apps if a["updated"] is None]
+    dated.sort(key=lambda a: (a["updated"], a["title"]), reverse=True)
+    undated.sort(key=lambda a: a["title"])
+    apps[:] = dated + undated
     return apps
