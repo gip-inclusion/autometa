@@ -16,7 +16,7 @@ from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
 from lib.tool_taxonomy import classify_tool
 
-from . import config
+from . import config, session_sync
 from .agents import get_agent
 from .database import store
 from .redis_conn import get_redis
@@ -63,12 +63,14 @@ class TaskRunner:
         prompt: str,
         history: list[dict],
         user_email: str | None = None,
+        session_id: str | None = None,
     ):
         r = await get_redis()
         payload = json.dumps({
             "conv_id": conv_id,
             "prompt": prompt,
             "history": history,
+            "session_id": session_id,
             "user_email": user_email,
             "sentry_trace": get_trace_headers(),
         })
@@ -130,6 +132,9 @@ class TaskRunner:
             if not conv or not conv.needs_response:
                 continue
             await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
+            sid = payload.get("session_id")
+            if sid:
+                await asyncio.to_thread(session_sync.download_session, sid)
             task = asyncio.create_task(
                 self._run_agent(
                     conv_id,
@@ -137,6 +142,7 @@ class TaskRunner:
                     payload["history"],
                     payload.get("user_email"),
                     payload.get("sentry_trace", {}),
+                    sid,
                 )
             )
             self._running[conv_id] = task
@@ -183,6 +189,7 @@ class TaskRunner:
         history: list[dict],
         user_email: str | None,
         sentry_trace: dict | None = None,
+        session_id: str | None = None,
     ):
         # Continue the Sentry trace from the HTTP request that submitted this task
         continue_trace(sentry_trace or {})
@@ -208,6 +215,7 @@ class TaskRunner:
                     conversation_id=conversation_id,
                     message=prompt,
                     history=history,
+                    session_id=session_id,
                 ):
                     if event.type == "assistant":
                         assistant_text_parts.append(str(event.content))

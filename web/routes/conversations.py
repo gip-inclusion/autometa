@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -30,53 +31,6 @@ from web.uploads import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations")
-
-
-def extract_tool_output(content: str) -> str:
-    try:
-        data = json.loads(content)
-        if isinstance(data, dict):
-            output = data.get("output", "")
-            if isinstance(output, dict):
-                return str(output.get("output", ""))
-            return str(output)
-    except (json.JSONDecodeError, TypeError) as exc:
-        logger.debug("JSON parse failed in extract_tool_output: %s", exc)
-    return str(content) if content else ""
-
-
-def extract_previous_findings(messages: list) -> str:
-    results = []
-    for msg in reversed(messages):
-        if msg.type == "user":
-            break
-        if msg.type == "tool_result":
-            results.append(msg.content)
-
-    results.reverse()
-
-    if not results:
-        return ""
-
-    findings = []
-    total = 0
-    for content in results:
-        output = extract_tool_output(content)
-        if not output or len(output) < 30:
-            continue
-        truncated = output[:400] + ("…" if len(output) > 400 else "")
-        if total + len(truncated) > 5000:
-            remaining = len(results) - len(findings)
-            if remaining > 0:
-                findings.append(f"(… {remaining} résultats supplémentaires omis)")
-            break
-        findings.append(truncated)
-        total += len(truncated)
-
-    if not findings:
-        return ""
-
-    return "\n---\n".join(findings)
 
 
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
@@ -456,24 +410,23 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         generate_conversation_title(content, conv_id)
         generate_conversation_tags(content, conv_id)
 
-    # Build history and prompt for the PM
+    # Session management: generate session_id on first message,
+    # reuse on subsequent messages. The CLI resumes the full conversation
+    # context (including tool calls/results) from the session file.
+    session_id = conv.session_id
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        store.update_conversation(conv_id, session_id=session_id)
+
+    # History is only needed when there's no session to resume (first message).
+    # On resume, the CLI loads the full context from the session file.
     history = []
-    for msg in conv.messages:
-        if msg.type in ("user", "assistant"):
-            history.append({"role": msg.type, "content": msg.content})
+    if is_first_message:
+        for msg in conv.messages:
+            if msg.type in ("user", "assistant"):
+                history.append({"role": msg.type, "content": msg.content})
 
     prompt = content
-
-    # Inject condensed tool results from the previous turn so the agent
-    # doesn't re-query data it already obtained.
-    if not is_first_message:
-        findings = extract_previous_findings(conv.messages)
-        if findings:
-            prompt = (
-                "[Résultats d'outils de l'analyse précédente — ne pas re-requêter ces données]\n\n"
-                f"{findings}\n\n---\n\n"
-                f"{prompt}"
-            )
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:
@@ -516,7 +469,7 @@ User request: """
 
         prompt = knowledge_context + prompt
 
-    await runner.submit(conv_id, prompt, history, user_email)
+    await runner.submit(conv_id, prompt, history, user_email, session_id=session_id)
 
     return {
         "status": "started",
@@ -558,7 +511,7 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
             history.append({"role": msg.type, "content": msg.content})
 
     store.update_conversation(conv_id, needs_response=True)
-    await runner.submit(conv_id, last_user_msg.content, history, conv.user_id)
+    await runner.submit(conv_id, last_user_msg.content, history, conv.user_id, session_id=conv.session_id)
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
 

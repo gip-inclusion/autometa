@@ -85,6 +85,7 @@ class AgentBackend(ABC):
         conversation_id: str,
         message: str,
         history: list[dict],
+        session_id: str | None = None,
     ) -> AsyncIterator[AgentMessage]:
         pass
 
