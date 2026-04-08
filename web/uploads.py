@@ -19,11 +19,12 @@ import shutil
 import stat
 import subprocess
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, Optional, Tuple
 
 from botocore.exceptions import ClientError
+
+from web.helpers import utcnow
 
 from . import config, s3
 from .database import UploadedFile, get_db, store
@@ -202,7 +203,7 @@ def sanitize_filename(filename: str) -> str:
 def generate_stored_filename(original_filename: str) -> str:
     ext = Path(original_filename).suffix.lower()
     unique_id = uuid.uuid4().hex[:12]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
     sanitized = sanitize_filename(Path(original_filename).stem)[:50]
     return f"{timestamp}_{unique_id}_{sanitized}{ext}"
 

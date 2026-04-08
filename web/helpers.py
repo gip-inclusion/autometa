@@ -12,6 +12,10 @@ from .config import DISPLAY_TIMEZONE
 DISPLAY_TZ = ZoneInfo(DISPLAY_TIMEZONE)
 
 
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
 def now_local():
     return datetime.now(DISPLAY_TZ)
 

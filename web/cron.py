@@ -9,11 +9,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime
 from pathlib import Path
 
 import sentry_sdk
 from sqlalchemy import select
+
+from web.helpers import now_local, utcnow
 
 from . import config, s3
 from .database import get_db
@@ -78,7 +79,7 @@ def is_due(schedule: str) -> bool:
     if schedule == "daily":
         return True
     if schedule == "weekly":
-        return datetime.now().weekday() == 0  # Monday
+        return now_local().weekday() == 0  # Monday
     return True
 
 
@@ -272,8 +273,8 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             "status": "failure",
             "output": f"cron task not found: {slug}",
             "duration_ms": 0,
-            "started_at": datetime.now().isoformat(),
-            "finished_at": datetime.now().isoformat(),
+            "started_at": utcnow().isoformat(),
+            "finished_at": utcnow().isoformat(),
         }
 
     monitor_slug = f"cron-{slug}"
@@ -289,7 +290,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
     workdir = None
     pre_hashes: dict[str, str] = {}
 
-    started_at = datetime.now()
+    started_at = utcnow()
     start_time = time.monotonic()
 
     env = {
@@ -315,7 +316,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             env=env,
         )
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        finished_at = datetime.now()
+        finished_at = utcnow()
 
         output = result.stdout
         if result.stderr:
@@ -329,13 +330,13 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
 
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        finished_at = datetime.now()
+        finished_at = utcnow()
         status = "timeout"
         output = f"Script timed out after {timeout}s"
 
     except OSError as e:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        finished_at = datetime.now()
+        finished_at = utcnow()
         status = "failure"
         output = f"Error running script: {e}"
 

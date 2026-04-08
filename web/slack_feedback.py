@@ -1,12 +1,13 @@
 """Weekly Slack DMs asking active users for Tally feedback."""
 
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 from urllib.parse import quote
 
 from sqlalchemy import select
 
 from lib.slack import lookup_user, send_dm
+from web.helpers import utcnow
 
 from . import config
 from .db import get_db
@@ -25,7 +26,7 @@ SLACK_MESSAGE = (
 
 
 def get_active_emails() -> list[str]:
-    cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    cutoff = (utcnow() - timedelta(days=7)).isoformat()
     with get_db() as session:
         rows = session.scalars(select(Conversation.user_id).where(Conversation.updated_at >= cutoff).distinct()).all()
     return sorted({e.strip() for e in rows if e and e.strip() not in EXCLUDED_EMAILS})
