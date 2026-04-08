@@ -9,6 +9,7 @@ from typing import Optional
 from sqlalchemy import func, select, text
 
 from .db import get_db, init_tables
+from .helpers import utcnow
 from .models import Conversation as ConvModel
 from .models import ConversationTag as ConvTagModel
 from .models import Message as MsgModel
@@ -408,7 +409,7 @@ class ConversationStore:
         if not source:
             return None
 
-        now = datetime.now()
+        now = utcnow()
         new_id = str(uuid.uuid4())
 
         with get_db() as session:
@@ -480,7 +481,7 @@ class ConversationStore:
 
     def pin_item(self, item_type: str, item_id: str, label: str) -> bool:
         with get_db() as session:
-            now = datetime.now().isoformat()
+            now = utcnow().isoformat()
             existing = session.scalars(
                 select(PinModel).where(PinModel.item_type == item_type, PinModel.item_id == str(item_id))
             ).first()
@@ -642,7 +643,7 @@ class ConversationStore:
                 if k == "needs_response":
                     v = int(v)
                 setattr(c, k, v)
-            c.updated_at = datetime.now().isoformat()
+            c.updated_at = utcnow().isoformat()
             return True
 
     def update_conversation_usage(
@@ -667,7 +668,7 @@ class ConversationStore:
             if backend is not None:
                 c.usage_backend = backend
             c.usage_extra = extra_json
-            c.updated_at = datetime.now().isoformat()
+            c.updated_at = utcnow().isoformat()
             return True
 
     def accumulate_usage(
@@ -694,7 +695,7 @@ class ConversationStore:
                 c.usage_backend = backend
             if extra_json is not None:
                 c.usage_extra = extra_json
-            c.updated_at = datetime.now().isoformat()
+            c.updated_at = utcnow().isoformat()
             return True
 
     def delete_conversation(self, conv_id: str) -> bool:
@@ -737,7 +738,7 @@ class ConversationStore:
             session.flush()
             msg.id = model.id
 
-            now = datetime.now().isoformat()
+            now = utcnow().isoformat()
             if c.title is None and type == "user":
                 c.title = content[:80] + ("..." if len(content) > 80 else "")
             c.updated_at = now
@@ -858,7 +859,7 @@ class ConversationStore:
             if not r:
                 return False
             r.archived = 1
-            r.updated_at = datetime.now().isoformat()
+            r.updated_at = utcnow().isoformat()
             return True
 
     def update_report(self, report_id: int, **kwargs) -> bool:
@@ -877,7 +878,7 @@ class ConversationStore:
             for k, v in updates.items():
                 setattr(r, k, v)
             r.version = r.version + 1
-            r.updated_at = datetime.now().isoformat()
+            r.updated_at = utcnow().isoformat()
             return True
 
     def delete_report(self, report_id: int) -> bool:
@@ -998,7 +999,7 @@ class ConversationStore:
             if update_timestamp:
                 c = session.get(ConvModel, conv_id)
                 if c:
-                    c.updated_at = datetime.now().isoformat()
+                    c.updated_at = utcnow().isoformat()
             return True
 
     def get_conversation_tags(self, conv_id: str) -> list[Tag]:
@@ -1042,7 +1043,7 @@ class ConversationStore:
             if update_timestamp:
                 r = session.get(ReportModel, report_id)
                 if r:
-                    r.updated_at = datetime.now().isoformat()
+                    r.updated_at = utcnow().isoformat()
             return True
 
     def get_report_tags(self, report_id: int) -> list[Tag]:

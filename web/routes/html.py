@@ -3,7 +3,7 @@
 import logging
 import re
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -306,14 +306,16 @@ def rechercher(
             if tag_params and not all(t in app_tags for t in tag_params):
                 continue
 
-            sort_date = app.get("updated") or datetime.min
+            sort_date = app.get("updated") or datetime.min.replace(tzinfo=timezone.utc)
             items.append({
                 "type": "app",
                 "app": app,
                 "tags": [],
                 "icon": "ri-window-fill",
                 "sort_date": sort_date,
-                "formatted_date": format_relative_date(sort_date) if sort_date != datetime.min else "",
+                "formatted_date": format_relative_date(sort_date)
+                if sort_date != datetime.min.replace(tzinfo=timezone.utc)
+                else "",
                 "search": " ".join(
                     filter(
                         None,

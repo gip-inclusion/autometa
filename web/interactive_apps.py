@@ -1,7 +1,7 @@
 """Scan and cache interactive apps under data/interactive (S3 or local)."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import s3
 
@@ -30,7 +30,7 @@ def parse_app_md(content: str, folder_name: str) -> dict | None:
     updated = None
     if "updated" in fm:
         try:
-            updated = datetime.strptime(fm["updated"], "%Y-%m-%d")
+            updated = datetime.strptime(fm["updated"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
         except ValueError:
             logger.debug("Invalid date format in APP.md: %s", fm["updated"])
 
@@ -99,5 +99,5 @@ def scan_interactive_apps_uncached():
             except UnicodeDecodeError:
                 continue
 
-    apps.sort(key=lambda a: (a["updated"] or datetime.min, a["title"]), reverse=True)
+    apps.sort(key=lambda a: (a["updated"] or datetime.min.replace(tzinfo=timezone.utc), a["title"]), reverse=True)
     return apps

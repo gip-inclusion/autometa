@@ -16,32 +16,32 @@ PARIS = ZoneInfo("Europe/Paris")
     [
         (
             datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc),
-            datetime(2026, 1, 15, 9, 30),
+            datetime(2026, 1, 15, 9, 30, tzinfo=timezone.utc),
             "10:30",
         ),
         (
             datetime(2026, 1, 13, 0, 0, tzinfo=timezone.utc),
-            datetime(2026, 1, 12, 23, 30),
+            datetime(2026, 1, 12, 23, 30, tzinfo=timezone.utc),
             "00:30",
         ),
         (
             datetime(2026, 1, 14, 11, 0, tzinfo=timezone.utc),
-            datetime(2026, 1, 13, 15, 0),
+            datetime(2026, 1, 13, 15, 0, tzinfo=timezone.utc),
             "hier, 16:00",
         ),
         (
             datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc),
-            datetime(2026, 7, 15, 8, 0),
+            datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc),
             "10:00",
         ),
         (
             datetime(2026, 1, 15, 11, 0, tzinfo=timezone.utc),
-            datetime(2026, 1, 13, 14, 0),
+            datetime(2026, 1, 13, 14, 0, tzinfo=timezone.utc),
             "mardi 15:00",
         ),
         (
             datetime(2026, 1, 15, 11, 0, tzinfo=timezone.utc),
-            datetime(2025, 12, 25, 20, 0),
+            datetime(2025, 12, 25, 20, 0, tzinfo=timezone.utc),
             "25/12/2025 à 21:00",
         ),
     ],
@@ -54,7 +54,7 @@ def test_format_relative_date_paris(mocker, fake_now_utc, event_dt, expected):
 def test_group_items_late_utc_bucket(mocker):
     fake_now = datetime(2026, 1, 13, 0, 0, tzinfo=timezone.utc)
     mocker.patch("web.helpers.now_local", return_value=fake_now.astimezone(PARIS))
-    items = [{"sort_date": datetime(2026, 1, 12, 23, 30)}]
+    items = [{"sort_date": datetime(2026, 1, 12, 23, 30, tzinfo=timezone.utc)}]
     groups = group_items_by_date(items)
     assert "aujourd'hui" in groups
     assert len(groups["aujourd'hui"]) == 1
