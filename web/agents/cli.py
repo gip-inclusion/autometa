@@ -9,7 +9,7 @@ from typing import AsyncIterator
 
 import sentry_sdk
 
-from web import config
+from web import config, session_sync
 
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
@@ -51,8 +51,14 @@ class CLIBackend(AgentBackend):
         conversation_id: str,
         message: str,
         history: list[dict],
+        session_id: str | None = None,
     ) -> AsyncIterator[AgentMessage]:
-        prompt = self._build_prompt(message, history)
+        is_resume = session_id is not None and session_sync.get_session_path(session_id).exists()
+
+        if is_resume:
+            prompt = message
+        else:
+            prompt = self._build_prompt(message, history)
 
         cmd = [
             config.CLAUDE_CLI,
@@ -60,6 +66,11 @@ class CLIBackend(AgentBackend):
             "stream-json",
             "--verbose",
         ]
+
+        if is_resume:
+            cmd.extend(["--resume", session_id])
+        elif session_id:
+            cmd.extend(["--session-id", session_id])
 
         for d in config.ADDITIONAL_DIRS:
             cmd.extend(["--add-dir", d])
@@ -76,7 +87,12 @@ class CLIBackend(AgentBackend):
         cmd.extend(["-p", prompt])
         cmd.extend(self._extra_cmd_args())
 
-        logger.info(f"Starting claude CLI: {' '.join(cmd[:4])}... (prompt length: {len(prompt)})")
+        logger.info(
+            "Starting claude CLI (session=%s, resume=%s, prompt_length=%d)",
+            session_id or "none",
+            is_resume,
+            len(prompt),
+        )
 
         env = self._build_env()
 
@@ -150,6 +166,8 @@ class CLIBackend(AgentBackend):
                     except ProcessLookupError:
                         logger.debug("Process already exited before kill")
             stderr_bytes = await stderr_task
+            if session_id:
+                session_sync.upload_session(session_id)
             logger.info(f"Cleaned up conversation {conversation_id}")
 
         stderr_str = stderr_bytes.decode("utf-8", errors="replace")

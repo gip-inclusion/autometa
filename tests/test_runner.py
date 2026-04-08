@@ -28,6 +28,7 @@ def make_runner(mocker, fake_redis, max_concurrent=2):
     mocker.patch("web.runner.get_agent", return_value=mock_backend)
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", max_concurrent)
+    mocker.patch("web.runner.session_sync")
     r = TaskRunner()
     return r
 
@@ -43,12 +44,13 @@ def runner(mocker, fake_redis):
 
 def test_submit_pushes_to_redis(runner, fake_redis):
     async def _run():
-        await runner.submit("c1", "hello", [])
+        await runner.submit("c1", "hello", [], session_id="sess-1")
         tasks = await fake_redis.lrange("autometa:tasks", 0, -1)
         assert len(tasks) == 1
         payload = json.loads(tasks[0])
         assert payload["conv_id"] == "c1"
         assert payload["prompt"] == "hello"
+        assert payload["session_id"] == "sess-1"
 
     asyncio.run(_run())
 
