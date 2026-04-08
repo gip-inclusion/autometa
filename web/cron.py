@@ -163,12 +163,12 @@ def discover_from_s3() -> list[dict]:
     if not config.S3_BUCKET:
         return []
     tasks = []
-    for slug in s3.list_directories():
-        if not s3.file_exists(f"{slug}/cron.py"):
+    for slug in s3.interactive.list_directories():
+        if not s3.interactive.exists(f"{slug}/cron.py"):
             continue
 
         # Parse APP.md metadata from S3
-        md_bytes = s3.download_file(f"{slug}/APP.md")
+        md_bytes = s3.interactive.download(f"{slug}/APP.md")
         meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
 
         tasks.append({
@@ -206,12 +206,11 @@ def find_task(slug: str) -> dict | None:
 def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{slug}-"))
     pre_hashes: dict[str, str] = {}
-    for entry in s3.list_files(f"{slug}/"):
-        rel_path = entry["path"]
-        local_name = rel_path[len(slug) + 1 :]
+    for entry in s3.interactive.list_files(f"{slug}/"):
+        local_name = entry["path"][len(f"{slug}/") :]
         if not local_name or ".." in local_name:
             continue
-        content = s3.download_file(rel_path)
+        content = s3.interactive.download(entry["path"])
         if content is not None:
             local_file = (workdir / local_name).resolve()
             try:
@@ -239,7 +238,7 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
             skipped += 1
             continue
-        s3.upload_file(f"{slug}/{rel}", content)
+        s3.interactive.upload(f"{slug}/{rel}", content)
         uploaded += 1
     if uploaded:
         logger.info(f"Cron upload {slug}: {uploaded} uploaded, {skipped} unchanged")

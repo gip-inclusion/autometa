@@ -88,8 +88,8 @@ def scan_interactive_apps():
 
 def scan_interactive_apps_uncached():
     apps = []
-    for folder_name in s3.list_directories():
-        app_md_content = s3.download_file(f"{folder_name}/APP.md")
+    for folder_name in s3.interactive.list_directories():
+        app_md_content = s3.interactive.download(f"{folder_name}/APP.md")
         if app_md_content:
             try:
                 content = app_md_content.decode("utf-8")

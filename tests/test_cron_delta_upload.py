@@ -8,10 +8,13 @@ from web.cron import prepare_s3_workdir, upload_s3_results
 
 def test_prepare_s3_workdir_computes_hashes(mocker):
     mocker.patch(
-        "web.cron.s3.list_files",
-        return_value=[{"path": "myapp/file1.txt"}, {"path": "myapp/file2.txt"}],
+        "web.cron.s3.interactive.list_files",
+        return_value=[
+            {"path": "myapp/file1.txt"},
+            {"path": "myapp/file2.txt"},
+        ],
     )
-    mocker.patch("web.cron.s3.download_file", side_effect=[b"content1", b"content2"])
+    mocker.patch("web.cron.s3.interactive.download", side_effect=[b"content1", b"content2"])
 
     workdir, pre_hashes = prepare_s3_workdir("myapp")
 
@@ -21,7 +24,7 @@ def test_prepare_s3_workdir_computes_hashes(mocker):
 
 
 def test_upload_s3_results_skips_unchanged(mocker):
-    mock_upload = mocker.patch("web.cron.s3.upload_file")
+    mock_upload = mocker.patch("web.cron.s3.interactive.upload")
     workdir = Path(tempfile.mkdtemp())
     (workdir / "unchanged.txt").write_bytes(b"same content")
     (workdir / "changed.txt").write_bytes(b"new content")
@@ -38,7 +41,7 @@ def test_upload_s3_results_skips_unchanged(mocker):
 
 
 def test_upload_s3_results_uploads_new_files(mocker):
-    mock_upload = mocker.patch("web.cron.s3.upload_file")
+    mock_upload = mocker.patch("web.cron.s3.interactive.upload")
     workdir = Path(tempfile.mkdtemp())
     (workdir / "brand_new.txt").write_bytes(b"hello")
 

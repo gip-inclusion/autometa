@@ -102,8 +102,8 @@ def serve_interactive(request: Request, filename: str = ""):
     cache_control = "no-cache" if mime_type == "text/html" else "public, max-age=3600"
 
     suffix = PurePosixPath(filename).suffix.lower()
-    if suffix in _STATIC_ASSET_EXTS and s3_module.file_exists(filename):
-        url = s3_module.get_file_url(filename, expires_in=300)
+    if suffix in _STATIC_ASSET_EXTS and s3_module.interactive.exists(filename):
+        url = s3_module.interactive.get_url(filename, expires_in=300)
         if url is not None:
             return RedirectResponse(
                 url,
@@ -111,7 +111,7 @@ def serve_interactive(request: Request, filename: str = ""):
                 headers={"Cache-Control": "private, max-age=300", "Referrer-Policy": "no-referrer"},
             )
 
-    stream = s3_module.stream_file(filename)
+    stream = s3_module.interactive.stream(filename)
     if stream is not None:
         return StreamingResponse(stream, media_type=mime_type, headers={"Cache-Control": cache_control})
 

@@ -385,10 +385,10 @@ def make_s3_mocks(apps: list[dict]):
     def mock_list_directories(prefix=""):
         return sorted(slugs)
 
-    def mock_file_exists(path):
+    def mock_exists(path):
         return path in all_files
 
-    def mock_download_file(path):
+    def mock_download(path):
         return all_files.get(path)
 
     def mock_list_files(prefix=""):
@@ -398,30 +398,30 @@ def make_s3_mocks(apps: list[dict]):
                 results.append({"path": key, "size": len(content), "last_modified": None})
         return results
 
-    def mock_upload_file(path, content, content_type=None):
+    def mock_upload(path, content, content_type=None):
         all_files[path] = content
         return True
 
     return {
         "list_directories": mock_list_directories,
-        "file_exists": mock_file_exists,
-        "download_file": mock_download_file,
+        "exists": mock_exists,
+        "download": mock_download,
         "list_files": mock_list_files,
-        "upload_file": mock_upload_file,
+        "upload": mock_upload,
         "_all_files": all_files,
     }
 
 
 def _patch_s3(mocker, mocks):
-    mocker.patch("web.cron.s3.list_directories", side_effect=mocks["list_directories"])
-    mocker.patch("web.cron.s3.file_exists", side_effect=mocks["file_exists"])
-    mocker.patch("web.cron.s3.download_file", side_effect=mocks["download_file"])
+    mocker.patch("web.cron.s3.interactive.list_directories", side_effect=mocks["list_directories"])
+    mocker.patch("web.cron.s3.interactive.exists", side_effect=mocks["exists"])
+    mocker.patch("web.cron.s3.interactive.download", side_effect=mocks["download"])
 
 
 def _patch_s3_full(mocker, mocks):
     _patch_s3(mocker, mocks)
-    mocker.patch("web.cron.s3.list_files", side_effect=mocks["list_files"])
-    mocker.patch("web.cron.s3.upload_file", side_effect=mocks["upload_file"])
+    mocker.patch("web.cron.s3.interactive.list_files", side_effect=mocks["list_files"])
+    mocker.patch("web.cron.s3.interactive.upload", side_effect=mocks["upload"])
 
 
 def test_discover_s3_apps(mocker, s3_cron_env):

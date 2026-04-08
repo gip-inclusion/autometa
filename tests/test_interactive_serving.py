@@ -8,9 +8,10 @@ client = TestClient(app)
 
 
 def test_static_asset_redirects_to_presigned_url(mocker):
-    mocker.patch("web.s3.file_exists", return_value=True)
+    mocker.patch.object(app.state, "_state", {}, create=True)
+    mocker.patch("web.s3.interactive.exists", return_value=True)
     mocker.patch(
-        "web.s3.get_file_url",
+        "web.s3.interactive.get_url",
         return_value="https://s3.scw.com/bucket/app/style.css?Signature=xyz",
     )
 
@@ -23,7 +24,7 @@ def test_static_asset_redirects_to_presigned_url(mocker):
 
 
 def test_html_streamed_not_redirected(mocker):
-    mocker.patch("web.s3.stream_file", return_value=iter([b"<html>ok</html>"]))
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>ok</html>"]))
 
     response = client.get("/interactive/app/index.html")
 
@@ -33,8 +34,8 @@ def test_html_streamed_not_redirected(mocker):
 
 
 def test_missing_file_returns_404(mocker):
-    mocker.patch("web.s3.file_exists", return_value=False)
-    mocker.patch("web.s3.stream_file", return_value=None)
+    mocker.patch("web.s3.interactive.exists", return_value=False)
+    mocker.patch("web.s3.interactive.stream", return_value=None)
 
     response = client.get("/interactive/app/missing.html")
 
