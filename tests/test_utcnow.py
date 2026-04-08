@@ -53,22 +53,24 @@ def test_fromisoformat_roundtrip_preserves_timezone():
     assert restored == original
 
 
-def test_sort_mixed_utc_dates():
-    """All dates from different sources (convos, reports, apps) are sortable."""
+def test_sort_mixed_utc_dates_with_none():
+    """Dated items sort descending, None sort last."""
     conv_date = datetime(2026, 4, 8, 10, 0, tzinfo=timezone.utc)
     report_date = datetime(2026, 4, 7, 15, 0, tzinfo=timezone.utc)
     app_date = datetime(2026, 3, 1, 0, 0, tzinfo=timezone.utc)
-    app_min = datetime.min.replace(tzinfo=timezone.utc)
 
     items = [
-        {"sort_date": app_min},
+        {"sort_date": None},
         {"sort_date": report_date},
         {"sort_date": conv_date},
         {"sort_date": app_date},
     ]
-    items.sort(key=lambda x: x["sort_date"], reverse=True)
+    dated = [i for i in items if i["sort_date"] is not None]
+    undated = [i for i in items if i["sort_date"] is None]
+    dated.sort(key=lambda x: x["sort_date"], reverse=True)
+    result = dated + undated
 
-    assert items[0]["sort_date"] == conv_date
-    assert items[1]["sort_date"] == report_date
-    assert items[2]["sort_date"] == app_date
-    assert items[3]["sort_date"] == app_min
+    assert result[0]["sort_date"] == conv_date
+    assert result[1]["sort_date"] == report_date
+    assert result[2]["sort_date"] == app_date
+    assert result[3]["sort_date"] is None
