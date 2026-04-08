@@ -13,8 +13,8 @@ def test_restore_skips_existing_files(s3_env, mocker):
     (s3_env / "app1").mkdir()
     (s3_env / "app1" / "index.html").write_text("<html>local</html>")
 
-    mocker.patch("web.s3.list_files", return_value=[{"path": "app1/index.html", "size": 100}])
-    mock_download = mocker.patch("web.s3.download_file")
+    mocker.patch("web.s3.interactive.list_files", return_value=[{"path": "app1/index.html", "size": 100}])
+    mock_download = mocker.patch("web.s3.interactive.download")
 
     from web.warmup import restore_interactive_from_s3
 
@@ -26,14 +26,14 @@ def test_restore_skips_existing_files(s3_env, mocker):
 
 def test_restore_downloads_missing_files(s3_env, mocker):
     mocker.patch(
-        "web.s3.list_files",
+        "web.s3.interactive.list_files",
         return_value=[
             {"path": "app1/index.html", "size": 50},
             {"path": "app1/style.css", "size": 30},
         ],
     )
     mocker.patch(
-        "web.s3.download_file",
+        "web.s3.interactive.download",
         side_effect=lambda p: b"<html>from-s3</html>" if "html" in p else b"body{}",
     )
 
@@ -46,8 +46,8 @@ def test_restore_downloads_missing_files(s3_env, mocker):
 
 
 def test_restore_handles_failed_download(s3_env, mocker):
-    mocker.patch("web.s3.list_files", return_value=[{"path": "app1/broken.html", "size": 10}])
-    mocker.patch("web.s3.download_file", return_value=None)
+    mocker.patch("web.s3.interactive.list_files", return_value=[{"path": "app1/broken.html", "size": 10}])
+    mocker.patch("web.s3.interactive.download", return_value=None)
 
     from web.warmup import restore_interactive_from_s3
 

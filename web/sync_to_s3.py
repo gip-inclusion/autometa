@@ -1,8 +1,4 @@
-"""Watch local interactive directory and sync new/modified files to S3.
-
-Runs as a background thread when S3 is configured.
-Uses watchdog to detect file changes and uploads them to S3.
-"""
+"""Watch local interactive directory and sync new/modified files to S3."""
 
 import logging
 import mimetypes
@@ -28,7 +24,6 @@ def start_sync_watcher():
         logger.debug("Sync watcher already running")
         return
 
-    # Ensure local directory exists
     config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
 
     stop_event.clear()
@@ -38,7 +33,6 @@ def start_sync_watcher():
 
 
 def stop_sync_watcher():
-    """Stop the background file watcher."""
     global watcher_thread
     stop_event.set()
     if watcher_thread is not None:
@@ -48,18 +42,16 @@ def stop_sync_watcher():
 
 
 def watch_loop():
-    """Main watch loop using polling (simple, no external dependencies)."""
-    known_files: dict[Path, float] = {}  # path -> mtime
+    known_files: dict[Path, float] = {}
 
-    # Initial sync: batch-list S3 once, then upload only missing local files
-    s3_paths = {f["path"] for f in s3.list_files()}
+    s3_paths = {f["path"] for f in s3.interactive.list_files()}
     initial_count = 0
     for path in config.INTERACTIVE_DIR.rglob("*"):
         if path.is_file():
             initial_count += 1
             relative_path = str(path.relative_to(config.INTERACTIVE_DIR))
             if relative_path not in s3_paths:
-                sync_interactive_file(path, s3)
+                _sync_file(path)
             known_files[path] = path.stat().st_mtime
 
     logger.debug(f"Initial scan: {initial_count} local files, {len(s3_paths)} in S3")
@@ -73,30 +65,25 @@ def watch_loop():
                     mtime = path.stat().st_mtime
                     current_files[path] = mtime
 
-                    # Check if new or modified
                     if path not in known_files or known_files[path] < mtime:
-                        sync_interactive_file(path, s3)
+                        _sync_file(path)
 
             known_files = current_files
 
-        # Why: background daemon thread polling the filesystem, must not crash on transient errors.
-        except Exception as e:
+        except Exception as e:  # Why: daemon thread polling filesystem, must not crash on transient I/O errors
             logger.error(f"Error in sync watch loop: {e}")
 
-        # Poll every 2 seconds
         stop_event.wait(2)
 
 
-def sync_interactive_file(local_path: Path, s3_module):
+def _sync_file(local_path: Path):
     try:
-        relative_path = local_path.relative_to(config.INTERACTIVE_DIR)
+        relative_path = str(local_path.relative_to(config.INTERACTIVE_DIR))
         content = local_path.read_bytes()
-
         content_type, _ = mimetypes.guess_type(local_path.name)
 
-        success = s3_module.upload_file(str(relative_path), content, content_type)
-        if success:
-            logger.info(f"Synced to S3: {relative_path}")
+        if s3.interactive.upload(relative_path, content, content_type):
+            logger.info(f"Synced to S3: interactive/{relative_path}")
             if local_path.name == "APP.md":
                 invalidate_apps_cache()
         else:

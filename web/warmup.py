@@ -182,14 +182,13 @@ def warmup_metabase_cards():
 def restore_interactive_from_s3():
     from . import s3 as s3_module
 
-    files = s3_module.list_files()
+    files = s3_module.interactive.list_files()
     restored = 0
     for f in files:
-        rel_path = f["path"]
-        local_path = config.INTERACTIVE_DIR / rel_path
+        local_path = config.INTERACTIVE_DIR / f["path"]
         if local_path.exists():
             continue
-        content = s3_module.download_file(rel_path)
+        content = s3_module.interactive.download(f["path"])
         if content is not None:
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(content)

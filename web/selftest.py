@@ -321,10 +321,9 @@ def _check_claude_code_inventory() -> tuple[bool, str]:
 def _check_s3() -> tuple[bool, str]:
     from . import s3
 
-    filename = "apps-list.json"
-    if not s3.file_exists(filename):
-        return (False, f"object not found: {filename}")
-    return (True, f"bucket={config.S3_BUCKET} object {filename}")
+    if not s3.interactive.exists("apps-list.json"):
+        return (False, "object not found: interactive/apps-list.json")
+    return (True, f"bucket={config.S3_BUCKET} prefix=interactive/")
 
 
 def _check_matomo() -> tuple[bool, str]:

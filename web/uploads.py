@@ -250,8 +250,7 @@ def scan_with_clamav(filepath: Path) -> Tuple[bool, bool]:
 
 def upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str] = None) -> bool:
     try:
-        key = f"uploads/{relative_path}"
-        return s3.upload_file(key, content, content_type)
+        return s3.uploads.upload(relative_path, content, content_type)
     except (OSError, ClientError) as e:
         logger.error(f"S3 upload failed for {relative_path}: {e}")
         return False
@@ -384,8 +383,7 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
 
     # Try S3
     try:
-        key = f"uploads/{uploaded_file.stored_filename}"
-        return s3.download_file(key)
+        return s3.uploads.download(uploaded_file.stored_filename)
     except ClientError as e:
         logger.error(f"Failed to download from S3: {e}")
         return None
@@ -489,8 +487,7 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
 
     # Delete from S3
     try:
-        key = f"uploads/{uploaded_file.stored_filename}"
-        s3.delete_file(key)
+        s3.uploads.delete(uploaded_file.stored_filename)
     except ClientError as e:
         logger.error(f"Failed to delete from S3: {e}")
 
