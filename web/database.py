@@ -112,7 +112,7 @@ class UploadedFile:
     is_text: bool = False
     av_scanned: bool = False
     av_clean: Optional[bool] = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utcnow)
 
     def to_dict(self) -> dict:
         return {
@@ -140,7 +140,7 @@ class Message:
     conversation_id: Optional[str] = None
     type: str = "user"
     content: str = ""
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -159,8 +159,8 @@ class Report:
     archived: bool = False
     notion_url: Optional[str] = None
     version: int = 1
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
     conversation_id: Optional[str] = None
     message_id: Optional[int] = None
 
@@ -189,8 +189,8 @@ class Conversation:
     pinned_at: Optional[datetime] = None
     pinned_label: Optional[str] = None
     needs_response: bool = False
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
 
     @property
     def has_report(self) -> bool:
@@ -252,8 +252,8 @@ def _model_to_report(r: ReportModel) -> Report:
         archived=bool(r.archived),
         notion_url=r.notion_url,
         version=r.version,
-        created_at=datetime.fromisoformat(r.created_at),
-        updated_at=datetime.fromisoformat(r.updated_at),
+        created_at=r.created_at,
+        updated_at=r.updated_at,
         conversation_id=r.conversation_id,
         message_id=r.message_id,
     )
@@ -277,7 +277,7 @@ def _model_to_uploaded_file(f: FileModel) -> UploadedFile:
         is_text=bool(f.is_text),
         av_scanned=bool(f.av_scanned),
         av_clean=bool(f.av_clean) if f.av_clean is not None else None,
-        created_at=datetime.fromisoformat(f.created_at),
+        created_at=f.created_at,
     )
 
 
@@ -287,7 +287,7 @@ def _model_to_message(m: MsgModel) -> Message:
         conversation_id=m.conversation_id,
         type=m.type or m.role,
         content=m.content,
-        created_at=datetime.fromisoformat(m.timestamp),
+        created_at=m.timestamp,
     )
 
 
@@ -303,8 +303,8 @@ def _conv_with_report_row(row, report_id, report_title) -> Conversation:
         needs_response=bool(row.needs_response) if row.needs_response else False,
         messages=[],
         report=Report(id=report_id, title=report_title or "") if report_id else None,
-        created_at=datetime.fromisoformat(row.created_at),
-        updated_at=datetime.fromisoformat(row.updated_at),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -336,8 +336,8 @@ class ConversationStore:
                 conv_type=conv.conv_type,
                 file_path=conv.file_path,
                 status=conv.status,
-                created_at=conv.created_at.isoformat(),
-                updated_at=conv.updated_at.isoformat(),
+                created_at=conv.created_at,
+                updated_at=conv.updated_at,
             )
             session.add(model)
 
@@ -396,11 +396,11 @@ class ConversationStore:
                 usage_cache_read_tokens=c.usage_cache_read_tokens or 0,
                 usage_backend=c.usage_backend,
                 usage_extra=usage_extra,
-                pinned_at=datetime.fromisoformat(p_pinned_at) if p_pinned_at else None,
+                pinned_at=p_pinned_at,
                 pinned_label=p_label,
                 needs_response=bool(c.needs_response) if c.needs_response else False,
-                created_at=datetime.fromisoformat(c.created_at),
-                updated_at=datetime.fromisoformat(c.updated_at),
+                created_at=c.created_at,
+                updated_at=c.updated_at,
             )
 
     def fork_conversation(self, source_conv_id: str, new_user_id: str) -> Optional[Conversation]:
@@ -422,8 +422,8 @@ class ConversationStore:
                 file_path=source.file_path,
                 status="active",
                 forked_from=source_conv_id,
-                created_at=now.isoformat(),
-                updated_at=now.isoformat(),
+                created_at=now,
+                updated_at=now,
             )
             session.add(model)
 
@@ -434,7 +434,7 @@ class ConversationStore:
                         type=msg.type,
                         role=msg.type,
                         content=msg.content,
-                        timestamp=msg.created_at.isoformat(),
+                        timestamp=msg.created_at,
                     )
                 )
 
@@ -481,7 +481,7 @@ class ConversationStore:
 
     def pin_item(self, item_type: str, item_id: str, label: str) -> bool:
         with get_db() as session:
-            now = utcnow().isoformat()
+            now = utcnow()
             existing = session.scalars(
                 select(PinModel).where(PinModel.item_type == item_type, PinModel.item_id == str(item_id))
             ).first()
@@ -521,7 +521,7 @@ class ConversationStore:
                     item_type=m.item_type,
                     item_id=m.item_id,
                     label=m.label,
-                    pinned_at=datetime.fromisoformat(m.pinned_at),
+                    pinned_at=m.pinned_at,
                 )
                 for m in models
             ]
@@ -550,10 +550,10 @@ class ConversationStore:
                     id=c.id,
                     user_id=c.user_id,
                     title=c.title,
-                    pinned_at=datetime.fromisoformat(p_at) if p_at else None,
+                    pinned_at=p_at,
                     pinned_label=p_label,
-                    created_at=datetime.fromisoformat(c.created_at),
-                    updated_at=datetime.fromisoformat(c.updated_at),
+                    created_at=c.created_at,
+                    updated_at=c.updated_at,
                 )
                 for c, p_at, p_label in rows
             ]
@@ -588,8 +588,8 @@ class ConversationStore:
                 file_path=c.file_path,
                 status=c.status,
                 messages=[],
-                created_at=datetime.fromisoformat(c.created_at),
-                updated_at=datetime.fromisoformat(c.updated_at),
+                created_at=c.created_at,
+                updated_at=c.updated_at,
             )
 
     def list_active_knowledge_conversations(self) -> list[Conversation]:
@@ -610,8 +610,8 @@ class ConversationStore:
                     file_path=c.file_path,
                     status=c.status,
                     messages=[],
-                    created_at=datetime.fromisoformat(c.created_at),
-                    updated_at=datetime.fromisoformat(c.updated_at),
+                    created_at=c.created_at,
+                    updated_at=c.updated_at,
                 )
                 for c in models
             ]
@@ -643,7 +643,7 @@ class ConversationStore:
                 if k == "needs_response":
                     v = int(v)
                 setattr(c, k, v)
-            c.updated_at = utcnow().isoformat()
+            c.updated_at = utcnow()
             return True
 
     def update_conversation_usage(
@@ -668,7 +668,7 @@ class ConversationStore:
             if backend is not None:
                 c.usage_backend = backend
             c.usage_extra = extra_json
-            c.updated_at = utcnow().isoformat()
+            c.updated_at = utcnow()
             return True
 
     def accumulate_usage(
@@ -695,7 +695,7 @@ class ConversationStore:
                 c.usage_backend = backend
             if extra_json is not None:
                 c.usage_extra = extra_json
-            c.updated_at = utcnow().isoformat()
+            c.updated_at = utcnow()
             return True
 
     def delete_conversation(self, conv_id: str) -> bool:
@@ -732,13 +732,13 @@ class ConversationStore:
                 type=type,
                 role=type,
                 content=content,
-                timestamp=msg.created_at.isoformat(),
+                timestamp=msg.created_at,
             )
             session.add(model)
             session.flush()
             msg.id = model.id
 
-            now = utcnow().isoformat()
+            now = utcnow()
             if c.title is None and type == "user":
                 c.title = content[:80] + ("..." if len(content) > 80 else "")
             c.updated_at = now
@@ -806,8 +806,8 @@ class ConversationStore:
                 source_conversation_id=source_conversation_id,
                 user_id=user_id,
                 version=1,
-                created_at=report.created_at.isoformat(),
-                updated_at=report.updated_at.isoformat(),
+                created_at=report.created_at,
+                updated_at=report.updated_at,
             )
             session.add(model)
             session.flush()
@@ -859,7 +859,7 @@ class ConversationStore:
             if not r:
                 return False
             r.archived = 1
-            r.updated_at = utcnow().isoformat()
+            r.updated_at = utcnow()
             return True
 
     def update_report(self, report_id: int, **kwargs) -> bool:
@@ -878,7 +878,7 @@ class ConversationStore:
             for k, v in updates.items():
                 setattr(r, k, v)
             r.version = r.version + 1
-            r.updated_at = utcnow().isoformat()
+            r.updated_at = utcnow()
             return True
 
     def delete_report(self, report_id: int) -> bool:
@@ -999,7 +999,7 @@ class ConversationStore:
             if update_timestamp:
                 c = session.get(ConvModel, conv_id)
                 if c:
-                    c.updated_at = utcnow().isoformat()
+                    c.updated_at = utcnow()
             return True
 
     def get_conversation_tags(self, conv_id: str) -> list[Tag]:
@@ -1043,7 +1043,7 @@ class ConversationStore:
             if update_timestamp:
                 r = session.get(ReportModel, report_id)
                 if r:
-                    r.updated_at = utcnow().isoformat()
+                    r.updated_at = utcnow()
             return True
 
     def get_report_tags(self, report_id: int) -> list[Tag]:
@@ -1206,7 +1206,7 @@ class ConversationStore:
                 is_text=is_text,
                 av_scanned=av_scanned,
                 av_clean=av_clean,
-                created_at=uploaded_file.created_at.isoformat(),
+                created_at=uploaded_file.created_at,
             )
             session.add(model)
             session.flush()
@@ -1318,8 +1318,8 @@ def _model_to_report_from_row(row) -> Report:
         user_id=row["user_id"],
         archived=bool(row["archived"]) if row["archived"] else False,
         version=row["version"],
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
         conversation_id=row["conversation_id"],
         message_id=row["message_id"],
     )

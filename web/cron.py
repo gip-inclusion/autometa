@@ -272,8 +272,8 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             "status": "failure",
             "output": f"cron task not found: {slug}",
             "duration_ms": 0,
-            "started_at": utcnow().isoformat(),
-            "finished_at": utcnow().isoformat(),
+            "started_at": utcnow(),
+            "finished_at": utcnow(),
         }
 
     monitor_slug = f"cron-{slug}"
@@ -348,8 +348,8 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         "status": status,
         "output": output,
         "duration_ms": elapsed_ms,
-        "started_at": started_at.isoformat(),
-        "finished_at": finished_at.isoformat(),
+        "started_at": started_at,
+        "finished_at": finished_at,
     }
 
     sentry_status = (

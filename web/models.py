@@ -38,18 +38,18 @@ class Conversation(Base):
     usage_cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
     usage_backend: Mapped[str | None] = mapped_column(Text)
     usage_extra: Mapped[str | None] = mapped_column(Text)
-    pinned_at: Mapped[str | None] = mapped_column(Text)
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pinned_label: Mapped[str | None] = mapped_column(Text)
     needs_response: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("idx_conversations_updated", "updated_at", postgresql_ops={"updated_at": "DESC"}),
+        Index("idx_conversations_updated", "updated_at"),
         Index("idx_conversations_type_status", "conv_type", "status"),
-        Index("idx_conversations_user_updated", "user_id", "updated_at", postgresql_ops={"updated_at": "DESC"}),
+        Index("idx_conversations_user_updated", "user_id", "updated_at"),
         Index("idx_conversations_needs_response", "needs_response", postgresql_where="needs_response = 1"),
     )
 
@@ -63,7 +63,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     raw_events: Mapped[str | None] = mapped_column(Text)
-    timestamp: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
@@ -88,12 +88,12 @@ class Report(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     archived: Mapped[int] = mapped_column(Integer, default=0)
     notion_url: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     conversation_id: Mapped[str | None] = mapped_column(Text)
     message_id: Mapped[int | None] = mapped_column(Integer)
 
-    __table_args__ = (Index("idx_reports_updated", "updated_at", postgresql_ops={"updated_at": "DESC"}),)
+    __table_args__ = (Index("idx_reports_updated", "updated_at"),)
 
 
 class Tag(Base):
@@ -148,7 +148,7 @@ class UploadedFile(Base):
     is_text: Mapped[bool] = mapped_column(Boolean, default=False)
     av_scanned: Mapped[bool] = mapped_column(Boolean, default=False)
     av_clean: Mapped[bool | None] = mapped_column(Boolean)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
         Index("idx_uploaded_files_conversation", "conversation_id"),
@@ -162,16 +162,14 @@ class CronRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     app_slug: Mapped[str] = mapped_column(Text, nullable=False)
-    started_at: Mapped[str] = mapped_column(Text, nullable=False)
-    finished_at: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(Text, nullable=False)
     output: Mapped[str | None] = mapped_column(Text)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     trigger: Mapped[str] = mapped_column(Text, nullable=False, default="scheduled")
 
-    __table_args__ = (
-        Index("idx_cron_runs_slug_started", "app_slug", "started_at", postgresql_ops={"started_at": "DESC"}),
-    )
+    __table_args__ = (Index("idx_cron_runs_slug_started", "app_slug", "started_at"),)
 
 
 class PinnedItem(Base):
@@ -181,7 +179,7 @@ class PinnedItem(Base):
     item_type: Mapped[str] = mapped_column(Text, nullable=False)
     item_id: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str | None] = mapped_column(Text)
-    pinned_at: Mapped[str] = mapped_column(Text, nullable=False)
+    pinned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (UniqueConstraint("item_type", "item_id"),)
 
@@ -193,8 +191,8 @@ class PmCommand(Base):
     conversation_id: Mapped[str] = mapped_column(Text, nullable=False)
     command: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
-    processed_at: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (Index("idx_pm_commands_pending", "processed_at", postgresql_where="processed_at IS NULL"),)
 
@@ -203,7 +201,7 @@ class PmHeartbeat(Base):
     __tablename__ = "pm_heartbeat"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    last_seen: Mapped[str] = mapped_column(Text, nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class Wishlist(Base):

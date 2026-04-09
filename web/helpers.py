@@ -21,8 +21,6 @@ def now_local():
 
 
 def to_local(dt):
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(DISPLAY_TZ)
 
 

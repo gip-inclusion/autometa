@@ -34,25 +34,6 @@ def test_modules_import_utcnow(module_path, function_or_attr):
     assert hasattr(mod, function_or_attr), f"{module_path} should import {function_or_attr}"
 
 
-def test_database_timestamps_are_utc_aware(mocker):
-    """Verify that database operations produce UTC-aware ISO strings."""
-    mock_utcnow = mocker.patch("web.database.utcnow")
-    mock_utcnow.return_value = datetime(2026, 4, 8, 12, 0, 0, tzinfo=timezone.utc)
-
-    iso = mock_utcnow().isoformat()
-    parsed = datetime.fromisoformat(iso)
-    assert parsed.tzinfo is not None
-
-
-def test_fromisoformat_roundtrip_preserves_timezone():
-    """UTC-aware datetime survives isoformat -> fromisoformat roundtrip."""
-    original = datetime(2026, 4, 8, 14, 30, 0, tzinfo=timezone.utc)
-    serialized = original.isoformat()
-    restored = datetime.fromisoformat(serialized)
-    assert restored.tzinfo is not None
-    assert restored == original
-
-
 def test_sort_mixed_utc_dates_with_none():
     """Dated items sort descending, None sort last."""
     conv_date = datetime(2026, 4, 8, 10, 0, tzinfo=timezone.utc)

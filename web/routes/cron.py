@@ -1,6 +1,5 @@
 """Cron task management routes."""
 
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -26,11 +25,7 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
         runs = last_runs.get(task["slug"], [])
         task["last_run"] = runs[0] if runs else None
         if task["last_run"] and task["last_run"]["started_at"]:
-            try:
-                dt = datetime.fromisoformat(task["last_run"]["started_at"])
-                task["last_run"]["formatted_date"] = format_relative_date(dt)
-            except ValueError, TypeError:
-                task["last_run"]["formatted_date"] = task["last_run"]["started_at"]
+            task["last_run"]["formatted_date"] = format_relative_date(task["last_run"]["started_at"])
 
     return templates.TemplateResponse(
         request,

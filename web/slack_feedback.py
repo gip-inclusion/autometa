@@ -26,7 +26,7 @@ SLACK_MESSAGE = (
 
 
 def get_active_emails() -> list[str]:
-    cutoff = (utcnow() - timedelta(days=7)).isoformat()
+    cutoff = utcnow() - timedelta(days=7)
     with get_db() as session:
         rows = session.scalars(select(Conversation.user_id).where(Conversation.updated_at >= cutoff).distinct()).all()
     return sorted({e.strip() for e in rows if e and e.strip() not in EXCLUDED_EMAILS})
