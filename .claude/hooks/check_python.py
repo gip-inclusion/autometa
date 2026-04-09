@@ -246,6 +246,17 @@ def check_httpx_timeout(lines):
 # -- File naming (rules/code.md) --
 
 
+def check_log_fstrings(lines):
+    violations = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^logger\.(debug|info|warning|error|exception|critical)\(f['\"]", stripped):
+            violations.append(
+                f'f-string dans logger interdit (log injection) — utiliser logger.x("%s", var): {stripped[:120]}'
+            )
+    return violations
+
+
 def check_file_name(path):
     basename = os.path.basename(path)
     if basename.startswith("_") and basename != "__init__.py":
@@ -268,6 +279,7 @@ def check(code, path):
     violations.extend(check_sql(lines))
     violations.extend(check_api(lines))
     violations.extend(check_httpx_timeout(lines))
+    violations.extend(check_log_fstrings(lines))
     return violations
 
 

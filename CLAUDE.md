@@ -15,6 +15,8 @@ Architecture et flux de données : `.claude/ARCHITECTURE.md`.
 
 Conventions de code : `.claude/rules/code.md`. Tests (pytest, pytest-mock, parametrize, factories) : `.claude/rules/tests.md`.
 
+Après chaque tâche impliquant du code Python, relire `.claude/rules/` et vérifier que le code produit respecte toutes les conventions avant de considérer la tâche terminée. Corriger les violations trouvées sans attendre qu'on te le demande.
+
 ## Contexte métier
 
 IAE (insertion par l'activité économique) — programme français d'emploi avec trois types d'acteurs :

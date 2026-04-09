@@ -20,7 +20,7 @@ _client = boto3.client(
     region_name=config.S3_REGION,
     config=BotoConfig(signature_version="s3v4"),
 )
-logger.info(f"S3 storage: bucket={config.S3_BUCKET}, endpoint={config.S3_ENDPOINT}")
+logger.info("S3 storage: bucket=%s, endpoint=%s", config.S3_BUCKET, config.S3_ENDPOINT)
 
 
 class S3Store:
@@ -39,10 +39,10 @@ class S3Store:
             content_type = content_type or "application/octet-stream"
         try:
             _client.put_object(Bucket=config.S3_BUCKET, Key=k, Body=content, ContentType=content_type)
-            logger.debug(f"Uploaded to S3: {k}")
+            logger.debug("Uploaded to S3: %s", k)
             return True
         except ClientError as e:
-            logger.error(f"S3 upload failed for {k}: {e}")
+            logger.error("S3 upload failed for %s: %s", k, e)
             return False
 
     def upload_fileobj(self, path: str, fileobj: BinaryIO, content_type: Optional[str] = None) -> bool:
@@ -55,9 +55,9 @@ class S3Store:
             return response["Body"].read()
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                logger.debug(f"S3 file not found: {k}")
+                logger.debug("S3 file not found: %s", k)
                 return None
-            logger.error(f"S3 download failed for {k}: {e}")
+            logger.error("S3 download failed for %s: %s", k, e)
             return None
 
     def get_url(self, path: str, expires_in: int = 3600) -> Optional[str]:
@@ -69,7 +69,7 @@ class S3Store:
                 ExpiresIn=expires_in,
             )
         except ClientError as e:
-            logger.error(f"Failed to generate presigned URL for {k}: {e}")
+            logger.error("Failed to generate presigned URL for %s: %s", k, e)
             return None
 
     def stream(self, path: str, chunk_size: int = 65_536):
@@ -91,9 +91,9 @@ class S3Store:
             return chunks()
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                logger.debug(f"S3 file not found: {k}")
+                logger.debug("S3 file not found: %s", k)
                 return None
-            logger.error(f"S3 stream failed for {k}: {e}")
+            logger.error("S3 stream failed for %s: %s", k, e)
             return None
 
     def exists(self, path: str) -> bool:
@@ -104,17 +104,17 @@ class S3Store:
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
                 return False
-            logger.error(f"S3 head_object failed for {k}: {e}")
+            logger.error("S3 head_object failed for %s: %s", k, e)
             return False
 
     def delete(self, path: str) -> bool:
         k = self.key(path)
         try:
             _client.delete_object(Bucket=config.S3_BUCKET, Key=k)
-            logger.debug(f"Deleted from S3: {k}")
+            logger.debug("Deleted from S3: %s", k)
             return True
         except ClientError as e:
-            logger.error(f"S3 delete failed for {k}: {e}")
+            logger.error("S3 delete failed for %s: %s", k, e)
             return False
 
     def list_files(self, prefix: str = "") -> list[dict]:
@@ -130,7 +130,7 @@ class S3Store:
                         "last_modified": obj["LastModified"],
                     })
         except ClientError as e:
-            logger.error(f"S3 list failed for prefix {full_prefix}: {e}")
+            logger.error("S3 list failed for prefix %s: %s", full_prefix, e)
         return files
 
     def list_directories(self, prefix: str = "") -> list[str]:
@@ -148,7 +148,7 @@ class S3Store:
                 dir_path = common_prefix["Prefix"][len(full_prefix) :].rstrip("/")
                 directories.add(dir_path)
         except ClientError as e:
-            logger.error(f"S3 list directories failed for prefix {full_prefix}: {e}")
+            logger.error("S3 list directories failed for prefix %s: %s", full_prefix, e)
         return sorted(directories)
 
 
