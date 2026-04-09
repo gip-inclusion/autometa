@@ -39,7 +39,6 @@ class S3Store:
             content_type = content_type or "application/octet-stream"
         try:
             _client.put_object(Bucket=config.S3_BUCKET, Key=k, Body=content, ContentType=content_type)
-            logger.debug("Uploaded to S3: %s", k)
             return True
         except ClientError as e:
             logger.error("S3 upload failed for %s: %s", k, e)

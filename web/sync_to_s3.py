@@ -83,7 +83,6 @@ def _sync_file(local_path: Path):
         content_type, _ = mimetypes.guess_type(local_path.name)
 
         if s3.interactive.upload(relative_path, content, content_type):
-            logger.info(f"Synced to S3: interactive/{relative_path}")
             if local_path.name == "APP.md":
                 invalidate_apps_cache()
         else:
