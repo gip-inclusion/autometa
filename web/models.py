@@ -41,6 +41,8 @@ class Conversation(Base):
     pinned_at: Mapped[str | None] = mapped_column(Text)
     pinned_label: Mapped[str | None] = mapped_column(Text)
     needs_response: Mapped[int] = mapped_column(Integer, default=0)
+    flagged_at: Mapped[str | None] = mapped_column(Text)
+    flag_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
 

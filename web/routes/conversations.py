@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -213,6 +214,12 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
 @router.get("/running")
 def get_running():
     return {"running": store.get_running_conversation_ids()}
+
+
+@router.get("/flagged")
+def list_flagged(user_email: str = Depends(get_current_user)):
+    """List all conversations flagged by users (for the conversations-echecs dashboard)."""
+    return {"conversations": store.list_flagged_conversations()}
 
 
 @router.get("/{conv_id}")
@@ -612,6 +619,33 @@ async def cancel_conversation(conv_id: str):
 
     await runner.cancel(conv_id)
     return {"status": "cancelled"}
+
+
+@router.post("/{conv_id}/flag")
+async def flag_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    """Flag a conversation as having a problem."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+
+    body = await request.body()
+    data = (await request.json()) if body else {}
+    reason = data.get("reason", "").strip() or None
+
+    now = datetime.now().isoformat()
+    store.update_conversation(conv_id, flagged_at=now, flag_reason=reason)
+    return {"ok": True, "flagged_at": now, "flag_reason": reason}
+
+
+@router.delete("/{conv_id}/flag")
+def unflag_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
+    """Remove flag from a conversation."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+
+    store.update_conversation(conv_id, flagged_at=None, flag_reason=None)
+    return {"ok": True}
 
 
 @router.get("/{conv_id}/tags")

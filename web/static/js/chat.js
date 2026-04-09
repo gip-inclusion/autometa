@@ -107,8 +107,9 @@ async function initKnowledge() {
  * Initialize the chat interface
  */
 function initChat() {
-  // Fork button and sidebar work on all conversation pages (including readonly)
+  // Fork button, flag button and sidebar work on all conversation pages (including readonly)
   initForkButton();
+  initFlagButton();
   initActionsSidebar();
 
   const input = document.getElementById('chatInput');
@@ -211,6 +212,57 @@ function initForkButton() {
       alert('Erreur réseau');
       newForkBtn.disabled = false;
       newForkBtn.innerHTML = '<i class="ri-git-branch-line"></i> <span>Dupliquer</span>';
+    }
+  });
+}
+
+/**
+ * Initialize flag button functionality
+ */
+function initFlagButton() {
+  const flagBtn = document.getElementById('chatFlagBtn');
+  if (!flagBtn) return;
+
+  // Remove existing listener to prevent duplicates
+  flagBtn.replaceWith(flagBtn.cloneNode(true));
+  const newFlagBtn = document.getElementById('chatFlagBtn');
+
+  newFlagBtn.addEventListener('click', async () => {
+    if (!currentConversationId) return;
+
+    const isFlagged = newFlagBtn.classList.contains('flagged');
+
+    if (isFlagged) {
+      // Unflag
+      try {
+        const resp = await fetch(`/api/conversations/${currentConversationId}/flag`, { method: 'DELETE' });
+        if (resp.ok) {
+          newFlagBtn.classList.remove('flagged');
+          newFlagBtn.querySelector('i').className = 'ri-flag-line';
+          newFlagBtn.title = 'Signaler un problème';
+        }
+      } catch (e) {
+        console.error('Failed to unflag:', e);
+      }
+    } else {
+      // Flag — ask for reason
+      const reason = prompt('Décrivez le problème rencontré (optionnel) :');
+      if (reason === null) return; // cancelled
+
+      try {
+        const resp = await fetch(`/api/conversations/${currentConversationId}/flag`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: reason })
+        });
+        if (resp.ok) {
+          newFlagBtn.classList.add('flagged');
+          newFlagBtn.querySelector('i').className = 'ri-flag-fill';
+          newFlagBtn.title = 'Signalé — cliquer pour retirer';
+        }
+      } catch (e) {
+        console.error('Failed to flag:', e);
+      }
     }
   });
 }
