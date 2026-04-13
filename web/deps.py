@@ -41,3 +41,6 @@ def static_url(path: str) -> str:
 templates.env.globals["static_url"] = static_url
 
 templates.env.globals["format_relative_date"] = format_relative_date
+
+templates.env.globals["matomo_url"] = config.MATOMO_URL
+templates.env.globals["matomo_tag_manager_container_id"] = config.MATOMO_TAG_MANAGER_CONTAINER_ID
