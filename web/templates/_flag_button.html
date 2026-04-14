@@ -1,0 +1,9 @@
+<button type="button"
+        class="chat-flag-btn {% if current_conv and current_conv.flagged_at %}flagged{% endif %}"
+        id="chatFlagBtn"
+        title="Signaler un problème"
+        data-conv-id="{{ current_conv.id }}"
+        data-current-reason="{{ current_conv.flag_reason or '' }}"
+        data-current-flagger="{{ current_conv.flag_user_id or '' }}">
+  <i class="ri-flag-line" aria-hidden="true"></i>
+</button>

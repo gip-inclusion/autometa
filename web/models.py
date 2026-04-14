@@ -40,6 +40,9 @@ class Conversation(Base):
     usage_extra: Mapped[str | None] = mapped_column(Text)
     pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pinned_label: Mapped[str | None] = mapped_column(Text)
+    flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    flag_reason: Mapped[str | None] = mapped_column(Text)
+    flag_user_id: Mapped[str | None] = mapped_column(Text)
     needs_response: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -51,6 +54,7 @@ class Conversation(Base):
         Index("idx_conversations_type_status", "conv_type", "status"),
         Index("idx_conversations_user_updated", "user_id", "updated_at"),
         Index("idx_conversations_needs_response", "needs_response", postgresql_where="needs_response = 1"),
+        Index("idx_conversations_flagged", "flagged_at", postgresql_where="flagged_at IS NOT NULL"),
     )
 
 

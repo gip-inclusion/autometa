@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from web import config, llm
 from web.config import ADMIN_USERS
@@ -214,6 +215,49 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
 @router.get("/running")
 def get_running():
     return {"running": store.get_running_conversation_ids()}
+
+
+class FlagBody(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+@router.get("/flagged")
+def list_flagged(user_email: str = Depends(get_current_user)):
+    if user_email not in ADMIN_USERS:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
+    convs = store.list_flagged_conversations()
+    return {
+        "conversations": [
+            {
+                "id": c.id,
+                "title": c.title,
+                "user_id": c.flag_user_id,
+                "flag_reason": c.flag_reason,
+                "flagged_at": c.flagged_at.isoformat() if c.flagged_at else None,
+            }
+            for c in convs
+        ]
+    }
+
+
+@router.post("/{conv_id}/flag")
+def flag_conversation(conv_id: str, body: FlagBody, user_email: str = Depends(get_current_user)):
+    state = store.flag_conversation(conv_id, user_email, body.reason)
+    if state is None:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    return state
+
+
+@router.delete("/{conv_id}/flag")
+def delete_flag(conv_id: str, user_email: str = Depends(get_current_user)):
+    if user_email not in ADMIN_USERS:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
+    ok = store.unflag_conversation(conv_id)
+    if ok is None:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    return {"flagged": False}
 
 
 @router.get("/{conv_id}")

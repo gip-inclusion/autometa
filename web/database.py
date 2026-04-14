@@ -188,6 +188,9 @@ class Conversation:
     usage_extra: Optional[dict] = None
     pinned_at: Optional[datetime] = None
     pinned_label: Optional[str] = None
+    flagged_at: Optional[datetime] = None
+    flag_reason: Optional[str] = None
+    flag_user_id: Optional[str] = None
     needs_response: bool = False
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
@@ -215,6 +218,9 @@ class Conversation:
             "usage_extra": self.usage_extra,
             "pinned_at": self.pinned_at.isoformat() if self.pinned_at else None,
             "pinned_label": self.pinned_label,
+            "flagged_at": self.flagged_at.isoformat() if self.flagged_at else None,
+            "flag_reason": self.flag_reason,
+            "flag_user_id": self.flag_user_id,
             "messages": [
                 {
                     "id": m.id,
@@ -398,6 +404,9 @@ class ConversationStore:
                 usage_extra=usage_extra,
                 pinned_at=p_pinned_at,
                 pinned_label=p_label,
+                flagged_at=c.flagged_at,
+                flag_reason=c.flag_reason,
+                flag_user_id=c.flag_user_id,
                 needs_response=bool(c.needs_response) if c.needs_response else False,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
@@ -536,6 +545,56 @@ class ConversationStore:
 
     def unpin_conversation(self, conv_id: str) -> bool:
         return self.unpin_item("conversation", conv_id)
+
+    def flag_conversation(self, conv_id: str, user_id: str, reason: str) -> Optional[dict]:
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return None
+
+            if c.flagged_at is not None and c.flag_user_id == user_id:
+                c.flagged_at = None
+                c.flag_reason = None
+                c.flag_user_id = None
+            else:
+                c.flagged_at = utcnow()
+                c.flag_reason = reason
+                c.flag_user_id = user_id
+
+            return {
+                "flagged": c.flagged_at is not None,
+                "flag_reason": c.flag_reason,
+                "flag_user_id": c.flag_user_id,
+                "flagged_at": c.flagged_at.isoformat() if c.flagged_at else None,
+            }
+
+    def unflag_conversation(self, conv_id: str) -> Optional[bool]:
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return None
+            c.flagged_at = None
+            c.flag_reason = None
+            c.flag_user_id = None
+            return True
+
+    def list_flagged_conversations(self) -> list[Conversation]:
+        with get_db() as session:
+            stmt = select(ConvModel).where(ConvModel.flagged_at.is_not(None)).order_by(ConvModel.flagged_at.desc())
+            rows = session.scalars(stmt).all()
+            return [
+                Conversation(
+                    id=c.id,
+                    user_id=c.user_id,
+                    title=c.title,
+                    flagged_at=c.flagged_at,
+                    flag_reason=c.flag_reason,
+                    flag_user_id=c.flag_user_id,
+                    created_at=c.created_at,
+                    updated_at=c.updated_at,
+                )
+                for c in rows
+            ]
 
     def list_pinned_conversations(self) -> list[Conversation]:
         with get_db() as session:
