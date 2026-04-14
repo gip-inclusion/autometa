@@ -460,6 +460,7 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
             "current_conv": current_conv,
             "is_shared": is_shared,
             "owner_email": owner_email,
+            "user_email": user_email,
             "can_upload": can_upload,
             "can_relaunch": can_relaunch,
             **data,
