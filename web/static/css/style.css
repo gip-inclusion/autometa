@@ -427,6 +427,86 @@ body.has-sidebar {
   color: #adb5bd;
 }
 
+.chat-flag-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid #dee2e6;
+  border-radius: 50%;
+  color: #6c757d;
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+}
+
+.chat-flag-btn:hover {
+  color: #c9191e;
+  border-color: #c9191e;
+}
+
+.chat-flag-btn.flagged {
+  background: #c9191e;
+  border-color: #c9191e;
+  color: white;
+}
+
+.chat-flag-btn.flagged i::before {
+  content: "\eddc";
+}
+
+.flag-dialog {
+  border: none;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+
+.flag-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.flag-dialog h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.flag-dialog label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.flag-dialog textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  resize: vertical;
+}
+
+.flag-counter {
+  text-align: right;
+  color: #6c757d;
+  font-size: 0.875rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.flag-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .chat-send-btn,
 .chat-cancel-btn {
   width: 44px;
