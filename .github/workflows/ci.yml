@@ -21,7 +21,7 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
-      - run: uv sync --group dev --frozen
+      - run: uv sync --group dev --locked
       - run: uv run ruff check web/ lib/ tests/
       - run: uv run ruff format --check web/ lib/ tests/
 
@@ -35,14 +35,14 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
-      - run: uv sync --group dev --frozen
+      - run: uv sync --group dev --locked
 
       - name: Bandit (SAST)
         run: uv run bandit -r web/ lib/ -c pyproject.toml --severity-level medium --confidence-level high -q
 
       - name: pip-audit
         run: |
-          uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt
+          uv export --locked --no-hashes --no-emit-project > /tmp/requirements.txt
           uv run pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539
 
       - name: Gitleaks
@@ -84,7 +84,7 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
-      - run: uv sync --group dev --frozen
+      - run: uv sync --group dev --locked
       - name: Unit tests
         run: uv run pytest tests/ -q --tb=short -m "not integration"
 
