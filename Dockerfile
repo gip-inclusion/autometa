@@ -20,7 +20,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1
 
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev --no-editable
+RUN uv sync --locked --no-dev --no-editable
 
 COPY --chown=autometa:autometa . .
 
