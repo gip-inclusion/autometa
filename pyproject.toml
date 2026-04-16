@@ -6,7 +6,7 @@ dependencies = [
     # Web framework
     "fastapi>=0.135.2",
     "uvicorn[standard]>=0.42.0",
-    "python-multipart>=0.0.22",
+    "python-multipart>=0.0.26",
     # Templating
     "jinja2>=3.1.6",
     "markupsafe>=3.0.3",
