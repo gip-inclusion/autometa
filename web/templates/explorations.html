@@ -213,12 +213,14 @@
           <i class="ri-restart-line"></i> Relancer
         </button>
         <span class="text-muted">La dernière réponse n'a pas abouti</span>
+        {% include "_flag_button.html" %}
       </div>
       {% else %}
       <!-- Read-only notice for shared conversations -->
       <div class="chat-bar chat-bar-readonly">
         <i class="ri-lock-line text-muted"></i>
         <span class="text-muted">Consultation seule — cette conversation appartient à {{ owner_email }}</span>
+        {% include "_flag_button.html" %}
       </div>
       {% endif %}
       {% else %}
@@ -250,6 +252,7 @@
             ></textarea>
           </div>
         </div>
+        {% include "_flag_button.html" %}
         <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
           <i class="ri-send-plane-fill"></i>
         </button>
@@ -260,6 +263,27 @@
       {% endif %}
     </div>
   </div>
+
+  {% if current_conv %}
+  <dialog id="flagDialog" class="flag-dialog">
+    <form method="dialog">
+      <h3>Signaler un problème</h3>
+      <label for="flagReason">Quel est le problème&nbsp;? <span class="text-muted">(facultatif)</span></label>
+      <textarea id="flagReason" maxlength="500" rows="4" placeholder="Décrivez brièvement ce qui ne va pas…"></textarea>
+      <p class="flag-counter"><span id="flagCounter">0</span>/500</p>
+      <div class="flag-actions">
+        <button type="button" id="flagCancel" class="btn btn-link">Annuler</button>
+        <button type="button"
+                id="flagRemove"
+                class="btn btn-outline-danger"
+                {% if not (current_conv.flagged_at and current_conv.flag_user_id == user_email) %}hidden{% endif %}>
+          Retirer le signalement
+        </button>
+        <button type="submit" id="flagSubmit" class="btn btn-primary">Signaler</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
 </section>
 {% endblock %}
 
@@ -316,6 +340,61 @@
       if (res.ok) window.location.reload();
     }
   });
+
+  {% if current_conv %}
+  (function setupFlagDialog() {
+    const btn = document.getElementById('chatFlagBtn');
+    const dialog = document.getElementById('flagDialog');
+    if (!btn || !dialog) return;
+
+    const textarea = document.getElementById('flagReason');
+    const counter = document.getElementById('flagCounter');
+    const submitBtn = document.getElementById('flagSubmit');
+    const cancelBtn = document.getElementById('flagCancel');
+    const removeBtn = document.getElementById('flagRemove');
+
+    function updateCounter() {
+      counter.textContent = String(textarea.value.length);
+    }
+
+    btn.addEventListener('click', () => {
+      textarea.value = btn.dataset.currentReason || '';
+      updateCounter();
+      dialog.showModal();
+      textarea.focus();
+    });
+
+    textarea.addEventListener('input', updateCounter);
+    cancelBtn.addEventListener('click', () => dialog.close());
+
+    async function sendFlagRequest(reason) {
+      const convId = btn.dataset.convId;
+      const res = await fetch(`/api/conversations/${convId}/flag`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: reason}),
+      });
+      if (!res.ok) {
+        alert('Impossible de mettre à jour le signalement.');
+        return;
+      }
+      const data = await res.json();
+      btn.classList.toggle('flagged', data.flagged);
+      btn.dataset.currentReason = data.flag_reason || '';
+      btn.dataset.currentFlagger = data.flag_user_id || '';
+      dialog.close();
+    }
+
+    submitBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      sendFlagRequest(textarea.value);
+    });
+
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => sendFlagRequest(btn.dataset.currentReason || ''));
+    }
+  })();
+  {% endif %}
 
   document.addEventListener('DOMContentLoaded', async () => {
     // Hide public warning if previously dismissed (HTMX case handled in chat.js)
