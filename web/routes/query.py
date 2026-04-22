@@ -10,24 +10,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from lib.query import CallerType, execute_query
+from web.config import CORS_ALLOWED_ORIGINS
 
 router = APIRouter(prefix="/api")
 
-# Allowed origins for CORS
+
 # FIXME(vperron): seems that there SHOULD be an already existing library for CORS handling.
-# Plus those should be parametrized in the settings.
-ALLOWED_ORIGINS = {
-    "https://matometa.osc-fr1.scalingo.io",
-    "https://matometa.inclusion.gouv.fr",
-    "https://matometa.ljt.cc",
-    "http://localhost:5000",
-    "http://127.0.0.1:5000",
-}
-
-
 def cors_headers(origin: str | None) -> dict:
     headers = {}
-    if origin in ALLOWED_ORIGINS:
+    if origin in CORS_ALLOWED_ORIGINS:
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
         headers["Access-Control-Allow-Headers"] = "Content-Type"
@@ -74,7 +65,7 @@ async def query(request: Request):
         return Response(status_code=204, headers=cors)
 
     # Check origin
-    if origin and origin not in ALLOWED_ORIGINS:
+    if origin and origin not in CORS_ALLOWED_ORIGINS:
         return JSONResponse({"error": "Origin not allowed"}, status_code=403, headers=cors)
 
     try:

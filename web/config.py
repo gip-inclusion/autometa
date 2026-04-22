@@ -73,6 +73,17 @@ ADMIN_USERS = [
     if email.strip()
 ]
 
+# CORS allowed origins for /api/query (comma-separated URLs)
+CORS_ALLOWED_ORIGINS = {
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://matometa.osc-fr1.scalingo.io,https://autometa.inclusion.gouv.fr,"
+        "http://localhost:5000,http://127.0.0.1:5000",
+    ).split(",")
+    if origin.strip()
+}
+
 # Database: PostgreSQL via DATABASE_URL (required)
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").replace("postgres://", "postgresql://")
 
