@@ -1,7 +1,7 @@
 .PHONY: dev test lint format security ci migrate
 
 dev:
-	autometa
+	uv run --frozen autometa
 
 migrate:
 	uv run --frozen alembic upgrade head
