@@ -38,15 +38,15 @@ cp -r docs/dashboard-template data/interactive/mon-dashboard
 ```
 
 Le template fournit :
-- `APP.md` — skeleton du front-matter à compléter
-- `index.html` — page minimale avec pied de page `generated-at`
+- `APP.md` — métadonnées de l'application à compléter
+- `index.html` — page minimale à enrichir, mention `generated-at` à compléter sur le pied de page
 - `style.css` — police Marianne, palette DSFR, styles de base
 - `app.js` — chargement de `data.json` et affichage de la date de fraîcheur
 - `cron.py` — stub à remplir avec les appels `lib.query`
 
-Ensuite : compléter `APP.md`, écrire la logique dans `app.js`, remplir `cron.py`.
+Ensuite : compléter `APP.md`, écrire la logique dans `app.js`, remplir (si besoin) `cron.py`.
 
-Si le dashboard n'utilise pas de données pré-calculées (requêtes live via `/api/query` uniquement, ou dashboard purement statique sans `data.json`), supprimer `cron.py` et `data.json`, et passer `cron: false` dans `APP.md`. Adapter `app.js` en conséquence.
+Si le dashboard n'utilise pas de données pré-calculées (requêtes live via `/api/query` uniquement, ou dashboard qui n'a pas besoin d'être rafraîchi), supprimer `cron.py` et adapter les valeurs `cron` et `has_api_access` dans `APP.md`.
 
 ## APP.md (obligatoire)
 
@@ -60,6 +60,8 @@ updated: 2026-04-22
 website: emplois
 category: Analyse de trafic
 tags: appli, trafic, analyse
+cron: true
+has_api_access: false
 authors: jean@example.com, marie@example.com
 conversation_id: abc-123-def
 ---
