@@ -354,31 +354,33 @@
     }
   });
 
-  {% if current_conv %}
-  (function setupFlagDialog() {
-    const dialog = document.getElementById('flagDialog');
-    const textarea = document.getElementById('flagReason');
-    const counter = document.getElementById('flagCounter');
-    const cancelBtn = document.getElementById('flagCancel');
-    const removeBtn = document.getElementById('flagRemove');
-    if (!dialog || !textarea) return;
-
+  if (!window.__flagDialogBound) {
+    window.__flagDialogBound = true;
     document.body.addEventListener('click', (e) => {
       const btn = e.target.closest('#chatFlagBtn');
-      if (!btn) return;
-      textarea.value = btn.dataset.currentReason || '';
-      counter.textContent = String(textarea.value.length);
-      if (removeBtn) removeBtn.hidden = !btn.dataset.isMyFlag;
-      dialog.showModal();
-      textarea.focus();
+      if (btn) {
+        const dialog = document.getElementById('flagDialog');
+        const textarea = document.getElementById('flagReason');
+        const counter = document.getElementById('flagCounter');
+        const removeBtn = document.getElementById('flagRemove');
+        if (!dialog || !textarea) return;
+        textarea.value = btn.dataset.currentReason || '';
+        counter.textContent = String(textarea.value.length);
+        if (removeBtn) removeBtn.hidden = !btn.dataset.isMyFlag;
+        dialog.showModal();
+        textarea.focus();
+        return;
+      }
+      if (e.target.closest('#flagCancel')) {
+        document.getElementById('flagDialog')?.close();
+      }
     });
-
-    textarea.addEventListener('input', () => {
-      counter.textContent = String(textarea.value.length);
+    document.body.addEventListener('input', (e) => {
+      if (e.target.id !== 'flagReason') return;
+      const counter = document.getElementById('flagCounter');
+      if (counter) counter.textContent = String(e.target.value.length);
     });
-    cancelBtn.addEventListener('click', () => dialog.close());
-  })();
-  {% endif %}
+  }
 
   document.addEventListener('DOMContentLoaded', async () => {
     // Hide public warning if previously dismissed (HTMX case handled in chat.js)

@@ -7,5 +7,5 @@
         data-conv-id="{{ current_conv.id }}"
         data-current-reason="{{ current_conv.flag_reason or '' }}"
         {% if is_my_flag %}data-is-my-flag="1"{% endif %}>
-  <i class="ri-flag-line" aria-hidden="true"></i>
+  <i class="{% if is_flagged %}ri-flag-fill{% else %}ri-flag-line{% endif %}" aria-hidden="true"></i>
 </button>
