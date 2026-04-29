@@ -7,14 +7,13 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
 
 from web import config, llm
 from web.config import ADMIN_USERS
 from web.database import store
-from web.deps import get_current_user
+from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
 from web.runner import runner
 from web.uploads import (
@@ -217,10 +216,6 @@ def get_running():
     return {"running": store.get_running_conversation_ids()}
 
 
-class FlagBody(BaseModel):
-    reason: str = Field(default="", max_length=500)
-
-
 @router.get("/flagged")
 def list_flagged(user_email: str = Depends(get_current_user)):
     if user_email not in ADMIN_USERS:
@@ -241,23 +236,36 @@ def list_flagged(user_email: str = Depends(get_current_user)):
     }
 
 
+def _render_flag_button(request: Request, conv_id: str, user_email: str):
+    current_conv = store.get_conversation(conv_id, include_messages=False)
+    return templates.TemplateResponse(
+        request,
+        "_flag_button.html",
+        {"current_conv": current_conv, "user_email": user_email},
+    )
+
+
 @router.post("/{conv_id}/flag")
-def flag_conversation(conv_id: str, body: FlagBody, user_email: str = Depends(get_current_user)):
-    state = store.flag_conversation(conv_id, user_email, body.reason)
-    if state is None:
+def flag_conversation(
+    conv_id: str,
+    request: Request,
+    reason: str = Form(default="", max_length=500),
+    user_email: str = Depends(get_current_user),
+):
+    if not store.flag_conversation(conv_id, user_email, reason):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    return state
+    return _render_flag_button(request, conv_id, user_email)
 
 
 @router.delete("/{conv_id}/flag")
-def delete_flag(conv_id: str, user_email: str = Depends(get_current_user)):
-    if user_email not in ADMIN_USERS:
-        return JSONResponse({"error": "Permission denied"}, status_code=403)
-
-    ok = store.unflag_conversation(conv_id)
-    if ok is None:
+def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    return {"flagged": False}
+    if user_email not in ADMIN_USERS and conv.flag_user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    store.unflag_conversation(conv_id)
+    return _render_flag_button(request, conv_id, user_email)
 
 
 @router.get("/{conv_id}")
