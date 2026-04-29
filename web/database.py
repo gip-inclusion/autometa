@@ -546,33 +546,21 @@ class ConversationStore:
     def unpin_conversation(self, conv_id: str) -> bool:
         return self.unpin_item("conversation", conv_id)
 
-    def flag_conversation(self, conv_id: str, user_id: str, reason: str) -> Optional[dict]:
+    def flag_conversation(self, conv_id: str, user_id: str, reason: str) -> bool:
         with get_db() as session:
             c = session.get(ConvModel, conv_id)
             if not c:
-                return None
+                return False
+            c.flagged_at = utcnow()
+            c.flag_reason = reason
+            c.flag_user_id = user_id
+            return True
 
-            if c.flagged_at is not None and c.flag_user_id == user_id:
-                c.flagged_at = None
-                c.flag_reason = None
-                c.flag_user_id = None
-            else:
-                c.flagged_at = utcnow()
-                c.flag_reason = reason
-                c.flag_user_id = user_id
-
-            return {
-                "flagged": c.flagged_at is not None,
-                "flag_reason": c.flag_reason,
-                "flag_user_id": c.flag_user_id,
-                "flagged_at": c.flagged_at.isoformat() if c.flagged_at else None,
-            }
-
-    def unflag_conversation(self, conv_id: str) -> Optional[bool]:
+    def unflag_conversation(self, conv_id: str) -> bool:
         with get_db() as session:
             c = session.get(ConvModel, conv_id)
             if not c:
-                return None
+                return False
             c.flagged_at = None
             c.flag_reason = None
             c.flag_user_id = None
