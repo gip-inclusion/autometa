@@ -269,17 +269,30 @@
     <form method="dialog">
       <h3>Signaler un problème</h3>
       <label for="flagReason">Quel est le problème&nbsp;? <span class="text-muted">(facultatif)</span></label>
-      <textarea id="flagReason" maxlength="500" rows="4" placeholder="Décrivez brièvement ce qui ne va pas…"></textarea>
+      <textarea id="flagReason" name="reason" maxlength="500" rows="4" placeholder="Décrivez brièvement ce qui ne va pas…"></textarea>
       <p class="flag-counter"><span id="flagCounter">0</span>/500</p>
       <div class="flag-actions">
         <button type="button" id="flagCancel" class="btn btn-link">Annuler</button>
         <button type="button"
                 id="flagRemove"
                 class="btn btn-outline-danger"
-                {% if not (current_conv.flagged_at and current_conv.flag_user_id == user_email) %}hidden{% endif %}>
+                hx-delete="/api/conversations/{{ current_conv.id }}/flag"
+                hx-target="#chatFlagBtn"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('flagDialog').close()"
+                hidden>
           Retirer le signalement
         </button>
-        <button type="submit" id="flagSubmit" class="btn btn-primary">Signaler</button>
+        <button type="button"
+                id="flagSubmit"
+                class="btn btn-primary"
+                hx-post="/api/conversations/{{ current_conv.id }}/flag"
+                hx-include="#flagReason"
+                hx-target="#chatFlagBtn"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('flagDialog').close()">
+          Signaler
+        </button>
       </div>
     </form>
   </dialog>
@@ -343,56 +356,27 @@
 
   {% if current_conv %}
   (function setupFlagDialog() {
-    const btn = document.getElementById('chatFlagBtn');
     const dialog = document.getElementById('flagDialog');
-    if (!btn || !dialog) return;
-
     const textarea = document.getElementById('flagReason');
     const counter = document.getElementById('flagCounter');
-    const submitBtn = document.getElementById('flagSubmit');
     const cancelBtn = document.getElementById('flagCancel');
     const removeBtn = document.getElementById('flagRemove');
+    if (!dialog || !textarea) return;
 
-    function updateCounter() {
-      counter.textContent = String(textarea.value.length);
-    }
-
-    btn.addEventListener('click', () => {
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('#chatFlagBtn');
+      if (!btn) return;
       textarea.value = btn.dataset.currentReason || '';
-      updateCounter();
+      counter.textContent = String(textarea.value.length);
+      if (removeBtn) removeBtn.hidden = !btn.dataset.isMyFlag;
       dialog.showModal();
       textarea.focus();
     });
 
-    textarea.addEventListener('input', updateCounter);
-    cancelBtn.addEventListener('click', () => dialog.close());
-
-    async function sendFlagRequest(reason) {
-      const convId = btn.dataset.convId;
-      const res = await fetch(`/api/conversations/${convId}/flag`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({reason: reason}),
-      });
-      if (!res.ok) {
-        alert('Impossible de mettre à jour le signalement.');
-        return;
-      }
-      const data = await res.json();
-      btn.classList.toggle('flagged', data.flagged);
-      btn.dataset.currentReason = data.flag_reason || '';
-      btn.dataset.currentFlagger = data.flag_user_id || '';
-      dialog.close();
-    }
-
-    submitBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      sendFlagRequest(textarea.value);
+    textarea.addEventListener('input', () => {
+      counter.textContent = String(textarea.value.length);
     });
-
-    if (removeBtn) {
-      removeBtn.addEventListener('click', () => sendFlagRequest(btn.dataset.currentReason || ''));
-    }
+    cancelBtn.addEventListener('click', () => dialog.close());
   })();
   {% endif %}
 

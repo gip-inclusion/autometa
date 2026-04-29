@@ -1,9 +1,11 @@
+{% set is_flagged = current_conv and current_conv.flagged_at %}
+{% set is_my_flag = is_flagged and current_conv.flag_user_id == user_email %}
 <button type="button"
-        class="chat-flag-btn {% if current_conv and current_conv.flagged_at %}flagged{% endif %}"
+        class="chat-flag-btn{% if is_flagged %} flagged{% endif %}"
         id="chatFlagBtn"
         title="Signaler un problème"
         data-conv-id="{{ current_conv.id }}"
         data-current-reason="{{ current_conv.flag_reason or '' }}"
-        data-current-flagger="{{ current_conv.flag_user_id or '' }}">
+        {% if is_my_flag %}data-is-my-flag="1"{% endif %}>
   <i class="ri-flag-line" aria-hidden="true"></i>
 </button>
