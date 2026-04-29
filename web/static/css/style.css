@@ -455,10 +455,6 @@ body.has-sidebar {
   color: white;
 }
 
-.chat-flag-btn.flagged i::before {
-  content: "\eddc";
-}
-
 .flag-dialog {
   border: none;
   border-radius: 8px;
