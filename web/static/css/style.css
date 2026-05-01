@@ -444,9 +444,14 @@ body.has-sidebar {
   margin-right: 0.5rem;
 }
 
-.chat-flag-btn:hover {
+.chat-flag-btn:hover:not(:disabled) {
   color: #c9191e;
   border-color: #c9191e;
+}
+
+.chat-flag-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .chat-flag-btn.flagged {

@@ -40,18 +40,32 @@ class TestPostFlag:
         assert 'data-is-my-flag="1"' in resp.text
         assert 'data-current-reason="la réponse est hors sujet"' in resp.text
 
-    def test_flag_overwrites_reason_for_same_user(self, app, client, conv, alice_headers):
+    def test_third_party_cannot_overwrite_existing_flag(self, app, client, conv, alice_headers, bob_headers):
+        _post_flag(client, conv.id, alice_headers, reason="alice")
+        resp = _post_flag(client, conv.id, bob_headers, reason="bob")
+        assert resp.status_code == 403
+
+    def test_admin_can_overwrite_existing_flag(self, app, client, conv, admin_headers, alice_headers):
+        _post_flag(client, conv.id, alice_headers, reason="alice")
+        resp = _post_flag(client, conv.id, admin_headers, reason="admin")
+        assert resp.status_code == 200
+        flagged = client.get("/api/conversations/flagged", headers=admin_headers).json()["conversations"]
+        assert flagged[0]["user_id"] == "admin@localhost"
+        assert flagged[0]["flag_reason"] == "admin"
+
+    def test_conv_owner_can_overwrite_existing_flag(self, app, client, conv, alice_headers, admin_headers):
+        _post_flag(client, conv.id, alice_headers, reason="alice")
+        owner_headers = {"X-Forwarded-Email": "owner@example.com"}
+        resp = _post_flag(client, conv.id, owner_headers, reason="owner")
+        assert resp.status_code == 200
+        flagged = client.get("/api/conversations/flagged", headers=admin_headers).json()["conversations"]
+        assert flagged[0]["user_id"] == "owner@example.com"
+
+    def test_flagger_can_edit_own_reason(self, app, client, conv, alice_headers):
         _post_flag(client, conv.id, alice_headers, reason="first")
         resp = _post_flag(client, conv.id, alice_headers, reason="second")
         assert resp.status_code == 200
         assert 'data-current-reason="second"' in resp.text
-
-    def test_overwrite_by_different_user(self, app, client, conv, admin_headers, alice_headers, bob_headers):
-        _post_flag(client, conv.id, alice_headers, reason="alice")
-        _post_flag(client, conv.id, bob_headers, reason="bob")
-        flagged = client.get("/api/conversations/flagged", headers=admin_headers).json()["conversations"]
-        assert flagged[0]["user_id"] == "bob@example.com"
-        assert flagged[0]["flag_reason"] == "bob"
 
     def test_empty_reason_allowed(self, app, client, conv, alice_headers):
         resp = _post_flag(client, conv.id, alice_headers, reason="")

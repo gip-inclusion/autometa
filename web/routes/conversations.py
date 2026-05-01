@@ -240,7 +240,7 @@ def _render_flag_button(request: Request, conv, user_email: str):
     return templates.TemplateResponse(
         request,
         "_flag_button.html",
-        {"current_conv": conv, "user_email": user_email},
+        {"current_conv": conv, "user_email": user_email, "is_admin": user_email in ADMIN_USERS},
     )
 
 
@@ -251,6 +251,16 @@ def flag_conversation(
     reason: str = Form(default="", max_length=500),
     user_email: str = Depends(get_current_user),
 ):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if (
+        conv.flag_user_id is not None
+        and user_email not in ADMIN_USERS
+        and user_email != conv.user_id
+        and user_email != conv.flag_user_id
+    ):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
     if not store.flag_conversation(conv_id, user_email, reason):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     conv = store.get_conversation(conv_id, include_messages=False)
