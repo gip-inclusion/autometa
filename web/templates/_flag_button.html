@@ -4,8 +4,8 @@
         class="chat-flag-btn{% if is_flagged %} flagged{% endif %}"
         id="chatFlagBtn"
         title="Signaler un problème"
-        data-conv-id="{{ current_conv.id }}"
         data-current-reason="{{ current_conv.flag_reason or '' }}"
-        {% if is_my_flag %}data-is-my-flag="1"{% endif %}>
+        {% if is_my_flag %}data-is-my-flag="1"{% endif %}
+        hx-on:click="openFlagDialog(this)">
   <i class="{% if is_flagged %}ri-flag-fill{% else %}ri-flag-line{% endif %}" aria-hidden="true"></i>
 </button>

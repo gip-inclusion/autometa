@@ -507,3 +507,12 @@ async function checkAuthStatus() {
 document.addEventListener('DOMContentLoaded', checkAuthStatus);
 // Also check after htmx navigations
 document.body.addEventListener('htmx:afterSettle', checkAuthStatus);
+
+function openFlagDialog(btn) {
+  const textarea = document.getElementById('flagReason');
+  textarea.value = btn.dataset.currentReason || '';
+  document.getElementById('flagCounter').textContent = textarea.value.length;
+  document.getElementById('flagRemove').hidden = !btn.dataset.isMyFlag;
+  document.getElementById('flagDialog').showModal();
+  textarea.focus();
+}

@@ -236,12 +236,11 @@ def list_flagged(user_email: str = Depends(get_current_user)):
     }
 
 
-def _render_flag_button(request: Request, conv_id: str, user_email: str):
-    current_conv = store.get_conversation(conv_id, include_messages=False)
+def _render_flag_button(request: Request, conv, user_email: str):
     return templates.TemplateResponse(
         request,
         "_flag_button.html",
-        {"current_conv": current_conv, "user_email": user_email},
+        {"current_conv": conv, "user_email": user_email},
     )
 
 
@@ -254,7 +253,8 @@ def flag_conversation(
 ):
     if not store.flag_conversation(conv_id, user_email, reason):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    return _render_flag_button(request, conv_id, user_email)
+    conv = store.get_conversation(conv_id, include_messages=False)
+    return _render_flag_button(request, conv, user_email)
 
 
 @router.delete("/{conv_id}/flag")
@@ -264,8 +264,9 @@ def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_cu
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     if user_email not in ADMIN_USERS and conv.flag_user_id != user_email:
         return JSONResponse({"error": "Permission denied"}, status_code=403)
-    store.unflag_conversation(conv_id)
-    return _render_flag_button(request, conv_id, user_email)
+    if not store.unflag_conversation(conv_id):
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    return _render_flag_button(request, store.get_conversation(conv_id, include_messages=False), user_email)
 
 
 @router.get("/{conv_id}")
