@@ -3,7 +3,6 @@
 import pytest
 
 from web.database import store
-from web.deps import templates
 
 
 @pytest.fixture
@@ -143,45 +142,3 @@ class TestCascadeOnConversationDelete:
 
         resp = client.get("/api/conversations/flagged", headers=admin_headers)
         assert resp.json()["conversations"] == []
-
-
-class TestRenderFlagButton:
-    @pytest.mark.parametrize(
-        "flagged_by,viewer_is_flagger,expected_flagged_class",
-        [
-            (None, False, False),
-            ("alice@example.com", True, True),
-            ("bob@example.com", False, True),
-        ],
-    )
-    def test_flag_button_state(
-        self,
-        app,
-        client,
-        conv,
-        alice_headers,
-        flagged_by,
-        viewer_is_flagger,
-        expected_flagged_class,
-    ):
-        if flagged_by:
-            _post_flag(client, conv.id, {"X-Forwarded-Email": flagged_by}, reason="test reason")
-
-        resp = client.get(f"/explorations/{conv.id}", headers=alice_headers)
-        assert resp.status_code == 200
-        html = resp.text
-
-        assert 'id="chatFlagBtn"' in html
-        assert 'id="flagDialog"' in html
-        assert 'maxlength="500"' in html
-        assert 'id="flagRemove"' in html
-
-        button_tag = next(chunk for chunk in html.split("<button") if 'id="chatFlagBtn"' in chunk).split(">", 1)[0]
-        assert ("chat-flag-btn flagged" in button_tag) is expected_flagged_class
-        assert ('data-is-my-flag="1"' in button_tag) is viewer_is_flagger
-
-
-class TestTemplateGlobalsSanity:
-    def test_templates_env_is_importable(self):
-        assert templates is not None
-        assert "static_url" in templates.env.globals

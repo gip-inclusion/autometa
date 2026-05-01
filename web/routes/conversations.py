@@ -266,7 +266,8 @@ def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_cu
         return JSONResponse({"error": "Permission denied"}, status_code=403)
     if not store.unflag_conversation(conv_id):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    return _render_flag_button(request, store.get_conversation(conv_id, include_messages=False), user_email)
+    conv = store.get_conversation(conv_id, include_messages=False)
+    return _render_flag_button(request, conv, user_email)
 
 
 @router.get("/{conv_id}")

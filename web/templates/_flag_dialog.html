@@ -1,0 +1,24 @@
+<dialog id="flagDialog" class="flag-dialog">
+  <form method="dialog"
+        hx-target="#chatFlagBtn"
+        hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('flagDialog').close()">
+    <h3>Signaler un problème</h3>
+    <label for="flagReason">Quel est le problème&nbsp;? <span class="text-muted">(facultatif)</span></label>
+    <textarea id="flagReason" name="reason" maxlength="500" rows="4" placeholder="Décrivez brièvement ce qui ne va pas…"
+              hx-on:input="document.getElementById('flagCounter').textContent=this.value.length"></textarea>
+    <p class="flag-counter"><span id="flagCounter">0</span>/500</p>
+    <div class="flag-actions">
+      <button type="button" id="flagCancel" class="btn btn-link"
+              hx-on:click="document.getElementById('flagDialog').close()">Annuler</button>
+      <button type="button" id="flagRemove" class="btn btn-outline-danger"
+              hx-delete="/api/conversations/{{ current_conv.id }}/flag" hidden>
+        Retirer le signalement
+      </button>
+      <button type="button" id="flagSubmit" class="btn btn-primary"
+              hx-post="/api/conversations/{{ current_conv.id }}/flag">
+        Signaler
+      </button>
+    </div>
+  </form>
+</dialog>
