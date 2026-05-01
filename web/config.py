@@ -181,3 +181,7 @@ DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE
 
 # Datadog Logs
 DATADOG_API_KEY = os.getenv("DATADOG_API_KEY", "")
+
+# Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
+MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")
+MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "")
