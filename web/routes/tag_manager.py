@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from lib.query import CallerType, execute_matomo_query
 from lib.sources import get_tag_manager_sites
 from web.deps import get_current_user, templates
+from web.routes.html import get_sidebar_data
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +96,16 @@ def _resolve(matomo_id: int | None, trigger_id: int | None) -> tuple[dict | None
     return site, export, trigger, tags
 
 
-def _respond(request: Request, matomo_id: int | None = None, trigger_id: int | None = None):
+def _respond(
+    request: Request,
+    user_email: str,
+    matomo_id: int | None = None,
+    trigger_id: int | None = None,
+):
     site, export, trigger, tags = _resolve(matomo_id, trigger_id)
     tag_types_by_trigger = _tag_types_by_trigger(export)
     stack = "tags" if trigger else "triggers" if site else "sites"
+    sidebar = get_sidebar_data(user_email)
 
     return templates.TemplateResponse(
         request,
@@ -112,21 +119,19 @@ def _respond(request: Request, matomo_id: int | None = None, trigger_id: int | N
             "tags": tags,
             "tag_types_by_trigger": tag_types_by_trigger,
             "stack": stack,
-            "conversations": [],
-            "current_conv": None,
-            "is_new": False,
+            **sidebar,
         },
     )
 
 
 @router.get("/tag-manager")
-def tag_manager_page(request: Request, _user: str = Depends(get_current_user)):
-    return _respond(request)
+def tag_manager_page(request: Request, user_email: str = Depends(get_current_user)):
+    return _respond(request, user_email)
 
 
 @router.get("/tag-manager/sites/{matomo_id}")
-def tag_manager_site(request: Request, matomo_id: int, _user: str = Depends(get_current_user)):
-    return _respond(request, matomo_id=matomo_id)
+def tag_manager_site(request: Request, matomo_id: int, user_email: str = Depends(get_current_user)):
+    return _respond(request, user_email, matomo_id=matomo_id)
 
 
 @router.get("/tag-manager/sites/{matomo_id}/triggers/{trigger_id}")
@@ -134,6 +139,6 @@ def tag_manager_trigger(
     request: Request,
     matomo_id: int,
     trigger_id: int,
-    _user: str = Depends(get_current_user),
+    user_email: str = Depends(get_current_user),
 ):
-    return _respond(request, matomo_id=matomo_id, trigger_id=trigger_id)
+    return _respond(request, user_email, matomo_id=matomo_id, trigger_id=trigger_id)
