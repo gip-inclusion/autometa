@@ -1,0 +1,50 @@
+<div class="tm-card tm-trigger-card">
+  <div class="tm-card-header">
+    <span><i class="ri-flashlight-line me-1"></i>Trigger</span>
+    <span class="badge bg-light text-dark">{{ trigger.type }}</span>
+  </div>
+  <div class="tm-card-body p-3">
+    <strong>{{ trigger.name }}</strong>
+    {% if trigger.description %}
+    <div class="text-muted small mt-1">{{ trigger.description }}</div>
+    {% endif %}
+    {% if trigger.conditions %}
+    <ul class="small mt-2 mb-0 ps-3">
+      {% for condition in trigger.conditions %}
+      <li><code>{{ condition.actual }}</code> {{ condition.comparison }} <code>{{ condition.expected }}</code></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-muted small mt-2"><i class="ri-information-line me-1"></i>Déclenché à chaque visite</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if not tags %}
+<div class="tm-empty">
+  <i class="ri-information-line ri-2x text-muted"></i>
+  <p class="text-muted mt-2">Aucun tag déclenché par ce trigger.</p>
+</div>
+{% else %}
+{% for tag in tags %}
+<div class="tm-card{% if tag.status == 'paused' %} tm-paused{% endif %}">
+  <div class="tm-card-header">
+    <span>{{ tag.name }}</span>
+    <span class="badge tm-type-{{ tag.type|lower }} tm-type-default">{{ tag.type }}</span>
+  </div>
+  <div class="tm-card-body p-3">
+    {% if tag.description %}
+    <div class="text-muted small mb-2">{{ tag.description }}</div>
+    {% endif %}
+    {% if tag.parameters %}
+    <dl class="tm-params small mb-0">
+      {% for key, value in tag.parameters.items() %}
+      <dt>{{ key }}</dt>
+      <dd><code>{{ value }}</code></dd>
+      {% endfor %}
+    </dl>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}

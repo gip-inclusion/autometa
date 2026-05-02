@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Tag Manager{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-tag-manager">
+  <div class="section-header">
+    <div class="container-fluid px-4">
+      <div class="d-flex align-items-center gap-3">
+        <a href="/" class="btn btn-link p-0 me-2"
+           hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+          <i class="ri-arrow-left-line ri-xl"></i>
+        </a>
+        <div class="me-auto">
+          <p class="text-muted mb-1 small">Audit des conteneurs Matomo Tag Manager</p>
+          <h1 class="mb-0">
+            <i class="ri-price-tag-3-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
+            Tag Manager
+          </h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body p-0">
+    <div class="tm-layout" data-stack="{{ stack }}">
+      <div class="tm-pane tm-sites-pane">
+        <div class="tm-pane-header">Sites</div>
+        <div class="tm-pane-body">
+          {% for s in sites %}
+          <a href="/tag-manager/sites/{{ s.matomo_id }}"
+             class="tm-list-item{% if site and site.matomo_id == s.matomo_id %} active{% endif %}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <div class="d-flex align-items-center gap-2">
+              <span class="tm-item-name">{{ s.name }}</span>
+              {% if s.staging %}
+              <span class="tm-staging-badge">staging</span>
+              {% endif %}
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="tm-pane tm-triggers-pane">
+        <div class="tm-pane-header">
+          <a href="/tag-manager" class="tm-pane-back"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
+             aria-label="Retour aux sites">
+            <i class="ri-arrow-left-s-line"></i>
+          </a>
+          <span>Triggers{% if site %} — {{ site.name }}{% endif %}</span>
+        </div>
+        <div class="tm-pane-body">
+          {% if site %}
+            {% include "_tag_manager_triggers.html" %}
+          {% else %}
+          <div class="tm-empty">
+            <i class="ri-cursor-line ri-2x text-muted"></i>
+            <p class="text-muted mt-2">Choisir un site</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="tm-pane tm-details-pane">
+        <div class="tm-pane-header">
+          {% if site %}
+          <a href="/tag-manager/sites/{{ site.matomo_id }}" class="tm-pane-back"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
+             aria-label="Retour aux triggers">
+            <i class="ri-arrow-left-s-line"></i>
+          </a>
+          {% endif %}
+          <span>Tags</span>
+        </div>
+        <div class="tm-pane-body">
+          {% if trigger %}
+            {% include "_tag_manager_tags.html" %}
+          {% else %}
+          <div class="tm-empty">
+            <i class="ri-file-list-3-line ri-2x text-muted"></i>
+            <p class="text-muted mt-2">Choisir un trigger</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
