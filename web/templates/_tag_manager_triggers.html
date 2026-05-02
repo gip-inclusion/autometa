@@ -1,0 +1,36 @@
+{% if not export %}
+<div class="tm-empty">
+  <i class="ri-information-line ri-2x text-muted"></i>
+  <p class="text-muted mt-2">Aucune version publiée pour {{ site.name }}.</p>
+</div>
+{% elif not export.triggers %}
+<div class="tm-empty">
+  <i class="ri-information-line ri-2x text-muted"></i>
+  <p class="text-muted mt-2">Aucun trigger sur ce conteneur.</p>
+</div>
+{% else %}
+{% for t in export.triggers %}
+<a href="/tag-manager/sites/{{ site.matomo_id }}/triggers/{{ t.idtrigger }}"
+   class="tm-list-item{% if trigger and trigger.idtrigger == t.idtrigger %} active{% endif %}"
+   hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+  <div class="tm-trigger-main">
+    <span class="tm-item-name">{{ t.name }}</span>
+    <span class="tm-trigger-tag-types">
+      {% for tag_type in tag_types_by_trigger.get(t.idtrigger, []) %}
+      <span class="badge tm-type-{{ tag_type|lower }} tm-type-default">{{ tag_type }}</span>
+      {% endfor %}
+    </span>
+  </div>
+  <div class="tm-trigger-meta">
+    <span class="text-muted small">
+      <span class="badge bg-light text-dark">{{ t.type }}</span>
+      {% if t.conditions %}
+      · {{ t.conditions|length }} condition{% if t.conditions|length > 1 %}s{% endif %}
+      {% else %}
+      · Déclenché à chaque visite
+      {% endif %}
+    </span>
+  </div>
+</a>
+{% endfor %}
+{% endif %}
