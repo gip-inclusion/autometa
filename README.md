@@ -179,16 +179,7 @@ git push scalingo main
 
 #### Staging
 
-App Scalingo parallèle `autometa-staging`, addon PostgreSQL dédié. Mêmes variables d'env que la prod (cf. `.env.example`), à l'exception de :
-
-| Variable | Valeur staging |
-|---|---|
-| `BASE_URL` | `https://autometa-staging.osc-fr1.scalingo.io/` |
-| `CORS_ALLOWED_ORIGINS` | `https://autometa-staging.osc-fr1.scalingo.io` |
-| `OAUTH2_PROXY_REDIRECT_URL` | `https://autometa-staging.osc-fr1.scalingo.io/oauth2/callback` |
-| `OAUTH2_PROXY_COOKIE_SECRET` | régénérer (`openssl rand -base64 32`) |
-
-Ajouter la redirect URI staging au client OAuth Google prod existant (Google Cloud Console → Credentials).
+App Scalingo parallèle `autometa-staging`, addon PostgreSQL dédié, variables d'env configurées comme la prod (cf. `.env.example`).
 
 **Flux de déploiement** :
 
