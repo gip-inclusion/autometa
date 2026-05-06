@@ -177,6 +177,60 @@ git push scalingo main
 - `.python-version` : version Python
 - `pyproject.toml` / `uv.lock` : dépendances (uv)
 
+#### Staging
+
+Application parallèle (`autometa-staging`) qui réplique la prod. Deux apps Scalingo distinctes, deux PostgreSQL, deux clients OAuth Google.
+
+```bash
+# Créer l'app et l'addon
+scalingo create autometa-staging
+scalingo --app autometa-staging addons-add postgresql postgresql-starter-512
+
+# Variables (mêmes que prod, sauf URL/CORS/redirect OAuth)
+scalingo --app autometa-staging env-set AGENT_BACKEND=cli
+scalingo --app autometa-staging env-set CLAUDE_CODE_OAUTH_TOKEN=xxx
+scalingo --app autometa-staging env-set ADMIN_USERS=user@example.com
+scalingo --app autometa-staging env-set CONTAINER_ENV=1
+scalingo --app autometa-staging env-set BASE_URL=https://autometa-staging.osc-fr1.scalingo.io/
+scalingo --app autometa-staging env-set CORS_ALLOWED_ORIGINS=https://autometa-staging.osc-fr1.scalingo.io
+
+# Sources de données : mêmes clés que la prod (lecture seule)
+scalingo --app autometa-staging env-set MATOMO_API_KEY=xxx
+scalingo --app autometa-staging env-set METABASE_STATS_API_KEY=xxx
+scalingo --app autometa-staging env-set METABASE_DATALAKE_API_KEY=xxx
+
+# OAuth2-Proxy : nouveau client Google avec redirect URL staging
+scalingo --app autometa-staging env-set OAUTH2_PROXY_PROVIDER=google
+scalingo --app autometa-staging env-set OAUTH2_PROXY_CLIENT_ID=xxx
+scalingo --app autometa-staging env-set OAUTH2_PROXY_CLIENT_SECRET=xxx
+scalingo --app autometa-staging env-set OAUTH2_PROXY_COOKIE_SECRET=$(openssl rand -base64 32)
+scalingo --app autometa-staging env-set OAUTH2_PROXY_COOKIE_SECURE=true
+scalingo --app autometa-staging env-set OAUTH2_PROXY_EMAIL_DOMAINS=inclusion.gouv.fr
+scalingo --app autometa-staging env-set OAUTH2_PROXY_REDIRECT_URL=https://autometa-staging.osc-fr1.scalingo.io/oauth2/callback
+scalingo --app autometa-staging env-set OAUTH2_PROXY_SET_XAUTHREQUEST=true
+scalingo --app autometa-staging env-set OAUTH2_PROXY_UPSTREAMS=http://127.0.0.1:8080
+```
+
+**Flux de déploiement** (`.github/workflows/deploy.yml`) :
+
+| Trigger | Cible |
+|---------|-------|
+| `push` sur `main` | `autometa-staging` |
+| `push` d'un tag `v*` | `matometa` (prod) |
+
+```bash
+# Release prod : tagger un commit déjà déployé en staging
+git tag v2026.05.06
+git push origin v2026.05.06
+```
+
+**Authentification CI** : la même clé SSH (secret repo `SCALINGO_SSH_KEY`) sert aux deux apps. Ajouter la clé publique correspondante à chaque app :
+
+```bash
+scalingo --app matometa keys-add deploy ~/.ssh/scalingo_deploy.pub
+scalingo --app autometa-staging keys-add deploy ~/.ssh/scalingo_deploy.pub
+```
+
 ## Développement
 
 ```bash
