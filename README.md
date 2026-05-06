@@ -179,37 +179,16 @@ git push scalingo main
 
 #### Staging
 
-Application parallèle (`autometa-staging`) qui réplique la prod. Deux apps Scalingo distinctes, deux PostgreSQL, deux clients OAuth Google.
+App Scalingo parallèle `autometa-staging`, addon PostgreSQL dédié. Mêmes variables d'env que la prod (cf. `.env.example`), à l'exception de :
 
-```bash
-# Créer l'app et l'addon
-scalingo create autometa-staging
-scalingo --app autometa-staging addons-add postgresql postgresql-starter-512
+| Variable | Valeur staging |
+|---|---|
+| `BASE_URL` | `https://autometa-staging.osc-fr1.scalingo.io/` |
+| `CORS_ALLOWED_ORIGINS` | `https://autometa-staging.osc-fr1.scalingo.io` |
+| `OAUTH2_PROXY_REDIRECT_URL` | `https://autometa-staging.osc-fr1.scalingo.io/oauth2/callback` |
+| `OAUTH2_PROXY_COOKIE_SECRET` | régénérer (`openssl rand -base64 32`) |
 
-# Variables (mêmes que prod, sauf URL/CORS/redirect OAuth)
-scalingo --app autometa-staging env-set AGENT_BACKEND=cli
-scalingo --app autometa-staging env-set CLAUDE_CODE_OAUTH_TOKEN=xxx
-scalingo --app autometa-staging env-set ADMIN_USERS=user@example.com
-scalingo --app autometa-staging env-set CONTAINER_ENV=1
-scalingo --app autometa-staging env-set BASE_URL=https://autometa-staging.osc-fr1.scalingo.io/
-scalingo --app autometa-staging env-set CORS_ALLOWED_ORIGINS=https://autometa-staging.osc-fr1.scalingo.io
-
-# Sources de données : mêmes clés que la prod (lecture seule)
-scalingo --app autometa-staging env-set MATOMO_API_KEY=xxx
-scalingo --app autometa-staging env-set METABASE_STATS_API_KEY=xxx
-scalingo --app autometa-staging env-set METABASE_DATALAKE_API_KEY=xxx
-
-# OAuth2-Proxy : nouveau client Google avec redirect URL staging
-scalingo --app autometa-staging env-set OAUTH2_PROXY_PROVIDER=google
-scalingo --app autometa-staging env-set OAUTH2_PROXY_CLIENT_ID=xxx
-scalingo --app autometa-staging env-set OAUTH2_PROXY_CLIENT_SECRET=xxx
-scalingo --app autometa-staging env-set OAUTH2_PROXY_COOKIE_SECRET=$(openssl rand -base64 32)
-scalingo --app autometa-staging env-set OAUTH2_PROXY_COOKIE_SECURE=true
-scalingo --app autometa-staging env-set OAUTH2_PROXY_EMAIL_DOMAINS=inclusion.gouv.fr
-scalingo --app autometa-staging env-set OAUTH2_PROXY_REDIRECT_URL=https://autometa-staging.osc-fr1.scalingo.io/oauth2/callback
-scalingo --app autometa-staging env-set OAUTH2_PROXY_SET_XAUTHREQUEST=true
-scalingo --app autometa-staging env-set OAUTH2_PROXY_UPSTREAMS=http://127.0.0.1:8080
-```
+Ajouter la redirect URI staging au client OAuth Google prod existant (Google Cloud Console → Credentials).
 
 **Flux de déploiement** :
 
@@ -218,20 +197,9 @@ scalingo --app autometa-staging env-set OAUTH2_PROXY_UPSTREAMS=http://127.0.0.1:
 | `deploy-staging.yml` | `push` sur `main` | `autometa-staging` |
 | `deploy-prod.yml` | `push` d'un tag `v*` | `matometa` (prod) |
 
-Les deux délèguent la mécanique (SSH + git push) au workflow réutilisable `_deploy.yml`.
+Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour shipper en prod : tagger un commit déjà déployé en staging (`git tag vYYYY.MM.DD && git push origin vYYYY.MM.DD`).
 
-```bash
-# Release prod : tagger un commit déjà déployé en staging
-git tag v2026.05.06
-git push origin v2026.05.06
-```
-
-**Authentification CI** : la même clé SSH (secret repo `SCALINGO_SSH_KEY`) sert aux deux apps. Ajouter la clé publique correspondante à chaque app :
-
-```bash
-scalingo --app matometa keys-add deploy ~/.ssh/scalingo_deploy.pub
-scalingo --app autometa-staging keys-add deploy ~/.ssh/scalingo_deploy.pub
-```
+**Authentification CI** : secret repo `SCALINGO_SSH_KEY` (clé privée). La clé publique correspondante doit être déclarée sur chaque app via `scalingo --app <name> keys-add`.
 
 ## Développement
 
