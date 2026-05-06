@@ -1,0 +1,22 @@
+name: Deploy prod
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      app: matometa
+      environment: production
+    secrets:
+      ssh_key: ${{ secrets.SCALINGO_SSH_KEY }}

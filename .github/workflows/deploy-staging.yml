@@ -1,0 +1,22 @@
+name: Deploy staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      app: autometa-staging
+      environment: staging
+    secrets:
+      ssh_key: ${{ secrets.SCALINGO_SSH_KEY }}

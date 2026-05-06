@@ -211,12 +211,14 @@ scalingo --app autometa-staging env-set OAUTH2_PROXY_SET_XAUTHREQUEST=true
 scalingo --app autometa-staging env-set OAUTH2_PROXY_UPSTREAMS=http://127.0.0.1:8080
 ```
 
-**Flux de déploiement** (`.github/workflows/deploy.yml`) :
+**Flux de déploiement** :
 
-| Trigger | Cible |
-|---------|-------|
-| `push` sur `main` | `autometa-staging` |
-| `push` d'un tag `v*` | `matometa` (prod) |
+| Workflow | Trigger | Cible |
+|---|---|---|
+| `deploy-staging.yml` | `push` sur `main` | `autometa-staging` |
+| `deploy-prod.yml` | `push` d'un tag `v*` | `matometa` (prod) |
+
+Les deux délèguent la mécanique (SSH + git push) au workflow réutilisable `_deploy.yml`.
 
 ```bash
 # Release prod : tagger un commit déjà déployé en staging

@@ -1,0 +1,44 @@
+name: Scalingo deploy
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+    secrets:
+      ssh_key:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      SCALINGO_APP: ${{ inputs.app }}
+      SCALINGO_SSH_HOST: ssh.osc-fr1.scalingo.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.ssh_key }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SCALINGO_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        run: |
+          git remote add scalingo "git@${SCALINGO_SSH_HOST}:${SCALINGO_APP}.git"
+          git push scalingo HEAD:refs/heads/main --force
