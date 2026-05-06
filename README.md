@@ -179,7 +179,7 @@ git push scalingo main
 
 #### Staging
 
-App Scalingo parallèle `autometa-staging`, addon PostgreSQL dédié, variables d'env configurées comme la prod (cf. `.env.example`).
+App Scalingo parallèle `autometa-staging`, addon PostgreSQL dédié.
 
 **Flux de déploiement** :
 
