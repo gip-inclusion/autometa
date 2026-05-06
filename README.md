@@ -186,9 +186,9 @@ App Scalingo parallèle `autometa-staging`, addon PostgreSQL dédié.
 | Workflow | Trigger | Cible |
 |---|---|---|
 | `deploy-staging.yml` | `push` sur `main` | `autometa-staging` |
-| `deploy-prod.yml` | `push` d'un tag `v*` | `matometa` (prod) |
+| `deploy-prod.yml` | `push` d'un tag semver `vX.Y.Z` | `matometa` (prod) |
 
-Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour shipper en prod : tagger un commit déjà déployé en staging (`git tag vYYYY.MM.DD && git push origin vYYYY.MM.DD`).
+Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour shipper en prod : tagger un commit déjà déployé en staging (`git tag v1.2.3 && git push origin v1.2.3`).
 
 **Authentification CI** : secret repo `SCALINGO_SSH_KEY` (clé privée). La clé publique correspondante doit être déclarée sur chaque app via `scalingo --app <name> keys-add`.
 
