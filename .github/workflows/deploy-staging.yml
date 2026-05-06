@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-
-permissions:
-  contents: read
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'docs/**'
+      - 'tests/**'
+      - 'evals/**'
 
 concurrency:
   group: deploy-staging
