@@ -4,19 +4,24 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore:
-      - 'README.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - 'tests/**'
-      - 'evals/**'
+    tags: ['v*']
 
 permissions:
   contents: read
 
+env:
+  STAGING_APP: autometa-staging
+  PROD_APP: matometa
+  SCALINGO_SSH_HOST: ssh.osc-fr1.scalingo.com
+
 jobs:
-  deploy:
+  deploy-staging:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -30,9 +35,36 @@ jobs:
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ssh.osc-fr1.scalingo.com >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$SCALINGO_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Deploy
+      - name: Deploy to staging
         run: |
-          git remote add scalingo git@ssh.osc-fr1.scalingo.com:matometa.git
-          git push scalingo main --force
+          git remote add scalingo "git@${SCALINGO_SSH_HOST}:${STAGING_APP}.git"
+          git push scalingo HEAD:refs/heads/main --force
+
+  deploy-prod:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SCALINGO_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SCALINGO_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy to production
+        run: |
+          git remote add scalingo "git@${SCALINGO_SSH_HOST}:${PROD_APP}.git"
+          git push scalingo HEAD:refs/heads/main --force
