@@ -64,6 +64,9 @@ data_inclusion:
     ssh_key: ${env.DATA_INCLUSION_SSH_KEY}
     knowledge_path: knowledge/data_inclusion/
 
+autometa_tables_db:
+  database_url: ${env.AUTOMETA_TABLES_DATABASE_URL}
+
 livestorm:
   api_key: ${env.LIVESTORM_API_KEY}
 

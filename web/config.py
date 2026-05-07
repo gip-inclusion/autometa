@@ -179,5 +179,8 @@ DATA_INCLUSION_SSH_USER = os.getenv("DATA_INCLUSION_SSH_USER", "")
 DATA_INCLUSION_SSH_KEY = os.getenv("DATA_INCLUSION_SSH_KEY", "")
 DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE", "")
 
+# autometa_tables_db — tables Metabase centralisées (connexion directe Scalingo)
+AUTOMETA_TABLES_DATABASE_URL = os.getenv("AUTOMETA_TABLES_DATABASE_URL", "")
+
 # Datadog Logs
 DATADOG_API_KEY = os.getenv("DATADOG_API_KEY", "")
