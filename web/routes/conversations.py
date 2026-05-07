@@ -260,8 +260,12 @@ def flag_conversation(
     reason: str = Form(default="", max_length=500),
     user_email: str = Depends(get_current_user),
 ):
-    if not store.flag_conversation(conv_id, user_email, reason):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if conv.flag_user_id is not None and conv.flag_user_id != user_email and user_email not in ADMIN_USERS:
+        return JSONResponse({"error": "Already flagged by another user"}, status_code=409)
+    store.flag_conversation(conv_id, user_email, reason)
     return _render_flag_button(request, conv_id, user_email)
 
 

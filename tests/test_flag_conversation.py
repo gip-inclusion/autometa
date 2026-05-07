@@ -47,12 +47,21 @@ class TestPostFlag:
         assert resp.status_code == 200
         assert 'data-current-reason="second"' in resp.text
 
-    def test_overwrite_by_different_user(self, app, client, conv, admin_headers, alice_headers, bob_headers):
+    def test_other_user_cannot_overwrite_flag(self, app, client, conv, admin_headers, alice_headers, bob_headers):
         _post_flag(client, conv.id, alice_headers, reason="alice")
-        _post_flag(client, conv.id, bob_headers, reason="bob")
+        resp = _post_flag(client, conv.id, bob_headers, reason="bob")
+        assert resp.status_code == 409
         flagged = client.get("/api/conversations/flagged", headers=admin_headers).json()["conversations"]
-        assert flagged[0]["user_id"] == "bob@example.com"
-        assert flagged[0]["flag_reason"] == "bob"
+        assert flagged[0]["flagged_by"] == "alice@example.com"
+        assert flagged[0]["flag_reason"] == "alice"
+
+    def test_admin_can_overwrite_flag(self, app, client, conv, admin_headers, alice_headers):
+        _post_flag(client, conv.id, alice_headers, reason="alice")
+        resp = _post_flag(client, conv.id, admin_headers, reason="admin override")
+        assert resp.status_code == 200
+        flagged = client.get("/api/conversations/flagged", headers=admin_headers).json()["conversations"]
+        assert flagged[0]["flagged_by"] == "admin@localhost"
+        assert flagged[0]["flag_reason"] == "admin override"
 
     def test_empty_reason_allowed(self, app, client, conv, alice_headers):
         resp = _post_flag(client, conv.id, alice_headers, reason="")
