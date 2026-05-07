@@ -284,3 +284,7 @@ Après chaque regénération de `data.json`, relancer l'enrichissement départem
 
 ```bash
 cd /app && python data/interactive/actes-metier/enrich_dept.py
+Le script enrich_dept.py remplace les lignes departement='Inconnu' de
+« Recherche d'offre » par une ventilation départementale estimée via Matomo dim4
+(une requête Matomo par mois, ~13 requêtes pour un historique complet).
+```
