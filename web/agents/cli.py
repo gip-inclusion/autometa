@@ -105,8 +105,9 @@ class CLIBackend(AgentBackend):
         span.set_data("conversation_id", conversation_id)
         span.set_data("prompt_length", len(prompt))
         span.set_data("prompt_snippet", prompt[:500])
+        span.set_data("resume", is_resume)
 
-        # Spawn process (10 MB buffer to handle large tool results)
+        spawn_span = sentry_sdk.start_span(op="agent.cli.spawn", name="subprocess + MCP init")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -123,15 +124,21 @@ class CLIBackend(AgentBackend):
         stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
 
         last_events: list[str] = []
+        first_api_span = None
+        turn_span = None
 
         try:
-            # Read stdout line by line (stderr drained in parallel to avoid pipe deadlock)
             line_count = 0
             while True:
                 line = await process.stdout.readline()
                 if not line:
                     logger.debug(f"EOF reached after {line_count} lines")
                     break
+
+                if spawn_span is not None:
+                    spawn_span.finish()
+                    spawn_span = None
+                    first_api_span = sentry_sdk.start_span(op="agent.cli.first_api", name="TTFT first API call")
 
                 line_str = line.decode("utf-8").strip()
                 if not line_str:
@@ -147,6 +154,17 @@ class CLIBackend(AgentBackend):
                         last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
                         if len(last_events) > 10:
                             last_events.pop(0)
+
+                        if agent_msg.type == "assistant":
+                            if first_api_span is not None:
+                                first_api_span.finish()
+                                first_api_span = None
+                            if turn_span is not None:
+                                turn_span.finish()
+                                turn_span = None
+                        elif agent_msg.type == "tool_result":
+                            turn_span = sentry_sdk.start_span(op="agent.cli.api_turn", name="API turn after tool")
+
                         yield agent_msg
                 except json.JSONDecodeError:
                     logger.warning("Non-JSON line: %s", line_str)
@@ -160,6 +178,9 @@ class CLIBackend(AgentBackend):
             span.set_data("line_count", line_count)
             logger.info(f"Process exited with code: {process.returncode}")
         finally:
+            for child in (spawn_span, first_api_span, turn_span):
+                if child is not None:
+                    child.finish()
             self._processes.pop(conversation_id, None)
             if process.returncode is None:
                 try:
