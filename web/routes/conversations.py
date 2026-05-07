@@ -266,7 +266,7 @@ def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_cu
     conv = store.get_conversation(conv_id, include_messages=False)
     if conv is None:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    if user_email not in ADMIN_USERS and conv.flag_user_id != user_email:
+    if conv.flag_user_id is not None and user_email not in ADMIN_USERS and conv.flag_user_id != user_email:
         return JSONResponse({"error": "Permission denied"}, status_code=403)
     store.unflag_conversation(conv_id)
     return _render_flag_button(request, conv_id, user_email)

@@ -128,6 +128,13 @@ class TestDeleteFlag:
         resp = client.delete(f"/api/conversations/{conv.id}/flag", headers=bob_headers)
         assert resp.status_code == 403
 
+    def test_delete_is_idempotent_for_flagger(self, app, client, conv, alice_headers):
+        _post_flag(client, conv.id, alice_headers, reason="R")
+        first = client.delete(f"/api/conversations/{conv.id}/flag", headers=alice_headers)
+        assert first.status_code == 200
+        second = client.delete(f"/api/conversations/{conv.id}/flag", headers=alice_headers)
+        assert second.status_code == 200
+
     def test_delete_nonexistent_conversation(self, app, client, admin_headers):
         resp = client.delete("/api/conversations/does-not-exist/flag", headers=admin_headers)
         assert resp.status_code == 404
