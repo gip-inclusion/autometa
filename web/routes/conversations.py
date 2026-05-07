@@ -241,7 +241,11 @@ def _render_flag_button(request: Request, conv_id: str, user_email: str):
     return templates.TemplateResponse(
         request,
         "_flag_button.html",
-        {"current_conv": current_conv, "user_email": user_email},
+        {
+            "current_conv": current_conv,
+            "user_email": user_email,
+            "is_admin": user_email in ADMIN_USERS,
+        },
     )
 
 
