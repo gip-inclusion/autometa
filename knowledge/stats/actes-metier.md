@@ -3,112 +3,59 @@
 Objectif central de la Plateforme : augmenter le volume des actes métiers réalisés
 par les utilisateurs professionnels sur l'ensemble des services.
 
-Un "acte métier" est une action à valeur métier significative : orientation d'un
+Un « acte métier » est une action à valeur métier significative : orientation d'un
 bénéficiaire, candidature, mise en relation, distribution d'un outil, etc.
 
 **Dashboard interactif :** `/interactive/actes-metier/`
-**Script de génération :** `/app/data/scripts/actes_metier_data_v5.py`
-
----
+**Conversation source :** `aa66951a` (Page stat V2)
+**Script de génération :** `/app/data/scripts/actes_metier_data_v3.py`
 
 ## Structure de la donnée
 
-Granularité : `mois × source × type_acte × categorie_acte × type_structure`
+Granularité : `mois × source × type_acte × categorie_acte × statut × departement`
 
 | Colonne | Valeurs |
 |---------|---------|
 | `mois` | YYYY-MM |
-| `source` | `rdvi`, `emplois`, `GPS`, `dora`, `monrecap`, `marche`, `data-inclusion` |
+| `source` | rdvi, emplois, GPS, dora, monrecap, marche |
 | `type_acte` | Voir tableau par source ci-dessous |
-| `categorie_acte` | `Accompagnement` ou `Support` |
-| `type_structure` | Code normalisé — voir section Type de structure |
-| `north_star` | `true` si l'acte est qualifiant pour la North Star |
-| `traite` | `true` si l'acte est traité (réponse reçue, sans contrainte de délai) |
+| `categorie_acte` | `Accompagnement` ou `Support à l'accompagnement` |
+| `statut` | `Accompli et accepté`, `Accompli et refusé`, `En cours` |
+| `departement` | Code INSEE (ex. `75`, `59`, `971`) ou `Inconnu` |
 | `nombre_actes` | Entier |
 
----
+## Catégories
 
-## North Star — définition et consolidation
+| Catégorie | Description |
+|-----------|-------------|
+| **Accompagnement** | Action directe auprès d'un bénéficiaire |
+| **Support à l'accompagnement** | Action qui facilite ou prépare l'accompagnement |
 
-### Définition métier
+## Règles de calcul
 
-La North Star mesure le nombre de mises en relation traitées dans les 30 jours
-suivant leur initiation, tous services confondus. Elle agrège uniquement les actes
-dont `north_star = true`.
+### Consolidation temporelle (North Star uniquement)
 
-| Source | Condition `north_star = true` |
-|--------|-------------------------------|
-| RDV-i | Invitation avec RDV effectivement réservé (`nb_with_rdv > 0`) |
-| Emplois | Candidature traitée (`état` sorti de la file d'attente) ET `date_traitement - date_candidature ≤ 30 jours` |
-| Dora | Orientation avec statut `VALIDÉE` ou `REFUSÉE` |
-| Marché | Diffusion d'offre avec au moins un SIAE matché (`siae_count > 0`) |
-| Autres | `false` — ces actes n'entrent pas dans la North Star |
+Certains actes changent de statut après la date de réalisation (ex. : une candidature
+initialement « en attente » peut être acceptée ou refusée des semaines plus tard).
+Pour mesurer la performance North Star, des délais de consolidation sont appliqués.
 
-Le champ `traite` est distinct : il indique qu'une réponse a été donnée, sans
-contrainte de délai (utile pour calculer les taux de réponse et les funnels).
+| Calcul | Périmètre | Délai appliqué |
+|--------|-----------|----------------|
+| Volume North Star (KPI principal) | Actes NS uniquement | 70 jours |
+| Croissance mensuelle North Star | Actes NS uniquement | 30 jours |
+| Croissance mensuelle moyenne (hors NS) | Tous les actes | Aucun |
+| Comparaison 3 derniers mois vs 3 précédents | Tous les actes | Aucun |
+| Volumes et taux hors NS | Tous les actes | Aucun |
 
-### Consolidation des données
+**Règle pratique :** seuls les calculs qui pilotent la North Star utilisent des mois
+consolidés. Tous les autres indicateurs (croissance, comparaisons, treemap) utilisent
+les données complètes jusqu'au mois le plus récent disponible.
 
-Certains actes North Star sont enregistrés avec un délai par rapport à leur date
-d'initiation (ex. : une candidature traitée le 28 du mois suivant est comptée
-dans le mois de candidature). Les derniers mois ont donc des comptages incomplets
-jusqu'à ce que les délais soient écoulés.
-
-**Règle de consolidation :** un mois M est dit "consolidé" si
-`fin_du_mois_M + lag ≤ date_de_génération_du_fichier`.
-
-Le lag appliqué **dépend de l'usage** :
-
-| Usage | Lag | Exemple avec `generated_at = 2026-05-06` |
-|-------|-----|------------------------------------------|
-| Moy. mensuelle NS (KPI card) | 70 jours | Mois consolidés : jusqu'à jan. 2026 |
-| Taux R1→NS (KPI card) | 70 jours | Idem |
-| Croissance NS (KPI card) | 30 jours | Mois consolidés : jusqu'à fév. 2026 |
-| Volume actes hors NS | Aucun | Tous les mois complets |
-
-Les graphiques "Aperçu" et le tableau "Détail" affichent les **volumes bruts** sans
-consolidation (les données récentes sont complètes pour tous les actes hors NS).
-Seules les cartes KPI de l'onglet North Star appliquent la consolidation.
-
----
-
-## Type de structure
-
-Les actes sont ventilés par type d'organisation émettrice. Le mapping est défini
-dans `STRUCT_MAP` (script v5) à partir des codes retournés par chaque source.
-
-| Code normalisé | Description |
-|----------------|-------------|
-| `FRANCE_TRAVAIL` | France Travail (ex-Pôle Emploi) |
-| `MISSION_LOCALE` | Mission locale |
-| `CAP_EMPLOI` | Cap emploi |
-| `CONSEIL_DEPARTEMENTAL` | Conseil départemental |
-| `DELEGATAIRE_RSA` | Délégataire RSA |
-| `CCAS_CIAS` | CCAS / CIAS |
-| `JUSTICE_PROBATION` | SPIP / PJJ |
-| `TS_HEBERGEMENT` | Structures d'hébergement (CHU, CHRS, CPH, CADA…) |
-| `SIAE` | Structure d'insertion par l'activité économique |
-| `PLIE` | PLIE |
-| `E2C_EPIDE_AFPA` | E2C, Épide, AFPA, organismes de formation |
-| `TS_SPECIALISES` | Structures spécialisées (CIDFF, CSAPA, AGEFIPH, FINESS…) |
-| `CAF_MSA` | CAF / MSA |
-| `AUTRES_INSERTION` | Autres structures d'insertion (PIJ-BIJ, OACAS…) |
-| `Autre` | Non classifiable ou plateforme générique |
-| `Inconnu` | Pas de type disponible dans la source |
-
-Pour **data·inclusion**, le mapping est fait via `contexte_acte` (plateforme
-consommatrice de l'API) grâce à `CONTEXTE_TYPE_STRUCTURE` (script v5). Les
-contextes non mappés sont classés `Autre`. Les environnements de test/démo
-(`emplois-demo-widget`, `emplois-pentest-widget`, etc.) sont exclus.
-
----
-
-## Période couverte
-
-`START_DATE = "2025-04-01"` — 13 mois : avr. 2025 → avr. 2026.
-
-Le dernier mois complet (par rapport à `NOW()`) est inclus ; le mois en cours
-est exclu de toutes les requêtes (`< DATE_TRUNC('month', NOW())`).
+Exemple avec `generated_at = 2026-05-06` :
+- Mois consolidés NS (70 j) : jusqu'à février 2026
+- Mois consolidés croissance NS (30 j) : jusqu'à mars 2026
+- Derniers 3 mois (hors NS) : février, mars, avril 2026
+- 3 mois précédents (hors NS) : novembre 2025, décembre 2025, janvier 2026
 
 ---
 
@@ -117,19 +64,16 @@ est exclu de toutes les requêtes (`< DATE_TRUNC('month', NOW())`).
 ### RDV-Insertion
 
 **Instance :** rdvi · **DB :** 2
-**Tables :** `rdvi.invitations` + `rdvi.follow_ups` + `rdvi.participations` + `rdvi.rdvs` + `rdvi.motif_categories` + `rdvi.invitations_organisations`
+**Table :** `rdvi.participations` + `rdvi.rdvs` + `rdvi.motif_categories`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Invitation à un RDV d'orientation | Accompagnement | si RDV réservé |
-| Invitation à un RDV d'accompagnement | Accompagnement | si RDV réservé |
-| Invitation à un Entretien SIAE | Accompagnement | si RDV réservé |
-| Invitation à un Autre RDV | Accompagnement | si RDV réservé |
+| Type acte | Catégorie | Statuts possibles |
+|-----------|-----------|-------------------|
+| RDV d'orientation | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
+| RDV d'accompagnement | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
+| Entretien SIAE | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
+| Autre RDV | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
 
-L'acte unitaire est l'**invitation** (pas le RDV). Pour chaque invitation, deux
-lignes peuvent exister : une avec `north_star = true` (invitation avec RDV) et
-une avec `north_star = false` (sans RDV). Le `type_structure` vient de
-`rdvi.organisations.organisation_type`.
+Mapping statut : `seen` → Accompli et accepté · `unknown` → En cours · autres → Accompli et refusé
 
 ---
 
@@ -137,180 +81,110 @@ une avec `north_star = false` (sans RDV). Le `type_structure` vient de
 
 **Instance :** stats · **DB :** 2
 **Table :** `candidatures_echelle_locale`
-**Filtre :** `injection_ai = 0`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Candidature auprès d'un employeur solidaire | Accompagnement | si traité ≤ 30 j |
+| Type acte | Catégorie | Statuts possibles |
+|-----------|-----------|-------------------|
+| Candidature auprès d'un employeur solidaire | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
 
-- `north_star = true` : état sorti de la file d'attente ET `date_traitement - date_candidature BETWEEN 0 AND 30`
-- `traite = true` : état sorti de la file d'attente (sans contrainte de délai)
-- `type_structure` : `type_org_prescripteur` via `STRUCT_MAP`
-
----
-
-### Les Emplois — Fiches de poste
-
-**Instance :** stats · **DB :** 2
-**Table :** `fiches_de_poste`
-
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Création offre d'emploi | Support | false |
-| Mise à jour offre d'emploi | Support | false |
-
-La mise à jour n'est comptée que si `date_dernière_modification > date_création`.
-`type_structure` : `type_employeur` via `STRUCT_MAP`.
+Mapping statut :
+- Accompli et accepté : `Candidature acceptée`, `Embauché ailleurs`, `Action préalable à l'embauche`, `Embauche annulée`
+- Accompli et refusé : `Candidature déclinée`, `Candidature en vivier`
+- En cours : tous les autres états (en attente, à l'étude, etc.)
 
 ---
 
-### Les Emplois — Structures
+### Les Emplois — Recherche d'offre
 
-**Instance :** stats · **DB :** 2
-**Table :** `structures`
+**Instance :** Matomo · **ID site :** 117
+**Méthode :** vues de page sur `/search/employers/results`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Création employeur solidaire | Support | false |
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Recherche d'offre | Support à l'accompagnement | Accompli et accepté |
 
-`type_structure = SIAE` systématiquement.
-
----
-
-### Les Emplois — Diagnostics IAE
-
-**Instance :** stats · **DB :** 2
-**Table :** `public.candidats`
-
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Diagnostic IAE | Accompagnement | false |
-
-`type_structure` : extrait de `sous_type_auteur_diagnostic` (format "Prescripteur FT"
-→ code FT) via `map_struct_diag`.
-
----
-
-### Les Emplois — Recherches (Matomo)
-
-**Instance Matomo :** inclusion (site 117)
-**Méthode :** `VisitsSummary.get`
-
-| Type acte | Catégorie | North Star | Segment |
-|-----------|-----------|------------|---------|
-| Recherche d'offre | Support | false | `pageUrl=@/search/employers/results` |
-| Recherche de service | Support | false | `pageUrl=@/search/services/results` |
-
-`type_structure = Inconnu` (pas d'info utilisateur dans Matomo).
+**Note :** Cet acte est tracé via Matomo (pas de table DB). Le département est estimé
+par enrichissement — voir section « Dimension territoriale » ci-dessous.
 
 ---
 
 ### GPS (Mon Suivi)
 
 **Instance :** stats · **DB :** 2
-**Table :** `gps_logs_users`
-**Filtre :** `group_id IS NOT NULL` et `view_name != 'gps:group_list'`
+**Table :** `gps_logs_users` (filtre : `group_id IS NOT NULL` et `view_name != 'gps:group_list'`)
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Consultation groupe de suivi | Support | false |
-| Mise à jour groupe de suivi | Support | false |
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Consultation groupe de suivi | Support à l'accompagnement | Accompli et accepté |
+| Mise à jour groupe de suivi | Support à l'accompagnement | Accompli et accepté |
 
-Consultation : `view_name IN ('gps:group_memberships', 'gps:group_beneficiary', 'gps:display_contact_info', 'gps:old_group_list')`.
-`type_structure` : `type_org` via `STRUCT_MAP`.
+Mapping type :
+- Consultation : `gps:group_memberships`, `gps:group_beneficiary`, `gps:display_contact_info`, `gps:old_group_list`
+- Mise à jour : tous les autres `view_name`
 
 ---
 
 ### Dora — Orientations
 
 **Instance :** dora · **DB :** 2
-**Table :** `public.orientations_orientation`
+**Table :** `public_intermediate.int_orientation_user_service`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Orientation vers service | Accompagnement | si VALIDÉE ou REFUSÉE |
+| Type acte | Catégorie | Statuts possibles |
+|-----------|-----------|-------------------|
+| Orientation vers service | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
 
-`type_structure` : `prescriber_structure.typology` via `STRUCT_MAP`.
+Mapping statut : `VALIDÉE` → accepté · `REFUSÉE`/`EXPIRÉE` → refusé · autres → En cours
 
 ---
 
-### Dora — Intentions d'orientation (iMER)
+### Dora — iMER (intention de mise en relation)
 
 **Instance :** dora · **DB :** 2
-**Table :** `public_intermediate."int_iMER"`
+**Table :** `public_intermediate.int_iMER`
 **Filtre :** `user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur')`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Intention d'orientation | Support | false |
-
-`type_structure` : typologie de la structure de l'utilisateur (via JOIN sur
-`structures_structuremember`).
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Mise en relation (iMER) | Support à l'accompagnement | Accompli et accepté |
 
 ---
 
-### Dora — Fiches service
+### Dora — Mise à jour fiche service
 
 **Instance :** dora · **DB :** 2
 **Table :** `services_service`
+**Filtre :** `last_editor_id IS NOT NULL`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Création ou diffusion offre de service, hors emploi solidaire | Support | false |
-| Mise à jour offre de service, hors emploi solidaire | Support | false |
-
-La MAJ n'est comptée que si `last_editor_id IS NOT NULL`. `type_structure` :
-typologie de la structure propriétaire du service.
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Mise à jour fiche service | Support à l'accompagnement | Accompli et accepté |
 
 ---
 
-### Dora — Structures
-
-**Instance :** dora · **DB :** 2
-**Table :** `structures_structure`
-
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Création structure, hors employeur solidaire | Support | false |
-| Mise à jour d'une structure d'offre de service, hors employeur solidaire | Support | false |
-
-La MAJ n'est comptée que si `modification_date > creation_date`.
-
----
-
-### Dora — Recherches de service
-
-**Instance :** dora · **DB :** 2
-**Table :** `stats_searchview`
-
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Recherche de service | Support | false |
-
-Uniquement les utilisateurs loggés avec une structure connue. `type_structure` :
-typologie de la première structure membre de l'utilisateur.
-
----
-
-### Mon Récap — Distribution et remplissage
+### Mon Récap — Distribution
 
 **Instance :** stats · **DB :** 2
 **Table :** `monrecap."Commandes"`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Distribution carnet Mon Récap | Accompagnement | false |
-| Remplissage carnet Mon Récap | Support | false |
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Distribution carnet Mon Récap | Accompagnement | Accompli et accepté |
 
-**⚠️ Proxy :** Les deux actes sont estimés à partir des carnets expédiés.
+**⚠️ Proxy :** Faute de données directes, l'acte est estimé à 10 % des carnets
+distribués sur une fenêtre glissante de 9 mois (taux de distribution moyen).
 
-- **Distribution** : 10 % des carnets expédiés, réparti linéairement sur
-  10 mois glissants après expédition (hypothèse : taux de distribution de 10 %/mois).
-- **Remplissage** : taux de remplissage moyen de 109,3 %, actif entre le 1ᵉʳ et
-  le 6ᵉ mois après expédition (fenêtre glissante de 6 mois).
+---
 
-La requête remonte depuis `2024-01-01` pour capter les carnets expédiés avant
-`START_DATE` dont les actes estimés tombent dans la fenêtre d'analyse.
+### Mon Récap — Remplissage
+
+**Instance :** stats · **DB :** 2
+**Table :** `monrecap."Commandes"`
+
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Remplissage carnet Mon Récap | Support à l'accompagnement | Accompli et accepté |
+
+**⚠️ Proxy :** Estimé à partir d'un taux de remplissage moyen de 62 % par carnet,
+réparti sur une fenêtre de 6 à 16 mois après distribution.
 
 ---
 
@@ -320,48 +194,73 @@ La requête remonte depuis `2024-01-01` pour capter les carnets expédiés avant
 **Table :** `tenders_tender`
 **Filtre :** `kind IN ('TENDER', 'PROJ', 'QUOTE')` et `status IN ('SUBMITTED', 'SENT')`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Diffusion d'offre inclusive | Support | si `siae_count > 0` |
+| Type acte | Catégorie | Statuts possibles |
+|-----------|-----------|-------------------|
+| Diffusion d'offre inclusive | Support à l'accompagnement | Accompli et accepté, En cours |
 
-`type_structure` : `SIAE` si `users_user.kind = 'SIAE'`, sinon `Autre`.
+Mapping statut : `SENT` → accepté · autres → En cours
 
 ---
 
 ### Le Marché — Mise à jour fiche entreprise
 
 **Instance :** stats · **DB :** 6
-**Tables :** `siaes_siaeoffer` + `siaes_siae`
+**Table :** `siaes_siaeoffer` + `siaes_siae`
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Mise à jour fiche entreprise | Support | false |
-
-`type_structure = SIAE` systématiquement.
+| Type acte | Catégorie | Statut |
+|-----------|-----------|--------|
+| Mise à jour fiche entreprise | Support à l'accompagnement | Accompli et accepté |
 
 ---
 
-### data·inclusion
+## Dimension territoriale
 
-**Instance :** datalake · **DB :** 2
-**Table :** `"stats_pdi-actes_metiers-data_inclusion"`
-**Exclusions :** environnements de test (`emplois-demo-widget`, `emplois-pentest-widget`, `les-emplois-demo-2026-01`, `les-emplois-review-app-2026-01`)
+### Couverture par source
 
-| Type acte | Catégorie | North Star |
-|-----------|-----------|------------|
-| Recherche data·inclusion | Support | false |
-| Mise à jour d'une structure d'offre de service, hors employeur solidaire | Support | false |
-| Mise à jour offre de service, hors emploi solidaire | Support | false |
+| Source | Actes couverts | Méthode | Taux géolocalisation |
+|--------|---------------|---------|---------------------|
+| RDV-Insertion | Tous | Champ `departement` en DB | ~95 % |
+| Les Emplois — Candidatures | Candidature... | Département candidat en DB | ~90 % |
+| Les Emplois — Recherche d'offre | Recherche d'offre | Estimation via Matomo dim. 4 | ~71 % |
+| GPS | Tous | Département structure en DB | ~85 % |
+| Dora | Tous | Département structure en DB | ~90 % |
+| Mon Récap | Tous | Département structure en DB | ~80 % |
+| Le Marché | Tous | Département structure en DB | ~85 % |
 
-**Type de structure via `contexte_acte` :** la colonne indique quelle plateforme
-consomme l'API data·inclusion pour effectuer la mise à jour. Le mapping
-`CONTEXTE_TYPE_STRUCTURE` (script v5) convertit les 47 valeurs possibles en codes
-normalisés. Valeurs mappées : `france-travail` → `FRANCE_TRAVAIL`, `les-emplois`/
-`emplois-de-linclusion` → `SIAE`, `soliguide`/`action-logement`/... → `TS_HEBERGEMENT`,
-`france-travail`/`mes-aides-france-travail`/`pilotage-réunion-france-travail` →
-`FRANCE_TRAVAIL`, `monenfant` → `CAF_MSA`, `cd35`/`cd80-widget`/`hautespyrenees-widget`
-→ `CONSEIL_DEPARTEMENTAL`, etc. Non mappés : `Autre` (dont `dora` 43 %, `mediation-numerique` 6 %,
-`ma-boussole-aidants` 6 %).
+### Enrichissement « Recherche d'offre » via Matomo dimension 4
+
+**Problème :** l'acte « Recherche d'offre » (source `emplois`) est tracé via Matomo comme
+vue de page sur `/search/employers/results`. L'événement Matomo ne capture pas le
+département de l'utilisateur — toutes les lignes étaient stockées avec `departement='Inconnu'`.
+
+**Solution (appliquée depuis mai 2026) :** la dimension custom Matomo 4 (`UserDepartment`,
+action-scoped) filtrée sur la page de résultats donne la distribution des visites
+géolocalisées par département. Cette distribution est appliquée au volume mensuel total
+de l'acte comme proxy de ventilation.
+
+| Paramètre | Valeur |
+|-----------|--------|
+| Site | emplois (idSite=117) |
+| Dimension | 4 (UserDepartment) |
+| Segment | `pageUrl=@/search/employers/results` |
+| Métrique | `nb_visits` par département |
+| `filter_limit` | 200 |
+
+**Méthode de calcul :**
+1. Pour chaque mois, requête Matomo dim4 → distribution `{dept: fraction_du_total_visites}`
+2. Seules les visites avec département connu (hors `Value not defined`) contribuent à la distribution
+3. Chaque fraction est appliquée au volume mensuel total de l'acte
+4. Le volume résiduel (arrondi) est conservé en `Inconnu`
+
+**Résultats observés (13 mois, avril 2025 – avril 2026) :**
+- ~71 % des actes géolocalisés (102–104 départements selon les mois)
+- ~29 % conservés en `Inconnu` (sessions sans dimension département)
+- Le Nord (59) est le premier département (~5–8 % du total géolocalisé)
+
+**Limites :**
+- Distribution proxy (visiteurs de la page), pas attribution exacte par acte
+- Un visiteur qui consulte la page plusieurs fois dans le mois compte plusieurs fois
+- Ne couvre pas « Recherche de service » (déjà géolocalisé à 95 % via DB)
 
 ---
 
@@ -370,20 +269,18 @@ normalisés. Valeurs mappées : `france-travail` → `FRANCE_TRAVAIL`, `les-empl
 | Service | Raison |
 |---------|--------|
 | Pilotage | Pas d'acte métier direct identifié |
-| Communauté | Non inclus |
-| Plateforme (inclusion.gouv.fr) | Non inclus |
+| data·inclusion | Accès Metabase non disponible au moment de la création |
+| Communauté | Non inclus dans la V1 |
+| Plateforme (inclusion.gouv.fr) | Non inclus dans la V1 |
 
 ---
 
 ## Mise à jour des données
 
+Le script `/app/data/scripts/actes_metier_data_v3.py` génère le fichier
+`/app/data/interactive/actes-metier/data.json` utilisé par le dashboard.
+
+Après chaque regénération de `data.json`, relancer l'enrichissement département :
+
 ```bash
-python3 /app/data/scripts/actes_metier_data_v5.py
-```
-
-Génère `/app/data/interactive/actes-metier/data.json`. Le fichier inclut
-`generated_at` (horodatage de génération) et `consolidation_lag_days` (30 j par
-défaut — lag de référence pour les mois consolidés hors cartes NS à 70 j).
-
-À relancer manuellement après récupération de nouvelles données historiques ou
-pour mettre à jour `START_DATE` / `MONTHS` dans le script.
+cd /app && python data/interactive/actes-metier/enrich_dept.py
