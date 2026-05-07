@@ -38,7 +38,7 @@ class TestPostFlag:
         assert resp.status_code == 200
         assert 'id="chatFlagBtn"' in resp.text
         assert "flagged" in resp.text
-        assert 'data-is-my-flag="1"' in resp.text
+        assert 'data-can-remove="1"' in resp.text
         assert 'data-current-reason="la réponse est hors sujet"' in resp.text
 
     def test_flag_overwrites_reason_for_same_user(self, app, client, conv, alice_headers):
@@ -147,11 +147,11 @@ class TestCascadeOnConversationDelete:
 
 class TestRenderFlagButton:
     @pytest.mark.parametrize(
-        "flagged_by,viewer_is_flagger,expected_flagged_class",
+        "flagged_by,expected_flagged_class,expected_can_remove",
         [
             (None, False, False),
             ("alice@example.com", True, True),
-            ("bob@example.com", False, True),
+            ("bob@example.com", True, False),
         ],
     )
     def test_flag_button_state(
@@ -161,8 +161,8 @@ class TestRenderFlagButton:
         conv,
         alice_headers,
         flagged_by,
-        viewer_is_flagger,
         expected_flagged_class,
+        expected_can_remove,
     ):
         if flagged_by:
             _post_flag(client, conv.id, {"X-Forwarded-Email": flagged_by}, reason="test reason")
@@ -178,7 +178,14 @@ class TestRenderFlagButton:
 
         button_tag = next(chunk for chunk in html.split("<button") if 'id="chatFlagBtn"' in chunk).split(">", 1)[0]
         assert ("chat-flag-btn flagged" in button_tag) is expected_flagged_class
-        assert ('data-is-my-flag="1"' in button_tag) is viewer_is_flagger
+        assert ('data-can-remove="1"' in button_tag) is expected_can_remove
+
+    def test_admin_sees_can_remove_on_other_user_flag(self, app, client, conv, admin_headers, alice_headers):
+        _post_flag(client, conv.id, alice_headers, reason="R")
+        resp = client.get(f"/explorations/{conv.id}", headers=admin_headers)
+        assert resp.status_code == 200
+        button_tag = next(chunk for chunk in resp.text.split("<button") if 'id="chatFlagBtn"' in chunk).split(">", 1)[0]
+        assert 'data-can-remove="1"' in button_tag
 
 
 class TestTemplateGlobalsSanity:

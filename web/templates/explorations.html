@@ -366,7 +366,7 @@
         if (!dialog || !textarea) return;
         textarea.value = btn.dataset.currentReason || '';
         counter.textContent = String(textarea.value.length);
-        if (removeBtn) removeBtn.hidden = !btn.dataset.isMyFlag;
+        if (removeBtn) removeBtn.hidden = !btn.dataset.canRemove;
         dialog.showModal();
         textarea.focus();
         return;
