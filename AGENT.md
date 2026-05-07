@@ -12,8 +12,9 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 
 Sources de données :
 
+- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_tables_autometa` pour le catalogue.
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
-- **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
+- **Metabase** → Données statistiques (candidatures, démographie, stats SIAE) — utiliser uniquement si les tables nécessaires sont absentes d'`autometa_tables_db`
 
 ## Sites web
 
@@ -52,8 +53,9 @@ Pour chaque requête, suivre ce processus :
 
 Invoquer via l'outil `Skill` :
 
+- `autometa_tables_db` — **Toujours l'invoquer en priorité avant Metabase.**
 - `matomo_query` — **Toujours l'invoquer avant d'écrire des requêtes Matomo.**
-- `metabase_query` — Requêtes Metabase.
+- `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `save_report` — Sauvegarder un rapport en base.
 - `wishlist` — Logger un souhait, un blocage, ou une idée d'amélioration.
 
