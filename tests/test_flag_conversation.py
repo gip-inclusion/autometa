@@ -84,7 +84,7 @@ class TestGetFlagged:
         assert len(convs) == 2
         assert convs[0]["id"] == c2.id
         assert convs[0]["title"] == "Second"
-        assert convs[0]["user_id"] == "alice@example.com"
+        assert convs[0]["flagged_by"] == "alice@example.com"
         assert convs[0]["flag_reason"] == "R2"
         assert convs[0]["flagged_at"] is not None
         assert convs[1]["id"] == c1.id
@@ -98,12 +98,18 @@ class TestGetFlagged:
         resp = client.get("/api/conversations/flagged", headers=alice_headers)
         assert resp.status_code == 403
 
-    def test_user_id_is_flagger_not_owner(self, app, client, conv, admin_headers, alice_headers):
+    def test_flagged_by_is_flagger_not_owner(self, app, client, conv, admin_headers, alice_headers):
         _post_flag(client, conv.id, alice_headers, reason="R")
         resp = client.get("/api/conversations/flagged", headers=admin_headers)
         convs = resp.json()["conversations"]
-        assert convs[0]["user_id"] == "alice@example.com"
-        assert convs[0]["user_id"] != "owner@example.com"
+        assert convs[0]["flagged_by"] == "alice@example.com"
+        assert convs[0]["flagged_by"] != "owner@example.com"
+
+    def test_user_id_legacy_alias_matches_flagged_by(self, app, client, conv, admin_headers, alice_headers):
+        _post_flag(client, conv.id, alice_headers, reason="R")
+        resp = client.get("/api/conversations/flagged", headers=admin_headers)
+        row = resp.json()["conversations"][0]
+        assert row["user_id"] == row["flagged_by"] == "alice@example.com"
 
 
 class TestDeleteFlag:

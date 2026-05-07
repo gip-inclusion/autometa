@@ -222,11 +222,15 @@ def list_flagged(user_email: str = Depends(get_current_user)):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     convs = store.list_flagged_conversations()
+    # Why: `user_id` is a legacy alias for `flagged_by` kept for the deployed
+    # /interactive/conversations-echecs/ dashboard. Drop after that consumer
+    # migrates to `flagged_by`.
     return {
         "conversations": [
             {
                 "id": c.id,
                 "title": c.title,
+                "flagged_by": c.flag_user_id,
                 "user_id": c.flag_user_id,
                 "flag_reason": c.flag_reason,
                 "flagged_at": c.flagged_at.isoformat() if c.flagged_at else None,
