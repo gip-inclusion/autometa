@@ -53,7 +53,7 @@ def _original_metrics(conv):
             tools[data.get("tool", "?")] += 1
             if "category" in data:
                 categories[data["category"]] += 1
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             continue
 
     return {
