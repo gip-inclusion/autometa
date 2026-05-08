@@ -99,6 +99,14 @@ data_inclusion:
     ssh_key: ${env.DATA_INCLUSION_SSH_KEY}
     knowledge_path: knowledge/data_inclusion/
 
+zendesk:
+  _default: emplois
+
+  emplois:
+    subdomain: ${env.ZENDESK_SUBDOMAIN}
+    email: ${env.ZENDESK_EMAIL}
+    token: ${env.ZENDESK_API_TOKEN}
+
 livestorm:
   api_key: ${env.LIVESTORM_API_KEY}
 
