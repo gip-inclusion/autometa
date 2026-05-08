@@ -12,7 +12,7 @@ async def get_redis() -> aioredis.Redis:
     if _pool is not None:
         try:
             await _pool.ping()
-        except ConnectionError, RuntimeError, OSError:
+        except (ConnectionError, RuntimeError, OSError):
             _pool = None
     if _pool is None:
         _pool = aioredis.from_url(config.REDIS_URL, decode_responses=True)

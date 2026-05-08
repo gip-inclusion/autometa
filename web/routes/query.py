@@ -70,7 +70,7 @@ async def query(request: Request):
 
     try:
         data = await request.json()
-    except ValueError, KeyError:
+    except (ValueError, KeyError):
         data = None
 
     if not data:

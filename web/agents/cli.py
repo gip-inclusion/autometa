@@ -186,7 +186,7 @@ class CLIBackend(AgentBackend):
                 try:
                     process.send_signal(signal.SIGTERM)
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError, ProcessLookupError:
+                except (asyncio.TimeoutError, ProcessLookupError):
                     try:
                         process.kill()
                     except ProcessLookupError:

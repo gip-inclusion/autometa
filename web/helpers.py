@@ -96,7 +96,7 @@ def validate_conv_id(conv_id: str) -> bool:
     try:
         uuid.UUID(conv_id)
         return True
-    except ValueError, AttributeError:
+    except (ValueError, AttributeError):
         return False
 
 

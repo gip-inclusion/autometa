@@ -181,7 +181,7 @@ def is_text_file(filename: str, mime_type: Optional[str], content: bytes) -> boo
             printable = sum(1 for c in text if c.isprintable() or c in "\n\r\t")
             if printable / len(text) > 0.9:
                 return True
-        except UnicodeDecodeError, ZeroDivisionError:
+        except (UnicodeDecodeError, ZeroDivisionError):
             return False
 
     return False
