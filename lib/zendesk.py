@@ -7,11 +7,16 @@ from typing import Any, Iterator, Optional
 
 import httpx
 
+from .api_signals import emit_api_signal
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 30
+# Zendesk Suite Professional plan limit. Lower tiers (Team: 200, Growth: 400)
+# will hit 429 more often — handled by the bounded retry loop below.
 _RATE_LIMIT_PER_MIN = 700
 _MIN_DELAY = 60.0 / _RATE_LIMIT_PER_MIN
+_MAX_429_RETRIES = 3
 
 
 @dataclass
@@ -39,40 +44,77 @@ class ZendeskTicket:
 
 
 @dataclass
-class ZendeskError(Exception):
-    status_code: int
-    message: str
+class TicketResult:
+    ticket_id: int
+    ticket: Optional[ZendeskTicket] = None
+    comments: Optional[list[ZendeskComment]] = None
+    error: Optional[str] = None
 
-    def __str__(self) -> str:
-        return f"Zendesk {self.status_code}: {self.message}"
+
+class ZendeskError(Exception):
+    def __init__(self, status_code: int, message: str) -> None:
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"Zendesk {status_code}: {message}")
+
+
+def _parse_retry_after(value: Optional[str], default: int = 60) -> int:
+    if not value:
+        return default
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return default
 
 
 class ZendeskAPI:
     """Read-only Zendesk REST API client with built-in rate limiting."""
 
-    def __init__(self, subdomain: str, email: str, token: str) -> None:
+    def __init__(
+        self,
+        subdomain: str,
+        email: str,
+        token: str,
+        instance: str = "emplois",
+    ) -> None:
         self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
+        self.instance = instance
         self._client = httpx.Client(
+            transport=httpx.HTTPTransport(retries=2),
             auth=(f"{email}/token", token),
             headers={"Accept": "application/json"},
             timeout=_DEFAULT_TIMEOUT,
         )
         self._last_call: float = 0.0
 
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
-        elapsed = time.monotonic() - self._last_call
-        if elapsed < _MIN_DELAY:
-            time.sleep(_MIN_DELAY - elapsed)
         url = f"{self.base_url}/{path.lstrip('/')}"
-        response = self._client.get(url, params=params or {})
-        self._last_call = time.monotonic()
-        if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", 60))
+        response: Optional[httpx.Response] = None
+        for attempt in range(_MAX_429_RETRIES + 1):
+            elapsed = time.monotonic() - self._last_call
+            if elapsed < _MIN_DELAY:
+                time.sleep(_MIN_DELAY - elapsed)
+            response = self._client.get(url, params=params or {})
+            self._last_call = time.monotonic()
+            if response.status_code != 429:
+                break
+            if attempt == _MAX_429_RETRIES:
+                raise ZendeskError(429, f"rate limited after {_MAX_429_RETRIES} retries")
+            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
             logger.warning("Zendesk rate-limited, sleeping %ss", retry_after)
             time.sleep(retry_after)
-            return self._get(path, params)
         if not response.is_success:
             raise ZendeskError(response.status_code, response.text[:200])
+        emit_api_signal(source="zendesk", instance=self.instance, url=str(response.url))
         return response.json()
 
     def get_ticket(self, ticket_id: int) -> ZendeskTicket:
@@ -89,7 +131,7 @@ class ZendeskAPI:
         )
 
     def get_ticket_comments(self, ticket_id: int) -> list[ZendeskComment]:
-        """Return all comments for a ticket, oldest first."""
+        """Return all comments for a ticket, oldest first (first page only — see SKILL.md)."""
         data = self._get(f"tickets/{ticket_id}/comments", {"sort_order": "asc"})
         sideloaded_users: dict[int, str] = {}
         for u in data.get("users", []):
@@ -126,19 +168,18 @@ class ZendeskAPI:
         self,
         ticket_ids: list[int],
         with_comments: bool = False,
-    ) -> Iterator[dict[str, Any]]:
-        """Yield dicts {ticket, comments} for each ticket_id. Shows progress."""
+    ) -> Iterator[TicketResult]:
+        """Yield TicketResult per id; logs progress every 500. with_comments=True doubles API calls."""
         total = len(ticket_ids)
         for i, tid in enumerate(ticket_ids, 1):
-            result: dict[str, Any] = {"ticket_id": tid}
+            result = TicketResult(ticket_id=tid)
             try:
+                result.ticket = self.get_ticket(tid)
                 if with_comments:
-                    result["comments"] = self.get_ticket_comments(tid)
-                else:
-                    result["ticket"] = self.get_ticket(tid)
+                    result.comments = self.get_ticket_comments(tid)
             except ZendeskError as exc:
                 logger.warning("Ticket %s skipped: %s", tid, exc)
-                result["error"] = str(exc)
+                result.error = str(exc)
             yield result
             if i % 500 == 0:
                 logger.info("Zendesk: %d/%d tickets traités", i, total)

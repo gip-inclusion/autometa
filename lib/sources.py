@@ -116,10 +116,12 @@ def get_matomo(instance: str | None = None):
 
 def get_zendesk() -> ZendeskAPI:
     config = get_source_config("zendesk")
+    instance_name = get_default_instance("zendesk") or "emplois"
     return ZendeskAPI(
         subdomain=config["subdomain"],
         email=config["email"],
         token=config["token"],
+        instance=instance_name,
     )
 
 
