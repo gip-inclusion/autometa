@@ -13,7 +13,6 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, sync_to_s3
 from . import s3 as s3_module
-from .interactive_apps import scan_interactive_apps
 from .log import setup_logging
 from .redis_conn import close_redis
 from .runner import runner
@@ -39,7 +38,6 @@ async def lifespan(app: FastAPI):
     warmup_task = asyncio.create_task(asyncio.to_thread(warmup))
     sync_to_s3.start_sync_watcher()
 
-    await asyncio.to_thread(scan_interactive_apps)
     await runner.startup()
 
     yield

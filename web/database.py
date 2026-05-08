@@ -12,6 +12,8 @@ from .db import get_db, init_tables
 from .helpers import utcnow
 from .models import Conversation as ConvModel
 from .models import ConversationTag as ConvTagModel
+from .models import Dashboard as DashboardModel
+from .models import DashboardTag as DashboardTagModel
 from .models import Message as MsgModel
 from .models import PinnedItem as PinModel
 from .models import Report as ReportModel
@@ -876,6 +878,44 @@ class ConversationStore:
             result = _model_to_report(r)
             result.content = content
             return result
+
+    def list_dashboards(self) -> list[dict]:
+        """Active dashboards from the DB, sorted by `updated_at` desc."""
+        with get_db() as session:
+            dashboards = list(
+                session.scalars(
+                    select(DashboardModel).where(~DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
+                ).all()
+            )
+            if not dashboards:
+                return []
+
+            slugs = [d.slug for d in dashboards]
+            tag_rows = session.execute(
+                select(DashboardTagModel.dashboard_slug, TagModel.name)
+                .join(TagModel, TagModel.id == DashboardTagModel.tag_id)
+                .where(DashboardTagModel.dashboard_slug.in_(slugs))
+            ).all()
+            tags_by_slug: dict[str, list[str]] = {}
+            for slug, name in tag_rows:
+                tags_by_slug.setdefault(slug, []).append(name)
+
+            return [
+                {
+                    "slug": d.slug,
+                    "title": d.title,
+                    "description": d.description or "",
+                    "website": d.website,
+                    "category": d.category,
+                    "tags": tags_by_slug.get(d.slug, []),
+                    "authors": [d.first_author_email],
+                    "conversation_id": d.created_in_conversation_id,
+                    "updated": d.updated_at,
+                    "url": f"/interactive/{d.slug}/",
+                    "is_interactive": True,
+                }
+                for d in dashboards
+            ]
 
     def list_reports(
         self,
