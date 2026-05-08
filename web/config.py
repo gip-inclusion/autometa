@@ -185,3 +185,13 @@ DATADOG_API_KEY = os.getenv("DATADOG_API_KEY", "")
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")
 MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "")
+
+
+def agent_conversation_id() -> str | None:
+    """Conversation id injected by web/agents/cli.py:_build_env() into the agent subprocess."""
+    return os.getenv("AUTOMETA_CONVERSATION_ID")
+
+
+def agent_user_email() -> str | None:
+    """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
+    return os.getenv("AUTOMETA_USER_EMAIL")
