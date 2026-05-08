@@ -108,14 +108,19 @@ class CLIBackend(AgentBackend):
         span.set_data("resume", is_resume)
 
         spawn_span = sentry_sdk.start_span(op="agent.cli.spawn", name="subprocess + MCP init")
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(config.BASE_DIR),
-            env=env,
-            limit=10 * 1024 * 1024,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(config.BASE_DIR),
+                env=env,
+                limit=10 * 1024 * 1024,
+            )
+        except BaseException:
+            spawn_span.finish()
+            span.finish()
+            raise
 
         logger.info(f"Process started with PID: {process.pid}")
 
