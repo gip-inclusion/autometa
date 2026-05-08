@@ -1,9 +1,21 @@
-# Tableaux de bord interactifs
+# Tableaux de bord
 
-Règles pour créer des tableaux de bord frontend dans `/data/interactive/`.
+Règles pour créer des tableaux de bord (TDB) frontend dans `/data/interactive/`.
 
-« Dashboard », « tableau de bord » et « application interactive » sont synonymes.
-Les dashboards sont privés par défaut (accessibles aux utilisateurs d'Autometa). Certains peuvent, optionnellement, être rendus publics.
+« Tableau de bord » est le terme canonique. « Dashboard » est un synonyme acceptable. « Application interactive » est l'ancien nom — à ne plus utiliser.
+
+Les TDB sont privés par défaut (accessibles aux utilisateurs d'Autometa). Certains peuvent, optionnellement, être rendus publics (cf. spec V1).
+
+## Modèle de données
+
+L'inventaire des TDB vit dans la table `dashboards` en base. C'est la **source de vérité** : un TDB n'apparaît dans la liste, la sidebar, la home, que s'il a une ligne en DB. Le dossier `data/interactive/{slug}/` reste l'endroit où vit le **code** du TDB ; il est synchronisé vers S3 par `web/sync_to_s3.py`.
+
+Flags portés par la ligne `dashboards` :
+
+- `is_archived` — un TDB archivé est invisible des listes par défaut.
+- `has_cron` — `cron.py` du TDB doit être exécuté périodiquement.
+- `has_api_access` — appelle `/api/query` en live (rend le TDB **non publiable**).
+- `has_persistence` — écrit dans le datalake via `/api/query` (idem, **non publiable**).
 
 ## Stack
 
@@ -48,9 +60,9 @@ Ensuite : compléter `APP.md`, écrire la logique dans `app.js`, remplir (si bes
 
 Si le dashboard n'utilise pas de données pré-calculées (requêtes live via `/api/query` uniquement, ou dashboard qui n'a pas besoin d'être rafraîchi), supprimer `cron.py` et adapter les valeurs `cron` et `has_api_access` dans `APP.md`.
 
-## APP.md (obligatoire)
+## APP.md
 
-Chaque dashboard **doit** avoir un fichier `APP.md` avec front-matter YAML. C'est ce qui permet sa découverte et son affichage dans la liste des dashboards.
+Chaque TDB **doit** avoir un fichier `APP.md` avec front-matter YAML. C'est conservé en parallèle de la DB pour que le dossier `data/interactive/{slug}/` reste lisible seul, et parce que `web/cron.py` y lit encore `schedule`, `timeout`, `enabled`.
 
 ```markdown
 ---
@@ -554,8 +566,11 @@ Valeurs contrôlées pour les champs `website` et `tags` d'`APP.md`.
 ### Types de demande (champ `tags`)
 - `extraction` — extraction de données
 - `analyse` — analyse / rapport
-- `appli` — application interactive
 - `meta` — méta / outillage
+
+(`appli` est déprécié : tous les TDB sont des « applis » par définition désormais.)
 
 ### Sources (champ `tags`)
 - `matomo`, `stats`, `datalake`, etc.
+
+**Conventions sur les noms de tags** : lowercase, kebab-case (espaces → tirets). Les tags suivants ont été dépréciés/fusionnés et ne doivent pas être réutilisés : `appli`, `dashboard`, `dev`, `metabase`, `contact` (→ `contacts`), `orientations` (→ `orientation`), `rétention` (→ `retention`), `cross-produit` (→ `multi-produits`), `multi` (→ `multi-produits`).
