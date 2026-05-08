@@ -226,10 +226,7 @@ def test_get_retries_on_rate_limit(api_no_signal, mocker):
 
 def test_get_raises_after_max_429_retries(api_no_signal, mocker):
     """After _MAX_429_RETRIES persistent 429s, the client must give up — no infinite recursion."""
-    responses = [
-        _mock_response(mocker, status_code=429, headers={"Retry-After": "1"})
-        for _ in range(10)
-    ]
+    responses = [_mock_response(mocker, status_code=429, headers={"Retry-After": "1"}) for _ in range(10)]
     mocker.patch.object(api_no_signal._client, "get", side_effect=responses)
 
     with pytest.raises(ZendeskError) as exc:
