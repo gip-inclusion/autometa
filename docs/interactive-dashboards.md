@@ -17,6 +17,38 @@ Flags portés par la ligne `dashboards` :
 - `has_api_access` — appelle `/api/query` en live (rend le TDB **non publiable**).
 - `has_persistence` — écrit dans le datalake via `/api/query` (idem, **non publiable**).
 
+## Création et modification : passer par les skills
+
+Pour créer un nouveau TDB ou modifier un TDB existant, **toujours** utiliser les skills dédiés. Pas d'écriture directe sur `data/interactive/` ni d'INSERT manuel en DB côté agent.
+
+### `create_dashboard` (création)
+
+Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill copie le template, génère `APP.md`, insère la ligne `dashboards`, et retourne le chemin créé.
+
+```bash
+.venv/bin/python skills/create_dashboard/scripts/create_dashboard.py \
+    --slug mon-tdb \
+    --title "Mon tableau de bord" \
+    --description "Description courte" \
+    --website emplois \
+    --tags trafic,candidats \
+    --has-cron
+```
+
+### `update_dashboard` (modification)
+
+**Point d'entrée canonique** dès qu'un utilisateur exprime le souhait de modifier un TDB existant. Garantit que c'est le bon slug, met à jour DB + `APP.md`, et retourne l'`originating_user_email` (premier auteur, ≠ utilisateur courant) et le chemin des conventions à respecter pour la suite.
+
+```bash
+.venv/bin/python skills/update_dashboard/scripts/update_dashboard.py \
+    --slug mon-tdb \
+    --title "Nouveau titre" \
+    --add-tags trafic --remove-tags ancien-tag \
+    --has-api-access true
+```
+
+Les deux skills lisent `AUTOMETA_CONVERSATION_ID` et `AUTOMETA_USER_EMAIL` injectés automatiquement dans l'environnement par le runtime agent.
+
 ## Stack
 
 - **Vanilla JS** — pas de React, Vue ou autre framework.
