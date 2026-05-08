@@ -149,22 +149,23 @@ class CLIBackend(AgentBackend):
 
                 try:
                     event = json.loads(line_str)
+                    event_type = event.get("type")
+
+                    if event_type == "assistant":
+                        if first_api_span is not None:
+                            first_api_span.finish()
+                            first_api_span = None
+                        if turn_span is not None:
+                            turn_span.finish()
+                            turn_span = None
+                    elif event_type in ("tool_result", "user") and turn_span is None:
+                        turn_span = sentry_sdk.start_span(op="agent.cli.api_turn", name="API turn after tool")
+
                     for agent_msg in self._parse_events(event):
                         logger.debug(f"Parsed event: {agent_msg.type}")
                         last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
                         if len(last_events) > 10:
                             last_events.pop(0)
-
-                        if agent_msg.type == "assistant":
-                            if first_api_span is not None:
-                                first_api_span.finish()
-                                first_api_span = None
-                            if turn_span is not None:
-                                turn_span.finish()
-                                turn_span = None
-                        elif agent_msg.type == "tool_result":
-                            turn_span = sentry_sdk.start_span(op="agent.cli.api_turn", name="API turn after tool")
-
                         yield agent_msg
                 except json.JSONDecodeError:
                     logger.warning("Non-JSON line: %s", line_str)
