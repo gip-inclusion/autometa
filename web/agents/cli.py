@@ -102,139 +102,149 @@ class CLIBackend(AgentBackend):
         env = self._build_env(conversation_id=conversation_id, user_email=user_email)
 
         span = sentry_sdk.start_span(op="agent.cli.process", name="claude CLI subprocess")
-        span.set_data("conversation_id", conversation_id)
-        span.set_data("prompt_length", len(prompt))
-        span.set_data("prompt_snippet", prompt[:500])
-        span.set_data("resume", is_resume)
-
-        spawn_span = sentry_sdk.start_span(op="agent.cli.spawn", name="subprocess + MCP init")
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(config.BASE_DIR),
-                env=env,
-                limit=10 * 1024 * 1024,
-            )
-        except BaseException:
-            spawn_span.finish()
-            span.finish()
-            raise
+            span.set_data("conversation_id", conversation_id)
+            span.set_data("prompt_length", len(prompt))
+            span.set_data("prompt_snippet", prompt[:500])
+            span.set_data("resume", is_resume)
 
-        logger.info(f"Process started with PID: {process.pid}")
-
-        self._processes[conversation_id] = process
-
-        stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
-
-        last_events: list[str] = []
-        first_api_span = None
-        turn_span = None
-
-        try:
-            line_count = 0
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    logger.debug(f"EOF reached after {line_count} lines")
-                    break
-
-                if spawn_span is not None:
-                    spawn_span.finish()
-                    spawn_span = None
-                    first_api_span = sentry_sdk.start_span(op="agent.cli.first_api", name="TTFT first API call")
-
-                line_str = line.decode("utf-8").strip()
-                if not line_str:
-                    continue
-
-                line_count += 1
-                logger.debug("Line %d: %s", line_count, line_str)
-
-                try:
-                    event = json.loads(line_str)
-                    event_type = event.get("type")
-
-                    if event_type == "assistant":
-                        if first_api_span is not None:
-                            first_api_span.finish()
-                            first_api_span = None
-                        if turn_span is not None:
-                            turn_span.finish()
-                            turn_span = None
-                    elif event_type in ("tool_result", "user") and turn_span is None:
-                        turn_span = sentry_sdk.start_span(op="agent.cli.api_turn", name="API turn after tool")
-
-                    for agent_msg in self._parse_events(event):
-                        logger.debug(f"Parsed event: {agent_msg.type}")
-                        last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
-                        if len(last_events) > 10:
-                            last_events.pop(0)
-                        yield agent_msg
-                except json.JSONDecodeError:
-                    logger.warning("Non-JSON line: %s", line_str)
-                    yield AgentMessage(
-                        type="system",
-                        content=line_str,
-                        raw={"raw_line": line_str},
-                    )
-
-            await process.wait()
-            span.set_data("line_count", line_count)
-            logger.info(f"Process exited with code: {process.returncode}")
-        finally:
-            for child in (spawn_span, first_api_span, turn_span):
-                if child is not None:
-                    child.finish()
-            self._processes.pop(conversation_id, None)
-            if process.returncode is None:
-                try:
-                    process.send_signal(signal.SIGTERM)
-                    await asyncio.wait_for(process.wait(), timeout=5.0)
-                except (asyncio.TimeoutError, ProcessLookupError):
-                    try:
-                        process.kill()
-                    except ProcessLookupError:
-                        logger.debug("Process already exited before kill")
-            stderr_bytes = await stderr_task
-            if session_id:
-                session_sync.upload_session(session_id)
-            logger.info(f"Cleaned up conversation {conversation_id}")
-
-        stderr_str = stderr_bytes.decode("utf-8", errors="replace")
-        span.set_data("exit_code", process.returncode)
-
-        if process.returncode != 0:
-            stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
-            span.set_status("internal_error")
-            span.set_data("stderr", stderr_tail)
-            span.set_data("last_events", last_events)
-
-            with sentry_sdk.push_scope() as scope:
-                scope.set_extra("conversation_id", conversation_id)
-                scope.set_extra("exit_code", process.returncode)
-                scope.set_extra("stderr", stderr_tail)
-                scope.set_extra("prompt_snippet", prompt[:500])
-                scope.set_extra("last_events", last_events)
-                sentry_sdk.capture_message(
-                    f"CLI process error (exit {process.returncode})",
-                    level="error",
-                    scope=scope,
+            spawn_span = sentry_sdk.start_span(op="agent.cli.spawn", name="subprocess + MCP init")
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(config.BASE_DIR),
+                    env=env,
+                    limit=10 * 1024 * 1024,
                 )
-            logger.error(
-                "CLI process error: conversation=%s exit_code=%s stderr=%s",
-                conversation_id,
-                process.returncode,
-                stderr_tail,
-            )
+            except BaseException:
+                spawn_span.finish()
+                raise
 
-            yield AgentMessage(
-                type="error",
-                content=f"Process exited with code {process.returncode}: {stderr_str}",
-                raw={"stderr": stderr_str, "code": process.returncode},
-            )
-        span.finish()
+            logger.info(f"Process started with PID: {process.pid}")
+
+            self._processes[conversation_id] = process
+
+            stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
+
+            last_events: list[str] = []
+            first_api_span = None
+            turn_span = None
+
+            try:
+                line_count = 0
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        logger.debug(f"EOF reached after {line_count} lines")
+                        break
+
+                    if spawn_span is not None:
+                        spawn_span.finish()
+                        spawn_span = None
+                        first_api_span = sentry_sdk.start_span(op="agent.cli.first_api", name="TTFT first API call")
+
+                    line_str = line.decode("utf-8").strip()
+                    if not line_str:
+                        continue
+
+                    line_count += 1
+                    logger.debug("Line %d: %s", line_count, line_str)
+
+                    try:
+                        event = json.loads(line_str)
+                        event_type = event.get("type")
+
+                        if event_type == "assistant":
+                            if first_api_span is not None:
+                                first_api_span.finish()
+                                first_api_span = None
+                            if turn_span is not None:
+                                turn_span.finish()
+                                turn_span = None
+                        elif event_type in ("tool_result", "user") and turn_span is None:
+                            turn_span = sentry_sdk.start_span(op="agent.cli.api_turn", name="API turn after tool")
+
+                        for agent_msg in self._parse_events(event):
+                            logger.debug(f"Parsed event: {agent_msg.type}")
+                            last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
+                            if len(last_events) > 10:
+                                last_events.pop(0)
+                            yield agent_msg
+                    except json.JSONDecodeError:
+                        logger.warning("Non-JSON line: %s", line_str)
+                        yield AgentMessage(
+                            type="system",
+                            content=line_str,
+                            raw={"raw_line": line_str},
+                        )
+
+                await process.wait()
+                span.set_data("line_count", line_count)
+                logger.info(f"Process exited with code: {process.returncode}")
+            finally:
+                for child in (spawn_span, first_api_span, turn_span):
+                    if child is not None:
+                        child.finish()
+                self._processes.pop(conversation_id, None)
+                if process.returncode is None:
+                    try:
+                        process.send_signal(signal.SIGTERM)
+                        await asyncio.wait_for(process.wait(), timeout=5.0)
+                    except (asyncio.TimeoutError, ProcessLookupError):
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            logger.debug("Process already exited before kill")
+                try:
+                    stderr_bytes = await stderr_task
+                except Exception:
+                    # Why: cleanup must complete so span.finish() and the error capture below still run.
+                    logger.exception("stderr drain failed during cleanup")
+                    stderr_bytes = b""
+                if session_id:
+                    try:
+                        session_sync.upload_session(session_id)
+                    except Exception:
+                        # Why: cleanup must complete so span.finish() and the error capture below still run.
+                        logger.exception("session upload failed during cleanup")
+                logger.info(f"Cleaned up conversation {conversation_id}")
+
+            stderr_str = stderr_bytes.decode("utf-8", errors="replace")
+            span.set_data("exit_code", process.returncode)
+
+            if process.returncode != 0:
+                stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
+                span.set_status("internal_error")
+                span.set_data("stderr", stderr_tail)
+                span.set_data("last_events", last_events)
+
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_extra("conversation_id", conversation_id)
+                    scope.set_extra("exit_code", process.returncode)
+                    scope.set_extra("stderr", stderr_tail)
+                    scope.set_extra("prompt_snippet", prompt[:500])
+                    scope.set_extra("last_events", last_events)
+                    sentry_sdk.capture_message(
+                        f"CLI process error (exit {process.returncode})",
+                        level="error",
+                        scope=scope,
+                    )
+                logger.error(
+                    "CLI process error: conversation=%s exit_code=%s stderr=%s",
+                    conversation_id,
+                    process.returncode,
+                    stderr_tail,
+                )
+
+                yield AgentMessage(
+                    type="error",
+                    content=f"Process exited with code {process.returncode}: {stderr_str}",
+                    raw={"stderr": stderr_str, "code": process.returncode},
+                )
+        finally:
+            span.finish()
 
     @staticmethod
     async def _drain_stderr(stream: asyncio.StreamReader, max_bytes: int = 10 * 1024) -> bytes:
