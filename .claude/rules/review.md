@@ -1,6 +1,6 @@
 Critères de rejet en revue de code. Si l'un de ces points est violé, la PR ne passe pas.
 
-Intégrité : SQL non paramétré, colonnes dynamiques non validées, migration non idempotente, `SCHEMA_VERSION` non incrémenté.
+Intégrité : SQL non paramétré, colonnes dynamiques non validées, modification de schéma sans migration Alembic correspondante, modification d'une migration Alembic existante (au lieu d'en ajouter une nouvelle).
 
 Sécurité : secrets en dur, `.env` commité, endpoint non authentifié, path traversal possible.
 
