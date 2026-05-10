@@ -70,6 +70,8 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | `--archive` | Passe `is_archived=true` |
 | `--unarchive` | Passe `is_archived=false` |
 
+> **Note** : `--has-cron`, `--has-api-access`, `--has-persistence` attendent une valeur explicite `true|false` (contrairement à `create_dashboard` où ce sont des flags sans valeur). C'est volontaire — ici il faut pouvoir *désactiver* un flag déjà à `true`, alors qu'à la création le défaut est toujours `false`.
+
 Sans aucun argument modificateur, le skill ne touche pas la DB et retourne juste les conventions.
 
 ## Variables d'environnement
