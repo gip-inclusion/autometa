@@ -1,8 +1,10 @@
 """Dashboard inventory and lifecycle helpers."""
 
 import logging
+import os
 import re
 import shutil
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +17,8 @@ from web.db import get_db
 from web.models import Dashboard, DashboardTag, Tag
 
 logger = logging.getLogger(__name__)
+
+_STAGING_PREFIX = ".tmp-"
 
 _WRITE_SQL_RE = re.compile(
     r"\b("
@@ -95,39 +99,44 @@ def create_dashboard(
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
 
-    slug_dir = config.INTERACTIVE_DIR / slug
+    final_dir = config.INTERACTIVE_DIR / slug
     template_dir = config.BASE_DIR / "docs" / "dashboard-template"
 
-    if slug_dir.exists():
-        raise ValueError(f"Slug already exists on disk: {slug_dir}")
+    if final_dir.exists():
+        raise ValueError(f"Slug already exists on disk: {final_dir}")
 
-    with get_db() as session:
-        if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
-            raise ValueError(f"Slug already exists in DB: {slug}")
+    # Why: scaffold staged sur le même FS pour un rename atomique avant le commit DB.
+    # En cas de SIGKILL entre rename et commit, on tolère un dossier orphelin (GC par
+    # cleanup_orphan_scaffolds), jamais l'inverse (ligne DB sans scaffold = app cassée).
+    staging_dir = config.INTERACTIVE_DIR / f"{_STAGING_PREFIX}{slug}-{uuid.uuid4().hex}"
+    staging_dir.mkdir(parents=True)
+    renamed = False
+    try:
+        for src in template_dir.iterdir():
+            if src.name == "APP.md":
+                continue
+            if src.name == "cron.py" and not has_cron:
+                continue
+            shutil.copy2(src, staging_dir / src.name)
 
-        slug_dir.mkdir(parents=True)
-        try:
-            for src in template_dir.iterdir():
-                if src.name == "APP.md":
-                    continue
-                if src.name == "cron.py" and not has_cron:
-                    continue
-                shutil.copy2(src, slug_dir / src.name)
-
-            (slug_dir / "APP.md").write_text(
-                _render_app_md(
-                    title=title,
-                    description=description,
-                    website=website,
-                    category=category,
-                    tags=tags,
-                    first_author_email=first_author_email,
-                    conversation_id=created_in_conversation_id,
-                    has_cron=has_cron,
-                    has_api_access=has_api_access,
-                    has_persistence=has_persistence,
-                )
+        (staging_dir / "APP.md").write_text(
+            _render_app_md(
+                title=title,
+                description=description,
+                website=website,
+                category=category,
+                tags=tags,
+                first_author_email=first_author_email,
+                conversation_id=created_in_conversation_id,
+                has_cron=has_cron,
+                has_api_access=has_api_access,
+                has_persistence=has_persistence,
             )
+        )
+
+        with get_db() as session:
+            if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
+                raise ValueError(f"Slug already exists in DB: {slug}")
 
             now = datetime.now(timezone.utc)
             dashboard = Dashboard(
@@ -153,14 +162,59 @@ def create_dashboard(
                 session.add(DashboardTag(dashboard_slug=slug, tag_id=tag.id))
 
             session.flush()
+            os.rename(staging_dir, final_dir)
+            renamed = True
             session.refresh(dashboard)
             session.expunge(dashboard)
             return dashboard
-        except (
-            Exception
-        ):  # Why: nettoyage manuel du scaffold disque si le bloc échoue (DB/OS/validation), puis re-raise.
-            shutil.rmtree(slug_dir, ignore_errors=True)
-            raise
+    except Exception:
+        shutil.rmtree(final_dir if renamed else staging_dir, ignore_errors=True)
+        raise
+
+
+def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10) -> dict:
+    """GC : supprime les stagings expirés et les dossiers slug sans ligne DB."""
+    if not config.INTERACTIVE_DIR.exists():
+        return {"removed_staging": [], "removed_orphan": []}
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+    removed_staging: list[str] = []
+    removed_orphan: list[str] = []
+
+    with get_db() as session:
+        known = set(session.scalars(select(Dashboard.slug)).all())
+
+    for path in config.INTERACTIVE_DIR.iterdir():
+        if not path.is_dir():
+            continue
+        if path.name.startswith(_STAGING_PREFIX):
+            age_min = (now_ts - path.stat().st_mtime) / 60
+            if age_min > staging_max_age_minutes:
+                shutil.rmtree(path, ignore_errors=True)
+                removed_staging.append(path.name)
+            continue
+        if path.name not in known:
+            shutil.rmtree(path, ignore_errors=True)
+            removed_orphan.append(path.name)
+
+    if removed_staging or removed_orphan:
+        logger.warning(
+            "orphan scaffolds cleaned: staging=%s orphan=%s",
+            removed_staging,
+            removed_orphan,
+        )
+    return {"removed_staging": removed_staging, "removed_orphan": removed_orphan}
+
+
+def main() -> None:
+    """CLI: nettoyage périodique des scaffolds orphelins."""
+    logging.basicConfig(level=logging.INFO)
+    result = cleanup_orphan_scaffolds()
+    logger.info(
+        "cleanup-dashboards: removed_staging=%d removed_orphan=%d",
+        len(result["removed_staging"]),
+        len(result["removed_orphan"]),
+    )
 
 
 def _upsert_tag(session: Session, name: str) -> Tag:

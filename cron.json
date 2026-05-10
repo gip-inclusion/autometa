@@ -4,6 +4,7 @@
     { "command": "0 3 * * * sync-inventory" },
     { "command": "0 4 * * * sync-webinaires" },
     { "command": "0 5 * * 1 slack-feedback" },
-    { "command": "0 6 * * * python -m web.cron" }
+    { "command": "0 6 * * * python -m web.cron" },
+    { "command": "*/10 * * * * cleanup-dashboards" }
   ]
 }

@@ -1,12 +1,15 @@
 """Tests for lib/dashboards (create_dashboard, update_dashboard, normalize_tag_name)."""
 
+import os
 import shutil
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import inspect, select
 
 from lib.dashboards import (
     DashboardNotFound,
+    cleanup_orphan_scaffolds,
     create_dashboard,
     normalize_tag_name,
     normalize_tags,
@@ -14,7 +17,7 @@ from lib.dashboards import (
 )
 from web.db import get_db
 from web.db import test_transaction as _test_tx
-from web.models import DashboardTag, Tag
+from web.models import Dashboard, DashboardTag, Tag
 
 
 @pytest.fixture
@@ -224,3 +227,64 @@ def test_normalize_tag_name(raw, expected):
 
 def test_normalize_tags_dedupes_and_filters_empty():
     assert normalize_tags(["foo", "FOO", "  foo  ", "", "Bar"]) == ["foo", "bar"]
+
+
+def test_create_dashboard_db_failure_cleans_staging(isolated, mocker):
+    mocker.patch("lib.dashboards._upsert_tag", side_effect=RuntimeError("boom"))
+    with pytest.raises(RuntimeError, match="boom"):
+        _create("staged", tags=["foo"])
+    assert not (isolated / "staged").exists()
+    assert [p.name for p in isolated.iterdir() if p.name.startswith(".tmp-")] == []
+
+
+def test_create_dashboard_template_copy_failure_no_partial_state(isolated, mocker):
+    mocker.patch("lib.dashboards.shutil.copy2", side_effect=OSError("disk full"))
+    with pytest.raises(OSError, match="disk full"):
+        _create("nodisk")
+    assert not (isolated / "nodisk").exists()
+    assert [p.name for p in isolated.iterdir() if p.name.startswith(".tmp-")] == []
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "nodisk")) is None
+
+
+def test_create_dashboard_rename_failure_cleans_staging_no_db_row(isolated, mocker):
+    mocker.patch("lib.dashboards.os.rename", side_effect=OSError("rename failed"))
+    with pytest.raises(OSError, match="rename failed"):
+        _create("rename-fail")
+    assert not (isolated / "rename-fail").exists()
+    assert [p.name for p in isolated.iterdir() if p.name.startswith(".tmp-")] == []
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "rename-fail")) is None
+
+
+def test_cleanup_removes_old_staging(isolated):
+    old = isolated / ".tmp-foo-deadbeef"
+    old.mkdir()
+    old_ts = datetime.now(timezone.utc).timestamp() - 30 * 60
+    os.utime(old, (old_ts, old_ts))
+    result = cleanup_orphan_scaffolds(staging_max_age_minutes=10)
+    assert ".tmp-foo-deadbeef" in result["removed_staging"]
+    assert not old.exists()
+
+
+def test_cleanup_keeps_recent_staging(isolated):
+    recent = isolated / ".tmp-foo-cafebabe"
+    recent.mkdir()
+    result = cleanup_orphan_scaffolds(staging_max_age_minutes=10)
+    assert recent.exists()
+    assert result["removed_staging"] == []
+
+
+def test_cleanup_removes_orphan_slug_dir(isolated):
+    orphan = isolated / "orphan-slug"
+    orphan.mkdir()
+    result = cleanup_orphan_scaffolds()
+    assert "orphan-slug" in result["removed_orphan"]
+    assert not orphan.exists()
+
+
+def test_cleanup_keeps_known_dashboard(isolated):
+    _create("kept")
+    result = cleanup_orphan_scaffolds()
+    assert (isolated / "kept").exists()
+    assert "kept" not in result["removed_orphan"]
