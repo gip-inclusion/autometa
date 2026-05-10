@@ -1,19 +1,8 @@
-"""Tests for the alembic data import migration's V1 logic (canonicalisation, tolerance)."""
-
-import importlib.util
-from pathlib import Path
+"""Tests for the V1 importer's normalisation/tolerance logic."""
 
 import pytest
 
-_MIGRATION_PATH = Path("alembic/versions/d37119f978f5_dashboards_import.py")
-
-
-@pytest.fixture(scope="module")
-def migration():
-    spec = importlib.util.spec_from_file_location("dashboards_import_migration", _MIGRATION_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from lib.dashboards_import_v1 import _parse_raw_fm, _to_bool, _v1_canonical_tag
 
 
 @pytest.mark.parametrize(
@@ -35,8 +24,8 @@ def migration():
         ("", None),
     ],
 )
-def test_v1_canonical_tag(migration, raw, expected):
-    assert migration._v1_canonical_tag(raw) == expected
+def test_v1_canonical_tag(raw, expected):
+    assert _v1_canonical_tag(raw) == expected
 
 
 @pytest.mark.parametrize(
@@ -47,8 +36,8 @@ def test_v1_canonical_tag(migration, raw, expected):
         ("---\ntitle: x\ncron: true\n---\nbody", {"title", "cron"}),
     ],
 )
-def test_parse_raw_fm_tolerates_malformed(migration, content, expected_keys):
-    assert set(migration._parse_raw_fm(content).keys()) == expected_keys
+def test_parse_raw_fm_tolerates_malformed(content, expected_keys):
+    assert set(_parse_raw_fm(content).keys()) == expected_keys
 
 
 @pytest.mark.parametrize(
@@ -64,5 +53,5 @@ def test_parse_raw_fm_tolerates_malformed(migration, content, expected_keys):
         ("off", False),
     ],
 )
-def test_to_bool(migration, value, expected):
-    assert migration._to_bool(value) == expected
+def test_to_bool(value, expected):
+    assert _to_bool(value) == expected
