@@ -5,13 +5,13 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import paramiko
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 
 # sshtunnel 0.4.0 references paramiko.DSSKey which was removed in paramiko 4.0
 if not hasattr(paramiko, "DSSKey"):
     paramiko.DSSKey = None
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import NullPool
 from sshtunnel import SSHTunnelForwarder  # noqa: E402
 
 from .api_signals import emit_api_signal
