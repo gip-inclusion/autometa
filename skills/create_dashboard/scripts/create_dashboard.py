@@ -4,13 +4,9 @@ import argparse
 import json
 import sys
 from datetime import timezone
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-from lib.dashboards import create_dashboard  # noqa: E402
-from web import config  # noqa: E402
+from lib.dashboards import create_dashboard
+from web import config
 
 
 def _require_runtime_context() -> tuple[str, str]:
