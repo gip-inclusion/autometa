@@ -18,7 +18,7 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 
 1. Lister les candidats actifs :
    ```bash
-   python skills/list_dashboards.py | grep -i <indice>
+   .venv/bin/python skills/list_dashboards.py | grep -i <indice>
    ```
 2. **Aucun match** : c'est probablement une création — pivoter vers `create_dashboard`, ou demander à l'utilisateur de clarifier.
 3. **Un seul match** : présenter le titre et le lien `/interactive/{slug}/` à l'utilisateur, et demander confirmation explicite avant d'invoquer `update_dashboard`.

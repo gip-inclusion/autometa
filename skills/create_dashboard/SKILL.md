@@ -13,7 +13,7 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
 
 1. Lister les candidats actifs sur le thème :
    ```bash
-   python skills/list_dashboards.py | grep -i <thème ou mots-clés>
+   .venv/bin/python skills/list_dashboards.py | grep -i <thème ou mots-clés>
    ```
 2. **Aucun match** : c'est bien une création — continuer.
 3. **Match proche** (par titre, slug ou sujet) : présenter le candidat à l'utilisateur (titre + lien `/interactive/{slug}/`) et lui demander s'il préfère modifier l'existant via `update_dashboard` plutôt que créer un nouveau TDB.
@@ -65,6 +65,12 @@ Injectées automatiquement par `web/agents/cli.py` au démarrage du sous-process
 - `AUTOMETA_USER_EMAIL` — email de l'utilisateur qui crée (persisté dans `dashboards.first_author_email`).
 
 Si l'une manque, le script échoue avec code retour non nul.
+
+## Codes de retour
+
+- `0` — succès, JSON sur stdout.
+- `1` — slug invalide, slug déjà pris, ou autre erreur métier.
+- `2` — variables d'env manquantes (bug d'intégration).
 
 ## Conventions de codage
 

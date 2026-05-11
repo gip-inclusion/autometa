@@ -37,7 +37,7 @@ Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill copie le templa
 
 ### `update_dashboard` (modification)
 
-**Point d'entrée canonique** dès qu'un utilisateur exprime le souhait de modifier un TDB existant. Garantit que c'est le bon slug, met à jour DB + `APP.md`, et retourne l'`originating_user_email` (premier auteur, ≠ utilisateur courant) et le chemin des conventions à respecter pour la suite.
+**Point d'entrée canonique** dès qu'un utilisateur exprime le souhait de modifier un TDB existant. Garantit que c'est le bon slug, met à jour DB + `APP.md`, et retourne l'`originating_user_email` (parfois différent) et le chemin des conventions à respecter pour la suite.
 
 ```bash
 .venv/bin/python skills/update_dashboard/scripts/update_dashboard.py \
