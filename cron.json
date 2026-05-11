@@ -5,6 +5,6 @@
     { "command": "0 4 * * * sync-webinaires" },
     { "command": "0 5 * * 1 slack-feedback" },
     { "command": "0 6 * * * python -m web.cron" },
-    { "command": "*/10 * * * * cleanup-dashboards" }
+    { "command": "0 7 * * * cleanup-dashboards" }
   ]
 }

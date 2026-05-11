@@ -257,14 +257,15 @@ def test_create_dashboard_rename_failure_cleans_staging_no_db_row(isolated, mock
         assert session.scalar(select(Dashboard).where(Dashboard.slug == "rename-fail")) is None
 
 
-def test_cleanup_removes_old_staging(isolated):
+def test_cleanup_dry_run_flags_old_staging_without_deleting(isolated):
     old = isolated / ".tmp-foo-deadbeef"
     old.mkdir()
     old_ts = datetime.now(timezone.utc).timestamp() - 30 * 60
     os.utime(old, (old_ts, old_ts))
     result = cleanup_orphan_scaffolds(staging_max_age_minutes=10)
-    assert ".tmp-foo-deadbeef" in result["removed_staging"]
-    assert not old.exists()
+    assert ".tmp-foo-deadbeef" in result["staging"]
+    assert result["dry_run"] is True
+    assert old.exists()
 
 
 def test_cleanup_keeps_recent_staging(isolated):
@@ -272,19 +273,49 @@ def test_cleanup_keeps_recent_staging(isolated):
     recent.mkdir()
     result = cleanup_orphan_scaffolds(staging_max_age_minutes=10)
     assert recent.exists()
-    assert result["removed_staging"] == []
+    assert result["staging"] == []
 
 
-def test_cleanup_removes_orphan_slug_dir(isolated):
+def test_cleanup_dry_run_flags_orphan_without_deleting(isolated):
     orphan = isolated / "orphan-slug"
     orphan.mkdir()
     result = cleanup_orphan_scaffolds()
-    assert "orphan-slug" in result["removed_orphan"]
-    assert not orphan.exists()
+    assert "orphan-slug" in result["orphan"]
+    assert orphan.exists()
 
 
 def test_cleanup_keeps_known_dashboard(isolated):
     _create("kept")
     result = cleanup_orphan_scaffolds()
     assert (isolated / "kept").exists()
-    assert "kept" not in result["removed_orphan"]
+    assert "kept" not in result["orphan"]
+
+
+@pytest.mark.parametrize(
+    "dir_name,key,age_offset_min",
+    [
+        (".tmp-bar-feedface", "staging", -30),
+        ("orphan-bar", "orphan", 0),
+    ],
+)
+def test_cleanup_deletes_when_dry_run_false(isolated, dir_name, key, age_offset_min):
+    target = isolated / dir_name
+    target.mkdir()
+    if age_offset_min:
+        ts = datetime.now(timezone.utc).timestamp() + age_offset_min * 60
+        os.utime(target, (ts, ts))
+    result = cleanup_orphan_scaffolds(dry_run=False)
+    assert dir_name in result[key]
+    assert result["dry_run"] is False
+    assert not target.exists()
+
+
+def test_main_logs_warning_when_orphans_found(isolated, caplog):
+    (isolated / "orphan-bar").mkdir()
+    from lib.dashboards import main
+
+    with caplog.at_level("WARNING", logger="lib.dashboards"):
+        main()
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings, "expected a warning when orphans are flagged"
+    assert "orphan-bar" in str(warnings[0].args)

@@ -172,14 +172,14 @@ def create_dashboard(
         raise
 
 
-def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10) -> dict:
-    """GC : supprime les stagings expirés et les dossiers slug sans ligne DB."""
+def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10, dry_run: bool = True) -> dict:
+    """Identifie stagings expirés et dossiers slug sans ligne DB. Dry-run par défaut."""
     if not config.INTERACTIVE_DIR.exists():
-        return {"removed_staging": [], "removed_orphan": []}
+        return {"staging": [], "orphan": [], "dry_run": dry_run}
 
     now_ts = datetime.now(timezone.utc).timestamp()
-    removed_staging: list[str] = []
-    removed_orphan: list[str] = []
+    staging: list[str] = []
+    orphan: list[str] = []
 
     with get_db() as session:
         known = set(session.scalars(select(Dashboard.slug)).all())
@@ -190,31 +190,34 @@ def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10) -> dict:
         if path.name.startswith(_STAGING_PREFIX):
             age_min = (now_ts - path.stat().st_mtime) / 60
             if age_min > staging_max_age_minutes:
-                shutil.rmtree(path, ignore_errors=True)
-                removed_staging.append(path.name)
+                if not dry_run:
+                    shutil.rmtree(path, ignore_errors=True)
+                staging.append(path.name)
             continue
         if path.name not in known:
-            shutil.rmtree(path, ignore_errors=True)
-            removed_orphan.append(path.name)
+            if not dry_run:
+                shutil.rmtree(path, ignore_errors=True)
+            orphan.append(path.name)
 
-    if removed_staging or removed_orphan:
-        logger.warning(
-            "orphan scaffolds cleaned: staging=%s orphan=%s",
-            removed_staging,
-            removed_orphan,
-        )
-    return {"removed_staging": removed_staging, "removed_orphan": removed_orphan}
+    return {"staging": staging, "orphan": orphan, "dry_run": dry_run}
 
 
 def main() -> None:
-    """CLI: nettoyage périodique des scaffolds orphelins."""
+    """CLI: GC périodique des scaffolds. Dry-run, report via logs."""
     logging.basicConfig(level=logging.INFO)
     result = cleanup_orphan_scaffolds()
     logger.info(
-        "cleanup-dashboards: removed_staging=%d removed_orphan=%d",
-        len(result["removed_staging"]),
-        len(result["removed_orphan"]),
+        "cleanup-dashboards (dry_run=%s): staging=%d orphan=%d",
+        result["dry_run"],
+        len(result["staging"]),
+        len(result["orphan"]),
     )
+    if result["staging"] or result["orphan"]:
+        logger.warning(
+            "cleanup-dashboards flagged: staging=%s orphan=%s",
+            result["staging"],
+            result["orphan"],
+        )
 
 
 def _upsert_tag(session: Session, name: str) -> Tag:
