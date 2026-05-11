@@ -202,10 +202,9 @@ def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10, dry_run: bool = 
     return {"staging": staging, "orphan": orphan, "dry_run": dry_run}
 
 
-def main() -> None:
-    """CLI: GC périodique des scaffolds. Dry-run, report via logs."""
-    logging.basicConfig(level=logging.INFO)
-    result = cleanup_orphan_scaffolds()
+def run_periodic_cleanup(dry_run: bool = True) -> dict:
+    """Cleanup + log warning. Configurable dry-run depuis l'appelant (script cron)."""
+    result = cleanup_orphan_scaffolds(dry_run=dry_run)
     logger.info(
         "cleanup-dashboards (dry_run=%s): staging=%d orphan=%d",
         result["dry_run"],
@@ -218,6 +217,7 @@ def main() -> None:
             result["staging"],
             result["orphan"],
         )
+    return result
 
 
 def _upsert_tag(session: Session, name: str) -> Tag:
