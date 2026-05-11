@@ -125,6 +125,7 @@ def execute_data_inclusion_query(
             ssh_key=config.DATA_INCLUSION_SSH_KEY,
             ssh_key_passphrase=config.DATA_INCLUSION_SSH_KEY_PASSPHRASE,
             sql=sql,
+            timeout=timeout,
         )
         data = {
             "columns": result.columns,
@@ -152,6 +153,7 @@ def execute_autometa_tables_query(
         result = _atdb_execute_sql(
             database_url=config.AUTOMETA_TABLES_DATABASE_URL,
             sql=sql,
+            timeout=timeout,
         )
         data = {"columns": result.columns, "rows": result.rows, "row_count": result.row_count}
         execution_time_ms = int((time.time() - start_time) * 1000)

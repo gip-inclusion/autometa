@@ -38,6 +38,17 @@ def test_execute_sql_uses_nullpool(mocker):
     assert kwargs.get("poolclass") is NullPool
 
 
+def test_execute_sql_applies_statement_timeout(mocker):
+    mock_engine, _ = make_sa_mocks(mocker, [], [])
+    mock_create = mocker.patch("lib.autometa_tables_db.create_engine", return_value=mock_engine)
+    mocker.patch("lib.autometa_tables_db.emit_api_signal")
+
+    execute_sql(database_url="postgresql://user:pass@db:5432/tables", sql="SELECT 1", timeout=30)
+
+    _, kwargs = mock_create.call_args
+    assert kwargs.get("connect_args") == {"options": "-c statement_timeout=30000"}
+
+
 def test_execute_sql_emits_signal(mocker):
     mock_engine, _ = make_sa_mocks(mocker, [], [])
     mocker.patch("lib.autometa_tables_db.create_engine", return_value=mock_engine)
