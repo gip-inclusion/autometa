@@ -1,0 +1,11 @@
+{% set is_flagged = current_conv and current_conv.flagged_at %}
+{% set can_remove = is_flagged and (is_admin or current_conv.flag_user_id == user_email) %}
+<button type="button"
+        class="chat-flag-btn{% if is_flagged %} flagged{% endif %}"
+        id="chatFlagBtn"
+        title="Signaler un problème"
+        data-conv-id="{{ current_conv.id }}"
+        data-current-reason="{{ current_conv.flag_reason or '' }}"
+        {% if can_remove %}data-can-remove="1"{% endif %}>
+  <i class="{% if is_flagged %}ri-flag-fill{% else %}ri-flag-line{% endif %}" aria-hidden="true"></i>
+</button>

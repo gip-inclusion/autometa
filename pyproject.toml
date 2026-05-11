@@ -23,6 +23,7 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "httpx>=0.28.1",
     "sshtunnel>=0.4.0",
+    "paramiko>=5.0.0",
     "sentry-sdk[fastapi,sqlalchemy,httpx,pure_eval]>=2.29.0",
 ]
 
@@ -32,6 +33,10 @@ sync-sites = "skills.sync_sites.scripts.sync_sites:main"
 sync-inventory = "skills.sync_metabase.scripts.sync_inventory:main"
 sync-webinaires = "lib.webinaires:main"
 slack-feedback = "web.slack_feedback:main"
+cleanup-dashboards = "lib.dashboards:main"
+
+[tool.uv]
+constraint-dependencies = ["urllib3>=2.7.0"]
 
 [build-system]
 requires = ["hatchling"]

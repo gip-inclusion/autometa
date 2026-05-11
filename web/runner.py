@@ -216,6 +216,7 @@ class TaskRunner:
                     message=prompt,
                     history=history,
                     session_id=session_id,
+                    user_email=user_email,
                 ):
                     if event.type == "assistant":
                         assistant_text_parts.append(str(event.content))

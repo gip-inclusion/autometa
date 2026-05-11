@@ -43,7 +43,9 @@ def get_db() -> Session:
     """Context manager yielding a SQLAlchemy Session. Auto-commits on success, rolls back on error."""
     test_session = test_session_var.get()
     if test_session is not None:
-        yield test_session
+        # Why: SAVEPOINT to mirror prod commit/rollback semantics inside the shared test session.
+        with test_session.begin_nested():
+            yield test_session
         return
 
     factory = get_session_factory()

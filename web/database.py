@@ -12,6 +12,8 @@ from .db import get_db, init_tables
 from .helpers import utcnow
 from .models import Conversation as ConvModel
 from .models import ConversationTag as ConvTagModel
+from .models import Dashboard as DashboardModel
+from .models import DashboardTag as DashboardTagModel
 from .models import Message as MsgModel
 from .models import PinnedItem as PinModel
 from .models import Report as ReportModel
@@ -188,6 +190,9 @@ class Conversation:
     usage_extra: Optional[dict] = None
     pinned_at: Optional[datetime] = None
     pinned_label: Optional[str] = None
+    flagged_at: Optional[datetime] = None
+    flag_reason: Optional[str] = None
+    flag_user_id: Optional[str] = None
     needs_response: bool = False
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
@@ -215,6 +220,9 @@ class Conversation:
             "usage_extra": self.usage_extra,
             "pinned_at": self.pinned_at.isoformat() if self.pinned_at else None,
             "pinned_label": self.pinned_label,
+            "flagged_at": self.flagged_at.isoformat() if self.flagged_at else None,
+            "flag_reason": self.flag_reason,
+            "flag_user_id": self.flag_user_id,
             "messages": [
                 {
                     "id": m.id,
@@ -398,6 +406,9 @@ class ConversationStore:
                 usage_extra=usage_extra,
                 pinned_at=p_pinned_at,
                 pinned_label=p_label,
+                flagged_at=c.flagged_at,
+                flag_reason=c.flag_reason,
+                flag_user_id=c.flag_user_id,
                 needs_response=bool(c.needs_response) if c.needs_response else False,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
@@ -536,6 +547,44 @@ class ConversationStore:
 
     def unpin_conversation(self, conv_id: str) -> bool:
         return self.unpin_item("conversation", conv_id)
+
+    def flag_conversation(self, conv_id: str, user_id: str, reason: str) -> bool:
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            c.flagged_at = utcnow()
+            c.flag_reason = reason
+            c.flag_user_id = user_id
+            return True
+
+    def unflag_conversation(self, conv_id: str) -> bool:
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            c.flagged_at = None
+            c.flag_reason = None
+            c.flag_user_id = None
+            return True
+
+    def list_flagged_conversations(self) -> list[Conversation]:
+        with get_db() as session:
+            stmt = select(ConvModel).where(ConvModel.flagged_at.is_not(None)).order_by(ConvModel.flagged_at.desc())
+            rows = session.scalars(stmt).all()
+            return [
+                Conversation(
+                    id=c.id,
+                    user_id=c.user_id,
+                    title=c.title,
+                    flagged_at=c.flagged_at,
+                    flag_reason=c.flag_reason,
+                    flag_user_id=c.flag_user_id,
+                    created_at=c.created_at,
+                    updated_at=c.updated_at,
+                )
+                for c in rows
+            ]
 
     def list_pinned_conversations(self) -> list[Conversation]:
         with get_db() as session:
@@ -829,6 +878,44 @@ class ConversationStore:
             result = _model_to_report(r)
             result.content = content
             return result
+
+    def list_dashboards(self) -> list[dict]:
+        """Active dashboards from the DB, sorted by `updated_at` desc."""
+        with get_db() as session:
+            dashboards = list(
+                session.scalars(
+                    select(DashboardModel).where(~DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
+                ).all()
+            )
+            if not dashboards:
+                return []
+
+            slugs = [d.slug for d in dashboards]
+            tag_rows = session.execute(
+                select(DashboardTagModel.dashboard_slug, TagModel.name)
+                .join(TagModel, TagModel.id == DashboardTagModel.tag_id)
+                .where(DashboardTagModel.dashboard_slug.in_(slugs))
+            ).all()
+            tags_by_slug: dict[str, list[str]] = {}
+            for slug, name in tag_rows:
+                tags_by_slug.setdefault(slug, []).append(name)
+
+            return [
+                {
+                    "slug": d.slug,
+                    "title": d.title,
+                    "description": d.description or "",
+                    "website": d.website,
+                    "category": d.category,
+                    "tags": tags_by_slug.get(d.slug, []),
+                    "authors": [d.first_author_email],
+                    "conversation_id": d.created_in_conversation_id,
+                    "updated": d.updated_at,
+                    "url": f"/interactive/{d.slug}/",
+                    "is_interactive": True,
+                }
+                for d in dashboards
+            ]
 
     def list_reports(
         self,

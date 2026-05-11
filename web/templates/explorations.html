@@ -213,12 +213,14 @@
           <i class="ri-restart-line"></i> Relancer
         </button>
         <span class="text-muted">La dernière réponse n'a pas abouti</span>
+        {% include "_flag_button.html" %}
       </div>
       {% else %}
       <!-- Read-only notice for shared conversations -->
       <div class="chat-bar chat-bar-readonly">
         <i class="ri-lock-line text-muted"></i>
         <span class="text-muted">Consultation seule — cette conversation appartient à {{ owner_email }}</span>
+        {% include "_flag_button.html" %}
       </div>
       {% endif %}
       {% else %}
@@ -250,6 +252,7 @@
             ></textarea>
           </div>
         </div>
+        {% include "_flag_button.html" %}
         <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
           <i class="ri-send-plane-fill"></i>
         </button>
@@ -260,6 +263,40 @@
       {% endif %}
     </div>
   </div>
+
+  {% if current_conv %}
+  <dialog id="flagDialog" class="flag-dialog">
+    <form method="dialog">
+      <h3>Signaler un problème</h3>
+      <label for="flagReason">Quel est le problème&nbsp;? <span class="text-muted">(facultatif)</span></label>
+      <textarea id="flagReason" name="reason" maxlength="500" rows="4" placeholder="Décrivez brièvement ce qui ne va pas…"></textarea>
+      <p class="flag-counter"><span id="flagCounter">0</span>/500</p>
+      <div class="flag-actions">
+        <button type="button" id="flagCancel" class="btn btn-link">Annuler</button>
+        <button type="button"
+                id="flagRemove"
+                class="btn btn-outline-danger"
+                hx-delete="/api/conversations/{{ current_conv.id }}/flag"
+                hx-target="#chatFlagBtn"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('flagDialog').close()"
+                hidden>
+          Retirer le signalement
+        </button>
+        <button type="button"
+                id="flagSubmit"
+                class="btn btn-primary"
+                hx-post="/api/conversations/{{ current_conv.id }}/flag"
+                hx-include="#flagReason"
+                hx-target="#chatFlagBtn"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('flagDialog').close()">
+          Signaler
+        </button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
 </section>
 {% endblock %}
 
@@ -316,6 +353,34 @@
       if (res.ok) window.location.reload();
     }
   });
+
+  if (!window.__flagDialogBound) {
+    window.__flagDialogBound = true;
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('#chatFlagBtn');
+      if (btn) {
+        const dialog = document.getElementById('flagDialog');
+        const textarea = document.getElementById('flagReason');
+        const counter = document.getElementById('flagCounter');
+        const removeBtn = document.getElementById('flagRemove');
+        if (!dialog || !textarea) return;
+        textarea.value = btn.dataset.currentReason || '';
+        counter.textContent = String(textarea.value.length);
+        if (removeBtn) removeBtn.hidden = !btn.dataset.canRemove;
+        dialog.showModal();
+        textarea.focus();
+        return;
+      }
+      if (e.target.closest('#flagCancel')) {
+        document.getElementById('flagDialog')?.close();
+      }
+    });
+    document.body.addEventListener('input', (e) => {
+      if (e.target.id !== 'flagReason') return;
+      const counter = document.getElementById('flagCounter');
+      if (counter) counter.textContent = String(e.target.value.length);
+    });
+  }
 
   document.addEventListener('DOMContentLoaded', async () => {
     // Hide public warning if previously dismissed (HTMX case handled in chat.js)

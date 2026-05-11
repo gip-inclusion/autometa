@@ -7,13 +7,13 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from web import config, llm
 from web.config import ADMIN_USERS
 from web.database import store
-from web.deps import get_current_user
+from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
 from web.runner import runner
 from web.uploads import (
@@ -214,6 +214,70 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
 @router.get("/running")
 def get_running():
     return {"running": store.get_running_conversation_ids()}
+
+
+@router.get("/flagged")
+def list_flagged(user_email: str = Depends(get_current_user)):
+    if user_email not in ADMIN_USERS:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
+    convs = store.list_flagged_conversations()
+    # Why: `user_id` is a legacy alias for `flagged_by` kept for the deployed
+    # /interactive/conversations-echecs/ dashboard. Drop after that consumer
+    # migrates to `flagged_by`.
+    return {
+        "conversations": [
+            {
+                "id": c.id,
+                "title": c.title,
+                "flagged_by": c.flag_user_id,
+                "user_id": c.flag_user_id,
+                "flag_reason": c.flag_reason,
+                "flagged_at": c.flagged_at.isoformat() if c.flagged_at else None,
+            }
+            for c in convs
+        ]
+    }
+
+
+def _render_flag_button(request: Request, conv_id: str, user_email: str):
+    current_conv = store.get_conversation(conv_id, include_messages=False)
+    return templates.TemplateResponse(
+        request,
+        "_flag_button.html",
+        {
+            "current_conv": current_conv,
+            "user_email": user_email,
+            "is_admin": user_email in ADMIN_USERS,
+        },
+    )
+
+
+@router.post("/{conv_id}/flag")
+def flag_conversation(
+    conv_id: str,
+    request: Request,
+    reason: str = Form(default="", max_length=500),
+    user_email: str = Depends(get_current_user),
+):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if conv.flag_user_id is not None and conv.flag_user_id != user_email and user_email not in ADMIN_USERS:
+        return JSONResponse({"error": "Already flagged by another user"}, status_code=409)
+    store.flag_conversation(conv_id, user_email, reason)
+    return _render_flag_button(request, conv_id, user_email)
+
+
+@router.delete("/{conv_id}/flag")
+def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if conv.flag_user_id is not None and user_email not in ADMIN_USERS and conv.flag_user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    store.unflag_conversation(conv_id)
+    return _render_flag_button(request, conv_id, user_email)
 
 
 @router.get("/{conv_id}")

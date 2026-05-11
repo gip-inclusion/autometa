@@ -22,8 +22,12 @@ class CLIBackend(AgentBackend):
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
 
-    def _build_env(self) -> dict:
+    def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        if conversation_id:
+            env["AUTOMETA_CONVERSATION_ID"] = conversation_id
+        if user_email:
+            env["AUTOMETA_USER_EMAIL"] = user_email
         return env
 
     def _extra_cmd_args(self) -> list[str]:
@@ -52,6 +56,7 @@ class CLIBackend(AgentBackend):
         message: str,
         history: list[dict],
         session_id: str | None = None,
+        user_email: str | None = None,
     ) -> AsyncIterator[AgentMessage]:
         is_resume = session_id is not None and session_sync.get_session_path(session_id).exists()
 
@@ -94,7 +99,7 @@ class CLIBackend(AgentBackend):
             len(prompt),
         )
 
-        env = self._build_env()
+        env = self._build_env(conversation_id=conversation_id, user_email=user_email)
 
         span = sentry_sdk.start_span(op="agent.cli.process", name="claude CLI subprocess")
         span.set_data("conversation_id", conversation_id)

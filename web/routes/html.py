@@ -20,7 +20,6 @@ from web.helpers import (
     validate_conv_id,
     validate_knowledge_path,
 )
-from web.interactive_apps import scan_interactive_apps
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +91,7 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
     # Pinned items (conversations, reports, apps)
     pinned_raw = store.list_pinned_items()
     apps_by_slug = (
-        {a["slug"]: a for a in scan_interactive_apps()} if any(p.item_type == "app" for p in pinned_raw) else {}
+        {a["slug"]: a for a in store.list_dashboards()} if any(p.item_type == "app" for p in pinned_raw) else {}
     )
     pinned = []
     for p in pinned_raw:
@@ -304,7 +303,7 @@ def rechercher(
 
     # Apps
     if show_apps:
-        for app in scan_interactive_apps():
+        for app in store.list_dashboards():
             app_tags = set(app.get("tags", []))
             app_tags.add(app.get("website", ""))
             app_tags.add("appli")
@@ -460,6 +459,7 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
             "current_conv": current_conv,
             "is_shared": is_shared,
             "owner_email": owner_email,
+            "user_email": user_email,
             "can_upload": can_upload,
             "can_relaunch": can_relaunch,
             **data,
