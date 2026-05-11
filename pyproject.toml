@@ -35,6 +35,9 @@ sync-webinaires = "lib.webinaires:main"
 slack-feedback = "web.slack_feedback:main"
 cleanup-dashboards = "lib.dashboards:main"
 
+[tool.uv]
+constraint-dependencies = ["urllib3>=2.7.0"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
