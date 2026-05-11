@@ -27,6 +27,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 
 Sources de données :
 
+- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_tables_autometa` pour le catalogue.
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
 - **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH)

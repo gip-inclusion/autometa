@@ -5,7 +5,7 @@ description: Query autometa_tables_db — base PostgreSQL centralisant les table
 
 # autometa_tables_db
 
-Base PostgreSQL (via tunnel SSH) contenant les tables exportées depuis les différentes instances Metabase. À utiliser **en priorité** avant toute requête Metabase.
+Base PostgreSQL contenant les tables exportées depuis les différentes bases de données. À utiliser **en priorité** avant toute requête Metabase.
 
 ## Règle de priorité
 
@@ -57,7 +57,3 @@ else:
 | `asp` | Tables issues de l'instance Metabase ASP |
 | `datalake` | Tables issues de l'instance Metabase Datalake |
 | `documentation` | Catalogue des tables (`doc_tables_autometa`) |
-
-## Performance
-
-Chaque requête ouvre un tunnel SSH (~200ms overhead). Combiner les SELECT avec UNION ALL ou des CTEs plutôt que de faire plusieurs appels séparés.
