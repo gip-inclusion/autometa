@@ -46,13 +46,23 @@ def _open_tunnel(database_url: str, ssh_host: str, ssh_user: str, ssh_key: str, 
 
 
 def execute_sql(
-    database_url: str, ssh_host: str, ssh_user: str, ssh_key: str, sql: str, ssh_key_passphrase: str = ""
+    database_url: str,
+    ssh_host: str,
+    ssh_user: str,
+    ssh_key: str,
+    sql: str,
+    ssh_key_passphrase: str = "",
+    timeout: int = 60,
 ) -> QueryResult:
     """Open an SSH tunnel, run a single SQL query, close everything."""
     emit_api_signal(source="data_inclusion", instance="datawarehouse", url=ssh_host, sql=sql)
     with _open_tunnel(database_url, ssh_host, ssh_user, ssh_key, ssh_key_passphrase) as (parsed, tunnel):
         url = f"postgresql://{parsed.username}:{parsed.password}@127.0.0.1:{tunnel.local_bind_port}/{parsed.path.lstrip('/')}"
-        engine = create_engine(url, poolclass=NullPool)
+        engine = create_engine(
+            url,
+            poolclass=NullPool,
+            connect_args={"options": f"-c statement_timeout={timeout * 1000}"},
+        )
         with engine.connect() as conn:
             result = conn.execute(text(sql))
             columns = list(result.keys())

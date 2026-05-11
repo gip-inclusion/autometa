@@ -7,9 +7,13 @@ from .api_signals import emit_api_signal
 from .pg import QueryResult
 
 
-def execute_sql(database_url: str, sql: str) -> QueryResult:
+def execute_sql(database_url: str, sql: str, timeout: int = 60) -> QueryResult:
     emit_api_signal(source="autometa_tables_db", instance="default", url=database_url, sql=sql)
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(
+        database_url,
+        poolclass=NullPool,
+        connect_args={"options": f"-c statement_timeout={timeout * 1000}"},
+    )
     with engine.connect() as conn:
         result = conn.execute(text(sql))
         columns = list(result.keys())
