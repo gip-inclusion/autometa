@@ -128,38 +128,40 @@ def test_execute_matomo_query(mocker):
     mock_api.request.assert_called_once()
 
 
-def test_execute_query_routes_to_metabase(mocker):
+@pytest.mark.parametrize(
+    "source, kwargs, patched",
+    [
+        (
+            "metabase",
+            {"instance": "stats", "sql": "SELECT 1", "database_id": 2},
+            "lib.query.execute_metabase_query",
+        ),
+        (
+            "matomo",
+            {"instance": "inclusion", "method": "VisitsSummary.get", "params": {"idSite": 117}},
+            "lib.query.execute_matomo_query",
+        ),
+        (
+            "data_inclusion",
+            {"instance": "datawarehouse", "sql": "SELECT 1"},
+            "lib.query.execute_data_inclusion_query",
+        ),
+        (
+            "autometa_tables_db",
+            {"instance": "default", "sql": "SELECT 1"},
+            "lib.query.execute_autometa_tables_query",
+        ),
+    ],
+)
+def test_execute_query_routes_to_source(mocker, source, kwargs, patched):
     from lib.query import CallerType, QueryResult, execute_query
 
-    mock_metabase = mocker.patch("lib.query.execute_metabase_query")
-    mock_metabase.return_value = QueryResult(success=True, data={})
+    mock_executor = mocker.patch(patched)
+    mock_executor.return_value = QueryResult(success=True, data={})
 
-    execute_query(
-        source="metabase",
-        instance="stats",
-        caller=CallerType.AGENT,
-        sql="SELECT 1",
-        database_id=2,
-    )
+    execute_query(source=source, caller=CallerType.AGENT, **kwargs)
 
-    mock_metabase.assert_called_once()
-
-
-def test_execute_query_routes_to_matomo(mocker):
-    from lib.query import CallerType, QueryResult, execute_query
-
-    mock_matomo = mocker.patch("lib.query.execute_matomo_query")
-    mock_matomo.return_value = QueryResult(success=True, data={})
-
-    execute_query(
-        source="matomo",
-        instance="inclusion",
-        caller=CallerType.AGENT,
-        method="VisitsSummary.get",
-        params={"idSite": 117},
-    )
-
-    mock_matomo.assert_called_once()
+    mock_executor.assert_called_once()
 
 
 def test_execute_query_unknown_source():
