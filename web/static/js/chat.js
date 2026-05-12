@@ -507,3 +507,90 @@ async function checkAuthStatus() {
 document.addEventListener('DOMContentLoaded', checkAuthStatus);
 // Also check after htmx navigations
 document.body.addEventListener('htmx:afterSettle', checkAuthStatus);
+
+// =============================================================================
+// Page actions (warning, relaunch, pin/unpin, flag dialog)
+// These live in chat.js (loaded in <head>) so they survive htmx navigation —
+// the explorations.html {% block scripts %} is outside #main and isn't re-run.
+// =============================================================================
+
+function dismissPublicWarning() {
+  const warning = document.getElementById('publicWarning');
+  if (!warning) return;
+  warning.style.display = 'none';
+  localStorage.setItem('publicWarningDismissed', 'true');
+}
+
+async function relaunchConversation() {
+  if (!currentConversationId) return;
+  const btn = document.getElementById('relaunchBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Relance...'; }
+  try {
+    const resp = await fetch(`/api/conversations/${currentConversationId}/relaunch`, { method: 'POST' });
+    const data = await resp.json();
+    if (resp.ok) {
+      startStream(data.after_id);
+    } else {
+      alert(data.error || 'Erreur');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-restart-line"></i> Relancer'; }
+    }
+  } catch (e) {
+    alert('Erreur réseau');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-restart-line"></i> Relancer'; }
+  }
+}
+
+async function pinConversation() {
+  if (!currentConversationId) return;
+  const currentTitle = document.querySelector('.conv-title-display h1')?.textContent?.trim() || '';
+  const label = prompt('Label pour la sidebar :', currentTitle);
+  if (label === null) return;
+  const res = await fetch(`/api/conversations/${currentConversationId}/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label })
+  });
+  if (res.ok) window.location.reload();
+}
+
+async function unpinConversation() {
+  if (!currentConversationId) return;
+  const res = await fetch(`/api/conversations/${currentConversationId}/pin`, { method: 'DELETE' });
+  if (res.ok) window.location.reload();
+}
+
+function openFlagDialog(btn) {
+  const dialog = document.getElementById('flagDialog');
+  const textarea = document.getElementById('flagReason');
+  const counter = document.getElementById('flagCounter');
+  const removeBtn = document.getElementById('flagRemove');
+  if (!dialog || !textarea) return;
+  textarea.value = btn.dataset.currentReason || '';
+  counter.textContent = String(textarea.value.length);
+  if (removeBtn) removeBtn.hidden = !btn.dataset.canRemove;
+  dialog.showModal();
+  textarea.focus();
+}
+
+function closeFlagDialog() {
+  document.getElementById('flagDialog')?.close();
+}
+
+function updateFlagCounter(input) {
+  const counter = document.getElementById('flagCounter');
+  if (counter) counter.textContent = String(input.value.length);
+}
+
+document.body.addEventListener('click', (e) => {
+  const flagBtn = e.target.closest('#chatFlagBtn');
+  if (flagBtn) return openFlagDialog(flagBtn);
+  if (e.target.closest('#flagCancel')) return closeFlagDialog();
+  if (e.target.closest('#pinConvBtn')) return pinConversation();
+  if (e.target.closest('#unpinConvBtn')) return unpinConversation();
+  if (e.target.closest('#relaunchBtn')) return relaunchConversation();
+  if (e.target.closest('.chat-bar-warning-close')) return dismissPublicWarning();
+});
+
+document.body.addEventListener('input', (e) => {
+  if (e.target.id === 'flagReason') updateFlagCounter(e.target);
+});
