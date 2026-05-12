@@ -291,6 +291,15 @@ def test_cleanup_keeps_known_dashboard(isolated):
     assert "kept" not in result["orphan"]
 
 
+def test_cleanup_reports_scanned_count(isolated):
+    _create("kept")
+    (isolated / "orphan").mkdir()
+    (isolated / ".tmp-foo-deadbeef").mkdir()
+    (isolated / "not-a-dir.txt").write_text("ignored")
+    result = cleanup_orphan_scaffolds()
+    assert result["scanned"] == 3
+
+
 @pytest.mark.parametrize(
     "dir_name,key,age_offset_min",
     [
