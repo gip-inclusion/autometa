@@ -9,6 +9,7 @@ import logging
 import time
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import OperationalError
 
 from . import config
 from .db import get_db
@@ -209,7 +210,7 @@ def run():
                 session.execute(text("SELECT 1"))
                 seed_tags(session)
             break
-        except Exception:
+        except OperationalError:
             if attempt == 2:
                 logger.exception("Warmup failed after 3 attempts: cannot connect to database")
                 return
