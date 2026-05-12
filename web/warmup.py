@@ -8,12 +8,12 @@ import json
 import logging
 import time
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from . import config
 from .db import get_db
 from .models import MatomoBaseline, MatomoDimension, MatomoEvent, MatomoSegment, MetabaseCard, MetabaseDashboard
-from .schema import init_db
+from .schema import seed_tags
 
 logger = logging.getLogger(__name__)
 
@@ -205,13 +205,15 @@ def run():
 
     for attempt in range(3):
         try:
-            init_db()
+            with get_db() as session:
+                session.execute(text("SELECT 1"))
+                seed_tags(session)
             break
         except Exception:
             if attempt == 2:
                 logger.exception("Warmup failed after 3 attempts: cannot connect to database")
                 return
-            logger.warning(f"Database unavailable (attempt {attempt + 1}/3), retrying in 5s...")
+            logger.warning("Database unavailable (attempt %d/3), retrying in 5s...", attempt + 1)
             time.sleep(5)
 
     warmup_matomo_baselines()

@@ -319,9 +319,6 @@ def _conv_with_report_row(row, report_id, report_title) -> Conversation:
 class ConversationStore:
     """PostgreSQL-backed conversation and report store."""
 
-    def __init__(self):
-        init_tables()
-
     def create_conversation(
         self,
         user_id: Optional[str] = None,
