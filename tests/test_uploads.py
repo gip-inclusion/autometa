@@ -19,7 +19,8 @@ os.environ["DATA_DIR"] = _tmp_dir
 
 # Now we can safely import
 from web import config
-from web.database import ConversationStore, UploadedFile, init_db
+from web.database import ConversationStore, UploadedFile
+from web.schema import init_db
 from web.uploads import (
     BLOCKED_EXTENSIONS,
     TEXT_EXTENSIONS,

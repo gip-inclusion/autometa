@@ -5,7 +5,8 @@ from sqlalchemy import text
 
 from web.agents.base import AgentMessage
 from web.agents.cli import CLIBackend
-from web.database import Conversation, ConversationStore, get_db, init_db
+from web.database import Conversation, ConversationStore, get_db
+from web.schema import init_db
 
 
 @pytest.mark.parametrize(

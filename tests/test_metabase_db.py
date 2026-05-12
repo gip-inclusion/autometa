@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import text
 
 from skills.metabase_query.scripts.cards_db import TOPICS, Card, CardsDB
-from web.database import init_db
 from web.db import get_db
+from web.schema import init_db
 
 
 @pytest.fixture

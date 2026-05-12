@@ -20,7 +20,8 @@ from web.cron import (
     run_cron_task,
     set_cron_enabled,
 )
-from web.database import get_db, init_db
+from web.database import get_db
+from web.schema import init_db
 
 
 @pytest.fixture
