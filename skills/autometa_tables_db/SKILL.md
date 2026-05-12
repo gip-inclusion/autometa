@@ -11,19 +11,19 @@ Base PostgreSQL contenant les tables exportées depuis les différentes bases de
 
 **Avant toute requête Metabase**, vérifier si les tables nécessaires sont présentes dans `autometa_tables_db` :
 
-1. Interroger `documentation.doc_tables_autometa` pour obtenir la liste et la description des tables disponibles.
+1. Interroger `documentation.doc_autometa_tables` pour obtenir la liste et la description des tables disponibles.
 2. Si les tables nécessaires sont présentes → requêter `autometa_tables_db` directement en SQL.
 3. Si absentes → utiliser Metabase normalement.
 
 ## Documentation des tables
 
-La table `documentation.doc_tables_autometa` contient le catalogue complet :
+La table `documentation.doc_autometa_tables` contient le catalogue complet :
 
 ```python
 from lib.query import execute_autometa_tables_query, CallerType
 
 result = execute_autometa_tables_query(
-    sql="SELECT table_name, table_description, column_name, column_type, column_description FROM documentation.doc_tables_autometa ORDER BY table_name, column_name",
+    sql="SELECT table_name, table_description, column_name, column_type, column_description FROM documentation.doc_autometa_tables ORDER BY table_name, column_name",
     caller=CallerType.AGENT,
 )
 ```
@@ -56,4 +56,4 @@ else:
 | `monrecap` | Tables issues de l'instance Metabase Mon Récap |
 | `asp` | Tables issues de l'instance Metabase ASP |
 | `datalake` | Tables issues de l'instance Metabase Datalake |
-| `documentation` | Catalogue des tables (`doc_tables_autometa`) |
+| `documentation` | Catalogue des tables (`doc_autometa_tables`) |
