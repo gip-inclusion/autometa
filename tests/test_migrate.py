@@ -24,23 +24,17 @@ def test_needs_stamp(mocker, tables, expected):
     assert migrate.needs_stamp("postgresql://fake/db") is expected
 
 
-def test_main_stamps_when_needed(mocker):
-    mocker.patch("lib.migrate.needs_stamp", return_value=True)
+@pytest.mark.parametrize(
+    ("needs", "expected_calls"),
+    [
+        (True, [["alembic", "stamp", "head"], ["alembic", "upgrade", "head"]]),
+        (False, [["alembic", "upgrade", "head"]]),
+    ],
+)
+def test_main(mocker, needs, expected_calls):
+    mocker.patch("lib.migrate.needs_stamp", return_value=needs)
     run = mocker.patch("lib.migrate.subprocess.run")
     run.return_value.returncode = 0
 
     assert migrate.main() == 0
-
-    assert run.call_args_list[0].args[0] == ["alembic", "stamp", "head"]
-    assert run.call_args_list[1].args[0] == ["alembic", "upgrade", "head"]
-
-
-def test_main_skips_stamp_when_not_needed(mocker):
-    mocker.patch("lib.migrate.needs_stamp", return_value=False)
-    run = mocker.patch("lib.migrate.subprocess.run")
-    run.return_value.returncode = 0
-
-    assert migrate.main() == 0
-
-    assert len(run.call_args_list) == 1
-    assert run.call_args_list[0].args[0] == ["alembic", "upgrade", "head"]
+    assert [c.args[0] for c in run.call_args_list] == expected_calls

@@ -44,7 +44,7 @@ _ensure_test_db()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _init_schema():
+def init_schema():
     from web.schema import init_db
 
     init_db()
