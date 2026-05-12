@@ -7,12 +7,10 @@ from sqlalchemy import text
 
 from skills.metabase_query.scripts.cards_db import TOPICS, Card, CardsDB
 from web.db import get_db
-from web.schema import init_db
 
 
 @pytest.fixture
 def db():
-    init_db()
     instance = "test"
     with get_db() as session:
         session.execute(text("DELETE FROM metabase_cards WHERE instance = :inst"), {"inst": instance})

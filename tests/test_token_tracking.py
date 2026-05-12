@@ -6,7 +6,6 @@ from sqlalchemy import text
 from web.agents.base import AgentMessage
 from web.agents.cli import CLIBackend
 from web.database import Conversation, ConversationStore, get_db
-from web.schema import init_db
 
 
 @pytest.mark.parametrize(
@@ -46,8 +45,6 @@ def test_conversation_usage_fields_to_dict_includes_usage_fields():
 
 @pytest.fixture
 def db_setup():
-
-    init_db()
     yield
 
     with get_db() as session:
