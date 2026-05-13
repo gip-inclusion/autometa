@@ -1,12 +1,13 @@
-"""Check that today's S3 snapshot exists in the backup bucket. Periodic — Sentry alerts via cron monitor on failure."""
+"""Check that today's S3 snapshot manifest exists in the backup bucket. Periodic — Sentry alerts via cron monitor on failure."""
 
 import datetime
+import json
 import logging
 
-import boto3
-from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from web import config
+from web import s3 as s3_module
 
 logger = logging.getLogger(__name__)
 
@@ -16,20 +17,27 @@ def main() -> None:
         logger.info("BACKUP_S3_BUCKET not configured; skipping")
         return
 
-    client = boto3.client(
-        "s3",
-        endpoint_url=config.S3_ENDPOINT,
-        aws_access_key_id=config.S3_ACCESS_KEY,
-        aws_secret_access_key=config.S3_SECRET_KEY,
-        region_name=config.S3_REGION,
-        config=Config(signature_version="s3v4"),
-    )
+    client = s3_module.make_client()
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    prefix = f"backup/{today}/"
-    response = client.list_objects_v2(Bucket=config.BACKUP_S3_BUCKET, Prefix=prefix, MaxKeys=1)
-    if not response.get("KeyCount", 0):
-        raise RuntimeError(f"S3 snapshot missing: s3://{config.BACKUP_S3_BUCKET}/{prefix}")
-    logger.info("S3 snapshot OK: s3://%s/%s", config.BACKUP_S3_BUCKET, prefix)
+    manifest_key = f"backup/{today}/_MANIFEST.json"
+    try:
+        body = client.get_object(Bucket=config.BACKUP_S3_BUCKET, Key=manifest_key)["Body"].read()
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            raise RuntimeError(f"Snapshot manifest missing: s3://{config.BACKUP_S3_BUCKET}/{manifest_key}") from exc
+        raise
+
+    manifest = json.loads(body)
+    if not manifest.get("ok"):
+        raise RuntimeError(f"Snapshot manifest reports failure: {manifest}")
+    logger.info(
+        "S3 snapshot OK: s3://%s/%s (%d objects, %d bytes)",
+        config.BACKUP_S3_BUCKET,
+        manifest.get("target", manifest_key),
+        manifest.get("objects", 0),
+        manifest.get("bytes", 0),
+    )
 
 
 if __name__ == "__main__":

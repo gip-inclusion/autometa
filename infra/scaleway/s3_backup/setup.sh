@@ -57,7 +57,7 @@ until [ "$(scw function function get "$FN_ID" region="$REGION" -o json | jq -r .
 done
 
 echo "→ Ensuring cron trigger ($SCHEDULE)"
-CRON_ID=$(scw function cron list function-id="$FN_ID" region="$REGION" -o json | jq -r '.[0].id // ""')
+CRON_ID=$(scw function cron list function-id="$FN_ID" region="$REGION" -o json | jq -r ".[] | select(.name==\"${FUNCTION_NAME}-daily\") | .id")
 if [ -z "$CRON_ID" ]; then
   scw function cron create \
     function-id="$FN_ID" \

@@ -4,6 +4,6 @@ schedule: daily
 timeout: 60
 ---
 
-Vérifie que le snapshot quotidien de `matometa` a bien été poussé dans `matometa-backup/backup/{today}/` par la Scaleway Function `s3-backup`. Si le préfixe est vide ou absent, le script raise — `web.cron` remonte `failure` à Sentry via `capture_checkin`, ce qui déclenche l'alerte.
+Vérifie que la Scaleway Function `s3-backup` a bien produit `matometa-backup/backup/{today}/_MANIFEST.json` avec `ok: true`. Le manifest est écrit *en dernier* par le handler ; sa présence atteste que la copie est complète (un snapshot partiel n'a pas de manifest). Si le manifest manque ou rapporte un échec, le script raise — `web.cron` remonte `failure` à Sentry via `capture_checkin`.
 
-Voir `infra/scaleway/s3_backup/` pour la function qui produit le snapshot.
+Voir `infra/scaleway/s3_backup/` pour la function qui produit le snapshot (retention configurable via `RETENTION_DAYS`, défaut 30 jours).
