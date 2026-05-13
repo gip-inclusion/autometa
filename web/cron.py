@@ -67,7 +67,7 @@ def is_enabled(meta: dict) -> bool:
 def get_timeout(meta: dict) -> int:
     try:
         return int(meta["timeout"])
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return DEFAULT_TIMEOUT
 
 
