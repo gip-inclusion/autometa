@@ -91,7 +91,7 @@ def purge_old_snapshots(client, bucket: str, retention_days: int, today: date) -
             sub = common["Prefix"]
             try:
                 day = datetime.strptime(sub.split("/")[1], "%Y-%m-%d").date()
-            except (IndexError, ValueError):
+            except IndexError, ValueError:
                 continue
             if day >= cutoff:
                 continue
