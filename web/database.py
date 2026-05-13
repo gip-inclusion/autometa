@@ -8,7 +8,7 @@ from typing import Optional
 
 from sqlalchemy import func, select, text
 
-from .db import get_db, init_tables
+from .db import get_db
 from .helpers import utcnow
 from .models import Conversation as ConvModel
 from .models import ConversationTag as ConvTagModel
@@ -69,11 +69,6 @@ def build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, l
             raise ValueError(f"Invalid column name: {col}")
     parts = [f"{col} = %s" for col in updates]
     return ", ".join(parts), list(updates.values())
-
-
-def init_db():
-    """Backward-compatible alias for init_tables()."""
-    init_tables()
 
 
 @dataclass
@@ -318,9 +313,6 @@ def _conv_with_report_row(row, report_id, report_title) -> Conversation:
 
 class ConversationStore:
     """PostgreSQL-backed conversation and report store."""
-
-    def __init__(self):
-        init_tables()
 
     def create_conversation(
         self,

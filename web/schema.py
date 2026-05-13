@@ -1,7 +1,4 @@
-"""Database schema creation, migrations, and tag taxonomy.
-
-This module is being replaced by Alembic. init_db() now delegates to init_tables().
-"""
+"""Test-only schema bootstrap and tag taxonomy seed. Production schema is managed by Alembic."""
 
 from sqlalchemy import text
 
