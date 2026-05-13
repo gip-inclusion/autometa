@@ -23,8 +23,8 @@ LLM_BACKEND = os.getenv("LLM_BACKEND", "").strip().lower() or AGENT_BACKEND
 # Claude CLI path (uses system default if not set)
 CLAUDE_CLI = os.getenv("CLAUDE_CLI", "claude")
 
-# Claude model (used by SDK and CLI helper)
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+# Modèle pour les short prompts (titres, tags) — appelé par web.llm_call.
+LLM_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5")
 
 # Allowed tools for the agent (CLI backend only - SDK ignores this)
 # Bash patterns use glob wildcards (* matches anything)
