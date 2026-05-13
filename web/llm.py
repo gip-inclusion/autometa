@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import httpx
 
@@ -24,10 +23,10 @@ def get_llm_backend() -> str:
 def generate_text(
     prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str | None = None,
     max_tokens: int = 100,
     temperature: float = 0.2,
-    timeout: Optional[float] = None,
+    timeout: float | None = None,
 ) -> str:
     backend = get_llm_backend()
 
@@ -52,7 +51,7 @@ def ollama_generate(
     model: str,
     max_tokens: int,
     temperature: float,
-    timeout: Optional[float],
+    timeout: float | None,
 ) -> str:
     base_url = config.OLLAMA_BASE_URL.rstrip("/")
     url = f"{base_url}/api/generate"

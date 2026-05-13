@@ -28,11 +28,11 @@ def test_llm_call_defaults_to_config_model_and_dedicated_cwd(mocker):
     args, kwargs = run.call_args
     cmd = args[0]
     assert cmd[1:] == ["--print", "--model", config.LLM_MODEL, "-p", "ping"]
-    assert kwargs["cwd"] == str(mod._CWD)
+    assert kwargs["cwd"] == str(mod.CWD)
     assert kwargs["timeout"] == 12.5
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
-    assert mod._CWD.is_dir()
+    assert mod.CWD.is_dir()
 
 
 @pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-7"])
