@@ -508,11 +508,8 @@ document.addEventListener('DOMContentLoaded', checkAuthStatus);
 // Also check after htmx navigations
 document.body.addEventListener('htmx:afterSettle', checkAuthStatus);
 
-// =============================================================================
-// Page actions (warning, relaunch, pin/unpin, flag dialog)
-// These live in chat.js (loaded in <head>) so they survive htmx navigation —
-// the explorations.html {% block scripts %} is outside #main and isn't re-run.
-// =============================================================================
+// Why: handlers attached here so they survive htmx swaps —
+// explorations.html {% block scripts %} sits inside #main and isn't re-run.
 
 function dismissPublicWarning() {
   const warning = document.getElementById('publicWarning');
