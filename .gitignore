@@ -28,3 +28,4 @@ knowledge/stats/_index.md
 auth/allowed_emails.txt
 docker-compose.local.yml
 .pm.pid
+infra/scaleway/s3_backup/s3_backup.zip

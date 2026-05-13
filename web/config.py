@@ -119,6 +119,7 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
+BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET")
 
 
 # Container environment flag (set in Docker — bypasses permission checks)
