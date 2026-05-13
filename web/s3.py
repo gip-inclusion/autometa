@@ -12,6 +12,7 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
+
 def make_client():
     return boto3.client(
         "s3",
