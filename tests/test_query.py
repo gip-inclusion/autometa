@@ -128,6 +128,35 @@ def test_execute_matomo_query(mocker):
     mock_api.request.assert_called_once()
 
 
+def test_list_metabase_models(mocker):
+    from lib.query import CallerType, list_metabase_models
+
+    mock_api = mocker.MagicMock()
+    mock_api.list_models.return_value = [{"id": 1, "name": "Model A"}, {"id": 2, "name": "Model B"}]
+    mock_api.caller = "agent"
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    result = list_metabase_models(instance="data_inclusion", caller=CallerType.AGENT)
+
+    assert result.success is True
+    assert len(result.data) == 2
+    mock_api.list_models.assert_called_once()
+
+
+def test_list_metabase_models_error(mocker):
+    from lib.metabase import MetabaseError
+    from lib.query import CallerType, list_metabase_models
+
+    mock_api = mocker.MagicMock()
+    mock_api.list_models.side_effect = MetabaseError("HTTP 401: Unauthorized")
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    result = list_metabase_models(instance="data_inclusion", caller=CallerType.AGENT)
+
+    assert result.success is False
+    assert "401" in result.error
+
+
 @pytest.mark.parametrize(
     "source, kwargs, patched",
     [
