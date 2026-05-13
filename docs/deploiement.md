@@ -1,6 +1,6 @@
 # Mise en prod
 
-Staging se déploie tout seul à chaque push sur `main`. Pour la prod, deux options.
+Staging se déploie tout seul à chaque push sur `main`. Pour la prod, on doit tag.
 
 ## Tag de release
 
