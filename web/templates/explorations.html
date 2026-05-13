@@ -208,8 +208,7 @@
       {% if can_relaunch %}
       <!-- Admin relaunch button for stuck shared conversations -->
       <div class="chat-bar chat-bar-readonly">
-        <button type="button" class="btn btn-primary btn-sm" id="relaunchBtn"
-                onclick="relaunchConversation('{{ current_conv.id }}')">
+        <button type="button" class="btn btn-primary btn-sm" id="relaunchBtn">
           <i class="ri-restart-line"></i> Relancer
         </button>
         <span class="text-muted">La dernière réponse n'a pas abouti</span>
@@ -228,7 +227,7 @@
       <div class="chat-bar-warning" id="publicWarning">
         <i class="ri-eye-line"></i>
         <span>Toutes les conversations sont publiques et visibles par les autres utilisateurs.</span>
-        <button type="button" class="chat-bar-warning-close" onclick="dismissPublicWarning()" title="Fermer">
+        <button type="button" class="chat-bar-warning-close" title="Fermer">
           <i class="ri-close-line"></i>
         </button>
       </div>
@@ -302,86 +301,6 @@
 
 {% block scripts %}
 <script>
-  // Dismiss public warning and remember choice
-  function dismissPublicWarning() {
-    const warning = document.getElementById('publicWarning');
-    if (warning) {
-      warning.style.display = 'none';
-      localStorage.setItem('publicWarningDismissed', 'true');
-    }
-  }
-
-  // Relaunch a stuck conversation (admin only)
-  async function relaunchConversation(convId) {
-    const btn = document.getElementById('relaunchBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Relance...'; }
-    try {
-      const resp = await fetch(`/api/conversations/${convId}/relaunch`, { method: 'POST' });
-      const data = await resp.json();
-      if (resp.ok) {
-        startStream(data.after_id);
-      } else {
-        alert(data.error || 'Erreur');
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-restart-line"></i> Relancer'; }
-      }
-    } catch (e) {
-      alert('Erreur réseau');
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-restart-line"></i> Relancer'; }
-    }
-  }
-
-  // Pin/unpin conversation (admin only)
-  document.addEventListener('click', async (e) => {
-    const pinBtn = e.target.closest('#pinConvBtn');
-    const unpinBtn = e.target.closest('#unpinConvBtn');
-    if (!pinBtn && !unpinBtn) return;
-
-    const convId = currentConversationId;
-    if (!convId) return;
-
-    if (pinBtn) {
-      const label = prompt('Label pour la sidebar :', document.querySelector('.conv-title-display h1')?.textContent?.trim() || '');
-      if (label === null) return;
-      const res = await fetch(`/api/conversations/${convId}/pin`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({label: label})
-      });
-      if (res.ok) window.location.reload();
-    } else if (unpinBtn) {
-      const res = await fetch(`/api/conversations/${convId}/pin`, {method: 'DELETE'});
-      if (res.ok) window.location.reload();
-    }
-  });
-
-  if (!window.__flagDialogBound) {
-    window.__flagDialogBound = true;
-    document.body.addEventListener('click', (e) => {
-      const btn = e.target.closest('#chatFlagBtn');
-      if (btn) {
-        const dialog = document.getElementById('flagDialog');
-        const textarea = document.getElementById('flagReason');
-        const counter = document.getElementById('flagCounter');
-        const removeBtn = document.getElementById('flagRemove');
-        if (!dialog || !textarea) return;
-        textarea.value = btn.dataset.currentReason || '';
-        counter.textContent = String(textarea.value.length);
-        if (removeBtn) removeBtn.hidden = !btn.dataset.canRemove;
-        dialog.showModal();
-        textarea.focus();
-        return;
-      }
-      if (e.target.closest('#flagCancel')) {
-        document.getElementById('flagDialog')?.close();
-      }
-    });
-    document.body.addEventListener('input', (e) => {
-      if (e.target.id !== 'flagReason') return;
-      const counter = document.getElementById('flagCounter');
-      if (counter) counter.textContent = String(e.target.value.length);
-    });
-  }
-
   document.addEventListener('DOMContentLoaded', async () => {
     // Hide public warning if previously dismissed (HTMX case handled in chat.js)
     if (localStorage.getItem('publicWarningDismissed') === 'true') {
