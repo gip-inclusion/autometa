@@ -291,6 +291,15 @@ def test_cleanup_keeps_known_dashboard(isolated):
     assert "kept" not in result["orphan"]
 
 
+def test_cleanup_reports_scanned_count(isolated):
+    _create("kept")
+    (isolated / "orphan").mkdir()
+    (isolated / ".tmp-foo-deadbeef").mkdir()
+    (isolated / "not-a-dir.txt").write_text("ignored")
+    result = cleanup_orphan_scaffolds()
+    assert result["scanned"] == 3
+
+
 @pytest.mark.parametrize(
     "dir_name,key,age_offset_min",
     [
@@ -310,12 +319,12 @@ def test_cleanup_deletes_when_dry_run_false(isolated, dir_name, key, age_offset_
     assert not target.exists()
 
 
-def test_main_logs_warning_when_orphans_found(isolated, caplog):
+def test_run_periodic_cleanup_logs_warning_when_orphans_found(isolated, caplog):
     (isolated / "orphan-bar").mkdir()
-    from lib.dashboards import main
+    from lib.dashboards import run_periodic_cleanup
 
     with caplog.at_level("WARNING", logger="lib.dashboards"):
-        main()
+        run_periodic_cleanup()
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert warnings, "expected a warning when orphans are flagged"
     assert "orphan-bar" in str(warnings[0].args)

@@ -2,6 +2,7 @@
 
 import json
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,8 @@ from web.cron import (
     run_cron_task,
     set_cron_enabled,
 )
-from web.database import get_db, init_db
+from web.database import get_db
+from web.models import Dashboard
 
 
 @pytest.fixture
@@ -38,7 +40,6 @@ def interactive_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def db_setup(monkeypatch):
-    init_db()
     yield
 
     with get_db() as session:
@@ -46,7 +47,8 @@ def db_setup(monkeypatch):
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items, pm_commands,
-                pm_heartbeat, reports, conversations, tags, schema_version
+                pm_heartbeat, reports, conversations, tags, schema_version,
+                dashboards
                 CASCADE;
         """)
         )
@@ -351,7 +353,7 @@ def test_set_cron_enabled_roundtrip(interactive_dir):
 
 
 @pytest.fixture
-def s3_cron_env(tmp_path, monkeypatch):
+def s3_cron_env(tmp_path, monkeypatch, db_setup):
     """Simulate an S3-backed server with mocked S3 functions."""
     cron_dir = tmp_path / "cron"
     cron_dir.mkdir()
@@ -361,6 +363,25 @@ def s3_cron_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(config, "S3_BUCKET", "test-bucket")
     return {"cron_dir": cron_dir, "interactive_dir": interactive_dir}
+
+
+def _seed_dashboard(slug: str, *, has_cron: bool = True, title: str | None = None) -> None:
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(
+            Dashboard(
+                slug=slug,
+                title=title or slug,
+                first_author_email="test@x",
+                created_in_conversation_id="test",
+                has_cron=has_cron,
+                is_archived=False,
+                has_api_access=False,
+                has_persistence=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
 
 
 def mock_s3_app(slug, cron_script="print('hello')", app_md=None):
@@ -425,6 +446,7 @@ def _patch_s3_full(mocker, mocks):
 
 
 def test_discover_s3_apps(mocker, s3_cron_env):
+    _seed_dashboard("my-s3-app")
     mocks = make_s3_mocks([mock_s3_app("my-s3-app")])
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
@@ -434,6 +456,7 @@ def test_discover_s3_apps(mocker, s3_cron_env):
 
 
 def test_discover_s3_app_skipped_without_cron_py(mocker, s3_cron_env):
+    _seed_dashboard("no-cron-app")
     app = mock_s3_app("no-cron-app")
     del app["files"]["no-cron-app/cron.py"]
     mocks = make_s3_mocks([app])
@@ -442,10 +465,24 @@ def test_discover_s3_app_skipped_without_cron_py(mocker, s3_cron_env):
     assert len(tasks) == 0
 
 
+def test_discover_s3_app_skipped_when_not_in_db(mocker, s3_cron_env):
+    mocks = make_s3_mocks([mock_s3_app("ghost-app")])
+    _patch_s3(mocker, mocks)
+    assert discover_cron_tasks() == []
+
+
+def test_discover_s3_app_skipped_when_has_cron_false(mocker, s3_cron_env):
+    _seed_dashboard("declared-no-cron", has_cron=False)
+    mocks = make_s3_mocks([mock_s3_app("declared-no-cron")])
+    _patch_s3(mocker, mocks)
+    assert discover_cron_tasks() == []
+
+
 def test_discover_s3_app_metadata_parsed(mocker, s3_cron_env):
+    _seed_dashboard("titled-app", title="My S3 App")
     app = mock_s3_app(
         "titled-app",
-        app_md="---\ntitle: My S3 App\ntimeout: 600\nschedule: weekly\n---\n",
+        app_md="---\ntitle: ignored\ntimeout: 600\nschedule: weekly\n---\n",
     )
     mocks = make_s3_mocks([app])
     _patch_s3(mocker, mocks)
@@ -456,6 +493,7 @@ def test_discover_s3_app_metadata_parsed(mocker, s3_cron_env):
 
 
 def test_discover_s3_disabled_app(mocker, s3_cron_env):
+    _seed_dashboard("off-app")
     app = mock_s3_app("off-app", app_md="---\ntitle: Off\ncron: false\n---\n")
     mocks = make_s3_mocks([app])
     _patch_s3(mocker, mocks)
@@ -469,6 +507,7 @@ def test_discover_s3_and_system_crons_merged(mocker, s3_cron_env):
     (sys_dir / "cron.py").write_text("pass")
     (sys_dir / "CRON.md").write_text("---\ntitle: System\n---\n")
 
+    _seed_dashboard("s3-app")
     mocks = make_s3_mocks([mock_s3_app("s3-app")])
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
@@ -480,6 +519,8 @@ def test_discover_s3_and_system_crons_merged(mocker, s3_cron_env):
 
 
 def test_discover_s3_multiple_apps_sorted(mocker, s3_cron_env):
+    _seed_dashboard("zeta-app")
+    _seed_dashboard("alpha-app")
     mocks = make_s3_mocks([
         mock_s3_app("zeta-app"),
         mock_s3_app("alpha-app"),
@@ -489,7 +530,8 @@ def test_discover_s3_multiple_apps_sorted(mocker, s3_cron_env):
     assert [t["slug"] for t in tasks] == ["alpha-app", "zeta-app"]
 
 
-def test_run_s3_executes_script(mocker, s3_cron_env, db_setup):
+def test_run_s3_executes_script(mocker, s3_cron_env):
+    _seed_dashboard("s3-runner")
     app = mock_s3_app("s3-runner", cron_script="print('s3 hello')")
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
@@ -498,7 +540,8 @@ def test_run_s3_executes_script(mocker, s3_cron_env, db_setup):
     assert "s3 hello" in result["output"]
 
 
-def test_run_s3_script_failure(mocker, s3_cron_env, db_setup):
+def test_run_s3_script_failure(mocker, s3_cron_env):
+    _seed_dashboard("s3-fail")
     app = mock_s3_app("s3-fail", cron_script="import sys; sys.exit(1)")
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
@@ -506,7 +549,8 @@ def test_run_s3_script_failure(mocker, s3_cron_env, db_setup):
     assert result["status"] == "failure"
 
 
-def test_run_s3_script_uploads_output(mocker, s3_cron_env, db_setup):
+def test_run_s3_script_uploads_output(mocker, s3_cron_env):
+    _seed_dashboard("s3-writer")
     script = textwrap.dedent("""\
         import json
         from pathlib import Path
@@ -523,7 +567,8 @@ def test_run_s3_script_uploads_output(mocker, s3_cron_env, db_setup):
     assert uploaded["updated"] is True
 
 
-def test_run_s3_script_has_pythonpath(mocker, s3_cron_env, db_setup):
+def test_run_s3_script_has_pythonpath(mocker, s3_cron_env):
+    _seed_dashboard("s3-path")
     script = textwrap.dedent("""\
         import sys
         print(sys.path)

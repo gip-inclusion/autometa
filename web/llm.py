@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import subprocess
-from typing import Optional
 
 import httpx
 
-from . import config
+from web import config
+from web.llm_call import llm_call
+from web.llm_errors import LLMError
 
 logger = logging.getLogger(__name__)
 
-
-class LLMError(RuntimeError):
-    """Raised when an LLM backend fails or is misconfigured."""
+__all__ = ["LLMError", "generate_text", "get_llm_backend", "ollama_generate"]
 
 
 def get_llm_backend() -> str:
@@ -25,10 +23,10 @@ def get_llm_backend() -> str:
 def generate_text(
     prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str | None = None,
     max_tokens: int = 100,
     temperature: float = 0.2,
-    timeout: Optional[float] = None,
+    timeout: float | None = None,
 ) -> str:
     backend = get_llm_backend()
 
@@ -42,10 +40,7 @@ def generate_text(
         )
 
     if backend == "cli":
-        return claude_cli_generate(
-            prompt,
-            timeout=timeout,
-        )
+        return llm_call(prompt, model=model, timeout=timeout if timeout is not None else 60.0)
 
     raise LLMError(f"Unsupported LLM backend: {backend}")
 
@@ -56,7 +51,7 @@ def ollama_generate(
     model: str,
     max_tokens: int,
     temperature: float,
-    timeout: Optional[float],
+    timeout: float | None,
 ) -> str:
     base_url = config.OLLAMA_BASE_URL.rstrip("/")
     url = f"{base_url}/api/generate"
@@ -82,24 +77,3 @@ def ollama_generate(
         raise LLMError(f"Ollama request failed: {exc}") from exc
     except httpx.HTTPStatusError as exc:
         raise LLMError(f"Ollama request failed: {exc}") from exc
-
-
-def claude_cli_generate(prompt: str, *, timeout: Optional[float]) -> str:
-    timeout = timeout or 60
-    try:
-        result = subprocess.run(
-            [config.CLAUDE_CLI, "--print", "-p", prompt],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(config.BASE_DIR),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise LLMError("Claude CLI timed out") from exc
-    except OSError as exc:
-        raise LLMError(f"Claude CLI failed: {exc}") from exc
-
-    if result.returncode != 0:
-        raise LLMError(result.stderr.strip() or "Claude CLI error")
-
-    return result.stdout.strip()

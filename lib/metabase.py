@@ -226,6 +226,10 @@ class MetabaseAPI:
 
     # --- Dashboard methods ---
 
+    def list_models(self) -> list[dict]:
+        """List all model-type cards (Metabase datasets)."""
+        return self._request("GET", "/api/card?f=dataset", timeout=30)
+
     def get_dashboard(self, dashboard_id: int) -> dict:
         return self._request("GET", f"/api/dashboard/{dashboard_id}")
 

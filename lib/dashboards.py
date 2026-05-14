@@ -175,11 +175,12 @@ def create_dashboard(
 def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10, dry_run: bool = True) -> dict:
     """Identifie stagings expirés et dossiers slug sans ligne DB. Dry-run par défaut."""
     if not config.INTERACTIVE_DIR.exists():
-        return {"staging": [], "orphan": [], "dry_run": dry_run}
+        return {"staging": [], "orphan": [], "dry_run": dry_run, "scanned": 0}
 
     now_ts = datetime.now(timezone.utc).timestamp()
     staging: list[str] = []
     orphan: list[str] = []
+    scanned = 0
 
     with get_db() as session:
         known = set(session.scalars(select(Dashboard.slug)).all())
@@ -187,6 +188,7 @@ def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10, dry_run: bool = 
     for path in config.INTERACTIVE_DIR.iterdir():
         if not path.is_dir():
             continue
+        scanned += 1
         if path.name.startswith(_STAGING_PREFIX):
             age_min = (now_ts - path.stat().st_mtime) / 60
             if age_min > staging_max_age_minutes:
@@ -199,16 +201,16 @@ def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10, dry_run: bool = 
                 shutil.rmtree(path, ignore_errors=True)
             orphan.append(path.name)
 
-    return {"staging": staging, "orphan": orphan, "dry_run": dry_run}
+    return {"staging": staging, "orphan": orphan, "dry_run": dry_run, "scanned": scanned}
 
 
-def main() -> None:
-    """CLI: GC périodique des scaffolds. Dry-run, report via logs."""
-    logging.basicConfig(level=logging.INFO)
-    result = cleanup_orphan_scaffolds()
+def run_periodic_cleanup(dry_run: bool = True) -> dict:
+    """Cleanup + log warning. Configurable dry-run depuis l'appelant (script cron)."""
+    result = cleanup_orphan_scaffolds(dry_run=dry_run)
     logger.info(
-        "cleanup-dashboards (dry_run=%s): staging=%d orphan=%d",
+        "cleanup-dashboards (dry_run=%s): scanned=%d staging=%d orphan=%d",
         result["dry_run"],
+        result["scanned"],
         len(result["staging"]),
         len(result["orphan"]),
     )
@@ -218,6 +220,7 @@ def main() -> None:
             result["staging"],
             result["orphan"],
         )
+    return result
 
 
 def _upsert_tag(session: Session, name: str) -> Tag:

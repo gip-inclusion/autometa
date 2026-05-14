@@ -23,8 +23,8 @@ LLM_BACKEND = os.getenv("LLM_BACKEND", "").strip().lower() or AGENT_BACKEND
 # Claude CLI path (uses system default if not set)
 CLAUDE_CLI = os.getenv("CLAUDE_CLI", "claude")
 
-# Claude model (used by SDK and CLI helper)
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+# Modèle pour les short prompts (titres, tags) — appelé par web.llm_call.
+LLM_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5")
 
 # Allowed tools for the agent (CLI backend only - SDK ignores this)
 # Bash patterns use glob wildcards (* matches anything)
@@ -119,6 +119,7 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
+BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET")
 
 
 # Container environment flag (set in Docker — bypasses permission checks)

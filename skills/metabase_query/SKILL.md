@@ -83,6 +83,7 @@ Card metadata is also documented in:
 - `get_card_sql(card_id)` - Get SQL for any card (native or compiled)
 - `search_cards(query)` - Search cards by name/description
 - `list_cards(collection_id)` - List cards in a collection
+- `list_models()` - List all model-type cards (datasets)
 - `get_dashboard(dashboard_id)` - Get dashboard metadata
 - `list_dashboards(collection_id)` - List dashboards in a collection
 
@@ -93,3 +94,4 @@ Card metadata is also documented in:
 | stats | stats.inclusion.beta.gouv.fr | 2 | IAE employment statistics |
 | datalake | datalake.inclusion.beta.gouv.fr | 2 | Cross-product analytics |
 | dora | metabase.dora.inclusion.gouv.fr | 2 | Dora services directory (structures, services, orientations) |
+| data_inclusion | metabase.data.inclusion.gouv.fr | — | Modèles Metabase uniquement via `list_metabase_models(instance="data_inclusion", ...)` |
