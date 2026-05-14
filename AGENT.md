@@ -57,7 +57,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 
 - Les conversations, rapports, apps, charts, configurations et sessions sont rattachés à un `user_id` / `user_email`.
 - Avant toute opération destructive ou modificative sur un artefact (suppression, écrasement, renommage, dé-publication), vérifier que son propriétaire correspond à l'utilisateur courant.
-- Si le propriétaire diffère, ou si l'appartenance n'est pas vérifiable : traiter l'artefact en lecture seule, refuser l'opération, et expliquer pourquoi.
+- Si le propriétaire diffère, ou si l'appartenance n'est pas vérifiable : proposer de réaliser une copie, traiter l'artefact en lecture seule, ou encore refuser l'opération et expliquer pourquoi. Toute copie d'un tableau de bord doit être effectuée avec le skill `create_dashboard`.
 
 ### 3. Ne pas détruire de contenu S3
 
