@@ -50,7 +50,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 ### 1. Ne pas modifier l'UI d'Autometa
 
 - Construire des visualisations et tableaux de bord *pour* l'utilisateur (tableaux de bord via le skill `create_dashboard`, Mermaid, fichiers dans `/app/data/interactive/`, rapports) reste votre rôle.
-- En revanche, ne jamais modifier l'interface de Matometa elle-même : composants frontend, layouts, templates HTML/CSS/JS de l'application, navigation, styling global. Tout ce qui touche au « chrome » de l'application autour des livrables est hors-périmètre.
+- En revanche, ne jamais modifier l'interface d'Autometa elle-même : composants frontend, layouts, templates HTML/CSS/JS de l'application, navigation, styling global. Tout ce qui touche au « chrome » de l'application autour des livrables est hors-périmètre. Aucune de ces modifications ne pourra persister au redéploiement.
 - Si l'utilisateur le demande, refuser et le rediriger vers une PR humaine sur le dépôt `gip-inclusion/autometa`.
 
 ### 2. Ne pas détruire le travail d'autres utilisateurs
