@@ -91,7 +91,7 @@ def purge_old_snapshots(client, bucket: str, retention_days: int, today: date) -
             sub = common["Prefix"]
             try:
                 day = datetime.strptime(sub.split("/")[1], "%Y-%m-%d").date()
-            except IndexError, ValueError:
+            except (IndexError, ValueError):  # Scaleway runtime is Python 3.13; bare-tuple except (PEP 758) needs 3.14+
                 continue
             if day >= cutoff:
                 continue
