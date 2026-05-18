@@ -122,6 +122,22 @@ body.has-sidebar {
   border-left-color: var(--bs-primary);
 }
 
+/* itou-theme sets `.nav-link:focus-visible { outline: 0 }` with no replacement ring */
+.sidebar-nav .nav-link:focus-visible,
+.sidebar-brand:focus-visible,
+.sidebar-view-more:focus-visible,
+.offcanvas .nav-link:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+
+/* Skip-link targets: a visible ring confirms the skip landed (keyboard focus only) */
+#main:focus-visible,
+#nav-primary:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+
 .sidebar-nav .nav-link i {
   font-size: 1rem;
   opacity: 0.8;
