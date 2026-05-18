@@ -1,21 +1,16 @@
-"""Webinaire attendance data: Livestorm + Grist sync."""
+"""Webinaire attendance data: Grist sync into the datalake."""
 
 import json
-import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Iterator
 
 import httpx
 
 from lib.query import CallerType, execute_metabase_query
 from web import config
 
-log = logging.getLogger(__name__)
-
 T_WEBINAIRES = "matometa_webinaires"
-T_SESSIONS = "matometa_webinaire_sessions"
 T_INSCRIPTIONS = "matometa_webinaire_inscriptions"
 T_SYNC_META = "matometa_webinaire_sync_meta"
 
@@ -114,73 +109,6 @@ def batch_upsert(conn, insert_prefix, conflict_suffix, rows, batch_size=100):
         conn.execute(sql)
 
 
-class LivestormClient:
-    """Livestorm REST API client (JSON:API format)."""
-
-    BASE_URL = "https://api.livestorm.co/v1"
-    PAGE_SIZE = 50
-
-    def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or config.LIVESTORM_API_KEY
-        if not self.api_key:
-            raise ValueError("LIVESTORM_API_KEY not set")
-        self._session = httpx.Client(headers={"Authorization": self.api_key})
-        self.request_count = 0
-        self.monthly_remaining = None
-
-    def _get(self, path: str, params: dict | None = None, retries: int = 3) -> dict:
-        url = f"{self.BASE_URL}{path}"
-        for attempt in range(retries):
-            resp = self._session.get(url, params=params, timeout=60)
-            self.request_count += 1
-            remaining = resp.headers.get("RateLimit-Monthly-Remaining")
-            if remaining is not None:
-                self.monthly_remaining = int(remaining)
-            if resp.status_code == 429:
-                wait = int(resp.headers.get("Retry-After", 5))
-                log.warning("Rate limited, waiting %ds (attempt %d)", wait, attempt + 1)
-                time.sleep(wait)
-                continue
-            if resp.status_code >= 500:
-                wait = 2**attempt
-                log.warning(
-                    "Server error %d on %s, retrying in %ds (attempt %d)", resp.status_code, path, wait, attempt + 1
-                )
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            return resp.json()
-        raise httpx.HTTPStatusError(
-            f"Failed after {retries} retries: {resp.status_code} {path}",
-            request=resp.request,
-            response=resp,
-        )
-
-    def paginate(self, path: str, params: dict | None = None) -> Iterator[dict]:
-        """Yield all items across all pages."""
-        params = dict(params or {})
-        params["page[size]"] = self.PAGE_SIZE
-        page = 0
-        while True:
-            params["page[number]"] = page
-            result = self._get(path, params)
-            for item in result.get("data", []):
-                yield item
-            meta = result.get("meta", {})
-            if page + 1 >= meta.get("page_count", 1):
-                break
-            page += 1
-
-    def get_events(self) -> list[dict]:
-        return list(self.paginate("/events"))
-
-    def get_event_sessions(self, event_id: str) -> list[dict]:
-        return list(self.paginate(f"/events/{event_id}/sessions"))
-
-    def get_session_people(self, session_id: str) -> list[dict]:
-        return list(self.paginate(f"/sessions/{session_id}/people"))
-
-
 class GristClient:
     """Grist REST API client."""
 
@@ -219,241 +147,6 @@ def ts_to_iso(ts) -> str | None:
 
 def now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
-
-
-def extract_custom_field(fields: list[dict], field_id: str) -> str | None:
-    for f in fields:
-        if f.get("id") == field_id:
-            val = f.get("value")
-            if isinstance(val, list):
-                return ", ".join(str(v) for v in val)
-            return str(val) if val else None
-    return None
-
-
-def extract_organisation(fields: list[dict]) -> str | None:
-    """Try to extract organisation from various custom field names."""
-    for field_id in (
-        "company",
-        "votre_structure",
-        "quel_est_le_nom_de_votre_structure",
-        "nom_de_votre_structure",
-        "structure",
-        "organisation",
-        "entreprise",
-    ):
-        val = extract_custom_field(fields, field_id)
-        if val:
-            return val
-    return None
-
-
-def sync_livestorm(conn, client: LivestormClient):
-    """Full Livestorm sync: events -> sessions -> people."""
-    now = now_iso()
-
-    # Phase 1: Events
-    print("  Fetching events...")
-    events = client.get_events()
-    print(f"  {len(events)} events")
-
-    for ev in events:
-        attrs = ev["attributes"]
-        source_id = ev["id"]
-        webinar_id = f"livestorm:{source_id}"
-        title = attrs.get("title", "")
-        organizer = attrs.get("owner", {})
-        organizer_email = None
-        if isinstance(organizer, dict):
-            organizer_attrs = organizer.get("attributes", {})
-            organizer_email = organizer_attrs.get("email")
-
-        conn.execute(
-            f"""INSERT INTO {T_WEBINAIRES}
-               (id, source, source_id, title, description, organizer_email,
-                product, status, duration_minutes, registrants_count,
-                registration_url, webinar_url, raw_json, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                   source=excluded.source,
-                   source_id=excluded.source_id,
-                   title=excluded.title,
-                   description=excluded.description,
-                   organizer_email=excluded.organizer_email,
-                   product=excluded.product,
-                   status=excluded.status,
-                   duration_minutes=excluded.duration_minutes,
-                   registrants_count=excluded.registrants_count,
-                   registration_url=excluded.registration_url,
-                   webinar_url=excluded.webinar_url,
-                   raw_json=excluded.raw_json,
-                   synced_at=excluded.synced_at""",
-            (
-                webinar_id,
-                "livestorm",
-                source_id,
-                title,
-                attrs.get("description"),
-                organizer_email,
-                infer_product(title, organizer_email),
-                attrs.get("scheduling_status"),
-                attrs.get("estimated_duration"),
-                attrs.get("sessions_count"),
-                attrs.get("registration_link"),
-                attrs.get("registration_link"),
-                json.dumps(ev, ensure_ascii=False),
-                now,
-            ),
-        )
-    conn.commit()
-    print(f"  Events synced ({client.request_count} API calls so far)")
-
-    # Phase 2: Sessions
-    print("  Fetching sessions...")
-    session_count = 0
-    session_webinar_map = {}  # sess_id -> webinar_id (for phase 3)
-    for i, ev in enumerate(events):
-        source_id = ev["id"]
-        webinar_id = f"livestorm:{source_id}"
-        sessions = client.get_event_sessions(source_id)
-        for sess in sessions:
-            sa = sess["attributes"]
-            sess_id = f"livestorm:{sess['id']}"
-            session_webinar_map[sess_id] = webinar_id
-            conn.execute(
-                f"""INSERT INTO {T_SESSIONS}
-                   (id, webinar_id, status, started_at, ended_at,
-                    duration_seconds, registrants_count, attendees_count,
-                    room_link, synced_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(id) DO UPDATE SET
-                       webinar_id=excluded.webinar_id,
-                       status=excluded.status,
-                       started_at=excluded.started_at,
-                       ended_at=excluded.ended_at,
-                       duration_seconds=excluded.duration_seconds,
-                       registrants_count=excluded.registrants_count,
-                       attendees_count=excluded.attendees_count,
-                       room_link=excluded.room_link,
-                       synced_at=excluded.synced_at""",
-                (
-                    sess_id,
-                    webinar_id,
-                    sa.get("status"),
-                    ts_to_iso(sa.get("started_at") or sa.get("estimated_started_at")),
-                    ts_to_iso(sa.get("ended_at")),
-                    sa.get("duration"),
-                    sa.get("registrants_count"),
-                    sa.get("attendees_count"),
-                    sa.get("room_link"),
-                    now,
-                ),
-            )
-            session_count += 1
-        if (i + 1) % 50 == 0:
-            conn.commit()
-            print(
-                f"    {i + 1}/{len(events)} events processed, {session_count} sessions ({client.request_count} calls)"
-            )
-    conn.commit()
-    print(f"  {session_count} sessions synced ({client.request_count} API calls so far)")
-
-    # Phase 3: People per session
-    # Only fetch people for sessions not yet synced (incremental)
-    already_synced = set(
-        row[0]
-        for row in conn.execute(f"SELECT DISTINCT session_id FROM {T_INSCRIPTIONS} WHERE source='livestorm'").fetchall()
-    )
-    all_sessions = conn.execute(f"SELECT id FROM {T_SESSIONS} WHERE id LIKE 'livestorm:%'").fetchall()
-    to_sync = [(s,) for (s,) in all_sessions if s not in already_synced]
-    print(f"  Fetching attendance data: {len(to_sync)} sessions ({len(all_sessions) - len(to_sync)} already synced)")
-    reg_count = 0
-    skipped_sessions = 0
-    for i, (sess_id_row,) in enumerate(to_sync):
-        livestorm_sess_id = sess_id_row.replace("livestorm:", "")
-        webinar_id = session_webinar_map.get(sess_id_row)
-        if not webinar_id:
-            # Fallback: query the DB (for sessions from a previous run)
-            row = conn.execute(
-                f"SELECT webinar_id FROM {T_SESSIONS} WHERE id = ?",
-                (sess_id_row,),
-            ).fetchone()
-            webinar_id = row[0] if row else None
-        if not webinar_id:
-            log.warning("Skipping session %s: no webinar_id found", sess_id_row)
-            skipped_sessions += 1
-            continue
-
-        try:
-            people = client.get_session_people(livestorm_sess_id)
-        except Exception as e:
-            log.warning("Skipping session %s: %s", livestorm_sess_id, e)
-            skipped_sessions += 1
-            continue
-        for person in people:
-            pa = person["attributes"]
-            rd = pa.get("registrant_detail") or {}
-            fields = rd.get("fields", [])
-
-            email = pa.get("email")
-            if not email:
-                continue
-
-            organisation = extract_organisation(fields)
-            custom = {
-                f["id"]: f.get("value") for f in fields if f.get("id") not in ("email", "first_name", "last_name")
-            }
-
-            conn.execute(
-                f"""INSERT INTO {T_INSCRIPTIONS}
-                   (source, webinar_id, session_id, email, first_name, last_name,
-                    organisation, registered, attended, attendance_rate,
-                    attendance_duration_seconds, has_viewed_replay,
-                    custom_fields, registered_at, synced_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(source, webinar_id, session_id, email)
-                   DO UPDATE SET
-                       first_name=excluded.first_name,
-                       last_name=excluded.last_name,
-                       organisation=excluded.organisation,
-                       attended=excluded.attended,
-                       attendance_rate=excluded.attendance_rate,
-                       attendance_duration_seconds=excluded.attendance_duration_seconds,
-                       has_viewed_replay=excluded.has_viewed_replay,
-                       custom_fields=excluded.custom_fields,
-                       synced_at=excluded.synced_at""",
-                (
-                    "livestorm",
-                    webinar_id,
-                    sess_id_row,
-                    email.lower().strip(),
-                    pa.get("first_name"),
-                    pa.get("last_name"),
-                    organisation,
-                    1 if rd.get("attended") else 0,
-                    rd.get("attendance_rate"),
-                    rd.get("attendance_duration"),
-                    1 if rd.get("has_viewed_replay") else 0,
-                    json.dumps(custom, ensure_ascii=False) if custom else None,
-                    ts_to_iso(rd.get("created_at")),
-                    now,
-                ),
-            )
-            reg_count += 1
-
-        if (i + 1) % 100 == 0:
-            conn.commit()
-            print(
-                f"    {i + 1}/{len(to_sync)} sessions, "
-                f"{reg_count} registrations ({client.request_count} calls, "
-                f"monthly remaining: {client.monthly_remaining})"
-            )
-
-    conn.commit()
-    print(f"  {reg_count} registrations synced ({client.request_count} API calls total)")
-    if skipped_sessions:
-        print(f"  WARNING: {skipped_sessions} sessions skipped due to API errors")
-    return len(events), session_count, reg_count
 
 
 def grist_duration_to_minutes(duree: str | None) -> int | None:
@@ -582,34 +275,14 @@ def sync_grist(conn, client: GristClient):
 
 
 def main():
-    """CLI entry point for cron: sync Livestorm + Grist into datalake."""
-    import sys
-    import time
-    from datetime import datetime, timezone
-
+    """CLI entry point for cron: sync Grist webinaire data into the datalake."""
     conn = DatalakeWriter()
     t0 = time.time()
-    results = {}
-
-    print("--- Livestorm ---")
-    try:
-        client = LivestormClient()
-        events, sessions, regs = sync_livestorm(conn, client)
-        results["livestorm"] = {"events": events, "sessions": sessions, "registrations": regs}
-        print(f"  {events} events, {sessions} sessions, {regs} registrations")
-    except Exception as e:
-        print(f"  ERROR: {e}")
-        results["livestorm"] = {"error": str(e)}
 
     print("--- Grist ---")
-    try:
-        client = GristClient()
-        webinaires, regs = sync_grist(conn, client)
-        results["grist"] = {"webinaires": webinaires, "registrations": regs}
-        print(f"  {webinaires} webinaires, {regs} registrations")
-    except Exception as e:
-        print(f"  ERROR: {e}")
-        results["grist"] = {"error": str(e)}
+    client = GristClient()
+    webinaires, regs = sync_grist(conn, client)
+    print(f"  {webinaires} webinaires, {regs} registrations")
 
     total_time = time.time() - t0
     now = datetime.now(tz=timezone.utc).isoformat()
@@ -630,7 +303,3 @@ def main():
         )
 
     print(f"\nDone in {total_time:.0f}s — {total_webinars} webinars, {total_regs} registrations")
-
-    for info in results.values():
-        if "error" in info:
-            sys.exit(1)
