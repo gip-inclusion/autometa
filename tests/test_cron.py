@@ -17,6 +17,7 @@ from web.cron import (
     get_schedule,
     get_timeout,
     is_enabled,
+    notify_cron_status_change,
     parse_frontmatter,
     run_cron_task,
     set_cron_enabled,
@@ -579,3 +580,80 @@ def test_run_s3_script_has_pythonpath(mocker, s3_cron_env):
     result = run_cron_task("s3-path", trigger="manual")
     assert result["status"] == "success"
     assert str(config.BASE_DIR) in result["output"]
+
+
+def set_slack_config(monkeypatch, token="tok", emails=("ops@inclusion.gouv.fr",)):
+    monkeypatch.setattr(config, "SLACK_BOT_TOKEN", token)
+    monkeypatch.setattr(config, "FAILURE_NOTIFY_EMAILS", list(emails))
+
+
+@pytest.mark.parametrize(
+    "status,previous,should_notify",
+    [
+        ("failure", "success", True),
+        ("timeout", "success", True),
+        ("failure", None, True),
+        ("failure", "failure", False),
+        ("timeout", "failure", False),
+        ("success", "failure", True),
+        ("success", "timeout", True),
+        ("success", "success", False),
+        ("success", None, False),
+    ],
+)
+def test_cron_alert_fires_only_on_status_change(mocker, monkeypatch, status, previous, should_notify):
+    set_slack_config(monkeypatch)
+    mocker.patch("web.cron.lookup_user", return_value="U1")
+    send_dm = mocker.patch("web.cron.send_dm", return_value=True)
+
+    notify_cron_status_change("my-app", status, previous, "some output")
+
+    assert send_dm.called == should_notify
+
+
+@pytest.mark.parametrize("token,emails", [("", ["ops@inclusion.gouv.fr"]), ("tok", [])])
+def test_cron_alert_silent_without_slack_config(mocker, monkeypatch, token, emails):
+    set_slack_config(monkeypatch, token=token, emails=emails)
+    send_dm = mocker.patch("web.cron.send_dm", return_value=True)
+
+    notify_cron_status_change("my-app", "failure", "success", "boom")
+
+    send_dm.assert_not_called()
+
+
+def test_cron_alert_message_distinguishes_break_and_recovery(mocker, monkeypatch):
+    set_slack_config(monkeypatch)
+    mocker.patch("web.cron.lookup_user", return_value="U1")
+    send_dm = mocker.patch("web.cron.send_dm", return_value=True)
+
+    notify_cron_status_change("my-app", "failure", "success", "stacktrace here")
+    broken_msg = send_dm.call_args[0][2]
+    assert "my-app" in broken_msg
+    assert "stacktrace here" in broken_msg
+
+    notify_cron_status_change("my-app", "success", "failure", "")
+    recovered_msg = send_dm.call_args[0][2]
+    assert "my-app" in recovered_msg
+    assert recovered_msg != broken_msg
+
+
+def test_run_cron_scheduled_failure_triggers_alert(interactive_dir, db_setup, mocker):
+    create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
+    notify = mocker.patch("web.cron.notify_cron_status_change")
+
+    run_cron_task("bad-app", trigger="scheduled")
+
+    notify.assert_called_once()
+    slug, status, previous, _output = notify.call_args[0]
+    assert slug == "bad-app"
+    assert status == "failure"
+    assert previous is None
+
+
+def test_run_cron_manual_run_does_not_alert(interactive_dir, db_setup, mocker):
+    create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
+    notify = mocker.patch("web.cron.notify_cron_status_change")
+
+    run_cron_task("bad-app", trigger="manual")
+
+    notify.assert_not_called()

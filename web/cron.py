@@ -14,6 +14,7 @@ from pathlib import Path
 import sentry_sdk
 from sqlalchemy import select
 
+from lib.slack import lookup_user, send_dm
 from web.helpers import now_local, utcnow
 
 from . import config, s3
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
+
+# Cron statuses that count as "broken" for Slack alerts
+BROKEN_STATUSES = {"failure", "timeout"}
 
 
 def _sanitize_for_log(value: str) -> str:
@@ -381,8 +385,49 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         monitor_config=monitor_config,
     )
 
+    previous_status = None
+    if trigger == "scheduled":
+        recent = get_app_runs(slug, limit=1)
+        previous_status = recent[0]["status"] if recent else None
+
     record_run(run_result, trigger)
+
+    if trigger == "scheduled":
+        notify_cron_status_change(slug, status, previous_status, output)
     return run_result
+
+
+def notify_cron_status_change(slug: str, status: str, previous_status: str | None, output: str) -> None:
+    """Slack-DM FAILURE_NOTIFY_EMAILS when a cron newly breaks or recovers."""
+    broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
+    recovered = status == "success" and previous_status in BROKEN_STATUSES
+    if not (broke or recovered):
+        return
+
+    token = config.SLACK_BOT_TOKEN
+    if not token or not config.FAILURE_NOTIFY_EMAILS:
+        return
+
+    if broke:
+        message = f":red_circle: *Cron en échec : {slug}* ({status})"
+        snippet = (output or "").strip()[:500]
+        if snippet:
+            message += f"\n```{snippet}```"
+    else:
+        message = f":large_green_circle: *Cron rétabli : {slug}*"
+    if config.BASE_URL:
+        message += f"\n<{config.BASE_URL}/cron|Voir les crons>"
+
+    for email in config.FAILURE_NOTIFY_EMAILS:
+        try:
+            slack_id = lookup_user(token, email)
+            if not slack_id:
+                logger.warning("Cron alert: no Slack user for %s", email)
+                continue
+            if not send_dm(token, slack_id, message):
+                logger.warning("Cron alert: Slack DM not delivered to %s", email)
+        except Exception:  # Why: a Slack outage must not break the cron runner.
+            logger.exception("Cron alert: error notifying %s", email)
 
 
 def record_run(result: dict, trigger: str):
