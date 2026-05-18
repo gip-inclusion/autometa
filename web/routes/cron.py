@@ -1,8 +1,10 @@
 """Cron task management routes."""
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from web.cron import discover_cron_tasks, find_task, get_app_runs, get_last_runs, run_cron_task, set_cron_enabled
@@ -12,6 +14,9 @@ from web.helpers import format_relative_date
 from .html import get_sidebar_data
 
 router = APIRouter()
+
+# Why: slug feeds tempfile.mkdtemp and S3 keys downstream — reject anything that could traverse paths.
+Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 
 
 @router.get("/cron")
@@ -39,7 +44,7 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
 
 
 @router.post("/api/cron/{slug}/run")
-def run_task(slug: str):
+def run_task(slug: Slug):
     """Trigger a manual cron run."""
     task = find_task(slug)
     if not task:
@@ -56,7 +61,7 @@ def run_task(slug: str):
 
 
 @router.post("/api/cron/{slug}/toggle")
-async def toggle_task(slug: str, request: Request):
+async def toggle_task(slug: Slug, request: Request):
     """Enable or disable a cron task by updating its metadata file."""
     body = await request.body()
     data = (await request.json()) if body else {}
@@ -69,7 +74,7 @@ async def toggle_task(slug: str, request: Request):
 
 
 @router.get("/api/cron/{slug}/script")
-def view_script(slug: str):
+def view_script(slug: Slug):
     task = find_task(slug)
     if not task:
         return JSONResponse({"error": "Task not found"}, status_code=404)
@@ -81,6 +86,6 @@ def view_script(slug: str):
 
 
 @router.get("/api/cron/{slug}/logs")
-def task_logs(slug: str, limit: int = Query(default=20)):
+def task_logs(slug: Slug, limit: int = Query(default=20)):
     runs = get_app_runs(slug, limit=limit)
     return runs
