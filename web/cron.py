@@ -249,7 +249,7 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         s3.interactive.upload(f"{slug}/{rel}", content)
         uploaded += 1
     if uploaded:
-        logger.info(f"Cron upload {slug}: {uploaded} uploaded, {skipped} unchanged")
+        logger.info("Cron upload %s: %d uploaded, %d unchanged", slug, uploaded, skipped)
 
 
 def _sentry_monitor_config(task: dict) -> dict:
