@@ -52,7 +52,7 @@
       </a>
     </div>
 
-    <nav class="sidebar-nav" role="navigation" id="nav-primary" aria-label="Navigation principale">
+    <nav class="sidebar-nav" role="navigation" id="nav-primary" aria-label="Navigation principale" tabindex="-1">
       <ul class="nav flex-column">
         <li class="nav-item">
           <a href="/" class="nav-link {% if section == 'accueil' %}active{% endif %}"
@@ -173,7 +173,7 @@
   </div>
 
   <!-- Main content area -->
-  <main class="app-main" role="main" id="main">
+  <main class="app-main" role="main" id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
 
