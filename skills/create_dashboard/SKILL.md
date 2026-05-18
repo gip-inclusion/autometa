@@ -75,3 +75,5 @@ Si l'une manque, le script échoue avec code retour non nul.
 ## Conventions de codage
 
 Avant d'écrire le code du TDB (HTML/JS/cron.py), lire `docs/interactive-dashboards.md` pour respecter les conventions (vanilla JS, pas de framework, palette DSFR, structure des fichiers, modes `cron.py` vs `/api/query`).
+
+Un `cron.py` ne lit et n'écrit que dans le dossier de son propre dashboard : il ne référence jamais un autre dashboard (`../autre/` ou `/app/data/interactive/autre/`), il régénère ses données depuis la source primaire.

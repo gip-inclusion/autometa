@@ -9,6 +9,9 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     uses: ./.github/workflows/_deploy.yml

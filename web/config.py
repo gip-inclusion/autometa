@@ -157,6 +157,9 @@ GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
 # Livestorm API
 LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 
+# GitHub API — cron scripts read public repos; an unscoped token lifts the rate limit (60 → 5000 req/h)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+
 # Redis (Scalingo provides SCALINGO_REDIS_URL)
 REDIS_URL = os.getenv("REDIS_URL") or os.getenv("SCALINGO_REDIS_URL") or "redis://localhost:6379/0"
 
