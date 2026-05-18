@@ -27,6 +27,11 @@ DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
 
 
+def _sanitize_for_log(value: str) -> str:
+    """Remove line-break characters to prevent log injection."""
+    return value.replace("\r", "").replace("\n", "")
+
+
 def parse_frontmatter_text(content: str) -> dict:
     """Parse YAML front-matter from a string.
 
@@ -249,7 +254,12 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         s3.interactive.upload(f"{slug}/{rel}", content)
         uploaded += 1
     if uploaded:
-        logger.info("Cron upload %s: %d uploaded, %d unchanged", slug, uploaded, skipped)
+        logger.info(
+            "Cron upload %s: %d uploaded, %d unchanged",
+            _sanitize_for_log(slug),
+            uploaded,
+            skipped,
+        )
 
 
 def _sentry_monitor_config(task: dict) -> dict:
