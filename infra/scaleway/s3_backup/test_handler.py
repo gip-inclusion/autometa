@@ -1,6 +1,7 @@
 """Tests for the s3_backup Scaleway Function handler."""
 
 import json
+from datetime import date
 
 import pytest
 from botocore.exceptions import ClientError
@@ -13,21 +14,29 @@ def make_obj(key, etag="etag", size=10):
 
 
 class FakeS3:
-    """In-memory S3 double covering the calls snapshot() makes."""
+    """In-memory S3 double covering the calls snapshot() and purge_old_snapshots() make."""
 
-    def __init__(self, source_objects, existing=None, fail_copy_keys=()):
+    def __init__(self, source_objects=(), existing=None, fail_copy_keys=(), backup_tree=None):
         self.source_objects = list(source_objects)
         self.existing = dict(existing or {})
         self.fail_copy_keys = set(fail_copy_keys)
+        self.backup_tree = dict(backup_tree or {})
         self.copied = []
         self.put = {}
+        self.deleted = []
 
     def get_paginator(self, name):
         assert name == "list_objects_v2"
         return self
 
     def paginate(self, Bucket, Prefix=None, Delimiter=None):
-        yield {"Contents": self.source_objects}
+        if Delimiter == "/":
+            common = [{"Prefix": p} for p in sorted(self.backup_tree) if p.startswith(Prefix or "")]
+            yield {"CommonPrefixes": common}
+        elif Prefix in self.backup_tree:
+            yield {"Contents": self.backup_tree[Prefix]}
+        else:
+            yield {"Contents": self.source_objects}
 
     def head_object(self, Bucket, Key):
         if Key in self.existing:
@@ -41,6 +50,9 @@ class FakeS3:
 
     def put_object(self, Bucket, Key, Body, ContentType):
         self.put[Key] = Body
+
+    def delete_objects(self, Bucket, Delete):
+        self.deleted.extend(o["Key"] for o in Delete["Objects"])
 
 
 def test_snapshot_copies_all_objects():
@@ -78,6 +90,30 @@ def test_snapshot_is_best_effort_and_flags_partial_failure():
     manifest = json.loads(client.put["backup/2026-05-17/_MANIFEST.json"])
     assert manifest["ok"] is False
     assert any("bad" in error for error in manifest["errors"])
+
+
+def test_purge_deletes_only_snapshots_older_than_retention():
+    client = FakeS3(
+        backup_tree={
+            "backup/2026-05-01/": [{"Key": "backup/2026-05-01/a"}, {"Key": "backup/2026-05-01/b"}],
+            "backup/2026-05-15/": [{"Key": "backup/2026-05-15/a"}],
+        }
+    )
+    deleted = handler.purge_old_snapshots(client, "matometa-backup", retention_days=10, today=date(2026, 5, 17))
+    assert deleted == 2
+    assert sorted(client.deleted) == ["backup/2026-05-01/a", "backup/2026-05-01/b"]
+
+
+def test_purge_skips_prefixes_with_invalid_date():
+    client = FakeS3(
+        backup_tree={
+            "backup/notadate/": [{"Key": "backup/notadate/x"}],
+            "backup/2026-05-01/": [{"Key": "backup/2026-05-01/a"}],
+        }
+    )
+    deleted = handler.purge_old_snapshots(client, "matometa-backup", retention_days=10, today=date(2026, 5, 17))
+    assert deleted == 1
+    assert client.deleted == ["backup/2026-05-01/a"]
 
 
 def test_handle_raises_when_snapshot_incomplete(mocker):
