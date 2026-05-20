@@ -17,6 +17,7 @@ from web.cron import (
     get_schedule,
     get_timeout,
     is_enabled,
+    notify_cron_status_change,
     parse_frontmatter,
     run_cron_task,
     set_cron_enabled,
@@ -579,3 +580,71 @@ def test_run_s3_script_has_pythonpath(mocker, s3_cron_env):
     result = run_cron_task("s3-path", trigger="manual")
     assert result["status"] == "success"
     assert str(config.BASE_DIR) in result["output"]
+
+
+@pytest.mark.parametrize(
+    "status,previous,should_notify",
+    [
+        ("failure", "success", True),
+        ("timeout", "success", True),
+        ("failure", None, True),
+        ("failure", "failure", False),
+        ("timeout", "failure", False),
+        ("success", "failure", True),
+        ("success", "timeout", True),
+        ("success", "success", False),
+        ("success", None, False),
+    ],
+)
+def test_cron_alert_fires_only_on_status_change(mocker, status, previous, should_notify):
+    notify = mocker.patch("web.cron.alerts.notify_alert_channel")
+
+    notify_cron_status_change("my-app", status, previous, "some output")
+
+    assert notify.called == should_notify
+
+
+def test_cron_alert_message_distinguishes_break_and_recovery(mocker):
+    notify = mocker.patch("web.cron.alerts.notify_alert_channel")
+
+    notify_cron_status_change("my-app", "failure", "success", "stacktrace here")
+    broken_msg = notify.call_args[0][0]
+    assert "my-app" in broken_msg
+    assert "stacktrace here" in broken_msg
+
+    notify_cron_status_change("my-app", "success", "failure", "")
+    recovered_msg = notify.call_args[0][0]
+    assert "my-app" in recovered_msg
+    assert recovered_msg != broken_msg
+
+
+def test_run_cron_scheduled_failure_triggers_alert(interactive_dir, db_setup, mocker):
+    create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
+    notify = mocker.patch("web.cron.notify_cron_status_change")
+
+    run_cron_task("bad-app", trigger="scheduled")
+
+    notify.assert_called_once()
+    slug, status, previous, _output = notify.call_args[0]
+    assert slug == "bad-app"
+    assert status == "failure"
+    assert previous is None
+
+
+def test_run_cron_manual_run_does_not_alert(interactive_dir, db_setup, mocker):
+    create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
+    notify = mocker.patch("web.cron.notify_cron_status_change")
+
+    run_cron_task("bad-app", trigger="manual")
+
+    notify.assert_not_called()
+
+
+def test_cron_alert_snippet_escapes_triple_backticks(mocker):
+    notify = mocker.patch("web.cron.alerts.notify_alert_channel")
+
+    notify_cron_status_change("my-app", "failure", "success", "before ``` after")
+
+    sent = notify.call_args[0][0]
+    assert sent.count("```") == 2
+    assert "ʼʼʼ" in sent

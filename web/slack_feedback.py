@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from sqlalchemy import select
 
-from lib.slack import lookup_user, send_dm
+from lib.slack import lookup_user, post_message
 from web.helpers import utcnow
 
 from . import config
@@ -48,7 +48,7 @@ def main():
             print(f"  SKIP {email} (no Slack user found)")
             continue
         tally_url = f"{TALLY_FORM_URL}?email={quote(email)}"
-        ok = send_dm(token, slack_id, SLACK_MESSAGE.format(tally_url=tally_url))
+        ok = post_message(token, slack_id, SLACK_MESSAGE.format(tally_url=tally_url))
         print(f"  {'SENT' if ok else 'FAIL'} {email}")
         if ok:
             sent += 1
