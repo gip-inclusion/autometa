@@ -146,7 +146,7 @@ NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 
 # Slack notifications
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
-FAILURE_NOTIFY_EMAILS = [email.strip() for email in os.getenv("FAILURE_NOTIFY_EMAILS", "").split(",") if email.strip()]
+SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
 # Grist (webinaire data)
 GRIST_API_KEY = os.getenv("GRIST_API_KEY")

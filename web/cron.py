@@ -14,10 +14,9 @@ from pathlib import Path
 import sentry_sdk
 from sqlalchemy import select
 
-from lib.slack import lookup_user, send_dm
 from web.helpers import now_local, utcnow
 
-from . import config, s3
+from . import alerts, config, s3
 from .database import get_db
 from .models import CronRun, Dashboard
 
@@ -398,14 +397,10 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
 
 
 def notify_cron_status_change(slug: str, status: str, previous_status: str | None, output: str) -> None:
-    """Slack-DM FAILURE_NOTIFY_EMAILS when a cron newly breaks or recovers."""
+    """Post a Slack alert when a cron newly breaks or recovers."""
     broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
     recovered = status == "success" and previous_status in BROKEN_STATUSES
     if not (broke or recovered):
-        return
-
-    token = config.SLACK_BOT_TOKEN
-    if not token or not config.FAILURE_NOTIFY_EMAILS:
         return
 
     if broke:
@@ -418,16 +413,7 @@ def notify_cron_status_change(slug: str, status: str, previous_status: str | Non
     if config.BASE_URL:
         message += f"\n<{config.BASE_URL}/cron|Voir les crons>"
 
-    for email in config.FAILURE_NOTIFY_EMAILS:
-        try:
-            slack_id = lookup_user(token, email)
-            if not slack_id:
-                logger.warning("Cron alert: no Slack user for %s", email)
-                continue
-            if not send_dm(token, slack_id, message):
-                logger.warning("Cron alert: Slack DM not delivered to %s", email)
-        except Exception:  # Why: a Slack outage must not break the cron runner.
-            logger.exception("Cron alert: error notifying %s", email)
+    alerts.notify_alert_channel(message)
 
 
 def record_run(result: dict, trigger: str):

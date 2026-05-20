@@ -8,7 +8,7 @@ import fakeredis.aioredis
 import pytest
 
 from web.agents.base import AgentMessage
-from web.runner import TaskRunner, _persist_usage, _serialize_tool_event
+from web.runner import TaskRunner, _persist_usage, _send_failure_notification, _serialize_tool_event
 
 
 async def _noop_stream(*args, **kwargs):
@@ -363,3 +363,15 @@ def test_run_agent_no_budget_when_disabled(mocker, fake_redis):
         assert len(budget_calls) == 0
 
     asyncio.run(_run())
+
+
+def test_send_failure_notification_delegates_to_alert_helper(mocker):
+    notify = mocker.patch("web.runner.alerts.notify_alert_channel")
+
+    _send_failure_notification("conv-1", "Ma conversation", "boom")
+
+    notify.assert_called_once()
+    message = notify.call_args[0][0]
+    assert "conv-1" in message
+    assert "Ma conversation" in message
+    assert "boom" in message
