@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from web import config, llm
+from web.alerts import notify_alert_channel
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
@@ -265,8 +266,24 @@ def flag_conversation(
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     if conv.flag_user_id is not None and conv.flag_user_id != user_email and user_email not in ADMIN_USERS:
         return JSONResponse({"error": "Already flagged by another user"}, status_code=409)
+    is_new_flag = conv.flagged_at is None
     store.flag_conversation(conv_id, user_email, reason)
+    if is_new_flag:
+        threading.Thread(
+            target=notify_alert_channel,
+            args=(_format_flag_notification(conv_id, conv.title, user_email, reason),),
+            daemon=True,
+        ).start()
     return _render_flag_button(request, conv_id, user_email)
+
+
+def _format_flag_notification(conv_id: str, title: str | None, user_email: str, reason: str) -> str:
+    label = title or "Sans titre"
+    url = f"{config.BASE_URL}/explorations/{conv_id}" if config.BASE_URL else conv_id
+    message = f":triangular_flag_on_post: *Conversation signalée* par {user_email}\n<{url}|{label}>"
+    if reason.strip():
+        message += f"\n> {reason.strip()}"
+    return message
 
 
 @router.delete("/{conv_id}/flag")
