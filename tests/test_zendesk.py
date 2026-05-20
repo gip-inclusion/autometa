@@ -6,7 +6,7 @@ from lib.zendesk import (
     TicketResult,
     ZendeskAPI,
     ZendeskError,
-    _parse_retry_after,
+    parse_retry_after,
 )
 
 
@@ -118,6 +118,21 @@ def test_get_ticket_comments_uses_sideloaded_roles(api_no_signal, mocker):
 
     assert [c.author_role for c in comments] == ["end-user", "agent"]
     assert comments[0].body == "Hello"
+
+
+def test_get_ticket_comments_unknown_role_stays_none(api_no_signal, mocker):
+    """A sideloaded user without a role must NOT default to 'end-user' (would mislabel agents)."""
+    payload = {
+        "users": [{"id": 1}],
+        "comments": [
+            {"id": 1, "author_id": 1, "plain_body": "x", "html_body": "", "public": True, "created_at": "t"},
+        ],
+    }
+    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+
+    comments = api_no_signal.get_ticket_comments(42)
+
+    assert comments[0].author_role is None
 
 
 def test_first_user_reply_returns_user_after_agent(api_no_signal, mocker):
@@ -262,7 +277,7 @@ def test_429_uses_retry_after_value(api_no_signal, mocker):
     ],
 )
 def test_parse_retry_after(header_value, expected):
-    assert _parse_retry_after(header_value) == expected
+    assert parse_retry_after(header_value) == expected
 
 
 def test_get_emits_api_signal_on_success(api, mocker):

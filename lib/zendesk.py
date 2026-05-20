@@ -58,7 +58,8 @@ class ZendeskError(Exception):
         super().__init__(f"Zendesk {status_code}: {message}")
 
 
-def _parse_retry_after(value: Optional[str], default: int = 60) -> int:
+def parse_retry_after(value: Optional[str], default: int = 60) -> int:
+    """Parse a Retry-After header value in seconds. HTTP-date format falls back to default."""
     if not value:
         return default
     try:
@@ -109,7 +110,7 @@ class ZendeskAPI:
                 break
             if attempt == _MAX_429_RETRIES:
                 raise ZendeskError(429, f"rate limited after {_MAX_429_RETRIES} retries")
-            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+            retry_after = parse_retry_after(response.headers.get("Retry-After"))
             logger.warning("Zendesk rate-limited, sleeping %ss", retry_after)
             time.sleep(retry_after)
         if not response.is_success:
@@ -133,9 +134,9 @@ class ZendeskAPI:
     def get_ticket_comments(self, ticket_id: int) -> list[ZendeskComment]:
         """Return all comments for a ticket, oldest first (first page only — see SKILL.md)."""
         data = self._get(f"tickets/{ticket_id}/comments", {"sort_order": "asc"})
-        sideloaded_users: dict[int, str] = {}
+        sideloaded_users: dict[int, Optional[str]] = {}
         for u in data.get("users", []):
-            sideloaded_users[u["id"]] = u.get("role", "end-user")
+            sideloaded_users[u["id"]] = u.get("role")
         comments = []
         for c in data.get("comments", []):
             author_id = c["author_id"]
