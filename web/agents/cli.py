@@ -8,12 +8,15 @@ import signal
 from typing import AsyncIterator
 
 import sentry_sdk
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from web import config, session_sync
 
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class CLIBackend(AgentBackend):
@@ -101,14 +104,16 @@ class CLIBackend(AgentBackend):
 
         env = self._build_env(conversation_id=conversation_id, user_email=user_email)
 
-        span = sentry_sdk.start_span(op="agent.cli.process", name="claude CLI subprocess")
-        try:
-            span.set_data("conversation_id", conversation_id)
-            span.set_data("prompt_length", len(prompt))
-            span.set_data("prompt_snippet", prompt[:500])
-            span.set_data("resume", is_resume)
-
-            spawn_span = sentry_sdk.start_span(op="agent.cli.spawn", name="subprocess + MCP init")
+        with tracer.start_as_current_span(
+            "agent.cli.process",
+            attributes={
+                "conversation_id": conversation_id,
+                "prompt_length": len(prompt),
+                "prompt_snippet": prompt[:500],
+                "resume": is_resume,
+            },
+        ) as span:
+            spawn_span = tracer.start_span("agent.cli.spawn")
             try:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -119,7 +124,7 @@ class CLIBackend(AgentBackend):
                     limit=10 * 1024 * 1024,
                 )
             except BaseException:
-                spawn_span.finish()
+                spawn_span.end()
                 raise
 
             logger.info(f"Process started with PID: {process.pid}")
@@ -141,9 +146,9 @@ class CLIBackend(AgentBackend):
                         break
 
                     if spawn_span is not None:
-                        spawn_span.finish()
+                        spawn_span.end()
                         spawn_span = None
-                        first_api_span = sentry_sdk.start_span(op="agent.cli.first_api", name="TTFT first API call")
+                        first_api_span = tracer.start_span("agent.cli.first_api")
 
                     line_str = line.decode("utf-8").strip()
                     if not line_str:
@@ -158,13 +163,13 @@ class CLIBackend(AgentBackend):
 
                         if event_type == "assistant":
                             if first_api_span is not None:
-                                first_api_span.finish()
+                                first_api_span.end()
                                 first_api_span = None
                             if turn_span is not None:
-                                turn_span.finish()
+                                turn_span.end()
                                 turn_span = None
                         elif event_type in ("tool_result", "user") and turn_span is None:
-                            turn_span = sentry_sdk.start_span(op="agent.cli.api_turn", name="API turn after tool")
+                            turn_span = tracer.start_span("agent.cli.api_turn")
 
                         for agent_msg in self._parse_events(event):
                             logger.debug(f"Parsed event: {agent_msg.type}")
@@ -181,12 +186,12 @@ class CLIBackend(AgentBackend):
                         )
 
                 await process.wait()
-                span.set_data("line_count", line_count)
+                span.set_attribute("line_count", line_count)
                 logger.info(f"Process exited with code: {process.returncode}")
             finally:
                 for child in (spawn_span, first_api_span, turn_span):
                     if child is not None:
-                        child.finish()
+                        child.end()
                 self._processes.pop(conversation_id, None)
                 if process.returncode is None:
                     try:
@@ -212,13 +217,13 @@ class CLIBackend(AgentBackend):
                 logger.info(f"Cleaned up conversation {conversation_id}")
 
             stderr_str = stderr_bytes.decode("utf-8", errors="replace")
-            span.set_data("exit_code", process.returncode)
+            span.set_attribute("exit_code", process.returncode)
 
             if process.returncode != 0:
                 stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
-                span.set_status("internal_error")
-                span.set_data("stderr", stderr_tail)
-                span.set_data("last_events", last_events)
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("stderr", stderr_tail)
+                span.set_attribute("last_events", last_events)
 
                 with sentry_sdk.push_scope() as scope:
                     scope.set_extra("conversation_id", conversation_id)
@@ -243,8 +248,6 @@ class CLIBackend(AgentBackend):
                     content=f"Process exited with code {process.returncode}: {stderr_str}",
                     raw={"stderr": stderr_str, "code": process.returncode},
                 )
-        finally:
-            span.finish()
 
     @staticmethod
     async def _drain_stderr(stream: asyncio.StreamReader, max_bytes: int = 10 * 1024) -> bytes:

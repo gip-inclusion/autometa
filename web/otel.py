@@ -2,7 +2,8 @@
 
 import logging
 
-from opentelemetry import trace
+from opentelemetry import propagate, trace
+from opentelemetry.context import Context
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
@@ -44,3 +45,15 @@ def instrument_app(app) -> None:
     if not _initialized:
         return
     FastAPIInstrumentor.instrument_app(app)
+
+
+def inject_trace_headers() -> dict[str, str]:
+    """Serialize the current trace context to HTTP-style headers for cross-process propagation."""
+    carrier: dict[str, str] = {}
+    propagate.inject(carrier)
+    return carrier
+
+
+def extract_trace_context(headers: dict[str, str]) -> Context:
+    """Rebuild a trace context from headers produced by inject_trace_headers."""
+    return propagate.extract(headers)

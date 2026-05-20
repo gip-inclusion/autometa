@@ -11,6 +11,8 @@ import threading
 import uuid
 
 import sentry_sdk
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
@@ -19,11 +21,13 @@ from lib.tool_taxonomy import classify_tool
 from . import alerts, config, session_sync
 from .agents import get_agent
 from .database import store
+from .otel import extract_trace_context, inject_trace_headers
 from .redis_conn import get_redis
 from .request_context import set_conversation_id
-from .sentry import continue_trace, get_trace_headers, set_conversation_context, set_user_context
+from .sentry import set_conversation_context, set_user_context
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 PREFIX = "autometa"
 
@@ -73,7 +77,7 @@ class TaskRunner:
             "history": history,
             "session_id": session_id,
             "user_email": user_email,
-            "sentry_trace": get_trace_headers(),
+            "trace_headers": inject_trace_headers(),
         })
         await r.rpush(f"{PREFIX}:tasks", payload)
 
@@ -142,7 +146,7 @@ class TaskRunner:
                     payload["prompt"],
                     payload["history"],
                     payload.get("user_email"),
-                    payload.get("sentry_trace", {}),
+                    payload.get("trace_headers", {}),
                     sid,
                 )
             )
@@ -189,11 +193,10 @@ class TaskRunner:
         prompt: str,
         history: list[dict],
         user_email: str | None,
-        sentry_trace: dict | None = None,
+        trace_headers: dict | None = None,
         session_id: str | None = None,
     ):
-        # Continue the Sentry trace from the HTTP request that submitted this task
-        continue_trace(sentry_trace or {})
+        parent_ctx = extract_trace_context(trace_headers or {})
 
         cancel_task = asyncio.create_task(self._listen_cancel(conversation_id))
         self._cancel_tasks[conversation_id] = cancel_task
@@ -204,9 +207,11 @@ class TaskRunner:
         tool_span = None
         tool_call_count = 0
 
-        with sentry_sdk.start_transaction(op="agent.run", name=f"agent {config.AGENT_BACKEND}") as txn:
-            txn.set_tag("conversation_id", conversation_id)
-            txn.set_tag("agent_backend", config.AGENT_BACKEND)
+        with tracer.start_as_current_span(
+            "agent.run",
+            context=parent_ctx,
+            attributes={"conversation_id": conversation_id, "agent_backend": config.AGENT_BACKEND},
+        ) as txn:
             if user_email:
                 set_user_context(user_email)
             set_conversation_context(conversation_id, config.AGENT_BACKEND)
@@ -257,17 +262,17 @@ class TaskRunner:
                                 await self.notify(conversation_id)
                                 break
                             if tool_span:
-                                tool_span.finish()
+                                tool_span.end()
                             tool_name = (
                                 event.content.get("tool", "unknown") if isinstance(event.content, dict) else "unknown"
                             )
-                            tool_span = sentry_sdk.start_span(op="agent.tool", name=tool_name)
+                            tool_span = tracer.start_span("agent.tool", attributes={"tool.name": tool_name})
                             if assistant_text_parts:
                                 all_assistant_texts.extend(assistant_text_parts)
                             assistant_msg_id = None
                             assistant_text_parts = []
                         elif event.type == "tool_result" and tool_span:
-                            tool_span.finish()
+                            tool_span.end()
                             tool_span = None
                         content = _serialize_tool_event(event, conversation_id, user_email)
                         store.add_message(conversation_id, event.type, content)
@@ -284,7 +289,7 @@ class TaskRunner:
                     event.raw = {}
 
                 if tool_span:
-                    tool_span.finish()
+                    tool_span.end()
                     tool_span = None
 
                 if assistant_text_parts:
@@ -294,16 +299,16 @@ class TaskRunner:
                 if full_response:
                     _check_failure(conversation_id, full_response)
 
-                txn.set_status("ok")
+                txn.set_status(Status(StatusCode.OK))
 
             # Why: top-level agent error handler — must not crash the consumer loop.
             except Exception:
                 logger.exception(f"Agent error for {conversation_id}")
-                txn.set_status("internal_error")
+                txn.set_status(Status(StatusCode.ERROR))
                 sentry_sdk.capture_exception()
             finally:
                 if tool_span:
-                    tool_span.finish()
+                    tool_span.end()
                 store.update_conversation(conversation_id, needs_response=False)
                 await self.notify_done(conversation_id)
                 self._running.pop(conversation_id, None)

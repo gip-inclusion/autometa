@@ -55,21 +55,6 @@ def test_set_conversation_context():
     assert tags.get("agent_backend") == "cli"
 
 
-def test_get_trace_headers_returns_dict():
-    from web.sentry import get_trace_headers
-
-    headers = get_trace_headers()
-    assert isinstance(headers, dict)
-
-
-def test_continue_trace_noop_without_dsn(monkeypatch):
-    monkeypatch.setattr("web.config.SENTRY_DSN", "")
-    from web.sentry import continue_trace
-
-    result = continue_trace({})
-    assert result is None
-
-
 def test_before_send_scrubs_headers(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
     from web.sentry import _before_send
@@ -116,11 +101,11 @@ def test_cron_sentry_monitor_config():
     assert cfg["max_runtime"] == 11
 
 
-def test_runner_submit_includes_sentry_trace(mocker):
+def test_runner_submit_includes_trace_headers(mocker):
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.get_agent")
-    mocker.patch("web.runner.get_trace_headers", return_value={"sentry-trace": "abc-123"})
+    mocker.patch("web.runner.inject_trace_headers", return_value={"sentry-trace": "abc-123"})
 
     from web.runner import TaskRunner
 
@@ -130,7 +115,6 @@ def test_runner_submit_includes_sentry_trace(mocker):
         await runner.submit("conv-1", "hello", [], user_email="test@test.com")
         payload_str = await fake_redis.lpop("autometa:tasks")
         payload = json.loads(payload_str)
-        assert "sentry_trace" in payload
-        assert payload["sentry_trace"]["sentry-trace"] == "abc-123"
+        assert payload["trace_headers"]["sentry-trace"] == "abc-123"
 
     asyncio.run(_run())

@@ -57,13 +57,3 @@ def set_conversation_context(conversation_id: str, backend: str | None = None):
         sentry_sdk.set_tag("agent_backend", backend)
 
 
-def get_trace_headers() -> dict[str, str]:
-    """Extract current Sentry trace headers for propagation through Redis."""
-    return dict(sentry_sdk.get_current_scope().iter_trace_propagation_headers())
-
-
-def continue_trace(headers: dict[str, str]) -> sentry_sdk.api.Transaction | None:
-    """Continue a Sentry trace from propagated headers (e.g. from Redis payload)."""
-    if not config.SENTRY_DSN:
-        return None
-    return sentry_sdk.continue_trace(headers)
