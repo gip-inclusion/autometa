@@ -16,6 +16,7 @@ from . import s3 as s3_module
 from .log import setup_logging
 from .otel import init_otel, instrument_app
 from .redis_conn import close_redis
+from .request_context import request_id_middleware
 from .runner import runner
 from .sentry import init_sentry, set_user_context
 from .warmup import run as warmup
@@ -52,6 +53,8 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(lifespan=lifespan)
 instrument_app(app)
+
+app.middleware("http")(request_id_middleware)
 
 
 @app.middleware("http")

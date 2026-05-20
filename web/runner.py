@@ -20,6 +20,7 @@ from . import alerts, config, session_sync
 from .agents import get_agent
 from .database import store
 from .redis_conn import get_redis
+from .request_context import set_conversation_id
 from .sentry import continue_trace, get_trace_headers, set_conversation_context, set_user_context
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,7 @@ class TaskRunner:
             if user_email:
                 set_user_context(user_email)
             set_conversation_context(conversation_id, config.AGENT_BACKEND)
+            set_conversation_id(conversation_id)
 
             try:
                 async for event in self.backend.send_message(
