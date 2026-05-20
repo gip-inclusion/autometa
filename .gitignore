@@ -8,6 +8,7 @@
 !.claude/settings.json
 !.claude/rules
 !.claude/agents
+!.claude/hooks
 !.claude/ARCHITECTURE.md
 !.claude/MAINTENANCE.md
 __pycache__
