@@ -360,6 +360,17 @@ def _persist_usage(conversation_id: str, usage: dict):
         extra=extra if extra else None,
     )
 
+    span = trace.get_current_span()
+    if not span.is_recording():
+        return
+    span.set_attribute("gen_ai.system", "anthropic")
+    span.set_attribute("gen_ai.usage.input_tokens", usage.get("input_tokens", 0))
+    span.set_attribute("gen_ai.usage.output_tokens", usage.get("output_tokens", 0))
+    span.set_attribute("gen_ai.usage.cache_read_tokens", usage.get("cache_read_input_tokens", 0))
+    span.set_attribute("gen_ai.usage.cache_creation_tokens", usage.get("cache_creation_input_tokens", 0))
+    if model := usage.get("model"):
+        span.set_attribute("gen_ai.request.model", model)
+
 
 def _check_failure(conversation_id: str, text: str):
     marker = find_failure_marker(text)

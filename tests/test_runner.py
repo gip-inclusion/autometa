@@ -296,6 +296,39 @@ def test_persist_usage_no_extra(mocker):
     assert call_kwargs["extra"] is None
 
 
+def test_persist_usage_sets_gen_ai_attributes_on_active_span(mocker):
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import InMemorySpanExporter, SimpleSpanProcessor
+
+    mocker.patch("web.runner.store")
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer("test")
+
+    with tracer.start_as_current_span("agent.run"):
+        _persist_usage(
+            "c1",
+            {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 30,
+                "cache_creation_input_tokens": 10,
+                "model": "claude-opus-4-7",
+            },
+        )
+
+    span = exporter.get_finished_spans()[0]
+    assert span.attributes["gen_ai.system"] == "anthropic"
+    assert span.attributes["gen_ai.usage.input_tokens"] == 100
+    assert span.attributes["gen_ai.usage.output_tokens"] == 50
+    assert span.attributes["gen_ai.usage.cache_read_tokens"] == 30
+    assert span.attributes["gen_ai.usage.cache_creation_tokens"] == 10
+    assert span.attributes["gen_ai.request.model"] == "claude-opus-4-7"
+
+
 def test_run_agent_tool_call_budget_exceeded(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
     mocker.patch("web.runner.config.MAX_TOOL_CALLS", 3)
