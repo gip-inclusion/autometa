@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, sync_to_s3
 from . import s3 as s3_module
 from .log import setup_logging
+from .otel import init_otel, instrument_app
 from .redis_conn import close_redis
 from .runner import runner
 from .sentry import init_sentry, set_user_context
@@ -27,7 +28,8 @@ for _logger_name in ("botocore", "boto3", "urllib3", "s3transfer", "httpcore", "
     logging.getLogger(_logger_name).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# FIXME(vperron): In main() maybe ?
+# Why: OTel must init before Sentry so SentrySpanProcessor is wired before any span is created.
+init_otel()
 init_sentry()
 
 
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(lifespan=lifespan)
+instrument_app(app)
 
 
 @app.middleware("http")
