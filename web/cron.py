@@ -410,7 +410,7 @@ def notify_cron_status_change(slug: str, status: str, previous_status: str | Non
 
     if broke:
         message = f":red_circle: *Cron en échec : {slug}* ({status})"
-        snippet = (output or "").strip()[:500]
+        snippet = (output or "").strip()[:500].replace("```", "ʼʼʼ")
         if snippet:
             message += f"\n```{snippet}```"
     else:

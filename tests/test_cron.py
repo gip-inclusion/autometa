@@ -657,3 +657,34 @@ def test_run_cron_manual_run_does_not_alert(interactive_dir, db_setup, mocker):
     run_cron_task("bad-app", trigger="manual")
 
     notify.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "lookup_side_effect,send_side_effect",
+    [
+        ([None, "U2"], [True]),
+        (["U1", "U2"], [False, True]),
+        ([RuntimeError("slack down"), "U2"], [True]),
+        (["U1", "U2"], [RuntimeError("slack down"), True]),
+    ],
+)
+def test_cron_alert_continues_after_per_email_failure(mocker, monkeypatch, lookup_side_effect, send_side_effect):
+    set_slack_config(monkeypatch, emails=("a@x.fr", "b@x.fr"))
+    mocker.patch("web.cron.lookup_user", side_effect=lookup_side_effect)
+    send_dm = mocker.patch("web.cron.send_dm", side_effect=send_side_effect)
+
+    notify_cron_status_change("my-app", "failure", "success", "boom")
+
+    assert send_dm.call_args_list[-1][0][1] == "U2"
+
+
+def test_cron_alert_snippet_escapes_triple_backticks(mocker, monkeypatch):
+    set_slack_config(monkeypatch)
+    mocker.patch("web.cron.lookup_user", return_value="U1")
+    send_dm = mocker.patch("web.cron.send_dm", return_value=True)
+
+    notify_cron_status_change("my-app", "failure", "success", "before ``` after")
+
+    sent = send_dm.call_args[0][2]
+    assert sent.count("```") == 2
+    assert "ʼʼʼ" in sent
