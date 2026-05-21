@@ -13,7 +13,7 @@ import threading
 
 import httpx
 from opentelemetry import trace
-from pythonjsonlogger import json as json_logger
+from pythonjsonlogger.json import JsonFormatter
 
 from . import config
 from .request_context import current_client_ip, current_conversation_id, current_request_id, current_user_id
@@ -25,9 +25,8 @@ class CorrelationFilter(logging.Filter):
     """Inject trace_id/span_id/request_id/conversation_id onto every LogRecord."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        span = trace.get_current_span()
-        ctx = span.get_span_context() if span else None
-        if ctx and ctx.is_valid:
+        ctx = trace.get_current_span().get_span_context()
+        if ctx.is_valid:
             record.trace_id = format(ctx.trace_id, "032x")
             record.span_id = format(ctx.span_id, "016x")
         else:
@@ -40,9 +39,9 @@ class CorrelationFilter(logging.Filter):
         return True
 
 
-def _record_to_datadog_entry(record: logging.LogRecord, message: str) -> dict:
+def _record_to_datadog_entry(record: logging.LogRecord) -> dict:
     entry = {
-        "message": message,
+        "message": record.getMessage(),
         "ddsource": "python",
         "service": "autometa",
         "hostname": config.HOST,
@@ -74,7 +73,7 @@ class DatadogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            self._queue.put_nowait(_record_to_datadog_entry(record, self.format(record)))
+            self._queue.put_nowait(_record_to_datadog_entry(record))
         except queue.Full:
             # Drop log message rather than blocking the application when buffer is full.
             self._dropped_count += 1
@@ -125,23 +124,22 @@ class DatadogHandler(logging.Handler):
 
 
 def build_json_formatter() -> logging.Formatter:
-    """Build the structured JSON formatter used by both console and Datadog handlers."""
+    """Build the structured JSON formatter used by the console handler."""
     fmt = "%(asctime)s %(levelname)s %(name)s %(message)s %(trace_id)s %(span_id)s %(request_id)s %(conversation_id)s %(user_id)s %(client_ip)s"
-    return json_logger.JsonFormatter(fmt, rename_fields={"levelname": "level", "asctime": "timestamp"})
+    return JsonFormatter(fmt, rename_fields={"levelname": "level", "asctime": "timestamp"})
 
 
 def setup_logging(level: int = logging.INFO) -> None:
     """Configure root logger with JSON output and a correlation filter."""
     formatter = build_json_formatter()
-    correlation = CorrelationFilter()
 
     console = logging.StreamHandler()
     console.setFormatter(formatter)
-    console.addFilter(correlation)
 
     logging.root.handlers.clear()
     logging.root.addHandler(console)
-    logging.root.addFilter(correlation)
+    # Why: filter on the root logger fires once per record; per-handler filters would duplicate work.
+    logging.root.addFilter(CorrelationFilter())
     logging.root.setLevel(level)
 
     # Why: each Datadog POST generates an httpx log; INFO would create a feedback loop.
@@ -150,7 +148,4 @@ def setup_logging(level: int = logging.INFO) -> None:
     logging.getLogger("paramiko").setLevel(logging.WARNING)
 
     if config.DATADOG_API_KEY:
-        dd = DatadogHandler(config.DATADOG_API_KEY)
-        dd.setFormatter(formatter)
-        dd.addFilter(correlation)
-        logging.root.addHandler(dd)
+        logging.root.addHandler(DatadogHandler(config.DATADOG_API_KEY))

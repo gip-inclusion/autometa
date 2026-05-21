@@ -76,8 +76,6 @@ def test_datadog_handler_queues_and_sends(mocker):
     mock_post = mocker.patch("httpx.Client.post")
 
     handler = DatadogHandler("fake-key", flush_interval=0.1)
-    handler.setFormatter(build_json_formatter())
-    handler.addFilter(CorrelationFilter())
 
     handler.emit(_make_record("hello", logging.WARNING))
 
@@ -89,6 +87,7 @@ def test_datadog_handler_queues_and_sends(mocker):
     assert payload[0]["hostname"] == "test-host"
     assert payload[0]["service"] == "autometa"
     assert payload[0]["level"] == "WARNING"
+    assert payload[0]["message"] == "hello"
     assert mock_post.call_args.kwargs["headers"]["DD-API-KEY"] == "fake-key"
 
 
@@ -97,7 +96,6 @@ def test_datadog_entry_includes_correlation_ids(mocker):
     mock_post = mocker.patch("httpx.Client.post")
 
     handler = DatadogHandler("k", flush_interval=0.1)
-    handler.setFormatter(build_json_formatter())
 
     record = _make_record("boom", logging.ERROR)
     record.trace_id = "a" * 32
@@ -125,7 +123,6 @@ def test_datadog_handler_survives_network_error(mocker):
     mocker.patch("httpx.Client.post", side_effect=ConnectionError("down"))
 
     handler = DatadogHandler("fake-key", flush_interval=0.1)
-    handler.setFormatter(build_json_formatter())
 
     handler.emit(_make_record("boom", logging.ERROR))
 
@@ -155,8 +152,6 @@ def test_setup_logging_attaches_correlation_filter(mocker):
     setup_logging(level=logging.INFO)
 
     assert any(isinstance(f, CorrelationFilter) for f in logging.root.filters)
-    for handler in logging.root.handlers:
-        assert any(isinstance(f, CorrelationFilter) for f in handler.filters)
 
 
 def test_setup_logging_suppresses_httpx_logs(mocker):
