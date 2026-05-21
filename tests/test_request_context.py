@@ -9,6 +9,7 @@ from web.request_context import (
     current_request_id,
     current_user_id,
     request_id_middleware,
+    reset_conversation_id,
     set_conversation_id,
 )
 
@@ -66,9 +67,19 @@ def test_user_id_and_client_ip_default_to_none_when_absent(client):
 def test_set_conversation_id_updates_contextvar_and_sentry(mocker):
     spy = mocker.patch("web.request_context.sentry_sdk.set_tag")
 
-    set_conversation_id("conv-42")
+    token = set_conversation_id("conv-42")
     assert current_conversation_id.get() == "conv-42"
     spy.assert_called_with("conversation_id", "conv-42")
 
-    set_conversation_id(None)
+    reset_conversation_id(token)
     assert current_conversation_id.get() is None
+
+
+def test_reset_conversation_id_restores_previous_value():
+    outer = set_conversation_id("outer")
+    inner = set_conversation_id("inner")
+    assert current_conversation_id.get() == "inner"
+
+    reset_conversation_id(inner)
+    assert current_conversation_id.get() == "outer"
+    reset_conversation_id(outer)

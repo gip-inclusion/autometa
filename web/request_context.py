@@ -1,7 +1,7 @@
 """Per-request correlation IDs. Backs structured logs and trace tags."""
 
 import uuid
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 
 import sentry_sdk
 from fastapi import Request
@@ -14,11 +14,16 @@ current_user_id: ContextVar[str | None] = ContextVar("autometa_user_id", default
 current_client_ip: ContextVar[str | None] = ContextVar("autometa_client_ip", default=None)
 
 
-def set_conversation_id(conversation_id: str | None) -> None:
-    """Bind a conversation id to the current context — picked up by log filter and Sentry."""
-    current_conversation_id.set(conversation_id)
+def set_conversation_id(conversation_id: str | None) -> Token[str | None]:
+    """Bind a conversation id to the current context. Returns a token; pass to reset_conversation_id()."""
+    token = current_conversation_id.set(conversation_id)
     if conversation_id:
         sentry_sdk.set_tag("conversation_id", conversation_id)
+    return token
+
+
+def reset_conversation_id(token: Token[str | None]) -> None:
+    current_conversation_id.reset(token)
 
 
 async def request_id_middleware(request: Request, call_next):

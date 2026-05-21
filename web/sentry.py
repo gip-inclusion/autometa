@@ -48,12 +48,3 @@ def init_sentry():
 def set_user_context(email: str):
     """Set the Sentry user on the current scope."""
     sentry_sdk.set_user({"email": email})
-
-
-def set_conversation_context(conversation_id: str, backend: str | None = None):
-    """Tag the current scope with conversation metadata."""
-    sentry_sdk.set_tag("conversation_id", conversation_id)
-    if backend:
-        sentry_sdk.set_tag("agent_backend", backend)
-
-

@@ -45,16 +45,6 @@ def test_set_user_context():
     assert (scope._user or {}).get("email") == "alice@example.com"
 
 
-def test_set_conversation_context():
-    from web.sentry import set_conversation_context
-
-    set_conversation_context("conv-123", backend="cli")
-    scope = sentry_sdk.get_isolation_scope()
-    tags = scope._tags or {}
-    assert tags.get("conversation_id") == "conv-123"
-    assert tags.get("agent_backend") == "cli"
-
-
 def test_before_send_scrubs_headers(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
     from web.sentry import _before_send
