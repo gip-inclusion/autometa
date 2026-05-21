@@ -50,6 +50,19 @@ def init_schema():
     init_db()
 
 
+@pytest.fixture(autouse=True)
+def _reset_otel_provider():
+    # Why: trace.set_tracer_provider() is a Once-guarded global; once any test installs a
+    # provider, subsequent set_tracer_provider() calls silently no-op. Reset the guard before
+    # each test so per-test InMemorySpanExporter setups actually take effect.
+    from opentelemetry import trace
+    from opentelemetry.util._once import Once
+
+    trace._TRACER_PROVIDER = None
+    trace._TRACER_PROVIDER_SET_ONCE = Once()
+    yield
+
+
 MATOMO_TEST_SITE_ID = int(os.environ.get("MATOMO_TEST_SITE_ID", "117"))
 MATOMO_TEST_PERIOD = os.environ.get("MATOMO_TEST_PERIOD", "month")
 MATOMO_TEST_DATE = os.environ.get("MATOMO_TEST_DATE", "2025-12-01")

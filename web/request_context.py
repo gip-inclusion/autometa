@@ -30,6 +30,8 @@ async def request_id_middleware(request: Request, call_next):
     """Bind request_id, user_id and client_ip to context for log correlation."""
     request_id = request.headers.get(REQUEST_ID_HEADER) or uuid.uuid4().hex
     req_tok = current_request_id.set(request_id)
+    # Why: X-Forwarded-User and request.client.host are trusted only because the reverse proxy
+    # (Scalingo router) terminates/sets them. Used for log correlation only — never for authz.
     user_tok = current_user_id.set(request.headers.get("X-Forwarded-User"))
     ip_tok = current_client_ip.set(request.client.host if request.client else None)
     sentry_sdk.set_tag("request_id", request_id)

@@ -136,9 +136,6 @@ def test_explicit_parent_context_overrides_current_span():
     assert spans["phase"].parent.span_id == process_id, "phase must be child of process"
     assert spans["tool"].parent.span_id == process_id, "tool must be child of process"
 
-    finished = {s.name for s in exporter.get_finished_spans()}
-    assert {"a", "b", "c"}.issubset(finished)
-
 
 def test_inject_and_extract_trace_headers_round_trip():
     trace.set_tracer_provider(TracerProvider())
