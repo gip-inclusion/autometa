@@ -1,4 +1,5 @@
 import pytest
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -64,15 +65,28 @@ def test_user_id_and_client_ip_default_to_none_when_absent(client):
     assert body["client_ip"] == "testclient"
 
 
-def test_set_conversation_id_updates_contextvar_and_sentry(mocker):
-    spy = mocker.patch("web.request_context.sentry_sdk.set_tag")
-
+def test_set_conversation_id_updates_contextvar_and_sentry_tag():
     token = set_conversation_id("conv-42")
-    assert current_conversation_id.get() == "conv-42"
-    spy.assert_called_with("conversation_id", "conv-42")
-
-    reset_conversation_id(token)
+    try:
+        assert current_conversation_id.get() == "conv-42"
+        scope_tags = sentry_sdk.get_isolation_scope()._tags or {}
+        assert scope_tags.get("conversation_id") == "conv-42"
+    finally:
+        reset_conversation_id(token)
     assert current_conversation_id.get() is None
+
+
+def test_set_conversation_id_skips_sentry_tag_when_none():
+    scope = sentry_sdk.get_isolation_scope()
+    scope._tags = (scope._tags or {}) | {"conversation_id": "previous"}
+
+    token = set_conversation_id(None)
+    try:
+        # Tag is not overwritten when conversation_id is None — set_tag was not called.
+        assert (scope._tags or {}).get("conversation_id") == "previous"
+    finally:
+        reset_conversation_id(token)
+        scope._tags.pop("conversation_id", None)
 
 
 def test_reset_conversation_id_restores_previous_value():

@@ -1,8 +1,10 @@
+import pytest
+from fastapi import FastAPI
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
 import web.otel as otel_module
-from web.otel import extract_trace_context, init_otel, inject_trace_headers
+from web.otel import extract_trace_context, init_otel, inject_trace_headers, instrument_app
 
 
 def test_init_otel_idempotent_without_dsn(mocker):
@@ -46,6 +48,12 @@ def test_tracer_emits_valid_span_after_init(mocker):
         ctx = span.get_span_context()
         assert ctx.is_valid
         assert ctx.trace_id != 0
+
+
+def test_instrument_app_raises_when_init_otel_not_called(mocker):
+    mocker.patch.object(otel_module, "_initialized", False)
+    with pytest.raises(RuntimeError, match="init_otel"):
+        instrument_app(FastAPI())
 
 
 def test_inject_and_extract_trace_headers_round_trip():

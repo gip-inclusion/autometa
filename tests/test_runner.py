@@ -175,6 +175,75 @@ def test_consumer_picks_task(mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_consumer_reads_legacy_sentry_trace_key_for_rolling_deploy(mocker, fake_redis):
+    """In-flight Redis payloads queued before this PR use 'sentry_trace';
+    the consumer must still extract them so traces aren't dropped during deploy."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_conv = mocker.MagicMock()
+    mock_conv.needs_response = True
+    mock_store.get_conversation.return_value = mock_conv
+
+    captured = {}
+
+    async def fake_run_agent(*args, **kwargs):
+        captured["trace_headers"] = args[4]
+
+    mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
+
+    async def _run():
+        await fake_redis.rpush(
+            "autometa:tasks",
+            json.dumps({
+                "conv_id": "c1",
+                "prompt": "hi",
+                "history": [],
+                "sentry_trace": {"sentry-trace": "abc-1"},
+            }),
+        )
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(0.3)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    asyncio.run(_run())
+    assert captured["trace_headers"] == {"sentry-trace": "abc-1"}
+
+
+def test_consumer_prefers_new_trace_headers_key_over_legacy(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_conv = mocker.MagicMock()
+    mock_conv.needs_response = True
+    mock_store.get_conversation.return_value = mock_conv
+
+    captured = {}
+
+    async def fake_run_agent(*args, **kwargs):
+        captured["trace_headers"] = args[4]
+
+    mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
+
+    async def _run():
+        await fake_redis.rpush(
+            "autometa:tasks",
+            json.dumps({
+                "conv_id": "c1",
+                "prompt": "hi",
+                "history": [],
+                "trace_headers": {"sentry-trace": "new"},
+                "sentry_trace": {"sentry-trace": "legacy"},
+            }),
+        )
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(0.3)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    asyncio.run(_run())
+    assert captured["trace_headers"] == {"sentry-trace": "new"}
+
+
 def test_consumer_skips_stale_task(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
     mock_store = mocker.patch("web.runner.store")
@@ -299,7 +368,8 @@ def test_persist_usage_no_extra(mocker):
 def test_persist_usage_sets_gen_ai_attributes_on_active_span(mocker):
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import InMemorySpanExporter, SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
     mocker.patch("web.runner.store")
     exporter = InMemorySpanExporter()
@@ -327,6 +397,42 @@ def test_persist_usage_sets_gen_ai_attributes_on_active_span(mocker):
     assert span.attributes["gen_ai.usage.cache_read_tokens"] == 30
     assert span.attributes["gen_ai.usage.cache_creation_tokens"] == 10
     assert span.attributes["gen_ai.request.model"] == "claude-opus-4-7"
+
+
+def test_tool_span_is_current_between_tool_use_and_tool_result(mocker, fake_redis):
+    """Sub-spans created during tool execution must inherit agent.tool as parent —
+    proving the runner activates agent.tool via context.attach."""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    mocker.patch("web.runner.tracer", trace.get_tracer("web.runner"))
+    mocker.patch("web.runner.store")
+
+    inner_tracer = trace.get_tracer("inner")
+    inner_parent_ids: list[int] = []
+
+    async def stream(**kwargs):
+        yield make_event("tool_use", {"tool": "matomo"})
+        with inner_tracer.start_as_current_span("inner_work") as inner:
+            inner_parent_ids.append(inner.parent.span_id if inner.parent else 0)
+        yield make_event("tool_result", {"output": "ok"})
+
+    runner = make_runner(mocker, fake_redis)
+    runner.backend.send_message = stream
+
+    asyncio.run(runner._run_agent("c1", "p", [], None, None))
+
+    spans_by_name = {s.name: s for s in exporter.get_finished_spans()}
+    tool_span_id = spans_by_name["agent.tool"].context.span_id
+    assert inner_parent_ids == [tool_span_id], (
+        "inner span should be parented by agent.tool — meaning agent.tool was current"
+    )
 
 
 def test_run_agent_tool_call_budget_exceeded(mocker, fake_redis):

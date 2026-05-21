@@ -91,27 +91,41 @@ def test_datadog_handler_queues_and_sends(mocker):
     assert mock_post.call_args.kwargs["headers"]["DD-API-KEY"] == "fake-key"
 
 
-def test_datadog_entry_includes_correlation_ids(mocker):
+def test_datadog_entry_carries_correlation_ids_from_filter_chain(mocker):
+    """End-to-end: ContextVars + active span → CorrelationFilter → DatadogHandler → payload."""
     mocker.patch("web.config.HOST", "test-host")
     mock_post = mocker.patch("httpx.Client.post")
 
+    trace.set_tracer_provider(TracerProvider())
+    tracer = trace.get_tracer("test")
+
     handler = DatadogHandler("k", flush_interval=0.1)
 
-    record = _make_record("boom", logging.ERROR)
-    record.trace_id = "a" * 32
-    record.span_id = "b" * 16
-    record.request_id = "req-99"
-    record.conversation_id = "conv-3"
-    record.user_id = "alice"
-    record.client_ip = "10.0.0.1"
-    handler.emit(record)
+    tokens = [
+        current_request_id.set("req-99"),
+        current_conversation_id.set("conv-3"),
+        current_user_id.set("alice"),
+        current_client_ip.set("10.0.0.1"),
+    ]
+    try:
+        with tracer.start_as_current_span("unit") as span:
+            expected_trace_id = format(span.get_span_context().trace_id, "032x")
+            expected_span_id = format(span.get_span_context().span_id, "016x")
+            record = _make_record("boom", logging.ERROR)
+            CorrelationFilter().filter(record)
+            handler.emit(record)
+    finally:
+        current_client_ip.reset(tokens[3])
+        current_user_id.reset(tokens[2])
+        current_conversation_id.reset(tokens[1])
+        current_request_id.reset(tokens[0])
 
     time.sleep(0.3)
     handler.close()
 
     payload = json.loads(mock_post.call_args.kwargs["content"])[0]
-    assert payload["trace_id"] == "a" * 32
-    assert payload["span_id"] == "b" * 16
+    assert payload["trace_id"] == expected_trace_id
+    assert payload["span_id"] == expected_span_id
     assert payload["request_id"] == "req-99"
     assert payload["conversation_id"] == "conv-3"
     assert payload["user_id"] == "alice"
@@ -147,11 +161,23 @@ def test_setup_logging_adds_datadog_handler_when_configured(mocker):
             logging.root.removeHandler(h)
 
 
-def test_setup_logging_attaches_correlation_filter(mocker):
+def test_setup_logging_correlates_logs_with_active_span(mocker, caplog):
+    """End-to-end: setup_logging() makes the active span's trace_id appear on each record."""
     mocker.patch("web.config.DATADOG_API_KEY", "")
-    setup_logging(level=logging.INFO)
+    trace.set_tracer_provider(TracerProvider())
+    tracer = trace.get_tracer("test")
 
-    assert any(isinstance(f, CorrelationFilter) for f in logging.root.filters)
+    setup_logging(level=logging.INFO)
+    test_logger = logging.getLogger("test.correlation")
+
+    caplog.set_level(logging.INFO)
+    with tracer.start_as_current_span("work") as span:
+        expected_trace_id = format(span.get_span_context().trace_id, "032x")
+        test_logger.info("hello world")
+
+    rec = next(r for r in caplog.records if r.name == "test.correlation")
+    assert rec.getMessage() == "hello world"
+    assert rec.trace_id == expected_trace_id
 
 
 def test_setup_logging_suppresses_httpx_logs(mocker):
