@@ -2,6 +2,7 @@
 
 import logging
 
+from fastapi import FastAPI
 from opentelemetry import propagate, trace
 from opentelemetry.context import Context
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -40,10 +41,10 @@ def init_otel() -> None:
     _initialized = True
 
 
-def instrument_app(app) -> None:
-    """Attach FastAPI auto-instrumentation. Must run after init_otel and after app is created."""
+def instrument_app(app: FastAPI) -> None:
+    """Attach FastAPI auto-instrumentation. Raises if init_otel() has not run yet."""
     if not _initialized:
-        return
+        raise RuntimeError("instrument_app() called before init_otel()")
     FastAPIInstrumentor.instrument_app(app)
 
 
