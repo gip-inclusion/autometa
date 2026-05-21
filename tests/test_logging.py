@@ -161,23 +161,33 @@ def test_setup_logging_adds_datadog_handler_when_configured(mocker):
             logging.root.removeHandler(h)
 
 
-def test_setup_logging_correlates_logs_with_active_span(mocker, caplog):
-    """End-to-end: setup_logging() makes the active span's trace_id appear on each record."""
+def test_setup_logging_correlates_child_logger_output_with_active_span(mocker):
+    """A log emitted by a CHILD logger (typical case) must carry trace_id in JSON output.
+    Regression test: a filter on root logger alone would miss these records — only
+    handler-level filters fire on child→ancestor handler dispatch."""
+    import io
+
     mocker.patch("web.config.DATADOG_API_KEY", "")
     trace.set_tracer_provider(TracerProvider())
     tracer = trace.get_tracer("test")
 
     setup_logging(level=logging.INFO)
-    test_logger = logging.getLogger("test.correlation")
+    buf = io.StringIO()
+    for h in logging.root.handlers:
+        if isinstance(h, logging.StreamHandler):
+            h.stream = buf
 
-    caplog.set_level(logging.INFO)
+    child = logging.getLogger("web.something.child")
     with tracer.start_as_current_span("work") as span:
         expected_trace_id = format(span.get_span_context().trace_id, "032x")
-        test_logger.info("hello world")
+        child.info("hello from child")
 
-    rec = next(r for r in caplog.records if r.name == "test.correlation")
-    assert rec.getMessage() == "hello world"
-    assert rec.trace_id == expected_trace_id
+    line = buf.getvalue().strip().splitlines()[-1]
+    payload = json.loads(line)
+    assert payload["message"] == "hello from child"
+    assert payload["trace_id"] == expected_trace_id, (
+        "child-logger records must be enriched too — filter must live on the handler, not the root logger"
+    )
 
 
 def test_setup_logging_suppresses_httpx_logs(mocker):

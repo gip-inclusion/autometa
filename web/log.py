@@ -130,16 +130,20 @@ def build_json_formatter() -> logging.Formatter:
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    """Configure root logger with JSON output and a correlation filter."""
+    """Configure root logger with JSON output and a correlation filter on each handler."""
     formatter = build_json_formatter()
+    correlation = CorrelationFilter()
 
+    # Why: filter must be on the HANDLER, not on the root logger. Logger.callHandlers walks up
+    # the parent chain and dispatches to ancestors' handlers (with their filters) but does NOT
+    # re-apply ancestors' logger-level filters. A filter on root would skip records from any
+    # child logger — i.e. almost everything in this codebase.
     console = logging.StreamHandler()
     console.setFormatter(formatter)
+    console.addFilter(correlation)
 
     logging.root.handlers.clear()
     logging.root.addHandler(console)
-    # Why: filter on the root logger fires once per record; per-handler filters would duplicate work.
-    logging.root.addFilter(CorrelationFilter())
     logging.root.setLevel(level)
 
     # Why: each Datadog POST generates an httpx log; INFO would create a feedback loop.
@@ -148,4 +152,6 @@ def setup_logging(level: int = logging.INFO) -> None:
     logging.getLogger("paramiko").setLevel(logging.WARNING)
 
     if config.DATADOG_API_KEY:
-        logging.root.addHandler(DatadogHandler(config.DATADOG_API_KEY))
+        dd = DatadogHandler(config.DATADOG_API_KEY)
+        dd.addFilter(correlation)
+        logging.root.addHandler(dd)
