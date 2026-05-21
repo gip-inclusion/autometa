@@ -26,11 +26,20 @@ def _sql_hash(sql: str) -> str:
 
 def _record_result(span: Span, result: "QueryResult") -> None:
     span.set_attribute("result.success", result.success)
-    if isinstance(result.data, dict) and "row_count" in result.data:
-        span.set_attribute("result.row_count", result.data["row_count"])
+    row_count = _row_count(result.data)
+    if row_count is not None:
+        span.set_attribute("result.row_count", row_count)
     if result.error:
         span.set_status(Status(StatusCode.ERROR), result.error[:200])
         span.set_attribute("error.message", result.error[:500])
+
+
+def _row_count(data: Any) -> Optional[int]:
+    if isinstance(data, dict) and "row_count" in data:
+        return data["row_count"]
+    if isinstance(data, list):
+        return len(data)
+    return None
 
 
 class CallerType(str, Enum):

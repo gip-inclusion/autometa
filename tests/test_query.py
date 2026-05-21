@@ -291,6 +291,21 @@ def test_metabase_query_emits_span_with_semantic_attributes(mocker):
     assert len(span.attributes["db.statement.hash"]) == 16
 
 
+def test_list_metabase_models_sets_row_count_from_list_length(mocker):
+    from lib.query import CallerType, list_metabase_models
+
+    exporter = _install_span_exporter(mocker)
+    mock_api = mocker.MagicMock()
+    mock_api.list_models.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    list_metabase_models(instance="stats", caller=CallerType.AGENT)
+
+    span = exporter.get_finished_spans()[0]
+    assert span.name == "metabase.list_models"
+    assert span.attributes["result.row_count"] == 3
+
+
 def test_matomo_query_records_error_status_on_failure(mocker):
     from opentelemetry.trace import StatusCode
 
