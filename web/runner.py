@@ -340,6 +340,24 @@ def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -
 
 
 def _persist_usage(conversation_id: str, usage: dict):
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    cache_creation = usage.get("cache_creation_input_tokens", 0)
+    cache_read = usage.get("cache_read_input_tokens", 0)
+
+    span = trace.get_current_span()
+    if span.is_recording():
+        attrs = {
+            "gen_ai.system": "anthropic",
+            "gen_ai.usage.input_tokens": input_tokens,
+            "gen_ai.usage.output_tokens": output_tokens,
+            "gen_ai.usage.cache_read_tokens": cache_read,
+            "gen_ai.usage.cache_creation_tokens": cache_creation,
+        }
+        if model := usage.get("model"):
+            attrs["gen_ai.request.model"] = model
+        span.set_attributes(attrs)
+
     extra = {}
     if usage.get("service_tier"):
         extra["service_tier"] = usage["service_tier"]
@@ -348,23 +366,13 @@ def _persist_usage(conversation_id: str, usage: dict):
 
     store.accumulate_usage(
         conversation_id,
-        input_tokens=usage.get("input_tokens", 0),
-        output_tokens=usage.get("output_tokens", 0),
-        cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
-        cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation,
+        cache_read_tokens=cache_read,
         backend=config.AGENT_BACKEND,
         extra=extra if extra else None,
     )
-
-    span = trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute("gen_ai.system", "anthropic")
-        span.set_attribute("gen_ai.usage.input_tokens", usage.get("input_tokens", 0))
-        span.set_attribute("gen_ai.usage.output_tokens", usage.get("output_tokens", 0))
-        span.set_attribute("gen_ai.usage.cache_read_tokens", usage.get("cache_read_input_tokens", 0))
-        span.set_attribute("gen_ai.usage.cache_creation_tokens", usage.get("cache_creation_input_tokens", 0))
-        if model := usage.get("model"):
-            span.set_attribute("gen_ai.request.model", model)
 
 
 def _check_failure(conversation_id: str, text: str):
