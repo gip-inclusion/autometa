@@ -3,13 +3,14 @@
 import logging
 
 from fastapi import FastAPI
-from opentelemetry import propagate, trace
+from opentelemetry import context, propagate, trace
 from opentelemetry.context import Context
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.trace import Span, Tracer
 from sentry_sdk.integrations.opentelemetry import SentryPropagator, SentrySpanProcessor
 
 from . import config
@@ -58,3 +59,42 @@ def inject_trace_headers() -> dict[str, str]:
 def extract_trace_context(headers: dict[str, str]) -> Context:
     """Rebuild a trace context from headers produced by inject_trace_headers."""
     return propagate.extract(headers)
+
+
+class SpanStack:
+    """LIFO stack of attached spans for event-driven lifecycles.
+
+    Use when span transitions are triggered by events (stream parsing, async loops)
+    where a `with` block doesn't fit. push() and pop() each combine
+    span+context lifecycle; close_all() ends everything LIFO on cleanup.
+
+    LIFO is enforced structurally: pop() always removes the top of the stack.
+    """
+
+    def __init__(self) -> None:
+        self._stack: list[tuple[Span, object]] = []
+
+    def push(self, tracer: Tracer, name: str, **attributes) -> Span:
+        span = tracer.start_span(name, attributes=attributes)
+        token = context.attach(trace.set_span_in_context(span))
+        self._stack.append((span, token))
+        return span
+
+    def pop(self) -> bool:
+        """Detach + end the topmost span. Returns False if the stack was empty."""
+        if not self._stack:
+            return False
+        span, token = self._stack.pop()
+        context.detach(token)
+        span.end()
+        return True
+
+    def close_all(self) -> None:
+        while self._stack:
+            self.pop()
+
+    def __bool__(self) -> bool:
+        return bool(self._stack)
+
+    def __len__(self) -> int:
+        return len(self._stack)

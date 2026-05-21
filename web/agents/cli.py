@@ -8,7 +8,7 @@ import signal
 from typing import AsyncIterator
 
 import sentry_sdk
-from opentelemetry import context, trace
+from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from web import config, session_sync
@@ -112,8 +112,13 @@ class CLIBackend(AgentBackend):
                 "resume": is_resume,
             },
         ) as span:
-            spawn_span = tracer.start_span("agent.cli.spawn")
-            spawn_token = context.attach(trace.set_span_in_context(spawn_span))
+            # Why: phase spans must be parented to "process" regardless of what the runner
+            # makes current (tool_span). Passing context=process_ctx explicitly to start_span
+            # bypasses the current-span lookup and prevents cross-coroutine parent corruption.
+            process_ctx = trace.set_span_in_context(span)
+            spawn_span = tracer.start_span("agent.cli.spawn", context=process_ctx)
+            first_api_span = None
+            turn_span = None
             try:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -124,7 +129,6 @@ class CLIBackend(AgentBackend):
                     limit=10 * 1024 * 1024,
                 )
             except BaseException:
-                context.detach(spawn_token)
                 spawn_span.end()
                 raise
 
@@ -135,10 +139,6 @@ class CLIBackend(AgentBackend):
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
 
             last_events: list[str] = []
-            first_api_span = None
-            first_api_token = None
-            turn_span = None
-            turn_token = None
 
             try:
                 line_count = 0
@@ -149,12 +149,9 @@ class CLIBackend(AgentBackend):
                         break
 
                     if spawn_span is not None:
-                        context.detach(spawn_token)
                         spawn_span.end()
                         spawn_span = None
-                        spawn_token = None
-                        first_api_span = tracer.start_span("agent.cli.first_api")
-                        first_api_token = context.attach(trace.set_span_in_context(first_api_span))
+                        first_api_span = tracer.start_span("agent.cli.first_api", context=process_ctx)
 
                     line_str = line.decode("utf-8").strip()
                     if not line_str:
@@ -168,19 +165,14 @@ class CLIBackend(AgentBackend):
                         event_type = event.get("type")
 
                         if event_type == "assistant":
-                            if first_api_span is not None:
-                                context.detach(first_api_token)
-                                first_api_span.end()
-                                first_api_span = None
-                                first_api_token = None
                             if turn_span is not None:
-                                context.detach(turn_token)
                                 turn_span.end()
                                 turn_span = None
-                                turn_token = None
+                            if first_api_span is not None:
+                                first_api_span.end()
+                                first_api_span = None
                         elif event_type in ("tool_result", "user") and turn_span is None:
-                            turn_span = tracer.start_span("agent.cli.api_turn")
-                            turn_token = context.attach(trace.set_span_in_context(turn_span))
+                            turn_span = tracer.start_span("agent.cli.api_turn", context=process_ctx)
 
                         for agent_msg in self._parse_events(event):
                             logger.debug(f"Parsed event: {agent_msg.type}")
@@ -200,14 +192,8 @@ class CLIBackend(AgentBackend):
                 span.set_attribute("line_count", line_count)
                 logger.info(f"Process exited with code: {process.returncode}")
             finally:
-                for child_span, child_token in (
-                    (spawn_span, spawn_token),
-                    (first_api_span, first_api_token),
-                    (turn_span, turn_token),
-                ):
+                for child_span in (spawn_span, first_api_span, turn_span):
                     if child_span is not None:
-                        if child_token is not None:
-                            context.detach(child_token)
                         child_span.end()
                 self._processes.pop(conversation_id, None)
                 if process.returncode is None:

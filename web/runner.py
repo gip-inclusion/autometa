@@ -11,7 +11,7 @@ import threading
 import uuid
 
 import sentry_sdk
-from opentelemetry import context, trace
+from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from lib.api_signals import parse_api_signals
@@ -21,7 +21,7 @@ from lib.tool_taxonomy import classify_tool
 from . import alerts, config, session_sync
 from .agents import get_agent
 from .database import store
-from .otel import extract_trace_context, inject_trace_headers
+from .otel import SpanStack, extract_trace_context, inject_trace_headers
 from .redis_conn import get_redis
 from .request_context import reset_conversation_id, set_conversation_id
 from .sentry import set_user_context
@@ -206,8 +206,7 @@ class TaskRunner:
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
-        tool_span = None
-        tool_span_token = None
+        tool_spans = SpanStack()
         tool_call_count = 0
 
         with tracer.start_as_current_span(
@@ -264,23 +263,17 @@ class TaskRunner:
                                 )
                                 await self.notify(conversation_id)
                                 break
-                            if tool_span:
-                                context.detach(tool_span_token)
-                                tool_span.end()
+                            tool_spans.pop()
                             tool_name = (
                                 event.content.get("tool", "unknown") if isinstance(event.content, dict) else "unknown"
                             )
-                            tool_span = tracer.start_span("agent.tool", attributes={"tool.name": tool_name})
-                            tool_span_token = context.attach(trace.set_span_in_context(tool_span))
+                            tool_spans.push(tracer, "agent.tool", **{"tool.name": tool_name})
                             if assistant_text_parts:
                                 all_assistant_texts.extend(assistant_text_parts)
                             assistant_msg_id = None
                             assistant_text_parts = []
-                        elif event.type == "tool_result" and tool_span:
-                            context.detach(tool_span_token)
-                            tool_span.end()
-                            tool_span = None
-                            tool_span_token = None
+                        elif event.type == "tool_result":
+                            tool_spans.pop()
                         content = _serialize_tool_event(event, conversation_id, user_email)
                         store.add_message(conversation_id, event.type, content)
                         await self.notify(conversation_id)
@@ -294,12 +287,6 @@ class TaskRunner:
 
                     # Why: raw holds the full CLI JSON event — can be MBs for tool results
                     event.raw = {}
-
-                if tool_span:
-                    context.detach(tool_span_token)
-                    tool_span.end()
-                    tool_span = None
-                    tool_span_token = None
 
                 if assistant_text_parts:
                     all_assistant_texts.extend(assistant_text_parts)
@@ -316,9 +303,7 @@ class TaskRunner:
                 span.set_status(Status(StatusCode.ERROR))
                 sentry_sdk.capture_exception()
             finally:
-                if tool_span:
-                    context.detach(tool_span_token)
-                    tool_span.end()
+                tool_spans.close_all()
                 reset_conversation_id(conv_token)
                 store.update_conversation(conversation_id, needs_response=False)
                 await self.notify_done(conversation_id)

@@ -37,8 +37,6 @@ def init_sentry():
         before_send=_before_send,
         # Why: OpenTelemetry is the tracing primitive; SentrySpanProcessor forwards spans here.
         instrumenter="otel",
-        # Attach server_name so we can tell workers apart in multi-process deploys
-        server_name=None,
     )
     logger.info(
         "Sentry initialized (env=%s, traces=%.0f%%)", config.SENTRY_ENVIRONMENT, config.SENTRY_TRACES_SAMPLE_RATE * 100
