@@ -267,7 +267,7 @@ class TaskRunner:
                             tool_name = (
                                 event.content.get("tool", "unknown") if isinstance(event.content, dict) else "unknown"
                             )
-                            tool_spans.push(tracer, "agent.tool", **{"tool.name": tool_name})
+                            tool_spans.push(tracer, "agent.tool", {"tool.name": tool_name})
                             if assistant_text_parts:
                                 all_assistant_texts.extend(assistant_text_parts)
                             assistant_msg_id = None
@@ -355,20 +355,16 @@ def _persist_usage(conversation_id: str, usage: dict):
         backend=config.AGENT_BACKEND,
         extra=extra if extra else None,
     )
-    _annotate_usage_on_span(usage)
 
-
-def _annotate_usage_on_span(usage: dict):
     span = trace.get_current_span()
-    if not span.is_recording():
-        return
-    span.set_attribute("gen_ai.system", "anthropic")
-    span.set_attribute("gen_ai.usage.input_tokens", usage.get("input_tokens", 0))
-    span.set_attribute("gen_ai.usage.output_tokens", usage.get("output_tokens", 0))
-    span.set_attribute("gen_ai.usage.cache_read_tokens", usage.get("cache_read_input_tokens", 0))
-    span.set_attribute("gen_ai.usage.cache_creation_tokens", usage.get("cache_creation_input_tokens", 0))
-    if model := usage.get("model"):
-        span.set_attribute("gen_ai.request.model", model)
+    if span.is_recording():
+        span.set_attribute("gen_ai.system", "anthropic")
+        span.set_attribute("gen_ai.usage.input_tokens", usage.get("input_tokens", 0))
+        span.set_attribute("gen_ai.usage.output_tokens", usage.get("output_tokens", 0))
+        span.set_attribute("gen_ai.usage.cache_read_tokens", usage.get("cache_read_input_tokens", 0))
+        span.set_attribute("gen_ai.usage.cache_creation_tokens", usage.get("cache_creation_input_tokens", 0))
+        if model := usage.get("model"):
+            span.set_attribute("gen_ai.request.model", model)
 
 
 def _check_failure(conversation_id: str, text: str):

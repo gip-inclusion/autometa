@@ -74,7 +74,7 @@ class SpanStack:
     def __init__(self) -> None:
         self._stack: list[tuple[Span, object]] = []
 
-    def push(self, tracer: Tracer, name: str, **attributes) -> Span:
+    def push(self, tracer: Tracer, name: str, attributes: dict | None = None) -> Span:
         span = tracer.start_span(name, attributes=attributes)
         token = context.attach(trace.set_span_in_context(span))
         self._stack.append((span, token))
