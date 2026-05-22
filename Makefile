@@ -1,10 +1,13 @@
-.PHONY: dev test lint format security ci migrate
+.PHONY: dev test lint format security ci migrate check-migrations
 
 dev:
 	uv run --frozen autometa
 
 migrate:
 	uv run --frozen alembic upgrade head
+
+check-migrations:
+	uv run --frozen alembic check
 
 lint:
 	uv run --frozen ruff check web/ lib/ tests/
@@ -21,4 +24,4 @@ security:
 test:
 	uv run --frozen pytest tests/ -q --tb=short -m "not integration"
 
-ci: lint security test
+ci: lint security check-migrations test

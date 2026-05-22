@@ -23,8 +23,8 @@ LLM_BACKEND = os.getenv("LLM_BACKEND", "").strip().lower() or AGENT_BACKEND
 # Claude CLI path (uses system default if not set)
 CLAUDE_CLI = os.getenv("CLAUDE_CLI", "claude")
 
-# Claude model (used by SDK and CLI helper)
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+# Modèle pour les short prompts (titres, tags) — appelé par web.llm_call.
+LLM_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5")
 
 # Allowed tools for the agent (CLI backend only - SDK ignores this)
 # Bash patterns use glob wildcards (* matches anything)
@@ -119,6 +119,7 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
+BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET")
 
 
 # Container environment flag (set in Docker — bypasses permission checks)
@@ -179,9 +180,22 @@ DATA_INCLUSION_SSH_USER = os.getenv("DATA_INCLUSION_SSH_USER", "")
 DATA_INCLUSION_SSH_KEY = os.getenv("DATA_INCLUSION_SSH_KEY", "")
 DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE", "")
 
+# autometa_tables_db — tables Metabase centralisées (connexion directe Scalingo)
+AUTOMETA_TABLES_DATABASE_URL = os.getenv("AUTOMETA_TABLES_DATABASE_URL", "")
+
 # Datadog Logs
 DATADOG_API_KEY = os.getenv("DATADOG_API_KEY", "")
 
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")
 MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "")
+
+
+def agent_conversation_id() -> str | None:
+    """Conversation id injected by web/agents/cli.py:_build_env() into the agent subprocess."""
+    return os.getenv("AUTOMETA_CONVERSATION_ID")
+
+
+def agent_user_email() -> str | None:
+    """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
+    return os.getenv("AUTOMETA_USER_EMAIL")

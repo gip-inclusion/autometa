@@ -137,6 +137,39 @@ class ReportTag(Base):
     )
 
 
+class Dashboard(Base):
+    __tablename__ = "dashboards"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    website: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(Text)
+    first_author_email: Mapped[str] = mapped_column(Text, nullable=False)
+    created_in_conversation_id: Mapped[str | None] = mapped_column(Text)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_api_access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_cron: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_persistence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DashboardTag(Base):
+    __tablename__ = "dashboard_tags"
+
+    dashboard_slug: Mapped[str] = mapped_column(
+        Text, ForeignKey("dashboards.slug", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+    __table_args__ = (
+        Index("idx_dashboard_tags_slug", "dashboard_slug"),
+        Index("idx_dashboard_tags_tag", "tag_id"),
+    )
+
+
 class UploadedFile(Base):
     __tablename__ = "uploaded_files"
 

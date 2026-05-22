@@ -71,7 +71,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
 
     calls = []
 
-    async def mock_send_message(conversation_id, message, history, session_id=None):
+    async def mock_send_message(conversation_id, message, history, session_id=None, user_email=None):
         calls.append({
             "conversation_id": conversation_id,
             "message": message,

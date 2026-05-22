@@ -20,7 +20,7 @@ from web.cron import (
     run_cron_task,
     set_cron_enabled,
 )
-from web.database import get_db, init_db
+from web.database import get_db
 
 
 @pytest.fixture
@@ -38,7 +38,6 @@ def interactive_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def db_setup(monkeypatch):
-    init_db()
     yield
 
     with get_db() as session:

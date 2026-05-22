@@ -12,14 +12,19 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-_client = boto3.client(
-    "s3",
-    endpoint_url=config.S3_ENDPOINT,
-    aws_access_key_id=config.S3_ACCESS_KEY,
-    aws_secret_access_key=config.S3_SECRET_KEY,
-    region_name=config.S3_REGION,
-    config=BotoConfig(signature_version="s3v4"),
-)
+
+def make_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=config.S3_ENDPOINT,
+        aws_access_key_id=config.S3_ACCESS_KEY,
+        aws_secret_access_key=config.S3_SECRET_KEY,
+        region_name=config.S3_REGION,
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+
+_client = make_client()
 logger.info("S3 storage: bucket=%s, endpoint=%s", config.S3_BUCKET, config.S3_ENDPOINT)
 
 

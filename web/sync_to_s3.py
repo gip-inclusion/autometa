@@ -8,7 +8,6 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 
 from . import config, s3
-from .interactive_apps import invalidate_apps_cache
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +81,8 @@ def _sync_file(local_path: Path):
         content = local_path.read_bytes()
         content_type, _ = mimetypes.guess_type(local_path.name)
 
-        if s3.interactive.upload(relative_path, content, content_type):
-            if local_path.name == "APP.md":
-                invalidate_apps_cache()
-        else:
-            logger.error(f"Failed to sync to S3: {relative_path}")
+        if not s3.interactive.upload(relative_path, content, content_type):
+            logger.error("Failed to sync to S3: %s", relative_path)
 
     except (OSError, ClientError) as e:
         logger.error(f"Error uploading {local_path} to S3: {e}")

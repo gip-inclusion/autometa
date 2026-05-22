@@ -19,7 +19,7 @@ os.environ["DATA_DIR"] = _tmp_dir
 
 # Now we can safely import
 from web import config
-from web.database import ConversationStore, UploadedFile, init_db
+from web.database import ConversationStore, UploadedFile
 from web.uploads import (
     BLOCKED_EXTENSIONS,
     TEXT_EXTENSIONS,
@@ -40,8 +40,6 @@ config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 config.MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 config.TEXT_FILE_INLINE_LIMIT = 1024
 
-# Create a fresh store for tests
-init_db()
 store = ConversationStore()
 
 

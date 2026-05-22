@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
+from .autometa_tables_db import execute_sql as _atdb_execute_sql
 from .data_inclusion import execute_sql as _di_execute_sql
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
@@ -124,6 +125,7 @@ def execute_data_inclusion_query(
             ssh_key=config.DATA_INCLUSION_SSH_KEY,
             ssh_key_passphrase=config.DATA_INCLUSION_SSH_KEY_PASSPHRASE,
             sql=sql,
+            timeout=timeout,
         )
         data = {
             "columns": result.columns,
@@ -134,6 +136,29 @@ def execute_data_inclusion_query(
         return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
     # Why: query executor must return QueryResult, not raise — caller checks result.success.
     except Exception as e:
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
+
+
+def execute_autometa_tables_query(
+    sql: str,
+    caller: CallerType,
+    timeout: int = 60,
+) -> QueryResult:
+    """Execute a SQL query on autometa_tables_db. Returns QueryResult (never raises)."""
+    from web import config
+
+    start_time = time.time()
+    try:
+        result = _atdb_execute_sql(
+            database_url=config.AUTOMETA_TABLES_DATABASE_URL,
+            sql=sql,
+            timeout=timeout,
+        )
+        data = {"columns": result.columns, "rows": result.rows, "row_count": result.row_count}
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
+    except Exception as e:  # Why: query executor must return QueryResult, not raise — caller checks result.success.
         execution_time_ms = int((time.time() - start_time) * 1000)
         return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 
@@ -175,8 +200,14 @@ def execute_query(
             caller=caller,
             timeout=timeout,
         )
+    if source == "autometa_tables_db":
+        return execute_autometa_tables_query(
+            sql=sql or "",
+            caller=caller,
+            timeout=timeout,
+        )
     return QueryResult(
         success=False,
         data=None,
-        error=f"Unknown source: {source}. Use 'metabase', 'matomo', or 'data_inclusion'.",
+        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', or 'autometa_tables_db'.",
     )

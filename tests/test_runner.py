@@ -55,6 +55,26 @@ def test_submit_pushes_to_redis(runner, fake_redis):
     asyncio.run(_run())
 
 
+def test_run_agent_forwards_user_email_to_backend(runner, mocker):
+    captured = {}
+
+    async def capturing_stream(**kwargs):
+        captured.update(kwargs)
+        return
+        yield
+
+    runner.backend.send_message = capturing_stream
+    mocker.patch("web.runner.store")
+
+    async def _run():
+        await runner._run_agent("c1", "prompt", [], "alice@example.com", None)
+
+    asyncio.run(_run())
+
+    assert captured["conversation_id"] == "c1"
+    assert captured["user_email"] == "alice@example.com"
+
+
 def test_cancel_publishes_and_updates_db(runner, mocker):
     mock_store = mocker.patch("web.runner.store")
 

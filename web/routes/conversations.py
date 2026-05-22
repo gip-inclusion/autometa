@@ -37,7 +37,7 @@ def generate_conversation_title(user_message: str, conv_id: str) -> None:
 
     def _generate():
         try:
-            model = config.OLLAMA_TITLE_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.CLAUDE_MODEL
+            model = config.OLLAMA_TITLE_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.LLM_MODEL
             prompt = (
                 "Ecris un resume concis EN FRANCAIS (max 10 mots, sans guillemets) "
                 f"de cette demande:\n\n{user_message[:500]}"
@@ -167,7 +167,7 @@ Exemple: emplois, candidats, trafic, analyse"""
 
     def _generate():
         try:
-            model = config.OLLAMA_TAG_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.CLAUDE_MODEL
+            model = config.OLLAMA_TAG_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.LLM_MODEL
             response = llm.generate_text(prompt, model=model, max_tokens=100)
             tag_names = _parse_tags(response)
             if tag_names:
@@ -395,7 +395,7 @@ def generate_title(conv_id: str):
     context = "\n\n".join(context_parts)
 
     try:
-        model = config.OLLAMA_TITLE_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.CLAUDE_MODEL
+        model = config.OLLAMA_TITLE_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.LLM_MODEL
         prompt = (
             "Ecris un titre court et direct (6-10 mots) sur le theme de cette conversation. "
             "En francais uniquement. Pas de guillemets.\n\n"

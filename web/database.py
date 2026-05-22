@@ -8,10 +8,12 @@ from typing import Optional
 
 from sqlalchemy import func, select, text
 
-from .db import get_db, init_tables
+from .db import get_db
 from .helpers import utcnow
 from .models import Conversation as ConvModel
 from .models import ConversationTag as ConvTagModel
+from .models import Dashboard as DashboardModel
+from .models import DashboardTag as DashboardTagModel
 from .models import Message as MsgModel
 from .models import PinnedItem as PinModel
 from .models import Report as ReportModel
@@ -67,11 +69,6 @@ def build_update_clause(updates: dict, valid_columns: frozenset) -> tuple[str, l
             raise ValueError(f"Invalid column name: {col}")
     parts = [f"{col} = %s" for col in updates]
     return ", ".join(parts), list(updates.values())
-
-
-def init_db():
-    """Backward-compatible alias for init_tables()."""
-    init_tables()
 
 
 @dataclass
@@ -316,9 +313,6 @@ def _conv_with_report_row(row, report_id, report_title) -> Conversation:
 
 class ConversationStore:
     """PostgreSQL-backed conversation and report store."""
-
-    def __init__(self):
-        init_tables()
 
     def create_conversation(
         self,
@@ -876,6 +870,44 @@ class ConversationStore:
             result = _model_to_report(r)
             result.content = content
             return result
+
+    def list_dashboards(self) -> list[dict]:
+        """Active dashboards from the DB, sorted by `updated_at` desc."""
+        with get_db() as session:
+            dashboards = list(
+                session.scalars(
+                    select(DashboardModel).where(~DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
+                ).all()
+            )
+            if not dashboards:
+                return []
+
+            slugs = [d.slug for d in dashboards]
+            tag_rows = session.execute(
+                select(DashboardTagModel.dashboard_slug, TagModel.name)
+                .join(TagModel, TagModel.id == DashboardTagModel.tag_id)
+                .where(DashboardTagModel.dashboard_slug.in_(slugs))
+            ).all()
+            tags_by_slug: dict[str, list[str]] = {}
+            for slug, name in tag_rows:
+                tags_by_slug.setdefault(slug, []).append(name)
+
+            return [
+                {
+                    "slug": d.slug,
+                    "title": d.title,
+                    "description": d.description or "",
+                    "website": d.website,
+                    "category": d.category,
+                    "tags": tags_by_slug.get(d.slug, []),
+                    "authors": [d.first_author_email],
+                    "conversation_id": d.created_in_conversation_id,
+                    "updated": d.updated_at,
+                    "url": f"/interactive/{d.slug}/",
+                    "is_interactive": True,
+                }
+                for d in dashboards
+            ]
 
     def list_reports(
         self,

@@ -281,7 +281,7 @@ def extract_card_ids(response: str) -> list[int]:
         try:
             data = json.loads(json_match.group())
             return [int(x) for x in data.get("card_ids", [])]
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             pass
 
     # Fallback: look for patterns like "ID: 1234" or "card 1234"

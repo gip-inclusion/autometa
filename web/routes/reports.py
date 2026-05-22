@@ -14,7 +14,6 @@ from web import notion
 from web.config import ADMIN_USERS
 from web.database import get_db, store
 from web.deps import get_current_user, templates
-from web.interactive_apps import scan_interactive_apps
 from web.models import Report
 
 from .html import get_sidebar_data
@@ -95,7 +94,7 @@ async def pin_app(slug: str, request: Request, user_email: str = Depends(get_cur
     if user_email not in ADMIN_USERS:
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
-    apps = {a["slug"]: a for a in scan_interactive_apps()}
+    apps = {a["slug"]: a for a in store.list_dashboards()}
     app = apps.get(slug)
     if not app:
         return JSONResponse({"error": "App not found"}, status_code=404)
