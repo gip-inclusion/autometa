@@ -343,3 +343,122 @@ def test_get_zendesk_factory_reads_config(mocker):
     assert api.base_url == "https://emplois.zendesk.com/api/v2"
     assert api.instance == "emplois"
     sources.get_source_config.assert_called_once_with("zendesk")
+
+
+def _search_payload(tickets):
+    return {
+        "results": [
+            {
+                "id": t["id"],
+                "subject": t.get("subject", "S"),
+                "status": t.get("status", "open"),
+                "created_at": t.get("created_at", "t"),
+                "updated_at": t.get("updated_at", "t"),
+                "requester_id": t.get("requester_id", 1),
+                "assignee_id": t.get("assignee_id"),
+                "tags": t.get("tags", []),
+                "result_type": "ticket",
+            }
+            for t in tickets
+        ],
+        "count": len(tickets),
+        "next_page": None,
+    }
+
+
+def test_search_tickets_appends_type_filter(api_no_signal, mocker):
+    get = mocker.patch.object(
+        api_no_signal._client,
+        "get",
+        return_value=_mock_response(mocker, json_data=_search_payload([{"id": 1}, {"id": 2}])),
+    )
+
+    results = api_no_signal.search_tickets("status:open tags:bug")
+
+    assert [t.id for t in results] == [1, 2]
+    call_params = get.call_args.kwargs["params"]
+    assert "type:ticket" in call_params["query"]
+    assert "status:open" in call_params["query"]
+
+
+def test_search_tickets_does_not_double_type_filter(api_no_signal, mocker):
+    get = mocker.patch.object(
+        api_no_signal._client,
+        "get",
+        return_value=_mock_response(mocker, json_data=_search_payload([])),
+    )
+    api_no_signal.search_tickets("type:ticket status:open")
+    assert get.call_args.kwargs["params"]["query"].count("type:ticket") == 1
+
+
+def test_search_tickets_filters_non_ticket_results(api_no_signal, mocker):
+    payload = {
+        "results": [
+            {
+                "id": 1,
+                "subject": "T",
+                "status": "open",
+                "created_at": "t",
+                "updated_at": "t",
+                "requester_id": 1,
+                "tags": [],
+                "result_type": "ticket",
+            },
+            {"id": 9, "result_type": "user"},
+        ],
+        "next_page": None,
+    }
+    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    results = api_no_signal.search_tickets("foo")
+    assert [t.id for t in results] == [1]
+
+
+def test_search_tickets_honors_max_results(api_no_signal, mocker):
+    page = _search_payload([{"id": i} for i in range(1, 6)])
+    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=page))
+    results = api_no_signal.search_tickets("foo", max_results=3)
+    assert len(results) == 3
+    assert [t.id for t in results] == [1, 2, 3]
+
+
+def test_search_tickets_paginates_until_max(api_no_signal, mocker):
+    page1 = {
+        "results": [
+            {
+                "id": i,
+                "subject": "S",
+                "status": "open",
+                "created_at": "t",
+                "updated_at": "t",
+                "requester_id": 1,
+                "tags": [],
+                "result_type": "ticket",
+            }
+            for i in [1, 2, 3]
+        ],
+        "next_page": "https://emplois.zendesk.com/api/v2/search.json?page=2&query=foo+type%3Aticket",
+    }
+    page2 = _search_payload([{"id": 4}, {"id": 5}])
+    mocker.patch.object(
+        api_no_signal._client,
+        "get",
+        side_effect=[
+            _mock_response(mocker, json_data=page1),
+            _mock_response(mocker, json_data=page2),
+        ],
+    )
+    results = api_no_signal.search_tickets("foo", max_results=10)
+    assert [t.id for t in results] == [1, 2, 3, 4, 5]
+
+
+def test_count_tickets_calls_count_endpoint(api_no_signal, mocker):
+    get = mocker.patch.object(
+        api_no_signal._client,
+        "get",
+        return_value=_mock_response(mocker, json_data={"count": 42}),
+    )
+    n = api_no_signal.count_tickets("status:open")
+    assert n == 42
+    call_url = get.call_args.args[0]
+    assert "search/count.json" in call_url
+    assert "type:ticket" in get.call_args.kwargs["params"]["query"]

@@ -185,6 +185,60 @@ class ZendeskAPI:
             if i % 500 == 0:
                 logger.info("Zendesk: %d/%d tickets traités", i, total)
 
+    def search_tickets(
+        self,
+        query: str,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None,
+        max_results: int = 100,
+    ) -> list[ZendeskTicket]:
+        """Search tickets via Zendesk Search API.
+
+        `query` is the Zendesk search syntax (e.g. `status:open tags:bug created>2026-01-01`).
+        `type:ticket` is appended automatically. Server caps results at 1000.
+        """
+        full_query = query if "type:ticket" in query else f"{query} type:ticket".strip()
+        params: dict[str, Any] = {"query": full_query, "per_page": 100}
+        if sort_by:
+            params["sort_by"] = sort_by
+        if sort_order:
+            params["sort_order"] = sort_order
+
+        results: list[ZendeskTicket] = []
+        path = "search.json"
+        while path and len(results) < max_results:
+            data = self._get(path, params if path == "search.json" else None)
+            for t in data.get("results", []):
+                if len(results) >= max_results:
+                    break
+                if t.get("result_type") and t["result_type"] != "ticket":
+                    continue
+                results.append(
+                    ZendeskTicket(
+                        id=t["id"],
+                        subject=t.get("subject") or "",
+                        status=t["status"],
+                        created_at=t["created_at"],
+                        updated_at=t["updated_at"],
+                        requester_id=t["requester_id"],
+                        assignee_id=t.get("assignee_id"),
+                        tags=t.get("tags", []),
+                    )
+                )
+            next_page = data.get("next_page")
+            if not next_page or len(results) >= max_results:
+                break
+            # next_page is an absolute URL; switch to passing it as path with no params
+            path = next_page.replace(f"{self.base_url}/", "")
+            params = None
+        return results
+
+    def count_tickets(self, query: str) -> int:
+        """Return the count of tickets matching the query (server-side, no pagination cost)."""
+        full_query = query if "type:ticket" in query else f"{query} type:ticket".strip()
+        data = self._get("search/count.json", {"query": full_query})
+        return int(data.get("count", 0))
+
     def check_auth(self) -> dict[str, str]:
         """Verify credentials. Returns current user info."""
         return self._get("users/me")["user"]

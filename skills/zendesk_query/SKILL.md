@@ -38,6 +38,11 @@ for r in zd.iter_tickets([1, 2, 3], with_comments=True):
     if r.error:
         continue
     print(r.ticket.subject, len(r.comments or []))
+
+# Recherche full-text (filtre `type:ticket` ajouté automatiquement)
+hits = zd.search_tickets("status:open tags:bug created>2026-01-01", sort_by="created_at", sort_order="desc", max_results=50)
+n = zd.count_tickets("status:open tags:bug created>2026-01-01")
+print(f"{n} tickets correspondent, {len(hits)} chargés")
 ```
 
 ## Méthodes disponibles
@@ -48,6 +53,8 @@ for r in zd.iter_tickets([1, 2, 3], with_comments=True):
 | `get_ticket_comments(ticket_id)` | `list[ZendeskComment]` | Commentaires (oldest first, **première page uniquement**) |
 | `first_user_reply(ticket_id)` | `ZendeskComment \| None` | Première réponse end-user après le premier message agent |
 | `iter_tickets(ids, with_comments=False)` | itérateur `TicketResult` | Boucle batch avec gestion d'erreur par ticket et log de progression |
+| `search_tickets(query, sort_by=None, sort_order=None, max_results=100)` | `list[ZendeskTicket]` | Recherche full-text via `/search.json` ; `type:ticket` ajouté automatiquement, suit `next_page` jusqu'à `max_results` |
+| `count_tickets(query)` | `int` | Nombre total de tickets correspondants (`/search/count.json`), sans coût pagination |
 | `check_auth()` | `dict` | Vérifie les credentials (`users/me`) |
 
 ## Notes
@@ -61,7 +68,6 @@ for r in zd.iter_tickets([1, 2, 3], with_comments=True):
 ## Limitations connues
 
 - **Pagination non implémentée** : `get_ticket_comments` ne lit que la première page de la réponse Zendesk (~100 commentaires max). Les tickets longs (chaînes de support très actives) seront tronqués sans erreur. Si ce cas devient bloquant, ajouter le suivi de `next_page` dans `_get`.
-- Pas de filtrage côté serveur : pour des recherches (`search.json`), passer par une extension du client.
 
 ## Quand l'utiliser
 
