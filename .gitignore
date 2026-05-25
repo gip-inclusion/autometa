@@ -1,5 +1,6 @@
 .DS_Store
 .env
+.envrc
 .env.ollama.local
 .claude/*
 !.claude/skills
@@ -29,3 +30,4 @@ auth/allowed_emails.txt
 docker-compose.local.yml
 .pm.pid
 infra/scaleway/s3_backup/s3_backup.zip
+infra/scaleway/s3_backup/build/

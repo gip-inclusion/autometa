@@ -16,15 +16,23 @@ from sqlalchemy import select
 
 from web.helpers import now_local, utcnow
 
-from . import config, s3
+from . import alerts, config, s3
 from .database import get_db
-from .models import CronRun
+from .models import CronRun, Dashboard
 
 logger = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
+
+# Cron statuses that count as "broken" for Slack alerts
+BROKEN_STATUSES = {"failure", "timeout"}
+
+
+def _sanitize_for_log(value: str) -> str:
+    """Remove line-break characters to prevent log injection."""
+    return value.replace("\r", "").replace("\n", "")
 
 
 def parse_frontmatter_text(content: str) -> dict:
@@ -159,24 +167,32 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
 
 def discover_from_s3() -> list[dict]:
-    """Discover cron tasks from S3-stored interactive apps."""
+    """Discover cron tasks for apps flagged `has_cron` in DB; metadata still from S3 APP.md."""
     if not config.S3_BUCKET:
         return []
+
+    with get_db() as session:
+        rows = session.execute(
+            select(Dashboard.slug, Dashboard.title)
+            .where(Dashboard.has_cron, ~Dashboard.is_archived)
+            .order_by(Dashboard.slug)
+        ).all()
+
     tasks = []
-    for slug in s3.interactive.list_directories():
+    for slug, title in rows:
         if not s3.interactive.exists(f"{slug}/cron.py"):
+            logger.warning("Dashboard %s has has_cron=true but no cron.py on S3", slug)
             continue
 
-        # Parse APP.md metadata from S3
         md_bytes = s3.interactive.download(f"{slug}/APP.md")
         meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
 
         tasks.append({
             "slug": slug,
-            "title": meta.get("title", slug),
+            "title": title,
             "tier": "app",
             "source": "s3",
-            "path": slug,  # S3 prefix, not a local path
+            "path": slug,
             "cron_path": f"{slug}/cron.py",
             "enabled": is_enabled(meta),
             "timeout": get_timeout(meta),
@@ -241,7 +257,12 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         s3.interactive.upload(f"{slug}/{rel}", content)
         uploaded += 1
     if uploaded:
-        logger.info(f"Cron upload {slug}: {uploaded} uploaded, {skipped} unchanged")
+        logger.info(
+            "Cron upload %s: %d uploaded, %d unchanged",
+            _sanitize_for_log(slug),
+            uploaded,
+            skipped,
+        )
 
 
 def _sentry_monitor_config(task: dict) -> dict:
@@ -363,8 +384,36 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         monitor_config=monitor_config,
     )
 
+    previous_status = None
+    if trigger == "scheduled":
+        recent = get_app_runs(slug, limit=1)
+        previous_status = recent[0]["status"] if recent else None
+
     record_run(run_result, trigger)
+
+    if trigger == "scheduled":
+        notify_cron_status_change(slug, status, previous_status, output)
     return run_result
+
+
+def notify_cron_status_change(slug: str, status: str, previous_status: str | None, output: str) -> None:
+    """Post a Slack alert when a cron newly breaks or recovers."""
+    broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
+    recovered = status == "success" and previous_status in BROKEN_STATUSES
+    if not (broke or recovered):
+        return
+
+    if broke:
+        message = f":red_circle: *Cron en échec : {slug}* ({status})"
+        snippet = (output or "").strip()[:500].replace("```", "ʼʼʼ")
+        if snippet:
+            message += f"\n```{snippet}```"
+    else:
+        message = f":large_green_circle: *Cron rétabli : {slug}*"
+    if config.BASE_URL:
+        message += f"\n<{config.BASE_URL}/cron|Voir les crons>"
+
+    alerts.notify_alert_channel(message)
 
 
 def record_run(result: dict, trigger: str):

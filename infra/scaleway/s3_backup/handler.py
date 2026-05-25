@@ -3,6 +3,7 @@
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
 import boto3
@@ -40,38 +41,51 @@ def _existing_etag(client, bucket: str, key: str) -> str | None:
 def snapshot(client, source: str, target: str, snapshot_date: str) -> dict:
     prefix = f"backup/{snapshot_date}/"
     start = time.monotonic()
-    copied = 0
-    skipped = 0
-    total_bytes = 0
     paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=source):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            dest_key = f"{prefix}{key}"
+    objects = [obj for page in paginator.paginate(Bucket=source) for obj in page.get("Contents", [])]
+
+    def copy_one(obj: dict) -> tuple[str, int, str | None]:
+        key = obj["Key"]
+        dest_key = f"{prefix}{key}"
+        try:
             # Why: re-runs after partial failure skip already-copied objects (ETag match = identical bytes).
             if _existing_etag(client, target, dest_key) == obj["ETag"]:
-                skipped += 1
-                total_bytes += obj["Size"]
-                continue
+                return "skipped", obj["Size"], None
             client.copy_object(
                 Bucket=target,
                 Key=dest_key,
                 CopySource={"Bucket": source, "Key": key},
                 MetadataDirective="COPY",
             )
-            copied += 1
-            total_bytes += obj["Size"]
+            return "copied", obj["Size"], None
+        except ClientError as exc:
+            return "failed", obj["Size"], f"{key}: {exc}"
+
+    counts = {"copied": 0, "skipped": 0, "failed": 0}
+    total_bytes = 0
+    errors = []
+    # Parallel server-side copies — the bottleneck is API round-trips, not bandwidth.
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        for status, size, error in pool.map(copy_one, objects):
+            counts[status] += 1
+            if error:
+                errors.append(error)
+            else:
+                total_bytes += size
     manifest = {
         "snapshot": snapshot_date,
         "source": source,
         "target": f"{target}/{prefix}",
-        "copied": copied,
-        "skipped": skipped,
-        "objects": copied + skipped,
+        "copied": counts["copied"],
+        "skipped": counts["skipped"],
+        "failed": counts["failed"],
+        "objects": len(objects),
         "bytes": total_bytes,
         "duration_s": round(time.monotonic() - start, 2),
-        "ok": True,
+        "ok": counts["failed"] == 0,
     }
+    if errors:
+        manifest["errors"] = errors[:20]
     # Why: manifest written last — its presence atteste que la copie est complète (check Sentry s'y fie).
     client.put_object(
         Bucket=target,
@@ -91,7 +105,7 @@ def purge_old_snapshots(client, bucket: str, retention_days: int, today: date) -
             sub = common["Prefix"]
             try:
                 day = datetime.strptime(sub.split("/")[1], "%Y-%m-%d").date()
-            except IndexError, ValueError:
+            except (IndexError, ValueError):  # Scaleway runtime is Python 3.13; bare-tuple except (PEP 758) needs 3.14+
                 continue
             if day >= cutoff:
                 continue
@@ -109,6 +123,8 @@ def handle(event, context):
     client = build_client()
     result = snapshot(client, config.SOURCE_BUCKET, config.BACKUP_BUCKET, today.isoformat())
     logger.info("snapshot done: %s", result)
+    if not result["ok"]:
+        raise RuntimeError(f"snapshot incomplete: {result['failed']} object(s) failed")
     if config.RETENTION_DAYS > 0:
         purged = purge_old_snapshots(client, config.BACKUP_BUCKET, config.RETENTION_DAYS, today)
         logger.info("purged %d objects older than %d days", purged, config.RETENTION_DAYS)

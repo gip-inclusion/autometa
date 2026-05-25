@@ -146,9 +146,7 @@ NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 
 # Slack notifications
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
-# FIXME: remove EMAIL_ANNAELLE fallback once prod env var is renamed to FAILURE_NOTIFY_EMAILS
-_notify_raw = os.getenv("FAILURE_NOTIFY_EMAILS") or os.getenv("EMAIL_ANNAELLE", "")
-FAILURE_NOTIFY_EMAILS = [email.strip() for email in _notify_raw.split(",") if email.strip()]
+SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
 # Grist (webinaire data)
 GRIST_API_KEY = os.getenv("GRIST_API_KEY")
@@ -156,6 +154,9 @@ GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
 
 # Livestorm API
 LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
+
+# GitHub API — cron scripts read public repos; an unscoped token lifts the rate limit (60 → 5000 req/h)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
 # Redis (Scalingo provides SCALINGO_REDIS_URL)
 REDIS_URL = os.getenv("REDIS_URL") or os.getenv("SCALINGO_REDIS_URL") or "redis://localhost:6379/0"

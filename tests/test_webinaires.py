@@ -9,7 +9,6 @@ from lib.webinaires import (
     T_WEBINAIRES,
     GristClient,
     batch_upsert,
-    extract_organisation,
     grist_duration_to_minutes,
     infer_product,
     sync_grist,
@@ -108,22 +107,6 @@ def test_ts_to_iso_edge_cases(value, expected_none):
 )
 def test_grist_duration_to_minutes(value, expected):
     assert grist_duration_to_minutes(value) == expected
-
-
-@pytest.mark.parametrize(
-    "fields,expected",
-    [
-        ([{"id": "company", "value": "ACME Corp"}], "ACME Corp"),
-        ([{"id": "quel_est_le_nom_de_votre_structure", "value": "PLIE Bordeaux"}], "PLIE Bordeaux"),
-        ([{"id": "entreprise", "value": "Mission Locale"}], "Mission Locale"),
-        ([{"id": "departement", "value": "75"}], None),
-        ([], None),
-        ([{"id": "entreprise", "value": "second"}, {"id": "company", "value": "first"}], "first"),
-        ([{"id": "company", "value": ""}, {"id": "entreprise", "value": "Fallback"}], "Fallback"),
-    ],
-)
-def test_extract_organisation(fields, expected):
-    assert extract_organisation(fields) == expected
 
 
 def test_registration_unique_constraint(conn):

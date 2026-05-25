@@ -49,6 +49,11 @@ metabase:
     knowledge_path: knowledge/rdvi/
     dashboards: {}
 
+  data_inclusion:
+    url: https://metabase.data.inclusion.gouv.fr
+    api_key: ${env.METABASE_DATA_INCLUSION_API_KEY}
+    dashboards: {}
+
 matomo:
   _default: inclusion
 

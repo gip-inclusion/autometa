@@ -16,6 +16,9 @@ concurrency:
   group: deploy-staging
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     uses: ./.github/workflows/_deploy.yml

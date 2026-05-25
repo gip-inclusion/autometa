@@ -78,6 +78,24 @@ def execute_metabase_query(
         return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
 
 
+def list_metabase_models(
+    instance: str,
+    caller: CallerType,
+    timeout: int = 30,
+) -> QueryResult:
+    """List all model-type cards on a Metabase instance. Returns QueryResult (never raises)."""
+    start_time = time.time()
+    try:
+        api = get_metabase(instance)
+        api.caller = caller.value
+        data = api.list_models()
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        return QueryResult(success=True, data=data, execution_time_ms=execution_time_ms)
+    except (MetabaseError, ValueError) as e:
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        return QueryResult(success=False, data=None, error=str(e), execution_time_ms=execution_time_ms)
+
+
 def execute_matomo_query(
     instance: str,
     caller: CallerType,

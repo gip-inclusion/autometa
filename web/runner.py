@@ -16,7 +16,7 @@ from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
 from lib.tool_taxonomy import classify_tool
 
-from . import config, session_sync
+from . import alerts, config, session_sync
 from .agents import get_agent
 from .database import store
 from .redis_conn import get_redis
@@ -365,34 +365,13 @@ def _check_failure(conversation_id: str, text: str):
 
 
 def _send_failure_notification(conv_id: str, title: str, snippet: str):
-    if not config.FAILURE_NOTIFY_EMAILS:
-        return
-    token = config.SLACK_BOT_TOKEN
-    if not token:
-        return
-
-    from lib.slack import lookup_user, send_dm
-
     url = f"{config.BASE_URL}/explorations/{conv_id}"
     message = (
         f":warning: *Erreur détectée dans une conversation*\n\n"
         f'<{url}|{title}> — "{snippet}"\n\n'
         f"_Vérifiez que la réponse est correcte._"
     )
-
-    for email in config.FAILURE_NOTIFY_EMAILS:
-        try:
-            slack_id = lookup_user(token, email)
-            if not slack_id:
-                logger.warning(f"Slack user not found for {email}")
-                continue
-            if send_dm(token, slack_id, message):
-                logger.info(f"Failure notification sent to {email} for conversation {conv_id}")
-            else:
-                logger.warning(f"Failed to send Slack DM to {email}")
-        # Why: runs in a background daemon thread, must not crash on transient Slack errors.
-        except Exception:
-            logger.exception(f"Error sending failure notification to {email}")
+    alerts.notify_alert_channel(message)
 
 
 runner = TaskRunner()

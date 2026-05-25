@@ -180,6 +180,8 @@ data/interactive/mon-dashboard/
 
 Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il peut importer `lib.query` pour appeler Matomo / Metabase. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
 
+**Le cron ne voit que son propre dossier.** En production il tourne isolé dans un répertoire temporaire ; les autres dashboards n'existent pas à côté de lui. Un chemin `../autre-dashboard/…` ou `/app/data/interactive/autre/…` ne résout rien. Si le cron a besoin de données produites par un autre dashboard, il les régénère depuis la source primaire (Matomo, Metabase, GitHub…) plutôt que de lire son `data.json`. Régénérer les mêmes données dans deux dashboards est acceptable ; les coupler via un fichier ne l'est pas.
+
 En production, `data.json` est synchronisé vers S3 — les fichiers écrits par `cron.py` survivent aux redéploiements.
 
 #### Convention `data.json`
@@ -227,6 +229,7 @@ Sur la VM actuelle, entrée crontab système :
 - stdout / stderr capturés et stockés en base (50 Ko max)
 - Exit code 0 = succès, non nul = échec
 - Les fichiers `.py` ne sont **pas servis** via `/interactive/` (404)
+- Le cron n'accède qu'au dossier de son dashboard — pas de lecture inter-dashboards
 
 #### UI
 

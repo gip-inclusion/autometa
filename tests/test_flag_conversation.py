@@ -155,6 +155,69 @@ class TestDeleteFlag:
         assert resp.status_code == 404
 
 
+class _SyncThread:
+    def __init__(self, target, args=(), kwargs=None, daemon=None):
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+
+    def start(self):
+        self._target(*self._args, **self._kwargs)
+
+
+@pytest.fixture
+def sync_threads(mocker):
+    mocker.patch("web.routes.conversations.threading.Thread", _SyncThread)
+
+
+class TestFlagSlackNotification:
+    def test_new_flag_pings_alert_channel(self, app, client, conv, mocker, sync_threads, alice_headers):
+        notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+
+        _post_flag(client, conv.id, alice_headers, reason="hors sujet")
+
+        notify.assert_called_once()
+        message = notify.call_args[0][0]
+        assert "alice@example.com" in message
+        assert "hors sujet" in message
+        assert conv.id in message
+
+    def test_reflagging_same_user_does_not_re_ping(self, app, client, conv, mocker, sync_threads, alice_headers):
+        notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+
+        _post_flag(client, conv.id, alice_headers, reason="first")
+        _post_flag(client, conv.id, alice_headers, reason="second")
+
+        assert notify.call_count == 1
+
+    def test_admin_overwriting_flag_does_not_re_ping(
+        self, app, client, conv, mocker, sync_threads, admin_headers, alice_headers
+    ):
+        notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+
+        _post_flag(client, conv.id, alice_headers, reason="alice")
+        _post_flag(client, conv.id, admin_headers, reason="admin override")
+
+        assert notify.call_count == 1
+
+    def test_delete_flag_does_not_ping(self, app, client, conv, mocker, sync_threads, alice_headers):
+        _post_flag(client, conv.id, alice_headers, reason="R")
+        notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+
+        client.delete(f"/api/conversations/{conv.id}/flag", headers=alice_headers)
+
+        notify.assert_not_called()
+
+    def test_failed_flag_does_not_ping(self, app, client, conv, mocker, sync_threads, alice_headers, bob_headers):
+        _post_flag(client, conv.id, alice_headers, reason="alice")
+        notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+
+        resp = _post_flag(client, conv.id, bob_headers, reason="bob")
+
+        assert resp.status_code == 409
+        notify.assert_not_called()
+
+
 class TestCascadeOnConversationDelete:
     def test_deleting_flagged_conversation_removes_it_from_dashboard(
         self, app, client, conv, admin_headers, alice_headers

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy the s3_backup Scaleway Function + daily cron trigger.
-# Run from repo root. Requires: scw CLI configured, jq, and S3_ACCESS_KEY/S3_SECRET_KEY env vars set to the Scaleway Object Storage credentials with read access on matometa and write access on matometa-backup.
+# Run from repo root. Requires: scw CLI configured, jq, python3, and S3_ACCESS_KEY/S3_SECRET_KEY env vars set to the Scaleway Object Storage credentials with read access on matometa and write access on matometa-backup.
 
 set -euo pipefail
 
@@ -16,9 +16,13 @@ SCHEDULE="${SCHEDULE:-0 3 * * *}"
 
 cd "$(dirname "$0")"
 
-echo "→ Building zip"
-rm -f s3_backup.zip
-zip -q s3_backup.zip handler.py config.py requirements.txt
+echo "→ Building deployment package"
+# Why: Scaleway zip deploys don't run pip — dependencies must be vendored into the package.
+rm -rf build s3_backup.zip
+mkdir build
+python3 -m pip install --quiet --no-compile --target build --requirement requirements.txt
+cp handler.py config.py requirements.txt build/
+(cd build && zip -q -r ../s3_backup.zip .)
 
 echo "→ Ensuring namespace '$NAMESPACE_NAME'"
 NS_ID=$(scw function namespace list region="$REGION" -o json | jq -r ".[] | select(.name==\"$NAMESPACE_NAME\") | .id" | head -n1)
