@@ -713,33 +713,6 @@ class ConversationStore:
             c.updated_at = utcnow()
             return True
 
-    def accumulate_usage(
-        self,
-        conv_id: str,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
-        cache_creation_tokens: int = 0,
-        cache_read_tokens: int = 0,
-        backend: Optional[str] = None,
-        extra: Optional[dict] = None,
-    ) -> bool:
-        """Add usage to existing counts (for incremental updates)."""
-        extra_json = json.dumps(extra) if extra else None
-        with get_db() as session:
-            c = session.get(ConvModel, conv_id)
-            if not c:
-                return False
-            c.usage_input_tokens = (c.usage_input_tokens or 0) + input_tokens
-            c.usage_output_tokens = (c.usage_output_tokens or 0) + output_tokens
-            c.usage_cache_creation_tokens = (c.usage_cache_creation_tokens or 0) + cache_creation_tokens
-            c.usage_cache_read_tokens = (c.usage_cache_read_tokens or 0) + cache_read_tokens
-            if backend is not None:
-                c.usage_backend = backend
-            if extra_json is not None:
-                c.usage_extra = extra_json
-            c.updated_at = utcnow()
-            return True
-
     def insert_usage_event(
         self,
         conversation_id: str,
