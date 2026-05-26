@@ -20,6 +20,7 @@ from .models import Report as ReportModel
 from .models import ReportTag as ReportTagModel
 from .models import Tag as TagModel
 from .models import UploadedFile as FileModel
+from .models import UsageEvent as UsageEventModel
 
 VALID_CONVERSATION_COLUMNS = frozenset({
     "title",
@@ -738,6 +739,60 @@ class ConversationStore:
                 c.usage_extra = extra_json
             c.updated_at = utcnow()
             return True
+
+    def insert_usage_event(
+        self,
+        conversation_id: str,
+        cli_message_id: Optional[str],
+        timestamp: datetime,
+        model: Optional[str],
+        backend: str,
+        usage: dict,
+        kind: str = "turn",
+    ) -> None:
+        cache_creation = usage.get("cache_creation") or {}
+        cc_5m = cache_creation.get("ephemeral_5m_input_tokens")
+        cc_1h = cache_creation.get("ephemeral_1h_input_tokens")
+        if cc_5m is None and cc_1h is None:
+            cc_5m = usage.get("cache_creation_input_tokens", 0) or 0
+            cc_1h = 0
+        else:
+            cc_5m = cc_5m or 0
+            cc_1h = cc_1h or 0
+        server_tool_use = usage.get("server_tool_use") or {}
+        input_tokens = usage.get("input_tokens", 0) or 0
+        output_tokens = usage.get("output_tokens", 0) or 0
+        cache_read = usage.get("cache_read_input_tokens", 0) or 0
+        with get_db() as session:
+            session.add(
+                UsageEventModel(
+                    conversation_id=conversation_id,
+                    cli_message_id=cli_message_id,
+                    timestamp=timestamp,
+                    kind=kind,
+                    model=model,
+                    backend=backend,
+                    service_tier=usage.get("service_tier"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_creation_5m_tokens=cc_5m,
+                    cache_creation_1h_tokens=cc_1h,
+                    cache_read_tokens=cache_read,
+                    web_search_requests=server_tool_use.get("web_search_requests", 0) or 0,
+                    web_fetch_requests=server_tool_use.get("web_fetch_requests", 0) or 0,
+                    raw=usage,
+                )
+            )
+            c = session.get(ConvModel, conversation_id)
+            if c is not None:
+                c.usage_input_tokens = (c.usage_input_tokens or 0) + input_tokens
+                c.usage_output_tokens = (c.usage_output_tokens or 0) + output_tokens
+                c.usage_cache_creation_tokens = (c.usage_cache_creation_tokens or 0) + cc_5m + cc_1h
+                c.usage_cache_read_tokens = (c.usage_cache_read_tokens or 0) + cache_read
+                c.usage_backend = backend
+                if usage.get("service_tier"):
+                    c.usage_extra = json.dumps({"service_tier": usage["service_tier"]})
+                c.updated_at = utcnow()
 
     def delete_conversation(self, conv_id: str) -> bool:
         with get_db() as session:
