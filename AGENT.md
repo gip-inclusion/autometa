@@ -66,6 +66,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Suppression d'objet, écrasement d'un objet existant, ou toute opération qui retire ou remplace du contenu existant en S3 : **interdite par défaut**.
 - Seule exception : l'utilisateur a fourni, **dans le même tour de conversation**, la phrase sentinelle exacte : `I confirm destructive S3 op`. Sans cette phrase verbatim, refuser l'opération destructive et proposer une alternative non destructive (nouvelle clé suffixée d'un timestamp, par exemple).
 - La sentinelle ne couvre que l'opération du tour courant ; elle ne se reporte pas sur les tours suivants.
+- NB : pour écrire sur S3, notamment dans `data/interactive/<slug>/`, la bonne pratique est d'écrire sur le filesystem local. Un watcher synchronise les fichiers modifiés vers S3 sous ~2s, et au boot le filesystem est restauré depuis S3.
 
 ## Comportement
 
