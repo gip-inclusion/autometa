@@ -20,49 +20,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-VIEWS = ("featured", "mine", "latest", "search", "archived")
+VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
-
-
-def _search(items: list[dict], q: str) -> list[dict]:
-    ql = q.lower()
-    return [
-        d
-        for d in items
-        if ql in d["title"].lower()
-        or ql in (d["description"] or "").lower()
-        or ql in d["first_author_email"].lower()
-        or any(ql in t.lower() for t in d["tags"])
-    ]
 
 
 @router.get("/dashboards")
 def dashboards_page(
     request: Request,
     user_email: str = Depends(get_current_user),
-    view: str = Query(default="featured"),
+    view: str = Query(default="latest"),
     q: str = Query(default=""),
 ):
     if view not in VIEWS:
-        view = "featured"
+        view = "latest"
 
-    items: list[dict] = []
-    pinned_cards: list[dict] = []
+    active = store.list_dashboards()
+    active_by_slug = {d["slug"]: d for d in active}
+    pinned_cards = [active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug]
 
-    if view == "featured":
-        active_by_slug = {d["slug"]: d for d in store.list_dashboards()}
-        pinned_cards = [
-            active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
-        ]
-    elif view == "archived":
+    if view == "archived":
         items = store.list_archived_dashboards()
+    elif view == "mine":
+        items = [d for d in active if d["first_author_email"] == user_email]
     else:
-        items = store.list_dashboards()
-        if view == "mine":
-            items = [d for d in items if d["first_author_email"] == user_email]
-        elif view == "search":
-            items = _search(items, q) if q else []
+        items = active
 
     for d in items + pinned_cards:
         d["formatted_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""

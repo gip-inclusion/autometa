@@ -62,31 +62,28 @@ def test_archived_view_lists_archived_only(client):
     assert "arch-active" not in r.text
 
 
-def test_search_view_filters_by_query(client):
-    _make_dashboard("search-hit", title="Couverture SIAE")
-    _make_dashboard("search-miss", title="Autre chose")
-    r = client.get("/dashboards?view=search&q=couverture", headers=_h())
-    assert r.status_code == 200
-    assert "search-hit" in r.text
-    assert "search-miss" not in r.text
-
-
-def test_featured_view_lists_pinned(client):
+def test_featured_row_shows_pinned(client):
     _make_dashboard("feat-pinned")
-    _make_dashboard("feat-unpinned")
     store.pin_item("app", "feat-pinned", "Feat Pinned")
-    r = client.get("/dashboards?view=featured", headers=_h())
+    r = client.get("/dashboards", headers=_h())
     assert r.status_code == 200
+    assert "À la une" in r.text
     assert "feat-pinned" in r.text
-    assert "feat-unpinned" not in r.text
+
+
+def test_featured_row_absent_without_pins(client):
+    _make_dashboard("not-pinned")
+    r = client.get("/dashboards", headers=_h())
+    assert r.status_code == 200
+    assert "À la une" not in r.text
 
 
 def test_featured_skips_archived_pins(client):
     _make_dashboard("feat-archived", archived=True)
     store.pin_item("app", "feat-archived", "Archived")
-    r = client.get("/dashboards?view=featured", headers=_h())
+    r = client.get("/dashboards", headers=_h())
     assert r.status_code == 200
-    assert "feat-archived" not in r.text
+    assert "À la une" not in r.text
 
 
 def test_featured_preserves_pin_order(client):
@@ -94,14 +91,16 @@ def test_featured_preserves_pin_order(client):
     _make_dashboard("feat-first")
     store.pin_item("app", "feat-first", "First")
     store.pin_item("app", "feat-second", "Second")
-    r = client.get("/dashboards?view=featured", headers=_h())
+    r = client.get("/dashboards", headers=_h())
     assert r.status_code == 200
     assert r.text.index("feat-first") < r.text.index("feat-second")
 
 
-def test_unknown_view_falls_back_to_featured(client):
+def test_unknown_view_falls_back_to_latest(client):
+    _make_dashboard("fallback-one")
     r = client.get("/dashboards?view=bogus", headers=_h())
     assert r.status_code == 200
+    assert "fallback-one" in r.text
 
 
 def test_detail_page_renders(client):

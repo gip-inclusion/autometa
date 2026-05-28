@@ -6,84 +6,148 @@
 <section class="section-content" id="section-dashboards">
   <div class="section-header">
     <div class="container">
-      <h1 class="mb-0"><i class="ri-dashboard-line me-2"></i>Tableaux de bord</h1>
+      <div class="d-flex align-items-center gap-3">
+        <div class="me-auto">
+          <h1 class="mb-0">
+            <i class="ri-dashboard-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
+            Tableaux de bord
+          </h1>
+        </div>
+        <div class="accueil-search-wrapper">
+          <div class="accueil-search-input">
+            <i class="ri-search-line"></i>
+            <input type="text" id="dashboardsSearchInput"
+                   placeholder="Rechercher..."
+                   autocomplete="off" value="{{ q }}"
+                   oninput="filterByText(this.value)">
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <div class="section-body">
-    <div class="container">
-      <ul class="nav nav-pills mb-3">
-        {% set tabs = [('featured', 'À la une'), ('mine', 'Les miens'), ('latest', 'Récents'), ('search', 'Rechercher'), ('archived', 'Archivés')] %}
-        {% for key, label in tabs %}
-        <li class="nav-item">
-          <a class="nav-link {% if view == key %}active{% endif %}"
-             href="/dashboards?view={{ key }}"
-             hx-get="/dashboards?view={{ key }}"
-             hx-target="#dashboards-list"
-             hx-select="#dashboards-list"
-             hx-swap="outerHTML"
-             hx-push-url="true">{{ label }}</a>
-        </li>
-        {% endfor %}
-      </ul>
+    <div id="dashboardsContent" class="filter-list-container">
+      <aside class="filter-sidebar filter-sidebar-sticky-reset">
+        <div class="filter-section">
+          <div class="filter-section-title">Affichage</div>
+          <div class="rechercher-type-list">
+            <button class="rechercher-type-btn {% if view == 'latest' %}active{% endif %}"
+                    onclick="setView('latest')" data-view="latest">
+              <i class="ri-time-line"></i> Récents
+            </button>
+            <button class="rechercher-type-btn {% if view == 'mine' %}active{% endif %}"
+                    onclick="setView('mine')" data-view="mine">
+              <i class="ri-user-line"></i> Les miens
+            </button>
+            <button class="rechercher-type-btn {% if view == 'archived' %}active{% endif %}"
+                    onclick="setView('archived')" data-view="archived">
+              <i class="ri-archive-line"></i> Archivés
+            </button>
+          </div>
+        </div>
+      </aside>
 
-      <div id="dashboards-list">
-        {% if view == 'search' %}
-        <form class="mb-3" hx-get="/dashboards" hx-target="#dashboards-list" hx-select="#dashboards-list" hx-swap="outerHTML" hx-push-url="true">
-          <input type="hidden" name="view" value="search">
-          <input type="search" class="form-control" name="q" value="{{ q }}" placeholder="Rechercher un tableau de bord…" autofocus>
-        </form>
-        {% endif %}
-
-        {% if view == 'featured' %}
-          {% if pinned_cards %}
+      <div class="conversation-list-wrapper">
+        {% if pinned_cards %}
+        <div class="mb-4">
+          <div class="conv-group-header">À la une</div>
           <div class="row g-3">
             {% for d in pinned_cards %}
             <div class="col-md-4">
               <div class="card h-100">
-                <div class="card-body">
-                  <h5 class="card-title">{{ d.title }}</h5>
-                  <p class="card-text text-muted small">{{ d.description | truncate(120) }}</p>
-                  <p class="card-text small text-muted">{{ d.first_author_email }} · {{ d.formatted_date }}</p>
-                  <a href="{{ d.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">Ouvrir</a>
-                  <a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-link">Détails</a>
+                <div class="card-body d-flex flex-column">
+                  <h5 class="card-title mb-2">
+                    <a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>
+                  </h5>
+                  <div class="mb-2">
+                    {% for t in d.tags %}<span class="badge bg-light text-dark">{{ t }}</span> {% endfor %}
+                  </div>
+                  <div class="mt-auto d-flex align-items-center gap-2">
+                    <span class="small text-muted me-auto">{{ d.first_author_email }} · {{ d.formatted_date }}</span>
+                    <a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-outline-secondary">
+                      <i class="ri-settings-3-line"></i> Configurer
+                    </a>
+                    <a href="{{ d.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                      <i class="ri-external-link-line"></i> Ouvrir
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
             {% endfor %}
           </div>
-          {% else %}
-          <p class="text-muted">Aucun tableau de bord à la une. Épinglez-en depuis leur page de détail.</p>
-          {% endif %}
-        {% else %}
-          {% if items %}
-          <table class="table table-hover align-middle">
-            <thead>
-              <tr><th>Titre</th><th>Auteur</th><th>Mis à jour</th><th>Tags</th><th></th><th></th></tr>
-            </thead>
-            <tbody>
-              {% for d in items %}
-              <tr>
-                <td><a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a></td>
-                <td class="small text-muted">{{ d.first_author_email }}</td>
-                <td class="small text-muted">{{ d.formatted_date }}</td>
-                <td>{% for t in d.tags %}<span class="badge bg-light text-dark">{{ t }}</span> {% endfor %}</td>
-                <td>
-                  {% if d.has_cron %}<span class="badge bg-info" title="cron">cron</span>{% endif %}
-                  {% if d.has_api_access %}<span class="badge bg-secondary" title="API">api</span>{% endif %}
-                  {% if d.has_persistence %}<span class="badge bg-warning text-dark" title="persistence">persist</span>{% endif %}
-                </td>
-                <td><a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-outline-secondary">Détails</a></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          {% else %}
-          <p class="text-muted">Aucun tableau de bord.</p>
-          {% endif %}
+        </div>
         {% endif %}
+
+        <div class="conversation-list" id="dashboardsList">
+          {% if items %}
+            {% for d in items %}
+            <div class="conv-list-item filterable-card"
+                 data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
+              <div class="conv-item-main">
+                <div class="conv-item-icon-wrapper">
+                  <i class="ri-dashboard-line conv-item-icon"></i>
+                </div>
+                <div class="conv-item-content">
+                  <div class="conv-item-row">
+                    <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-item-title">{{ d.title }}</a>
+                    {% for t in d.tags %}<span class="badge badge-tag">{{ t }}</span>{% endfor %}
+                    <span class="conv-item-date">{{ d.formatted_date }}</span>
+                  </div>
+                  <div class="conv-item-author-row">
+                    <span class="conv-item-author">{{ d.first_author_email }}</span>
+                    {% if d.has_cron %}<span class="badge bg-info">cron</span>{% endif %}
+                    {% if d.has_persistence %}<span class="badge bg-warning text-dark">persist</span>{% endif %}
+                    <a href="/dashboards/{{ d.slug }}/edit" class="conv-item-action-btn">
+                      <i class="ri-settings-3-line"></i> Configurer
+                    </a>
+                    <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-item-action-btn conv-item-external-link">
+                      <i class="ri-external-link-line"></i> Ouvrir
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+          <div class="empty-state">
+            <i class="ri-dashboard-line ri-4x text-disabled mb-3"></i>
+            <p class="mb-0 text-muted">Aucun tableau de bord</p>
+          </div>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
 </section>
+
+<script>
+function setView(view) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', view);
+  history.pushState({}, '', url.toString());
+  htmx.ajax('GET', url.toString(), {target: '#dashboardsContent', select: '#dashboardsContent', swap: 'outerHTML'});
+}
+
+function filterByText(query) {
+  const search = query.toLowerCase().trim();
+  document.querySelectorAll('#dashboardsList .filterable-card').forEach(card => {
+    const matches = !search || (card.dataset.search || '').includes(search);
+    card.style.display = matches ? '' : 'none';
+  });
+}
+
+document.body.addEventListener('htmx:afterSettle', () => {
+  const input = document.getElementById('dashboardsSearchInput');
+  if (input && document.getElementById('section-dashboards') && input.value) {
+    filterByText(input.value);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('dashboardsSearchInput');
+  if (input && input.value) filterByText(input.value);
+});
+</script>
 {% endblock %}
