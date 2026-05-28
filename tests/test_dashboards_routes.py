@@ -141,3 +141,13 @@ def test_archive_unknown_slug_404(client):
 def test_toggle_bad_slug_422(client):
     r = client.post("/api/dashboards/Bad.Slug/archive", json={"archived": True}, headers=_h())
     assert r.status_code == 422
+
+
+def test_rechercher_omits_dashboards(client):
+    _make_dashboard("rech-omit", title="ZZZ-Unique-Dashboard-Title")
+    r = client.get("/rechercher?show=apps", headers=_h())
+    assert r.status_code == 200
+    assert "ZZZ-Unique-Dashboard-Title" not in r.text
+    r2 = client.get("/rechercher", headers=_h())
+    assert r2.status_code == 200
+    assert "ZZZ-Unique-Dashboard-Title" not in r2.text

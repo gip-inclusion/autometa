@@ -219,7 +219,6 @@ def rechercher(
     show_convos = show in ("", "convos", "mine")
     show_mine = show == "mine"
     show_reports = show in ("", "reports")
-    show_apps = show in ("", "apps")
 
     tag_params = tag
 
@@ -296,35 +295,6 @@ def rechercher(
                             (report.website or "").lower(),
                             (report.category or "").lower(),
                             " ".join(t.label.lower() for t in tags),
-                        ],
-                    )
-                ),
-            })
-
-    # Apps
-    if show_apps:
-        for app in store.list_dashboards():
-            app_tags = set(app.get("tags", []))
-            app_tags.add(app.get("website", ""))
-            app_tags.add("appli")
-            if tag_params and not all(t in app_tags for t in tag_params):
-                continue
-
-            items.append({
-                "type": "app",
-                "app": app,
-                "tags": [],
-                "icon": "ri-window-fill",
-                "sort_date": app.get("updated"),
-                "formatted_date": format_relative_date(app["updated"]) if app.get("updated") else "",
-                "search": " ".join(
-                    filter(
-                        None,
-                        [
-                            app["title"].lower(),
-                            (app.get("description") or "").lower(),
-                            " ".join(a.lower() for a in app.get("authors", [])),
-                            " ".join(t.lower() for t in app.get("tags", [])),
                         ],
                     )
                 ),
