@@ -13,12 +13,22 @@ ADMIN = "louisjean.teitelbaum@inclusion.gouv.fr"
 def _make_dashboard(slug, *, archived=False, author="alice@x", title=None):
     now = datetime.now(timezone.utc)
     with get_db() as session:
-        session.add(Dashboard(
-            slug=slug, title=title or slug, description="desc", website="emplois",
-            category="c", first_author_email=author, is_archived=archived,
-            has_api_access=False, has_cron=False, has_persistence=False,
-            created_at=now, updated_at=now,
-        ))
+        session.add(
+            Dashboard(
+                slug=slug,
+                title=title or slug,
+                description="desc",
+                website="emplois",
+                category="c",
+                first_author_email=author,
+                is_archived=archived,
+                has_api_access=False,
+                has_cron=False,
+                has_persistence=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
 
 
 def _h(email=ADMIN):

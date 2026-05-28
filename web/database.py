@@ -947,11 +947,7 @@ class ConversationStore:
     def list_archived_dashboards(self) -> list[dict]:
         """Archived dashboards only, sorted by `updated_at` desc."""
         with get_db() as session:
-            stmt = (
-                select(DashboardModel)
-                .where(DashboardModel.is_archived)
-                .order_by(DashboardModel.updated_at.desc())
-            )
+            stmt = select(DashboardModel).where(DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
             return _serialize_dashboards(session, list(session.scalars(stmt).all()))
 
     def get_dashboard(self, slug: str) -> dict | None:
