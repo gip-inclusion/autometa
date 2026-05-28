@@ -1,37 +1,52 @@
-"""Structured JSON logging with trace correlation and Datadog forwarding.
+"""Structured logging emitting OTLP/JSON records on stdout.
 
-Every log record is enriched with trace_id/span_id from the current OpenTelemetry
-span and with request_id/conversation_id from contextvars. When DATADOG_API_KEY
-is set, records are also forwarded to Datadog HTTP intake.
+Each log line is a JSON object following the OpenTelemetry log data model
+(timestamp_unix_nano, severity_*, body, resource, instrumentation_scope, attributes).
+Trace/span context comes from the active OpenTelemetry span; request/conversation/
+user/client context comes from contextvars set by middleware. Scalingo's log drain
+ships stdout to Datadog (no in-process forwarder).
 """
 
-import atexit
 import json
 import logging
-import queue
-import threading
+import time
 
-import httpx
 from opentelemetry import trace
-from pythonjsonlogger.json import JsonFormatter
 
 from . import config
 from .request_context import current_client_ip, current_conversation_id, current_request_id, current_user_id
 
 logger = logging.getLogger(__name__)
 
+_SEVERITY_NUMBER = {
+    logging.DEBUG: 5,
+    logging.INFO: 9,
+    logging.WARNING: 13,
+    logging.ERROR: 17,
+    logging.CRITICAL: 21,
+}
+
+_ATTRIBUTE_KEYS = (
+    ("request_id", "request.id"),
+    ("conversation_id", "session.id"),
+    ("user_id", "enduser.id"),
+    ("client_ip", "client.address"),
+)
+
 
 class CorrelationFilter(logging.Filter):
-    """Inject trace_id/span_id/request_id/conversation_id onto every LogRecord."""
+    """Inject trace/span/request/conversation/user/client ids onto every LogRecord."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         ctx = trace.get_current_span().get_span_context()
         if ctx.is_valid:
             record.trace_id = format(ctx.trace_id, "032x")
             record.span_id = format(ctx.span_id, "016x")
+            record.trace_flags = ctx.trace_flags
         else:
             record.trace_id = None
             record.span_id = None
+            record.trace_flags = None
         record.request_id = current_request_id.get()
         record.conversation_id = current_conversation_id.get()
         record.user_id = current_user_id.get()
@@ -39,98 +54,47 @@ class CorrelationFilter(logging.Filter):
         return True
 
 
-def _record_to_datadog_entry(record: logging.LogRecord) -> dict:
-    entry = {
-        "message": record.getMessage(),
-        "ddsource": "python",
-        "service": "autometa",
-        "hostname": config.HOST,
-        "ddtags": "env:prod",
-        "level": record.levelname,
-        "logger": {"name": record.name},
-    }
-    for field in ("trace_id", "span_id", "request_id", "conversation_id", "user_id", "client_ip"):
-        value = getattr(record, field, None)
-        if value is not None:
-            entry[field] = value
-    return entry
+class OTLPJSONFormatter(logging.Formatter):
+    """Emit OTLP/JSON-conformant log records per the OpenTelemetry log data model."""
 
-
-class DatadogHandler(logging.Handler):
-    """Async-buffered handler that sends structured logs to Datadog HTTP intake."""
-
-    def __init__(self, api_key: str, *, batch_size: int = 50, flush_interval: float = 5.0):
-        super().__init__()
-        self._api_key = api_key
-        self._batch_size = batch_size
-        self._flush_interval = flush_interval
-        self._queue: queue.Queue[dict] = queue.Queue(maxsize=10_000)
-        self._dropped_count = 0
-        self._shutdown = threading.Event()
-        self._thread = threading.Thread(target=self._worker, daemon=True)
-        self._thread.start()
-        atexit.register(self.close)
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self._queue.put_nowait(_record_to_datadog_entry(record))
-        except queue.Full:
-            # Drop log message rather than blocking the application when buffer is full.
-            self._dropped_count += 1
-
-    def _worker(self) -> None:
-        client = httpx.Client(timeout=10)
-        while not self._shutdown.is_set():
-            batch = self._drain(self._batch_size)
-            if not batch:
-                self._shutdown.wait(self._flush_interval)
-                continue
-            self._send(client, batch)
-        batch = self._drain(self._batch_size)
-        if batch:
-            self._send(client, batch)
-        client.close()
-
-    def _drain(self, max_items: int) -> list[dict]:
-        items: list[dict] = []
-        while len(items) < max_items:
-            try:
-                items.append(self._queue.get_nowait())
-            except queue.Empty:
-                break
-        return items
-
-    def _send(self, client: httpx.Client, batch: list[dict]) -> None:
-        try:
-            client.post(
-                "https://http-intake.logs.datadoghq.eu/api/v2/logs",
-                content=json.dumps(batch),
-                headers={
-                    "DD-API-KEY": self._api_key,
-                    "Content-Type": "application/json",
-                },
-            )
-        except httpx.RequestError as e:
-            logger.debug("Datadog send failed: %s", e)
-        except Exception:
-            logger.warning("Datadog send unexpected error", exc_info=True)
-
-    def close(self) -> None:
-        self._shutdown.set()
-        self._thread.join(timeout=5)
-        if self._dropped_count:
-            logger.warning("Datadog handler dropped %d log messages (queue full)", self._dropped_count)
-        super().close()
+    def format(self, record: logging.LogRecord) -> str:
+        entry: dict[str, object] = {
+            "timestamp_unix_nano": int(record.created * 1_000_000_000),
+            "observed_timestamp_unix_nano": time.time_ns(),
+            "severity_number": _SEVERITY_NUMBER.get(record.levelno, 0),
+            "severity_text": record.levelname,
+            "body": record.getMessage(),
+            "instrumentation_scope": {"name": record.name},
+            "resource": {
+                "service.name": "autometa",
+                "deployment.environment": config.SENTRY_ENVIRONMENT,
+            },
+        }
+        trace_id = getattr(record, "trace_id", None)
+        span_id = getattr(record, "span_id", None)
+        if trace_id and span_id:
+            entry["trace_id"] = trace_id
+            entry["span_id"] = span_id
+            trace_flags = getattr(record, "trace_flags", None)
+            if trace_flags is not None:
+                entry["trace_flags"] = trace_flags
+        attributes = {
+            otel_key: getattr(record, src, None) for src, otel_key in _ATTRIBUTE_KEYS if getattr(record, src, None)
+        }
+        if attributes:
+            entry["attributes"] = attributes
+        if record.exc_info:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
 
 
 def build_json_formatter() -> logging.Formatter:
-    """Build the structured JSON formatter used by the console handler."""
-    fmt = "%(asctime)s %(levelname)s %(name)s %(message)s %(trace_id)s %(span_id)s %(request_id)s %(conversation_id)s %(user_id)s %(client_ip)s"
-    return JsonFormatter(fmt, rename_fields={"levelname": "level", "asctime": "timestamp"})
+    """OTLP/JSON formatter for the console handler."""
+    return OTLPJSONFormatter()
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    """Configure root logger with JSON output and a correlation filter on each handler."""
+    """Configure root logger with OTLP/JSON output and a correlation filter on the handler."""
     formatter = build_json_formatter()
     correlation = CorrelationFilter()
 
@@ -146,12 +110,14 @@ def setup_logging(level: int = logging.INFO) -> None:
     logging.root.addHandler(console)
     logging.root.setLevel(level)
 
-    # Why: each Datadog POST generates an httpx log; INFO would create a feedback loop.
+    # Why: uvicorn attaches text handlers to its own loggers before web.app is imported. Strip
+    # them and force propagation so access/error records flow through root's JSON formatter and
+    # pick up the correlation fields.
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        lg = logging.getLogger(name)
+        lg.handlers.clear()
+        lg.propagate = True
+
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
-
-    if config.DATADOG_API_KEY:
-        dd = DatadogHandler(config.DATADOG_API_KEY)
-        dd.addFilter(correlation)
-        logging.root.addHandler(dd)

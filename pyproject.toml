@@ -31,7 +31,6 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.51b0",
     "opentelemetry-instrumentation-httpx>=0.51b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
-    "python-json-logger>=3.2.0",
 ]
 
 [project.scripts]
