@@ -32,18 +32,18 @@
           <div class="d-flex gap-2">
             {% if dashboard.is_archived %}
             <button type="button" class="btn btn-outline-success" data-action="archive" data-archived="false">
-              <i class="ri-inbox-unarchive-line"></i> Désarchiver
+              <i class="ri-inbox-unarchive-line me-1"></i> Désarchiver
             </button>
             {% else %}
             <button type="button" class="btn btn-outline-danger" data-action="archive" data-archived="true">
-              <i class="ri-archive-line"></i> Archiver
+              <i class="ri-archive-line me-1"></i> Archiver
             </button>
             {% endif %}
             {% if is_admin %}
               {% if is_pinned %}
-              <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line"></i> Retirer de la une</button>
+              <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line me-1"></i> Retirer de la une</button>
               {% else %}
-              <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line"></i> Mettre à la une</button>
+              <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line me-1"></i> Mettre à la une</button>
               {% endif %}
             {% endif %}
           </div>
