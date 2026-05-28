@@ -51,10 +51,10 @@ def dashboards_page(
     pinned_cards: list[dict] = []
 
     if view == "featured":
-        for p in store.list_pinned_items("app"):
-            d = store.get_dashboard(p.item_id)
-            if d and not d["is_archived"]:
-                pinned_cards.append(d)
+        active_by_slug = {d["slug"]: d for d in store.list_dashboards()}
+        pinned_cards = [
+            active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
+        ]
     elif view == "archived":
         items = store.list_archived_dashboards()
     else:

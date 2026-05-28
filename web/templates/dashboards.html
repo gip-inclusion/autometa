@@ -44,7 +44,7 @@
                 <div class="card-body">
                   <h5 class="card-title">{{ d.title }}</h5>
                   <p class="card-text text-muted small">{{ d.description | truncate(120) }}</p>
-                  <p class="card-text small text-muted">{{ d.first_author_email }}</p>
+                  <p class="card-text small text-muted">{{ d.first_author_email }} · {{ d.formatted_date }}</p>
                   <a href="{{ d.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">Ouvrir</a>
                   <a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-link">Détails</a>
                 </div>

@@ -89,6 +89,16 @@ def test_featured_skips_archived_pins(client):
     assert "feat-archived" not in r.text
 
 
+def test_featured_preserves_pin_order(client):
+    _make_dashboard("feat-second")
+    _make_dashboard("feat-first")
+    store.pin_item("app", "feat-first", "First")
+    store.pin_item("app", "feat-second", "Second")
+    r = client.get("/dashboards?view=featured", headers=_h())
+    assert r.status_code == 200
+    assert r.text.index("feat-first") < r.text.index("feat-second")
+
+
 def test_unknown_view_falls_back_to_featured(client):
     r = client.get("/dashboards?view=bogus", headers=_h())
     assert r.status_code == 200
