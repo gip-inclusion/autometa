@@ -65,6 +65,19 @@ def test_user_id_and_client_ip_default_to_none_when_absent(client):
     assert body["client_ip"] == "testclient"
 
 
+@pytest.mark.parametrize(
+    ("header_value", "expected"),
+    [
+        ("203.0.113.42", "203.0.113.42"),
+        ("203.0.113.42, 10.0.0.1, 10.0.0.2", "203.0.113.42"),
+        ("  203.0.113.42  , 10.0.0.1", "203.0.113.42"),
+    ],
+)
+def test_client_ip_uses_leftmost_x_forwarded_for(client, header_value, expected):
+    body = client.get("/echo", headers={"X-Forwarded-For": header_value}).json()
+    assert body["client_ip"] == expected
+
+
 def test_set_conversation_id_updates_contextvar_and_sentry_tag():
     token = set_conversation_id("conv-42")
     try:
