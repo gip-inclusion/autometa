@@ -7,62 +7,90 @@
   <div class="section-header">
     <div class="container">
       <a href="/dashboards" class="text-muted small"><i class="ri-arrow-left-line"></i> Tableaux de bord</a>
-      <h1 class="mb-0">{{ dashboard.title }}</h1>
-      <p class="text-muted small mb-0">
-        {{ dashboard.first_author_email }} · créé le {{ dashboard.created_at.strftime('%Y-%m-%d') if dashboard.created_at }}
-      </p>
     </div>
   </div>
 
   <div class="section-body">
     <div class="container">
-      <div class="mb-3">
-        {% if dashboard.has_cron %}<span class="badge bg-info">cron</span>{% endif %}
-        {% if dashboard.has_persistence %}<span class="badge bg-warning text-dark">persistence</span>{% endif %}
+
+      <div class="card mb-3">
+        <div class="card-body d-flex align-items-start gap-3 flex-wrap">
+          <div class="me-auto">
+            <div id="titleDisplay">
+              <h1 class="mb-1 d-inline align-middle">{{ dashboard.title }}</h1>
+              <button type="button" class="btn btn-sm btn-link align-middle" data-action="edit-title" title="Renommer">
+                <i class="ri-pencil-line"></i>
+              </button>
+            </div>
+            <div id="titleEdit" class="d-none">
+              <input type="text" id="titleInput" class="form-control d-inline-block" style="max-width: 24rem;" value="{{ dashboard.title }}">
+              <button type="button" class="btn btn-sm btn-primary" data-action="save-title"><i class="ri-check-line"></i></button>
+              <button type="button" class="btn btn-sm btn-link text-muted" data-action="cancel-title">Annuler</button>
+            </div>
+            <p class="text-muted small mb-0"><code>{{ dashboard.slug }}</code></p>
+          </div>
+          <div class="d-flex gap-2">
+            {% if dashboard.is_archived %}
+            <button type="button" class="btn btn-outline-success" data-action="archive" data-archived="false">
+              <i class="ri-inbox-unarchive-line"></i> Désarchiver
+            </button>
+            {% else %}
+            <button type="button" class="btn btn-outline-danger" data-action="archive" data-archived="true">
+              <i class="ri-archive-line"></i> Archiver
+            </button>
+            {% endif %}
+            {% if is_admin %}
+              {% if is_pinned %}
+              <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line"></i> Retirer de la une</button>
+              {% else %}
+              <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line"></i> Mettre à la une</button>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
       </div>
 
-      <div class="mb-4">
-        <p id="dashboard-description" class="dashboard-description-collapsed">{{ dashboard.description }}</p>
-        {% if dashboard.description | length > 280 %}
-        <button type="button" class="btn btn-sm btn-link p-0" onclick="document.getElementById('dashboard-description').classList.toggle('dashboard-description-collapsed'); this.textContent = this.textContent === 'Voir plus' ? 'Voir moins' : 'Voir plus';">Voir plus</button>
-        {% endif %}
-      </div>
-
-      <div class="mb-4 d-flex gap-2 flex-wrap align-items-center">
-        <a href="{{ dashboard.url }}" target="_blank" rel="noopener" class="btn btn-outline-primary"><i class="ri-external-link-line"></i> Ouvrir</a>
-
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="apiAccessToggle" {% if dashboard.has_api_access %}checked{% endif %}>
-          <label class="form-check-label" for="apiAccessToggle">Accès API</label>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-body">
+              <h5 class="card-title">Cron</h5>
+              {% if dashboard.has_cron %}
+              <p class="small text-muted mb-2">
+                {% if last_run %}Dernier run : {{ last_run.formatted_date }} ({{ last_run.status }}){% else %}Aucun run enregistré{% endif %}
+              </p>
+              <a href="/api/cron/{{ dashboard.slug }}/script" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Voir le script</a>
+              <button type="button" class="btn btn-sm btn-outline-primary" data-action="run-cron">Déclencher un run</button>
+              {% else %}
+              <p class="text-muted mb-0">Pas de cron configuré.</p>
+              {% endif %}
+            </div>
+          </div>
         </div>
 
-        {% if dashboard.is_archived %}
-        <button type="button" class="btn btn-outline-success" data-action="archive" data-archived="false">Désarchiver</button>
-        {% else %}
-        <button type="button" class="btn btn-outline-danger" data-action="archive" data-archived="true">Archiver</button>
-        {% endif %}
-
-        {% if is_admin %}
-          {% if is_pinned %}
-          <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line"></i> Retirer de la une</button>
-          {% else %}
-          <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line"></i> Mettre à la une</button>
-          {% endif %}
-        {% endif %}
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-body">
+              <h5 class="card-title">Infos</h5>
+              <dl class="row mb-0 small">
+                <dt class="col-sm-5">Créé le</dt>
+                <dd class="col-sm-7">{{ dashboard.created_at.strftime('%Y-%m-%d') if dashboard.created_at else '—' }}</dd>
+                <dt class="col-sm-5">Dernière modif.</dt>
+                <dd class="col-sm-7">{{ dashboard.updated.strftime('%Y-%m-%d') if dashboard.updated else '—' }}</dd>
+                <dt class="col-sm-5">Auteur(s)</dt>
+                <dd class="col-sm-7">{{ dashboard.authors | join(', ') }}</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {% if dashboard.has_cron %}
-      <div class="card mb-4">
+      <div class="card mt-3">
         <div class="card-body">
-          <h5 class="card-title">Cron</h5>
-          <p class="small text-muted mb-2">
-            {% if last_run %}Dernier run : {{ last_run.formatted_date }} ({{ last_run.status }}){% else %}Aucun run enregistré{% endif %}
-          </p>
-          <a href="/api/cron/{{ dashboard.slug }}/script" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Voir le script</a>
-          <button type="button" class="btn btn-sm btn-outline-primary" data-action="run-cron">Déclencher un run</button>
+          <h5 class="card-title">Publier</h5>
         </div>
       </div>
-      {% endif %}
+
     </div>
   </div>
 </section>
@@ -82,8 +110,20 @@
       });
     }
 
-    document.getElementById('apiAccessToggle')?.addEventListener('change', async (e) => {
-      await post(`/api/dashboards/${slug}/api-access`, { enabled: e.target.checked });
+    root.querySelector('[data-action="edit-title"]')?.addEventListener('click', () => {
+      document.getElementById('titleDisplay').classList.add('d-none');
+      document.getElementById('titleEdit').classList.remove('d-none');
+      document.getElementById('titleInput').focus();
+    });
+    root.querySelector('[data-action="cancel-title"]')?.addEventListener('click', () => {
+      document.getElementById('titleEdit').classList.add('d-none');
+      document.getElementById('titleDisplay').classList.remove('d-none');
+    });
+    root.querySelector('[data-action="save-title"]')?.addEventListener('click', async () => {
+      const title = document.getElementById('titleInput').value.trim();
+      if (!title) return;
+      const r = await post(`/api/dashboards/${slug}/rename`, { title });
+      if (r.ok) window.location.reload();
     });
 
     root.querySelectorAll('[data-action="archive"]').forEach((btn) => {

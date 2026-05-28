@@ -170,3 +170,32 @@ def test_rechercher_omits_dashboards(client):
     r2 = client.get("/rechercher", headers=_h())
     assert r2.status_code == 200
     assert "ZZZ-Unique-Dashboard-Title" not in r2.text
+
+
+def test_rename_dashboard(client):
+    _make_dashboard("rename-me", title="Old")
+    r = client.post("/api/dashboards/rename-me/rename", json={"title": "Brand New"}, headers=_h())
+    assert r.status_code == 200
+    assert r.json() == {"slug": "rename-me", "title": "Brand New"}
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "rename-me"))
+        assert d.title == "Brand New"
+
+
+def test_rename_empty_title_400(client):
+    _make_dashboard("rename-empty")
+    r = client.post("/api/dashboards/rename-empty/rename", json={"title": "  "}, headers=_h())
+    assert r.status_code == 400
+
+
+def test_rename_unknown_slug_404(client):
+    r = client.post("/api/dashboards/ghost/rename", json={"title": "X"}, headers=_h())
+    assert r.status_code == 404
+
+
+def test_detail_hides_api_access_toggle(client):
+    _make_dashboard("no-api-toggle")
+    r = client.get("/dashboards/no-api-toggle/edit", headers=_h())
+    assert r.status_code == 200
+    assert "apiAccessToggle" not in r.text
+    assert "Accès API" not in r.text

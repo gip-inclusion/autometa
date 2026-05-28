@@ -124,3 +124,17 @@ async def toggle_api_access(slug: Slug, request: Request, user_email: str = Depe
     except DashboardNotFound:
         return JSONResponse({"error": "Dashboard not found"}, status_code=404)
     return {"slug": slug, "has_api_access": enabled}
+
+
+@router.post("/api/dashboards/{slug}/rename")
+async def rename_dashboard(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return JSONResponse({"error": "Title required"}, status_code=400)
+    try:
+        update_dashboard(slug=slug, updater_email=user_email, title=title)
+    except DashboardNotFound:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    return {"slug": slug, "title": title}
