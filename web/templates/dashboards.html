@@ -70,7 +70,6 @@
           <span class="dashboard-col dashboard-col-cron">Cron</span>
           <span class="dashboard-col dashboard-col-pub">Publié</span>
           <span class="dashboard-col dashboard-col-updated">Mis à jour</span>
-          <span class="dashboard-col-action"></span>
         </div>
         {% endif %}
         <div class="conversation-list" id="dashboardsList">
@@ -89,15 +88,13 @@
                 </span>
                 <span class="dashboard-col dashboard-col-pub"></span>
                 <span class="dashboard-col dashboard-col-updated">{{ d.updated_date }}</span>
-                <span class="dashboard-col-action">
-                  <button type="button" class="conv-item-action-btn" title="Configurer"
-                          onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
-                    <i class="ri-settings-3-line"></i> Configurer
-                  </button>
-                </span>
               </div>
               <div class="dashboard-row-line2">
                 <span class="conv-item-author">{{ d.first_author_email }}</span>
+                <button type="button" class="conv-item-action-btn" title="Configurer"
+                        onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
+                  <i class="ri-settings-3-line"></i> Configurer
+                </button>
               </div>
             </a>
             {% endfor %}

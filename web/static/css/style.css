@@ -3671,7 +3671,14 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 }
 
 .dashboard-row-line2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 0.125rem;
+}
+
+.dashboard-row-line2 .conv-item-action-btn {
+  margin-left: auto;
 }
 
 .dashboard-col {
@@ -3695,10 +3702,11 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   width: 7rem;
 }
 
-.dashboard-col-action {
-  width: 7rem;
-  display: flex;
-  justify-content: flex-end;
+/* On small viewports the fixed columns would squeeze the title — hide them */
+@media (max-width: 767.98px) {
+  #section-dashboards .dashboard-col {
+    display: none;
+  }
 }
 
 /* Featured (pinned) — horizontal scroller of title-only cards */
