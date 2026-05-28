@@ -11,6 +11,8 @@ import threading
 import uuid
 
 import sentry_sdk
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
@@ -19,10 +21,13 @@ from lib.tool_taxonomy import classify_tool
 from . import alerts, config, session_sync
 from .agents import get_agent
 from .database import store
+from .otel import SpanStack, extract_trace_context, inject_trace_headers
 from .redis_conn import get_redis
-from .sentry import continue_trace, get_trace_headers, set_conversation_context, set_user_context
+from .request_context import reset_conversation_id, set_conversation_id
+from .sentry import set_user_context
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 PREFIX = "autometa"
 
@@ -72,7 +77,7 @@ class TaskRunner:
             "history": history,
             "session_id": session_id,
             "user_email": user_email,
-            "sentry_trace": get_trace_headers(),
+            "trace_headers": inject_trace_headers(),
         })
         await r.rpush(f"{PREFIX}:tasks", payload)
 
@@ -135,13 +140,15 @@ class TaskRunner:
             sid = payload.get("session_id")
             if sid:
                 await asyncio.to_thread(session_sync.download_session, sid)
+            # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
+            trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
             task = asyncio.create_task(
                 self._run_agent(
                     conv_id,
                     payload["prompt"],
                     payload["history"],
                     payload.get("user_email"),
-                    payload.get("sentry_trace", {}),
+                    trace_headers,
                     sid,
                 )
             )
@@ -188,11 +195,10 @@ class TaskRunner:
         prompt: str,
         history: list[dict],
         user_email: str | None,
-        sentry_trace: dict | None = None,
+        trace_headers: dict | None = None,
         session_id: str | None = None,
     ):
-        # Continue the Sentry trace from the HTTP request that submitted this task
-        continue_trace(sentry_trace or {})
+        parent_ctx = extract_trace_context(trace_headers or {})
 
         cancel_task = asyncio.create_task(self._listen_cancel(conversation_id))
         self._cancel_tasks[conversation_id] = cancel_task
@@ -200,15 +206,18 @@ class TaskRunner:
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
-        tool_span = None
+        tool_spans = SpanStack()
         tool_call_count = 0
 
-        with sentry_sdk.start_transaction(op="agent.run", name=f"agent {config.AGENT_BACKEND}") as txn:
-            txn.set_tag("conversation_id", conversation_id)
-            txn.set_tag("agent_backend", config.AGENT_BACKEND)
+        with tracer.start_as_current_span(
+            "agent.run",
+            context=parent_ctx,
+            attributes={"conversation_id": conversation_id, "agent_backend": config.AGENT_BACKEND},
+        ) as span:
             if user_email:
                 set_user_context(user_email)
-            set_conversation_context(conversation_id, config.AGENT_BACKEND)
+            sentry_sdk.set_tag("agent_backend", config.AGENT_BACKEND)
+            conv_token = set_conversation_id(conversation_id)
 
             try:
                 async for event in self.backend.send_message(
@@ -254,19 +263,17 @@ class TaskRunner:
                                 )
                                 await self.notify(conversation_id)
                                 break
-                            if tool_span:
-                                tool_span.finish()
+                            tool_spans.pop()
                             tool_name = (
                                 event.content.get("tool", "unknown") if isinstance(event.content, dict) else "unknown"
                             )
-                            tool_span = sentry_sdk.start_span(op="agent.tool", name=tool_name)
+                            tool_spans.push(tracer, "agent.tool", {"tool.name": tool_name})
                             if assistant_text_parts:
                                 all_assistant_texts.extend(assistant_text_parts)
                             assistant_msg_id = None
                             assistant_text_parts = []
-                        elif event.type == "tool_result" and tool_span:
-                            tool_span.finish()
-                            tool_span = None
+                        elif event.type == "tool_result":
+                            tool_spans.pop()
                         content = _serialize_tool_event(event, conversation_id, user_email)
                         store.add_message(conversation_id, event.type, content)
                         await self.notify(conversation_id)
@@ -281,10 +288,6 @@ class TaskRunner:
                     # Why: raw holds the full CLI JSON event — can be MBs for tool results
                     event.raw = {}
 
-                if tool_span:
-                    tool_span.finish()
-                    tool_span = None
-
                 if assistant_text_parts:
                     all_assistant_texts.extend(assistant_text_parts)
 
@@ -292,16 +295,16 @@ class TaskRunner:
                 if full_response:
                     _check_failure(conversation_id, full_response)
 
-                txn.set_status("ok")
+                span.set_status(Status(StatusCode.OK))
 
             # Why: top-level agent error handler — must not crash the consumer loop.
             except Exception:
                 logger.exception(f"Agent error for {conversation_id}")
-                txn.set_status("internal_error")
+                span.set_status(Status(StatusCode.ERROR))
                 sentry_sdk.capture_exception()
             finally:
-                if tool_span:
-                    tool_span.finish()
+                tool_spans.close_all()
+                reset_conversation_id(conv_token)
                 store.update_conversation(conversation_id, needs_response=False)
                 await self.notify_done(conversation_id)
                 self._running.pop(conversation_id, None)
@@ -337,6 +340,24 @@ def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -
 
 
 def _persist_usage(conversation_id: str, usage: dict):
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    cache_creation = usage.get("cache_creation_input_tokens", 0)
+    cache_read = usage.get("cache_read_input_tokens", 0)
+
+    span = trace.get_current_span()
+    if span.is_recording():
+        attrs = {
+            "gen_ai.system": "anthropic",
+            "gen_ai.usage.input_tokens": input_tokens,
+            "gen_ai.usage.output_tokens": output_tokens,
+            "gen_ai.usage.cache_read_tokens": cache_read,
+            "gen_ai.usage.cache_creation_tokens": cache_creation,
+        }
+        if model := usage.get("model"):
+            attrs["gen_ai.request.model"] = model
+        span.set_attributes(attrs)
+
     extra = {}
     if usage.get("service_tier"):
         extra["service_tier"] = usage["service_tier"]
@@ -345,10 +366,10 @@ def _persist_usage(conversation_id: str, usage: dict):
 
     store.accumulate_usage(
         conversation_id,
-        input_tokens=usage.get("input_tokens", 0),
-        output_tokens=usage.get("output_tokens", 0),
-        cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
-        cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation,
+        cache_read_tokens=cache_read,
         backend=config.AGENT_BACKEND,
         extra=extra if extra else None,
     )

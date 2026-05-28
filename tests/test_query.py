@@ -255,3 +255,76 @@ def test_query_integration_matomo_query_executes():
 
     assert result.success is True
     assert isinstance(result.data, list)
+
+
+def _install_span_exporter(mocker):
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    mocker.patch("lib.query.tracer", trace.get_tracer("lib.query"))
+    return exporter
+
+
+def test_metabase_query_emits_span_with_semantic_attributes(mocker):
+    from lib.query import CallerType, execute_metabase_query
+
+    exporter = _install_span_exporter(mocker)
+    mock_api = metabase_api_mock(mocker)
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    execute_metabase_query(instance="stats", caller=CallerType.AGENT, sql="SELECT 1", database_id=2)
+
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.name == "metabase.query"
+    assert span.attributes["db.system"] == "metabase"
+    assert span.attributes["metabase.instance"] == "stats"
+    assert span.attributes["metabase.caller"] == "agent"
+    assert span.attributes["result.success"] is True
+    assert span.attributes["result.row_count"] == 1
+    assert len(span.attributes["db.statement.hash"]) == 16
+
+
+def test_list_metabase_models_sets_row_count_from_list_length(mocker):
+    from lib.query import CallerType, list_metabase_models
+
+    exporter = _install_span_exporter(mocker)
+    mock_api = mocker.MagicMock()
+    mock_api.list_models.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    list_metabase_models(instance="stats", caller=CallerType.AGENT)
+
+    span = exporter.get_finished_spans()[0]
+    assert span.name == "metabase.list_models"
+    assert span.attributes["result.row_count"] == 3
+
+
+def test_matomo_query_records_error_status_on_failure(mocker):
+    from opentelemetry.trace import StatusCode
+
+    from lib.matomo import MatomoError
+    from lib.query import CallerType, execute_matomo_query
+
+    exporter = _install_span_exporter(mocker)
+    mock_api = mocker.MagicMock()
+    mock_api.request.side_effect = MatomoError("boom")
+    mocker.patch("lib.query.get_matomo", return_value=mock_api)
+
+    execute_matomo_query(instance="inclusion", caller=CallerType.AGENT, method="Foo.bar")
+
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.name == "matomo.query"
+    assert span.attributes["matomo.method"] == "Foo.bar"
+    assert span.attributes["result.success"] is False
+    assert span.attributes["error.message"] == "boom"
+    assert span.status.status_code == StatusCode.ERROR

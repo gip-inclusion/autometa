@@ -24,7 +24,14 @@ dependencies = [
     "httpx>=0.28.1",
     "sshtunnel>=0.4.0",
     "paramiko>=5.0.0",
-    "sentry-sdk[fastapi,sqlalchemy,httpx,pure_eval]>=2.29.0",
+    "sentry-sdk[fastapi,sqlalchemy,httpx,opentelemetry,pure_eval]>=2.29.0",
+    # OpenTelemetry — tracing primitive, Sentry is the backend.
+    "opentelemetry-api>=1.30.0",
+    "opentelemetry-sdk>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
+    "python-json-logger>=3.2.0",
 ]
 
 [project.scripts]
