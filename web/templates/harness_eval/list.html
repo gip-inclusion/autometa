@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Harness Eval{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-harness-eval">
+  <div class="section-header">
+    <div class="container">
+      <div class="d-flex align-items-center justify-content-between gap-3">
+        <div>
+          <p class="text-muted mb-1 small">Évaluation du harness sur le corpus de sessions ({{ n_sessions }} sessions en S3)</p>
+          <h1 class="mb-0"><i class="ri-bar-chart-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Évaluation du harness</h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="conversation-list-wrapper" style="padding: 1.5rem;">
+      {% if runs %}
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Run ID</th>
+            <th>Date</th>
+            <th>Taille</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in runs %}
+          <tr>
+            <td><code>{{ r.run_id }}</code></td>
+            <td><span title="{{ r.last_modified }}">{{ format_relative_date(r.last_modified) }}</span></td>
+            <td class="text-muted small">{{ (r.size / 1024) | round(1) }} KB</td>
+            <td>
+              <a href="/harness-eval/runs/{{ r.run_id }}" class="btn btn-sm btn-outline-primary">Voir</a>
+              {% if not loop.first %}
+              <a href="/harness-eval/diff?baseline={{ r.run_id }}&variant={{ runs[0].run_id }}" class="btn btn-sm btn-outline-secondary">Diff vs. dernier</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted">Aucun run trouvé en S3. Lancer un benchmark : <code>python -m skills.harness_eval.scripts.run benchmark</code></p>
+      {% endif %}
+
+      {% include "harness_eval/_methodology.html" %}
+    </div>
+  </div>
+</section>
+{% endblock %}

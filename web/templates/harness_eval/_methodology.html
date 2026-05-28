@@ -1,0 +1,26 @@
+<details class="mt-5 small text-muted" style="max-width: 800px;">
+  <summary class="h6 text-muted mb-2" style="cursor: pointer;">
+    <i class="ri-information-line"></i> Méthodologie
+  </summary>
+  <div class="ps-3 pe-3 pt-2 pb-2" style="border-left: 2px solid #dee2e6;">
+    <p class="mb-2">
+      Tous les scores sont normalisés entre <strong>0</strong> (échec) et <strong>1</strong> (succès) et agrégés par moyenne arithmétique sur le corpus de sessions.
+    </p>
+    <p class="mb-2">
+      <strong>Deux familles de métriques :</strong>
+    </p>
+    <ul class="mb-2">
+      <li><strong>Sans annotation</strong> (gold-free) — déduites de la structure des sessions seules (SQL, outils utilisés, mots-clés de correction…).</li>
+      <li><strong>Avec annotation</strong> (gold-backed) — comparent la session aux annotations humaines (voir <code>evals/benchmark_corpus/GOLD_FORMAT.md</code>). Sans gold, ces métriques retombent à 1.0 par défaut.</li>
+    </ul>
+    <p class="mb-2">
+      <strong>Lecture des deltas (page Diff)</strong> : un Δ <span class="text-success">positif</span> indique une amélioration, un Δ <span class="text-danger">négatif</span> une régression. La comparaison n'est valide que sur le même corpus de sessions.
+    </p>
+    <p class="mb-2">
+      <strong>Détail par métrique</strong> : survoler le nom de la métrique dans les tableaux pour voir sa définition complète. Voir aussi <code>evals/metrics/SOTA_METRICS.md</code> et <code>evals/metrics/APP_METRICS.md</code>.
+    </p>
+    <p class="mb-0">
+      <strong>Limites connues</strong> : les scores sont calculés sur des transcripts a posteriori, sans rejouer le harness — utile pour mesurer l'effet de changements d'analyse (parseurs, métriques) mais ne capture pas les effets d'un changement de prompt système, qui demanderait une exécution en ligne.
+    </p>
+  </div>
+</details>

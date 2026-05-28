@@ -159,3 +159,4 @@ class S3Store:
 interactive = S3Store("interactive/")
 sessions = S3Store("sessions/")
 uploads = S3Store("interactive/uploads/")
+eval_corpus = S3Store(config.EVAL_CORPUS_S3_PREFIX)

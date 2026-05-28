@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Harness Eval Diff{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-harness-eval">
+  <div class="section-header">
+    <div class="container">
+      <a href="/harness-eval" class="text-muted small"><i class="ri-arrow-left-line"></i> Tous les runs</a>
+      <h1 class="mb-0 mt-1">Diff</h1>
+      <p class="text-muted mb-0 small">Baseline <code>{{ diff.baseline_run_id }}</code> → Variant <code>{{ diff.variant_run_id }}</code></p>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="conversation-list-wrapper" style="padding: 1.5rem;">
+      <h2 class="h5">Scores agrégés</h2>
+      <table class="table table-sm" style="max-width: 800px;">
+        <thead>
+          <tr><th>Métrique</th><th class="text-end">Baseline</th><th class="text-end">Variant</th><th class="text-end">Δ</th></tr>
+        </thead>
+        <tbody>
+          {% for row in diff.aggregate %}
+          <tr>
+            <td title="{{ metric_desc(row.metric) }}">
+              <span style="cursor: help; border-bottom: 1px dotted #999;">{{ metric_label(row.metric) }}</span>
+              <code class="ms-2 text-muted small">{{ row.metric }}</code>
+            </td>
+            <td class="text-end">{{ "%.3f" | format(row.baseline) }}</td>
+            <td class="text-end">{{ "%.3f" | format(row.variant) }}</td>
+            <td class="text-end {% if row.delta > 0 %}text-success{% elif row.delta < 0 %}text-danger{% else %}text-muted{% endif %}">
+              {{ "%+.3f" | format(row.delta) }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h2 class="h5 mt-4">Sessions avec changement ({{ diff.per_session | length }})</h2>
+      {% if diff.per_session %}
+      {% for s in diff.per_session %}
+      <div class="card mb-2" style="max-width: 800px;">
+        <div class="card-body py-2">
+          <h3 class="h6 mb-2"><code>{{ s.session_id[:8] }}</code></h3>
+          <ul class="small mb-0">
+            {% for c in s.changes %}
+            <li title="{{ metric_desc(c.metric) }}">
+              <span style="cursor: help; border-bottom: 1px dotted #999;">{{ metric_label(c.metric) }}</span> :
+              {{ "%.3f" | format(c.baseline) }} → {{ "%.3f" | format(c.variant) }}
+              (<span class="{% if c.delta > 0 %}text-success{% else %}text-danger{% endif %}">{{ "%+.3f" | format(c.delta) }}</span>)
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p class="text-muted">Aucune session n'a changé de score.</p>
+      {% endif %}
+
+      {% include "harness_eval/_methodology.html" %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Harness Eval {{ result.run_id }}{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-harness-eval">
+  <div class="section-header">
+    <div class="container">
+      <a href="/harness-eval" class="text-muted small"><i class="ri-arrow-left-line"></i> Tous les runs</a>
+      <h1 class="mb-0 mt-1"><code>{{ result.run_id }}</code></h1>
+      <p class="text-muted mb-0 small">{{ result.timestamp }} · {{ result.session_results | length }} sessions</p>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="conversation-list-wrapper" style="padding: 1.5rem;">
+      <h2 class="h5">Scores agrégés</h2>
+      <table class="table table-sm" style="max-width: 700px;">
+        <thead>
+          <tr><th>Métrique</th><th class="text-end">Score</th></tr>
+        </thead>
+        <tbody>
+          {% for name, score in result.aggregate_scores.items() %}
+          <tr>
+            <td title="{{ metric_desc(name) }}">
+              <span style="cursor: help; border-bottom: 1px dotted #999;">{{ metric_label(name) }}</span>
+              <code class="ms-2 text-muted small">{{ name }}</code>
+            </td>
+            <td class="text-end">{{ "%.3f" | format(score) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if other_runs %}
+      <h2 class="h5 mt-4">Comparer avec un autre run</h2>
+      <form action="/harness-eval/diff" method="get" class="d-flex gap-2 align-items-center">
+        <input type="hidden" name="variant" value="{{ result.run_id }}">
+        <label class="small">Baseline :</label>
+        <select name="baseline" class="form-select form-select-sm" style="max-width: 350px;">
+          {% for r in other_runs %}
+          <option value="{{ r.run_id }}">{{ r.run_id }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-primary">Diff</button>
+      </form>
+      {% endif %}
+
+      <h2 class="h5 mt-4">Détail par session</h2>
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Session</th>
+            {% for name in result.aggregate_scores.keys() %}
+            <th class="text-end small" title="{{ metric_desc(name) }}">
+              <span style="cursor: help; border-bottom: 1px dotted #999;">{{ metric_label(name) }}</span>
+            </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for sr in result.session_results %}
+          {% set m_by_name = {} %}
+          {% for m in sr.metrics %}{% set _ = m_by_name.update({m.name: m.score}) %}{% endfor %}
+          <tr>
+            <td><code>{{ sr.session_id[:8] }}</code></td>
+            {% for name in result.aggregate_scores.keys() %}
+            <td class="text-end small">{{ "%.3f" | format(m_by_name.get(name, 0.0)) }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% include "harness_eval/_methodology.html" %}
+    </div>
+  </div>
+</section>
+{% endblock %}

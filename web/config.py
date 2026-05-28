@@ -121,6 +121,10 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
 BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET")
 
+# Harness eval corpus and results — kept out of git for open-source / privacy.
+# Defaults to the main S3_BUCKET with prefix "eval_corpus/" if unset.
+EVAL_CORPUS_S3_PREFIX = os.getenv("EVAL_CORPUS_S3_PREFIX", "eval_corpus/")
+
 
 # Container environment flag (set in Docker — bypasses permission checks)
 CONTAINER_ENV = bool(os.getenv("CONTAINER_ENV"))
