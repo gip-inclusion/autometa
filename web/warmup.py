@@ -106,7 +106,7 @@ def warmup_matomo_baselines():
             count += 1
 
     if count:
-        logger.info(f"Generated {count} matomo cache files")
+        logger.info("Generated %s matomo cache files", count)
     else:
         logger.info("No matomo baselines in DB, skipping")
 
@@ -176,7 +176,10 @@ def warmup_metabase_cards():
                 (dashboards_dir / f"dashboard-{dash.id}.md").write_text("\n".join(lines) + "\n")
 
         logger.info(
-            f"Generated metabase cache for instance '{instance}': {len(topics)} topics, {len(dashboards)} dashboards"
+            "Generated metabase cache for instance '%s': %d topics, %d dashboards",
+            instance,
+            len(topics),
+            len(dashboards),
         )
 
 
@@ -196,13 +199,13 @@ def restore_interactive_from_s3():
             restored += 1
 
     if restored:
-        logger.info(f"Restored {restored} interactive files from S3")
+        logger.info("Restored %s interactive files from S3", restored)
 
 
 def run():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Warming up cache in {CACHE_DIR}")
+    logger.info("Warming up cache in %s", CACHE_DIR)
 
     for attempt in range(3):
         try:
@@ -221,7 +224,7 @@ def run():
     warmup_metabase_cards()
     restore_interactive_from_s3()
     cache_files = list(CACHE_DIR.rglob("*.md"))
-    logger.info(f"Warmup complete — {len(cache_files)} cache files in {CACHE_DIR}")
+    logger.info("Warmup complete — %d cache files in %s", len(cache_files), CACHE_DIR)
 
 
 if __name__ == "__main__":

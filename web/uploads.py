@@ -214,7 +214,7 @@ def set_readonly_permissions(filepath: Path) -> None:
         # 0o444 = r--r--r--
         os.chmod(filepath, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     except OSError as e:
-        logger.warning(f"Failed to set readonly permissions on {filepath}: {e}")
+        logger.warning("Failed to set readonly permissions on %s: %s", filepath, e)
 
 
 def scan_with_clamav(filepath: Path) -> Tuple[bool, bool]:
@@ -232,19 +232,19 @@ def scan_with_clamav(filepath: Path) -> Tuple[bool, bool]:
         )
         # Exit code 0 = clean, 1 = infected, 2 = error
         if result.returncode == 0:
-            logger.debug(f"ClamAV scan clean: {filepath}")
+            logger.debug("ClamAV scan clean: %s", filepath)
             return (True, True)
         elif result.returncode == 1:
-            logger.warning(f"ClamAV detected threat in {filepath}: {result.stdout}")
+            logger.warning("ClamAV detected threat in %s: %s", filepath, result.stdout)
             return (True, False)
         else:
-            logger.warning(f"ClamAV scan error for {filepath}: {result.stderr}")
+            logger.warning("ClamAV scan error for %s: %s", filepath, result.stderr)
             return (False, None)
     except subprocess.TimeoutExpired:
-        logger.warning(f"ClamAV scan timed out for {filepath}")
+        logger.warning("ClamAV scan timed out for %s", filepath)
         return (False, None)
     except OSError as e:
-        logger.warning(f"ClamAV scan failed for {filepath}: {e}")
+        logger.warning("ClamAV scan failed for %s: %s", filepath, e)
         return (False, None)
 
 
@@ -252,7 +252,7 @@ def upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str]
     try:
         return s3.uploads.upload(relative_path, content, content_type)
     except (OSError, ClientError) as e:
-        logger.error(f"S3 upload failed for {relative_path}: {e}")
+        logger.error("S3 upload failed for %s: %s", relative_path, e)
         return False
 
 
@@ -283,7 +283,7 @@ def upload_file(
     if check_duplicate:
         existing = store.get_uploaded_file_by_hash(sha256_hash)
         if existing:
-            logger.info(f"Found existing file with hash {sha256_hash[:16]}...")
+            logger.info("Found existing file with hash %s...", sha256_hash[:16])
             # Create a new record pointing to the same file
             new_record = store.add_uploaded_file(
                 conversation_id=conversation_id,
@@ -340,7 +340,7 @@ def upload_file(
     # Upload to S3 if configured
     relative_path = stored_filename
     if not upload_to_s3(relative_path, content, mime_type):
-        logger.warning(f"S3 upload failed for {stored_filename}, keeping local copy")
+        logger.warning("S3 upload failed for %s, keeping local copy", stored_filename)
 
     # Create database record
     uploaded_file = store.add_uploaded_file(
@@ -365,7 +365,13 @@ def upload_file(
         except UnicodeDecodeError:
             logger.debug("Could not decode uploaded file as UTF-8")
 
-    logger.info(f"Uploaded file: {filename} -> {stored_filename} ({file_size} bytes, hash={sha256_hash[:16]}...)")
+    logger.info(
+        "Uploaded file: %s -> %s (%s bytes, hash=%s...)",
+        filename,
+        stored_filename,
+        file_size,
+        sha256_hash[:16],
+    )
 
     return uploaded_file, text_content
 
@@ -385,7 +391,7 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
     try:
         return s3.uploads.download(uploaded_file.stored_filename)
     except ClientError as e:
-        logger.error(f"Failed to download from S3: {e}")
+        logger.error("Failed to download from S3: %s", e)
         return None
 
 
@@ -396,7 +402,7 @@ def copy_file_for_modification(
 ) -> Optional[Path]:
     content = get_file_content(uploaded_file)
     if content is None:
-        logger.error(f"Could not read file {uploaded_file.stored_filename} for copying")
+        logger.error("Could not read file %s for copying", uploaded_file.stored_filename)
         return None
 
     # Default destination: /data/modified for persistence across container restarts
@@ -471,7 +477,7 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
     if count > 1:
         # Other records reference this file, just delete the DB record
         store.delete_uploaded_file(uploaded_file.id)
-        logger.debug(f"Deleted record {uploaded_file.id}, file still referenced by others")
+        logger.debug("Deleted record %s, file still referenced by others", uploaded_file.id)
         return True
 
     # Delete the actual file
@@ -481,15 +487,15 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
             # Need to make writable first to delete
             os.chmod(local_path, stat.S_IWUSR | stat.S_IRUSR)
             local_path.unlink()
-            logger.info(f"Deleted file: {local_path}")
+            logger.info("Deleted file: %s", local_path)
         except OSError as e:
-            logger.error(f"Failed to delete file {local_path}: {e}")
+            logger.error("Failed to delete file %s: %s", local_path, e)
 
     # Delete from S3
     try:
         s3.uploads.delete(uploaded_file.stored_filename)
     except ClientError as e:
-        logger.error(f"Failed to delete from S3: {e}")
+        logger.error("Failed to delete from S3: %s", e)
 
     # Delete DB record
     store.delete_uploaded_file(uploaded_file.id)

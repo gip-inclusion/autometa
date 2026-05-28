@@ -74,9 +74,11 @@ exclude = ["data/", ".venv/", "evals/", "skills/", "alembic/"]
 
 [tool.ruff.lint]
 preview = true
-select = ["E", "F", "W", "I"]
+select = ["E", "F", "W", "I", "G"]
 ignore = [
     "E501",   # line length — enforce progressively, not retroactively
+    "G001",   # logging-string-format — `.format()` is acceptable in this codebase
+    "G002",   # logging-percent-format — same
 ]
 
 [tool.ruff.lint.per-file-ignores]

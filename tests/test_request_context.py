@@ -78,6 +78,35 @@ def test_client_ip_uses_leftmost_x_forwarded_for(client, header_value, expected)
     assert body["client_ip"] == expected
 
 
+def test_middleware_emits_structured_access_log(client, caplog):
+    with caplog.at_level("INFO", logger="web.request_context"):
+        client.get("/echo", headers={REQUEST_ID_HEADER: "req-x"})
+
+    records = [r for r in caplog.records if r.message == "http.server.request"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.__dict__["http.request.method"] == "GET"
+    assert record.__dict__["url.path"] == "/echo"
+    assert record.__dict__["http.response.status_code"] == 200
+    assert isinstance(record.__dict__["http.server.request.duration"], float)
+
+
+def test_middleware_logs_500_when_handler_raises(caplog):
+    app = FastAPI()
+    app.middleware("http")(request_id_middleware)
+
+    @app.get("/boom")
+    def boom():
+        raise RuntimeError("nope")
+
+    with caplog.at_level("INFO", logger="web.request_context"):
+        TestClient(app, raise_server_exceptions=False).get("/boom")
+
+    access = [r for r in caplog.records if r.message == "http.server.request"]
+    assert access, "middleware must log even when handler raises"
+    assert access[-1].__dict__["http.response.status_code"] == 500
+
+
 def test_set_conversation_id_updates_contextvar_and_sentry_tag():
     token = set_conversation_id("conv-42")
     try:

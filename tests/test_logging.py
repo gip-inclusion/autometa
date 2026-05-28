@@ -95,6 +95,19 @@ def test_otlp_formatter_includes_trace_and_attributes_when_present():
     }
 
 
+def test_otlp_formatter_promotes_extras_to_attributes():
+    formatter = build_json_formatter()
+    record = logging.LogRecord("test", logging.INFO, "f", 1, "with-extras", (), None)
+    record.__dict__["http.request.method"] = "GET"
+    record.__dict__["http.response.status_code"] = 200
+    record.__dict__["url.path"] = "/api/x"
+
+    payload = json.loads(formatter.format(record))
+    assert payload["attributes"]["http.request.method"] == "GET"
+    assert payload["attributes"]["http.response.status_code"] == 200
+    assert payload["attributes"]["url.path"] == "/api/x"
+
+
 def test_otlp_formatter_omits_trace_and_attributes_when_absent():
     formatter = build_json_formatter()
     record = _make_record("bare")
@@ -152,6 +165,12 @@ def test_setup_logging_suppresses_noisy_third_party_loggers():
     assert logging.getLogger("httpx").level >= logging.WARNING
     assert logging.getLogger("httpcore").level >= logging.WARNING
     assert logging.getLogger("paramiko").level >= logging.WARNING
+
+
+def test_setup_logging_silences_uvicorn_access_below_warning():
+    setup_logging(level=logging.INFO)
+
+    assert logging.getLogger("uvicorn.access").level >= logging.WARNING
 
 
 def test_setup_logging_attaches_only_stream_handler():

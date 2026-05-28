@@ -46,7 +46,11 @@ class TaskRunner:
         await self._recover_stuck(r)
         self._consumer_task = asyncio.create_task(self._consumer_loop())
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-        logger.info(f"Task runner started (worker={self._worker_id}, max_concurrent={config.MAX_CONCURRENT_AGENTS})")
+        logger.info(
+            "Task runner started (worker=%s, max_concurrent=%s)",
+            self._worker_id,
+            config.MAX_CONCURRENT_AGENTS,
+        )
 
     async def shutdown(self):
         for task in (self._consumer_task, self._heartbeat_task):
@@ -174,7 +178,7 @@ class TaskRunner:
             await r.delete(f"{PREFIX}:running:{conv_id}")
             cleared += 1
         if cleared:
-            logger.info(f"Cleared {cleared} stuck conversations on startup")
+            logger.info("Cleared %s stuck conversations on startup", cleared)
 
     async def _listen_cancel(self, conv_id: str):
         r = await get_redis()
@@ -299,7 +303,7 @@ class TaskRunner:
 
             # Why: top-level agent error handler — must not crash the consumer loop.
             except Exception:
-                logger.exception(f"Agent error for {conversation_id}")
+                logger.exception("Agent error for %s", conversation_id)
                 span.set_status(Status(StatusCode.ERROR))
                 sentry_sdk.capture_exception()
             finally:
@@ -312,7 +316,7 @@ class TaskRunner:
                 self._cancel_tasks.pop(conversation_id, None)
                 r = await get_redis()
                 await r.delete(f"{PREFIX}:running:{conversation_id}")
-                logger.info(f"Agent finished for {conversation_id}")
+                logger.info("Agent finished for %s", conversation_id)
 
 
 def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -> str:

@@ -33,6 +33,40 @@ _ATTRIBUTE_KEYS = (
     ("client_ip", "client.address"),
 )
 
+# Standard LogRecord fields — anything in record.__dict__ NOT in this set or in _ATTRIBUTE_KEYS is
+# treated as a per-call extra and copied into the OTLP `attributes` block.
+_STANDARD_RECORD_FIELDS = frozenset({
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+    "message",
+    "taskName",
+    "trace_id",
+    "span_id",
+    "trace_flags",
+    "request_id",
+    "conversation_id",
+    "user_id",
+    "client_ip",
+})
+
 
 class CorrelationFilter(logging.Filter):
     """Inject trace/span/request/conversation/user/client ids onto every LogRecord."""
@@ -78,9 +112,13 @@ class OTLPJSONFormatter(logging.Formatter):
             trace_flags = getattr(record, "trace_flags", None)
             if trace_flags is not None:
                 entry["trace_flags"] = trace_flags
-        attributes = {
+        attributes: dict[str, object] = {
             otel_key: getattr(record, src, None) for src, otel_key in _ATTRIBUTE_KEYS if getattr(record, src, None)
         }
+        for key, value in record.__dict__.items():
+            if key in _STANDARD_RECORD_FIELDS or key.startswith("_") or value is None:
+                continue
+            attributes[key] = value
         if attributes:
             entry["attributes"] = attributes
         if record.exc_info:
@@ -111,12 +149,17 @@ def setup_logging(level: int = logging.INFO) -> None:
     logging.root.setLevel(level)
 
     # Why: uvicorn attaches text handlers to its own loggers before web.app is imported. Strip
-    # them and force propagation so access/error records flow through root's JSON formatter and
-    # pick up the correlation fields.
+    # them and force propagation so error records flow through root's JSON formatter and pick up
+    # the correlation fields.
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
+
+    # Why: request_id_middleware emits a structured "http.server.request" log with semconv attrs
+    # for every response. Suppress uvicorn.access INFO lines to avoid duplicating that with a
+    # body that's just a templated text string.
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
