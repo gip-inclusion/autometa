@@ -213,6 +213,14 @@ def test_listing_shows_cron_status(client):
     assert 'title="success"' in r.text
 
 
+def test_listing_groups_by_time_and_has_icons(client):
+    _make_dashboard("grouped-one")
+    r = client.get("/dashboards", headers=_h())
+    assert r.status_code == 200
+    assert "conv-group-header" in r.text
+    assert "conv-item-icon" in r.text
+
+
 def test_detail_hides_api_access_toggle(client):
     _make_dashboard("no-api-toggle")
     r = client.get("/dashboards/no-api-toggle/edit", headers=_h())

@@ -3644,6 +3644,8 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1.5rem;
+  /* Align the "Titre" label with the row title, which is offset by the leading icon */
+  padding-left: calc(2.5rem + 28px);
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;

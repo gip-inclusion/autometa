@@ -64,7 +64,7 @@
         </div>
         {% endif %}
 
-        {% if items %}
+        {% if grouped_items %}
         <div class="dashboards-list-header">
           <span class="dashboard-th-title">Titre</span>
           <span class="dashboard-col dashboard-col-cron">Cron</span>
@@ -73,34 +73,48 @@
         </div>
         {% endif %}
         <div class="conversation-list" id="dashboardsList">
-          {% if items %}
-            {% for d in items %}
-            <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-list-item filterable-card"
-               data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
-              <div class="dashboard-row-line1">
-                <span class="conv-item-title">{{ d.title }}</span>
+          {% if grouped_items %}
+            {% for group_name, group_items in grouped_items.items() %}
+            <div class="conv-group">
+              <div class="conv-group-header">{{ group_name }}</div>
+              <div class="conv-group-items">
+                {% for d in group_items %}
+                <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-list-item filterable-card"
+                   data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
+                  <div class="conv-item-main">
+                    <div class="conv-item-icon-wrapper">
+                      <i class="ri-dashboard-line conv-item-icon"></i>
+                    </div>
+                    <div class="conv-item-content">
+                      <div class="dashboard-row-line1">
+                        <span class="conv-item-title">{{ d.title }}</span>
+                      </div>
+                      <div class="dashboard-row-line2">
+                        <span class="dashboard-meta-main">
+                          <span class="conv-item-author">{{ d.first_author_email }}</span>
+                          <button type="button" class="conv-item-action-btn" title="Configurer"
+                                  onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
+                            <i class="ri-settings-3-line"></i> Configurer
+                          </button>
+                        </span>
+                        <span class="dashboard-cols">
+                          <span class="dashboard-col dashboard-col-cron">
+                            {% if d.has_cron %}
+                              {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
+                              <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
+                              <span>{{ d.cron_run_date or '—' }}</span>
+                            {% endif %}
+                          </span>
+                          <span class="dashboard-col dashboard-col-pub"></span>
+                          <span class="dashboard-col dashboard-col-updated">{{ d.updated_date }}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </a>
+                {% endfor %}
               </div>
-              <div class="dashboard-row-line2">
-                <span class="dashboard-meta-main">
-                  <span class="conv-item-author">{{ d.first_author_email }}</span>
-                  <button type="button" class="conv-item-action-btn" title="Configurer"
-                          onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
-                    <i class="ri-settings-3-line"></i> Configurer
-                  </button>
-                </span>
-                <span class="dashboard-cols">
-                  <span class="dashboard-col dashboard-col-cron">
-                    {% if d.has_cron %}
-                      {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
-                      <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
-                      <span>{{ d.cron_run_date or '—' }}</span>
-                    {% endif %}
-                  </span>
-                  <span class="dashboard-col dashboard-col-pub"></span>
-                  <span class="dashboard-col dashboard-col-updated">{{ d.updated_date }}</span>
-                </span>
-              </div>
-            </a>
+            </div>
             {% endfor %}
           {% else %}
           <div class="empty-state">
@@ -124,9 +138,14 @@ function setView(view) {
 
 function filterByText(query) {
   const search = query.toLowerCase().trim();
-  document.querySelectorAll('#dashboardsList .filterable-card').forEach(card => {
-    const matches = !search || (card.dataset.search || '').includes(search);
-    card.style.display = matches ? '' : 'none';
+  document.querySelectorAll('#dashboardsList .conv-group').forEach(group => {
+    let visible = 0;
+    group.querySelectorAll('.filterable-card').forEach(card => {
+      const matches = !search || (card.dataset.search || '').includes(search);
+      card.style.display = matches ? '' : 'none';
+      if (matches) visible += 1;
+    });
+    group.style.display = visible ? '' : 'none';
   });
 }
 

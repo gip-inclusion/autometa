@@ -14,7 +14,7 @@ from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
 
-from .html import get_sidebar_data
+from .html import get_sidebar_data, group_items_by_date
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,9 @@ def dashboards_page(
         d["cron_status"] = run["status"] if run else None
         d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
         d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
+        d["sort_date"] = d["updated"]
+
+    grouped_items = group_items_by_date(items)
 
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(
@@ -67,7 +70,7 @@ def dashboards_page(
             "current_conv": None,
             "view": view,
             "q": q,
-            "items": items,
+            "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
             **data,
         },
