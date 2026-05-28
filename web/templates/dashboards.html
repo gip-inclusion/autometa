@@ -64,35 +64,40 @@
         </div>
         {% endif %}
 
+        {% if items %}
+        <div class="dashboards-list-header">
+          <span class="dashboard-th-title">Titre</span>
+          <span class="dashboard-col dashboard-col-cron">Cron</span>
+          <span class="dashboard-col dashboard-col-pub">Publié</span>
+          <span class="dashboard-col dashboard-col-updated">Mis à jour</span>
+          <span class="dashboard-col-action"></span>
+        </div>
+        {% endif %}
         <div class="conversation-list" id="dashboardsList">
           {% if items %}
             {% for d in items %}
             <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-list-item filterable-card"
                data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
-              <div class="conv-item-main">
-                <div class="conv-item-icon-wrapper">
-                  <i class="ri-dashboard-line conv-item-icon"></i>
-                </div>
-                <div class="conv-item-content">
-                  <div class="conv-item-row">
-                    <span class="conv-item-title">{{ d.title }}</span>
-                    <span class="dashboard-col dashboard-col-cron">
-                      {% if d.has_cron %}
-                        {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
-                        <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
-                        <span>{{ d.cron_run_date or '—' }}</span>
-                      {% endif %}
-                    </span>
-                    <span class="dashboard-col dashboard-col-pub"></span>
-                    <button type="button" class="conv-item-action-btn" title="Configurer"
-                            onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
-                      <i class="ri-settings-3-line"></i> Configurer
-                    </button>
-                  </div>
-                  <div class="conv-item-author-row">
-                    <span class="conv-item-author">{{ d.first_author_email }}</span>
-                  </div>
-                </div>
+              <div class="dashboard-row-line1">
+                <span class="conv-item-title">{{ d.title }}</span>
+                <span class="dashboard-col dashboard-col-cron">
+                  {% if d.has_cron %}
+                    {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
+                    <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
+                    <span>{{ d.cron_run_date or '—' }}</span>
+                  {% endif %}
+                </span>
+                <span class="dashboard-col dashboard-col-pub"></span>
+                <span class="dashboard-col dashboard-col-updated">{{ d.updated_date }}</span>
+                <span class="dashboard-col-action">
+                  <button type="button" class="conv-item-action-btn" title="Configurer"
+                          onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
+                    <i class="ri-settings-3-line"></i> Configurer
+                  </button>
+                </span>
+              </div>
+              <div class="dashboard-row-line2">
+                <span class="conv-item-author">{{ d.first_author_email }}</span>
               </div>
             </a>
             {% endfor %}

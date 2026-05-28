@@ -78,6 +78,14 @@ def test_featured_row_absent_without_pins(client):
     assert "À la une" not in r.text
 
 
+def test_featured_only_shown_on_latest(client):
+    _make_dashboard("feat-latest-only", author="alice@x")
+    store.pin_item("app", "feat-latest-only", "Feat")
+    assert "À la une" in client.get("/dashboards?view=latest", headers=_h()).text
+    assert "À la une" not in client.get("/dashboards?view=mine", headers=_h("other@x")).text
+    assert "À la une" not in client.get("/dashboards?view=archived", headers=_h()).text
+
+
 def test_featured_skips_archived_pins(client):
     _make_dashboard("feat-archived", archived=True)
     store.pin_item("app", "feat-archived", "Archived")

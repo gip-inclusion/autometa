@@ -36,8 +36,6 @@ def dashboards_page(
         view = "latest"
 
     active = store.list_dashboards()
-    active_by_slug = {d["slug"]: d for d in active}
-    pinned_cards = [active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug]
 
     if view == "archived":
         items = store.list_archived_dashboards()
@@ -46,11 +44,19 @@ def dashboards_page(
     else:
         items = active
 
+    pinned_cards = []
+    if view == "latest":
+        active_by_slug = {d["slug"]: d for d in active}
+        pinned_cards = [
+            active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
+        ]
+
     last_runs = get_last_runs(limit_per_app=1)
     for d in items:
         run = next(iter(last_runs.get(d["slug"], [])), None)
         d["cron_status"] = run["status"] if run else None
         d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
+        d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
 
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(

@@ -3633,17 +3633,45 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 /* ==========================================================================
    Tableaux de bord
    ========================================================================== */
-#section-dashboards .conv-item-row {
-  align-items: center;
-}
-
-#section-dashboards .conv-item-title {
-  flex: 1;
-}
-
 /* Action buttons stay visible (no hover-reveal — mobile) */
 #section-dashboards .conv-item-action-btn {
   opacity: 1;
+}
+
+/* List header + columnar rows */
+.dashboards-list-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6c757d;
+  border-bottom: 1px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}
+
+.dashboard-row-line1 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard-row-line1 .conv-item-title {
+  flex: 1;
+}
+
+.dashboard-th-title {
+  flex: 1;
+}
+
+.dashboard-row-line2 {
+  margin-top: 0.125rem;
 }
 
 .dashboard-col {
@@ -3656,11 +3684,21 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 }
 
 .dashboard-col-cron {
-  width: 9rem;
+  width: 8rem;
 }
 
 .dashboard-col-pub {
   width: 6rem;
+}
+
+.dashboard-col-updated {
+  width: 7rem;
+}
+
+.dashboard-col-action {
+  width: 7rem;
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* Featured (pinned) — horizontal scroller of title-only cards */
@@ -3686,7 +3724,11 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   position: relative;
   flex: 0 0 auto;
   width: 220px;
+  min-height: 5rem;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   border: 1px solid #dee2e6;
   border-radius: 0.5rem;
   background: #fff;
@@ -3704,9 +3746,6 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   display: block;
   font-weight: 500;
   padding-right: 1.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .dashboard-pin-cog {
