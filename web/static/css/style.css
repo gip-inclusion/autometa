@@ -3677,9 +3677,44 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   margin-top: 0.125rem;
 }
 
+/* Author + Configurer group sits on top, opaque, fading on its right edge so the
+   columns behind it get covered (and peek through the fade) when space runs out. */
 .dashboard-meta-main {
-  flex: 1;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   min-width: 0;
+  max-width: 100%;
+  padding-right: 1.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  background: #fff;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+}
+
+.conv-list-item:hover .dashboard-meta-main {
+  background: #f8f9fa;
+}
+
+.dashboard-meta-main .conv-item-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-meta-main .conv-item-action-btn {
+  flex-shrink: 0;
+}
+
+/* Columns sit behind the group; covered when there's no space */
+.dashboard-cols {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 0.5rem;

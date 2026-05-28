@@ -88,15 +88,17 @@
                     <i class="ri-settings-3-line"></i> Configurer
                   </button>
                 </span>
-                <span class="dashboard-col dashboard-col-cron">
-                  {% if d.has_cron %}
-                    {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
-                    <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
-                    <span>{{ d.cron_run_date or '—' }}</span>
-                  {% endif %}
+                <span class="dashboard-cols">
+                  <span class="dashboard-col dashboard-col-cron">
+                    {% if d.has_cron %}
+                      {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
+                      <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
+                      <span>{{ d.cron_run_date or '—' }}</span>
+                    {% endif %}
+                  </span>
+                  <span class="dashboard-col dashboard-col-pub"></span>
+                  <span class="dashboard-col dashboard-col-updated">{{ d.updated_date }}</span>
                 </span>
-                <span class="dashboard-col dashboard-col-pub"></span>
-                <span class="dashboard-col dashboard-col-updated">{{ d.updated_date }}</span>
               </div>
             </a>
             {% endfor %}
