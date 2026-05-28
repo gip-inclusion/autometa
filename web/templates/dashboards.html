@@ -50,65 +50,51 @@
 
       <div class="conversation-list-wrapper">
         {% if pinned_cards %}
-        <div class="mb-4">
-          <div class="conv-group-header">À la une</div>
-          <div class="row g-3">
-            {% for d in pinned_cards %}
-            <div class="col-md-4">
-              <div class="card h-100">
-                <div class="card-body d-flex flex-column">
-                  <h5 class="card-title mb-2">
-                    <a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>
-                  </h5>
-                  <div class="mb-2">
-                    {% for t in d.tags %}<span class="badge bg-light text-dark">{{ t }}</span> {% endfor %}
-                  </div>
-                  <div class="mt-auto d-flex align-items-center gap-2">
-                    <span class="small text-muted me-auto">{{ d.first_author_email }} · {{ d.formatted_date }}</span>
-                    <a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-outline-secondary">
-                      <i class="ri-settings-3-line"></i> Configurer
-                    </a>
-                    <a href="{{ d.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
-                      <i class="ri-external-link-line"></i> Ouvrir
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
-            {% endfor %}
-          </div>
+        <div class="dashboards-featured-header">À la une</div>
+        <div class="dashboards-featured">
+          {% for d in pinned_cards %}
+          <a href="{{ d.url }}" target="_blank" rel="noopener" class="dashboard-pin-card">
+            <button type="button" class="dashboard-pin-cog" title="Configurer"
+                    onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
+              <i class="ri-settings-3-line"></i>
+            </button>
+            <span class="dashboard-pin-title">{{ d.title }}</span>
+          </a>
+          {% endfor %}
         </div>
         {% endif %}
 
         <div class="conversation-list" id="dashboardsList">
           {% if items %}
             {% for d in items %}
-            <div class="conv-list-item filterable-card"
-                 data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
+            <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-list-item filterable-card"
+               data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
               <div class="conv-item-main">
                 <div class="conv-item-icon-wrapper">
                   <i class="ri-dashboard-line conv-item-icon"></i>
                 </div>
                 <div class="conv-item-content">
                   <div class="conv-item-row">
-                    <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-item-title">{{ d.title }}</a>
-                    {% for t in d.tags %}<span class="badge badge-tag">{{ t }}</span>{% endfor %}
-                    <span class="conv-item-date">{{ d.formatted_date }}</span>
+                    <span class="conv-item-title">{{ d.title }}</span>
+                    <span class="dashboard-col dashboard-col-cron">
+                      {% if d.has_cron %}
+                        {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
+                        <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
+                        <span>{{ d.cron_run_date or '—' }}</span>
+                      {% endif %}
+                    </span>
+                    <span class="dashboard-col dashboard-col-pub"></span>
+                    <button type="button" class="conv-item-action-btn" title="Configurer"
+                            onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/dashboards/{{ d.slug }}/edit';">
+                      <i class="ri-settings-3-line"></i> Configurer
+                    </button>
                   </div>
                   <div class="conv-item-author-row">
                     <span class="conv-item-author">{{ d.first_author_email }}</span>
-                    {% if d.has_cron %}<span class="badge bg-info">cron</span>{% endif %}
-                    {% if d.has_persistence %}<span class="badge bg-warning text-dark">persist</span>{% endif %}
-                    <a href="/dashboards/{{ d.slug }}/edit" class="conv-item-action-btn">
-                      <i class="ri-settings-3-line"></i> Configurer
-                    </a>
-                    <a href="{{ d.url }}" target="_blank" rel="noopener" class="conv-item-action-btn conv-item-external-link">
-                      <i class="ri-external-link-line"></i> Ouvrir
-                    </a>
                   </div>
                 </div>
               </div>
-            </div>
+            </a>
             {% endfor %}
           {% else %}
           <div class="empty-state">

@@ -46,8 +46,11 @@ def dashboards_page(
     else:
         items = active
 
-    for d in items + pinned_cards:
-        d["formatted_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
+    last_runs = get_last_runs(limit_per_app=1)
+    for d in items:
+        run = next(iter(last_runs.get(d["slug"], [])), None)
+        d["cron_status"] = run["status"] if run else None
+        d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
 
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(

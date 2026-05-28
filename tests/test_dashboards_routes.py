@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from web.database import store
 from web.db import get_db
-from web.models import Dashboard
+from web.models import CronRun, Dashboard
 
 ADMIN = "louisjean.teitelbaum@inclusion.gouv.fr"
 
@@ -191,6 +191,18 @@ def test_rename_empty_title_400(client):
 def test_rename_unknown_slug_404(client):
     r = client.post("/api/dashboards/ghost/rename", json={"title": "X"}, headers=_h())
     assert r.status_code == 404
+
+
+def test_listing_shows_cron_status(client):
+    _make_dashboard("croned")
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "croned"))
+        d.has_cron = True
+        session.add(CronRun(app_slug="croned", started_at=now, status="success", trigger="scheduled"))
+    r = client.get("/dashboards", headers=_h())
+    assert r.status_code == 200
+    assert 'title="success"' in r.text
 
 
 def test_detail_hides_api_access_toggle(client):
