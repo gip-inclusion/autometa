@@ -5,8 +5,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
+from lib.dashboards import DashboardNotFound, update_dashboard
 from web.config import ADMIN_USERS
 from web.cron import get_last_runs
 from web.database import store
@@ -117,3 +118,27 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             **data,
         },
     )
+
+
+@router.post("/api/dashboards/{slug}/archive")
+async def toggle_archive(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    archived = bool(payload.get("archived", True))
+    try:
+        update_dashboard(slug=slug, updater_email=user_email, is_archived=archived)
+    except DashboardNotFound:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    return {"slug": slug, "is_archived": archived}
+
+
+@router.post("/api/dashboards/{slug}/api-access")
+async def toggle_api_access(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    enabled = bool(payload.get("enabled", True))
+    try:
+        update_dashboard(slug=slug, updater_email=user_email, has_api_access=enabled)
+    except DashboardNotFound:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    return {"slug": slug, "has_api_access": enabled}

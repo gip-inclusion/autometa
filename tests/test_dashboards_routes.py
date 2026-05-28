@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 
+import pytest
+from sqlalchemy import select
+
 from web.database import store
 from web.db import get_db
 from web.models import Dashboard
@@ -103,4 +106,38 @@ def test_detail_unknown_slug_redirects_to_list(client):
 
 def test_detail_bad_slug_rejected(client):
     r = client.get("/dashboards/Bad.Slug/edit", headers=_h())
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize("archived", [True, False])
+def test_archive_toggle(client, archived):
+    _make_dashboard("toggle-arch", archived=not archived)
+    r = client.post("/api/dashboards/toggle-arch/archive", json={"archived": archived}, headers=_h())
+    assert r.status_code == 200
+    assert r.json() == {"slug": "toggle-arch", "is_archived": archived}
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "toggle-arch"))
+        assert d.is_archived is archived
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_api_access_toggle(client, enabled):
+    _make_dashboard("toggle-api")
+    if not enabled:
+        client.post("/api/dashboards/toggle-api/api-access", json={"enabled": True}, headers=_h())
+    r = client.post("/api/dashboards/toggle-api/api-access", json={"enabled": enabled}, headers=_h())
+    assert r.status_code == 200
+    assert r.json() == {"slug": "toggle-api", "has_api_access": enabled}
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "toggle-api"))
+        assert d.has_api_access is enabled
+
+
+def test_archive_unknown_slug_404(client):
+    r = client.post("/api/dashboards/ghost/archive", json={"archived": True}, headers=_h())
+    assert r.status_code == 404
+
+
+def test_toggle_bad_slug_422(client):
+    r = client.post("/api/dashboards/Bad.Slug/archive", json={"archived": True}, headers=_h())
     assert r.status_code == 422
