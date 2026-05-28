@@ -79,7 +79,7 @@ def truncate_all_tables():
         session.execute(
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
-                uploaded_files, cron_runs, pinned_items, pm_commands,
+                uploaded_files, cron_runs, dashboards, dashboard_tags, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version,
                 wishlist, matomo_baselines, matomo_dimensions, matomo_segments,
                 matomo_events, metabase_cards, metabase_dashboards

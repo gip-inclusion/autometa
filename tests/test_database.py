@@ -12,6 +12,7 @@ from web.database import (
     store,
 )
 from web.db import get_db
+from web.models import Dashboard
 from web.models import UsageEvent as UsageEventModel
 
 
@@ -208,3 +209,50 @@ def test_insert_usage_event_thinking_kind(client):
     loaded = store.get_conversation(conv.id, include_messages=False)
     assert loaded.usage_output_tokens == 1576
     assert loaded.usage_input_tokens == 0
+
+
+def _make_dashboard(slug, *, archived=False, author="alice@x", title=None):
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(Dashboard(
+            slug=slug, title=title or slug, description="d", website="emplois",
+            category="c", first_author_email=author, is_archived=archived,
+            has_api_access=False, has_cron=False, has_persistence=False,
+            created_at=now, updated_at=now,
+        ))
+
+
+def test_list_dashboards_excludes_archived_by_default(client):
+    _make_dashboard("active-one")
+    _make_dashboard("archived-one", archived=True)
+    slugs = {d["slug"] for d in store.list_dashboards()}
+    assert "active-one" in slugs
+    assert "archived-one" not in slugs
+
+
+def test_list_dashboards_include_archived(client):
+    _make_dashboard("active-two")
+    _make_dashboard("archived-two", archived=True)
+    slugs = {d["slug"] for d in store.list_dashboards(include_archived=True)}
+    assert {"active-two", "archived-two"} <= slugs
+
+
+def test_list_archived_dashboards(client):
+    _make_dashboard("active-three")
+    _make_dashboard("archived-three", archived=True)
+    slugs = {d["slug"] for d in store.list_archived_dashboards()}
+    assert slugs == {"archived-three"}
+
+
+def test_get_dashboard_returns_fields(client):
+    _make_dashboard("detail-one", author="bob@x")
+    d = store.get_dashboard("detail-one")
+    assert d["slug"] == "detail-one"
+    assert d["first_author_email"] == "bob@x"
+    assert d["is_archived"] is False
+    assert d["has_api_access"] is False
+    assert d["url"] == "/interactive/detail-one/"
+
+
+def test_get_dashboard_missing_returns_none(client):
+    assert store.get_dashboard("does-not-exist") is None
