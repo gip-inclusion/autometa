@@ -1,0 +1,81 @@
+from datetime import datetime, timezone
+
+from web.database import store
+from web.db import get_db
+from web.models import Dashboard
+
+ADMIN = "louisjean.teitelbaum@inclusion.gouv.fr"
+
+
+def _make_dashboard(slug, *, archived=False, author="alice@x", title=None):
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(Dashboard(
+            slug=slug, title=title or slug, description="desc", website="emplois",
+            category="c", first_author_email=author, is_archived=archived,
+            has_api_access=False, has_cron=False, has_persistence=False,
+            created_at=now, updated_at=now,
+        ))
+
+
+def _h(email=ADMIN):
+    return {"X-Forwarded-Email": email}
+
+
+def test_latest_view_lists_active(client):
+    _make_dashboard("latest-a")
+    _make_dashboard("latest-archived", archived=True)
+    r = client.get("/dashboards?view=latest", headers=_h())
+    assert r.status_code == 200
+    assert "latest-a" in r.text
+    assert "latest-archived" not in r.text
+
+
+def test_mine_view_filters_by_author(client):
+    _make_dashboard("mine-yes", author="me@x")
+    _make_dashboard("mine-no", author="other@x")
+    r = client.get("/dashboards?view=mine", headers=_h("me@x"))
+    assert r.status_code == 200
+    assert "mine-yes" in r.text
+    assert "mine-no" not in r.text
+
+
+def test_archived_view_lists_archived_only(client):
+    _make_dashboard("arch-active")
+    _make_dashboard("arch-gone", archived=True)
+    r = client.get("/dashboards?view=archived", headers=_h())
+    assert r.status_code == 200
+    assert "arch-gone" in r.text
+    assert "arch-active" not in r.text
+
+
+def test_search_view_filters_by_query(client):
+    _make_dashboard("search-hit", title="Couverture SIAE")
+    _make_dashboard("search-miss", title="Autre chose")
+    r = client.get("/dashboards?view=search&q=couverture", headers=_h())
+    assert r.status_code == 200
+    assert "search-hit" in r.text
+    assert "search-miss" not in r.text
+
+
+def test_featured_view_lists_pinned(client):
+    _make_dashboard("feat-pinned")
+    _make_dashboard("feat-unpinned")
+    store.pin_item("app", "feat-pinned", "Feat Pinned")
+    r = client.get("/dashboards?view=featured", headers=_h())
+    assert r.status_code == 200
+    assert "feat-pinned" in r.text
+    assert "feat-unpinned" not in r.text
+
+
+def test_featured_skips_archived_pins(client):
+    _make_dashboard("feat-archived", archived=True)
+    store.pin_item("app", "feat-archived", "Archived")
+    r = client.get("/dashboards?view=featured", headers=_h())
+    assert r.status_code == 200
+    assert "feat-archived" not in r.text
+
+
+def test_unknown_view_falls_back_to_featured(client):
+    r = client.get("/dashboards?view=bogus", headers=_h())
+    assert r.status_code == 200

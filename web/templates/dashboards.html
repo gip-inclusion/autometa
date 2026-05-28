@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} – Tableaux de bord{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-dashboards">
+  <div class="section-header">
+    <div class="container">
+      <h1 class="mb-0"><i class="ri-dashboard-line me-2"></i>Tableaux de bord</h1>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container">
+      <ul class="nav nav-pills mb-3">
+        {% set tabs = [('featured', 'À la une'), ('mine', 'Les miens'), ('latest', 'Récents'), ('search', 'Rechercher'), ('archived', 'Archivés')] %}
+        {% for key, label in tabs %}
+        <li class="nav-item">
+          <a class="nav-link {% if view == key %}active{% endif %}"
+             href="/dashboards?view={{ key }}"
+             hx-get="/dashboards?view={{ key }}"
+             hx-target="#dashboards-list"
+             hx-select="#dashboards-list"
+             hx-swap="outerHTML"
+             hx-push-url="true">{{ label }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <div id="dashboards-list">
+        {% if view == 'search' %}
+        <form class="mb-3" hx-get="/dashboards" hx-target="#dashboards-list" hx-select="#dashboards-list" hx-swap="outerHTML" hx-push-url="true">
+          <input type="hidden" name="view" value="search">
+          <input type="search" class="form-control" name="q" value="{{ q }}" placeholder="Rechercher un tableau de bord…" autofocus>
+        </form>
+        {% endif %}
+
+        {% if view == 'featured' %}
+          {% if pinned_cards %}
+          <div class="row g-3">
+            {% for d in pinned_cards %}
+            <div class="col-md-4">
+              <div class="card h-100">
+                <div class="card-body">
+                  <h5 class="card-title">{{ d.title }}</h5>
+                  <p class="card-text text-muted small">{{ d.description | truncate(120) }}</p>
+                  <p class="card-text small text-muted">{{ d.first_author_email }}</p>
+                  <a href="{{ d.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">Ouvrir</a>
+                  <a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-link">Détails</a>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-muted">Aucun tableau de bord à la une. Épinglez-en depuis leur page de détail.</p>
+          {% endif %}
+        {% else %}
+          {% if items %}
+          <table class="table table-hover align-middle">
+            <thead>
+              <tr><th>Titre</th><th>Auteur</th><th>Mis à jour</th><th>Tags</th><th></th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for d in items %}
+              <tr>
+                <td><a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a></td>
+                <td class="small text-muted">{{ d.first_author_email }}</td>
+                <td class="small text-muted">{{ d.formatted_date }}</td>
+                <td>{% for t in d.tags %}<span class="badge bg-light text-dark">{{ t }}</span> {% endfor %}</td>
+                <td>
+                  {% if d.has_cron %}<span class="badge bg-info" title="cron">cron</span>{% endif %}
+                  {% if d.has_api_access %}<span class="badge bg-secondary" title="API">api</span>{% endif %}
+                  {% if d.has_persistence %}<span class="badge bg-warning text-dark" title="persistence">persist</span>{% endif %}
+                </td>
+                <td><a href="/dashboards/{{ d.slug }}/edit" class="btn btn-sm btn-outline-secondary">Détails</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted">Aucun tableau de bord.</p>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

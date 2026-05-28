@@ -71,6 +71,14 @@
         </li>
 
         <li class="nav-item">
+          <a href="/dashboards" class="nav-link {% if section == 'dashboards' %}active{% endif %}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-dashboard-line" aria-hidden="true"></i>
+            <span>Tableaux de bord</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
           <a href="/explorations/new" class="nav-link nav-link-primary {% if section == 'explorations' and not current_conv and is_new %}active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-add-line" aria-hidden="true"></i>
@@ -135,6 +143,11 @@
           <li class="nav-item">
             <a href="/rechercher" class="nav-link {% if section == 'rechercher' %}active{% endif %}">
               <i class="ri-search-line me-2"></i>Rechercher
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/dashboards" class="nav-link {% if section == 'dashboards' %}active{% endif %}">
+              <i class="ri-dashboard-line me-2"></i>Tableaux de bord
             </a>
           </li>
           <li class="nav-item">
