@@ -3677,8 +3677,12 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   margin-top: 0.125rem;
 }
 
-.dashboard-row-line2 .conv-item-action-btn {
-  margin-left: auto;
+.dashboard-meta-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .dashboard-col {
@@ -3688,6 +3692,7 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   gap: 0.25rem;
   font-size: 0.8125rem;
   color: #6c757d;
+  white-space: nowrap;
 }
 
 .dashboard-col-cron {
@@ -3699,7 +3704,7 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 }
 
 .dashboard-col-updated {
-  width: 7rem;
+  width: 9rem;
 }
 
 /* On small viewports the fixed columns would squeeze the title — hide them */
