@@ -220,6 +220,15 @@ def find_task(slug: str) -> dict | None:
     return None
 
 
+def read_cron_script(task: dict) -> str | None:
+    """Return the cron.py source for a task — from S3 for app tasks, else the local file."""
+    if task.get("source") == "s3":
+        content = s3.interactive.download(task["cron_path"])
+        return content.decode(errors="replace") if content is not None else None
+    path = Path(task["cron_path"])
+    return path.read_text() if path.exists() else None
+
+
 def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{slug}-"))
     pre_hashes: dict[str, str] = {}
