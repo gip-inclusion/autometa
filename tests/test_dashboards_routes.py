@@ -79,3 +79,28 @@ def test_featured_skips_archived_pins(client):
 def test_unknown_view_falls_back_to_featured(client):
     r = client.get("/dashboards?view=bogus", headers=_h())
     assert r.status_code == 200
+
+
+def test_detail_page_renders(client):
+    _make_dashboard("detail-render", title="Mon TDB")
+    r = client.get("/dashboards/detail-render/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Mon TDB" in r.text
+
+
+def test_bare_slug_redirects_to_edit(client):
+    _make_dashboard("redir-me")
+    r = client.get("/dashboards/redir-me", headers=_h(), follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "/dashboards/redir-me/edit"
+
+
+def test_detail_unknown_slug_redirects_to_list(client):
+    r = client.get("/dashboards/nope/edit", headers=_h(), follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/dashboards"
+
+
+def test_detail_bad_slug_rejected(client):
+    r = client.get("/dashboards/Bad.Slug/edit", headers=_h())
+    assert r.status_code == 422

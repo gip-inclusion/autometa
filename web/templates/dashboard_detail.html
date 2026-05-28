@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} – {{ dashboard.title }}{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-dashboard-detail" data-slug="{{ dashboard.slug }}">
+  <div class="section-header">
+    <div class="container">
+      <a href="/dashboards" class="text-muted small"><i class="ri-arrow-left-line"></i> Tableaux de bord</a>
+      <h1 class="mb-0">{{ dashboard.title }}</h1>
+      <p class="text-muted small mb-0">
+        {{ dashboard.first_author_email }} · créé le {{ dashboard.created_at.strftime('%Y-%m-%d') if dashboard.created_at }}
+      </p>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container">
+      <div class="mb-3">
+        {% if dashboard.has_cron %}<span class="badge bg-info">cron</span>{% endif %}
+        {% if dashboard.has_persistence %}<span class="badge bg-warning text-dark">persistence</span>{% endif %}
+      </div>
+
+      <div class="mb-4">
+        <p id="dashboard-description" class="dashboard-description-collapsed">{{ dashboard.description }}</p>
+        {% if dashboard.description | length > 280 %}
+        <button type="button" class="btn btn-sm btn-link p-0" onclick="document.getElementById('dashboard-description').classList.toggle('dashboard-description-collapsed'); this.textContent = this.textContent === 'Voir plus' ? 'Voir moins' : 'Voir plus';">Voir plus</button>
+        {% endif %}
+      </div>
+
+      <div class="mb-4 d-flex gap-2 flex-wrap align-items-center">
+        <a href="{{ dashboard.url }}" target="_blank" rel="noopener" class="btn btn-outline-primary"><i class="ri-external-link-line"></i> Ouvrir</a>
+
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="apiAccessToggle" {% if dashboard.has_api_access %}checked{% endif %}>
+          <label class="form-check-label" for="apiAccessToggle">Accès API</label>
+        </div>
+
+        {% if dashboard.is_archived %}
+        <button type="button" class="btn btn-outline-success" data-action="archive" data-archived="false">Désarchiver</button>
+        {% else %}
+        <button type="button" class="btn btn-outline-danger" data-action="archive" data-archived="true">Archiver</button>
+        {% endif %}
+
+        {% if is_admin %}
+          {% if is_pinned %}
+          <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line"></i> Retirer de la une</button>
+          {% else %}
+          <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line"></i> Mettre à la une</button>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      {% if dashboard.has_cron %}
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">Cron</h5>
+          <p class="small text-muted mb-2">
+            {% if last_run %}Dernier run : {{ last_run.formatted_date }} ({{ last_run.status }}){% else %}Aucun run enregistré{% endif %}
+          </p>
+          <a href="/api/cron/{{ dashboard.slug }}/script" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Voir le script</a>
+          <button type="button" class="btn btn-sm btn-outline-primary" data-action="run-cron">Déclencher un run</button>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const root = document.getElementById('section-dashboard-detail');
+    const slug = root.dataset.slug;
+
+    async function post(path, body) {
+      return fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+    }
+
+    document.getElementById('apiAccessToggle')?.addEventListener('change', async (e) => {
+      await post(`/api/dashboards/${slug}/api-access`, { enabled: e.target.checked });
+    });
+
+    root.querySelectorAll('[data-action="archive"]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await post(`/api/dashboards/${slug}/archive`, { archived: btn.dataset.archived === 'true' });
+        window.location.reload();
+      });
+    });
+
+    root.querySelector('[data-action="pin"]')?.addEventListener('click', async () => {
+      await post(`/api/apps/${slug}/pin`, {});
+      window.location.reload();
+    });
+    root.querySelector('[data-action="unpin"]')?.addEventListener('click', async () => {
+      await fetch(`/api/apps/${slug}/pin`, { method: 'DELETE' });
+      window.location.reload();
+    });
+
+    root.querySelector('[data-action="run-cron"]')?.addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'En cours…';
+      await post(`/api/cron/${slug}/run`, {});
+      window.location.reload();
+    });
+  })();
+</script>
+{% endblock %}

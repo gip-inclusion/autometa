@@ -1,9 +1,14 @@
 """Dashboard management screen routes."""
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi import Path as PathParam
+from fastapi.responses import RedirectResponse
 
+from web.config import ADMIN_USERS
+from web.cron import get_last_runs
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
@@ -15,6 +20,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 VIEWS = ("featured", "mine", "latest", "search", "archived")
+
+Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 
 
 def _search(items: list[dict], q: str) -> list[dict]:
@@ -70,6 +77,43 @@ def dashboards_page(
             "q": q,
             "items": items,
             "pinned_cards": pinned_cards,
+            **data,
+        },
+    )
+
+
+@router.get("/dashboards/{slug}")
+def dashboard_redirect(slug: Slug):
+    return RedirectResponse(f"/dashboards/{slug}/edit", status_code=301)
+
+
+@router.get("/dashboards/{slug}/edit")
+def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    dashboard = store.get_dashboard(slug)
+    if dashboard is None:
+        return RedirectResponse("/dashboards", status_code=302)
+
+    dashboard["formatted_date"] = format_relative_date(dashboard["updated"]) if dashboard.get("updated") else ""
+
+    last_run = None
+    if dashboard["has_cron"]:
+        runs = get_last_runs(limit_per_app=1).get(slug, [])
+        last_run = runs[0] if runs else None
+        if last_run and last_run["started_at"]:
+            last_run["formatted_date"] = format_relative_date(last_run["started_at"])
+
+    is_pinned = ("app", slug) in store.get_pinned_ids()
+    data = get_sidebar_data(user_email)
+    return templates.TemplateResponse(
+        request,
+        "dashboard_detail.html",
+        {
+            "section": "dashboards",
+            "current_conv": None,
+            "dashboard": dashboard,
+            "last_run": last_run,
+            "is_pinned": is_pinned,
+            "is_admin": user_email in ADMIN_USERS,
             **data,
         },
     )
