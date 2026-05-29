@@ -3709,24 +3709,34 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   white-space: nowrap;
 }
 
-/* Collapse columns as the container narrows (container queries) */
-@container dashboards-list (max-width: 720px) {
+/* Collapse columns as the container narrows (container queries).
+   Priority kept longest: Mis à jour > Cron > Publié. */
+@container dashboards-list (max-width: 780px) {
   .dashboards-list-header,
   .dashboard-row-line2 {
-    grid-template-columns: 1fr 8rem;
+    grid-template-columns: 1fr 8rem 9rem;
   }
-  .dashboard-col-pub,
-  .dashboard-col-updated {
+  .dashboard-col-pub {
     display: none;
   }
 }
 
-@container dashboards-list (max-width: 520px) {
+@container dashboards-list (max-width: 620px) {
+  .dashboards-list-header,
+  .dashboard-row-line2 {
+    grid-template-columns: 1fr 9rem;
+  }
+  .dashboard-col-cron {
+    display: none;
+  }
+}
+
+@container dashboards-list (max-width: 480px) {
   .dashboards-list-header,
   .dashboard-row-line2 {
     grid-template-columns: 1fr;
   }
-  .dashboard-col-cron {
+  .dashboard-col-updated {
     display: none;
   }
 }
