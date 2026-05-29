@@ -159,3 +159,39 @@ class S3Store:
 interactive = S3Store("interactive/")
 sessions = S3Store("sessions/")
 uploads = S3Store("interactive/uploads/")
+
+
+def list_prefix(bucket: str, prefix: str) -> list[str]:
+    """All object keys under prefix in the given bucket."""
+    keys: list[str] = []
+    paginator = _client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            keys.append(obj["Key"])
+    return keys
+
+
+def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+    """Copy every object under src_prefix (in S3_BUCKET) to dst_bucket/dst_prefix. Returns count."""
+    count = 0
+    for src_key in list_prefix(config.S3_BUCKET, src_prefix):
+        dst_key = f"{dst_prefix}{src_key[len(src_prefix):]}"
+        try:
+            _client.copy_object(
+                Bucket=dst_bucket,
+                Key=dst_key,
+                CopySource={"Bucket": config.S3_BUCKET, "Key": src_key},
+            )
+        except ClientError:
+            body = _client.get_object(Bucket=config.S3_BUCKET, Key=src_key)["Body"].read()
+            _client.put_object(Bucket=dst_bucket, Key=dst_key, Body=body)
+        count += 1
+    return count
+
+
+def delete_prefix(bucket: str, prefix: str) -> int:
+    """Delete every object under prefix in the given bucket. Returns count."""
+    keys = list_prefix(bucket, prefix)
+    for key in keys:
+        _client.delete_object(Bucket=bucket, Key=key)
+    return len(keys)
