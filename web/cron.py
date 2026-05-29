@@ -18,6 +18,7 @@ from web.helpers import now_local, utcnow
 
 from . import alerts, config, s3
 from .database import get_db
+from .log import setup_logging
 from .models import CronRun, Dashboard
 
 logger = logging.getLogger(__name__)
@@ -511,6 +512,7 @@ def run_all(dry_run: bool = False) -> list[dict]:
 
 
 def main():
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     parser = argparse.ArgumentParser(description="Run cron tasks")
     parser.add_argument("--app", help="Run a specific task by slug (ignores schedule)")
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")

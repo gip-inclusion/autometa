@@ -12,6 +12,7 @@ from web.helpers import utcnow
 
 from . import config
 from .db import get_db
+from .log import setup_logging
 from .models import Conversation
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ def get_active_emails() -> list[str]:
 
 
 def main():
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     token = config.SLACK_BOT_TOKEN
     if not token:
         logger.error("SLACK_BOT_TOKEN is not set")

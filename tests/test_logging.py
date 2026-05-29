@@ -1,3 +1,4 @@
+import importlib
 import io
 import json
 import logging
@@ -191,3 +192,52 @@ def test_setup_logging_routes_uvicorn_loggers_through_root(logger_name):
     lg = logging.getLogger(logger_name)
     assert lg.handlers == []
     assert lg.propagate is True
+
+
+def test_webinaires_main_calls_setup_logging(mocker):
+    setup = mocker.patch("lib.webinaires.setup_logging")
+    mocker.patch("lib.webinaires.DatalakeWriter", side_effect=RuntimeError("stop"))
+    from lib.webinaires import main
+
+    with pytest.raises(RuntimeError, match="stop"):
+        main()
+    setup.assert_called_once()
+
+
+def test_slack_feedback_main_calls_setup_logging(mocker):
+    setup = mocker.patch("web.slack_feedback.setup_logging")
+    mocker.patch("web.config.SLACK_BOT_TOKEN", "")
+    from web.slack_feedback import main
+
+    with pytest.raises(SystemExit):
+        main()
+    setup.assert_called_once()
+
+
+def test_cron_main_calls_setup_logging(mocker):
+    setup = mocker.patch("web.cron.setup_logging")
+    mocker.patch("sys.argv", ["cron", "--list"])
+    mocker.patch("web.cron.discover_cron_tasks", return_value=[])
+    from web.cron import main
+
+    main()
+    setup.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "env_value,expected",
+    [(None, "prod"), ("staging", "staging"), ("dev", "dev")],
+)
+def test_deployment_environment_reads_from_env(monkeypatch, env_value, expected):
+    if env_value is None:
+        monkeypatch.delenv("DEPLOYMENT_ENV", raising=False)
+    else:
+        monkeypatch.setenv("DEPLOYMENT_ENV", env_value)
+    from web import config
+
+    try:
+        importlib.reload(config)
+        assert config.SENTRY_ENVIRONMENT == expected
+    finally:
+        monkeypatch.delenv("DEPLOYMENT_ENV", raising=False)
+        importlib.reload(config)

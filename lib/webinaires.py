@@ -10,6 +10,7 @@ import httpx
 
 from lib.query import CallerType, execute_metabase_query
 from web import config
+from web.log import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +280,7 @@ def sync_grist(conn, client: GristClient):
 
 def main():
     """CLI entry point for cron: sync Grist webinaire data into the datalake."""
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     conn = DatalakeWriter()
     t0 = time.time()
 
