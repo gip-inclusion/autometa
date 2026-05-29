@@ -104,7 +104,9 @@ def unpublish(publication_id: str) -> bool:
         )
         if pub is None:
             return False
-        s3.delete_prefix(_public_bucket(pub.environment), _public_path(pub.dashboard_slug, pub.publication_id, pub.environment))
+        s3.delete_prefix(
+            _public_bucket(pub.environment), _public_path(pub.dashboard_slug, pub.publication_id, pub.environment)
+        )
         pub.unpublished_at = datetime.now(timezone.utc)
         logger.info("unpublish slug=%s env=%s id=%s", pub.dashboard_slug, pub.environment, pub.publication_id)
         return True

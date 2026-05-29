@@ -122,7 +122,9 @@ S3_REGION = os.getenv("S3_REGION", "fr-par")
 BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET")
 PUBLIC_S3_BUCKET_STAGING = os.getenv("PUBLIC_S3_BUCKET_STAGING")
 PUBLIC_S3_BUCKET_PROD = os.getenv("PUBLIC_S3_BUCKET_PROD")
-PUBLIC_DASHBOARDS_STAGING_URL = os.getenv("PUBLIC_DASHBOARDS_STAGING_URL", "https://staging.statistiques.inclusion.gouv.fr")
+PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
+    "PUBLIC_DASHBOARDS_STAGING_URL", "https://staging.statistiques.inclusion.gouv.fr"
+)
 PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_PROD_URL", "https://statistiques.inclusion.gouv.fr")
 
 

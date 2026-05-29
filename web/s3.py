@@ -175,7 +175,7 @@ def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
     """Copy every object under src_prefix (in S3_BUCKET) to dst_bucket/dst_prefix. Returns count."""
     count = 0
     for src_key in list_prefix(config.S3_BUCKET, src_prefix):
-        dst_key = f"{dst_prefix}{src_key[len(src_prefix):]}"
+        dst_key = f"{dst_prefix}{src_key[len(src_prefix) :]}"
         try:
             _client.copy_object(
                 Bucket=dst_bucket,

@@ -175,9 +175,7 @@ class DashboardPublication(Base):
     __tablename__ = "dashboard_publications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    dashboard_slug: Mapped[str] = mapped_column(
-        Text, ForeignKey("dashboards.slug", ondelete="CASCADE"), nullable=False
-    )
+    dashboard_slug: Mapped[str] = mapped_column(Text, ForeignKey("dashboards.slug", ondelete="CASCADE"), nullable=False)
     publication_id: Mapped[str] = mapped_column(Text, nullable=False)
     environment: Mapped[str] = mapped_column(Text, nullable=False)
     published_by: Mapped[str] = mapped_column(Text, nullable=False)
