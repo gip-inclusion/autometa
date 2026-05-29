@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 import uuid
 
 import sentry_sdk
@@ -212,6 +213,26 @@ class TaskRunner:
         all_assistant_texts: list[str] = []
         tool_spans = SpanStack()
         tool_call_count = 0
+        tool_active_name: str | None = None
+        tool_active_start: float | None = None
+        agent_start = time.perf_counter()
+        agent_status = "ok"
+
+        def _close_tool_log():
+            nonlocal tool_active_name, tool_active_start
+            if tool_active_name is None or tool_active_start is None:
+                return
+            duration_ms = round((time.perf_counter() - tool_active_start) * 1000, 2)
+            logger.info(
+                "agent.tool.completed",
+                extra={
+                    "tool.name": tool_active_name,
+                    "tool.duration": duration_ms,
+                    "session.id": conversation_id,
+                },
+            )
+            tool_active_name = None
+            tool_active_start = None
 
         with tracer.start_as_current_span(
             "agent.run",
@@ -267,16 +288,20 @@ class TaskRunner:
                                 )
                                 await self.notify(conversation_id)
                                 break
+                            _close_tool_log()
                             tool_spans.pop()
                             tool_name = (
                                 event.content.get("tool", "unknown") if isinstance(event.content, dict) else "unknown"
                             )
                             tool_spans.push(tracer, "agent.tool", {"tool.name": tool_name})
+                            tool_active_name = tool_name
+                            tool_active_start = time.perf_counter()
                             if assistant_text_parts:
                                 all_assistant_texts.extend(assistant_text_parts)
                             assistant_msg_id = None
                             assistant_text_parts = []
                         elif event.type == "tool_result":
+                            _close_tool_log()
                             tool_spans.pop()
                         content = _serialize_tool_event(event, conversation_id, user_email)
                         store.add_message(conversation_id, event.type, content)
@@ -306,7 +331,9 @@ class TaskRunner:
                 logger.exception("Agent error for %s", conversation_id)
                 span.set_status(Status(StatusCode.ERROR))
                 sentry_sdk.capture_exception()
+                agent_status = "error"
             finally:
+                _close_tool_log()
                 tool_spans.close_all()
                 reset_conversation_id(conv_token)
                 store.update_conversation(conversation_id, needs_response=False)
@@ -316,7 +343,16 @@ class TaskRunner:
                 self._cancel_tasks.pop(conversation_id, None)
                 r = await get_redis()
                 await r.delete(f"{PREFIX}:running:{conversation_id}")
-                logger.info("Agent finished for %s", conversation_id)
+                duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
+                logger.info(
+                    "agent.run.completed",
+                    extra={
+                        "session.id": conversation_id,
+                        "agent.duration": duration_ms,
+                        "agent.tool_calls": tool_call_count,
+                        "agent.status": agent_status,
+                    },
+                )
 
 
 def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -> str:

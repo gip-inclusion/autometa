@@ -3,6 +3,7 @@
 import logging
 import mimetypes
 import threading
+import time
 from pathlib import Path
 
 from botocore.exceptions import ClientError
@@ -76,6 +77,7 @@ def watch_loop():
 
 
 def _sync_file(local_path: Path):
+    start = time.perf_counter()
     try:
         relative_path = str(local_path.relative_to(config.INTERACTIVE_DIR))
         content = local_path.read_bytes()
@@ -83,6 +85,13 @@ def _sync_file(local_path: Path):
 
         if not s3.interactive.upload(relative_path, content, content_type):
             logger.error("Failed to sync to S3: %s", relative_path)
+            return
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        logger.info(
+            "s3.upload",
+            extra={"s3.path": relative_path, "s3.size": len(content), "s3.duration": duration_ms},
+        )
 
     except (OSError, ClientError) as e:
         logger.error("Error uploading %s to S3: %s", local_path, e)

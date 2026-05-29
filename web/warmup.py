@@ -206,6 +206,7 @@ def run():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     config.INTERACTIVE_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Warming up cache in %s", CACHE_DIR)
+    start = time.perf_counter()
 
     for attempt in range(3):
         try:
@@ -224,7 +225,11 @@ def run():
     warmup_metabase_cards()
     restore_interactive_from_s3()
     cache_files = list(CACHE_DIR.rglob("*.md"))
-    logger.info("Warmup complete — %d cache files in %s", len(cache_files), CACHE_DIR)
+    duration_ms = round((time.perf_counter() - start) * 1000, 2)
+    logger.info(
+        "warmup.completed",
+        extra={"task.name": "warmup", "task.duration": duration_ms, "task.files": len(cache_files)},
+    )
 
 
 if __name__ == "__main__":

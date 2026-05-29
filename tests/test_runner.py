@@ -514,3 +514,63 @@ def test_send_failure_notification_delegates_to_alert_helper(mocker):
     assert "conv-1" in message
     assert "Ma conversation" in message
     assert "boom" in message
+
+
+def test_run_agent_emits_completion_log(runner, mocker, caplog):
+    import logging
+
+    mocker.patch("web.runner.store")
+
+    with caplog.at_level(logging.INFO, logger="web.runner"):
+        asyncio.run(runner._run_agent("c1", "prompt", [], None, None))
+
+    matches = [r for r in caplog.records if r.message == "agent.run.completed"]
+    assert len(matches) == 1
+    record = matches[0]
+    assert getattr(record, "session.id") == "c1"
+    assert getattr(record, "agent.tool_calls") == 0
+    assert getattr(record, "agent.status") == "ok"
+    assert isinstance(getattr(record, "agent.duration"), float)
+
+
+def test_run_agent_emits_tool_completion_log(runner, mocker, caplog):
+    import logging
+
+    async def tool_stream(**kwargs):
+        yield make_event("tool_use", {"tool": "bash"})
+        yield make_event("tool_result", {"result": "ok"})
+
+    runner.backend.send_message = tool_stream
+    mocker.patch("web.runner.store")
+
+    with caplog.at_level(logging.INFO, logger="web.runner"):
+        asyncio.run(runner._run_agent("c1", "prompt", [], None, None))
+
+    tool_logs = [r for r in caplog.records if r.message == "agent.tool.completed"]
+    assert len(tool_logs) == 1
+    record = tool_logs[0]
+    assert getattr(record, "tool.name") == "bash"
+    assert getattr(record, "session.id") == "c1"
+    assert isinstance(getattr(record, "tool.duration"), float)
+
+    run_logs = [r for r in caplog.records if r.message == "agent.run.completed"]
+    assert len(run_logs) == 1
+    assert getattr(run_logs[0], "agent.tool_calls") == 1
+
+
+def test_run_agent_emits_error_status_on_exception(runner, mocker, caplog):
+    import logging
+
+    async def failing_stream(**kwargs):
+        raise RuntimeError("boom")
+        yield  # noqa: F841
+
+    runner.backend.send_message = failing_stream
+    mocker.patch("web.runner.store")
+
+    with caplog.at_level(logging.INFO, logger="web.runner"):
+        asyncio.run(runner._run_agent("c1", "prompt", [], None, None))
+
+    matches = [r for r in caplog.records if r.message == "agent.run.completed"]
+    assert len(matches) == 1
+    assert getattr(matches[0], "agent.status") == "error"
