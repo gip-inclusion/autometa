@@ -295,3 +295,15 @@ def test_detail_lists_publications(client, mocker):
     r = client.get("/dashboards/detail-lists/edit", headers=_h())
     assert r.status_code == 200
     assert "Dépublier" in r.text
+
+
+def test_archiving_unpublishes_all(client, mocker):
+    _make_dashboard("arch-unp")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    delete = mocker.patch("web.publications.s3.delete_prefix", return_value=1)
+    client.post("/api/dashboards/arch-unp/publish", json={"environment": "staging"}, headers=_h())
+    r = client.post("/api/dashboards/arch-unp/archive", json={"archived": True}, headers=_h())
+    assert r.status_code == 200
+    detail = client.get("/dashboards/arch-unp/edit", headers=_h())
+    assert "Dépublier" not in detail.text
+    assert delete.called

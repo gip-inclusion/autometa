@@ -123,6 +123,9 @@ async def toggle_archive(slug: Slug, request: Request, user_email: str = Depends
     body = await request.body()
     payload = (await request.json()) if body else {}
     archived = bool(payload.get("archived", True))
+    if archived:
+        for pub in list_publications(slug, active_only=True):
+            unpublish(pub["publication_id"])
     try:
         update_dashboard(slug=slug, updater_email=user_email, is_archived=archived)
     except DashboardNotFound:
