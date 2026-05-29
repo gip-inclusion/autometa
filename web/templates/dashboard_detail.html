@@ -85,9 +85,29 @@
         </div>
       </div>
 
-      <div class="card mt-3">
+      <div class="card mt-3" id="publier-block" data-slug="{{ dashboard.slug }}">
         <div class="card-body">
           <h5 class="card-title">Publier</h5>
+          {% if can_publish %}
+          <div class="d-flex gap-2 mb-3">
+            <button type="button" class="btn btn-outline-primary" data-action="publish" data-env="staging">Publier en staging</button>
+            <button type="button" class="btn btn-primary" data-action="publish" data-env="production">Publier en production</button>
+          </div>
+          {% else %}
+          <p class="text-muted">Publication indisponible — ce tableau utilise l'API query, absente de l'hébergement statique.</p>
+          {% endif %}
+          {% if publications %}
+          <ul class="list-unstyled mb-0">
+            {% for p in publications %}
+            <li class="d-flex align-items-center gap-2 py-1">
+              <span class="badge {% if p.environment == 'production' %}bg-success{% else %}bg-secondary{% endif %}">{{ p.environment }}</span>
+              <a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
+              <span class="small text-muted">{{ p.published_by }}</span>
+              <button type="button" class="btn btn-sm btn-link text-danger ms-auto" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
         </div>
       </div>
 
@@ -147,6 +167,21 @@
       e.target.textContent = 'En cours…';
       await post(`/api/cron/${slug}/run`, {});
       window.location.reload();
+    });
+
+    document.querySelectorAll('#publier-block [data-action=publish]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        await post(`/api/dashboards/${slug}/publish`, { environment: btn.dataset.env });
+        window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=unpublish]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await post(`/api/dashboards/${slug}/unpublish`, { publication_id: btn.dataset.pub });
+        window.location.reload();
+      });
     });
   })();
 </script>

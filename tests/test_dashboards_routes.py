@@ -266,3 +266,32 @@ def test_unpublish_endpoint(client, mocker):
 def test_unpublish_endpoint_bad_id_400(client):
     r = client.post("/api/dashboards/route-unp2/unpublish", json={"publication_id": "BAD!"}, headers=_h())
     assert r.status_code == 400
+
+
+def test_detail_shows_publish_buttons(client):
+    _make_dashboard("pub-buttons")
+    r = client.get("/dashboards/pub-buttons/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'data-action="publish"' in r.text
+    assert "Publier en staging" in r.text
+
+
+def test_detail_blocks_publish_for_query_api(client):
+    _make_dashboard("pub-blocked")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "pub-blocked"))
+        d.has_api_access = True
+    r = client.get("/dashboards/pub-blocked/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'data-action="publish"' not in r.text
+    assert "Publication indisponible" in r.text
+
+
+def test_detail_lists_publications(client, mocker):
+    _make_dashboard("detail-lists")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=0)
+    client.post("/api/dashboards/detail-lists/publish", json={"environment": "staging"}, headers=_h())
+    r = client.get("/dashboards/detail-lists/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Dépublier" in r.text
