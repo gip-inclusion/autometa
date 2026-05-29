@@ -228,3 +228,41 @@ def test_detail_hides_api_access_toggle(client):
     assert r.status_code == 200
     assert "apiAccessToggle" not in r.text
     assert "Accès API" not in r.text
+
+
+def test_publish_endpoint_creates_publication(client, mocker):
+    _make_dashboard("route-pub")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=0)
+    r = client.post("/api/dashboards/route-pub/publish", json={"environment": "staging"}, headers=_h())
+    assert r.status_code == 200
+    assert r.json()["environment"] == "staging"
+
+
+def test_publish_endpoint_blocked_returns_409(client, mocker):
+    _make_dashboard("route-pub-api")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "route-pub-api"))
+        d.has_api_access = True
+    r = client.post("/api/dashboards/route-pub-api/publish", json={"environment": "staging"}, headers=_h())
+    assert r.status_code == 409
+
+
+def test_publish_endpoint_bad_environment_400(client):
+    _make_dashboard("route-pub-bad")
+    r = client.post("/api/dashboards/route-pub-bad/publish", json={"environment": "wat"}, headers=_h())
+    assert r.status_code == 400
+
+
+def test_unpublish_endpoint(client, mocker):
+    _make_dashboard("route-unp")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=1)
+    pub = client.post("/api/dashboards/route-unp/publish", json={"environment": "staging"}, headers=_h()).json()
+    r = client.post("/api/dashboards/route-unp/unpublish", json={"publication_id": pub["publication_id"]}, headers=_h())
+    assert r.status_code == 200
+
+
+def test_unpublish_endpoint_bad_id_400(client):
+    r = client.post("/api/dashboards/route-unp2/unpublish", json={"publication_id": "BAD!"}, headers=_h())
+    assert r.status_code == 400
