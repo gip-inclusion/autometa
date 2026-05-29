@@ -3,7 +3,14 @@
 import io
 import sys
 
+import pytest
+
 from lib.api_signals import SIGNAL_PATTERN, emit_api_signal, parse_api_signals, strip_api_signals
+
+
+@pytest.fixture(autouse=True)
+def _agent_subprocess_context(monkeypatch):
+    monkeypatch.setenv("AUTOMETA_CONVERSATION_ID", "test-conv")
 
 
 def test_emit_api_signal_emits_matomo_signal():
@@ -262,3 +269,16 @@ def test_roundtrip_multiple():
     assert len(signals) == 2
     assert signals[0]["source"] == "matomo"
     assert signals[1]["source"] == "metabase"
+
+
+def test_emit_api_signal_is_silent_outside_agent_subprocess(monkeypatch):
+    monkeypatch.delenv("AUTOMETA_CONVERSATION_ID", raising=False)
+
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+
+    emit_api_signal(source="matomo", instance="inclusion", url="https://...", method="X.y")
+
+    sys.stdout = old_stdout
+    assert captured.getvalue() == ""
