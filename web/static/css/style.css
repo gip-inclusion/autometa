@@ -3633,16 +3633,34 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 /* ==========================================================================
    Tableaux de bord
    ========================================================================== */
-/* Action buttons stay visible (no hover-reveal — mobile) */
+/* Action buttons (Configurer link) stay visible — no hover-reveal (mobile) */
 #section-dashboards .conv-item-action-btn {
   opacity: 1;
+  text-decoration: none;
 }
 
-/* List header + columnar rows */
-.dashboards-list-header {
-  display: flex;
-  align-items: center;
+#section-dashboards a.conv-item-title {
+  color: #212529;
+  text-decoration: none;
+}
+
+/* The list wrapper is the query container that drives column collapsing. */
+#section-dashboards .conversation-list-wrapper {
+  container-type: inline-size;
+  container-name: dashboards-list;
+}
+
+/* Shared grid: the header and each row's second line use the same columns,
+   so values line up under their labels — no absolute positioning. */
+.dashboards-list-header,
+.dashboard-row-line2 {
+  display: grid;
+  grid-template-columns: 1fr 8rem 6rem 9rem;
   gap: 0.5rem;
+  align-items: center;
+}
+
+.dashboards-list-header {
   padding: 0.5rem 1.5rem;
   /* Align the "Titre" label with the row title, which is offset by the leading icon */
   padding-left: calc(2.5rem + 28px);
@@ -3658,72 +3676,31 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   z-index: 1;
 }
 
-.dashboard-row-line1 {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.dashboard-row-line1 .conv-item-title {
-  flex: 1;
-}
-
-.dashboard-th-title {
-  flex: 1;
-}
-
 .dashboard-row-line2 {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
   margin-top: 0.125rem;
 }
 
-/* Author + Configurer group sits on top, opaque, fading on its right edge so the
-   columns behind it get covered (and peek through the fade) when space runs out. */
 .dashboard-meta-main {
-  position: relative;
-  z-index: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-width: 0;
-  max-width: 100%;
-  padding-right: 1.5rem;
   overflow: hidden;
-  white-space: nowrap;
-  background: #fff;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
-}
-
-.conv-list-item:hover .dashboard-meta-main {
-  background: #f8f9fa;
 }
 
 .dashboard-meta-main .conv-item-author {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-meta-main .conv-item-action-btn {
   flex-shrink: 0;
 }
 
-/* Columns sit behind the group; covered when there's no space */
-.dashboard-cols {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .dashboard-col {
-  flex-shrink: 0;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -3732,21 +3709,24 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   white-space: nowrap;
 }
 
-.dashboard-col-cron {
-  width: 8rem;
+/* Collapse columns as the container narrows (container queries) */
+@container dashboards-list (max-width: 720px) {
+  .dashboards-list-header,
+  .dashboard-row-line2 {
+    grid-template-columns: 1fr 8rem;
+  }
+  .dashboard-col-pub,
+  .dashboard-col-updated {
+    display: none;
+  }
 }
 
-.dashboard-col-pub {
-  width: 6rem;
-}
-
-.dashboard-col-updated {
-  width: 9rem;
-}
-
-/* On small viewports the fixed columns would squeeze the title — hide them */
-@media (max-width: 767.98px) {
-  #section-dashboards .dashboard-col {
+@container dashboards-list (max-width: 520px) {
+  .dashboards-list-header,
+  .dashboard-row-line2 {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-col-cron {
     display: none;
   }
 }
@@ -3782,14 +3762,25 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   border: 1px solid #dee2e6;
   border-radius: 0.5rem;
   background: #fff;
-  color: #212529;
-  text-decoration: none;
   transition: background-color 0.15s, border-color 0.15s;
 }
 
 .dashboard-pin-card:hover {
   background: #f8f9fa;
   border-color: #adb5bd;
+}
+
+/* Open link covers the whole card (quick access); cog sits on top for edit. */
+.dashboard-pin-open {
+  color: #212529;
+  text-decoration: none;
+}
+
+.dashboard-pin-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 
 .dashboard-pin-title {
@@ -3804,10 +3795,7 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   right: 0.5rem;
   z-index: 2;
   padding: 0.25rem;
-  border: none;
-  background: transparent;
   color: #6c757d;
-  cursor: pointer;
 }
 
 .dashboard-pin-cog:hover {
