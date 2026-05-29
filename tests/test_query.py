@@ -328,3 +328,44 @@ def test_matomo_query_records_error_status_on_failure(mocker):
     assert span.attributes["result.success"] is False
     assert span.attributes["error.message"] == "boom"
     assert span.status.status_code == StatusCode.ERROR
+
+
+def test_metabase_query_emits_completion_log(mocker, caplog):
+    import logging
+
+    from lib.query import CallerType, execute_metabase_query
+
+    mock_api = metabase_api_mock(mocker)
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    with caplog.at_level(logging.INFO, logger="lib.query"):
+        execute_metabase_query(instance="stats", caller=CallerType.AGENT, sql="SELECT 1", database_id=2)
+
+    matches = [r for r in caplog.records if r.message == "metabase.query"]
+    assert len(matches) == 1
+    record = matches[0]
+    assert getattr(record, "db.system") == "metabase"
+    assert getattr(record, "metabase.instance") == "stats"
+    assert getattr(record, "query.success") is True
+    assert getattr(record, "query.row_count") == 1
+    assert isinstance(getattr(record, "query.duration"), int)
+
+
+def test_matomo_query_completion_log_includes_error(mocker, caplog):
+    import logging
+
+    from lib.matomo import MatomoError
+    from lib.query import CallerType, execute_matomo_query
+
+    mock_api = mocker.MagicMock()
+    mock_api.request.side_effect = MatomoError("boom")
+    mocker.patch("lib.query.get_matomo", return_value=mock_api)
+
+    with caplog.at_level(logging.INFO, logger="lib.query"):
+        execute_matomo_query(instance="inclusion", caller=CallerType.AGENT, method="Foo.bar")
+
+    matches = [r for r in caplog.records if r.message == "matomo.query"]
+    assert len(matches) == 1
+    record = matches[0]
+    assert getattr(record, "query.success") is False
+    assert getattr(record, "query.error.message") == "boom"

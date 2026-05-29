@@ -1,6 +1,7 @@
 """Query execution with observability logging."""
 
 import hashlib
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -17,6 +18,7 @@ from .sources import get_matomo, get_metabase
 
 __all__ = ["MatomoAPI", "MatomoError", "MetabaseAPI", "MetabaseError", "get_matomo", "get_metabase"]
 
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
@@ -77,6 +79,17 @@ def _run_traced_query(
                 success=False, data=None, error=str(e), execution_time_ms=int((time.time() - start) * 1000)
             )
         _record_result(span, result)
+        log_attrs: dict[str, Any] = {
+            **attrs,
+            "query.duration": result.execution_time_ms,
+            "query.success": result.success,
+        }
+        row_count = _row_count(result.data)
+        if row_count is not None:
+            log_attrs["query.row_count"] = row_count
+        if result.error:
+            log_attrs["query.error.message"] = result.error[:200]
+        logger.info(span_name, extra=log_attrs)
         return result
 
 

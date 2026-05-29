@@ -505,7 +505,14 @@ def run_all(dry_run: bool = False) -> list[dict]:
             continue
 
         result = run_cron_task(task["slug"], trigger="scheduled")
-        logger.info("ran %s: %s (%sms)", task["slug"], result["status"], result["duration_ms"])
+        logger.info(
+            "cron.task",
+            extra={
+                "cron.task.name": task["slug"],
+                "cron.task.status": result["status"],
+                "cron.task.duration": result["duration_ms"],
+            },
+        )
         results.append(result)
 
     return results

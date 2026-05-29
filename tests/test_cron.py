@@ -648,3 +648,38 @@ def test_cron_alert_snippet_escapes_triple_backticks(mocker):
     sent = notify.call_args[0][0]
     assert sent.count("```") == 2
     assert "ʼʼʼ" in sent
+
+
+def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
+    import logging
+
+    from web.cron import run_all
+
+    mocker.patch(
+        "web.cron.discover_cron_tasks",
+        return_value=[
+            {
+                "slug": "my-task",
+                "enabled": True,
+                "schedule": "daily",
+                "timeout": 60,
+                "cron_path": "/x",
+                "tier": "app",
+            }
+        ],
+    )
+    mocker.patch("web.cron.is_due", return_value=True)
+    mocker.patch(
+        "web.cron.run_cron_task",
+        return_value={"slug": "my-task", "status": "success", "duration_ms": 1234, "output": ""},
+    )
+
+    with caplog.at_level(logging.INFO, logger="web.cron"):
+        run_all(dry_run=False)
+
+    matches = [r for r in caplog.records if r.message == "cron.task"]
+    assert len(matches) == 1
+    record = matches[0]
+    assert getattr(record, "cron.task.name") == "my-task"
+    assert getattr(record, "cron.task.status") == "success"
+    assert getattr(record, "cron.task.duration") == 1234
