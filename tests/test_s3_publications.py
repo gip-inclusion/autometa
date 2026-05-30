@@ -59,3 +59,17 @@ def test_sync_prefix_copies_then_prunes_orphans(mocker):
     assert copy.call_count == 2
     deleted.assert_called_once_with(Bucket="dst-bucket", Key="dashboards/x/stale.js")
     assert sum(1 for _, p in listed if p == "publications/x/") == 1
+
+
+def test_publications_store_exposes_correct_prefix():
+    from web import s3
+
+    assert s3.publications.prefix == "publications/"
+    assert s3.publications.key("foo/bar.json") == "publications/foo/bar.json"
+
+
+def test_publications_store_uses_same_client_as_interactive():
+    from web import s3
+
+    # Same module-level boto client; we share credentials and bucket.
+    assert s3.publications.__class__ is s3.interactive.__class__
