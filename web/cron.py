@@ -15,6 +15,7 @@ import sentry_sdk
 from sqlalchemy import select
 
 from web.helpers import now_local, utcnow
+from web.s3 import S3Store
 
 from . import alerts, config, s3
 from .database import get_db
@@ -229,8 +230,7 @@ def read_cron_script(task: dict) -> str | None:
     return path.read_text() if path.exists() else None
 
 
-def prepare_s3_workdir(store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
-    """Mirror an S3 prefix into a temp workdir, returning (workdir, pre_hashes for delta upload)."""
+def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{label}-"))
     pre_hashes: dict[str, str] = {}
     for entry in store.list_files(store_relative_prefix):
@@ -250,7 +250,9 @@ def prepare_s3_workdir(store, store_relative_prefix: str, label: str) -> tuple[P
     return workdir, pre_hashes
 
 
-def upload_s3_results(store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]):
+def upload_s3_results(
+    store: S3Store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]
+):
     uploaded = skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
