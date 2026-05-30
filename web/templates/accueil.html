@@ -19,7 +19,7 @@
           <div class="accueil-search-input">
             <i class="ri-search-line"></i>
             <input type="text" id="universalSearchInput"
-                   placeholder="Rechercher conversations, rapports, applis..."
+                   placeholder="Rechercher conversations, rapports..."
                    autocomplete="off" oninput="accueilSearchDebounce(this.value)">
           </div>
         </div>
@@ -44,10 +44,10 @@
             <i class="ri-user-line"></i>
             <span>Mes conversations</span>
           </a>
-          <a href="/conversations?show=apps" class="accueil-button"
+          <a href="/dashboards" class="accueil-button"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <i class="ri-window-fill"></i>
-            <span>Applications</span>
+            <i class="ri-dashboard-line"></i>
+            <span>Tableaux de bord</span>
           </a>
           <a href="/conversations?show=reports" class="accueil-button"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
