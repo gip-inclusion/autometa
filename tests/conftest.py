@@ -12,6 +12,8 @@ if _original_url and not urlparse(_original_url).path.endswith("_test"):
     os.environ["DATABASE_URL"] = urlunparse(parsed._replace(path=parsed.path + "_test"))
 
 os.environ.setdefault("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "0.05")
+os.environ.setdefault("PUBLIC_S3_BUCKET_STAGING", "test-staging-bucket")
+os.environ.setdefault("PUBLIC_S3_BUCKET_PROD", "test-prod-bucket")
 
 import pytest
 
