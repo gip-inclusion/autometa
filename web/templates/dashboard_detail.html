@@ -90,7 +90,7 @@
           <h5 class="card-title">Publier</h5>
           {% if dashboard_drifted %}
           <p class="small text-warning mb-2">
-            ⚠ Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}).
+            <i class="ri-alert-line"></i> Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}).
           </p>
           {% endif %}
           {% if can_publish %}

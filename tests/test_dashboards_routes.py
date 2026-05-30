@@ -6,7 +6,7 @@ from sqlalchemy import select
 from web.config import ADMIN_USERS
 from web.database import store
 from web.db import get_db
-from web.models import CronRun, Dashboard
+from web.models import CronRun, Dashboard, DashboardPublication
 
 ADMIN = ADMIN_USERS[0]
 
@@ -456,3 +456,25 @@ def test_detail_no_refresh_ui_when_snapshot_lacks_cron(client, mocker):
     assert "Suspendre" not in r.text
     assert "Reprendre" not in r.text
     assert "Données rafraîchies" not in r.text
+
+
+def test_detail_shows_failure_suffix_when_last_refresh_failed(client, mocker):
+    _make_dashboard("ui-failure")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+    pub = client.post(
+        "/api/dashboards/ui-failure/publish",
+        json={"environment": "staging"},
+        headers=_h(),
+    ).json()
+    with get_db() as session:
+        p = session.scalar(
+            select(DashboardPublication).where(
+                DashboardPublication.publication_id == pub["publication_id"]
+            )
+        )
+        p.last_refresh_status = "failure"
+    r = client.get("/dashboards/ui-failure/edit", headers=_h())
+    assert r.status_code == 200
+    assert "rafraîchissement en échec" in r.text

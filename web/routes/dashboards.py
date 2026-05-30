@@ -113,7 +113,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         and dashboard.get("updated") is not None
         and dashboard["updated"] > last_published_at
     )
-    relative_updated = format_relative_date(dashboard["updated"]) if dashboard.get("updated") else ""
+    relative_updated = dashboard["formatted_date"]
 
     for p in dashboard_publications:
         p["last_refresh_relative"] = (
