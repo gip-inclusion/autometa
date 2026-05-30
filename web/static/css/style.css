@@ -3806,6 +3806,7 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   z-index: 2;
   padding: 0.25rem;
   color: #6c757d;
+  text-decoration: none;
 }
 
 .dashboard-pin-cog:hover {

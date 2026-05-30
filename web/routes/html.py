@@ -207,14 +207,21 @@ def group_items_by_date(items):
 
 
 @router.get("/rechercher")
-def rechercher(
+def rechercher_redirect(request: Request):
+    """Legacy alias — kept for old links / bookmarks. Redirects to /conversations preserving query string."""
+    qs = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(f"/conversations{qs}", status_code=301)
+
+
+@router.get("/conversations")
+def conversations(
     request: Request,
     user_email: str = Depends(get_current_user),
     show: str = Query(default=""),
     q: str = Query(default=""),
     tag: list[str] = Query(default=[]),
 ):
-    """Universal search page — combines conversations, reports, and apps."""
+    """Universal conversation list (also reports). Renamed from /rechercher."""
     # Parse show param: single value, empty = all
     show_convos = show in ("", "convos", "mine")
     show_mine = show == "mine"
@@ -361,14 +368,14 @@ def explorations(
     conv: str | None = Query(default=None),
     mine: str | None = Query(default=None),
 ):
-    """Legacy explorations list — redirects to /rechercher."""
+    """Legacy explorations list — redirects to /conversations."""
     if conv:
         # Validate conv is a UUID to prevent open redirect
         if validate_conv_id(conv):
             return RedirectResponse(f"/explorations/{conv}", status_code=301)
-        return RedirectResponse("/rechercher?show=convos", status_code=301)
+        return RedirectResponse("/conversations?show=convos", status_code=301)
 
-    target = "/rechercher?show=mine" if mine == "1" else "/rechercher?show=convos"
+    target = "/conversations?show=mine" if mine == "1" else "/conversations?show=convos"
     return RedirectResponse(target, status_code=301)
 
 
@@ -400,7 +407,7 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
     current_conv = store.get_conversation(conv_id, include_messages=False)
 
     if not current_conv:
-        return RedirectResponse("/rechercher?show=convos", status_code=302)
+        return RedirectResponse("/conversations?show=convos", status_code=302)
 
     # Check if this is a shared conversation (owned by someone else)
     is_shared = current_conv.user_id and current_conv.user_id != user_email

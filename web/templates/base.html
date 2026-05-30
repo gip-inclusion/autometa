@@ -63,10 +63,10 @@
         </li>
 
         <li class="nav-item">
-          <a href="/rechercher" class="nav-link {% if section == 'rechercher' %}active{% endif %}"
+          <a href="/conversations" class="nav-link {% if section == 'rechercher' %}active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <i class="ri-search-line" aria-hidden="true"></i>
-            <span>Rechercher</span>
+            <i class="ri-chat-3-line" aria-hidden="true"></i>
+            <span>Conversations</span>
           </a>
         </li>
 
@@ -104,7 +104,7 @@
           </li>
           {% endfor %}
         </ul>
-        <a href="/rechercher?show=mine" class="sidebar-view-more"
+        <a href="/conversations?show=mine" class="sidebar-view-more"
            hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
           Voir plus...
         </a>
@@ -141,8 +141,8 @@
             </a>
           </li>
           <li class="nav-item">
-            <a href="/rechercher" class="nav-link {% if section == 'rechercher' %}active{% endif %}">
-              <i class="ri-search-line me-2"></i>Rechercher
+            <a href="/conversations" class="nav-link {% if section == 'rechercher' %}active{% endif %}">
+              <i class="ri-chat-3-line me-2"></i>Conversations
             </a>
           </li>
           <li class="nav-item">
@@ -167,7 +167,7 @@
           </li>
           {% endfor %}
           <li class="nav-item">
-            <a href="/rechercher?show=mine" class="nav-link text-muted small">Voir plus...</a>
+            <a href="/conversations?show=mine" class="nav-link text-muted small">Voir plus...</a>
           </li>
         </ul>
         {% endif %}
@@ -229,7 +229,7 @@
       const href = link.getAttribute('href');
       const isActive = path === href ||
         (href === '/' && path === '/') ||
-        (href === '/rechercher' && path === '/rechercher') ||
+        (href === '/conversations' && path === '/conversations') ||
         (href === '/explorations/new' && path === '/explorations/new') ||
         (href.startsWith('/explorations/') && path === href);
       link.classList.toggle('active', isActive);
