@@ -182,7 +182,10 @@ class DashboardPublication(Base):
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     unpublished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (Index("idx_dashboard_publications_slug", "dashboard_slug"),)
+    __table_args__ = (
+        Index("idx_dashboard_publications_slug", "dashboard_slug"),
+        UniqueConstraint("publication_id", name="uq_dashboard_publications_publication_id"),
+    )
 
 
 class UploadedFile(Base):

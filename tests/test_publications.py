@@ -53,13 +53,23 @@ def test_dashboard_publication_row_roundtrip(client):
 def test_publish_staging_creates_row_and_pushes(client, mocker):
     _make_dashboard("pub-stg")
     copy = mocker.patch("web.publications.s3.copy_prefix", return_value=1)
-    mocker.patch("web.publications.s3.delete_prefix", return_value=0)
+    sync = mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     pub = publications.publish("pub-stg", "staging", "bob@x")
     assert pub["environment"] == "staging"
     assert len(pub["publication_id"]) == 6
     assert pub["url"].startswith("https://staging.statistiques.inclusion.gouv.fr/dashboards/pub-stg-")
-    assert copy.call_count == 2
+    assert copy.call_count == 1  # immutable snapshot
+    assert sync.call_count == 1  # public push (copy-then-prune)
     assert len(publications.list_publications("pub-stg")) == 1
+
+
+def test_publish_blocked_when_snapshot_empty(client, mocker):
+    _make_dashboard("pub-empty")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=0)
+    sync = mocker.patch("web.publications.s3.sync_prefix")
+    with pytest.raises(PublicationBlocked):
+        publications.publish("pub-empty", "staging", "bob@x")
+    sync.assert_not_called()
 
 
 def test_publish_blocked_when_archived(client, mocker):
@@ -86,7 +96,7 @@ def test_publish_blocked_when_persistence(client, mocker):
 def test_publish_production_supersedes_previous(client, mocker):
     _make_dashboard("pub-prod")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
-    mocker.patch("web.publications.s3.delete_prefix", return_value=0)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     first = publications.publish("pub-prod", "production", "bob@x")
     second = publications.publish("pub-prod", "production", "bob@x")
     active = publications.list_publications("pub-prod", active_only=True)
@@ -98,6 +108,7 @@ def test_publish_production_supersedes_previous(client, mocker):
 def test_unpublish_soft_deletes_and_clears_public(client, mocker):
     _make_dashboard("pub-unp")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     delete = mocker.patch("web.publications.s3.delete_prefix", return_value=1)
     pub = publications.publish("pub-unp", "staging", "bob@x")
     assert publications.unpublish(pub["publication_id"]) is True

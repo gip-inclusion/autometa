@@ -233,6 +233,7 @@ def test_detail_hides_api_access_toggle(client):
 def test_publish_endpoint_creates_publication(client, mocker):
     _make_dashboard("route-pub")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     mocker.patch("web.publications.s3.delete_prefix", return_value=0)
     r = client.post("/api/dashboards/route-pub/publish", json={"environment": "staging"}, headers=_h())
     assert r.status_code == 200
@@ -257,6 +258,7 @@ def test_publish_endpoint_bad_environment_400(client):
 def test_unpublish_endpoint(client, mocker):
     _make_dashboard("route-unp")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     mocker.patch("web.publications.s3.delete_prefix", return_value=1)
     pub = client.post("/api/dashboards/route-unp/publish", json={"environment": "staging"}, headers=_h()).json()
     r = client.post("/api/dashboards/route-unp/unpublish", json={"publication_id": pub["publication_id"]}, headers=_h())
@@ -290,6 +292,7 @@ def test_detail_blocks_publish_for_query_api(client):
 def test_detail_lists_publications(client, mocker):
     _make_dashboard("detail-lists")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     mocker.patch("web.publications.s3.delete_prefix", return_value=0)
     client.post("/api/dashboards/detail-lists/publish", json={"environment": "staging"}, headers=_h())
     r = client.get("/dashboards/detail-lists/edit", headers=_h())
@@ -300,6 +303,7 @@ def test_detail_lists_publications(client, mocker):
 def test_archiving_unpublishes_all(client, mocker):
     _make_dashboard("arch-unp")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     delete = mocker.patch("web.publications.s3.delete_prefix", return_value=1)
     client.post("/api/dashboards/arch-unp/publish", json={"environment": "staging"}, headers=_h())
     r = client.post("/api/dashboards/arch-unp/archive", json={"archived": True}, headers=_h())

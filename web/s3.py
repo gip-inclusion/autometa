@@ -182,7 +182,8 @@ def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
                 Key=dst_key,
                 CopySource={"Bucket": config.S3_BUCKET, "Key": src_key},
             )
-        except ClientError:
+        except ClientError as exc:
+            logger.debug("copy_object failed for %s, falling back to download/upload: %s", src_key, exc)
             body = _client.get_object(Bucket=config.S3_BUCKET, Key=src_key)["Body"].read()
             _client.put_object(Bucket=dst_bucket, Key=dst_key, Body=body)
         count += 1
@@ -195,3 +196,13 @@ def delete_prefix(bucket: str, prefix: str) -> int:
     for key in keys:
         _client.delete_object(Bucket=bucket, Key=key)
     return len(keys)
+
+
+def sync_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+    """Copy src_prefix onto dst_bucket/dst_prefix, then prune destination orphans (copy before delete)."""
+    copied = copy_prefix(src_prefix, dst_bucket, dst_prefix)
+    src_rel = {key[len(src_prefix) :] for key in list_prefix(config.S3_BUCKET, src_prefix)}
+    for dst_key in list_prefix(dst_bucket, dst_prefix):
+        if dst_key[len(dst_prefix) :] not in src_rel:
+            _client.delete_object(Bucket=dst_bucket, Key=dst_key)
+    return copied

@@ -40,3 +40,18 @@ def test_delete_prefix(mocker):
     deleted = mocker.patch.object(s3._client, "delete_object")
     assert s3.delete_prefix("dst-bucket", "dashboards/x/") == 2
     assert deleted.call_count == 2
+
+
+def test_sync_prefix_copies_then_prunes_orphans(mocker):
+    mocker.patch.object(s3, "copy_prefix", return_value=2)
+
+    def fake_list(bucket, prefix):
+        if prefix == "publications/x/":
+            return ["publications/x/a.js", "publications/x/b.html"]
+        return ["dashboards/x/a.js", "dashboards/x/stale.js"]
+
+    mocker.patch.object(s3, "list_prefix", side_effect=fake_list)
+    deleted = mocker.patch.object(s3._client, "delete_object")
+    n = s3.sync_prefix("publications/x/", "dst-bucket", "dashboards/x/")
+    assert n == 2
+    deleted.assert_called_once_with(Bucket="dst-bucket", Key="dashboards/x/stale.js")

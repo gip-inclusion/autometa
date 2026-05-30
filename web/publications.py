@@ -18,7 +18,12 @@ _ID_ALPHABET = string.ascii_lowercase + string.digits
 
 
 class PublicationBlocked(Exception):
-    """Raised when a dashboard cannot be published (unknown, archived, or uses the query API)."""
+    """Raised when a dashboard cannot be published."""
+
+
+def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
+    """A dashboard using the query API can't be served statically, so it can't be published."""
+    return not (has_api_access or has_persistence)
 
 
 def _generate_publication_id() -> str:
@@ -61,16 +66,21 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             raise PublicationBlocked(f"unknown dashboard: {slug}")
         if dashboard.is_archived:
             raise PublicationBlocked("archived")
-        if dashboard.has_api_access or dashboard.has_persistence:
+        if not is_publishable(dashboard.has_api_access, dashboard.has_persistence):
             raise PublicationBlocked("uses-query-api")
 
         publication_id = _generate_publication_id()
-        s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
+        copied = s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
+        if copied == 0:
+            raise PublicationBlocked("empty")
 
         bucket = _public_bucket(environment)
         path = _public_path(slug, publication_id, environment)
+        # Copy the new snapshot in (and prune orphans) before touching the previous publication,
+        # so a failure here never leaves the public path empty.
+        s3.sync_prefix(f"publications/{slug}/{publication_id}/", bucket, path)
+
         if environment == "production":
-            s3.delete_prefix(bucket, path)
             for prev in session.scalars(
                 select(DashboardPublication).where(
                     DashboardPublication.dashboard_slug == slug,
@@ -79,7 +89,6 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
                 )
             ):
                 prev.unpublished_at = datetime.now(timezone.utc)
-        s3.copy_prefix(f"publications/{slug}/{publication_id}/", bucket, path)
 
         pub = DashboardPublication(
             dashboard_slug=slug,
