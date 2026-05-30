@@ -311,3 +311,50 @@ def test_archiving_unpublishes_all(client, mocker):
     detail = client.get("/dashboards/arch-unp/edit", headers=_h())
     assert "Dépublier" not in detail.text
     assert delete.called
+
+
+def test_refresh_pause_endpoint_pauses_and_resumes(client, mocker):
+    _make_dashboard("route-pause")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+    pub = client.post(
+        "/api/dashboards/route-pause/publish",
+        json={"environment": "staging"},
+        headers=_h(),
+    ).json()
+    pid = pub["publication_id"]
+
+    r = client.post(
+        "/api/dashboards/route-pause/refresh-pause",
+        json={"publication_id": pid, "paused": True},
+        headers=_h(),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "paused": True}
+
+    r = client.post(
+        "/api/dashboards/route-pause/refresh-pause",
+        json={"publication_id": pid, "paused": False},
+        headers=_h(),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "paused": False}
+
+
+def test_refresh_pause_endpoint_bad_id_400(client):
+    r = client.post(
+        "/api/dashboards/route-pause-bad/refresh-pause",
+        json={"publication_id": "BAD!", "paused": True},
+        headers=_h(),
+    )
+    assert r.status_code == 400
+
+
+def test_refresh_pause_endpoint_unknown_404(client):
+    r = client.post(
+        "/api/dashboards/route-pause-404/refresh-pause",
+        json={"publication_id": "abcdef", "paused": True},
+        headers=_h(),
+    )
+    assert r.status_code == 404

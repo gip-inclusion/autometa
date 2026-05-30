@@ -6,13 +6,26 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from sqlalchemy import select
+
 from lib.dashboards import DashboardNotFound, update_dashboard
 from web.config import ADMIN_USERS
 from web.cron import get_last_runs
 from web.database import store
+from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
-from web.publications import BLOCKED_CODES, ENVIRONMENTS, PublicationBlocked, list_publications, publish, unpublish
+from web.models import DashboardPublication
+from web.publications import (
+    BLOCKED_CODES,
+    ENVIRONMENTS,
+    PublicationBlocked,
+    list_publications,
+    pause_refresh,
+    publish,
+    resume_refresh,
+    unpublish,
+)
 
 from .html import get_sidebar_data, group_items_by_date
 
@@ -177,3 +190,25 @@ async def unpublish_publication(publication_id: PublicationId, user_email: str =
     if not unpublish(publication_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return {"ok": True}
+
+
+@router.post("/api/dashboards/{slug}/refresh-pause")
+async def toggle_refresh_pause(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    publication_id = payload.get("publication_id", "")
+    paused = bool(payload.get("paused", True))
+    if not _PUBLICATION_ID_RE.match(publication_id):
+        return JSONResponse({"error": "Invalid publication_id"}, status_code=400)
+    changed = pause_refresh(publication_id) if paused else resume_refresh(publication_id)
+    if not changed:
+        with get_db() as session:
+            existing = session.scalar(
+                select(DashboardPublication).where(
+                    DashboardPublication.publication_id == publication_id,
+                    DashboardPublication.unpublished_at.is_(None),
+                )
+            )
+        if existing is None:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True, "paused": paused}

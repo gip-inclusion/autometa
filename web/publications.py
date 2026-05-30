@@ -154,6 +154,38 @@ def list_publications(slug: str, active_only: bool = True) -> list[dict]:
         return [_to_dict(p) for p in session.scalars(stmt)]
 
 
+def pause_refresh(publication_id: str) -> bool:
+    return _set_paused(publication_id, paused=True)
+
+
+def resume_refresh(publication_id: str) -> bool:
+    return _set_paused(publication_id, paused=False)
+
+
+def _set_paused(publication_id: str, *, paused: bool) -> bool:
+    with get_db() as session:
+        pub = session.scalar(
+            select(DashboardPublication).where(
+                DashboardPublication.publication_id == publication_id,
+                DashboardPublication.unpublished_at.is_(None),
+            )
+        )
+        if pub is None:
+            return False
+        now = datetime.now(timezone.utc) if paused else None
+        currently_paused = pub.refresh_paused_at is not None
+        if currently_paused == paused:
+            return False
+        pub.refresh_paused_at = now
+        logger.info(
+            "refresh_pause slug=%s id=%s paused=%s",
+            _log_safe(pub.dashboard_slug),
+            pub.publication_id,
+            paused,
+        )
+        return True
+
+
 def _short_error(exc: BaseException) -> str:
     """Compact `ExcClass: message` for storage in last_refresh_error, capped at 500 chars."""
     text = f"{exc.__class__.__name__}: {exc}"

@@ -161,3 +161,36 @@ def test_publish_sets_snapshot_has_cron_from_working_copy(client, mocker, cron_p
             select(DashboardPublication).where(DashboardPublication.publication_id == pub["publication_id"])
         )
         assert row.snapshot_has_cron is expected
+
+
+def test_pause_refresh_sets_timestamp_and_resume_clears(client, mocker):
+    _make_dashboard("pub-pause")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    pub = publications.publish("pub-pause", "staging", "bob@x")
+    pid = pub["publication_id"]
+
+    assert publications.pause_refresh(pid) is True
+    with get_db() as session:
+        row = session.scalar(
+            select(DashboardPublication).where(DashboardPublication.publication_id == pid)
+        )
+        assert row.refresh_paused_at is not None
+
+    assert publications.resume_refresh(pid) is True
+    with get_db() as session:
+        row = session.scalar(
+            select(DashboardPublication).where(DashboardPublication.publication_id == pid)
+        )
+        assert row.refresh_paused_at is None
+
+
+def test_pause_refresh_is_idempotent(client, mocker):
+    _make_dashboard("pub-pause-idem")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    pub = publications.publish("pub-pause-idem", "staging", "bob@x")
+    publications.pause_refresh(pub["publication_id"])
+
+    assert publications.pause_refresh(pub["publication_id"]) is False  # already paused
+    assert publications.resume_refresh("zzz999") is False  # unknown
