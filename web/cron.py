@@ -229,14 +229,15 @@ def read_cron_script(task: dict) -> str | None:
     return path.read_text() if path.exists() else None
 
 
-def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
-    workdir = Path(tempfile.mkdtemp(prefix=f"cron-{slug}-"))
+def prepare_s3_workdir(store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
+    """Mirror an S3 prefix into a temp workdir, returning (workdir, pre_hashes for delta upload)."""
+    workdir = Path(tempfile.mkdtemp(prefix=f"cron-{label}-"))
     pre_hashes: dict[str, str] = {}
-    for entry in s3.interactive.list_files(f"{slug}/"):
-        local_name = entry["path"][len(f"{slug}/") :]
+    for entry in store.list_files(store_relative_prefix):
+        local_name = entry["path"][len(store_relative_prefix) :]
         if not local_name or ".." in local_name:
             continue
-        content = s3.interactive.download(entry["path"])
+        content = store.download(entry["path"])
         if content is not None:
             local_file = (workdir / local_name).resolve()
             try:
@@ -249,7 +250,7 @@ def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     return workdir, pre_hashes
 
 
-def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
+def upload_s3_results(store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]):
     uploaded = skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
@@ -264,12 +265,12 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
             skipped += 1
             continue
-        s3.interactive.upload(f"{slug}/{rel}", content)
+        store.upload(f"{store_relative_prefix}{rel}", content)
         uploaded += 1
     if uploaded:
         logger.info(
             "Cron upload %s: %d uploaded, %d unchanged",
-            _sanitize_for_log(slug),
+            _sanitize_for_log(label),
             uploaded,
             skipped,
         )
@@ -330,7 +331,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
 
     try:
         if is_s3:
-            workdir, pre_hashes = prepare_s3_workdir(slug)
+            workdir, pre_hashes = prepare_s3_workdir(s3.interactive, f"{slug}/", slug)
             cron_script = str(workdir / "cron.py")
             cwd = str(workdir)
         else:
@@ -356,7 +357,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         status = "success" if result.returncode == 0 else "failure"
 
         if is_s3 and status == "success" and workdir:
-            upload_s3_results(slug, workdir, pre_hashes)
+            upload_s3_results(s3.interactive, f"{slug}/", slug, workdir, pre_hashes)
 
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
