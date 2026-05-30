@@ -88,6 +88,11 @@
       <div class="card mt-3" id="publier-block" data-slug="{{ dashboard.slug }}">
         <div class="card-body">
           <h5 class="card-title">Publier</h5>
+          {% if dashboard_drifted %}
+          <p class="small text-warning mb-2">
+            ⚠ Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}).
+          </p>
+          {% endif %}
           {% if can_publish %}
           <div class="d-flex gap-2 mb-3">
             <button type="button" class="btn btn-outline-primary" data-action="publish" data-env="staging">Publier en staging</button>
@@ -104,6 +109,7 @@
                 <th scope="col">URL</th>
                 <th scope="col">Publié par</th>
                 <th scope="col">Publié le</th>
+                <th scope="col">Données</th>
                 <th scope="col" class="text-end"></th>
               </tr>
             </thead>
@@ -121,7 +127,30 @@
                 </td>
                 <td class="small text-muted">{{ p.published_by }}</td>
                 <td class="small text-muted">{{ p.published_at.strftime('%Y-%m-%d %H:%M') if p.published_at else '—' }}</td>
+                <td class="small">
+                  {% if p.snapshot_has_cron %}
+                    {% if p.refresh_paused_at %}
+                      <span class="text-muted">Données figées depuis {{ p.paused_relative }}</span>
+                    {% else %}
+                      <span class="text-muted">
+                        Données rafraîchies {{ p.last_refresh_relative or 'jamais' }}
+                        {% if p.last_refresh_status == 'failure' %}
+                          <span class="text-danger">— rafraîchissement en échec</span>
+                        {% endif %}
+                      </span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
                 <td class="text-end">
+                  {% if p.snapshot_has_cron %}
+                    {% if p.refresh_paused_at %}
+                      <button type="button" class="btn btn-sm btn-link" data-action="refresh-resume" data-pub="{{ p.publication_id }}">Reprendre</button>
+                    {% else %}
+                      <button type="button" class="btn btn-sm btn-link" data-action="refresh-pause" data-pub="{{ p.publication_id }}">Suspendre</button>
+                    {% endif %}
+                  {% endif %}
                   <button type="button" class="btn btn-sm btn-link text-danger" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
                 </td>
               </tr>
@@ -234,6 +263,24 @@
           btn.disabled = false;
           return;
         }
+        window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=refresh-pause]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const res = await post(`/api/dashboards/${slug}/refresh-pause`, { publication_id: btn.dataset.pub, paused: true });
+        if (!res.ok) { await reportFailure('Suspension', res); btn.disabled = false; return; }
+        window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=refresh-resume]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const res = await post(`/api/dashboards/${slug}/refresh-pause`, { publication_id: btn.dataset.pub, paused: false });
+        if (!res.ok) { await reportFailure('Reprise', res); btn.disabled = false; return; }
         window.location.reload();
       });
     });

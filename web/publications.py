@@ -66,6 +66,10 @@ def _to_dict(pub: DashboardPublication) -> dict:
         "published_by": pub.published_by,
         "published_at": pub.published_at,
         "url": public_url(pub.dashboard_slug, pub.publication_id, pub.environment),
+        "snapshot_has_cron": pub.snapshot_has_cron,
+        "refresh_paused_at": pub.refresh_paused_at,
+        "last_successful_refresh_at": pub.last_successful_refresh_at,
+        "last_refresh_status": pub.last_refresh_status,
     }
 
 

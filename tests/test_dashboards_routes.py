@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -384,3 +384,75 @@ def test_refresh_pause_endpoint_idempotent_200(client, mocker):
     )
     assert r.status_code == 200
     assert r.json() == {"ok": True, "paused": True}
+
+
+def test_detail_drift_hint_shown_when_dashboard_newer(client, mocker):
+    _make_dashboard("drift-yes")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=False)
+    client.post("/api/dashboards/drift-yes/publish", json={"environment": "staging"}, headers=_h())
+    # Bump dashboards.updated_at to *after* the publication's published_at.
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "drift-yes"))
+        d.updated_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    r = client.get("/dashboards/drift-yes/edit", headers=_h())
+    assert r.status_code == 200
+    assert "modifié depuis la dernière publication" in r.text
+
+
+def test_detail_drift_hint_hidden_when_not_drifted(client, mocker):
+    _make_dashboard("drift-no")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=False)
+    client.post("/api/dashboards/drift-no/publish", json={"environment": "staging"}, headers=_h())
+    r = client.get("/dashboards/drift-no/edit", headers=_h())
+    assert r.status_code == 200
+    assert "modifié depuis la dernière publication" not in r.text
+
+
+def test_detail_shows_suspendre_when_snapshot_has_cron(client, mocker):
+    _make_dashboard("ui-suspend")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+    client.post("/api/dashboards/ui-suspend/publish", json={"environment": "staging"}, headers=_h())
+    r = client.get("/dashboards/ui-suspend/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Suspendre" in r.text
+    assert "Données rafraîchies" in r.text
+
+
+def test_detail_shows_reprendre_when_paused(client, mocker):
+    _make_dashboard("ui-resume")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+    pub = client.post(
+        "/api/dashboards/ui-resume/publish",
+        json={"environment": "staging"},
+        headers=_h(),
+    ).json()
+    client.post(
+        "/api/dashboards/ui-resume/refresh-pause",
+        json={"publication_id": pub["publication_id"], "paused": True},
+        headers=_h(),
+    )
+    r = client.get("/dashboards/ui-resume/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Reprendre" in r.text
+    assert "Données figées" in r.text
+
+
+def test_detail_no_refresh_ui_when_snapshot_lacks_cron(client, mocker):
+    _make_dashboard("ui-nocron")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=False)
+    client.post("/api/dashboards/ui-nocron/publish", json={"environment": "staging"}, headers=_h())
+    r = client.get("/dashboards/ui-nocron/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Suspendre" not in r.text
+    assert "Reprendre" not in r.text
+    assert "Données rafraîchies" not in r.text

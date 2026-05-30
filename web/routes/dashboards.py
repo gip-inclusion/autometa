@@ -104,6 +104,25 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     dashboard_publications = list_publications(slug)
     can_publish = not (dashboard["has_api_access"] or dashboard["has_persistence"])
 
+    last_published_at = max(
+        (p["published_at"] for p in dashboard_publications if p.get("published_at")),
+        default=None,
+    )
+    dashboard_drifted = (
+        last_published_at is not None
+        and dashboard.get("updated") is not None
+        and dashboard["updated"] > last_published_at
+    )
+    relative_updated = format_relative_date(dashboard["updated"]) if dashboard.get("updated") else ""
+
+    for p in dashboard_publications:
+        p["last_refresh_relative"] = (
+            format_relative_date(p["last_successful_refresh_at"]) if p.get("last_successful_refresh_at") else ""
+        )
+        p["paused_relative"] = (
+            format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
+        )
+
     last_run = None
     if dashboard["has_cron"]:
         runs = get_last_runs(limit_per_app=1).get(slug, [])
@@ -122,6 +141,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "dashboard": dashboard,
             "publications": dashboard_publications,
             "can_publish": can_publish,
+            "dashboard_drifted": dashboard_drifted,
+            "relative_updated": relative_updated,
             "last_run": last_run,
             "is_pinned": is_pinned,
             "is_admin": user_email in ADMIN_USERS,
