@@ -470,9 +470,7 @@ def test_detail_shows_failure_suffix_when_last_refresh_failed(client, mocker):
     ).json()
     with get_db() as session:
         p = session.scalar(
-            select(DashboardPublication).where(
-                DashboardPublication.publication_id == pub["publication_id"]
-            )
+            select(DashboardPublication).where(DashboardPublication.publication_id == pub["publication_id"])
         )
         p.last_refresh_status = "failure"
     r = client.get("/dashboards/ui-failure/edit", headers=_h())

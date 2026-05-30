@@ -5,7 +5,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, RedirectResponse
-
 from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
@@ -119,9 +118,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         p["last_refresh_relative"] = (
             format_relative_date(p["last_successful_refresh_at"]) if p.get("last_successful_refresh_at") else ""
         )
-        p["paused_relative"] = (
-            format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
-        )
+        p["paused_relative"] = format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
 
     last_run = None
     if dashboard["has_cron"]:

@@ -721,10 +721,10 @@ def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unp
 @pytest.mark.parametrize(
     "snapshot_has_cron,unpublished,paused,included",
     [
-        (True,  False, False, True),
+        (True, False, False, True),
         (False, False, False, False),
-        (True,  True,  False, False),
-        (True,  False, True,  False),
+        (True, True, False, False),
+        (True, False, True, False),
     ],
 )
 def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpublished, paused, included):
@@ -733,7 +733,8 @@ def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpubl
     slug = f"disco-{int(snapshot_has_cron)}-{int(unpublished)}-{int(paused)}"
     pub_id = "discp1"
     _seed_dashboard_and_publication(
-        slug, pub_id,
+        slug,
+        pub_id,
         snapshot_has_cron=snapshot_has_cron,
         unpublished=unpublished,
         paused=paused,
@@ -789,9 +790,7 @@ def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocke
     assert result["status"] == "success"
     assert sync.called
     with get_db() as session:
-        row = session.scalar(
-            select(DashboardPublication).where(DashboardPublication.publication_id == "disp01")
-        )
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "disp01"))
         assert row.last_refresh_status == "success"
 
 
@@ -811,9 +810,7 @@ def test_run_cron_task_publication_no_refresh_on_subprocess_failure(client, mock
     assert result["status"] == "failure"
     sync.assert_not_called()
     with get_db() as session:
-        row = session.scalar(
-            select(DashboardPublication).where(DashboardPublication.publication_id == "fail01")
-        )
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "fail01"))
         assert row.last_refresh_status is None
 
 
@@ -838,12 +835,8 @@ def test_run_cron_task_publication_two_states_independent(client, mocker):
     result = run_cron_task("two-tdb-two001", trigger="manual")
     assert result["status"] == "success"
     with get_db() as session:
-        run = session.scalar(
-            select(CronRun).where(CronRun.app_slug == "two-tdb-two001").order_by(CronRun.id.desc())
-        )
+        run = session.scalar(select(CronRun).where(CronRun.app_slug == "two-tdb-two001").order_by(CronRun.id.desc()))
         assert run.status == "success"
-        row = session.scalar(
-            select(DashboardPublication).where(DashboardPublication.publication_id == "two001")
-        )
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "two001"))
         assert row.last_refresh_status == "failure"
     assert notify.called

@@ -139,9 +139,7 @@ def test_dashboard_publication_refresh_columns_default(client):
             )
         )
     with get_db() as session:
-        row = session.scalar(
-            select(DashboardPublication).where(DashboardPublication.publication_id == "defcol")
-        )
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "defcol"))
         assert row.snapshot_has_cron is False
         assert row.refresh_paused_at is None
         assert row.last_successful_refresh_at is None
@@ -172,16 +170,12 @@ def test_pause_refresh_sets_timestamp_and_resume_clears(client, mocker):
 
     assert publications.pause_refresh(pid) is True
     with get_db() as session:
-        row = session.scalar(
-            select(DashboardPublication).where(DashboardPublication.publication_id == pid)
-        )
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == pid))
         assert row.refresh_paused_at is not None
 
     assert publications.resume_refresh(pid) is True
     with get_db() as session:
-        row = session.scalar(
-            select(DashboardPublication).where(DashboardPublication.publication_id == pid)
-        )
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == pid))
         assert row.refresh_paused_at is None
 
 
