@@ -18,7 +18,16 @@ _ID_ALPHABET = string.ascii_lowercase + string.digits
 
 
 class PublicationBlocked(Exception):
-    """Raised when a dashboard cannot be published."""
+    """Raised when a dashboard cannot be published. `code` is a short stable string."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _log_safe(value: str) -> str:
+    """Strip CR/LF from user-controlled values before logging (log-injection guard)."""
+    return value.replace("\r", "").replace("\n", "")
 
 
 def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
@@ -65,7 +74,7 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
         if dashboard is None:
-            raise PublicationBlocked(f"unknown dashboard: {slug}")
+            raise PublicationBlocked("unknown")
         if dashboard.is_archived:
             raise PublicationBlocked("archived")
         if not is_publishable(dashboard.has_api_access, dashboard.has_persistence):
@@ -101,7 +110,13 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
         )
         session.add(pub)
         session.flush()
-        logger.info("publish slug=%s env=%s id=%s by=%s", slug, environment, publication_id, publisher_email)
+        logger.info(
+            "publish slug=%s env=%s id=%s by=%s",
+            _log_safe(slug),
+            environment,
+            publication_id,
+            _log_safe(publisher_email),
+        )
         return _to_dict(pub)
 
 
@@ -119,7 +134,9 @@ def unpublish(publication_id: str) -> bool:
             _public_bucket(pub.environment), _public_path(pub.dashboard_slug, pub.publication_id, pub.environment)
         )
         pub.unpublished_at = datetime.now(timezone.utc)
-        logger.info("unpublish slug=%s env=%s id=%s", pub.dashboard_slug, pub.environment, pub.publication_id)
+        logger.info(
+            "unpublish slug=%s env=%s id=%s", _log_safe(pub.dashboard_slug), pub.environment, pub.publication_id
+        )
         return True
 
 

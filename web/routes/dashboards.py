@@ -23,6 +23,7 @@ VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 _PUBLICATION_ID_RE = re.compile(r"^[a-z0-9]{6}$")
+_PUBLISH_BLOCKED_CODES = {"archived", "uses-query-api", "empty", "public-bucket-not-configured", "unknown"}
 
 
 @router.get("/dashboards")
@@ -169,7 +170,8 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
     try:
         return publish(slug, environment, user_email)
     except PublicationBlocked as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+        reason = exc.code if exc.code in _PUBLISH_BLOCKED_CODES else "blocked"
+        return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
 
 
 @router.post("/api/dashboards/{slug}/unpublish")

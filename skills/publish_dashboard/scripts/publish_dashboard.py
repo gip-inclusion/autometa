@@ -21,7 +21,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
     try:
         pub = publications.publish(args.slug, args.env, user)
     except publications.PublicationBlocked as exc:
-        print(json.dumps({"error": "publication_blocked", "reason": str(exc)}), file=sys.stderr)
+        print(json.dumps({"error": "publication_blocked", "reason": exc.code}), file=sys.stderr)
         return 1
     print(json.dumps(_serialize(pub), indent=2, ensure_ascii=False))
     return 0
