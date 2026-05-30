@@ -378,19 +378,13 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
     if source == "s3":
         store = s3.interactive
         store_prefix = f"{slug}/"
-        label = slug
     elif source == "s3-publication":
         store = s3.publications
         store_prefix = f"{task['dashboard_slug']}/{task['publication_id']}/"
-        label = slug
-    else:
-        store = None
-        store_prefix = ""
-        label = slug
 
     try:
         if uses_workdir:
-            workdir, pre_hashes = prepare_s3_workdir(store, store_prefix, label)
+            workdir, pre_hashes = prepare_s3_workdir(store, store_prefix, slug)
             cron_script = str(workdir / "cron.py")
             cwd = str(workdir)
         else:
@@ -416,7 +410,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         status = "success" if result.returncode == 0 else "failure"
 
         if uses_workdir and status == "success" and workdir:
-            upload_s3_results(store, store_prefix, label, workdir, pre_hashes)
+            upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
             if source == "s3-publication":
                 publications.refresh(task["publication_id"])
 

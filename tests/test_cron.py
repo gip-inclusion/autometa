@@ -730,9 +730,10 @@ def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unp
 def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpublished, paused, included):
     from web.cron import discover_publications
 
+    slug = f"disco-{int(snapshot_has_cron)}-{int(unpublished)}-{int(paused)}"
+    pub_id = "discp1"
     _seed_dashboard_and_publication(
-        "disco-tdb",
-        "disco1",
+        slug, pub_id,
         snapshot_has_cron=snapshot_has_cron,
         unpublished=unpublished,
         paused=paused,
@@ -741,7 +742,7 @@ def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpubl
 
     tasks = discover_publications()
     slugs = [t["slug"] for t in tasks]
-    assert ("disco-tdb-disco1" in slugs) is included
+    assert (f"{slug}-{pub_id}" in slugs) is included
 
 
 def test_discover_publications_task_dict_shape(client, mocker):
@@ -769,7 +770,7 @@ def test_discover_publications_task_dict_shape(client, mocker):
 
 
 def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocker):
-    """End-to-end: cron rc=0 → upload + refresh; rc=1 → no refresh; rc=0 + sync fail → cron-success / refresh-failure."""
+    """Subprocess rc=0 → upload to snapshot + publications.refresh() → last_refresh_status=success."""
     import subprocess as sp
 
     from web.cron import run_cron_task
