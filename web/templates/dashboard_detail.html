@@ -97,16 +97,37 @@
           <p class="text-muted">Publication indisponible — ce tableau utilise l'API query, absente de l'hébergement statique.</p>
           {% endif %}
           {% if publications %}
-          <ul class="list-unstyled mb-0">
-            {% for p in publications %}
-            <li class="d-flex align-items-center gap-2 py-1">
-              <span class="badge {% if p.environment == 'production' %}bg-success{% else %}bg-secondary{% endif %}">{{ p.environment }}</span>
-              <a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
-              <span class="small text-muted">{{ p.published_by }}</span>
-              <button type="button" class="btn btn-sm btn-link text-danger ms-auto" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
-            </li>
-            {% endfor %}
-          </ul>
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Environnement</th>
+                <th scope="col">URL</th>
+                <th scope="col">Publié par</th>
+                <th scope="col">Publié le</th>
+                <th scope="col" class="text-end"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in publications %}
+              <tr>
+                <td>
+                  <span class="badge {% if p.environment == 'production' %}bg-success{% else %}bg-secondary{% endif %}">{{ p.environment }}</span>
+                </td>
+                <td>
+                  <a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
+                  <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" data-action="copy-url" data-url="{{ p.url }}" title="Copier l'URL">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </td>
+                <td class="small text-muted">{{ p.published_by }}</td>
+                <td class="small text-muted">{{ p.published_at.strftime('%Y-%m-%d %H:%M') if p.published_at else '—' }}</td>
+                <td class="text-end">
+                  <button type="button" class="btn btn-sm btn-link text-danger" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
           {% endif %}
         </div>
       </div>
@@ -189,6 +210,18 @@
           return;
         }
         window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=copy-url]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(btn.dataset.url); }
+        catch (_) { return; }
+        const icon = btn.querySelector('i');
+        if (!icon) return;
+        const prev = icon.className;
+        icon.className = 'ri-check-line text-success';
+        setTimeout(() => { icon.className = prev; }, 1200);
       });
     });
 
