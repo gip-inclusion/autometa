@@ -172,11 +172,10 @@ def _set_paused(publication_id: str, *, paused: bool) -> bool:
         )
         if pub is None:
             return False
-        now = datetime.now(timezone.utc) if paused else None
         currently_paused = pub.refresh_paused_at is not None
         if currently_paused == paused:
             return False
-        pub.refresh_paused_at = now
+        pub.refresh_paused_at = datetime.now(timezone.utc) if paused else None
         logger.info(
             "refresh_pause slug=%s id=%s paused=%s",
             _log_safe(pub.dashboard_slug),

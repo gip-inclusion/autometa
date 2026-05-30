@@ -358,3 +358,29 @@ def test_refresh_pause_endpoint_unknown_404(client):
         headers=_h(),
     )
     assert r.status_code == 404
+
+
+def test_refresh_pause_endpoint_idempotent_200(client, mocker):
+    _make_dashboard("route-pause-idem")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+    pub = client.post(
+        "/api/dashboards/route-pause-idem/publish",
+        json={"environment": "staging"},
+        headers=_h(),
+    ).json()
+    pid = pub["publication_id"]
+
+    client.post(
+        "/api/dashboards/route-pause-idem/refresh-pause",
+        json={"publication_id": pid, "paused": True},
+        headers=_h(),
+    )
+    r = client.post(
+        "/api/dashboards/route-pause-idem/refresh-pause",
+        json={"publication_id": pid, "paused": True},
+        headers=_h(),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "paused": True}
