@@ -89,7 +89,7 @@ def test_shared_access_nonexistent_conversation_redirects(app, guest_client):
         follow_redirects=False,
     )
     assert response.status_code == 302
-    assert response.headers["location"] == "/rechercher?show=convos"
+    assert response.headers["location"] == "/conversations?show=convos"
 
 
 def test_shared_api_owner_can_get_conversation(app, owner_client, conversation):
