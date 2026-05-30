@@ -24,7 +24,7 @@ router = APIRouter()
 VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
-_SAFE_SLUG_RE = re.compile(r"\A[a-z0-9_-]{1,100}\Z")
+_INTERNAL_REDIRECT_PATH = re.compile(r"\A/dashboards/[a-z0-9_-]{1,100}/edit\Z")
 
 
 @router.get("/dashboards")
@@ -81,12 +81,10 @@ def dashboards_page(
 
 @router.get("/dashboards/{slug}")
 def dashboard_redirect(slug: Slug):
-    # Why: belt-and-suspenders sanitization so CodeQL's py/url-redirection can see the
-    # constraint before slug is interpolated into the Location header. The Slug PathParam
-    # already enforces the same pattern, so this branch is unreachable in practice.
-    if not _SAFE_SLUG_RE.fullmatch(slug):
+    target = f"/dashboards/{slug}/edit"
+    if not _INTERNAL_REDIRECT_PATH.fullmatch(target):
         return JSONResponse({"error": "Invalid slug"}, status_code=422)
-    return RedirectResponse(f"/dashboards/{slug}/edit", status_code=301)
+    return RedirectResponse(target, status_code=301)
 
 
 @router.get("/dashboards/{slug}/edit")
