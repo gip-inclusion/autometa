@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from web import config
 from web.cron import (
@@ -23,7 +23,7 @@ from web.cron import (
     set_cron_enabled,
 )
 from web.database import get_db
-from web.models import Dashboard
+from web.models import Dashboard, DashboardPublication
 
 
 @pytest.fixture
@@ -683,3 +683,166 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     assert getattr(record, "cron.task.name") == "my-task"
     assert getattr(record, "cron.task.status") == "success"
     assert getattr(record, "cron.task.duration") == 1234
+
+
+def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unpublished=False, paused=False):
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(
+            Dashboard(
+                slug=slug,
+                title=f"Title for {slug}",
+                description="d",
+                website="emplois",
+                category="c",
+                first_author_email="alice@x",
+                is_archived=False,
+                has_api_access=False,
+                has_cron=False,
+                has_persistence=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            DashboardPublication(
+                dashboard_slug=slug,
+                publication_id=pub_id,
+                environment="staging",
+                published_by="bob@x",
+                published_at=now,
+                snapshot_has_cron=snapshot_has_cron,
+                unpublished_at=now if unpublished else None,
+                refresh_paused_at=now if paused else None,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "snapshot_has_cron,unpublished,paused,included",
+    [
+        (True,  False, False, True),
+        (False, False, False, False),
+        (True,  True,  False, False),
+        (True,  False, True,  False),
+    ],
+)
+def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpublished, paused, included):
+    from web.cron import discover_publications
+
+    _seed_dashboard_and_publication(
+        "disco-tdb",
+        "disco1",
+        snapshot_has_cron=snapshot_has_cron,
+        unpublished=unpublished,
+        paused=paused,
+    )
+    mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: x\n---\n")
+
+    tasks = discover_publications()
+    slugs = [t["slug"] for t in tasks]
+    assert ("disco-tdb-disco1" in slugs) is included
+
+
+def test_discover_publications_task_dict_shape(client, mocker):
+    from web.cron import discover_publications
+
+    _seed_dashboard_and_publication("shape-tdb", "shape1")
+    mocker.patch(
+        "web.cron.s3.publications.download",
+        return_value=b"---\ntitle: Shape\nschedule: weekly\ntimeout: 600\n---\n",
+    )
+
+    tasks = discover_publications()
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task["slug"] == "shape-tdb-shape1"
+    assert task["source"] == "s3-publication"
+    assert task["tier"] == "publication"
+    assert task["path"] == "shape-tdb/shape1/"
+    assert task["cron_path"] == "shape-tdb/shape1/cron.py"
+    assert task["dashboard_slug"] == "shape-tdb"
+    assert task["publication_id"] == "shape1"
+    assert task["schedule"] == "weekly"
+    assert task["timeout"] == 600
+    assert task["enabled"] is True
+
+
+def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocker):
+    """End-to-end: cron rc=0 → upload + refresh; rc=1 → no refresh; rc=0 + sync fail → cron-success / refresh-failure."""
+    import subprocess as sp
+
+    from web.cron import run_cron_task
+
+    _seed_dashboard_and_publication("dispatch-tdb", "disp01")
+    mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: D\n---\n")
+    mocker.patch("web.cron.s3.publications.list_files", return_value=[])
+    mocker.patch("web.cron.s3.publications.upload", return_value=True)
+    sync = mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.alerts.notify_alert_channel")
+
+    completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
+    mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    result = run_cron_task("dispatch-tdb-disp01", trigger="manual")
+    assert result["status"] == "success"
+    assert sync.called
+    with get_db() as session:
+        row = session.scalar(
+            select(DashboardPublication).where(DashboardPublication.publication_id == "disp01")
+        )
+        assert row.last_refresh_status == "success"
+
+
+def test_run_cron_task_publication_no_refresh_on_subprocess_failure(client, mocker):
+    import subprocess as sp
+
+    from web.cron import run_cron_task
+
+    _seed_dashboard_and_publication("fail-tdb", "fail01")
+    mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: F\n---\n")
+    mocker.patch("web.cron.s3.publications.list_files", return_value=[])
+    sync = mocker.patch("web.publications.s3.sync_prefix")
+    completed = sp.CompletedProcess(args=[], returncode=1, stdout="boom", stderr="")
+    mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    result = run_cron_task("fail-tdb-fail01", trigger="manual")
+    assert result["status"] == "failure"
+    sync.assert_not_called()
+    with get_db() as session:
+        row = session.scalar(
+            select(DashboardPublication).where(DashboardPublication.publication_id == "fail01")
+        )
+        assert row.last_refresh_status is None
+
+
+def test_run_cron_task_publication_two_states_independent(client, mocker):
+    """Cron succeeds, public re-push fails → cron_runs.status='success' AND last_refresh_status='failure'."""
+    import subprocess as sp
+
+    from botocore.exceptions import ClientError
+
+    from web.cron import run_cron_task
+    from web.models import CronRun
+
+    _seed_dashboard_and_publication("two-tdb", "two001")
+    mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: T\n---\n")
+    mocker.patch("web.cron.s3.publications.list_files", return_value=[])
+    err = ClientError({"Error": {"Code": "AccessDenied", "Message": "x"}}, "PutObject")
+    mocker.patch("web.publications.s3.sync_prefix", side_effect=err)
+    notify = mocker.patch("web.publications.alerts.notify_alert_channel")
+    completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
+    mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    result = run_cron_task("two-tdb-two001", trigger="manual")
+    assert result["status"] == "success"
+    with get_db() as session:
+        run = session.scalar(
+            select(CronRun).where(CronRun.app_slug == "two-tdb-two001").order_by(CronRun.id.desc())
+        )
+        assert run.status == "success"
+        row = session.scalar(
+            select(DashboardPublication).where(DashboardPublication.publication_id == "two001")
+        )
+        assert row.last_refresh_status == "failure"
+    assert notify.called
