@@ -82,6 +82,7 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             raise PublicationBlocked("uses-query-api")
 
         publication_id = _generate_publication_id()
+        snapshot_has_cron = s3.interactive.exists(f"{slug}/cron.py")
         copied = s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
         if copied == 0:
             raise PublicationBlocked("empty")
@@ -108,6 +109,7 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             environment=environment,
             published_by=publisher_email,
             published_at=datetime.now(timezone.utc),
+            snapshot_has_cron=snapshot_has_cron,
         )
         session.add(pub)
         session.flush()
