@@ -169,17 +169,38 @@
       window.location.reload();
     });
 
+    async function reportFailure(label, res) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body.reason) detail = `${body.error || ''}: ${body.reason}`.trim();
+        else if (body.error) detail = body.error;
+      } catch (_) { /* not JSON */ }
+      alert(`${label} a échoué — ${detail}`);
+    }
+
     document.querySelectorAll('#publier-block [data-action=publish]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        await post(`/api/dashboards/${slug}/publish`, { environment: btn.dataset.env });
+        const res = await post(`/api/dashboards/${slug}/publish`, { environment: btn.dataset.env });
+        if (!res.ok) {
+          await reportFailure('Publication', res);
+          btn.disabled = false;
+          return;
+        }
         window.location.reload();
       });
     });
 
     document.querySelectorAll('#publier-block [data-action=unpublish]').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        await post(`/api/dashboards/${slug}/unpublish`, { publication_id: btn.dataset.pub });
+        btn.disabled = true;
+        const res = await post(`/api/dashboards/${slug}/unpublish`, { publication_id: btn.dataset.pub });
+        if (!res.ok) {
+          await reportFailure('Dépublication', res);
+          btn.disabled = false;
+          return;
+        }
         window.location.reload();
       });
     });
