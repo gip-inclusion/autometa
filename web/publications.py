@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 ENVIRONMENTS = ("staging", "production")
 BLOCKED_CODES = frozenset({"archived", "uses-query-api", "empty", "public-bucket-not-configured", "unknown"})
 _ID_ALPHABET = string.ascii_lowercase + string.digits
-REFRESH_STATUSES = ("success", "failure")
 _MAX_REFRESH_ERROR_LEN = 500
 
 
@@ -172,7 +171,7 @@ def _notify_refresh_status_change(pub: DashboardPublication, previous_status: st
     app_slug = f"{pub.dashboard_slug}-{pub.publication_id}"
     url = public_url(pub.dashboard_slug, pub.publication_id, pub.environment)
     if broke:
-        snippet = (pub.last_refresh_error or "").strip()[:500].replace("```", "ʼʼʼ")
+        snippet = (pub.last_refresh_error or "").strip().replace("```", "ʼʼʼ")
         message = f":red_circle: *Rafraîchissement échoué : {app_slug}*\n<{url}|Voir la publication>"
         if snippet:
             message += f"\n```{snippet}```"
@@ -184,6 +183,10 @@ def _notify_refresh_status_change(pub: DashboardPublication, previous_status: st
 def refresh(publication_id: str) -> None:
     """Re-sync a publication's snapshot to its public bucket; update refresh state; alert on transition."""
     with get_db() as session:
+        # Why: SELECT filters out unpublished/paused publications, but `s3.sync_prefix` is not
+        # transactional with the DB. A concurrent unpublish between this SELECT and the sync can
+        # still re-populate the public bucket. Accepted for V1 — unpublish is a manual, low-frequency
+        # operation and the window is bounded by snapshot size.
         pub = session.scalar(
             select(DashboardPublication).where(
                 DashboardPublication.publication_id == publication_id,
@@ -206,7 +209,6 @@ def refresh(publication_id: str) -> None:
         except (ClientError, BotoCoreError) as exc:
             pub.last_refresh_status = "failure"
             pub.last_refresh_error = _short_error(exc)
-            session.commit()
         logger.info(
             "refresh slug=%s id=%s status=%s",
             _log_safe(pub.dashboard_slug),

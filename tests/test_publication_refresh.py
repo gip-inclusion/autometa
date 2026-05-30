@@ -42,7 +42,6 @@ def _make_publication(slug, publication_id, *, environment="staging", unpublishe
                 published_at=now,
                 unpublished_at=now if unpublished else None,
                 refresh_paused_at=now if paused else None,
-                snapshot_has_cron=True,
                 last_refresh_status=status,
             )
         )
