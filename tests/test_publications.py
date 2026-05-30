@@ -63,6 +63,15 @@ def test_publish_staging_creates_row_and_pushes(client, mocker):
     assert len(publications.list_publications("pub-stg")) == 1
 
 
+def test_publish_blocked_when_public_bucket_not_configured(client, mocker):
+    _make_dashboard("pub-no-bucket")
+    mocker.patch("web.publications.config.PUBLIC_S3_BUCKET_STAGING", None)
+    copy = mocker.patch("web.publications.s3.copy_prefix")
+    with pytest.raises(PublicationBlocked, match="public-bucket-not-configured"):
+        publications.publish("pub-no-bucket", "staging", "bob@x")
+    copy.assert_not_called()
+
+
 def test_publish_blocked_when_snapshot_empty(client, mocker):
     _make_dashboard("pub-empty")
     mocker.patch("web.publications.s3.copy_prefix", return_value=0)

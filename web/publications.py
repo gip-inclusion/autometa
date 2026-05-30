@@ -60,6 +60,8 @@ def _to_dict(pub: DashboardPublication) -> dict:
 def publish(slug: str, environment: str, publisher_email: str) -> dict:
     if environment not in ENVIRONMENTS:
         raise ValueError(f"Invalid environment: {environment}")
+    if not _public_bucket(environment):
+        raise PublicationBlocked("public-bucket-not-configured")
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
         if dashboard is None:
