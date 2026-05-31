@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -292,7 +293,8 @@ def read_cron_script(task: dict) -> str | None:
 
 
 def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
-    workdir = Path(tempfile.mkdtemp(prefix=f"cron-{label}-"))
+    safe_label = re.sub(r"[^a-zA-Z0-9_-]", "", label) or "task"
+    workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
     pre_hashes: dict[str, str] = {}
     for entry in store.list_files(store_relative_prefix):
         local_name = entry["path"][len(store_relative_prefix) :]
