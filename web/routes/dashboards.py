@@ -9,11 +9,11 @@ from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from web.config import ADMIN_USERS
-from web.cron import get_last_runs
+from web.cron import get_last_runs, get_schedule_for_app, next_cron_run
 from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
-from web.helpers import format_relative_date
+from web.helpers import format_future_date, format_relative_date
 from web.models import DashboardPublication
 from web.publications import (
     BLOCKED_CODES,
@@ -112,6 +112,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         and dashboard.get("updated") is not None
         and dashboard["updated"] > last_published_at
     )
+    has_active_production = any(p["environment"] == "production" for p in dashboard_publications)
     relative_updated = dashboard["formatted_date"]
 
     for p in dashboard_publications:
@@ -121,11 +122,13 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         p["paused_relative"] = format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
 
     last_run = None
+    next_run_label = ""
     if dashboard["has_cron"]:
         runs = get_last_runs(limit_per_app=1).get(slug, [])
         last_run = runs[0] if runs else None
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
+        next_run_label = format_future_date(next_cron_run(get_schedule_for_app(slug)))
 
     is_pinned = ("app", slug) in store.get_pinned_ids()
     data = get_sidebar_data(user_email)
@@ -139,8 +142,10 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "publications": dashboard_publications,
             "can_publish": can_publish,
             "dashboard_drifted": dashboard_drifted,
+            "has_active_production": has_active_production,
             "relative_updated": relative_updated,
             "last_run": last_run,
+            "next_run_label": next_run_label,
             "is_pinned": is_pinned,
             "is_admin": user_email in ADMIN_USERS,
             **data,

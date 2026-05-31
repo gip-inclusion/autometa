@@ -13,40 +13,43 @@
   <div class="section-body">
     <div class="container">
 
-      <div class="card mb-3">
-        <div class="card-body d-flex align-items-start gap-3 flex-wrap">
-          <div class="me-auto">
-            <div id="titleDisplay">
-              <h1 class="mb-1 d-inline align-middle">{{ dashboard.title }}</h1>
-              <button type="button" class="btn btn-sm btn-link align-middle" data-action="edit-title" title="Renommer">
-                <i class="ri-pencil-line"></i>
-              </button>
-            </div>
-            <div id="titleEdit" class="d-none d-flex align-items-center gap-2">
-              <input type="text" id="titleInput" class="form-control" style="max-width: 24rem;" value="{{ dashboard.title }}">
-              <button type="button" class="btn btn-sm btn-primary" data-action="save-title"><i class="ri-check-line"></i></button>
-              <button type="button" class="btn btn-sm btn-link text-muted" data-action="cancel-title">Annuler</button>
-            </div>
-            <p class="text-muted small mb-0"><code>{{ dashboard.slug }}</code></p>
-          </div>
-          <div class="d-flex gap-2">
-            {% if dashboard.is_archived %}
-            <button type="button" class="btn btn-outline-success" data-action="archive" data-archived="false">
-              <i class="ri-inbox-unarchive-line me-1"></i> Désarchiver
+      <div class="mb-4 d-flex align-items-start gap-3 flex-wrap">
+        <div class="me-auto">
+          <div id="titleDisplay">
+            <h1 class="mb-1 d-inline align-middle">{{ dashboard.title }}</h1>
+            <button type="button" class="btn btn-sm btn-link align-middle" data-action="edit-title" title="Renommer">
+              <i class="ri-pencil-line"></i>
             </button>
+          </div>
+          <div id="titleEdit" class="d-none d-flex align-items-center gap-2">
+            <input type="text" id="titleInput" class="form-control" style="max-width: 24rem;" value="{{ dashboard.title }}">
+            <button type="button" class="btn btn-sm btn-primary" data-action="save-title"><i class="ri-check-line"></i></button>
+            <button type="button" class="btn btn-sm btn-link text-muted" data-action="cancel-title">Annuler</button>
+          </div>
+          <p class="small mb-0">
+            <a href="/interactive/{{ dashboard.slug }}/" target="_blank" rel="noopener" class="text-decoration-none" title="Ouvrir l'application interactive dans un nouvel onglet">
+              <code>{{ dashboard.slug }}</code>
+              <i class="ri-external-link-line"></i>
+            </a>
+          </p>
+        </div>
+        <div class="d-flex gap-2">
+          {% if dashboard.is_archived %}
+          <button type="button" class="btn btn-outline-success" data-action="archive" data-archived="false">
+            <i class="ri-inbox-unarchive-line me-1"></i> Désarchiver
+          </button>
+          {% else %}
+          <button type="button" class="btn btn-outline-danger" data-action="archive" data-archived="true">
+            <i class="ri-archive-line me-1"></i> Archiver
+          </button>
+          {% endif %}
+          {% if is_admin %}
+            {% if is_pinned %}
+            <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line me-1"></i> Retirer de la une</button>
             {% else %}
-            <button type="button" class="btn btn-outline-danger" data-action="archive" data-archived="true">
-              <i class="ri-archive-line me-1"></i> Archiver
-            </button>
+            <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line me-1"></i> Mettre à la une</button>
             {% endif %}
-            {% if is_admin %}
-              {% if is_pinned %}
-              <button type="button" class="btn btn-outline-secondary" data-action="unpin"><i class="ri-unpin-line me-1"></i> Retirer de la une</button>
-              {% else %}
-              <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line me-1"></i> Mettre à la une</button>
-              {% endif %}
-            {% endif %}
-          </div>
+          {% endif %}
         </div>
       </div>
 
@@ -56,11 +59,31 @@
             <div class="card-body">
               <h5 class="card-title">Cron</h5>
               {% if dashboard.has_cron %}
-              <p class="small text-muted mb-2">
-                {% if last_run %}Dernier run : {{ last_run.formatted_date }} ({{ last_run.status }}){% else %}Aucun run enregistré{% endif %}
+              <p class="small mb-2">
+                {% if last_run %}
+                  {% if last_run.status == 'success' %}
+                    <span class="badge bg-success">OK</span>
+                  {% elif last_run.status == 'timeout' %}
+                    <span class="badge bg-warning text-dark">timeout</span>
+                  {% else %}
+                    <span class="badge bg-danger">échec</span>
+                  {% endif %}
+                  <span class="text-muted ms-1" title="{{ last_run.started_at }}">{{ last_run.formatted_date }}</span>
+                  <span class="text-muted">({{ last_run.trigger }}{% if last_run.duration_ms %}, {{ '%.1f'|format(last_run.duration_ms / 1000) }}s{% endif %})</span>
+                {% else %}
+                  <span class="text-muted">Aucun run enregistré</span>
+                {% endif %}
               </p>
-              <a href="/api/cron/{{ dashboard.slug }}/script" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Voir le script</a>
-              <button type="button" class="btn btn-sm btn-outline-primary" data-action="run-cron">Déclencher un run</button>
+              {% if next_run_label %}
+              <p class="small text-muted mb-2">
+                <i class="ri-calendar-schedule-line"></i> Prochaine exécution : {{ next_run_label }}
+              </p>
+              {% endif %}
+              <div class="d-flex gap-2 flex-wrap">
+                <a href="/api/cron/{{ dashboard.slug }}/script" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Voir le script</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-action="cron-history" data-slug="{{ dashboard.slug }}">Historique</button>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-action="run-cron">Déclencher un run</button>
+              </div>
               {% else %}
               <p class="text-muted mb-0">Pas de cron configuré.</p>
               {% endif %}
@@ -85,79 +108,95 @@
         </div>
       </div>
 
-      <div class="card mt-3" id="publier-block" data-slug="{{ dashboard.slug }}">
-        <div class="card-body">
-          <h5 class="card-title">Publier</h5>
-          {% if dashboard_drifted %}
-          <p class="small text-warning mb-2">
-            <i class="ri-alert-line"></i> Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}).
-          </p>
-          {% endif %}
+      <div class="mt-5" id="publier-block" data-slug="{{ dashboard.slug }}">
+        {% if dashboard_drifted %}
+        <p class="small text-warning mb-2">
+          <i class="ri-alert-line"></i> Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}).
+        </p>
+        {% endif %}
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 gap-md-3 mb-3">
+          <h2 class="mb-0">Publier</h2>
           {% if can_publish %}
-          <div class="d-flex gap-2 mb-3">
-            <button type="button" class="btn btn-outline-primary" data-action="publish" data-env="staging">Publier en staging</button>
-            <button type="button" class="btn btn-primary" data-action="publish" data-env="production">Publier en production</button>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-primary" data-action="publish" data-env="staging">Publier une nouvelle version en staging</button>
+            <button type="button" class="btn btn-primary" data-action="publish" data-env="production">{% if has_active_production %}Re-publier en production{% else %}Publier en production{% endif %}</button>
           </div>
-          {% else %}
-          <p class="text-muted">Publication indisponible — ce tableau utilise l'API query, absente de l'hébergement statique.</p>
           {% endif %}
-          {% if publications %}
-          <table class="table table-sm align-middle mb-0">
-            <thead>
-              <tr>
-                <th scope="col">Environnement</th>
-                <th scope="col">URL</th>
-                <th scope="col">Publié par</th>
-                <th scope="col">Publié le</th>
-                <th scope="col">Données</th>
-                <th scope="col" class="text-end"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for p in publications %}
-              <tr>
-                <td>
-                  <span class="badge {% if p.environment == 'production' %}bg-success{% else %}bg-secondary{% endif %}">{{ p.environment }}</span>
-                </td>
-                <td>
-                  <a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
-                  <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" data-action="copy-url" data-url="{{ p.url }}" title="Copier l'URL">
-                    <i class="ri-file-copy-line"></i>
-                  </button>
-                </td>
-                <td class="small text-muted">{{ p.published_by }}</td>
-                <td class="small text-muted">{{ p.published_at.strftime('%Y-%m-%d %H:%M') if p.published_at else '—' }}</td>
-                <td class="small">
-                  {% if p.snapshot_has_cron %}
-                    {% if p.refresh_paused_at %}
-                      <span class="text-muted">Données figées depuis {{ p.paused_relative }}</span>
-                    {% else %}
-                      <span class="text-muted">
-                        Données rafraîchies {{ p.last_refresh_relative or 'jamais' }}
-                        {% if p.last_refresh_status == 'failure' %}
-                          <span class="text-danger">— rafraîchissement en échec</span>
-                        {% endif %}
-                      </span>
-                    {% endif %}
+        </div>
+        {% if not can_publish %}
+        <p class="text-muted">Publication indisponible — ce tableau utilise l'API query, absente de l'hébergement statique.</p>
+        {% endif %}
+          {% for p in publications %}
+          <div class="c-box c-box--results my-3">
+            <div class="c-box--results__header">
+              <div class="c-box--results__summary">
+                {% set env_color = 'success' if p.environment == 'production' else 'secondary' %}
+                <i class="ri-global-line" aria-hidden="true" style="background-color: var(--bs-{{ env_color }}-bg-subtle); color: var(--bs-{{ env_color }});"></i>
+                <div>
+                  <span class="badge badge-xs bg-{{ env_color }}">{{ p.environment }}</span>
+                  <div class="d-flex align-items-center gap-2 flex-wrap mt-1">
+                    <a href="{{ p.url }}" target="_blank" rel="noopener" class="text-decoration-none">{{ p.url }}</a>
+                    <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-action="copy-url" data-url="{{ p.url }}" title="Copier l'URL">
+                      <i class="ri-file-copy-line"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="d-flex flex-column flex-md-row gap-2 align-items-md-end gap-md-3 mt-3">
+                <ul class="c-box--results__list-contact flex-md-grow-1 mb-0">
+                  <li>
+                    <i class="ri-calendar-line me-1"></i>
+                    Publié le {{ p.published_at.strftime('%Y-%m-%d %H:%M') if p.published_at else '—' }} par {{ p.published_by }}
+                  </li>
+                </ul>
+                <div>
+                  <button type="button" class="btn btn-outline-danger" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
+                </div>
+              </div>
+            </div>
+            {% if p.snapshot_has_cron %}
+            <hr class="m-0">
+            <div class="c-box--results__body">
+              <div class="d-flex flex-column flex-md-row gap-2 align-items-md-center justify-content-between">
+                <p class="mb-0">
+                  {% if p.refresh_paused_at %}
+                    <i class="ri-pause-circle-line me-1"></i>
+                    <span class="text-muted">Données figées depuis {{ p.paused_relative }}</span>
                   {% else %}
-                    <span class="text-muted">—</span>
-                  {% endif %}
-                </td>
-                <td class="text-end">
-                  {% if p.snapshot_has_cron %}
-                    {% if p.refresh_paused_at %}
-                      <button type="button" class="btn btn-sm btn-link" data-action="refresh-resume" data-pub="{{ p.publication_id }}">Reprendre</button>
-                    {% else %}
-                      <button type="button" class="btn btn-sm btn-link" data-action="refresh-pause" data-pub="{{ p.publication_id }}">Suspendre</button>
+                    <i class="ri-refresh-line me-1"></i>
+                    <span class="text-muted">Données rafraîchies {{ p.last_refresh_relative or 'jamais' }}</span>
+                    {% if p.last_refresh_status == 'failure' %}
+                      <span class="text-danger">— rafraîchissement en échec</span>
                     {% endif %}
                   {% endif %}
-                  <button type="button" class="btn btn-sm btn-link text-danger" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          {% endif %}
+                </p>
+                <div class="d-flex gap-2 flex-wrap align-items-center">
+                  <button type="button" class="btn btn-outline-primary btn-sm" data-action="pub-run" data-slug="{{ dashboard.slug }}-{{ p.publication_id }}">Rafraîchir les données</button>
+                  <button type="button" class="btn btn-link btn-sm" data-action="pub-history" data-slug="{{ dashboard.slug }}-{{ p.publication_id }}">Historique</button>
+                  {% if p.refresh_paused_at %}
+                    <button type="button" class="btn btn-link btn-sm" data-action="refresh-resume" data-pub="{{ p.publication_id }}">Reprendre</button>
+                  {% else %}
+                    <button type="button" class="btn btn-link btn-sm" data-action="refresh-pause" data-pub="{{ p.publication_id }}">Suspendre</button>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+      </div>
+
+      <div class="modal fade" id="cronLogModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="cronLogModalTitle">Historique</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+            </div>
+            <div class="modal-body" id="cronLogModalBody">
+              <div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -281,6 +320,67 @@
         btn.disabled = true;
         const res = await post(`/api/dashboards/${slug}/refresh-pause`, { publication_id: btn.dataset.pub, paused: false });
         if (!res.ok) { await reportFailure('Reprise', res); btn.disabled = false; return; }
+        window.location.reload();
+      });
+    });
+
+    async function openHistoryModal(targetSlug) {
+      const modal = new bootstrap.Modal(document.getElementById('cronLogModal'));
+      document.getElementById('cronLogModalTitle').textContent = 'Historique — ' + targetSlug;
+      document.getElementById('cronLogModalBody').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>';
+      modal.show();
+      let runs;
+      try {
+        const resp = await fetch('/api/cron/' + targetSlug + '/logs?limit=20');
+        runs = await resp.json();
+      } catch (err) {
+        document.getElementById('cronLogModalBody').innerHTML = '<p class="text-danger">Erreur: ' + err.message + '</p>';
+        return;
+      }
+      if (!runs.length) {
+        document.getElementById('cronLogModalBody').innerHTML = '<p class="text-muted text-center">Aucun historique</p>';
+        return;
+      }
+      const escape = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      let html = '<div class="list-group list-group-flush">';
+      for (const run of runs) {
+        const badge = run.status === 'success'
+          ? '<span class="badge bg-success">OK</span>'
+          : run.status === 'timeout'
+            ? '<span class="badge bg-warning text-dark">timeout</span>'
+            : '<span class="badge bg-danger">échec</span>';
+        const duration = (run.duration_ms / 1000).toFixed(1) + 's';
+        const raw = run.started_at.endsWith('Z') || run.started_at.includes('+') ? run.started_at : run.started_at + 'Z';
+        const date = new Date(raw).toLocaleString('fr-FR');
+        const id = 'history-output-' + run.id;
+        html += `
+          <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>${badge}<span class="ms-2">${date}</span><span class="text-muted small ms-1">(${run.trigger}, ${duration})</span></div>
+              <button class="btn btn-sm btn-link" onclick="document.getElementById('${id}').classList.toggle('d-none')"><i class="ri-arrow-down-s-line"></i> Sortie</button>
+            </div>
+            <pre class="mt-2 mb-0 d-none small" id="${id}" style="max-height: 300px; overflow: auto; white-space: pre-wrap; background: #f8f9fa; padding: 0.5rem; border-radius: 4px;">${escape(run.output) || '(aucune sortie)'}</pre>
+          </div>`;
+      }
+      html += '</div>';
+      document.getElementById('cronLogModalBody').innerHTML = html;
+    }
+
+    root.querySelector('[data-action="cron-history"]')?.addEventListener('click', (e) => {
+      openHistoryModal(e.currentTarget.dataset.slug);
+    });
+
+    document.querySelectorAll('#publier-block [data-action="pub-history"]').forEach((btn) => {
+      btn.addEventListener('click', () => openHistoryModal(btn.dataset.slug));
+    });
+
+    document.querySelectorAll('#publier-block [data-action="pub-run"]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const orig = btn.textContent;
+        btn.textContent = 'En cours…';
+        const res = await post(`/api/cron/${btn.dataset.slug}/run`, {});
+        if (!res.ok) { await reportFailure('Run', res); btn.disabled = false; btn.textContent = orig; return; }
         window.location.reload();
       });
     });

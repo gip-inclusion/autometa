@@ -101,6 +101,9 @@ def serve_interactive(request: Request, filename: str = ""):
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=404)
 
+    if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
+        return RedirectResponse(f"/interactive/{filename}/", status_code=301)
+
     mime_type, _ = mimetypes.guess_type(filename)
     mime_type = mime_type or "application/octet-stream"
     cache_control = "no-cache" if mime_type == "text/html" else "public, max-age=3600"

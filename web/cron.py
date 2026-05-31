@@ -93,6 +93,30 @@ def is_due(schedule: str) -> bool:
     return True
 
 
+def get_schedule_for_app(slug: str) -> str:
+    """Read just one APP.md to determine an app's cron schedule. Defaults to 'daily'."""
+    md_bytes = s3.interactive.download(f"{slug}/APP.md")
+    if md_bytes is None:
+        return "daily"
+    return get_schedule(parse_frontmatter_text(md_bytes.decode()))
+
+
+def next_cron_run(schedule: str, now=None):
+    """Next scheduled execution time (local tz). Matches `_sentry_monitor_config` cadence: 6h00 daily, or 6h00 Monday weekly."""
+    import datetime as _dt
+
+    now = now or now_local()
+    target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if schedule == "weekly":
+        days_ahead = (0 - target.weekday()) % 7
+        if days_ahead == 0 and now >= target:
+            days_ahead = 7
+        return target + _dt.timedelta(days=days_ahead)
+    if now >= target:
+        return target + _dt.timedelta(days=1)
+    return target
+
+
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
     """Toggle the `cron:` field in a task's metadata file.
 

@@ -46,6 +46,22 @@ def format_relative_date(dt):
         return dt.strftime("%d/%m/%Y à %H:%M")
 
 
+def format_future_date(dt):
+    """Friendly future timestamp: 'demain à 06:00', 'lundi à 06:00', 'le 12/06 à 06:00'."""
+    now = now_local()
+    dt = to_local(dt)
+    today = now.date()
+    dt_date = dt.date()
+    day_names = {0: "lundi", 1: "mardi", 2: "mercredi", 3: "jeudi", 4: "vendredi", 5: "samedi", 6: "dimanche"}
+    if dt_date == today:
+        return f"aujourd'hui à {dt.strftime('%H:%M')}"
+    if dt_date == today + timedelta(days=1):
+        return f"demain à {dt.strftime('%H:%M')}"
+    if dt_date < today + timedelta(days=7):
+        return f"{day_names[dt_date.weekday()]} à {dt.strftime('%H:%M')}"
+    return dt.strftime("le %d/%m à %H:%M")
+
+
 # Knowledge path constants
 KNOWLEDGE_ROOT = (config.BASE_DIR / "knowledge").resolve()
 KNOWLEDGE_DRAFTS_ROOT = config.BASE_DIR / "data" / "knowledge-drafts"
