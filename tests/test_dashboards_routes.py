@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
+from web.config import ADMIN_USERS
 from web.database import store
 from web.db import get_db
 from web.models import CronRun, Dashboard
 
-ADMIN = "louisjean.teitelbaum@inclusion.gouv.fr"
+ADMIN = ADMIN_USERS[0]
 
 
 def _make_dashboard(slug, *, archived=False, author="alice@x", title=None):
