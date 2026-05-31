@@ -2,6 +2,8 @@
 
 import pytest
 
+from web import cron
+
 
 @pytest.mark.parametrize(
     "method,path",
@@ -51,15 +53,11 @@ def test_view_script_missing_returns_404_not_500(client, mocker):
 
 
 def test_read_cron_script_local(tmp_path):
-    from web import cron
-
     script = tmp_path / "cron.py"
     script.write_text("print('local')")
     assert cron.read_cron_script({"cron_path": str(script)}) == "print('local')"
 
 
 def test_read_cron_script_s3(mocker):
-    from web import cron
-
     mocker.patch("web.cron.s3.interactive.download", return_value=b"print('s3')")
     assert cron.read_cron_script({"source": "s3", "cron_path": "x/cron.py"}) == "print('s3')"
