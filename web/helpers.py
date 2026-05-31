@@ -20,6 +20,11 @@ def now_local():
     return datetime.now(DISPLAY_TZ)
 
 
+def sanitize_for_log(value: str) -> str:
+    """Strip CR/LF from user-controlled values before logging (log-injection guard)."""
+    return value.replace("\r", "").replace("\n", "")
+
+
 def to_local(dt):
     return dt.astimezone(DISPLAY_TZ)
 

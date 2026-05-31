@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from web import alerts, config, s3
 from web.db import get_db
+from web.helpers import sanitize_for_log
 from web.models import Dashboard, DashboardPublication
 
 logger = logging.getLogger(__name__)
@@ -26,11 +27,6 @@ class PublicationBlocked(Exception):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
-
-
-def _log_safe(value: str) -> str:
-    """Strip CR/LF from user-controlled values before logging (log-injection guard)."""
-    return value.replace("\r", "").replace("\n", "")
 
 
 def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
@@ -121,10 +117,10 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
         session.flush()
         logger.info(
             "publish slug=%s env=%s id=%s by=%s",
-            _log_safe(slug),
+            sanitize_for_log(slug),
             environment,
             publication_id,
-            _log_safe(publisher_email),
+            sanitize_for_log(publisher_email),
         )
         return _to_dict(pub)
 
@@ -144,7 +140,7 @@ def unpublish(publication_id: str) -> bool:
         )
         pub.unpublished_at = datetime.now(timezone.utc)
         logger.info(
-            "unpublish slug=%s env=%s id=%s", _log_safe(pub.dashboard_slug), pub.environment, pub.publication_id
+            "unpublish slug=%s env=%s id=%s", sanitize_for_log(pub.dashboard_slug), pub.environment, pub.publication_id
         )
         return True
 
@@ -182,7 +178,7 @@ def _set_paused(publication_id: str, *, paused: bool) -> bool:
         pub.refresh_paused_at = datetime.now(timezone.utc) if paused else None
         logger.info(
             "refresh_pause slug=%s id=%s paused=%s",
-            _log_safe(pub.dashboard_slug),
+            sanitize_for_log(pub.dashboard_slug),
             pub.publication_id,
             paused,
         )
@@ -246,7 +242,7 @@ def refresh(publication_id: str) -> None:
             pub.last_refresh_error = _short_error(exc)
         logger.info(
             "refresh slug=%s id=%s status=%s",
-            _log_safe(pub.dashboard_slug),
+            sanitize_for_log(pub.dashboard_slug),
             pub.publication_id,
             pub.last_refresh_status,
         )

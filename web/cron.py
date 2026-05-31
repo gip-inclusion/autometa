@@ -15,7 +15,7 @@ from pathlib import Path
 import sentry_sdk
 from sqlalchemy import select
 
-from web.helpers import now_local, utcnow
+from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
 
 from . import alerts, config, publications, s3
@@ -31,11 +31,6 @@ MAX_OUTPUT_SIZE = 50_000
 
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
-
-
-def _sanitize_for_log(value: str) -> str:
-    """Remove line-break characters to prevent log injection."""
-    return value.replace("\r", "").replace("\n", "")
 
 
 def parse_frontmatter_text(content: str) -> dict:
@@ -338,7 +333,7 @@ def upload_s3_results(
     if uploaded:
         logger.info(
             "Cron upload %s: %d uploaded, %d unchanged",
-            _sanitize_for_log(label),
+            sanitize_for_log(label),
             uploaded,
             skipped,
         )
