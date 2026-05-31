@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import mimetypes
-import re
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 
@@ -72,8 +71,6 @@ if config.COMMON_DIR.exists():
     app.mount("/common", StaticFiles(directory=str(config.COMMON_DIR)), name="common")
 
 
-_SAFE_INTERACTIVE_PATH = re.compile(r"[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_.-]+)*")
-
 _STATIC_ASSET_EXTS = frozenset({
     ".css",
     ".js",
@@ -104,11 +101,7 @@ def serve_interactive(request: Request, filename: str = ""):
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=404)
 
-    if (
-        "." not in filename.rsplit("/", 1)[-1]
-        and _SAFE_INTERACTIVE_PATH.fullmatch(filename)
-        and s3_module.interactive.exists(f"{filename}/index.html")
-    ):
+    if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
         return RedirectResponse(f"/interactive/{filename}/", status_code=301)
 
     mime_type, _ = mimetypes.guess_type(filename)
