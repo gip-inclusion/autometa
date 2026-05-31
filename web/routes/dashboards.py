@@ -1,6 +1,5 @@
 """Dashboard management screen routes."""
 
-import logging
 import re
 from typing import Annotated
 
@@ -16,8 +15,6 @@ from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
 
 from .html import get_sidebar_data, group_items_by_date
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
