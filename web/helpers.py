@@ -10,6 +10,7 @@ from . import config
 from .config import DISPLAY_TIMEZONE
 
 DISPLAY_TZ = ZoneInfo(DISPLAY_TIMEZONE)
+_DAY_NAMES = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
 
 
 def utcnow():
@@ -35,8 +36,6 @@ def format_relative_date(dt):
     today = now.date()
     dt_date = dt.date()
 
-    day_names = {0: "lundi", 1: "mardi", 2: "mercredi", 3: "jeudi", 4: "vendredi", 5: "samedi", 6: "dimanche"}
-
     days_since_monday = today.weekday()
     this_week_start = today - timedelta(days=days_since_monday)
 
@@ -45,8 +44,7 @@ def format_relative_date(dt):
     elif dt_date == today - timedelta(days=1):
         return f"hier, {dt.strftime('%H:%M')}"
     elif this_week_start <= dt_date < today:
-        day_name = day_names[dt_date.weekday()]
-        return f"{day_name} {dt.strftime('%H:%M')}"
+        return f"{_DAY_NAMES[dt_date.weekday()]} {dt.strftime('%H:%M')}"
     else:
         return dt.strftime("%d/%m/%Y à %H:%M")
 
@@ -57,13 +55,12 @@ def format_future_date(dt):
     dt = to_local(dt)
     today = now.date()
     dt_date = dt.date()
-    day_names = {0: "lundi", 1: "mardi", 2: "mercredi", 3: "jeudi", 4: "vendredi", 5: "samedi", 6: "dimanche"}
     if dt_date == today:
         return f"aujourd'hui à {dt.strftime('%H:%M')}"
     if dt_date == today + timedelta(days=1):
         return f"demain à {dt.strftime('%H:%M')}"
     if dt_date < today + timedelta(days=7):
-        return f"{day_names[dt_date.weekday()]} à {dt.strftime('%H:%M')}"
+        return f"{_DAY_NAMES[dt_date.weekday()]} à {dt.strftime('%H:%M')}"
     return dt.strftime("le %d/%m à %H:%M")
 
 
