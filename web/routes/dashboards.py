@@ -80,7 +80,7 @@ def dashboards_page(
 
 
 @router.get("/dashboards/{slug}")
-def dashboard_redirect(slug: Slug):
+def dashboard_redirect(slug: Slug, user_email: str = Depends(get_current_user)):
     target = f"/dashboards/{slug}/edit"
     if not _INTERNAL_REDIRECT_PATH.fullmatch(target):
         return JSONResponse({"error": "Invalid slug"}, status_code=422)
