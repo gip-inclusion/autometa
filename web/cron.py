@@ -1,6 +1,7 @@
 """Cron runner for data refresh scripts."""
 
 import argparse
+import datetime as dt
 import hashlib
 import logging
 import os
@@ -103,17 +104,15 @@ def get_schedule_for_app(slug: str) -> str:
 
 def next_cron_run(schedule: str, now=None):
     """Next scheduled execution time (local tz). Matches `_sentry_monitor_config` cadence: 6h00 daily, or 6h00 Monday weekly."""
-    import datetime as _dt
-
     now = now or now_local()
     target = now.replace(hour=6, minute=0, second=0, microsecond=0)
     if schedule == "weekly":
         days_ahead = (0 - target.weekday()) % 7
         if days_ahead == 0 and now >= target:
             days_ahead = 7
-        return target + _dt.timedelta(days=days_ahead)
+        return target + dt.timedelta(days=days_ahead)
     if now >= target:
-        return target + _dt.timedelta(days=1)
+        return target + dt.timedelta(days=1)
     return target
 
 
