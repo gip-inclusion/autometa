@@ -71,7 +71,6 @@ JSON sur stdout. Exemple `publish` :
 Injectées automatiquement par `web/agents/cli.py` :
 
 - `AUTOMETA_USER_EMAIL` — email de l'utilisateur qui publie (`published_by` dans la ligne DB).
-- `AUTOMETA_CONVERSATION_ID` — loggé pour audit.
 
 Les variables `PUBLIC_S3_BUCKET_*` et `PUBLIC_DASHBOARDS_*_URL` doivent être configurées dans l'environnement Scalingo. En dev local sans MinIO public, `publish` échouera au push vers le bucket public — c'est attendu.
 
