@@ -1,6 +1,5 @@
 """Dashboard management screen routes."""
 
-import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -22,7 +21,7 @@ router = APIRouter()
 VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
-_PUBLICATION_ID_RE = re.compile(r"^[a-z0-9]{6}$")
+PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
 
 
 @router.get("/dashboards")
@@ -173,13 +172,8 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
         return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
 
 
-@router.post("/api/dashboards/{slug}/unpublish")
-async def unpublish_dashboard(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
-    body = await request.body()
-    payload = (await request.json()) if body else {}
-    publication_id = payload.get("publication_id", "")
-    if not _PUBLICATION_ID_RE.match(publication_id):
-        return JSONResponse({"error": "Invalid publication_id"}, status_code=400)
+@router.post("/api/publications/{publication_id}/unpublish")
+async def unpublish_publication(publication_id: PublicationId, user_email: str = Depends(get_current_user)):
     if not unpublish(publication_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return {"ok": True}

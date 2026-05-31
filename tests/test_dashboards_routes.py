@@ -261,13 +261,13 @@ def test_unpublish_endpoint(client, mocker):
     mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     mocker.patch("web.publications.s3.delete_prefix", return_value=1)
     pub = client.post("/api/dashboards/route-unp/publish", json={"environment": "staging"}, headers=_h()).json()
-    r = client.post("/api/dashboards/route-unp/unpublish", json={"publication_id": pub["publication_id"]}, headers=_h())
+    r = client.post(f"/api/publications/{pub['publication_id']}/unpublish", headers=_h())
     assert r.status_code == 200
 
 
-def test_unpublish_endpoint_bad_id_400(client):
-    r = client.post("/api/dashboards/route-unp2/unpublish", json={"publication_id": "BAD!"}, headers=_h())
-    assert r.status_code == 400
+def test_unpublish_endpoint_bad_id_422(client):
+    r = client.post("/api/publications/BAD!/unpublish", headers=_h())
+    assert r.status_code == 422
 
 
 def test_detail_shows_publish_buttons(client):

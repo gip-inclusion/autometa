@@ -228,7 +228,7 @@
     document.querySelectorAll('#publier-block [data-action=unpublish]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        const res = await post(`/api/dashboards/${slug}/unpublish`, { publication_id: btn.dataset.pub });
+        const res = await post(`/api/publications/${btn.dataset.pub}/unpublish`, {});
         if (!res.ok) {
           await reportFailure('Dépublication', res);
           btn.disabled = false;
