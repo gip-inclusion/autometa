@@ -215,23 +215,28 @@ async def unpublish_publication(publication_id: PublicationId, user_email: str =
     return {"ok": True}
 
 
-@router.post("/api/dashboards/{slug}/refresh-pause")
-async def toggle_refresh_pause(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
-    body = await request.body()
-    payload = (await request.json()) if body else {}
-    publication_id = payload.get("publication_id", "")
-    paused = bool(payload.get("paused", True))
-    if not _PUBLICATION_ID_RE.match(publication_id):
-        return JSONResponse({"error": "Invalid publication_id"}, status_code=400)
-    changed = pause_refresh(publication_id) if paused else resume_refresh(publication_id)
-    if not changed:
-        with get_db() as session:
-            existing = session.scalar(
+@router.post("/api/publications/{publication_id}/refresh-pause")
+async def pause_publication_refresh(publication_id: PublicationId, user_email: str = Depends(get_current_user)):
+    if pause_refresh(publication_id) or _publication_exists(publication_id):
+        return {"ok": True, "paused": True}
+    return JSONResponse({"error": "Not found"}, status_code=404)
+
+
+@router.post("/api/publications/{publication_id}/refresh-resume")
+async def resume_publication_refresh(publication_id: PublicationId, user_email: str = Depends(get_current_user)):
+    if resume_refresh(publication_id) or _publication_exists(publication_id):
+        return {"ok": True, "paused": False}
+    return JSONResponse({"error": "Not found"}, status_code=404)
+
+
+def _publication_exists(publication_id: str) -> bool:
+    with get_db() as session:
+        return (
+            session.scalar(
                 select(DashboardPublication).where(
                     DashboardPublication.publication_id == publication_id,
                     DashboardPublication.unpublished_at.is_(None),
                 )
             )
-        if existing is None:
-            return JSONResponse({"error": "Not found"}, status_code=404)
-    return {"ok": True, "paused": paused}
+            is not None
+        )

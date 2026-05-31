@@ -356,38 +356,22 @@ def test_refresh_pause_endpoint_pauses_and_resumes(client, mocker):
     ).json()
     pid = pub["publication_id"]
 
-    r = client.post(
-        "/api/dashboards/route-pause/refresh-pause",
-        json={"publication_id": pid, "paused": True},
-        headers=_h(),
-    )
+    r = client.post(f"/api/publications/{pid}/refresh-pause", headers=_h())
     assert r.status_code == 200
     assert r.json() == {"ok": True, "paused": True}
 
-    r = client.post(
-        "/api/dashboards/route-pause/refresh-pause",
-        json={"publication_id": pid, "paused": False},
-        headers=_h(),
-    )
+    r = client.post(f"/api/publications/{pid}/refresh-resume", headers=_h())
     assert r.status_code == 200
     assert r.json() == {"ok": True, "paused": False}
 
 
-def test_refresh_pause_endpoint_bad_id_400(client):
-    r = client.post(
-        "/api/dashboards/route-pause-bad/refresh-pause",
-        json={"publication_id": "BAD!", "paused": True},
-        headers=_h(),
-    )
-    assert r.status_code == 400
+def test_refresh_pause_endpoint_bad_id_422(client):
+    r = client.post("/api/publications/BAD!/refresh-pause", headers=_h())
+    assert r.status_code == 422
 
 
 def test_refresh_pause_endpoint_unknown_404(client):
-    r = client.post(
-        "/api/dashboards/route-pause-404/refresh-pause",
-        json={"publication_id": "abcdef", "paused": True},
-        headers=_h(),
-    )
+    r = client.post("/api/publications/abcdef/refresh-pause", headers=_h())
     assert r.status_code == 404
 
 
@@ -403,16 +387,8 @@ def test_refresh_pause_endpoint_idempotent_200(client, mocker):
     ).json()
     pid = pub["publication_id"]
 
-    client.post(
-        "/api/dashboards/route-pause-idem/refresh-pause",
-        json={"publication_id": pid, "paused": True},
-        headers=_h(),
-    )
-    r = client.post(
-        "/api/dashboards/route-pause-idem/refresh-pause",
-        json={"publication_id": pid, "paused": True},
-        headers=_h(),
-    )
+    client.post(f"/api/publications/{pid}/refresh-pause", headers=_h())
+    r = client.post(f"/api/publications/{pid}/refresh-pause", headers=_h())
     assert r.status_code == 200
     assert r.json() == {"ok": True, "paused": True}
 
@@ -465,11 +441,7 @@ def test_detail_shows_reprendre_when_paused(client, mocker):
         json={"environment": "staging"},
         headers=_h(),
     ).json()
-    client.post(
-        "/api/dashboards/ui-resume/refresh-pause",
-        json={"publication_id": pub["publication_id"], "paused": True},
-        headers=_h(),
-    )
+    client.post(f"/api/publications/{pub['publication_id']}/refresh-pause", headers=_h())
     r = client.get("/dashboards/ui-resume/edit", headers=_h())
     assert r.status_code == 200
     assert "Reprendre" in r.text

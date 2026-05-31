@@ -309,7 +309,7 @@
     document.querySelectorAll('#publier-block [data-action=refresh-pause]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        const res = await post(`/api/dashboards/${slug}/refresh-pause`, { publication_id: btn.dataset.pub, paused: true });
+        const res = await post(`/api/publications/${btn.dataset.pub}/refresh-pause`, {});
         if (!res.ok) { await reportFailure('Suspension', res); btn.disabled = false; return; }
         window.location.reload();
       });
@@ -318,7 +318,7 @@
     document.querySelectorAll('#publier-block [data-action=refresh-resume]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        const res = await post(`/api/dashboards/${slug}/refresh-pause`, { publication_id: btn.dataset.pub, paused: false });
+        const res = await post(`/api/publications/${btn.dataset.pub}/refresh-resume`, {});
         if (!res.ok) { await reportFailure('Reprise', res); btn.disabled = false; return; }
         window.location.reload();
       });
