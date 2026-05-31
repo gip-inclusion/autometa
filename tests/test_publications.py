@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from web import publications
+from web import config, publications
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
 from web.publications import PublicationBlocked
@@ -122,4 +122,4 @@ def test_unpublish_soft_deletes_and_clears_public(client, mocker):
     pub = publications.publish("pub-unp", "staging", "bob@x")
     assert publications.unpublish(pub["publication_id"]) is True
     assert publications.list_publications("pub-unp", active_only=True) == []
-    delete.assert_called_with(publications._public_bucket("staging"), f"dashboards/pub-unp-{pub['publication_id']}/")
+    delete.assert_called_with(config.PUBLIC_S3_BUCKET_STAGING, f"dashboards/pub-unp-{pub['publication_id']}/")
