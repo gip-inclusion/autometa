@@ -162,7 +162,7 @@ uploads = S3Store("interactive/uploads/")
 
 
 def list_prefix(bucket: str, prefix: str) -> list[str]:
-    """All object keys under prefix in the given bucket."""
+    """All object keys under prefix in the given bucket. Callers must constrain bucket/prefix to trusted, validated inputs — no user-controlled values reach here."""
     keys: list[str] = []
     paginator = _client.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
