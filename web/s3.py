@@ -173,8 +173,31 @@ def list_prefix(bucket: str, prefix: str) -> list[str]:
 
 def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
     """Copy every object under src_prefix (in S3_BUCKET) to dst_bucket/dst_prefix. Returns count."""
+    return _copy_keys(list_prefix(config.S3_BUCKET, src_prefix), src_prefix, dst_bucket, dst_prefix)
+
+
+def delete_prefix(bucket: str, prefix: str) -> int:
+    """Delete every object under prefix in the given bucket. Returns count."""
+    keys = list_prefix(bucket, prefix)
+    for key in keys:
+        _client.delete_object(Bucket=bucket, Key=key)
+    return len(keys)
+
+
+def sync_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+    """Copy src_prefix onto dst_bucket/dst_prefix, then prune destination orphans (copy before delete)."""
+    src_keys = list_prefix(config.S3_BUCKET, src_prefix)
+    copied = _copy_keys(src_keys, src_prefix, dst_bucket, dst_prefix)
+    src_rel = {key[len(src_prefix) :] for key in src_keys}
+    for dst_key in list_prefix(dst_bucket, dst_prefix):
+        if dst_key[len(dst_prefix) :] not in src_rel:
+            _client.delete_object(Bucket=dst_bucket, Key=dst_key)
+    return copied
+
+
+def _copy_keys(src_keys: list[str], src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
     count = 0
-    for src_key in list_prefix(config.S3_BUCKET, src_prefix):
+    for src_key in src_keys:
         dst_key = f"{dst_prefix}{src_key[len(src_prefix) :]}"
         try:
             _client.copy_object(
@@ -188,21 +211,3 @@ def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
             _client.put_object(Bucket=dst_bucket, Key=dst_key, Body=body)
         count += 1
     return count
-
-
-def delete_prefix(bucket: str, prefix: str) -> int:
-    """Delete every object under prefix in the given bucket. Returns count."""
-    keys = list_prefix(bucket, prefix)
-    for key in keys:
-        _client.delete_object(Bucket=bucket, Key=key)
-    return len(keys)
-
-
-def sync_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
-    """Copy src_prefix onto dst_bucket/dst_prefix, then prune destination orphans (copy before delete)."""
-    copied = copy_prefix(src_prefix, dst_bucket, dst_prefix)
-    src_rel = {key[len(src_prefix) :] for key in list_prefix(config.S3_BUCKET, src_prefix)}
-    for dst_key in list_prefix(dst_bucket, dst_prefix):
-        if dst_key[len(dst_prefix) :] not in src_rel:
-            _client.delete_object(Bucket=dst_bucket, Key=dst_key)
-    return copied
