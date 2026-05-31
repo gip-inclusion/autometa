@@ -14,6 +14,7 @@ from web.models import Dashboard, DashboardPublication
 logger = logging.getLogger(__name__)
 
 ENVIRONMENTS = ("staging", "production")
+BLOCKED_CODES = frozenset({"archived", "uses-query-api", "empty", "public-bucket-not-configured", "unknown"})
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 
 

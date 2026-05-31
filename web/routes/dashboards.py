@@ -13,7 +13,7 @@ from web.cron import get_last_runs
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
-from web.publications import PublicationBlocked, list_publications, publish, unpublish
+from web.publications import BLOCKED_CODES, ENVIRONMENTS, PublicationBlocked, list_publications, publish, unpublish
 
 from .html import get_sidebar_data, group_items_by_date
 
@@ -23,7 +23,6 @@ VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 _PUBLICATION_ID_RE = re.compile(r"^[a-z0-9]{6}$")
-_PUBLISH_BLOCKED_CODES = {"archived", "uses-query-api", "empty", "public-bucket-not-configured", "unknown"}
 
 
 @router.get("/dashboards")
@@ -165,12 +164,12 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
     body = await request.body()
     payload = (await request.json()) if body else {}
     environment = payload.get("environment", "staging")
-    if environment not in ("staging", "production"):
+    if environment not in ENVIRONMENTS:
         return JSONResponse({"error": "Invalid environment"}, status_code=400)
     try:
         return publish(slug, environment, user_email)
     except PublicationBlocked as exc:
-        reason = exc.code if exc.code in _PUBLISH_BLOCKED_CODES else "blocked"
+        reason = exc.code if exc.code in BLOCKED_CODES else "blocked"
         return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
 
 
