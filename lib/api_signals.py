@@ -19,6 +19,8 @@ import re
 import sys
 from typing import Optional
 
+from web import config
+
 # Signal pattern for parsing — accepts both legacy MATOMETA and current AUTOMETA prefix
 SIGNAL_PATTERN = re.compile(r"\[(?:AUTOMETA|MATOMETA):API:({.*?})\]")
 
@@ -31,6 +33,12 @@ def emit_api_signal(
     sql: Optional[str] = None,
     card_id: Optional[int] = None,
 ) -> None:
+    # Why: the [AUTOMETA:API:...] line is parsed by the runner from agent subprocess stdout.
+    # Outside that context (main process, cron jobs) it would land as plain text in Datadog
+    # logs with no consumer. Skip emission when no agent conversation is active.
+    if not config.agent_conversation_id():
+        return
+
     signal = {
         "source": source,
         "instance": instance,
@@ -45,7 +53,6 @@ def emit_api_signal(
     if card_id is not None:
         signal["card_id"] = card_id
 
-    # Print to stdout (will be captured in tool_result)
     print(f"[AUTOMETA:API:{json.dumps(signal)}]", file=sys.stdout, flush=True)
 
 

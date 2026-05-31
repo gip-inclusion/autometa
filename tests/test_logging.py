@@ -1,11 +1,13 @@
+import importlib
+import io
 import json
 import logging
-import time
 
+import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
-from web.log import CorrelationFilter, DatadogHandler, build_json_formatter, setup_logging
+from web.log import CorrelationFilter, build_json_formatter, setup_logging
 from web.request_context import (
     current_client_ip,
     current_conversation_id,
@@ -52,122 +54,90 @@ def test_correlation_filter_picks_up_active_span():
     assert len(record.trace_id) == 32
     assert record.span_id is not None
     assert len(record.span_id) == 16
+    assert record.trace_flags is not None
 
 
-def test_json_formatter_serializes_correlation_fields():
+def test_otlp_formatter_emits_core_fields():
     formatter = build_json_formatter()
-    record = _make_record("structured")
-    record.trace_id = "deadbeef" * 4
-    record.span_id = "cafebabe" * 2
-    record.request_id = "r"
-    record.conversation_id = "c"
+    record = _make_record("structured", logging.WARNING)
+    CorrelationFilter().filter(record)
 
     payload = json.loads(formatter.format(record))
-    assert payload["message"] == "structured"
-    assert payload["level"] == "INFO"
+    assert payload["body"] == "structured"
+    assert payload["severity_text"] == "WARNING"
+    assert payload["severity_number"] == 13
+    assert isinstance(payload["timestamp_unix_nano"], int)
+    assert isinstance(payload["observed_timestamp_unix_nano"], int)
+    assert payload["instrumentation_scope"] == {"name": "test"}
+    assert payload["resource"]["service.name"] == "autometa"
+    assert "deployment.environment" in payload["resource"]
+
+
+def test_otlp_formatter_includes_trace_and_attributes_when_present():
+    formatter = build_json_formatter()
+    record = _make_record("with-attrs")
+    record.trace_id = "deadbeef" * 4
+    record.span_id = "cafebabe" * 2
+    record.trace_flags = 1
+    record.request_id = "r"
+    record.conversation_id = "c"
+    record.user_id = "u"
+    record.client_ip = "1.2.3.4"
+
+    payload = json.loads(formatter.format(record))
     assert payload["trace_id"] == "deadbeef" * 4
     assert payload["span_id"] == "cafebabe" * 2
-    assert payload["request_id"] == "r"
-    assert payload["conversation_id"] == "c"
+    assert payload["trace_flags"] == 1
+    assert payload["attributes"] == {
+        "request.id": "r",
+        "session.id": "c",
+        "enduser.id": "u",
+        "client.address": "1.2.3.4",
+    }
 
 
-def test_datadog_handler_queues_and_sends(mocker):
-    mocker.patch("web.config.HOST", "test-host")
-    mock_post = mocker.patch("httpx.Client.post")
+def test_otlp_formatter_promotes_extras_to_attributes():
+    formatter = build_json_formatter()
+    record = logging.LogRecord("test", logging.INFO, "f", 1, "with-extras", (), None)
+    record.__dict__["http.request.method"] = "GET"
+    record.__dict__["http.response.status_code"] = 200
+    record.__dict__["url.path"] = "/api/x"
 
-    handler = DatadogHandler("fake-key", flush_interval=0.1)
-
-    handler.emit(_make_record("hello", logging.WARNING))
-
-    time.sleep(0.3)
-    handler.close()
-
-    assert mock_post.call_count >= 1
-    payload = json.loads(mock_post.call_args.kwargs["content"])
-    assert payload[0]["hostname"] == "test-host"
-    assert payload[0]["service"] == "autometa"
-    assert payload[0]["level"] == "WARNING"
-    assert payload[0]["message"] == "hello"
-    assert mock_post.call_args.kwargs["headers"]["DD-API-KEY"] == "fake-key"
+    payload = json.loads(formatter.format(record))
+    assert payload["attributes"]["http.request.method"] == "GET"
+    assert payload["attributes"]["http.response.status_code"] == 200
+    assert payload["attributes"]["url.path"] == "/api/x"
 
 
-def test_datadog_entry_carries_correlation_ids_from_filter_chain(mocker):
-    """End-to-end: ContextVars + active span → CorrelationFilter → DatadogHandler → payload."""
-    mocker.patch("web.config.HOST", "test-host")
-    mock_post = mocker.patch("httpx.Client.post")
+def test_otlp_formatter_omits_trace_and_attributes_when_absent():
+    formatter = build_json_formatter()
+    record = _make_record("bare")
+    CorrelationFilter().filter(record)
 
-    trace.set_tracer_provider(TracerProvider())
-    tracer = trace.get_tracer("test")
+    payload = json.loads(formatter.format(record))
+    assert "trace_id" not in payload
+    assert "span_id" not in payload
+    assert "attributes" not in payload
 
-    handler = DatadogHandler("k", flush_interval=0.1)
 
-    tokens = [
-        current_request_id.set("req-99"),
-        current_conversation_id.set("conv-3"),
-        current_user_id.set("alice"),
-        current_client_ip.set("10.0.0.1"),
-    ]
+def test_otlp_formatter_renders_exception():
+    formatter = build_json_formatter()
     try:
-        with tracer.start_as_current_span("unit") as span:
-            expected_trace_id = format(span.get_span_context().trace_id, "032x")
-            expected_span_id = format(span.get_span_context().span_id, "016x")
-            record = _make_record("boom", logging.ERROR)
-            CorrelationFilter().filter(record)
-            handler.emit(record)
-    finally:
-        current_client_ip.reset(tokens[3])
-        current_user_id.reset(tokens[2])
-        current_conversation_id.reset(tokens[1])
-        current_request_id.reset(tokens[0])
+        raise ValueError("boom")
+    except ValueError:
+        import sys
 
-    time.sleep(0.3)
-    handler.close()
+        record = logging.LogRecord("test", logging.ERROR, "f", 1, "fail", (), sys.exc_info())
 
-    payload = json.loads(mock_post.call_args.kwargs["content"])[0]
-    assert payload["trace_id"] == expected_trace_id
-    assert payload["span_id"] == expected_span_id
-    assert payload["request_id"] == "req-99"
-    assert payload["conversation_id"] == "conv-3"
-    assert payload["user_id"] == "alice"
-    assert payload["client_ip"] == "10.0.0.1"
+    payload = json.loads(formatter.format(record))
+    assert "exception" in payload
+    assert "ValueError: boom" in payload["exception"]
 
 
-def test_datadog_handler_survives_network_error(mocker):
-    mocker.patch("web.config.HOST", "test-host")
-    mocker.patch("httpx.Client.post", side_effect=ConnectionError("down"))
-
-    handler = DatadogHandler("fake-key", flush_interval=0.1)
-
-    handler.emit(_make_record("boom", logging.ERROR))
-
-    time.sleep(0.3)
-    handler.close()
-
-
-def test_setup_logging_adds_datadog_handler_when_configured(mocker):
-    mocker.patch("web.config.DATADOG_API_KEY", "test-key")
-    mocker.patch("web.config.HOST", "test-host")
-    mocker.patch("httpx.Client.post")
-
-    setup_logging(level=logging.INFO)
-
-    handler_types = [type(h).__name__ for h in logging.root.handlers]
-    assert "StreamHandler" in handler_types
-    assert "DatadogHandler" in handler_types
-
-    for h in logging.root.handlers[:]:
-        if isinstance(h, DatadogHandler):
-            h.close()
-            logging.root.removeHandler(h)
-
-
-def test_setup_logging_correlates_child_logger_output_with_active_span(mocker):
-    """A log emitted by a CHILD logger (typical case) must carry trace_id in JSON output.
+def test_setup_logging_correlates_child_logger_output_with_active_span():
+    """A log emitted by a CHILD logger must carry trace_id in JSON output.
     Regression test: a filter on root logger alone would miss these records — only
     handler-level filters fire on child→ancestor handler dispatch."""
-    import io
-
-    mocker.patch("web.config.DATADOG_API_KEY", "")
     trace.set_tracer_provider(TracerProvider())
     tracer = trace.get_tracer("test")
 
@@ -184,34 +154,90 @@ def test_setup_logging_correlates_child_logger_output_with_active_span(mocker):
 
     line = buf.getvalue().strip().splitlines()[-1]
     payload = json.loads(line)
-    assert payload["message"] == "hello from child"
+    assert payload["body"] == "hello from child"
     assert payload["trace_id"] == expected_trace_id, (
         "child-logger records must be enriched too — filter must live on the handler, not the root logger"
     )
 
 
-def test_setup_logging_suppresses_httpx_logs(mocker):
-    mocker.patch("web.config.DATADOG_API_KEY", "test-key")
-    mocker.patch("web.config.HOST", "test-host")
-    mocker.patch("httpx.Client.post")
-
+def test_setup_logging_suppresses_noisy_third_party_loggers():
     setup_logging(level=logging.INFO)
 
     assert logging.getLogger("httpx").level >= logging.WARNING
     assert logging.getLogger("httpcore").level >= logging.WARNING
     assert logging.getLogger("paramiko").level >= logging.WARNING
 
-    for h in logging.root.handlers[:]:
-        if isinstance(h, DatadogHandler):
-            h.close()
-            logging.root.removeHandler(h)
+
+def test_setup_logging_silences_uvicorn_access_below_warning():
+    setup_logging(level=logging.INFO)
+
+    assert logging.getLogger("uvicorn.access").level >= logging.WARNING
 
 
-def test_setup_logging_no_datadog_without_key(mocker):
-    mocker.patch("web.config.DATADOG_API_KEY", "")
-
+def test_setup_logging_attaches_only_stream_handler():
     setup_logging(level=logging.INFO)
 
     handler_types = [type(h).__name__ for h in logging.root.handlers]
-    assert "StreamHandler" in handler_types
-    assert "DatadogHandler" not in handler_types
+    assert handler_types == ["StreamHandler"]
+
+
+@pytest.mark.parametrize("logger_name", ["uvicorn", "uvicorn.error", "uvicorn.access"])
+def test_setup_logging_routes_uvicorn_loggers_through_root(logger_name):
+    pre = logging.getLogger(logger_name)
+    pre.handlers.append(logging.StreamHandler())
+    pre.propagate = False
+
+    setup_logging(level=logging.INFO)
+
+    lg = logging.getLogger(logger_name)
+    assert lg.handlers == []
+    assert lg.propagate is True
+
+
+def test_webinaires_main_calls_setup_logging(mocker):
+    setup = mocker.patch("lib.webinaires.setup_logging")
+    mocker.patch("lib.webinaires.DatalakeWriter", side_effect=RuntimeError("stop"))
+    from lib.webinaires import main
+
+    with pytest.raises(RuntimeError, match="stop"):
+        main()
+    setup.assert_called_once()
+
+
+def test_slack_feedback_main_calls_setup_logging(mocker):
+    setup = mocker.patch("web.slack_feedback.setup_logging")
+    mocker.patch("web.config.SLACK_BOT_TOKEN", "")
+    from web.slack_feedback import main
+
+    with pytest.raises(SystemExit):
+        main()
+    setup.assert_called_once()
+
+
+def test_cron_main_calls_setup_logging(mocker):
+    setup = mocker.patch("web.cron.setup_logging")
+    mocker.patch("sys.argv", ["cron", "--list"])
+    mocker.patch("web.cron.discover_cron_tasks", return_value=[])
+    from web.cron import main
+
+    main()
+    setup.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "env_value,expected",
+    [(None, "prod"), ("staging", "staging"), ("dev", "dev")],
+)
+def test_deployment_environment_reads_from_env(monkeypatch, env_value, expected):
+    if env_value is None:
+        monkeypatch.delenv("DEPLOYMENT_ENV", raising=False)
+    else:
+        monkeypatch.setenv("DEPLOYMENT_ENV", env_value)
+    from web import config
+
+    try:
+        importlib.reload(config)
+        assert config.SENTRY_ENVIRONMENT == expected
+    finally:
+        monkeypatch.delenv("DEPLOYMENT_ENV", raising=False)
+        importlib.reload(config)

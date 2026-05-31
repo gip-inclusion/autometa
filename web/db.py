@@ -1,11 +1,12 @@
 """Database connection infrastructure (PostgreSQL + SQLAlchemy)."""
 
 import logging
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import config
@@ -14,6 +15,33 @@ logger = logging.getLogger(__name__)
 
 engine = None
 SessionLocal = None
+
+SLOW_QUERY_THRESHOLD_MS = 100
+
+
+def _attach_slow_query_listener(engine):
+    @event.listens_for(engine, "before_cursor_execute")
+    def _before(conn, cursor, statement, parameters, context, executemany):
+        context._autometa_query_start = time.perf_counter()
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def _after(conn, cursor, statement, parameters, context, executemany):
+        start = getattr(context, "_autometa_query_start", None)
+        if start is None:
+            return
+        duration_ms = (time.perf_counter() - start) * 1000
+        if duration_ms < SLOW_QUERY_THRESHOLD_MS:
+            return
+        op = statement.lstrip().split(None, 1)[0].upper() if statement else ""
+        rowcount = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else None
+        logger.info(
+            "db.slow_query",
+            extra={
+                "db.operation": op,
+                "db.duration": round(duration_ms, 2),
+                "db.rowcount": rowcount,
+            },
+        )
 
 
 def get_engine():
@@ -26,6 +54,7 @@ def get_engine():
             pool_pre_ping=True,
         )
         SessionLocal = sessionmaker(bind=engine)
+        _attach_slow_query_listener(engine)
         logger.info("SQLAlchemy engine created (pool_size=2, max_overflow=3)")
     return engine
 

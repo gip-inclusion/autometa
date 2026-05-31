@@ -108,9 +108,10 @@ def test_metabase_database_id_none_defaults():
     assert api.database_id == 2
 
 
-def test_api_signal_card_id_zero(mocker):
+def test_api_signal_card_id_zero(mocker, monkeypatch):
     from lib.api_signals import emit_api_signal
 
+    monkeypatch.setenv("AUTOMETA_CONVERSATION_ID", "test-conv")
     captured = io.StringIO()
     mocker.patch("sys.stdout", captured)
     emit_api_signal(

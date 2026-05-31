@@ -48,7 +48,7 @@ def generate_conversation_title(user_message: str, conv_id: str) -> None:
                 store.update_conversation(conv_id, title=title)
         # Why: runs in a background daemon thread for title generation, must not crash.
         except Exception as exc:
-            logger.warning(f"Failed to generate title: {exc}")
+            logger.warning("Failed to generate title: %s", exc)
 
     threading.Thread(target=_generate, daemon=True).start()
 
@@ -173,10 +173,10 @@ Exemple: emplois, candidats, trafic, analyse"""
             tag_names = _parse_tags(response)
             if tag_names:
                 store.set_conversation_tags(conv_id, tag_names)
-                logger.info(f"Auto-tagged conversation {conv_id}: {tag_names}")
+                logger.info("Auto-tagged conversation %s: %s", conv_id, tag_names)
         # Why: runs in a background daemon thread for tag generation, must not crash.
         except Exception as exc:
-            logger.warning(f"Failed to generate tags: {exc}")
+            logger.warning("Failed to generate tags: %s", exc)
 
     threading.Thread(target=_generate, daemon=True).start()
 
@@ -423,7 +423,7 @@ def generate_title(conv_id: str):
         return {"title": title}
 
     except llm.LLMError as exc:
-        logger.error(f"Failed to generate title: {exc}")
+        logger.error("Failed to generate title: %s", exc)
         return JSONResponse({"error": "Failed to generate title"}, status_code=500)
 
 
@@ -775,7 +775,7 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         logger.warning("AV scan failed: %s", e)
         return JSONResponse({"error": "File failed security scan"}, status_code=422)
     except OSError as e:
-        logger.error(f"File upload failed: {e}")
+        logger.error("File upload failed: %s", e)
         return JSONResponse({"error": "Upload failed"}, status_code=500)
 
 

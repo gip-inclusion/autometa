@@ -3,6 +3,7 @@
 import logging
 import mimetypes
 import threading
+import time
 from pathlib import Path
 
 from botocore.exceptions import ClientError
@@ -28,7 +29,7 @@ def start_sync_watcher():
     stop_event.clear()
     watcher_thread = threading.Thread(target=watch_loop, daemon=True)
     watcher_thread.start()
-    logger.info(f"Started S3 sync watcher for {config.INTERACTIVE_DIR}")
+    logger.info("Started S3 sync watcher for %s", config.INTERACTIVE_DIR)
 
 
 def stop_sync_watcher():
@@ -53,7 +54,7 @@ def watch_loop():
                 _sync_file(path)
             known_files[path] = path.stat().st_mtime
 
-    logger.debug(f"Initial scan: {initial_count} local files, {len(s3_paths)} in S3")
+    logger.debug("Initial scan: %d local files, %d in S3", initial_count, len(s3_paths))
 
     while not stop_event.is_set():
         try:
@@ -70,12 +71,13 @@ def watch_loop():
             known_files = current_files
 
         except Exception as e:  # Why: daemon thread polling filesystem, must not crash on transient I/O errors
-            logger.error(f"Error in sync watch loop: {e}")
+            logger.error("Error in sync watch loop: %s", e)
 
         stop_event.wait(2)
 
 
 def _sync_file(local_path: Path):
+    start = time.perf_counter()
     try:
         relative_path = str(local_path.relative_to(config.INTERACTIVE_DIR))
         content = local_path.read_bytes()
@@ -83,6 +85,13 @@ def _sync_file(local_path: Path):
 
         if not s3.interactive.upload(relative_path, content, content_type):
             logger.error("Failed to sync to S3: %s", relative_path)
+            return
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        logger.info(
+            "s3.upload",
+            extra={"s3.path": relative_path, "s3.size": len(content), "s3.duration": duration_ms},
+        )
 
     except (OSError, ClientError) as e:
-        logger.error(f"Error uploading {local_path} to S3: {e}")
+        logger.error("Error uploading %s to S3: %s", local_path, e)

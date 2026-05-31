@@ -18,6 +18,7 @@ from web.helpers import now_local, utcnow
 
 from . import alerts, config, s3
 from .database import get_db
+from .log import setup_logging
 from .models import CronRun, Dashboard
 
 logger = logging.getLogger(__name__)
@@ -431,8 +432,8 @@ def record_run(result: dict, trigger: str):
                 )
             )
     # Why: recording is best-effort; a DB error must not crash the cron runner.
-    except Exception as e:
-        print(f"Warning: failed to record cron run: {e}", file=sys.stderr)
+    except Exception:
+        logger.exception("failed to record cron run")
 
 
 def _run_to_dict(run: CronRun) -> dict:
@@ -460,8 +461,8 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
                 if len(runs[slug]) < limit_per_app:
                     runs[slug].append(_run_to_dict(row))
     # Why: reading history is best-effort; a DB error must not crash the caller.
-    except Exception as e:
-        print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
+    except Exception:
+        logger.exception("failed to read cron runs")
     return runs
 
 
@@ -473,8 +474,8 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
             ).all()
             return [_run_to_dict(row) for row in rows]
     # Why: reading history is best-effort; a DB error must not crash the caller.
-    except Exception as e:
-        print(f"Warning: failed to read app runs: {e}", file=sys.stderr)
+    except Exception:
+        logger.exception("failed to read app runs")
         return []
 
 
@@ -486,28 +487,39 @@ def run_all(dry_run: bool = False) -> list[dict]:
     for task in tasks:
         if not task["enabled"]:
             if dry_run:
-                print(f"  SKIP {task['slug']} (disabled)")
+                logger.info("SKIP %s (disabled)", task["slug"])
             continue
 
         if not is_due(task["schedule"]):
             if dry_run:
-                print(f"  SKIP {task['slug']} (schedule: {task['schedule']}, not due)")
+                logger.info("SKIP %s (schedule: %s, not due)", task["slug"], task["schedule"])
             continue
 
         if dry_run:
-            sched = f" [{task['schedule']}]" if task["schedule"] != "daily" else ""
-            print(f"  WOULD RUN {task['slug']}{sched} (timeout: {task['timeout']}s)")
+            logger.info(
+                "WOULD RUN %s [%s] (timeout: %ss)",
+                task["slug"],
+                task["schedule"],
+                task["timeout"],
+            )
             continue
 
-        print(f"  Running {task['slug']}...", end=" ", flush=True)
         result = run_cron_task(task["slug"], trigger="scheduled")
-        print(f"{result['status']} ({result['duration_ms']}ms)")
+        logger.info(
+            "cron.task",
+            extra={
+                "cron.task.name": task["slug"],
+                "cron.task.status": result["status"],
+                "cron.task.duration": result["duration_ms"],
+            },
+        )
         results.append(result)
 
     return results
 
 
 def main():
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     parser = argparse.ArgumentParser(description="Run cron tasks")
     parser.add_argument("--app", help="Run a specific task by slug (ignores schedule)")
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")

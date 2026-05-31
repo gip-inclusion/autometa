@@ -1,5 +1,6 @@
 """Weekly Slack DMs asking active users for Tally feedback."""
 
+import logging
 import sys
 from datetime import timedelta
 from urllib.parse import quote
@@ -11,7 +12,10 @@ from web.helpers import utcnow
 
 from . import config
 from .db import get_db
+from .log import setup_logging
 from .models import Conversation
+
+logger = logging.getLogger(__name__)
 
 TALLY_FORM_URL = "https://tally.so/r/9qdZvp"
 EXCLUDED_EMAILS = {"admin@localhost", ""}
@@ -33,24 +37,25 @@ def get_active_emails() -> list[str]:
 
 
 def main():
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     token = config.SLACK_BOT_TOKEN
     if not token:
-        print("ERROR: SLACK_BOT_TOKEN is not set", file=sys.stderr)
+        logger.error("SLACK_BOT_TOKEN is not set")
         sys.exit(1)
 
     emails = get_active_emails()
-    print(f"Found {len(emails)} active user(s) in the last 7 days")
+    logger.info("Found %d active user(s) in the last 7 days", len(emails))
 
     sent = 0
     for email in emails:
         slack_id = lookup_user(token, email)
         if not slack_id:
-            print(f"  SKIP {email} (no Slack user found)")
+            logger.info("SKIP %s (no Slack user found)", email)
             continue
         tally_url = f"{TALLY_FORM_URL}?email={quote(email)}"
         ok = post_message(token, slack_id, SLACK_MESSAGE.format(tally_url=tally_url))
-        print(f"  {'SENT' if ok else 'FAIL'} {email}")
+        logger.info("%s %s", "SENT" if ok else "FAIL", email)
         if ok:
             sent += 1
 
-    print(f"\nDone: {sent} sent")
+    logger.info("Done: %d sent", sent)

@@ -170,7 +170,7 @@ ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KN
 
 # Sentry
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
-SENTRY_ENVIRONMENT = "prod"
+SENTRY_ENVIRONMENT = os.getenv("DEPLOYMENT_ENV", "prod")
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
 SENTRY_PROFILES_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0"))
 
@@ -183,9 +183,6 @@ DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE
 
 # autometa_tables_db — tables Metabase centralisées (connexion directe Scalingo)
 AUTOMETA_TABLES_DATABASE_URL = os.getenv("AUTOMETA_TABLES_DATABASE_URL", "")
-
-# Datadog Logs
-DATADOG_API_KEY = os.getenv("DATADOG_API_KEY", "")
 
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")

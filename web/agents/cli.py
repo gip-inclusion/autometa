@@ -132,7 +132,7 @@ class CLIBackend(AgentBackend):
                 spawn_span.end()
                 raise
 
-            logger.info(f"Process started with PID: {process.pid}")
+            logger.info("Process started with PID: %s", process.pid)
 
             self._processes[conversation_id] = process
 
@@ -145,7 +145,7 @@ class CLIBackend(AgentBackend):
                 while True:
                     line = await process.stdout.readline()
                     if not line:
-                        logger.debug(f"EOF reached after {line_count} lines")
+                        logger.debug("EOF reached after %s lines", line_count)
                         break
 
                     if spawn_span is not None:
@@ -175,7 +175,7 @@ class CLIBackend(AgentBackend):
                             turn_span = tracer.start_span("agent.cli.api_turn", context=process_ctx)
 
                         for agent_msg in self._parse_events(event):
-                            logger.debug(f"Parsed event: {agent_msg.type}")
+                            logger.debug("Parsed event: %s", agent_msg.type)
                             last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
                             if len(last_events) > 10:
                                 last_events.pop(0)
@@ -190,7 +190,7 @@ class CLIBackend(AgentBackend):
 
                 await process.wait()
                 span.set_attribute("line_count", line_count)
-                logger.info(f"Process exited with code: {process.returncode}")
+                logger.info("Process exited with code: %s", process.returncode)
             finally:
                 for child_span in (spawn_span, first_api_span, turn_span):
                     if child_span is not None:
@@ -217,7 +217,7 @@ class CLIBackend(AgentBackend):
                     except Exception:
                         # Why: cleanup must complete so span.finish() and the error capture below still run.
                         logger.exception("session upload failed during cleanup")
-                logger.info(f"Cleaned up conversation {conversation_id}")
+                logger.info("Cleaned up conversation %s", conversation_id)
 
             stderr_str = stderr_bytes.decode("utf-8", errors="replace")
             span.set_attribute("exit_code", process.returncode)

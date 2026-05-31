@@ -1,6 +1,7 @@
 """Webinaire attendance data: Grist sync into the datalake."""
 
 import json
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -9,6 +10,9 @@ import httpx
 
 from lib.query import CallerType, execute_metabase_query
 from web import config
+from web.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 T_WEBINAIRES = "matometa_webinaires"
 T_INSCRIPTIONS = "matometa_webinaire_inscriptions"
@@ -161,9 +165,9 @@ def sync_grist(conn, client: GristClient):
     now = now_iso()
 
     # Phase 1: Webinaires
-    print("  Fetching Webinaires...")
+    logger.info("Fetching Webinaires...")
     webinaires = client.get_records("Webinaires")
-    print(f"  {len(webinaires)} webinaires")
+    logger.info("%d webinaires", len(webinaires))
 
     webinaire_rows = []
     for rec in webinaires:
@@ -225,9 +229,9 @@ def sync_grist(conn, client: GristClient):
     conn.commit()
 
     # Phase 2: Inscriptions
-    print("  Fetching Inscriptions...")
+    logger.info("Fetching Inscriptions...")
     inscriptions = client.get_records("Inscriptions")
-    print(f"  {len(inscriptions)} inscriptions")
+    logger.info("%d inscriptions", len(inscriptions))
 
     inscription_rows = []
     for rec in inscriptions:
@@ -270,19 +274,20 @@ def sync_grist(conn, client: GristClient):
     conn.commit()
 
     reg_count = len(inscription_rows)
-    print(f"  {reg_count} registrations synced ({client.request_count} API calls)")
+    logger.info("%d registrations synced (%d API calls)", reg_count, client.request_count)
     return len(webinaires), reg_count
 
 
 def main():
     """CLI entry point for cron: sync Grist webinaire data into the datalake."""
+    setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     conn = DatalakeWriter()
     t0 = time.time()
 
-    print("--- Grist ---")
+    logger.info("--- Grist ---")
     client = GristClient()
     webinaires, regs = sync_grist(conn, client)
-    print(f"  {webinaires} webinaires, {regs} registrations")
+    logger.info("%d webinaires, %d registrations", webinaires, regs)
 
     total_time = time.time() - t0
     now = datetime.now(tz=timezone.utc).isoformat()
@@ -302,4 +307,4 @@ def main():
             (key, value),
         )
 
-    print(f"\nDone in {total_time:.0f}s — {total_webinars} webinars, {total_regs} registrations")
+    logger.info("Done in %.0fs — %d webinars, %d registrations", total_time, total_webinars, total_regs)

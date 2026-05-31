@@ -54,3 +54,27 @@ def test_restore_handles_failed_download(s3_env, mocker):
     restore_interactive_from_s3()
 
     assert not (s3_env / "app1" / "broken.html").exists()
+
+
+def test_run_emits_completion_log(mocker, caplog, tmp_path):
+    import logging
+
+    mocker.patch("web.warmup.CACHE_DIR", tmp_path / "cache")
+    mocker.patch("web.warmup.config.INTERACTIVE_DIR", tmp_path / "interactive")
+    mocker.patch("web.warmup.get_db")
+    mocker.patch("web.warmup.seed_tags")
+    mocker.patch("web.warmup.warmup_matomo_baselines")
+    mocker.patch("web.warmup.warmup_metabase_cards")
+    mocker.patch("web.warmup.restore_interactive_from_s3")
+
+    from web.warmup import run
+
+    with caplog.at_level(logging.INFO, logger="web.warmup"):
+        run()
+
+    matches = [r for r in caplog.records if r.message == "warmup.completed"]
+    assert len(matches) == 1
+    record = matches[0]
+    assert getattr(record, "task.name") == "warmup"
+    assert getattr(record, "task.files") == 0
+    assert isinstance(getattr(record, "task.duration"), float)
