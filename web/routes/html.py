@@ -348,9 +348,9 @@ def conversations(
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(
         request,
-        "rechercher.html",
+        "conversations.html",
         {
-            "section": "rechercher",
+            "section": "conversations",
             "current_conv": None,
             "grouped_items": grouped_items,
             "all_tags": all_tags,
