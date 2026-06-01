@@ -1,20 +1,11 @@
-"""Cron runner for data refresh scripts."""
+"""Cron utilities — discovery, recording, alerting. Scheduling is handled by flows/serve.py."""
 
-import argparse
 import hashlib
 import logging
-import os
-import shutil
-import subprocess
-import sys
 import tempfile
-import time
 from pathlib import Path
 
-import sentry_sdk
 from sqlalchemy import select
-
-from web.helpers import now_local, utcnow
 
 from . import alerts, config, s3
 from .database import get_db
@@ -22,31 +13,22 @@ from .models import CronRun, Dashboard
 
 logger = logging.getLogger(__name__)
 
-# Defaults
-DEFAULT_TIMEOUT = 300  # 5 minutes
+DEFAULT_TIMEOUT = 300
 MAX_OUTPUT_SIZE = 50_000
-
-# Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
 
 
 def _sanitize_for_log(value: str) -> str:
-    """Remove line-break characters to prevent log injection."""
     return value.replace("\r", "").replace("\n", "")
 
 
 def parse_frontmatter_text(content: str) -> dict:
-    """Parse YAML front-matter from a string.
-
-    Returns dict of key-value pairs. Returns {} if no front-matter.
-    """
+    """Parse YAML front-matter from a string."""
     if not content.startswith("---"):
         return {}
-
     parts = content.split("---", 2)
     if len(parts) < 3:
         return {}
-
     meta = {}
     for line in parts[1].strip().split("\n"):
         if ":" in line:
@@ -56,15 +38,11 @@ def parse_frontmatter_text(content: str) -> dict:
 
 
 def parse_frontmatter(md_path: Path) -> dict:
-    """Parse YAML front-matter from a markdown file.
-
-    Returns dict of key-value pairs. Returns {} if no front-matter.
-    """
+    """Parse YAML front-matter from a markdown file."""
     try:
         content = md_path.read_text()
     except OSError:
         return {}
-
     return parse_frontmatter_text(content)
 
 
@@ -75,7 +53,7 @@ def is_enabled(meta: dict) -> bool:
 def get_timeout(meta: dict) -> int:
     try:
         return int(meta["timeout"])
-    except KeyError, ValueError:
+    except (KeyError, ValueError):
         return DEFAULT_TIMEOUT
 
 
@@ -83,21 +61,8 @@ def get_schedule(meta: dict) -> str:
     return meta.get("schedule", "daily").lower()
 
 
-def is_due(schedule: str) -> bool:
-    if schedule == "daily":
-        return True
-    if schedule == "weekly":
-        return now_local().weekday() == 0  # Monday
-    return True
-
-
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
-    """Toggle the `cron:` field in a task's metadata file.
-
-    Checks both system (CRON.md) and app (APP.md) locations.
-    Returns True if the file was updated, False if not found.
-    """
-    # Try system task first, then app task
+    """Toggle the `cron:` field in a task's metadata file."""
     for md_path in [
         config.CRON_DIR / app_slug / "CRON.md",
         config.INTERACTIVE_DIR / app_slug / "APP.md",
@@ -167,7 +132,7 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
 
 def discover_from_s3() -> list[dict]:
-    """Discover cron tasks for apps flagged `has_cron` in DB; metadata still from S3 APP.md."""
+    """Discover cron tasks for apps flagged `has_cron` in DB; metadata from S3 APP.md."""
     if not config.S3_BUCKET:
         return []
 
@@ -203,10 +168,7 @@ def discover_from_s3() -> list[dict]:
 
 
 def discover_cron_tasks() -> list[dict]:
-    """Discover all cron tasks from all tiers.
-
-    System tasks (cron/) come first, then app tasks (data/interactive/ or S3).
-    """
+    """Discover all cron tasks — system tasks (cron/) first, then app tasks (S3)."""
     tasks = discover_from_dir(config.CRON_DIR, "CRON.md", "system")
     tasks += discover_from_s3()
     return tasks
@@ -223,7 +185,7 @@ def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{slug}-"))
     pre_hashes: dict[str, str] = {}
     for entry in s3.interactive.list_files(f"{slug}/"):
-        local_name = entry["path"][len(f"{slug}/") :]
+        local_name = entry["path"][len(f"{slug}/"):]
         if not local_name or ".." in local_name:
             continue
         content = s3.interactive.download(entry["path"])
@@ -239,7 +201,7 @@ def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     return workdir, pre_hashes
 
 
-def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
+def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]) -> None:
     uploaded = skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
@@ -265,158 +227,7 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         )
 
 
-def _sentry_monitor_config(task: dict) -> dict:
-    """Build Sentry Crons monitor config from task metadata."""
-    schedule = task.get("schedule", "daily")
-    if schedule == "weekly":
-        crontab = "0 6 * * 1"
-    else:
-        crontab = "0 6 * * *"
-    return {
-        "schedule": {"type": "crontab", "value": crontab},
-        "checkin_margin": 30,
-        "max_runtime": task.get("timeout", DEFAULT_TIMEOUT) // 60 + 1,
-        "failure_issue_threshold": 2,
-        "recovery_threshold": 1,
-    }
-
-
-def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
-    """Run a single cron task by slug.
-
-    Returns dict with: slug, status, output, duration_ms, started_at, finished_at.
-    """
-    task = find_task(slug)
-    if not task:
-        return {
-            "slug": slug,
-            "status": "failure",
-            "output": f"cron task not found: {slug}",
-            "duration_ms": 0,
-            "started_at": utcnow(),
-            "finished_at": utcnow(),
-        }
-
-    monitor_slug = f"cron-{slug}"
-    monitor_config = _sentry_monitor_config(task)
-    check_in_id = sentry_sdk.crons.api.capture_checkin(
-        monitor_slug=monitor_slug,
-        status=sentry_sdk.crons.consts.MonitorStatus.IN_PROGRESS,
-        monitor_config=monitor_config,
-    )
-
-    is_s3 = task.get("source") == "s3"
-    timeout = task["timeout"]
-    workdir = None
-    pre_hashes: dict[str, str] = {}
-
-    started_at = utcnow()
-    start_time = time.monotonic()
-
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(config.BASE_DIR),
-    }
-
-    try:
-        if is_s3:
-            workdir, pre_hashes = prepare_s3_workdir(slug)
-            cron_script = str(workdir / "cron.py")
-            cwd = str(workdir)
-        else:
-            cron_script = task["cron_path"]
-            cwd = task["path"]
-
-        result = subprocess.run(
-            [sys.executable, cron_script],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-        )
-        elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        finished_at = utcnow()
-
-        output = result.stdout
-        if result.stderr:
-            output += "\n--- stderr ---\n" + result.stderr
-        output = output[:MAX_OUTPUT_SIZE]
-
-        status = "success" if result.returncode == 0 else "failure"
-
-        if is_s3 and status == "success" and workdir:
-            upload_s3_results(slug, workdir, pre_hashes)
-
-    except subprocess.TimeoutExpired:
-        elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        finished_at = utcnow()
-        status = "timeout"
-        output = f"Script timed out after {timeout}s"
-
-    except OSError as e:
-        elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        finished_at = utcnow()
-        status = "failure"
-        output = f"Error running script: {e}"
-
-    finally:
-        if workdir and workdir.exists():
-            shutil.rmtree(workdir, ignore_errors=True)
-
-    run_result = {
-        "slug": slug,
-        "status": status,
-        "output": output,
-        "duration_ms": elapsed_ms,
-        "started_at": started_at,
-        "finished_at": finished_at,
-    }
-
-    sentry_status = (
-        sentry_sdk.crons.consts.MonitorStatus.OK if status == "success" else sentry_sdk.crons.consts.MonitorStatus.ERROR
-    )
-    sentry_sdk.crons.api.capture_checkin(
-        monitor_slug=monitor_slug,
-        status=sentry_status,
-        check_in_id=check_in_id,
-        duration=elapsed_ms / 1000,
-        monitor_config=monitor_config,
-    )
-
-    previous_status = None
-    if trigger == "scheduled":
-        recent = get_app_runs(slug, limit=1)
-        previous_status = recent[0]["status"] if recent else None
-
-    record_run(run_result, trigger)
-
-    if trigger == "scheduled":
-        notify_cron_status_change(slug, status, previous_status, output)
-    return run_result
-
-
-def notify_cron_status_change(slug: str, status: str, previous_status: str | None, output: str) -> None:
-    """Post a Slack alert when a cron newly breaks or recovers."""
-    broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
-    recovered = status == "success" and previous_status in BROKEN_STATUSES
-    if not (broke or recovered):
-        return
-
-    if broke:
-        message = f":red_circle: *Cron en échec : {slug}* ({status})"
-        snippet = (output or "").strip()[:500].replace("```", "ʼʼʼ")
-        if snippet:
-            message += f"\n```{snippet}```"
-    else:
-        message = f":large_green_circle: *Cron rétabli : {slug}*"
-    if config.BASE_URL:
-        message += f"\n<{config.BASE_URL}/cron|Voir les crons>"
-
-    alerts.notify_alert_channel(message)
-
-
-def record_run(result: dict, trigger: str):
+def record_run(result: dict, trigger: str) -> None:
     try:
         with get_db() as session:
             session.add(
@@ -430,9 +241,9 @@ def record_run(result: dict, trigger: str):
                     trigger=trigger,
                 )
             )
-    # Why: recording is best-effort; a DB error must not crash the cron runner.
-    except Exception as e:
-        print(f"Warning: failed to record cron run: {e}", file=sys.stderr)
+    except Exception:
+        # Why: recording is best-effort; a DB error must not crash the cron runner
+        logger.warning("Failed to record cron run for %s", result.get("slug"))
 
 
 def _run_to_dict(run: CronRun) -> dict:
@@ -459,9 +270,9 @@ def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
                     runs[slug] = []
                 if len(runs[slug]) < limit_per_app:
                     runs[slug].append(_run_to_dict(row))
-    # Why: reading history is best-effort; a DB error must not crash the caller.
-    except Exception as e:
-        print(f"Warning: failed to read cron runs: {e}", file=sys.stderr)
+    except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller
+        logger.warning("Failed to read cron runs")
     return runs
 
 
@@ -472,75 +283,27 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
                 select(CronRun).where(CronRun.app_slug == slug).order_by(CronRun.started_at.desc()).limit(limit)
             ).all()
             return [_run_to_dict(row) for row in rows]
-    # Why: reading history is best-effort; a DB error must not crash the caller.
-    except Exception as e:
-        print(f"Warning: failed to read app runs: {e}", file=sys.stderr)
+    except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller
+        logger.warning("Failed to read app runs for %s", slug)
         return []
 
 
-def run_all(dry_run: bool = False) -> list[dict]:
-    """Discover and run all enabled cron tasks that are due today."""
-    tasks = discover_cron_tasks()
-    results = []
-
-    for task in tasks:
-        if not task["enabled"]:
-            if dry_run:
-                print(f"  SKIP {task['slug']} (disabled)")
-            continue
-
-        if not is_due(task["schedule"]):
-            if dry_run:
-                print(f"  SKIP {task['slug']} (schedule: {task['schedule']}, not due)")
-            continue
-
-        if dry_run:
-            sched = f" [{task['schedule']}]" if task["schedule"] != "daily" else ""
-            print(f"  WOULD RUN {task['slug']}{sched} (timeout: {task['timeout']}s)")
-            continue
-
-        print(f"  Running {task['slug']}...", end=" ", flush=True)
-        result = run_cron_task(task["slug"], trigger="scheduled")
-        print(f"{result['status']} ({result['duration_ms']}ms)")
-        results.append(result)
-
-    return results
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Run cron tasks")
-    parser.add_argument("--app", help="Run a specific task by slug (ignores schedule)")
-    parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
-    args = parser.parse_args()
-
-    if args.list:
-        tasks = discover_cron_tasks()
-        if not tasks:
-            print("No cron tasks found.")
-            return
-        for task in tasks:
-            status = "enabled" if task["enabled"] else "DISABLED"
-            sched = task["schedule"]
-            tier = task["tier"]
-            print(f"  {task['slug']:30s} [{status}] {sched:8s} {tier:6s}  {task['cron_path']}")
+def notify_cron_status_change(slug: str, status: str, previous_status: str | None, output: str) -> None:
+    """Post a Slack alert when a cron newly breaks or recovers."""
+    broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
+    recovered = status == "success" and previous_status in BROKEN_STATUSES
+    if not (broke or recovered):
         return
 
-    if args.app:
-        print(f"Running cron for {args.app}...")
-        result = run_cron_task(args.app, trigger="manual")
-        print(f"  Status: {result['status']} ({result['duration_ms']}ms)")
-        if result["output"]:
-            print(result["output"])
-        return
+    if broke:
+        message = f":red_circle: *Cron en échec : {slug}* ({status})"
+        snippet = (output or "").strip()[:500].replace("```", "ʼʼʼ")
+        if snippet:
+            message += f"\n```{snippet}```"
+    else:
+        message = f":large_green_circle: *Cron rétabli : {slug}*"
+    if config.BASE_URL:
+        message += f"\n<{config.BASE_URL}/cron|Voir les crons>"
 
-    print("Running all cron tasks...")
-    results = run_all(dry_run=args.dry_run)
-    if not args.dry_run:
-        ok = sum(1 for r in results if r["status"] == "success")
-        fail = len(results) - ok
-        print(f"Done: {ok} succeeded, {fail} failed")
-
-
-if __name__ == "__main__":
-    main()
+    alerts.notify_alert_channel(message)

@@ -10,6 +10,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+      - ./docker/init-prefect-db.sql:/docker-entrypoint-initdb.d/init-prefect-db.sql
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -50,6 +51,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    restart: unless-stopped
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://autometa:autometa@db:5432/prefect"
+    depends_on:
+      - db
 
   ollama:
     image: ollama/ollama:latest

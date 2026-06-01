@@ -102,19 +102,6 @@ def test_before_send_drops_when_no_dsn(monkeypatch):
     assert _before_send({"request": {}}, {}) is None
 
 
-def test_cron_sentry_monitor_config():
-    from web.cron import _sentry_monitor_config
-
-    daily_task = {"schedule": "daily", "timeout": 300}
-    cfg = _sentry_monitor_config(daily_task)
-    assert cfg["schedule"]["value"] == "0 6 * * *"
-    assert cfg["max_runtime"] == 6
-
-    weekly_task = {"schedule": "weekly", "timeout": 600}
-    cfg = _sentry_monitor_config(weekly_task)
-    assert cfg["schedule"]["value"] == "0 6 * * 1"
-    assert cfg["max_runtime"] == 11
-
 
 def test_runner_submit_includes_sentry_trace(mocker):
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
