@@ -8,7 +8,15 @@ import fakeredis.aioredis
 import pytest
 
 from web.agents.base import AgentMessage
-from web.runner import TaskRunner, _persist_usage, _send_failure_notification, _serialize_tool_event
+from web.runner import (
+    RunUsage,
+    TaskRunner,
+    _record_span_usage,
+    _record_thinking_tail,
+    _record_usage,
+    _send_failure_notification,
+    _serialize_tool_event,
+)
 
 
 async def _noop_stream(*args, **kwargs):
@@ -342,36 +350,121 @@ def test_serialize_tool_result_without_api_calls(mocker):
     assert _serialize_tool_event(event, "c1", None) == "plain text output"
 
 
-def test_persist_usage(mocker):
+def _usage_raw_event(msg_id, model, usage):
+    return {"message": {"id": msg_id, "model": model, "usage": usage}}
+
+
+def test_record_usage_inserts_event(mocker):
     mock_store = mocker.patch("web.runner.store")
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
-    _persist_usage("c1", {"input_tokens": 100, "output_tokens": 50, "service_tier": "priority"})
-    mock_store.accumulate_usage.assert_called_once_with(
-        "c1",
-        input_tokens=100,
-        output_tokens=50,
-        cache_creation_tokens=0,
-        cache_read_tokens=0,
-        backend="cli",
-        extra={"service_tier": "priority"},
+    state = RunUsage()
+    raw = _usage_raw_event(
+        "msg_abc",
+        "claude-sonnet-4-7",
+        {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 200,
+            "cache_read_input_tokens": 300,
+            "service_tier": "priority",
+        },
     )
 
+    _record_usage("c1", raw, state)
 
-def test_persist_usage_no_extra(mocker):
+    assert "msg_abc" in state.seen_ids
+    assert state.output_total == 50
+    assert state.last_model == "claude-sonnet-4-7"
+    insert_kwargs = mock_store.insert_usage_event.call_args[1]
+    assert insert_kwargs["conversation_id"] == "c1"
+    assert insert_kwargs["cli_message_id"] == "msg_abc"
+    assert insert_kwargs["model"] == "claude-sonnet-4-7"
+    assert insert_kwargs["backend"] == "cli"
+    assert insert_kwargs["usage"]["input_tokens"] == 100
+    assert insert_kwargs["usage"]["output_tokens"] == 50
+
+
+def test_record_usage_dedups_same_message_id(mocker):
     mock_store = mocker.patch("web.runner.store")
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
-    _persist_usage("c1", {"input_tokens": 10, "output_tokens": 5})
-    call_kwargs = mock_store.accumulate_usage.call_args[1]
-    assert call_kwargs["extra"] is None
+    state = RunUsage()
+    raw = _usage_raw_event("msg_dup", "claude-sonnet-4-7", {"input_tokens": 10, "output_tokens": 5})
+
+    _record_usage("c1", raw, state)
+    _record_usage("c1", raw, state)
+
+    assert mock_store.insert_usage_event.call_count == 1
+    assert state.output_total == 5
 
 
-def test_persist_usage_sets_gen_ai_attributes_on_active_span(mocker):
+def test_record_usage_noop_when_usage_missing(mocker):
+    mock_store = mocker.patch("web.runner.store")
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
+    state = RunUsage()
+
+    _record_usage("c1", {"message": {"id": "msg_x", "model": "m"}}, state)
+
+    assert mock_store.insert_usage_event.call_count == 0
+    assert state.output_total == 0
+
+
+def test_record_usage_leaves_state_unchanged_on_store_failure(mocker):
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.insert_usage_event.side_effect = RuntimeError("db is down")
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
+    state = RunUsage()
+    raw = _usage_raw_event("msg_boom", "claude-sonnet-4-7", {"input_tokens": 1, "output_tokens": 42})
+
+    _record_usage("c1", raw, state)
+
+    assert "msg_boom" in state.seen_ids
+    assert state.output_total == 0
+    assert state.last_model is None
+
+
+def test_record_thinking_tail_writes_delta(mocker):
+    mock_store = mocker.patch("web.runner.store")
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
+    state = RunUsage(output_total=141, last_model="claude-opus-4-7")
+
+    _record_thinking_tail("c1", {"output_tokens": 1717, "service_tier": "standard"}, state)
+
+    insert_kwargs = mock_store.insert_usage_event.call_args[1]
+    assert insert_kwargs["kind"] == "thinking"
+    assert insert_kwargs["model"] == "claude-opus-4-7"
+    assert insert_kwargs["cli_message_id"] is None
+    assert insert_kwargs["usage"]["output_tokens"] == 1576
+    assert state.output_total == 1717
+
+
+@pytest.mark.parametrize("total,recorded", [(50, 50), (50, 70), (0, 0)])
+def test_record_thinking_tail_skips_when_no_delta(mocker, total, recorded):
+    mock_store = mocker.patch("web.runner.store")
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
+    state = RunUsage(output_total=recorded, last_model="claude-sonnet-4-7")
+
+    _record_thinking_tail("c1", {"output_tokens": total}, state)
+
+    assert mock_store.insert_usage_event.call_count == 0
+
+
+def test_record_thinking_tail_leaves_state_unchanged_on_store_failure(mocker):
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.insert_usage_event.side_effect = RuntimeError("db is down")
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
+    state = RunUsage(output_total=10, last_model="claude-opus-4-7")
+
+    _record_thinking_tail("c1", {"output_tokens": 1000}, state)
+
+    assert state.output_total == 10
+
+
+def test_record_span_usage_sets_gen_ai_attributes_on_active_span():
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-    mocker.patch("web.runner.store")
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -379,8 +472,7 @@ def test_persist_usage_sets_gen_ai_attributes_on_active_span(mocker):
     tracer = trace.get_tracer("test")
 
     with tracer.start_as_current_span("agent.run"):
-        _persist_usage(
-            "c1",
+        _record_span_usage(
             {
                 "input_tokens": 100,
                 "output_tokens": 50,
