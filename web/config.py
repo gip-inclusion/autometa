@@ -154,6 +154,12 @@ NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
+# pipometa — autonomous agent job runner (autometa-jobs orchestrator)
+PIPOMETA_URL = os.getenv("PIPOMETA_URL", "").rstrip("/")
+PIPOMETA_API_KEY = os.getenv("PIPOMETA_API_KEY", "")
+# Fixed Scaleway worker job-definition id; injected into every pipeline's config.
+PIPOMETA_JOB_DEFINITION_ID = os.getenv("PIPOMETA_JOB_DEFINITION_ID", "")
+
 # Grist (webinaire data)
 GRIST_API_KEY = os.getenv("GRIST_API_KEY")
 GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
