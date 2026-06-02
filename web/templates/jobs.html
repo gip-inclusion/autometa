@@ -72,10 +72,11 @@
 document.getElementById('create-pipeline-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
+  const data = new FormData(f);
   const resp = await fetch('/api/jobs/pipelines', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name: f.name.value, system_prompt: f.system_prompt.value}),
+    body: JSON.stringify({name: data.get('name'), system_prompt: data.get('system_prompt')}),
   });
   if (resp.ok) { location.reload(); } else { alert('Échec : ' + (await resp.text())); }
 });

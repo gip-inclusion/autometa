@@ -33,6 +33,7 @@
 const RUN_ID = "{{ run_id }}";
 const TERMINAL = ["completed", "failed", "cancelled", "timed_out", "quota_blocked"];
 let timer = null;
+let polling = false;
 
 function renderEvent(ev) {
   const li = document.createElement('li');
@@ -43,32 +44,41 @@ function renderEvent(ev) {
   } else {
     detail = JSON.stringify(ev.payload || {});
   }
-  li.innerHTML = `<code>${ev.event_type}</code> ${detail}`;
+  const code = document.createElement('code');
+  code.textContent = ev.event_type;
+  li.appendChild(code);
+  li.append(' ' + detail);
   return li;
 }
 
 async function poll() {
-  const [runResp, evResp] = await Promise.all([
-    fetch(`/api/jobs/runs/${RUN_ID}`),
-    fetch(`/api/jobs/runs/${RUN_ID}/events`),
-  ]);
-  if (runResp.ok) {
-    const run = await runResp.json();
-    document.getElementById('status').textContent = run.status;
-    document.getElementById('summary').textContent = run.summary || '';
-    if (run.error_text) { document.getElementById('summary').textContent = run.error_text; }
-    if (run.output_uri) {
-      document.getElementById('artifact').textContent = 'Artefact : ' + run.output_uri;
+  if (polling) return;
+  polling = true;
+  try {
+    const [runResp, evResp] = await Promise.all([
+      fetch(`/api/jobs/runs/${RUN_ID}`),
+      fetch(`/api/jobs/runs/${RUN_ID}/events`),
+    ]);
+    if (runResp.ok) {
+      const run = await runResp.json();
+      document.getElementById('status').textContent = run.status;
+      document.getElementById('summary').textContent = run.summary || '';
+      if (run.error_text) { document.getElementById('summary').textContent = run.error_text; }
+      if (run.output_uri) {
+        document.getElementById('artifact').textContent = 'Artefact : ' + run.output_uri;
+      }
+      const cancelBtn = document.getElementById('cancel-btn');
+      cancelBtn.classList.toggle('d-none', TERMINAL.includes(run.status));
+      if (TERMINAL.includes(run.status) && timer) { clearInterval(timer); timer = null; }
     }
-    const cancelBtn = document.getElementById('cancel-btn');
-    cancelBtn.classList.toggle('d-none', TERMINAL.includes(run.status));
-    if (TERMINAL.includes(run.status) && timer) { clearInterval(timer); timer = null; }
-  }
-  if (evResp.ok) {
-    const events = await evResp.json();
-    const ul = document.getElementById('events');
-    ul.innerHTML = '';
-    events.forEach(ev => ul.appendChild(renderEvent(ev)));
+    if (evResp.ok) {
+      const events = await evResp.json();
+      const ul = document.getElementById('events');
+      ul.innerHTML = '';
+      events.forEach(ev => ul.appendChild(renderEvent(ev)));
+    }
+  } finally {
+    polling = false;
   }
 }
 
