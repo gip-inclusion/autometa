@@ -757,13 +757,13 @@ body.has-sidebar {
 
 /* User messages - right-aligned, offset from assistant */
 .event-user {
-  background: var(--bs-gray-200);
-  border: none;
+  background: #fafafa;
+  border: 0.5px solid var(--bs-gray-300);
   margin-left: 12rem;
   margin-right: -1rem;
   border-radius: 0.5rem 0.5rem 0 0.5rem;
   color: var(--bs-gray-800);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 .event-user::before {
@@ -807,8 +807,12 @@ body.has-sidebar {
   font-size: 0.75rem;
 }
 
-.event-user .user-text {
-  white-space: pre-wrap;
+.event-user .user-text > :first-child {
+  margin-top: 0;
+}
+
+.event-user .user-text > :last-child {
+  margin-bottom: 0;
 }
 
 /* Assistant messages - clean, no box */
