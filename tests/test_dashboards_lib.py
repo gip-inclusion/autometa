@@ -328,3 +328,12 @@ def test_run_periodic_cleanup_logs_warning_when_orphans_found(isolated, caplog):
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert warnings, "expected a warning when orphans are flagged"
     assert "orphan-bar" in str(warnings[0].args)
+
+
+def test_update_dashboard_without_conversation_id(isolated):
+    _create("noconv")
+    result = update_dashboard(slug="noconv", updater_email="bob@x", title="New")
+    assert result.fields_changed == ["title"]
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "noconv"))
+        assert d.title == "New"

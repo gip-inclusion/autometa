@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 
 import sentry_sdk
 from opentelemetry import trace
@@ -22,6 +23,7 @@ from lib.tool_taxonomy import classify_tool
 from . import alerts, config, session_sync
 from .agents import get_agent
 from .database import store
+from .helpers import utcnow
 from .otel import SpanStack, extract_trace_context, inject_trace_headers
 from .redis_conn import get_redis
 from .request_context import reset_conversation_id, set_conversation_id
@@ -31,6 +33,13 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 PREFIX = "autometa"
+
+
+@dataclass
+class RunUsage:
+    seen_ids: set[str] = field(default_factory=set)
+    output_total: int = 0
+    last_model: str | None = None
 
 
 class TaskRunner:
@@ -217,6 +226,7 @@ class TaskRunner:
         tool_active_start: float | None = None
         agent_start = time.perf_counter()
         agent_status = "ok"
+        run_usage = RunUsage()
 
         def _close_tool_log():
             nonlocal tool_active_name, tool_active_start
@@ -261,6 +271,7 @@ class TaskRunner:
                             assistant_msg_id = msg.id if msg else None
                         else:
                             store.update_message(assistant_msg_id, full_text)
+                        _record_usage(conversation_id, event.raw, run_usage)
                         await self.notify(conversation_id)
 
                     elif event.type in ("tool_use", "tool_result"):
@@ -309,10 +320,12 @@ class TaskRunner:
 
                     elif event.type == "system":
                         if event.raw.get("usage"):
-                            _persist_usage(conversation_id, event.raw["usage"])
+                            _record_span_usage(event.raw["usage"])
                         if event.raw.get("subtype") == "api_retry":
                             store.add_message(conversation_id, "system", json.dumps(event.raw))
                             await self.notify(conversation_id)
+                        if event.raw.get("type") == "result" and event.raw.get("usage"):
+                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage)
 
                     # Why: raw holds the full CLI JSON event — can be MBs for tool results
                     event.raw = {}
@@ -379,40 +392,68 @@ def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -
     return json.dumps(event.content) if isinstance(event.content, dict) else str(event.content)
 
 
-def _persist_usage(conversation_id: str, usage: dict):
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-    cache_creation = usage.get("cache_creation_input_tokens", 0)
-    cache_read = usage.get("cache_read_input_tokens", 0)
-
+def _record_span_usage(usage: dict):
     span = trace.get_current_span()
-    if span.is_recording():
-        attrs = {
-            "gen_ai.system": "anthropic",
-            "gen_ai.usage.input_tokens": input_tokens,
-            "gen_ai.usage.output_tokens": output_tokens,
-            "gen_ai.usage.cache_read_tokens": cache_read,
-            "gen_ai.usage.cache_creation_tokens": cache_creation,
-        }
-        if model := usage.get("model"):
-            attrs["gen_ai.request.model"] = model
-        span.set_attributes(attrs)
+    if not span.is_recording():
+        return
+    attrs = {
+        "gen_ai.system": "anthropic",
+        "gen_ai.usage.input_tokens": usage.get("input_tokens", 0),
+        "gen_ai.usage.output_tokens": usage.get("output_tokens", 0),
+        "gen_ai.usage.cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+        "gen_ai.usage.cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),
+    }
+    if model := usage.get("model"):
+        attrs["gen_ai.request.model"] = model
+    span.set_attributes(attrs)
 
-    extra = {}
-    if usage.get("service_tier"):
-        extra["service_tier"] = usage["service_tier"]
-    if usage.get("web_search_requests"):
-        extra["web_search_requests"] = usage["web_search_requests"]
 
-    store.accumulate_usage(
-        conversation_id,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_creation_tokens=cache_creation,
-        cache_read_tokens=cache_read,
-        backend=config.AGENT_BACKEND,
-        extra=extra if extra else None,
-    )
+def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) -> None:
+    msg = raw_event.get("message") or {}
+    usage = msg.get("usage")
+    if not usage:
+        return
+    cli_message_id = msg.get("id")
+    if cli_message_id and cli_message_id in run_usage.seen_ids:
+        return
+    if cli_message_id:
+        run_usage.seen_ids.add(cli_message_id)
+
+    model = msg.get("model")
+    try:
+        store.insert_usage_event(
+            conversation_id=conversation_id,
+            cli_message_id=cli_message_id,
+            timestamp=utcnow(),
+            model=model,
+            backend=config.AGENT_BACKEND,
+            usage=usage,
+        )
+        run_usage.output_total += usage.get("output_tokens", 0) or 0
+        if model:
+            run_usage.last_model = model
+    except Exception:  # Why: usage capture is forensic — never crash the agent stream over a bad event
+        logger.exception("Failed to record usage for %s", conversation_id)
+
+
+def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: RunUsage) -> None:
+    total_output = result_usage.get("output_tokens", 0) or 0
+    delta = total_output - run_usage.output_total
+    if delta <= 0:
+        return
+    try:
+        store.insert_usage_event(
+            conversation_id=conversation_id,
+            cli_message_id=None,
+            timestamp=utcnow(),
+            model=run_usage.last_model,
+            backend=config.AGENT_BACKEND,
+            usage={"output_tokens": delta, "service_tier": result_usage.get("service_tier")},
+            kind="thinking",
+        )
+        run_usage.output_total += delta
+    except Exception:  # Why: usage capture is forensic — never crash the agent stream over a bad event
+        logger.exception("Failed to record thinking tail for %s", conversation_id)
 
 
 def _check_failure(conversation_id: str, text: str):

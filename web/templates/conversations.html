@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title_suffix %} - Rechercher{% endblock %}
+{% block title_suffix %} - Conversations{% endblock %}
 
 {% block content %}
 <section class="section-content" id="section-rechercher">
@@ -10,8 +10,8 @@
       <div class="d-flex align-items-center gap-3">
         <div class="me-auto">
           <h1 class="mb-0">
-            <i class="ri-search-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
-            Rechercher
+            <i class="ri-chat-3-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
+            Conversations
           </h1>
         </div>
         <div class="accueil-search-wrapper">
@@ -50,10 +50,6 @@
           <button class="filter-toggle {% if show == 'reports' %}active{% endif %}"
                   onclick="setShow('reports')" data-show="reports">
             <i class="ri-file-text-line"></i> Rapports
-          </button>
-          <button class="filter-toggle {% if show == 'apps' %}active{% endif %}"
-                  onclick="setShow('apps')" data-show="apps">
-            <i class="ri-window-fill"></i> Applis
           </button>
         </div>
 
@@ -121,10 +117,6 @@
           <button class="rechercher-type-btn {% if show == 'reports' %}active{% endif %}"
                   onclick="setShow('reports')" data-show="reports">
             <i class="ri-file-text-line"></i> Rapports
-          </button>
-          <button class="rechercher-type-btn {% if show == 'apps' %}active{% endif %}"
-                  onclick="setShow('apps')" data-show="apps">
-            <i class="ri-window-fill"></i> Applications
           </button>
         </div>
       </div>

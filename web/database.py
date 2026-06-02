@@ -21,6 +21,7 @@ from .models import Report as ReportModel
 from .models import ReportTag as ReportTagModel
 from .models import Tag as TagModel
 from .models import UploadedFile as FileModel
+from .models import UsageEvent as UsageEventModel
 
 VALID_CONVERSATION_COLUMNS = frozenset({
     "title",
@@ -265,6 +266,43 @@ def _model_to_report(r: ReportModel) -> Report:
 
 def _model_to_tag(t: TagModel, count: int = 0) -> Tag:
     return Tag(id=t.id, name=t.name, type=t.type, label=t.label, count=count)
+
+
+def _dashboard_to_dict(d, tags: list[str]) -> dict:
+    return {
+        "slug": d.slug,
+        "title": d.title,
+        "description": d.description or "",
+        "website": d.website,
+        "category": d.category,
+        "tags": tags,
+        "authors": [d.first_author_email],
+        "first_author_email": d.first_author_email,
+        "conversation_id": d.created_in_conversation_id,
+        "created_at": d.created_at,
+        "updated": d.updated_at,
+        "is_archived": d.is_archived,
+        "has_api_access": d.has_api_access,
+        "has_cron": d.has_cron,
+        "has_persistence": d.has_persistence,
+        "url": f"/interactive/{d.slug}/",
+        "is_interactive": True,
+    }
+
+
+def _serialize_dashboards(session, dashboards: list) -> list[dict]:
+    if not dashboards:
+        return []
+    slugs = [d.slug for d in dashboards]
+    tag_rows = session.execute(
+        select(DashboardTagModel.dashboard_slug, TagModel.name)
+        .join(TagModel, TagModel.id == DashboardTagModel.tag_id)
+        .where(DashboardTagModel.dashboard_slug.in_(slugs))
+    ).all()
+    tags_by_slug: dict[str, list[str]] = {}
+    for slug, name in tag_rows:
+        tags_by_slug.setdefault(slug, []).append(name)
+    return [_dashboard_to_dict(d, tags_by_slug.get(d.slug, [])) for d in dashboards]
 
 
 def _model_to_uploaded_file(f: FileModel) -> UploadedFile:
@@ -719,32 +757,59 @@ class ConversationStore:
             c.updated_at = utcnow()
             return True
 
-    def accumulate_usage(
+    def insert_usage_event(
         self,
-        conv_id: str,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
-        cache_creation_tokens: int = 0,
-        cache_read_tokens: int = 0,
-        backend: Optional[str] = None,
-        extra: Optional[dict] = None,
-    ) -> bool:
-        """Add usage to existing counts (for incremental updates)."""
-        extra_json = json.dumps(extra) if extra else None
+        conversation_id: str,
+        cli_message_id: Optional[str],
+        timestamp: datetime,
+        model: Optional[str],
+        backend: str,
+        usage: dict,
+        kind: str = "turn",
+    ) -> None:
+        cache_creation = usage.get("cache_creation") or {}
+        cc_5m = cache_creation.get("ephemeral_5m_input_tokens")
+        cc_1h = cache_creation.get("ephemeral_1h_input_tokens")
+        if cc_5m is None and cc_1h is None:
+            cc_5m = usage.get("cache_creation_input_tokens", 0) or 0
+            cc_1h = 0
+        else:
+            cc_5m = cc_5m or 0
+            cc_1h = cc_1h or 0
+        server_tool_use = usage.get("server_tool_use") or {}
+        input_tokens = usage.get("input_tokens", 0) or 0
+        output_tokens = usage.get("output_tokens", 0) or 0
+        cache_read = usage.get("cache_read_input_tokens", 0) or 0
         with get_db() as session:
-            c = session.get(ConvModel, conv_id)
-            if not c:
-                return False
-            c.usage_input_tokens = (c.usage_input_tokens or 0) + input_tokens
-            c.usage_output_tokens = (c.usage_output_tokens or 0) + output_tokens
-            c.usage_cache_creation_tokens = (c.usage_cache_creation_tokens or 0) + cache_creation_tokens
-            c.usage_cache_read_tokens = (c.usage_cache_read_tokens or 0) + cache_read_tokens
-            if backend is not None:
+            session.add(
+                UsageEventModel(
+                    conversation_id=conversation_id,
+                    cli_message_id=cli_message_id,
+                    timestamp=timestamp,
+                    kind=kind,
+                    model=model,
+                    backend=backend,
+                    service_tier=usage.get("service_tier"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_creation_5m_tokens=cc_5m,
+                    cache_creation_1h_tokens=cc_1h,
+                    cache_read_tokens=cache_read,
+                    web_search_requests=server_tool_use.get("web_search_requests", 0) or 0,
+                    web_fetch_requests=server_tool_use.get("web_fetch_requests", 0) or 0,
+                    raw=usage,
+                )
+            )
+            c = session.get(ConvModel, conversation_id)
+            if c is not None:
+                c.usage_input_tokens = (c.usage_input_tokens or 0) + input_tokens
+                c.usage_output_tokens = (c.usage_output_tokens or 0) + output_tokens
+                c.usage_cache_creation_tokens = (c.usage_cache_creation_tokens or 0) + cc_5m + cc_1h
+                c.usage_cache_read_tokens = (c.usage_cache_read_tokens or 0) + cache_read
                 c.usage_backend = backend
-            if extra_json is not None:
-                c.usage_extra = extra_json
-            c.updated_at = utcnow()
-            return True
+                if usage.get("service_tier"):
+                    c.usage_extra = json.dumps({"service_tier": usage["service_tier"]})
+                c.updated_at = utcnow()
 
     def delete_conversation(self, conv_id: str) -> bool:
         with get_db() as session:
@@ -878,43 +943,27 @@ class ConversationStore:
             result.content = content
             return result
 
-    def list_dashboards(self) -> list[dict]:
-        """Active dashboards from the DB, sorted by `updated_at` desc."""
+    def list_dashboards(self, include_archived: bool = False) -> list[dict]:
+        """Dashboards from the DB, sorted by `updated_at` desc. Active only unless include_archived."""
         with get_db() as session:
-            dashboards = list(
-                session.scalars(
-                    select(DashboardModel).where(~DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
-                ).all()
-            )
-            if not dashboards:
-                return []
+            stmt = select(DashboardModel).order_by(DashboardModel.updated_at.desc())
+            if not include_archived:
+                stmt = stmt.where(~DashboardModel.is_archived)
+            return _serialize_dashboards(session, list(session.scalars(stmt).all()))
 
-            slugs = [d.slug for d in dashboards]
-            tag_rows = session.execute(
-                select(DashboardTagModel.dashboard_slug, TagModel.name)
-                .join(TagModel, TagModel.id == DashboardTagModel.tag_id)
-                .where(DashboardTagModel.dashboard_slug.in_(slugs))
-            ).all()
-            tags_by_slug: dict[str, list[str]] = {}
-            for slug, name in tag_rows:
-                tags_by_slug.setdefault(slug, []).append(name)
+    def list_archived_dashboards(self) -> list[dict]:
+        """Archived dashboards only, sorted by `updated_at` desc."""
+        with get_db() as session:
+            stmt = select(DashboardModel).where(DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
+            return _serialize_dashboards(session, list(session.scalars(stmt).all()))
 
-            return [
-                {
-                    "slug": d.slug,
-                    "title": d.title,
-                    "description": d.description or "",
-                    "website": d.website,
-                    "category": d.category,
-                    "tags": tags_by_slug.get(d.slug, []),
-                    "authors": [d.first_author_email],
-                    "conversation_id": d.created_in_conversation_id,
-                    "updated": d.updated_at,
-                    "url": f"/interactive/{d.slug}/",
-                    "is_interactive": True,
-                }
-                for d in dashboards
-            ]
+    def get_dashboard(self, slug: str) -> dict | None:
+        """Single dashboard (any archived status) as a dict, or None."""
+        with get_db() as session:
+            d = session.scalar(select(DashboardModel).where(DashboardModel.slug == slug))
+            if d is None:
+                return None
+            return _serialize_dashboards(session, [d])[0]
 
     def list_reports(
         self,

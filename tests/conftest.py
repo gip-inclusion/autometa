@@ -12,6 +12,9 @@ if _original_url and not urlparse(_original_url).path.endswith("_test"):
     os.environ["DATABASE_URL"] = urlunparse(parsed._replace(path=parsed.path + "_test"))
 
 os.environ.setdefault("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "0.05")
+os.environ.setdefault("S3_BUCKET", "test-bucket")
+os.environ.setdefault("PUBLIC_S3_BUCKET_STAGING", "test-staging-bucket")
+os.environ.setdefault("PUBLIC_S3_BUCKET_PROD", "test-prod-bucket")
 
 import pytest
 
@@ -51,6 +54,18 @@ def init_schema():
 
 
 @pytest.fixture(autouse=True)
+def _s3_default_404(mocker):
+    """Default S3 head_object/get_object to NoSuchKey for CI (no real S3 endpoint); tests override as needed."""
+    from botocore.exceptions import ClientError
+
+    from web import s3
+
+    nf = ClientError({"Error": {"Code": "NoSuchKey", "Message": "x"}}, "Op")
+    mocker.patch.object(s3._client, "head_object", side_effect=nf)
+    mocker.patch.object(s3._client, "get_object", side_effect=nf)
+
+
+@pytest.fixture(autouse=True)
 def _reset_otel_provider():
     # Why: trace.set_tracer_provider() is a Once-guarded global; once any test installs a
     # provider, subsequent set_tracer_provider() calls silently no-op. Reset the guard before
@@ -79,7 +94,7 @@ def truncate_all_tables():
         session.execute(
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
-                uploaded_files, cron_runs, pinned_items, pm_commands,
+                uploaded_files, cron_runs, dashboards, dashboard_tags, dashboard_publications, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version,
                 wishlist, matomo_baselines, matomo_dimensions, matomo_segments,
                 matomo_events, metabase_cards, metabase_dashboards

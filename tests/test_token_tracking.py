@@ -118,44 +118,6 @@ def test_database_usage_columns_update_conversation_usage(db_setup):
     assert loaded.usage_extra == {"service_tier": "priority", "web_search_requests": 2}
 
 
-def test_database_usage_columns_accumulate_usage(db_setup):
-
-    store = ConversationStore()
-    conv = store.create_conversation(user_id="test")
-
-    # First exchange
-    store.accumulate_usage(
-        conv.id,
-        input_tokens=100,
-        output_tokens=50,
-        cache_creation_tokens=10,
-        cache_read_tokens=0,
-        backend="cli",
-    )
-    loaded = store.get_conversation(conv.id)
-    assert loaded.usage_input_tokens == 100
-    assert loaded.usage_output_tokens == 50
-    assert loaded.usage_cache_creation_tokens == 10
-    assert loaded.usage_cache_read_tokens == 0
-    assert loaded.usage_backend == "cli"
-
-    # Second exchange
-    store.accumulate_usage(
-        conv.id,
-        input_tokens=200,
-        output_tokens=150,
-        cache_creation_tokens=0,
-        cache_read_tokens=80,
-    )
-    loaded = store.get_conversation(conv.id)
-    assert loaded.usage_input_tokens == 300
-    assert loaded.usage_output_tokens == 200
-    assert loaded.usage_cache_creation_tokens == 10
-    assert loaded.usage_cache_read_tokens == 80
-    # Backend should persist from first call
-    assert loaded.usage_backend == "cli"
-
-
 def test_agent_message_tokens_can_carry_usage():
 
     msg = AgentMessage(

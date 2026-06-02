@@ -382,7 +382,7 @@ def update_dashboard(
     *,
     slug: str,
     updater_email: str,
-    in_conversation_id: str,
+    in_conversation_id: str | None = None,
     title: str | None = None,
     description: str | None = None,
     website: str | None = None,

@@ -101,6 +101,9 @@ def serve_interactive(request: Request, filename: str = ""):
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=404)
 
+    if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
+        return RedirectResponse(f"/interactive/{filename}/", status_code=301)
+
     mime_type, _ = mimetypes.guess_type(filename)
     mime_type = mime_type or "application/octet-stream"
     cache_control = "no-cache" if mime_type == "text/html" else "public, max-age=3600"
@@ -123,7 +126,7 @@ def serve_interactive(request: Request, filename: str = ""):
 
 
 from .benchmark import router as benchmark_router  # noqa: E402
-from .routes import auth, conversations, cron, html, knowledge, query, reports, tag_manager  # noqa: E402
+from .routes import auth, conversations, cron, dashboards, html, knowledge, query, reports, tag_manager  # noqa: E402
 from .selftest import router as selftest_router  # noqa: E402
 
 app.include_router(selftest_router)
@@ -137,6 +140,7 @@ app.include_router(tag_manager.router)
 # Template-serving routers last (they have catch-all-ish paths)
 app.include_router(reports.html_router)
 app.include_router(cron.router)
+app.include_router(dashboards.router)
 app.include_router(html.router)
 
 

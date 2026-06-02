@@ -1,15 +1,23 @@
 """Cron task management routes."""
 
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from web.cron import discover_cron_tasks, find_task, get_app_runs, get_last_runs, run_cron_task, set_cron_enabled
+from web.cron import (
+    discover_cron_tasks,
+    find_task,
+    get_app_runs,
+    get_last_runs,
+    read_cron_script,
+    run_cron_task,
+    set_cron_enabled,
+)
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
+from web.publications import list_publications
 
 from .html import get_sidebar_data
 
@@ -45,18 +53,31 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
 
 @router.post("/api/cron/{slug}/run")
 def run_task(slug: Slug):
-    """Trigger a manual cron run."""
+    """Trigger a manual cron run; for working-copy slugs, also fan out to active publications."""
     task = find_task(slug)
     if not task:
         return JSONResponse({"error": "Task not found"}, status_code=404)
 
     result = run_cron_task(slug, trigger="manual")
-    # Sanitize output to prevent stack trace exposure
+
+    publication_results = []
+    if task.get("source") == "s3":
+        for pub in list_publications(slug, active_only=True):
+            if not pub.get("snapshot_has_cron") or pub.get("refresh_paused_at"):
+                continue
+            pub_result = run_cron_task(f"{slug}-{pub['publication_id']}", trigger="manual")
+            publication_results.append({
+                "slug": pub_result["slug"],
+                "status": pub_result["status"],
+                "duration_ms": pub_result["duration_ms"],
+            })
+
     return {
         "slug": result["slug"],
         "status": result["status"],
         "duration_ms": result["duration_ms"],
         "output": result["output"],
+        "publications": publication_results,
     }
 
 
@@ -79,10 +100,11 @@ def view_script(slug: Slug):
     if not task:
         return JSONResponse({"error": "Task not found"}, status_code=404)
 
-    return PlainTextResponse(
-        Path(task["cron_path"]).read_text(),
-        media_type="text/plain; charset=utf-8",
-    )
+    content = read_cron_script(task)
+    if content is None:
+        return JSONResponse({"error": "Script not found"}, status_code=404)
+
+    return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
 
 
 @router.get("/api/cron/{slug}/logs")

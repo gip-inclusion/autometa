@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -167,6 +168,34 @@ class DashboardTag(Base):
     __table_args__ = (
         Index("idx_dashboard_tags_slug", "dashboard_slug"),
         Index("idx_dashboard_tags_tag", "tag_id"),
+    )
+
+
+class DashboardPublication(Base):
+    __tablename__ = "dashboard_publications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dashboard_slug: Mapped[str] = mapped_column(Text, ForeignKey("dashboards.slug", ondelete="CASCADE"), nullable=False)
+    publication_id: Mapped[str] = mapped_column(Text, nullable=False)
+    environment: Mapped[str] = mapped_column(Text, nullable=False)
+    published_by: Mapped[str] = mapped_column(Text, nullable=False)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    unpublished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snapshot_has_cron: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    refresh_paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_successful_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_refresh_status: Mapped[str | None] = mapped_column(Text)
+    last_refresh_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        Index("idx_dashboard_publications_slug", "dashboard_slug"),
+        Index(
+            "idx_dashboard_publications_refreshable",
+            "snapshot_has_cron",
+            "unpublished_at",
+            "refresh_paused_at",
+        ),
+        UniqueConstraint("publication_id", name="uq_dashboard_publications_publication_id"),
     )
 
 
@@ -344,3 +373,30 @@ class MetabaseDashboard(Base):
     pilotage_url: Mapped[str | None] = mapped_column(Text)
     collection_id: Mapped[int | None] = mapped_column(Integer)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=func.now())
+
+
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str | None] = mapped_column(Text, ForeignKey("conversations.id", ondelete="SET NULL"))
+    cli_message_id: Mapped[str | None] = mapped_column(Text)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, default="turn")
+    model: Mapped[str | None] = mapped_column(Text)
+    backend: Mapped[str] = mapped_column(Text, nullable=False)
+    service_tier: Mapped[str | None] = mapped_column(Text)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_creation_5m_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_creation_1h_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    web_search_requests: Mapped[int] = mapped_column(Integer, default=0)
+    web_fetch_requests: Mapped[int] = mapped_column(Integer, default=0)
+    raw: Mapped[dict | None] = mapped_column(JSONB)
+
+    __table_args__ = (
+        Index("idx_usage_events_conv_ts", "conversation_id", "timestamp"),
+        Index("idx_usage_events_ts", "timestamp"),
+        Index("idx_usage_events_kind_ts", "kind", "timestamp"),
+    )

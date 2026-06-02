@@ -7,16 +7,14 @@ from web.cron import prepare_s3_workdir, upload_s3_results
 
 
 def test_prepare_s3_workdir_computes_hashes(mocker):
-    mocker.patch(
-        "web.cron.s3.interactive.list_files",
-        return_value=[
-            {"path": "myapp/file1.txt"},
-            {"path": "myapp/file2.txt"},
-        ],
-    )
-    mocker.patch("web.cron.s3.interactive.download", side_effect=[b"content1", b"content2"])
+    store = mocker.MagicMock()
+    store.list_files.return_value = [
+        {"path": "myapp/file1.txt"},
+        {"path": "myapp/file2.txt"},
+    ]
+    store.download.side_effect = [b"content1", b"content2"]
 
-    workdir, pre_hashes = prepare_s3_workdir("myapp")
+    workdir, pre_hashes = prepare_s3_workdir(store, "myapp/", "myapp")
 
     assert len(pre_hashes) == 2
     assert "file1.txt" in pre_hashes
@@ -24,7 +22,7 @@ def test_prepare_s3_workdir_computes_hashes(mocker):
 
 
 def test_upload_s3_results_skips_unchanged(mocker):
-    mock_upload = mocker.patch("web.cron.s3.interactive.upload")
+    store = mocker.MagicMock()
     workdir = Path(tempfile.mkdtemp())
     (workdir / "unchanged.txt").write_bytes(b"same content")
     (workdir / "changed.txt").write_bytes(b"new content")
@@ -34,17 +32,17 @@ def test_upload_s3_results_skips_unchanged(mocker):
         "changed.txt": "old_hash",
     }
 
-    upload_s3_results("myapp", workdir, pre_hashes)
+    upload_s3_results(store, "myapp/", "myapp", workdir, pre_hashes)
 
-    assert mock_upload.call_count == 1
-    mock_upload.assert_called_with("myapp/changed.txt", b"new content")
+    assert store.upload.call_count == 1
+    store.upload.assert_called_with("myapp/changed.txt", b"new content")
 
 
 def test_upload_s3_results_uploads_new_files(mocker):
-    mock_upload = mocker.patch("web.cron.s3.interactive.upload")
+    store = mocker.MagicMock()
     workdir = Path(tempfile.mkdtemp())
     (workdir / "brand_new.txt").write_bytes(b"hello")
 
-    upload_s3_results("myapp", workdir, {})
+    upload_s3_results(store, "myapp/", "myapp", workdir, {})
 
-    mock_upload.assert_called_once_with("myapp/brand_new.txt", b"hello")
+    store.upload.assert_called_once_with("myapp/brand_new.txt", b"hello")

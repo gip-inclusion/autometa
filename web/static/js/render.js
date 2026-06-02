@@ -491,18 +491,46 @@ function formatUserContent(content) {
     const pills = parts[0];
     const userText = parts.slice(1).join('\n---\n').trim();
     if (userText) {
-      return `<div class="file-context-pills">${pills}</div><div class="user-text">${escapeHtml(userText)}</div>`;
+      return `<div class="file-context-pills">${pills}</div><div class="user-text">${formatUserMarkdown(userText)}</div>`;
     } else {
       return `<div class="file-context-pills">${pills}</div>`;
     }
   }
 
-  // If no file blocks found, just escape and return
+  // If no file blocks found, render as markdown
   if (!matches) {
-    return escapeHtml(content);
+    return `<div class="user-text">${formatUserMarkdown(content)}</div>`;
   }
 
   return result;
+}
+
+// Why: user content is untrusted. marked auto-escapes text content but passes
+// raw HTML through and emits unsanitized link/image hrefs — override those
+// three renderer hooks to neutralize <script>/<img>, javascript:/data: hrefs,
+// and external image loads.
+function formatUserMarkdown(text) {
+  if (!text) return '';
+
+  if (typeof marked === 'undefined') {
+    return escapeHtml(text).replace(/\n/g, '<br>');
+  }
+
+  const renderer = new marked.Renderer();
+  renderer.link = function ({ href, title, tokens }) {
+    const inner = this.parser.parseInline(tokens);
+    if (!isSafeUserUrl(href)) return inner;
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+    return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer nofollow ugc"${titleAttr}>${inner}</a>`;
+  };
+  renderer.image = function ({ text, title }) {
+    return escapeHtml(text || title || '');
+  };
+  renderer.html = function ({ text }) {
+    return escapeHtml(text);
+  };
+
+  return marked.parse(text, { breaks: true, gfm: true, renderer });
 }
 
 /**
