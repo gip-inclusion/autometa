@@ -12,6 +12,7 @@ from web.cron import get_last_runs
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
+from web.publications import BLOCKED_CODES, ENVIRONMENTS, PublicationBlocked, list_publications, publish, unpublish
 
 from .html import get_sidebar_data, group_items_by_date
 
@@ -20,6 +21,7 @@ router = APIRouter()
 VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
+PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
 
 
 @router.get("/dashboards")
@@ -86,6 +88,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         return RedirectResponse("/dashboards", status_code=302)
 
     dashboard["formatted_date"] = format_relative_date(dashboard["updated"]) if dashboard.get("updated") else ""
+    dashboard_publications = list_publications(slug)
+    can_publish = not (dashboard["has_api_access"] or dashboard["has_persistence"])
 
     last_run = None
     if dashboard["has_cron"]:
@@ -103,6 +107,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "section": "dashboards",
             "current_conv": None,
             "dashboard": dashboard,
+            "publications": dashboard_publications,
+            "can_publish": can_publish,
             "last_run": last_run,
             "is_pinned": is_pinned,
             "is_admin": user_email in ADMIN_USERS,
@@ -116,6 +122,9 @@ async def toggle_archive(slug: Slug, request: Request, user_email: str = Depends
     body = await request.body()
     payload = (await request.json()) if body else {}
     archived = bool(payload.get("archived", True))
+    if archived:
+        for pub in list_publications(slug, active_only=True):
+            unpublish(pub["publication_id"])
     try:
         update_dashboard(slug=slug, updater_email=user_email, is_archived=archived)
     except DashboardNotFound:
@@ -147,3 +156,24 @@ async def rename_dashboard(slug: Slug, request: Request, user_email: str = Depen
     except DashboardNotFound:
         return JSONResponse({"error": "Dashboard not found"}, status_code=404)
     return {"slug": slug, "title": title}
+
+
+@router.post("/api/dashboards/{slug}/publish")
+async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    environment = payload.get("environment", "staging")
+    if environment not in ENVIRONMENTS:
+        return JSONResponse({"error": "Invalid environment"}, status_code=400)
+    try:
+        return publish(slug, environment, user_email)
+    except PublicationBlocked as exc:
+        reason = exc.code if exc.code in BLOCKED_CODES else "blocked"
+        return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
+
+
+@router.post("/api/publications/{publication_id}/unpublish")
+async def unpublish_publication(publication_id: PublicationId, user_email: str = Depends(get_current_user)):
+    if not unpublish(publication_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}

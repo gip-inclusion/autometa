@@ -12,6 +12,8 @@ if _original_url and not urlparse(_original_url).path.endswith("_test"):
     os.environ["DATABASE_URL"] = urlunparse(parsed._replace(path=parsed.path + "_test"))
 
 os.environ.setdefault("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "0.05")
+os.environ.setdefault("PUBLIC_S3_BUCKET_STAGING", "test-staging-bucket")
+os.environ.setdefault("PUBLIC_S3_BUCKET_PROD", "test-prod-bucket")
 
 import pytest
 
@@ -79,7 +81,7 @@ def truncate_all_tables():
         session.execute(
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
-                uploaded_files, cron_runs, dashboards, dashboard_tags, pinned_items, pm_commands,
+                uploaded_files, cron_runs, dashboards, dashboard_tags, dashboard_publications, pinned_items, pm_commands,
                 pm_heartbeat, reports, conversations, tags, schema_version,
                 wishlist, matomo_baselines, matomo_dimensions, matomo_segments,
                 matomo_events, metabase_cards, metabase_dashboards

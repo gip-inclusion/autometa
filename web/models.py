@@ -171,6 +171,23 @@ class DashboardTag(Base):
     )
 
 
+class DashboardPublication(Base):
+    __tablename__ = "dashboard_publications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dashboard_slug: Mapped[str] = mapped_column(Text, ForeignKey("dashboards.slug", ondelete="CASCADE"), nullable=False)
+    publication_id: Mapped[str] = mapped_column(Text, nullable=False)
+    environment: Mapped[str] = mapped_column(Text, nullable=False)
+    published_by: Mapped[str] = mapped_column(Text, nullable=False)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    unpublished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("idx_dashboard_publications_slug", "dashboard_slug"),
+        UniqueConstraint("publication_id", name="uq_dashboard_publications_publication_id"),
+    )
+
+
 class UploadedFile(Base):
     __tablename__ = "uploaded_files"
 

@@ -159,3 +159,55 @@ class S3Store:
 interactive = S3Store("interactive/")
 sessions = S3Store("sessions/")
 uploads = S3Store("interactive/uploads/")
+
+
+def list_prefix(bucket: str, prefix: str) -> list[str]:
+    """All object keys under prefix in the given bucket. Callers must constrain bucket/prefix to trusted, validated inputs — no user-controlled values reach here."""
+    keys: list[str] = []
+    paginator = _client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            keys.append(obj["Key"])
+    return keys
+
+
+def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+    """Copy every object under src_prefix (in S3_BUCKET) to dst_bucket/dst_prefix. Returns count."""
+    return _copy_keys(list_prefix(config.S3_BUCKET, src_prefix), src_prefix, dst_bucket, dst_prefix)
+
+
+def delete_prefix(bucket: str, prefix: str) -> int:
+    """Delete every object under prefix in the given bucket. Returns count."""
+    keys = list_prefix(bucket, prefix)
+    for key in keys:
+        _client.delete_object(Bucket=bucket, Key=key)
+    return len(keys)
+
+
+def sync_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+    """Copy src_prefix onto dst_bucket/dst_prefix, then prune destination orphans (copy before delete)."""
+    src_keys = list_prefix(config.S3_BUCKET, src_prefix)
+    copied = _copy_keys(src_keys, src_prefix, dst_bucket, dst_prefix)
+    src_rel = {key[len(src_prefix) :] for key in src_keys}
+    for dst_key in list_prefix(dst_bucket, dst_prefix):
+        if dst_key[len(dst_prefix) :] not in src_rel:
+            _client.delete_object(Bucket=dst_bucket, Key=dst_key)
+    return copied
+
+
+def _copy_keys(src_keys: list[str], src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+    count = 0
+    for src_key in src_keys:
+        dst_key = f"{dst_prefix}{src_key[len(src_prefix) :]}"
+        try:
+            _client.copy_object(
+                Bucket=dst_bucket,
+                Key=dst_key,
+                CopySource={"Bucket": config.S3_BUCKET, "Key": src_key},
+            )
+        except ClientError as exc:
+            logger.debug("copy_object failed for %s, falling back to download/upload: %s", src_key, exc)
+            body = _client.get_object(Bucket=config.S3_BUCKET, Key=src_key)["Body"].read()
+            _client.put_object(Bucket=dst_bucket, Key=dst_key, Body=body)
+        count += 1
+    return count

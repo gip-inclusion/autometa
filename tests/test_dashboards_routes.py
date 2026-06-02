@@ -228,3 +228,86 @@ def test_detail_hides_api_access_toggle(client):
     assert r.status_code == 200
     assert "apiAccessToggle" not in r.text
     assert "Accès API" not in r.text
+
+
+def test_publish_endpoint_creates_publication(client, mocker):
+    _make_dashboard("route-pub")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=0)
+    r = client.post("/api/dashboards/route-pub/publish", json={"environment": "staging"}, headers=_h())
+    assert r.status_code == 200
+    assert r.json()["environment"] == "staging"
+
+
+def test_publish_endpoint_blocked_returns_409(client, mocker):
+    _make_dashboard("route-pub-api")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "route-pub-api"))
+        d.has_api_access = True
+    r = client.post("/api/dashboards/route-pub-api/publish", json={"environment": "staging"}, headers=_h())
+    assert r.status_code == 409
+
+
+def test_publish_endpoint_bad_environment_400(client):
+    _make_dashboard("route-pub-bad")
+    r = client.post("/api/dashboards/route-pub-bad/publish", json={"environment": "wat"}, headers=_h())
+    assert r.status_code == 400
+
+
+def test_unpublish_endpoint(client, mocker):
+    _make_dashboard("route-unp")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=1)
+    pub = client.post("/api/dashboards/route-unp/publish", json={"environment": "staging"}, headers=_h()).json()
+    r = client.post(f"/api/publications/{pub['publication_id']}/unpublish", headers=_h())
+    assert r.status_code == 200
+
+
+def test_unpublish_endpoint_bad_id_422(client):
+    r = client.post("/api/publications/BAD!/unpublish", headers=_h())
+    assert r.status_code == 422
+
+
+def test_detail_shows_publish_buttons(client):
+    _make_dashboard("pub-buttons")
+    r = client.get("/dashboards/pub-buttons/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'data-action="publish"' in r.text
+    assert "Publier en staging" in r.text
+
+
+def test_detail_blocks_publish_for_query_api(client):
+    _make_dashboard("pub-blocked")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "pub-blocked"))
+        d.has_api_access = True
+    r = client.get("/dashboards/pub-blocked/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'data-action="publish"' not in r.text
+    assert "Publication indisponible" in r.text
+
+
+def test_detail_lists_publications(client, mocker):
+    _make_dashboard("detail-lists")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=0)
+    client.post("/api/dashboards/detail-lists/publish", json={"environment": "staging"}, headers=_h())
+    r = client.get("/dashboards/detail-lists/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Dépublier" in r.text
+
+
+def test_archiving_unpublishes_all(client, mocker):
+    _make_dashboard("arch-unp")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    delete = mocker.patch("web.publications.s3.delete_prefix", return_value=1)
+    client.post("/api/dashboards/arch-unp/publish", json={"environment": "staging"}, headers=_h())
+    r = client.post("/api/dashboards/arch-unp/archive", json={"archived": True}, headers=_h())
+    assert r.status_code == 200
+    detail = client.get("/dashboards/arch-unp/edit", headers=_h())
+    assert "Dépublier" not in detail.text
+    assert delete.called

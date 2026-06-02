@@ -85,9 +85,50 @@
         </div>
       </div>
 
-      <div class="card mt-3">
+      <div class="card mt-3" id="publier-block" data-slug="{{ dashboard.slug }}">
         <div class="card-body">
           <h5 class="card-title">Publier</h5>
+          {% if can_publish %}
+          <div class="d-flex gap-2 mb-3">
+            <button type="button" class="btn btn-outline-primary" data-action="publish" data-env="staging">Publier en staging</button>
+            <button type="button" class="btn btn-primary" data-action="publish" data-env="production">Publier en production</button>
+          </div>
+          {% else %}
+          <p class="text-muted">Publication indisponible — ce tableau utilise l'API query, absente de l'hébergement statique.</p>
+          {% endif %}
+          {% if publications %}
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Environnement</th>
+                <th scope="col">URL</th>
+                <th scope="col">Publié par</th>
+                <th scope="col">Publié le</th>
+                <th scope="col" class="text-end"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in publications %}
+              <tr>
+                <td>
+                  <span class="badge {% if p.environment == 'production' %}bg-success{% else %}bg-secondary{% endif %}">{{ p.environment }}</span>
+                </td>
+                <td>
+                  <a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
+                  <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" data-action="copy-url" data-url="{{ p.url }}" title="Copier l'URL">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </td>
+                <td class="small text-muted">{{ p.published_by }}</td>
+                <td class="small text-muted">{{ p.published_at.strftime('%Y-%m-%d %H:%M') if p.published_at else '—' }}</td>
+                <td class="text-end">
+                  <button type="button" class="btn btn-sm btn-link text-danger" data-action="unpublish" data-pub="{{ p.publication_id }}">Dépublier</button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
         </div>
       </div>
 
@@ -147,6 +188,54 @@
       e.target.textContent = 'En cours…';
       await post(`/api/cron/${slug}/run`, {});
       window.location.reload();
+    });
+
+    async function reportFailure(label, res) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body.reason) detail = `${body.error || ''}: ${body.reason}`.trim();
+        else if (body.error) detail = body.error;
+      } catch (_) { /* not JSON */ }
+      alert(`${label} a échoué — ${detail}`);
+    }
+
+    document.querySelectorAll('#publier-block [data-action=publish]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const res = await post(`/api/dashboards/${slug}/publish`, { environment: btn.dataset.env });
+        if (!res.ok) {
+          await reportFailure('Publication', res);
+          btn.disabled = false;
+          return;
+        }
+        window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=copy-url]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(btn.dataset.url); }
+        catch (_) { return; }
+        const icon = btn.querySelector('i');
+        if (!icon) return;
+        const prev = icon.className;
+        icon.className = 'ri-check-line text-success';
+        setTimeout(() => { icon.className = prev; }, 1200);
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=unpublish]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const res = await post(`/api/publications/${btn.dataset.pub}/unpublish`, {});
+        if (!res.ok) {
+          await reportFailure('Dépublication', res);
+          btn.disabled = false;
+          return;
+        }
+        window.location.reload();
+      });
     });
   })();
 </script>
