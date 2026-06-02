@@ -1,5 +1,6 @@
 """Sync Claude CLI session files to/from S3 for horizontal scaling."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -78,3 +79,44 @@ def _upload_subagents(session_id: str):
         relative = path.relative_to(get_session_dir() / session_id)
         s3.sessions.upload(f"{session_id}/{relative}", path.read_bytes(), "application/x-ndjson")
         logger.debug("Uploaded subagent file: %s", relative)
+
+
+def _rewrite_session_id(jsonl_bytes: bytes, new_id: str) -> bytes:
+    out = []
+    for line in jsonl_bytes.splitlines():
+        if not line.strip():
+            continue
+        obj = json.loads(line)
+        if obj.get("sessionId"):
+            obj["sessionId"] = new_id
+        out.append(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+    return b"\n".join(out) + (b"\n" if out else b"")
+
+
+def copy_session(src_id: str, dst_id: str) -> bool:
+    if not config.S3_BUCKET:
+        return False
+
+    content = s3.sessions.download(f"{src_id}.jsonl")
+    if content is None:
+        logger.warning("Cannot copy session: source %s not found in S3", src_id)
+        return False
+
+    rewritten = _rewrite_session_id(content, dst_id)
+    if not s3.sessions.upload(f"{dst_id}.jsonl", rewritten, "application/x-ndjson"):
+        return False
+
+    logger.info("Copied session %s -> %s (%d bytes)", src_id, dst_id, len(rewritten))
+    _copy_subagents(src_id, dst_id)
+    return True
+
+
+def _copy_subagents(src_id: str, dst_id: str):
+    for entry in s3.sessions.list_files(f"{src_id}/subagents/"):
+        relative = entry["path"][len(f"{src_id}/") :]
+        content = s3.sessions.download(entry["path"])
+        if content is None:
+            continue
+        rewritten = _rewrite_session_id(content, dst_id)
+        s3.sessions.upload(f"{dst_id}/{relative}", rewritten, "application/x-ndjson")
+        logger.debug("Copied subagent file: %s", relative)

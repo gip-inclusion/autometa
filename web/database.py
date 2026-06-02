@@ -8,6 +8,7 @@ from typing import Optional
 
 from sqlalchemy import func, select, text
 
+from . import session_sync
 from .db import get_db
 from .helpers import utcnow
 from .models import Conversation as ConvModel
@@ -415,12 +416,18 @@ class ConversationStore:
         now = utcnow()
         new_id = str(uuid.uuid4())
 
+        new_session_id = None
+        if source.session_id:
+            candidate = str(uuid.uuid4())
+            if session_sync.copy_session(source.session_id, candidate):
+                new_session_id = candidate
+
         with get_db() as session:
             model = ConvModel(
                 id=new_id,
                 user_id=new_user_id,
                 title=source.title,
-                session_id=None,
+                session_id=new_session_id,
                 conv_type=source.conv_type,
                 file_path=source.file_path,
                 status="active",
