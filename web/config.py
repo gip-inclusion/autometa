@@ -157,7 +157,7 @@ SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 # pipometa — autonomous agent job runner (autometa-jobs orchestrator)
 PIPOMETA_URL = os.getenv("PIPOMETA_URL", "").rstrip("/")
 PIPOMETA_API_KEY = os.getenv("PIPOMETA_API_KEY", "")
-# Fixed Scaleway worker job-definition id; injected into every pipeline's config.
+# All pipelines share one Scaleway worker container, so the job-definition id is global rather than per-pipeline.
 PIPOMETA_JOB_DEFINITION_ID = os.getenv("PIPOMETA_JOB_DEFINITION_ID", "")
 
 # Grist (webinaire data)

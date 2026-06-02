@@ -59,14 +59,18 @@ def test_list_runs_passes_filters(mocker):
     assert req.call_args.kwargs["params"] == {"limit": 10, "pipeline_id": "p1", "status": "running"}
 
 
-def test_get_run_and_events_and_cancel(mocker):
+@pytest.mark.parametrize(
+    "fn,method,path",
+    [
+        ("get_run", "GET", "https://orch.example/runs/r1"),
+        ("get_run_events", "GET", "https://orch.example/runs/r1/events"),
+        ("cancel_run", "POST", "https://orch.example/runs/r1/cancel"),
+    ],
+)
+def test_run_endpoints_route_correctly(mocker, fn, method, path):
     req = mocker.patch("httpx.request", return_value=_fake_response({"id": "r1"}))
-    jobs.get_run("r1")
-    assert req.call_args.args == ("GET", "https://orch.example/runs/r1")
-    jobs.get_run_events("r1")
-    assert req.call_args.args == ("GET", "https://orch.example/runs/r1/events")
-    jobs.cancel_run("r1")
-    assert req.call_args.args == ("POST", "https://orch.example/runs/r1/cancel")
+    getattr(jobs, fn)("r1")
+    assert req.call_args.args == (method, path)
 
 
 def test_http_error_propagates(mocker):

@@ -28,10 +28,18 @@ def test_trigger_run_one_shot(client, mocker):
     trig.assert_called_once_with(GOOD_ID, input_uri=None, idempotency_key=None)
 
 
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/jobs/runs/{id}"),
+        ("get", "/api/jobs/runs/{id}/events"),
+        ("post", "/api/jobs/runs/{id}/cancel"),
+        ("post", "/api/jobs/pipelines/{id}/runs"),
+    ],
+)
 @pytest.mark.parametrize("bad", BAD_IDS)
-def test_trigger_run_rejects_bad_pipeline_id(client, bad):
-    r = client.post(f"/api/jobs/pipelines/{bad}/runs", json={})
-    assert r.status_code == 422
+def test_id_routes_reject_bad_id(client, method, path, bad):
+    assert getattr(client, method)(path.format(id=bad)).status_code == 422
 
 
 def test_run_status_proxies(client, mocker):
@@ -53,11 +61,6 @@ def test_cancel_proxies(client, mocker):
     r = client.post(f"/api/jobs/runs/{GOOD_ID}/cancel")
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
-
-
-@pytest.mark.parametrize("bad", BAD_IDS)
-def test_run_status_rejects_bad_id(client, bad):
-    assert client.get(f"/api/jobs/runs/{bad}").status_code == 422
 
 
 def test_orchestrator_unreachable_returns_502(client, mocker):
