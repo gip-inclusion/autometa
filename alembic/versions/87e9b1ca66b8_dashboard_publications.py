@@ -33,6 +33,7 @@ def upgrade() -> None:
         sa.Column("unpublished_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["dashboard_slug"], ["dashboards.slug"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("publication_id", name="uq_dashboard_publications_publication_id"),
     )
     op.create_index("idx_dashboard_publications_slug", "dashboard_publications", ["dashboard_slug"], unique=False)
     # ### end Alembic commands ###
