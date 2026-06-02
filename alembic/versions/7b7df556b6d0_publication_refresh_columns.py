@@ -1,4 +1,4 @@
-"""publication_refresh_columns (Revises 401dce8c4864)"""
+"""publication_refresh_columns (Revises 87e9b1ca66b8)"""
 
 from typing import Sequence, Union
 
@@ -8,7 +8,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "7b7df556b6d0"
-down_revision: Union[str, Sequence[str], None] = "401dce8c4864"
+down_revision: Union[str, Sequence[str], None] = "87e9b1ca66b8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
