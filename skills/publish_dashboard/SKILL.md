@@ -72,7 +72,7 @@ Injectées automatiquement par `web/agents/cli.py` :
 
 - `AUTOMETA_USER_EMAIL` — email de l'utilisateur qui publie (`published_by` dans la ligne DB).
 
-Les variables `PUBLIC_S3_BUCKET_*` et `PUBLIC_DASHBOARDS_*_URL` doivent être configurées dans l'environnement Scalingo. En dev local sans MinIO public, `publish` échouera au push vers le bucket public — c'est attendu.
+Les variables `PUBLIC_DASHBOARDS_BUCKET_*` et `PUBLIC_DASHBOARDS_URL_*` doivent être configurées dans l'environnement Scalingo. En dev local sans MinIO public, `publish` échouera au push vers le bucket public — c'est attendu.
 
 ## Codes de retour
 

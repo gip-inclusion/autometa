@@ -13,8 +13,8 @@ if _original_url and not urlparse(_original_url).path.endswith("_test"):
 
 os.environ.setdefault("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "0.05")
 os.environ.setdefault("S3_BUCKET", "test-bucket")
-os.environ.setdefault("PUBLIC_S3_BUCKET_STAGING", "test-staging-bucket")
-os.environ.setdefault("PUBLIC_S3_BUCKET_PROD", "test-prod-bucket")
+os.environ.setdefault("PUBLIC_DASHBOARDS_BUCKET_STAGING", "test-staging-bucket")
+os.environ.setdefault("PUBLIC_DASHBOARDS_BUCKET_PROD", "test-prod-bucket")
 
 import pytest
 
