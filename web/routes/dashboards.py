@@ -1,6 +1,5 @@
 """Dashboard management screen routes."""
 
-import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -21,7 +20,6 @@ router = APIRouter()
 VIEWS = ("latest", "mine", "archived")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
-_INTERNAL_REDIRECT_PATH = re.compile(r"\A/dashboards/[a-z0-9_-]{1,100}/edit\Z")
 
 
 @router.get("/dashboards")
@@ -78,10 +76,7 @@ def dashboards_page(
 
 @router.get("/dashboards/{slug}")
 def dashboard_redirect(slug: Slug, user_email: str = Depends(get_current_user)):
-    target = f"/dashboards/{slug}/edit"
-    if not _INTERNAL_REDIRECT_PATH.fullmatch(target):
-        return JSONResponse({"error": "Invalid slug"}, status_code=422)
-    return RedirectResponse(target, status_code=301)
+    return RedirectResponse(f"/dashboards/{slug}/edit", status_code=301)
 
 
 @router.get("/dashboards/{slug}/edit")
