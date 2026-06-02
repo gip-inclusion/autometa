@@ -75,12 +75,43 @@ def test_fork_database_tracks_source(app, conversation_with_messages):
     assert forked.forked_from == conversation_with_messages.id
 
 
-def test_fork_database_resets_session_id(app, conversation_with_messages):
-    """Forked conversation has no session_id (fresh start for agent)."""
+def test_fork_database_copies_session_when_source_has_one(app, conversation_with_messages, mocker):
+    """Forked conv gets a brand-new session_id and the source jsonl is copied under it."""
+    from web import session_sync
     from web.database import store
 
-    # Set session_id on original
     store.update_conversation(conversation_with_messages.id, session_id="original-session")
+
+    copy_mock = mocker.patch.object(session_sync, "copy_session", return_value=True)
+
+    forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
+
+    assert forked.session_id is not None
+    assert forked.session_id != "original-session"
+    copy_mock.assert_called_once_with("original-session", forked.session_id)
+
+
+def test_fork_database_leaves_session_id_none_when_source_has_none(app, conversation_with_messages, mocker):
+    """If the source has no session yet, the fork doesn't get one either (and no copy attempt)."""
+    from web import session_sync
+    from web.database import store
+
+    copy_mock = mocker.patch.object(session_sync, "copy_session", return_value=True)
+
+    forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
+
+    assert forked.session_id is None
+    copy_mock.assert_not_called()
+
+
+def test_fork_database_leaves_session_id_none_when_copy_fails(app, conversation_with_messages, mocker):
+    """If the S3 copy fails, the fork falls back to no session — better than a dangling pointer."""
+    from web import session_sync
+    from web.database import store
+
+    store.update_conversation(conversation_with_messages.id, session_id="original-session")
+
+    mocker.patch.object(session_sync, "copy_session", return_value=False)
 
     forked = store.fork_conversation(conversation_with_messages.id, "forker@example.com")
 
