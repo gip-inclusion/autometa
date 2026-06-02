@@ -159,6 +159,7 @@ class S3Store:
 interactive = S3Store("interactive/")
 sessions = S3Store("sessions/")
 uploads = S3Store("interactive/uploads/")
+publications = S3Store("publications/")
 
 
 def list_prefix(bucket: str, prefix: str) -> list[str]:

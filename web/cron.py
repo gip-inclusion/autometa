@@ -1,9 +1,11 @@
 """Cron runner for data refresh scripts."""
 
 import argparse
+import datetime as dt
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,12 +16,13 @@ from pathlib import Path
 import sentry_sdk
 from sqlalchemy import select
 
-from web.helpers import now_local, utcnow
+from web.helpers import now_local, sanitize_for_log, utcnow
+from web.s3 import S3Store
 
-from . import alerts, config, s3
+from . import alerts, config, publications, s3
 from .database import get_db
 from .log import setup_logging
-from .models import CronRun, Dashboard
+from .models import CronRun, Dashboard, DashboardPublication
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +32,6 @@ MAX_OUTPUT_SIZE = 50_000
 
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
-
-
-def _sanitize_for_log(value: str) -> str:
-    """Remove line-break characters to prevent log injection."""
-    return value.replace("\r", "").replace("\n", "")
 
 
 def parse_frontmatter_text(content: str) -> dict:
@@ -90,6 +88,28 @@ def is_due(schedule: str) -> bool:
     if schedule == "weekly":
         return now_local().weekday() == 0  # Monday
     return True
+
+
+def get_schedule_for_app(slug: str) -> str:
+    """Read just one APP.md to determine an app's cron schedule. Defaults to 'daily'."""
+    md_bytes = s3.interactive.download(f"{slug}/APP.md")
+    if md_bytes is None:
+        return "daily"
+    return get_schedule(parse_frontmatter_text(md_bytes.decode()))
+
+
+def next_cron_run(schedule: str, now=None):
+    """Next scheduled execution time (local tz). Matches `_sentry_monitor_config` cadence: 6h00 daily, or 6h00 Monday weekly."""
+    now = now or now_local()
+    target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if schedule == "weekly":
+        days_ahead = (0 - target.weekday()) % 7
+        if days_ahead == 0 and now >= target:
+            days_ahead = 7
+        return target + dt.timedelta(days=days_ahead)
+    if now >= target:
+        return target + dt.timedelta(days=1)
+    return target
 
 
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
@@ -203,17 +223,60 @@ def discover_from_s3() -> list[dict]:
     return tasks
 
 
-def discover_cron_tasks() -> list[dict]:
-    """Discover all cron tasks from all tiers.
+def discover_publications() -> list[dict]:
+    """Tasks for active, non-paused publications whose snapshot has a cron.py — DB-only filter."""
+    if not config.S3_BUCKET:
+        return []
+    with get_db() as session:
+        rows = session.execute(
+            select(
+                DashboardPublication.dashboard_slug,
+                DashboardPublication.publication_id,
+                Dashboard.title,
+            )
+            .join(Dashboard, Dashboard.slug == DashboardPublication.dashboard_slug)
+            .where(
+                DashboardPublication.snapshot_has_cron,
+                DashboardPublication.unpublished_at.is_(None),
+                DashboardPublication.refresh_paused_at.is_(None),
+            )
+            .order_by(DashboardPublication.dashboard_slug, DashboardPublication.publication_id)
+        ).all()
 
-    System tasks (cron/) come first, then app tasks (data/interactive/ or S3).
-    """
+    tasks = []
+    for slug, pub_id, title in rows:
+        prefix = f"{slug}/{pub_id}/"
+        md_bytes = s3.publications.download(f"{prefix}APP.md")
+        meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
+        tasks.append({
+            "slug": f"{slug}-{pub_id}",
+            "title": title,
+            "tier": "publication",
+            "source": "s3-publication",
+            "path": prefix,
+            "cron_path": f"{prefix}cron.py",
+            "enabled": is_enabled(meta),
+            "timeout": get_timeout(meta),
+            "schedule": get_schedule(meta),
+            "publication_id": pub_id,
+            "dashboard_slug": slug,
+        })
+    return tasks
+
+
+def discover_cron_tasks() -> list[dict]:
+    """Discover all cron tasks: system → app → publication."""
     tasks = discover_from_dir(config.CRON_DIR, "CRON.md", "system")
     tasks += discover_from_s3()
+    tasks += discover_publications()
     return tasks
 
 
 def find_task(slug: str) -> dict | None:
+    # Why: discovery order (system → app → publication) means an app slug of shape
+    # "{dashboard}-{6 chars}" would shadow a same-named publication composite. Risk is
+    # near-zero (would require an app slug to collide with a real publication id);
+    # documented here so future readers know first-match-wins is intentional.
     for task in discover_cron_tasks():
         if task["slug"] == slug:
             return task
@@ -229,14 +292,15 @@ def read_cron_script(task: dict) -> str | None:
     return path.read_text() if path.exists() else None
 
 
-def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
-    workdir = Path(tempfile.mkdtemp(prefix=f"cron-{slug}-"))
+def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
+    safe_label = re.sub(r"[^a-zA-Z0-9_-]", "", label) or "task"
+    workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
     pre_hashes: dict[str, str] = {}
-    for entry in s3.interactive.list_files(f"{slug}/"):
-        local_name = entry["path"][len(f"{slug}/") :]
+    for entry in store.list_files(store_relative_prefix):
+        local_name = entry["path"][len(store_relative_prefix) :]
         if not local_name or ".." in local_name:
             continue
-        content = s3.interactive.download(entry["path"])
+        content = store.download(entry["path"])
         if content is not None:
             local_file = (workdir / local_name).resolve()
             try:
@@ -249,7 +313,9 @@ def prepare_s3_workdir(slug: str) -> tuple[Path, dict[str, str]]:
     return workdir, pre_hashes
 
 
-def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
+def upload_s3_results(
+    store: S3Store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]
+):
     uploaded = skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
@@ -264,12 +330,12 @@ def upload_s3_results(slug: str, workdir: Path, pre_hashes: dict[str, str]):
         if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
             skipped += 1
             continue
-        s3.interactive.upload(f"{slug}/{rel}", content)
+        store.upload(f"{store_relative_prefix}{rel}", content)
         uploaded += 1
     if uploaded:
         logger.info(
             "Cron upload %s: %d uploaded, %d unchanged",
-            _sanitize_for_log(slug),
+            sanitize_for_log(label),
             uploaded,
             skipped,
         )
@@ -315,7 +381,8 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         monitor_config=monitor_config,
     )
 
-    is_s3 = task.get("source") == "s3"
+    source = task.get("source")
+    uses_workdir = source in ("s3", "s3-publication")
     timeout = task["timeout"]
     workdir = None
     pre_hashes: dict[str, str] = {}
@@ -328,9 +395,16 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         "PYTHONPATH": str(config.BASE_DIR),
     }
 
+    if source == "s3":
+        store = s3.interactive
+        store_prefix = f"{slug}/"
+    elif source == "s3-publication":
+        store = s3.publications
+        store_prefix = f"{task['dashboard_slug']}/{task['publication_id']}/"
+
     try:
-        if is_s3:
-            workdir, pre_hashes = prepare_s3_workdir(slug)
+        if uses_workdir:
+            workdir, pre_hashes = prepare_s3_workdir(store, store_prefix, slug)
             cron_script = str(workdir / "cron.py")
             cwd = str(workdir)
         else:
@@ -355,8 +429,10 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
 
         status = "success" if result.returncode == 0 else "failure"
 
-        if is_s3 and status == "success" and workdir:
-            upload_s3_results(slug, workdir, pre_hashes)
+        if uses_workdir and status == "success" and workdir:
+            upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
+            if source == "s3-publication":
+                publications.refresh(task["publication_id"])
 
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)

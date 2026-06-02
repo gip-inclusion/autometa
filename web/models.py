@@ -181,9 +181,20 @@ class DashboardPublication(Base):
     published_by: Mapped[str] = mapped_column(Text, nullable=False)
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     unpublished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snapshot_has_cron: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    refresh_paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_successful_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_refresh_status: Mapped[str | None] = mapped_column(Text)
+    last_refresh_error: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         Index("idx_dashboard_publications_slug", "dashboard_slug"),
+        Index(
+            "idx_dashboard_publications_refreshable",
+            "snapshot_has_cron",
+            "unpublished_at",
+            "refresh_paused_at",
+        ),
         UniqueConstraint("publication_id", name="uq_dashboard_publications_publication_id"),
     )
 

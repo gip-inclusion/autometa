@@ -52,3 +52,28 @@ def test_path_traversal_blocked():
     response = client.get("/interactive/../../../etc/passwd")
 
     assert response.status_code == 404
+
+
+def test_dirlike_path_redirects_to_trailing_slash(mocker):
+    def exists(path):
+        return path == "myapp/index.html"
+
+    mocker.patch("web.s3.interactive.exists", side_effect=exists)
+    response = client.get("/interactive/myapp", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["Location"] == "/interactive/myapp/"
+
+
+def test_dirlike_path_with_no_index_returns_404(mocker):
+    mocker.patch("web.s3.interactive.exists", return_value=False)
+    mocker.patch("web.s3.interactive.stream", return_value=None)
+    response = client.get("/interactive/no-such-app", follow_redirects=False)
+    assert response.status_code == 404
+
+
+def test_extensioned_path_is_not_treated_as_dir(mocker):
+    """A path like /interactive/data.json must not be redirected even if data.json/index.html doesn't exist."""
+    mocker.patch("web.s3.interactive.exists", return_value=False)
+    mocker.patch("web.s3.interactive.stream", return_value=None)
+    response = client.get("/interactive/data.json", follow_redirects=False)
+    assert response.status_code == 404

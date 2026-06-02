@@ -5,10 +5,12 @@ import secrets
 import string
 from datetime import datetime, timezone
 
+from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
 
-from web import config, s3
+from web import alerts, config, s3
 from web.db import get_db
+from web.helpers import sanitize_for_log
 from web.models import Dashboard, DashboardPublication
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 ENVIRONMENTS = ("staging", "production")
 BLOCKED_CODES = frozenset({"archived", "uses-query-api", "empty", "public-bucket-not-configured", "unknown"})
 _ID_ALPHABET = string.ascii_lowercase + string.digits
+_MAX_REFRESH_ERROR_LEN = 500
 
 
 class PublicationBlocked(Exception):
@@ -24,11 +27,6 @@ class PublicationBlocked(Exception):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
-
-
-def _log_safe(value: str) -> str:
-    """Strip CR/LF from user-controlled values before logging (log-injection guard)."""
-    return value.replace("\r", "").replace("\n", "")
 
 
 def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
@@ -64,6 +62,10 @@ def _to_dict(pub: DashboardPublication) -> dict:
         "published_by": pub.published_by,
         "published_at": pub.published_at,
         "url": public_url(pub.dashboard_slug, pub.publication_id, pub.environment),
+        "snapshot_has_cron": pub.snapshot_has_cron,
+        "refresh_paused_at": pub.refresh_paused_at,
+        "last_successful_refresh_at": pub.last_successful_refresh_at,
+        "last_refresh_status": pub.last_refresh_status,
     }
 
 
@@ -82,6 +84,7 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             raise PublicationBlocked("uses-query-api")
 
         publication_id = _generate_publication_id()
+        snapshot_has_cron = s3.interactive.exists(f"{slug}/cron.py")
         copied = s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
         if copied == 0:
             raise PublicationBlocked("empty")
@@ -108,15 +111,16 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             environment=environment,
             published_by=publisher_email,
             published_at=datetime.now(timezone.utc),
+            snapshot_has_cron=snapshot_has_cron,
         )
         session.add(pub)
         session.flush()
         logger.info(
             "publish slug=%s env=%s id=%s by=%s",
-            _log_safe(slug),
+            sanitize_for_log(slug),
             environment,
             publication_id,
-            _log_safe(publisher_email),
+            sanitize_for_log(publisher_email),
         )
         return _to_dict(pub)
 
@@ -136,7 +140,7 @@ def unpublish(publication_id: str) -> bool:
         )
         pub.unpublished_at = datetime.now(timezone.utc)
         logger.info(
-            "unpublish slug=%s env=%s id=%s", _log_safe(pub.dashboard_slug), pub.environment, pub.publication_id
+            "unpublish slug=%s env=%s id=%s", sanitize_for_log(pub.dashboard_slug), pub.environment, pub.publication_id
         )
         return True
 
@@ -148,3 +152,98 @@ def list_publications(slug: str, active_only: bool = True) -> list[dict]:
             stmt = stmt.where(DashboardPublication.unpublished_at.is_(None))
         stmt = stmt.order_by(DashboardPublication.published_at.desc())
         return [_to_dict(p) for p in session.scalars(stmt)]
+
+
+def pause_refresh(publication_id: str) -> bool:
+    return _set_paused(publication_id, paused=True)
+
+
+def resume_refresh(publication_id: str) -> bool:
+    return _set_paused(publication_id, paused=False)
+
+
+def _set_paused(publication_id: str, *, paused: bool) -> bool:
+    with get_db() as session:
+        pub = session.scalar(
+            select(DashboardPublication).where(
+                DashboardPublication.publication_id == publication_id,
+                DashboardPublication.unpublished_at.is_(None),
+            )
+        )
+        if pub is None:
+            return False
+        currently_paused = pub.refresh_paused_at is not None
+        if currently_paused == paused:
+            return False
+        pub.refresh_paused_at = datetime.now(timezone.utc) if paused else None
+        logger.info(
+            "refresh_pause slug=%s id=%s paused=%s",
+            sanitize_for_log(pub.dashboard_slug),
+            pub.publication_id,
+            paused,
+        )
+        return True
+
+
+def _short_error(exc: BaseException) -> str:
+    """Compact `ExcClass: message` for storage in last_refresh_error, capped at 500 chars."""
+    text = f"{exc.__class__.__name__}: {exc}"
+    if len(text) > _MAX_REFRESH_ERROR_LEN:
+        text = text[: _MAX_REFRESH_ERROR_LEN - 1] + "…"
+    return text
+
+
+def _notify_refresh_status_change(pub: DashboardPublication, previous_status: str | None) -> None:
+    new = pub.last_refresh_status
+    broke = new == "failure" and previous_status != "failure"
+    recovered = new == "success" and previous_status == "failure"
+    if not (broke or recovered):
+        return
+    app_slug = f"{pub.dashboard_slug}-{pub.publication_id}"
+    url = public_url(pub.dashboard_slug, pub.publication_id, pub.environment)
+    if broke:
+        snippet = (pub.last_refresh_error or "").strip().replace("```", "ʼʼʼ")
+        message = f":red_circle: *Rafraîchissement échoué : {app_slug}*\n<{url}|Voir la publication>"
+        if snippet:
+            message += f"\n```{snippet}```"
+    else:
+        message = f":large_green_circle: *Rafraîchissement rétabli : {app_slug}*\n<{url}|Voir la publication>"
+    alerts.notify_alert_channel(message)
+
+
+def refresh(publication_id: str) -> None:
+    """Re-sync a publication's snapshot to its public bucket; update refresh state; alert on transition."""
+    with get_db() as session:
+        # Why: SELECT filters out unpublished/paused publications, but `s3.sync_prefix` is not
+        # transactional with the DB. A concurrent unpublish between this SELECT and the sync can
+        # still re-populate the public bucket. Accepted for V1 — unpublish is a manual, low-frequency
+        # operation and the window is bounded by snapshot size.
+        pub = session.scalar(
+            select(DashboardPublication).where(
+                DashboardPublication.publication_id == publication_id,
+                DashboardPublication.unpublished_at.is_(None),
+                DashboardPublication.refresh_paused_at.is_(None),
+            )
+        )
+        if pub is None:
+            return
+        previous_status = pub.last_refresh_status
+        try:
+            s3.sync_prefix(
+                f"publications/{pub.dashboard_slug}/{pub.publication_id}/",
+                _public_bucket(pub.environment),
+                _public_path(pub.dashboard_slug, pub.publication_id, pub.environment),
+            )
+            pub.last_successful_refresh_at = datetime.now(timezone.utc)
+            pub.last_refresh_status = "success"
+            pub.last_refresh_error = None
+        except (ClientError, BotoCoreError) as exc:
+            pub.last_refresh_status = "failure"
+            pub.last_refresh_error = _short_error(exc)
+        logger.info(
+            "refresh slug=%s id=%s status=%s",
+            sanitize_for_log(pub.dashboard_slug),
+            pub.publication_id,
+            pub.last_refresh_status,
+        )
+        _notify_refresh_status_change(pub, previous_status)
