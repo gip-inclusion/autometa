@@ -130,3 +130,57 @@ def test_copy_session_rewrites_session_id_and_copies_subagents(monkeypatch, mock
     for content in uploaded.values():
         assert src_id.encode() not in content
         assert dst_id.encode() in content
+
+
+def test_copy_session_keeps_going_when_jsonl_has_malformed_line(monkeypatch, mocker):
+    src_id = "11111111-1111-1111-1111-111111111111"
+    dst_id = "22222222-2222-2222-2222-222222222222"
+
+    src_jsonl = (
+        b'{"type":"user","sessionId":"' + src_id.encode() + b'","content":"hi"}\n'
+        b"this is not json\n"
+        b'{"type":"assistant","sessionId":"' + src_id.encode() + b'","content":"hello"}\n'
+    )
+    files = {f"{src_id}.jsonl": src_jsonl}
+    uploaded = {}
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda p: files.get(p))
+    mocker.patch.object(
+        session_sync.s3.sessions,
+        "upload",
+        side_effect=lambda p, c, content_type=None: uploaded.update({p: c}) or True,
+    )
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+
+    assert session_sync.copy_session(src_id, dst_id) is True
+    written = uploaded[f"{dst_id}.jsonl"]
+    assert b"this is not json" in written
+    assert src_id.encode() not in written.replace(b"this is not json", b"")
+    assert dst_id.encode() in written
+
+
+def test_copy_session_logs_warning_when_subagent_upload_fails(monkeypatch, mocker, caplog):
+    src_id = "11111111-1111-1111-1111-111111111111"
+    dst_id = "22222222-2222-2222-2222-222222222222"
+
+    files = {
+        f"{src_id}.jsonl": b'{"type":"user","sessionId":"' + src_id.encode() + b'"}\n',
+        f"{src_id}/subagents/agent-1.jsonl": b'{"type":"subagent","sessionId":"' + src_id.encode() + b'"}\n',
+    }
+
+    def mock_upload(path, content, content_type=None):
+        return not path.endswith("subagents/agent-1.jsonl")
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda p: files.get(p))
+    mocker.patch.object(session_sync.s3.sessions, "upload", side_effect=mock_upload)
+    mocker.patch.object(
+        session_sync.s3.sessions,
+        "list_files",
+        side_effect=lambda prefix="": [{"path": k, "size": len(v)} for k, v in files.items() if k.startswith(prefix)],
+    )
+
+    with caplog.at_level("WARNING", logger="web.session_sync"):
+        assert session_sync.copy_session(src_id, dst_id) is True
+    assert any("Failed to copy subagent file" in r.message for r in caplog.records)

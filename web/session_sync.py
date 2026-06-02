@@ -86,7 +86,12 @@ def _rewrite_session_id(jsonl_bytes: bytes, new_id: str) -> bytes:
     for line in jsonl_bytes.splitlines():
         if not line.strip():
             continue
-        obj = json.loads(line)
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            logger.warning("Skipping malformed JSONL line while rewriting session id")
+            out.append(line)
+            continue
         if obj.get("sessionId"):
             obj["sessionId"] = new_id
         out.append(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
@@ -118,5 +123,7 @@ def _copy_subagents(src_id: str, dst_id: str):
         if content is None:
             continue
         rewritten = _rewrite_session_id(content, dst_id)
-        s3.sessions.upload(f"{dst_id}/{relative}", rewritten, "application/x-ndjson")
+        if not s3.sessions.upload(f"{dst_id}/{relative}", rewritten, "application/x-ndjson"):
+            logger.warning("Failed to copy subagent file %s to %s/%s", entry["path"], dst_id, relative)
+            continue
         logger.debug("Copied subagent file: %s", relative)
