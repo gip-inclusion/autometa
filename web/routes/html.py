@@ -207,19 +207,25 @@ def group_items_by_date(items):
 
 
 @router.get("/rechercher")
-def rechercher(
+def rechercher_redirect(request: Request):
+    """Legacy alias — kept for old links / bookmarks. Redirects to /conversations preserving query string."""
+    qs = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(f"/conversations{qs}", status_code=301)
+
+
+@router.get("/conversations")
+def conversations(
     request: Request,
     user_email: str = Depends(get_current_user),
     show: str = Query(default=""),
     q: str = Query(default=""),
     tag: list[str] = Query(default=[]),
 ):
-    """Universal search page — combines conversations, reports, and apps."""
+    """Universal conversation list (also reports). Renamed from /rechercher."""
     # Parse show param: single value, empty = all
     show_convos = show in ("", "convos", "mine")
     show_mine = show == "mine"
     show_reports = show in ("", "reports")
-    show_apps = show in ("", "apps")
 
     tag_params = tag
 
@@ -301,35 +307,6 @@ def rechercher(
                 ),
             })
 
-    # Apps
-    if show_apps:
-        for app in store.list_dashboards():
-            app_tags = set(app.get("tags", []))
-            app_tags.add(app.get("website", ""))
-            app_tags.add("appli")
-            if tag_params and not all(t in app_tags for t in tag_params):
-                continue
-
-            items.append({
-                "type": "app",
-                "app": app,
-                "tags": [],
-                "icon": "ri-window-fill",
-                "sort_date": app.get("updated"),
-                "formatted_date": format_relative_date(app["updated"]) if app.get("updated") else "",
-                "search": " ".join(
-                    filter(
-                        None,
-                        [
-                            app["title"].lower(),
-                            (app.get("description") or "").lower(),
-                            " ".join(a.lower() for a in app.get("authors", [])),
-                            " ".join(t.lower() for t in app.get("tags", [])),
-                        ],
-                    )
-                ),
-            })
-
     # Sort by date descending, undated items last
     dated = [i for i in items if i["sort_date"] is not None]
     undated = [i for i in items if i["sort_date"] is None]
@@ -371,9 +348,9 @@ def rechercher(
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(
         request,
-        "rechercher.html",
+        "conversations.html",
         {
-            "section": "rechercher",
+            "section": "conversations",
             "current_conv": None,
             "grouped_items": grouped_items,
             "all_tags": all_tags,
@@ -391,14 +368,14 @@ def explorations(
     conv: str | None = Query(default=None),
     mine: str | None = Query(default=None),
 ):
-    """Legacy explorations list — redirects to /rechercher."""
+    """Legacy explorations list — redirects to /conversations."""
     if conv:
         # Validate conv is a UUID to prevent open redirect
         if validate_conv_id(conv):
             return RedirectResponse(f"/explorations/{conv}", status_code=301)
-        return RedirectResponse("/rechercher?show=convos", status_code=301)
+        return RedirectResponse("/conversations?show=convos", status_code=301)
 
-    target = "/rechercher?show=mine" if mine == "1" else "/rechercher?show=convos"
+    target = "/conversations?show=mine" if mine == "1" else "/conversations?show=convos"
     return RedirectResponse(target, status_code=301)
 
 
@@ -430,7 +407,7 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
     current_conv = store.get_conversation(conv_id, include_messages=False)
 
     if not current_conv:
-        return RedirectResponse("/rechercher?show=convos", status_code=302)
+        return RedirectResponse("/conversations?show=convos", status_code=302)
 
     # Check if this is a shared conversation (owned by someone else)
     is_shared = current_conv.user_id and current_conv.user_id != user_email

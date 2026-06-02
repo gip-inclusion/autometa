@@ -14,12 +14,12 @@
             Accueil
           </h1>
         </div>
-        <!-- Universal search bar — navigates to /rechercher -->
+        <!-- Universal search bar — navigates to /conversations -->
         <div class="accueil-search-wrapper">
           <div class="accueil-search-input">
             <i class="ri-search-line"></i>
             <input type="text" id="universalSearchInput"
-                   placeholder="Rechercher conversations, rapports, applis..."
+                   placeholder="Rechercher conversations, rapports..."
                    autocomplete="off" oninput="accueilSearchDebounce(this.value)">
           </div>
         </div>
@@ -34,22 +34,22 @@
       <div class="accueil-section">
         <h3 class="accueil-grid-title">Navigation</h3>
         <div class="accueil-button-grid">
-          <a href="/rechercher?show=convos" class="accueil-button"
+          <a href="/conversations?show=convos" class="accueil-button"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-group-line"></i>
             <span>Toutes les conversations</span>
           </a>
-          <a href="/rechercher?show=mine" class="accueil-button"
+          <a href="/conversations?show=mine" class="accueil-button"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-user-line"></i>
             <span>Mes conversations</span>
           </a>
-          <a href="/rechercher?show=apps" class="accueil-button"
+          <a href="/dashboards" class="accueil-button"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <i class="ri-window-fill"></i>
-            <span>Applications</span>
+            <i class="ri-dashboard-line"></i>
+            <span>Tableaux de bord</span>
           </a>
-          <a href="/rechercher?show=reports" class="accueil-button"
+          <a href="/conversations?show=reports" class="accueil-button"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-file-text-line"></i>
             <span>Rapports</span>
@@ -146,7 +146,7 @@ function accueilSearchDebounce(query) {
   if (!search) return;
 
   _accueilSearchTimer = setTimeout(() => {
-    const url = '/rechercher?q=' + encodeURIComponent(search);
+    const url = '/conversations?q=' + encodeURIComponent(search);
     history.pushState({}, '', url);
     if (typeof updateSidebarActive === 'function') updateSidebarActive();
     htmx.ajax('GET', url, {target: '#main', select: '#main > *', swap: 'innerHTML'}).then(() => {
