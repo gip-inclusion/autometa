@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Jobs{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-jobs">
+  <div class="section-header">
+    <div class="container">
+      <div class="d-flex align-items-center justify-content-between gap-3">
+        <div>
+          <p class="text-muted mb-1 small">Pipelines et runs du moteur de jobs</p>
+          <h1 class="mb-0"><i class="ri-robot-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Jobs</h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="conversation-list-wrapper" style="padding: 1.5rem;">
+      {% if jobs_error %}
+      <div class="alert alert-warning">{{ jobs_error }}</div>
+      {% endif %}
+
+      <section class="mb-5">
+        <h2 class="h6 text-muted">Nouveau pipeline</h2>
+        <form id="create-pipeline-form" class="row g-2">
+          <div class="col-md-4"><input class="form-control" name="name" placeholder="nom (unique)" required></div>
+          <div class="col-md-6"><textarea class="form-control" name="system_prompt" rows="2" placeholder="consigne (system prompt)" required></textarea></div>
+          <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Créer</button></div>
+        </form>
+      </section>
+
+      <section class="mb-5">
+        <h2 class="h6 text-muted">Pipelines</h2>
+        <table class="table table-sm">
+          <tbody>
+            {% for p in pipelines %}
+            <tr>
+              <td><strong>{{ p.name }}</strong></td>
+              <td class="text-muted small">{{ p.system_prompt | truncate(80) }}</td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-primary trigger-btn" data-pipeline="{{ p.id }}">Lancer</button>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td class="text-muted">Aucun pipeline.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 class="h6 text-muted">Runs récents</h2>
+        <table class="table table-sm">
+          <tbody>
+            {% for r in runs %}
+            <tr>
+              <td><a href="/jobs/runs/{{ r.id }}"><code>{{ r.id[:8] }}</code></a></td>
+              <td>{{ r.status }}</td>
+            </tr>
+            {% else %}
+            <tr><td class="text-muted">Aucun run.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+</section>
+
+<script>
+document.getElementById('create-pipeline-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const resp = await fetch('/api/jobs/pipelines', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: f.name.value, system_prompt: f.system_prompt.value}),
+  });
+  if (resp.ok) { location.reload(); } else { alert('Échec : ' + (await resp.text())); }
+});
+document.querySelectorAll('.trigger-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const resp = await fetch(`/api/jobs/pipelines/${btn.dataset.pipeline}/runs`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    if (resp.ok) { const run = await resp.json(); location.href = `/jobs/runs/${run.id}`; }
+    else { alert('Échec : ' + (await resp.text())); }
+  });
+});
+</script>
+{% endblock %}

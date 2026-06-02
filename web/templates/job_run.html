@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Run{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-job-run">
+  <div class="section-header">
+    <div class="container">
+      <div class="d-flex align-items-center justify-content-between gap-3">
+        <div>
+          <p class="text-muted mb-1 small"><a href="/jobs">← Jobs</a></p>
+          <h1 class="mb-0"><i class="ri-robot-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Run <code>{{ run_id[:8] }}</code></h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="conversation-list-wrapper" style="padding: 1.5rem;">
+      <div class="mb-3">
+        <span id="status" class="badge bg-secondary">…</span>
+        <button id="cancel-btn" class="btn btn-sm btn-outline-danger ms-2 d-none">Annuler</button>
+      </div>
+      <div id="summary" class="mb-3"></div>
+      <div id="artifact" class="mb-3 small text-muted"></div>
+      <h2 class="h6 text-muted">Déroulé</h2>
+      <ul id="events" class="list-unstyled small"></ul>
+    </div>
+  </div>
+</section>
+
+<script>
+const RUN_ID = "{{ run_id }}";
+const TERMINAL = ["completed", "failed", "cancelled", "timed_out", "quota_blocked"];
+let timer = null;
+
+function renderEvent(ev) {
+  const li = document.createElement('li');
+  li.className = 'mb-1';
+  let detail = '';
+  if (ev.event_type === 'assistant_message' && ev.payload && ev.payload.blocks) {
+    detail = ev.payload.blocks.filter(b => b.type === 'text').map(b => b.text).join(' ');
+  } else {
+    detail = JSON.stringify(ev.payload || {});
+  }
+  li.innerHTML = `<code>${ev.event_type}</code> ${detail}`;
+  return li;
+}
+
+async function poll() {
+  const [runResp, evResp] = await Promise.all([
+    fetch(`/api/jobs/runs/${RUN_ID}`),
+    fetch(`/api/jobs/runs/${RUN_ID}/events`),
+  ]);
+  if (runResp.ok) {
+    const run = await runResp.json();
+    document.getElementById('status').textContent = run.status;
+    document.getElementById('summary').textContent = run.summary || '';
+    if (run.error_text) { document.getElementById('summary').textContent = run.error_text; }
+    if (run.output_uri) {
+      document.getElementById('artifact').textContent = 'Artefact : ' + run.output_uri;
+    }
+    const cancelBtn = document.getElementById('cancel-btn');
+    cancelBtn.classList.toggle('d-none', TERMINAL.includes(run.status));
+    if (TERMINAL.includes(run.status) && timer) { clearInterval(timer); timer = null; }
+  }
+  if (evResp.ok) {
+    const events = await evResp.json();
+    const ul = document.getElementById('events');
+    ul.innerHTML = '';
+    events.forEach(ev => ul.appendChild(renderEvent(ev)));
+  }
+}
+
+document.getElementById('cancel-btn').addEventListener('click', async () => {
+  await fetch(`/api/jobs/runs/${RUN_ID}/cancel`, {method: 'POST'});
+  poll();
+});
+
+poll();
+timer = setInterval(poll, 3000);
+</script>
+{% endblock %}

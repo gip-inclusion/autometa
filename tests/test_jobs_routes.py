@@ -67,3 +67,36 @@ def test_orchestrator_unreachable_returns_502(client, mocker):
     )
     r = client.get(f"/api/jobs/runs/{GOOD_ID}")
     assert r.status_code == 502
+
+
+def test_jobs_page_renders(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.list_pipelines", return_value=[{"id": "p1", "name": "weekly", "system_prompt": "x"}]
+    )
+    mocker.patch(
+        "web.routes.jobs.jobs.list_runs", return_value=[{"id": "r1", "status": "completed", "pipeline_id": "p1"}]
+    )
+    r = client.get("/jobs")
+    assert r.status_code == 200
+    assert "weekly" in r.text
+
+
+def test_jobs_page_survives_orchestrator_down(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.list_pipelines",
+        side_effect=httpx.ConnectError("down", request=httpx.Request("GET", "http://x")),
+    )
+    r = client.get("/jobs")
+    assert r.status_code == 200
+    assert "indisponible" in r.text
+
+
+def test_run_detail_page_renders(client):
+    r = client.get(f"/jobs/runs/{GOOD_ID}")
+    assert r.status_code == 200
+    assert GOOD_ID in r.text
+
+
+@pytest.mark.parametrize("bad", BAD_IDS)
+def test_run_detail_rejects_bad_id(client, bad):
+    assert client.get(f"/jobs/runs/{bad}").status_code == 422

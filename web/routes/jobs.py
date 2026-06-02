@@ -1,14 +1,16 @@
-"""pipometa jobs — proxy endpoints."""
+"""pipometa jobs — proxy endpoints and control-panel pages."""
 
 import logging
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 
 from lib import jobs
+from web.deps import get_current_user, templates
+from web.routes.html import get_sidebar_data
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +76,32 @@ def cancel_run(run_id: JobId):
         return jobs.cancel_run(run_id)
     except httpx.HTTPError as exc:
         return _unavailable(exc)
+
+
+@router.get("/jobs")
+def jobs_page(request: Request, user_email: str = Depends(get_current_user)):
+    data = get_sidebar_data(user_email)
+    pipelines: list = []
+    runs: list = []
+    jobs_error = None
+    try:
+        pipelines = jobs.list_pipelines()
+        runs = jobs.list_runs(limit=50)
+    except httpx.HTTPError as exc:
+        logger.warning("pipometa unavailable: %s", exc)
+        jobs_error = "Service de jobs indisponible"
+    return templates.TemplateResponse(
+        request,
+        "jobs.html",
+        {"section": "jobs", "pipelines": pipelines, "runs": runs, "jobs_error": jobs_error, **data},
+    )
+
+
+@router.get("/jobs/runs/{run_id}")
+def job_run_page(run_id: JobId, request: Request, user_email: str = Depends(get_current_user)):
+    data = get_sidebar_data(user_email)
+    return templates.TemplateResponse(
+        request,
+        "job_run.html",
+        {"section": "jobs", "run_id": run_id, **data},
+    )
