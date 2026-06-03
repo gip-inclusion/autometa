@@ -5,6 +5,12 @@
         "matcher": "Edit|Write",
         "hooks": [{"type": "command", "command": "python3 .claude/hooks/check_python.py"}]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": "python3 .claude/hooks/check_env_on_tag.py"}]
+      }
     ]
   }
 }

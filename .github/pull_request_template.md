@@ -21,6 +21,7 @@
 
 * [ ] Je me suis relu ; je suis raisonnablement confiant⋅e que le changement est minimal et cohérent.
 * [ ] J'ai vérifié que ça ne réinvente pas la roue ou que c'est pas à côté de la plaque.
+* [ ] Une fois la PR validée, j'ai bien pensé à copier les variables d'environnement de staging vers la prod.
 
 ###  Comment tester que ça marche ?
 
