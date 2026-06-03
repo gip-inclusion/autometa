@@ -1,34 +1,42 @@
 ---
 name: compose_and_launch_job
-description: Compose a domain-loaded system prompt and launch an autometa-jobs run from a user's natural-language intent. Use when the user wants an autonomous/long-running analysis (minutes to hours) that is too big or too slow for the interactive chat — e.g. "run a job analyzing all Dora services".
+description: Composer un system prompt riche en contexte métier et lancer un run autometa-jobs à partir de l'intention de l'utilisateur. À utiliser quand l'utilisateur veut une analyse autonome et longue (minutes à heures), trop lourde ou trop lente pour le chat interactif — par ex. « lance un job qui analyse tous les services Dora ».
 ---
 
-# Compose & Launch a Job
+# Composer & lancer un job
 
-You compose the job's system prompt; **the user never writes it**. An autometa-jobs worker is a blank-slate Claude container on Scaleway: it has **no PG access, no `knowledge/`, no `CLAUDE.md`, none of Autometa's domain context**, and it cannot read any of that at runtime. So you — who *do* have the domain knowledge — must distill the relevant context and bake it, the data, and the task into one **self-contained prompt**.
+C'est vous qui composez le system prompt du job ; **l'utilisateur ne l'écrit jamais**. Un worker autometa-jobs est un conteneur Claude vierge sur Scaleway : il n'a **aucun accès PG, pas de `knowledge/`, pas de `CLAUDE.md`, aucun contexte métier d'Autometa**, et il ne peut rien lire de tout cela à l'exécution. C'est donc à vous — qui détenez la connaissance métier — de distiller le contexte pertinent et de tout embarquer (contexte, données, tâche) dans un **prompt autosuffisant**.
 
-## When to use
+## Quand l'utiliser
 
-The user asks for work that is autonomous and long (too big/slow for the interactive runner): "go analyze all Dora services and write a report", "review every SIAE in region X", a scheduled weekly brief. For quick questions, just answer in chat — don't launch a job.
+L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runner interactif) : « analyse tous les services Dora et rédige un rapport », « passe en revue toutes les SIAE de la région X », un brief hebdomadaire. Pour une question rapide, répondez directement dans le chat — ne lancez pas de job.
 
-## Recipe
+## Recette
 
-1. **Clarify** the task and the expected output (a report? a table? a recommendation?). Ask only what you can't infer.
+1. **Clarifier** la tâche et le livrable attendu (un rapport ? un tableau ? une reco ?). Ne demandez que ce que vous ne pouvez pas déduire.
 
-2. **Gather the relevant domain knowledge.** Read the `knowledge/` files that matter for this task (e.g. `knowledge/sites/dora.md`, the IAE business context, the data schema). **Curate, don't dump** — select only what the job needs. The worker has none of it.
+2. **Rassembler la connaissance métier pertinente.** Lisez les fichiers `knowledge/` utiles (par ex. `knowledge/sites/dora.md`, le contexte IAE, le schéma des données). **Sélectionnez, ne déversez pas** — le worker n'a rien.
 
-3. **Prepare the data** (if the job analyzes a dataset). Use the **`publish_dataset`** skill to export the query result(s) to S3 and get a presigned URL + schema. For relational data, use its multi-table mode (`--tables`) so the worker can JOIN.
+3. **Préparer les données** (si le job analyse un jeu de données). Utilisez la skill **`publish_dataset`** pour exporter le(s) résultat(s) de requête vers S3 et obtenir une URL présignée + le schéma. Pour des données relationnelles, utilisez le mode multi-tables (`--tables`) afin que le worker puisse faire des JOIN.
 
-4. **Compose a self-contained system prompt.** It must carry everything the worker lacks:
-   - **Role + domain context** — distilled IAE / site / Dora background relevant to the task (what the entities and columns mean, how to interpret them).
-   - **Data access** — e.g. `Download the dataset: curl -sL '<presigned-url>' -o data.sqlite`. State the format, table names, and columns.
-   - **The task** — concrete steps and the question to answer.
-   - **Output** — what the final artifact should be (the worker's last message becomes the artifact).
-   - **Environment note** — the sandbox has `Bash`, `python3` (stdlib `sqlite3`, plus `numpy`/`pandas`), `curl`, `git`; no Autometa APIs.
+4. **Composer un system prompt autosuffisant.** Il doit porter tout ce qui manque au worker :
+   - **Rôle + contexte métier** — le contexte IAE / site / Dora distillé, pertinent pour la tâche (ce que signifient les entités et les colonnes, comment les interpréter).
+   - **Accès aux données** — par ex. `Télécharge le jeu de données : curl -sL '<url-présignée>' -o data.sqlite`. Précisez le format, les noms de tables, les colonnes.
+   - **La tâche** — étapes concrètes et question à résoudre.
+   - **Le livrable** — ce que doit être l'artefact final (le dernier message du worker devient l'artefact).
+   - **Note d'environnement** — le sandbox dispose de `Bash`, `python3` (stdlib `sqlite3`, plus `numpy`/`pandas`), `curl`, `git` ; aucune API Autometa.
 
-   Write the prompt to a file (avoids shell-escaping issues).
+   Écrivez le prompt dans un fichier (évite les soucis d'échappement shell).
 
-5. **Launch.** Run:
+5. **⚠️ Faire valider le lancement — étape obligatoire.** Un job consomme du quota Claude et un conteneur Scaleway facturé, tourne en autonomie jusqu'à 24 h, et la concurrence est de 1 (un nouveau run patiente derrière un run en cours). **Avant de lancer**, présentez un récapitulatif à l'utilisateur :
+   - la tâche et le livrable,
+   - les données embarquées (jeu, nombre de lignes),
+   - les paramètres (`max_turns`, outils autorisés),
+   - un aperçu du system prompt composé.
+
+   Puis **demandez une confirmation explicite** (« Je lance ce job ? »). **N'exécutez `launch_job.py` que si l'utilisateur confirme explicitement.** En cas de doute ou de réponse ambiguë, ne lancez pas.
+
+6. **Lancer** (uniquement après confirmation) :
 
    ```bash
    .venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py \
@@ -38,11 +46,11 @@ The user asks for work that is autonomous and long (too big/slow for the interac
        --allowed-tools "Bash,Read,WebFetch"
    ```
 
-   Prints `{ "pipeline_id", "run_id", "status", "run_url" }`. The `--name` must be **globally unique** (include a date/slug); if it collides the orchestrator errors — retry with another name.
+   Affiche `{ "pipeline_id", "run_id", "status", "run_url" }`. Le `--name` doit être **unique** (incluez une date/un slug) ; en cas de collision l'orchestrateur renvoie une erreur — réessayez avec un autre nom.
 
-6. **Hand back the `run_url`** to the user so they can watch it on `/jobs/runs/{run_id}` (status, live event stream, summary, artifact). Tell them it runs autonomously; they don't need to stay.
+7. **Rendre le `run_url`** à l'utilisateur pour qu'il suive le run sur `/jobs/runs/{run_id}` (statut, flux d'événements en direct, résumé, artefact). Précisez qu'il tourne en autonomie ; pas besoin de rester.
 
-## Boundaries
+## Limites
 
-- One job consumes Claude quota and a Scaleway container (concurrency 1 — a new run queues behind a running one). Don't launch jobs for trivial work.
-- Keep the prompt self-contained and the knowledge curated — bloat costs tokens and money. If the background is large, ship it as a `context.md` alongside the data (via `publish_dataset`) and tell the worker to read it first.
+- Un job coûte du quota et un conteneur Scaleway (concurrence 1). Ne lancez pas de job pour un travail trivial.
+- Gardez le prompt autosuffisant et la connaissance ciblée — le superflu coûte des tokens et de l'argent. Si le contexte est volumineux, embarquez-le comme `context.md` à côté des données (via `publish_dataset`) et demandez au worker de le lire d'abord.
