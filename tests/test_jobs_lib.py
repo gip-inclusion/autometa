@@ -77,3 +77,67 @@ def test_http_error_propagates(mocker):
     mocker.patch("httpx.request", return_value=_fake_response({"detail": "nope"}, status=404))
     with pytest.raises(httpx.HTTPStatusError):
         jobs.get_run("missing")
+
+
+def test_run_url(mocker):
+    mocker.patch("lib.jobs.config.BASE_URL", "https://autometa.example")
+    assert jobs.run_url("r1") == "https://autometa.example/jobs/runs/r1"
+
+
+def test_create_and_run_composes_create_then_trigger(mocker):
+    cp = mocker.patch("lib.jobs.create_pipeline", return_value={"id": "p1"})
+    tr = mocker.patch("lib.jobs.trigger_run", return_value={"id": "r1", "status": "queued"})
+    mocker.patch("lib.jobs.config.BASE_URL", "https://a.example")
+    out = jobs.create_and_run("weekly-dora", "You are an analyst.", {"max_turns": 30}, input_uri="s3://x")
+    cp.assert_called_once_with("weekly-dora", "You are an analyst.", {"max_turns": 30})
+    tr.assert_called_once_with("p1", input_uri="s3://x")
+    assert out == {
+        "pipeline_id": "p1",
+        "run_id": "r1",
+        "status": "queued",
+        "run_url": "https://a.example/jobs/runs/r1",
+    }
+
+
+def _load_launch_cli():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path("skills/compose_and_launch_job/scripts/launch_job.py")
+    spec = importlib.util.spec_from_file_location("launch_job_cli", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_launch_cli_reads_prompt_and_launches(mocker, tmp_path, capsys):
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("You are a Dora analyst. Download the data and answer X.")
+    car = mocker.patch("lib.jobs.create_and_run", return_value={"run_url": "https://a/jobs/runs/r1", "run_id": "r1"})
+    rc = _load_launch_cli().main([
+        "--name",
+        "dora-weekly",
+        "--system-prompt-file",
+        str(prompt_file),
+        "--max-turns",
+        "30",
+        "--allowed-tools",
+        "Bash,Read",
+    ])
+    assert rc == 0
+    assert car.call_args.args[0] == "dora-weekly"
+    assert car.call_args.args[1] == "You are a Dora analyst. Download the data and answer X."
+    assert car.call_args.args[2] == {"max_turns": 30, "allowed_tools": ["Bash", "Read"]}
+    assert "r1" in capsys.readouterr().out
+
+
+def test_launch_cli_orchestrator_error_returns_1(mocker, tmp_path, capsys):
+    prompt_file = tmp_path / "p.txt"
+    prompt_file.write_text("x")
+    mocker.patch(
+        "lib.jobs.create_and_run",
+        side_effect=httpx.ConnectError("down", request=httpx.Request("POST", "http://x")),
+    )
+    rc = _load_launch_cli().main(["--name", "n", "--system-prompt-file", str(prompt_file)])
+    assert rc == 1
+    assert "orchestrator error" in capsys.readouterr().err

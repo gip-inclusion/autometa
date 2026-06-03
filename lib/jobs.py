@@ -62,3 +62,21 @@ def get_run_events(run_id: str) -> list[dict]:
 
 def cancel_run(run_id: str) -> dict:
     return _request("POST", f"/runs/{run_id}/cancel")
+
+
+def run_url(run_id: str) -> str:
+    return f"{config.BASE_URL}/jobs/runs/{run_id}"
+
+
+def create_and_run(
+    name: str, system_prompt: str, config_overrides: dict | None = None, input_uri: str | None = None
+) -> dict:
+    """Create a one-shot pipeline and immediately trigger a run — the composer's launch primitive."""
+    pipeline = create_pipeline(name, system_prompt, config_overrides)
+    run = trigger_run(pipeline["id"], input_uri=input_uri)
+    return {
+        "pipeline_id": pipeline["id"],
+        "run_id": run["id"],
+        "status": run["status"],
+        "run_url": run_url(run["id"]),
+    }
