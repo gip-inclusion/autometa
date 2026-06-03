@@ -1,4 +1,4 @@
-"""Tests for the pipometa jobs proxy + page routes."""
+"""Tests for the autometa-jobs proxy + page routes."""
 
 import httpx
 import pytest

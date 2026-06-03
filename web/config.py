@@ -154,11 +154,11 @@ NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
-# pipometa — autonomous agent job runner (autometa-jobs orchestrator)
-PIPOMETA_URL = os.getenv("PIPOMETA_URL", "").rstrip("/")
-PIPOMETA_API_KEY = os.getenv("PIPOMETA_API_KEY", "")
+# autometa-jobs — autonomous agent job runner (orchestrator)
+AUTOMETA_JOBS_URL = os.getenv("AUTOMETA_JOBS_URL", "").rstrip("/")
+AUTOMETA_JOBS_API_KEY = os.getenv("AUTOMETA_JOBS_API_KEY", "")
 # All pipelines share one Scaleway worker container, so the job-definition id is global rather than per-pipeline.
-PIPOMETA_JOB_DEFINITION_ID = os.getenv("PIPOMETA_JOB_DEFINITION_ID", "")
+AUTOMETA_JOBS_DEFINITION_ID = os.getenv("AUTOMETA_JOBS_DEFINITION_ID", "")
 
 # Grist (webinaire data)
 GRIST_API_KEY = os.getenv("GRIST_API_KEY")

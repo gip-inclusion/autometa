@@ -1,4 +1,4 @@
-"""Thin HTTP client for the pipometa orchestrator (autometa-jobs)."""
+"""Thin HTTP client for the autometa-jobs orchestrator."""
 
 import httpx
 
@@ -8,8 +8,8 @@ from web import config
 def _request(method: str, path: str, *, json: dict | None = None, params: dict | None = None):
     resp = httpx.request(
         method,
-        f"{config.PIPOMETA_URL}{path}",
-        headers={"Authorization": f"Bearer {config.PIPOMETA_API_KEY}"},
+        f"{config.AUTOMETA_JOBS_URL}{path}",
+        headers={"Authorization": f"Bearer {config.AUTOMETA_JOBS_API_KEY}"},
         timeout=15,
         json=json,
         params=params,
@@ -27,7 +27,7 @@ def create_pipeline(name: str, system_prompt: str, config_overrides: dict | None
         "name": name,
         "system_prompt": system_prompt,
         "config": {
-            "scaleway_job_definition_id": config.PIPOMETA_JOB_DEFINITION_ID,
+            "scaleway_job_definition_id": config.AUTOMETA_JOBS_DEFINITION_ID,
             **(config_overrides or {}),
         },
     }

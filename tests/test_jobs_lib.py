@@ -1,4 +1,4 @@
-"""Tests for the pipometa orchestrator HTTP client."""
+"""Tests for the autometa-jobs orchestrator HTTP client."""
 
 import httpx
 import pytest
@@ -7,10 +7,10 @@ from lib import jobs
 
 
 @pytest.fixture(autouse=True)
-def _pipometa_config(mocker):
-    mocker.patch("lib.jobs.config.PIPOMETA_URL", "https://orch.example")
-    mocker.patch("lib.jobs.config.PIPOMETA_API_KEY", "pmk_test")
-    mocker.patch("lib.jobs.config.PIPOMETA_JOB_DEFINITION_ID", "jobdef-123")
+def _autometa_jobs_config(mocker):
+    mocker.patch("lib.jobs.config.AUTOMETA_JOBS_URL", "https://orch.example")
+    mocker.patch("lib.jobs.config.AUTOMETA_JOBS_API_KEY", "pmk_test")
+    mocker.patch("lib.jobs.config.AUTOMETA_JOBS_DEFINITION_ID", "jobdef-123")
 
 
 def _fake_response(payload, status=200):

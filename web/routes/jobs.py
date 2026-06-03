@@ -1,4 +1,4 @@
-"""pipometa jobs — proxy endpoints and control-panel pages."""
+"""autometa-jobs — proxy endpoints and control-panel pages."""
 
 import logging
 from typing import Annotated
@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# pipometa ids are UUIDs — reject anything else before it reaches the orchestrator.
+# autometa-jobs ids are UUIDs — reject anything else before it reaches the orchestrator.
 JobId = Annotated[
     str, PathParam(pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 ]
 
 
 def _unavailable(exc: httpx.HTTPError) -> JSONResponse:
-    logger.warning("pipometa request failed: %s", exc)
+    logger.warning("autometa-jobs request failed: %s", exc)
     return JSONResponse({"error": "Service de jobs indisponible"}, status_code=502)
 
 
@@ -88,7 +88,7 @@ def jobs_page(request: Request, user_email: str = Depends(get_current_user)):
         pipelines = jobs.list_pipelines()
         runs = jobs.list_runs(limit=50)
     except httpx.HTTPError as exc:
-        logger.warning("pipometa unavailable: %s", exc)
+        logger.warning("autometa-jobs unavailable: %s", exc)
         jobs_error = "Service de jobs indisponible"
     return templates.TemplateResponse(
         request,
