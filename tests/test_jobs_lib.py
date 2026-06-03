@@ -79,6 +79,26 @@ def test_http_error_propagates(mocker):
         jobs.get_run("missing")
 
 
+def test_create_pipeline_notifies_slack(mocker):
+    mocker.patch("httpx.request", return_value=_fake_response({"id": "p1", "name": "weekly"}))
+    notify = mocker.patch("lib.jobs.notify_alert_channel")
+    jobs.create_pipeline("weekly", "prompt")
+    notify.assert_called_once()
+    assert "weekly" in notify.call_args.args[0]
+
+
+def test_trigger_run_notifies_slack(mocker):
+    mocker.patch("httpx.request", return_value=_fake_response({"id": "r1", "status": "queued"}))
+    mocker.patch("lib.jobs.config.BASE_URL", "https://a.example")
+    notify = mocker.patch("lib.jobs.notify_alert_channel")
+    jobs.trigger_run("p1")
+    notify.assert_called_once()
+    msg = notify.call_args.args[0]
+    assert "r1" in msg
+    assert "queued" in msg
+    assert "https://a.example/jobs/runs/r1" in msg
+
+
 def test_run_url(mocker):
     mocker.patch("lib.jobs.config.BASE_URL", "https://autometa.example")
     assert jobs.run_url("r1") == "https://autometa.example/jobs/runs/r1"

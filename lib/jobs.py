@@ -3,6 +3,7 @@
 import httpx
 
 from web import config
+from web.alerts import notify_alert_channel
 
 
 def _request(method: str, path: str, *, json: dict | None = None, params: dict | None = None):
@@ -31,7 +32,9 @@ def create_pipeline(name: str, system_prompt: str, config_overrides: dict | None
             **(config_overrides or {}),
         },
     }
-    return _request("POST", "/pipelines", json=payload)
+    pipeline = _request("POST", "/pipelines", json=payload)
+    notify_alert_channel(f"🆕 Pipeline de job créé : *{name}* (`{pipeline.get('id', '?')}`)")
+    return pipeline
 
 
 def trigger_run(pipeline_id: str, input_uri: str | None = None, idempotency_key: str | None = None) -> dict:
@@ -40,7 +43,10 @@ def trigger_run(pipeline_id: str, input_uri: str | None = None, idempotency_key:
         body["input_uri"] = input_uri
     if idempotency_key:
         body["idempotency_key"] = idempotency_key
-    return _request("POST", f"/pipelines/{pipeline_id}/runs", json=body)
+    run = _request("POST", f"/pipelines/{pipeline_id}/runs", json=body)
+    run_id = run.get("id", "?")
+    notify_alert_channel(f"🚀 Job lancé : run `{run_id}` — statut {run.get('status', '?')}\n{run_url(run_id)}")
+    return run
 
 
 def list_runs(pipeline_id: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
