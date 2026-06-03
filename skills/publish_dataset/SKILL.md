@@ -38,6 +38,19 @@ Prints JSON:
 
 `--source` is `autometa_tables_db` (priority — check `documentation.doc_autometa_tables` first) or `data_inclusion`.
 
+## Multiple tables (relational data)
+
+Relational data (e.g. Dora services + their structures) belongs in **several JOIN-able tables in one sqlite file**, not one denormalized table. Pass `--tables` a JSON map of `{table_name: sql}`:
+
+```bash
+.venv/bin/python skills/publish_dataset/scripts/publish_dataset.py \
+    --slug dora \
+    --source autometa_tables_db \
+    --tables '{"structures": "SELECT id, nom, departement FROM dora.structures", "services": "SELECT id, structure_id, nom, type FROM dora.services"}'
+```
+
+The job agent then JOINs them locally: `SELECT s.nom, st.departement FROM services s JOIN structures st ON st.id = s.structure_id`. Table names must match `[a-z_][a-z0-9_]*`. Multi-table is sqlite-only (jsonl/csv are one-table-per-file).
+
 ## Formats
 
 - `sqlite` (default) — one table named `data`. The job agent queries it with stdlib `sqlite3` (full SQL, zero install). Best for large or relational data.

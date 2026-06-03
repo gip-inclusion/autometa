@@ -117,6 +117,38 @@ def test_publish_query_unknown_source_raises():
         job_inputs.publish_query("d", "matomo", "SELECT 1")
 
 
+def test_publish_query_tables_builds_joinable_sqlite(mocker, fake_s3):
+    def cols_rows(source, sql, timeout):
+        if "structures" in sql:
+            return ["id", "nom"], [[1, "Struct A"]]
+        return ["id", "structure_id", "label"], [[10, 1, "Service X"]]
+
+    mocker.patch("lib.job_inputs._query_columns_rows", side_effect=cols_rows)
+    out = job_inputs.publish_query_tables(
+        "dora",
+        "autometa_tables_db",
+        {"structures": "SELECT * FROM dora.structures", "services": "SELECT * FROM dora.services"},
+    )
+    assert out["format"] == "sqlite"
+    assert set(out["tables"]) == {"structures", "services"}
+    assert out["tables"]["services"]["row_count"] == 1
+    assert out["s3_path"] == "job-inputs/dora.sqlite"
+    join = "SELECT s.label, st.nom FROM services s JOIN structures st ON st.id = s.structure_id"
+    assert _query_sqlite(_uploaded_bytes(fake_s3), join) == [("Service X", "Struct A")]
+
+
+@pytest.mark.parametrize("bad", ["bad-name", "1table", "with space", ""])
+def test_publish_query_tables_rejects_bad_table_name(mocker, fake_s3, bad):
+    mocker.patch("lib.job_inputs._query_columns_rows", return_value=(["a"], [[1]]))
+    with pytest.raises(ValueError):
+        job_inputs.publish_query_tables("d", "autometa_tables_db", {bad: "SELECT 1"})
+
+
+def test_publish_query_tables_empty_raises(fake_s3):
+    with pytest.raises(ValueError):
+        job_inputs.publish_query_tables("d", "autometa_tables_db", {})
+
+
 def _load_cli():
     path = Path("skills/publish_dataset/scripts/publish_dataset.py")
     spec = importlib.util.spec_from_file_location("publish_dataset_cli", path)
@@ -137,3 +169,20 @@ def test_cli_error_returns_1(mocker, capsys):
     rc = _load_cli().main(["--slug", "d", "--source", "autometa_tables_db", "--sql", "SELECT bad"])
     assert rc == 1
     assert "query failed" in capsys.readouterr().err
+
+
+def test_cli_multi_table_mode(mocker, capsys):
+    pub = mocker.patch("lib.job_inputs.publish_query_tables", return_value={"url": "https://x", "tables": {}})
+    tables = '{"structures": "SELECT * FROM dora.structures", "services": "SELECT * FROM dora.services"}'
+    rc = _load_cli().main(["--slug", "dora", "--source", "autometa_tables_db", "--tables", tables])
+    assert rc == 0
+    assert pub.call_args.args[2] == {
+        "structures": "SELECT * FROM dora.structures",
+        "services": "SELECT * FROM dora.services",
+    }
+
+
+def test_cli_bad_tables_json_returns_1(capsys):
+    rc = _load_cli().main(["--slug", "d", "--source", "autometa_tables_db", "--tables", "{not json"])
+    assert rc == 1
+    assert "not valid JSON" in capsys.readouterr().err
