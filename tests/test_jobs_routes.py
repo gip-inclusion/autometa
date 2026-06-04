@@ -33,6 +33,7 @@ def test_trigger_run_one_shot(client, mocker):
     [
         ("get", "/api/jobs/runs/{id}"),
         ("get", "/api/jobs/runs/{id}/events"),
+        ("get", "/api/jobs/runs/{id}/output"),
         ("post", "/api/jobs/runs/{id}/cancel"),
         ("post", "/api/jobs/pipelines/{id}/runs"),
     ],
@@ -61,6 +62,22 @@ def test_cancel_proxies(client, mocker):
     r = client.post(f"/api/jobs/runs/{GOOD_ID}/cancel")
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
+
+
+def test_run_output_proxies_content(client, mocker):
+    mocker.patch("web.routes.jobs.jobs.get_run_output", return_value="# artefact\nbonjour")
+    r = client.get(f"/api/jobs/runs/{GOOD_ID}/output")
+    assert r.status_code == 200
+    assert r.text == "# artefact\nbonjour"
+
+
+def test_run_output_download_returns_url(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.get_run_output_url", return_value={"url": "https://s3/x", "expires_in": 3600}
+    )
+    r = client.get(f"/api/jobs/runs/{GOOD_ID}/output?download=1")
+    assert r.status_code == 200
+    assert r.json()["url"] == "https://s3/x"
 
 
 def test_orchestrator_unreachable_returns_502(client, mocker):

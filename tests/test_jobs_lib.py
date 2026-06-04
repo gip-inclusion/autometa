@@ -73,6 +73,22 @@ def test_run_endpoints_route_correctly(mocker, fn, method, path):
     assert req.call_args.args == (method, path)
 
 
+def test_get_run_output_returns_text(mocker):
+    resp = httpx.Response(200, text="# artefact\nbonjour", request=httpx.Request("GET", "https://orch.example"))
+    get = mocker.patch("httpx.get", return_value=resp)
+    assert jobs.get_run_output("r1") == "# artefact\nbonjour"
+    assert get.call_args.args == ("https://orch.example/runs/r1/output",)
+    assert get.call_args.kwargs["headers"]["Authorization"] == "Bearer pmk_test"
+
+
+def test_get_run_output_url_presigns(mocker):
+    req = mocker.patch("httpx.request", return_value=_fake_response({"url": "https://s3/x", "expires_in": 120}))
+    out = jobs.get_run_output_url("r1", expires_in=120)
+    assert out == {"url": "https://s3/x", "expires_in": 120}
+    assert req.call_args.args == ("GET", "https://orch.example/runs/r1/output")
+    assert req.call_args.kwargs["params"] == {"presign": 1, "expires_in": 120}
+
+
 def test_http_error_propagates(mocker):
     mocker.patch("httpx.request", return_value=_fake_response({"detail": "nope"}, status=404))
     with pytest.raises(httpx.HTTPStatusError):

@@ -6,7 +6,7 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi import Path as PathParam
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from lib import jobs
 from web.deps import get_current_user, templates
@@ -74,6 +74,17 @@ def run_events(run_id: JobId):
 def cancel_run(run_id: JobId):
     try:
         return jobs.cancel_run(run_id)
+    except httpx.HTTPError as exc:
+        return _unavailable(exc)
+
+
+@router.get("/api/jobs/runs/{run_id}/output")
+def run_output(run_id: JobId, download: bool = False):
+    """Artifact content by default; with ?download=1, a short-lived download URL."""
+    try:
+        if download:
+            return jobs.get_run_output_url(run_id)
+        return PlainTextResponse(jobs.get_run_output(run_id))
     except httpx.HTTPError as exc:
         return _unavailable(exc)
 

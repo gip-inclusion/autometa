@@ -70,6 +70,22 @@ def cancel_run(run_id: str) -> dict:
     return _request("POST", f"/runs/{run_id}/cancel")
 
 
+def get_run_output(run_id: str) -> str:
+    """The run's full artifact text — what the agent reads to work with results."""
+    resp = httpx.get(
+        f"{config.AUTOMETA_JOBS_URL}/runs/{run_id}/output",
+        headers={"Authorization": f"Bearer {config.AUTOMETA_JOBS_API_KEY}"},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
+def get_run_output_url(run_id: str, expires_in: int = 3600) -> dict:
+    """A short-lived download URL for the artifact — for the UI to link."""
+    return _request("GET", f"/runs/{run_id}/output", params={"presign": 1, "expires_in": expires_in})
+
+
 def run_url(run_id: str) -> str:
     return f"{config.BASE_URL}/jobs/runs/{run_id}"
 

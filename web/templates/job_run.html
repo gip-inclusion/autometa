@@ -22,7 +22,13 @@
         <button id="cancel-btn" class="btn btn-sm btn-outline-danger ms-2 d-none">Annuler</button>
       </div>
       <div id="summary" class="mb-3"></div>
-      <div id="artifact" class="mb-3 small text-muted"></div>
+      <div id="artifact" class="mb-3 d-none">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <strong class="small text-muted">Artefact</strong>
+          <button id="download-btn" class="btn btn-sm btn-outline-secondary">Télécharger</button>
+        </div>
+        <pre id="artifact-content" class="small p-2 bg-light border rounded" style="max-height: 480px; overflow: auto; white-space: pre-wrap;"></pre>
+      </div>
       <h2 class="h6 text-muted">Déroulé</h2>
       <ul id="events" class="list-unstyled small"></ul>
     </div>
@@ -34,6 +40,16 @@ const RUN_ID = "{{ run_id }}";
 const TERMINAL = ["completed", "failed", "cancelled", "timed_out", "quota_blocked"];
 let timer = null;
 let polling = false;
+let artifactLoaded = false;
+
+async function loadArtifact() {
+  if (artifactLoaded) return;
+  artifactLoaded = true;
+  const resp = await fetch(`/api/jobs/runs/${RUN_ID}/output`);
+  if (!resp.ok) { artifactLoaded = false; return; }
+  document.getElementById('artifact-content').textContent = await resp.text();
+  document.getElementById('artifact').classList.remove('d-none');
+}
 
 function renderEvent(ev) {
   const li = document.createElement('li');
@@ -64,8 +80,8 @@ async function poll() {
       document.getElementById('status').textContent = run.status;
       document.getElementById('summary').textContent = run.summary || '';
       if (run.error_text) { document.getElementById('summary').textContent = run.error_text; }
-      if (run.output_uri) {
-        document.getElementById('artifact').textContent = 'Artefact : ' + run.output_uri;
+      if (run.output_uri && TERMINAL.includes(run.status)) {
+        loadArtifact();
       }
       const cancelBtn = document.getElementById('cancel-btn');
       cancelBtn.classList.toggle('d-none', TERMINAL.includes(run.status));
@@ -85,6 +101,11 @@ async function poll() {
 document.getElementById('cancel-btn').addEventListener('click', async () => {
   await fetch(`/api/jobs/runs/${RUN_ID}/cancel`, {method: 'POST'});
   poll();
+});
+
+document.getElementById('download-btn').addEventListener('click', async () => {
+  const resp = await fetch(`/api/jobs/runs/${RUN_ID}/output?download=1`);
+  if (resp.ok) { window.location = (await resp.json()).url; }
 });
 
 poll();
