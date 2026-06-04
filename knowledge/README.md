@@ -44,7 +44,7 @@ Contexte métier et données Metabase :
 
 ### `notion/`
 Intégration Notion (API, authentification, fonctionnalités) :
-- `_index.md` : endpoints, config, 2 features (publish, wishlist)
+- `_index.md` : endpoints, config, publication de rapports
 
 ### `webinaires/`
 Données de participation aux webinaires (Livestorm historique + Grist actuel) :

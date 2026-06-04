@@ -270,24 +270,6 @@ class PmHeartbeat(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class Wishlist(Base):
-    __tablename__ = "wishlist"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    category: Mapped[str] = mapped_column(Text, nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text)
-    conversation_id: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
-    notion_page_id: Mapped[str | None] = mapped_column(Text)
-
-    __table_args__ = (
-        Index("idx_wishlist_category", "category"),
-        Index("idx_wishlist_status", "status"),
-    )
-
-
 class SchemaVersion(Base):
     __tablename__ = "schema_version"
 

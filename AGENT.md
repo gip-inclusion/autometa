@@ -82,7 +82,6 @@ Invoquer via l'outil `Skill` :
 - `matomo_query` — **Toujours l'invoquer avant d'écrire des requêtes Matomo.**
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `save_report` — Sauvegarder un rapport en base.
-- `wishlist` — Logger un souhait, un blocage, ou une idée d'amélioration.
 
 ## Chemins clés
 
