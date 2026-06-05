@@ -306,54 +306,43 @@ def test_get_app_runs_returns_runs(interactive_dir, db_setup):
     assert runs[0]["status"] == "success"
 
 
-def test_set_cron_enabled_disable(interactive_dir):
-    create_interactive_app(interactive_dir, "toggle-app", cron_script="pass")
-    assert set_cron_enabled("toggle-app", False) is True
-
-    content = (interactive_dir / "toggle-app" / "APP.md").read_text()
-    assert "cron: false" in content
-
-
-def test_set_cron_enabled_enable(interactive_dir):
-    create_interactive_app(
-        interactive_dir,
-        "off-app",
-        cron_script="pass",
-        app_md="---\ntitle: Off\ncron: false\n---\n",
-    )
-    assert set_cron_enabled("off-app", True) is True
-
-    content = (interactive_dir / "off-app" / "APP.md").read_text()
-    assert "cron: true" in content
-
-
-def test_set_cron_enabled_nonexistent_app(interactive_dir):
-    assert set_cron_enabled("nope", True) is False
-
-
-def test_set_cron_enabled_adds_field_when_missing(interactive_dir):
-    create_interactive_app(
-        interactive_dir,
-        "no-field",
-        cron_script="pass",
-        app_md="---\ntitle: No Field\n---\n",
-    )
-    set_cron_enabled("no-field", False)
-
-    content = (interactive_dir / "no-field" / "APP.md").read_text()
-    assert "cron: false" in content
+def test_set_cron_enabled_toggles_dashboard_column(db_setup):
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(
+            Dashboard(
+                slug="toggle-db",
+                title="x",
+                first_author_email="a@x",
+                is_archived=False,
+                has_api_access=False,
+                has_cron=True,
+                has_persistence=False,
+                cron_enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    assert set_cron_enabled("toggle-db", False) is True
+    with get_db() as session:
+        assert session.scalar(select(Dashboard.cron_enabled).where(Dashboard.slug == "toggle-db")) is False
+    assert set_cron_enabled("toggle-db", True) is True
+    with get_db() as session:
+        assert session.scalar(select(Dashboard.cron_enabled).where(Dashboard.slug == "toggle-db")) is True
 
 
-def test_set_cron_enabled_roundtrip(interactive_dir):
-    create_interactive_app(interactive_dir, "rt-app", cron_script="pass")
+def test_set_cron_enabled_unknown_slug_returns_false(db_setup, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CRON_DIR", tmp_path / "cron")
+    assert set_cron_enabled("no-such-dashboard", True) is False
 
-    set_cron_enabled("rt-app", False)
-    tasks = discover_cron_tasks()
-    assert tasks[0]["enabled"] is False
 
-    set_cron_enabled("rt-app", True)
-    tasks = discover_cron_tasks()
-    assert tasks[0]["enabled"] is True
+def test_set_cron_enabled_system_task_writes_cron_md(db_setup, tmp_path, monkeypatch):
+    cron_dir = tmp_path / "cron"
+    (cron_dir / "sys-task").mkdir(parents=True)
+    (cron_dir / "sys-task" / "CRON.md").write_text("---\ntitle: Sys\ncron: true\n---\n")
+    monkeypatch.setattr(config, "CRON_DIR", cron_dir)
+    assert set_cron_enabled("sys-task", False) is True
+    assert "cron: false" in (cron_dir / "sys-task" / "CRON.md").read_text()
 
 
 @pytest.fixture

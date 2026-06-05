@@ -112,49 +112,34 @@ def next_cron_run(schedule: str, now=None):
 
 
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
-    """Toggle the `cron:` field in a task's metadata file.
-
-    Checks both system (CRON.md) and app (APP.md) locations.
-    Returns True if the file was updated, False if not found.
-    """
-    # Try system task first, then app task
-    for md_path in [
-        config.CRON_DIR / app_slug / "CRON.md",
-        config.INTERACTIVE_DIR / app_slug / "APP.md",
-    ]:
-        if not md_path.exists():
-            continue
-
-        content = md_path.read_text()
-        value_str = "true" if enabled else "false"
-
-        if not content.startswith("---"):
-            content = f"---\ncron: {value_str}\n---\n{content}"
-            md_path.write_text(content)
+    """Enable/disable a cron task. Dashboards → DB `cron_enabled`; system tasks → CRON.md."""
+    with get_db() as session:
+        dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == app_slug))
+        if dashboard is not None:
+            dashboard.cron_enabled = enabled
             return True
 
-        parts = content.split("---", 2)
-        if len(parts) < 3:
-            continue
+    md_path = config.CRON_DIR / app_slug / "CRON.md"
+    if not md_path.exists():
+        return False
 
-        lines = parts[1].strip().split("\n")
-        found = False
-        for i, line in enumerate(lines):
-            if ":" in line:
-                key, _ = line.split(":", 1)
-                if key.strip().lower() == "cron":
-                    lines[i] = f"cron: {value_str}"
-                    found = True
-                    break
-
-        if not found:
-            lines.append(f"cron: {value_str}")
-
-        content = "---\n" + "\n".join(lines) + "\n---" + parts[2]
-        md_path.write_text(content)
+    content = md_path.read_text()
+    value_str = "true" if enabled else "false"
+    if not content.startswith("---"):
+        md_path.write_text(f"---\ncron: {value_str}\n---\n{content}")
         return True
-
-    return False
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return False
+    lines = parts[1].strip().split("\n")
+    for i, line in enumerate(lines):
+        if ":" in line and line.split(":", 1)[0].strip().lower() == "cron":
+            lines[i] = f"cron: {value_str}"
+            break
+    else:
+        lines.append(f"cron: {value_str}")
+    md_path.write_text("---\n" + "\n".join(lines) + "\n---" + parts[2])
+    return True
 
 
 def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
