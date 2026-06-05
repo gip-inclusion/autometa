@@ -111,6 +111,13 @@ def copy_session(src_id: str, dst_id: str) -> bool:
     if not s3.sessions.upload(f"{dst_id}.jsonl", rewritten, "application/x-ndjson"):
         return False
 
+    local_path = get_session_path(dst_id)
+    try:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(rewritten)
+    except OSError:
+        logger.warning("Could not cache copied session %s locally; S3 copy stands", dst_id)
+
     logger.info("Copied session %s -> %s (%d bytes)", src_id, dst_id, len(rewritten))
     _copy_subagents(src_id, dst_id)
     return True

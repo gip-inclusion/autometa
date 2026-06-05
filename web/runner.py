@@ -159,13 +159,14 @@ class TaskRunner:
             sid = payload.get("session_id")
             if sid:
                 await asyncio.to_thread(session_sync.download_session, sid)
+            history = history_for_turn(conv_id, sid, payload["history"])
             # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
             trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
             task = asyncio.create_task(
                 self._run_agent(
                     conv_id,
                     payload["prompt"],
-                    payload["history"],
+                    history,
                     payload.get("user_email"),
                     trace_headers,
                     sid,
@@ -495,6 +496,26 @@ def _send_failure_notification(conv_id: str, title: str, snippet: str):
         f"_Vérifiez que la réponse est correcte._"
     )
     alerts.notify_alert_channel(message)
+
+
+def history_for_turn(conv_id: str, session_id: str | None, default_history: list[dict]) -> list[dict]:
+    """Seed history: empty when the session file is present (resume works), full transcript when it is missing."""
+    if not session_id or session_sync.get_session_path(session_id).exists():
+        return default_history
+
+    logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
+    sentry_sdk.capture_message(
+        f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
+    )
+
+    conv = store.get_conversation(conv_id, include_messages=True)
+    if not conv:
+        return default_history
+
+    msgs = [m for m in conv.messages if m.type in ("user", "assistant")]
+    if msgs and msgs[-1].type == "user":
+        msgs = msgs[:-1]
+    return [{"role": m.type, "content": m.content} for m in msgs]
 
 
 runner = TaskRunner()
