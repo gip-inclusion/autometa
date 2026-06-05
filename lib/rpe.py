@@ -329,6 +329,8 @@ class RpeClient:
         sel["measuresToKeepHidden"] = [False] * nm
         sel["measuresToKeepHiddenLabel"] = [False] * nm
         if filters is not None:
+            # Why: filtre niveau 0 uniquement — non fiable sur une dimension hiérarchique (géo).
+            # Pour la géo, ventiler par la dimension et filtrer les lignes du résultat (cf. SKILL --where).
             sel["dimsToFilter"] = [
                 {"dim": d, "hierarchy": 0, "level": 0, "selectedMembers": list(codes), "mode": 0}
                 for d, codes in filters.items()

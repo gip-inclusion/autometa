@@ -83,6 +83,18 @@ c.close()
 
 `measures` doit reprendre l'**id exact** (cf. `rpe_measure.measure_id` ou `c.measures(ds)`), sinon le serveur renvoie des valeurs de présence (1.0). Niveau géographique via `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département ; grains fins : explorer).
 
+⚠️ **Filtrage géographique : filtrer côté client, pas côté serveur.** Le `filters=` serveur ignore le niveau hiérarchique (hardcodé level 0) → un `filters={"C_TERRITOIRE_ID": ["11"]}` renvoie des **valeurs fausses** (il matche un territoire feuille codé 11, pas la région). Méthode fiable : **ventiler par la dimension géo** (`C_TERRITOIRE_ID:1`) **et filtrer les lignes du résultat** par `member_code`/`Région_code`. En CLI, utiliser `--where`.
+
+**Croisement multi-dimensions + filtre géo, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
+
+```bash
+python skills/rpe/scripts/query.py --query "Accès et présence en emploi" \
+  --dim C_TERRITOIRE_ID:1 --dim C_LBLSEXE --dim C_LBLCATEGORIEAGE \
+  --measure "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %" \
+  --where "Région_code=11"
+```
+→ 8 lignes (2 sexes × 4 tranches d'âge) pour l'Île-de-France.
+
 ## Combien de temps
 
 - En cache : instantané (SQL local).
