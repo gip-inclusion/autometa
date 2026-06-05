@@ -73,9 +73,7 @@ def test_run_output_proxies_content(client, mocker):
 
 
 def test_run_output_download_returns_url(client, mocker):
-    mocker.patch(
-        "web.routes.jobs.jobs.get_run_output_url", return_value={"url": "https://s3/x", "expires_in": 3600}
-    )
+    mocker.patch("web.routes.jobs.jobs.get_run_output_url", return_value={"url": "https://s3/x", "expires_in": 3600})
     r = client.get(f"/api/jobs/runs/{GOOD_ID}/output?download=1")
     assert r.status_code == 200
     assert r.json()["url"] == "https://s3/x"
@@ -105,13 +103,30 @@ def test_jobs_page_renders(client, mocker):
 def test_jobs_page_nests_runs_and_shows_download(client, mocker):
     mocker.patch(
         "web.routes.jobs.jobs.list_pipelines",
-        return_value=[{"id": "p1", "name": "weekly", "system_prompt": "Tu es analyste.", "created_at": "2026-06-01T10:00:00+00:00"}],
+        return_value=[
+            {
+                "id": "p1",
+                "name": "weekly",
+                "system_prompt": "Tu es analyste.",
+                "created_at": "2026-06-01T10:00:00+00:00",
+            }
+        ],
     )
     mocker.patch(
         "web.routes.jobs.jobs.list_runs",
         return_value=[
-            {"id": "aaaaaaaa-0000-0000-0000-000000000001", "status": "completed", "pipeline_id": "p1", "created_at": "2026-06-03T15:14:00+00:00"},
-            {"id": "bbbbbbbb-0000-0000-0000-000000000002", "status": "running", "pipeline_id": "p1", "created_at": "2026-06-03T16:00:00+00:00"},
+            {
+                "id": "aaaaaaaa-0000-0000-0000-000000000001",
+                "status": "completed",
+                "pipeline_id": "p1",
+                "created_at": "2026-06-03T15:14:00+00:00",
+            },
+            {
+                "id": "bbbbbbbb-0000-0000-0000-000000000002",
+                "status": "running",
+                "pipeline_id": "p1",
+                "created_at": "2026-06-03T16:00:00+00:00",
+            },
         ],
     )
     r = client.get("/jobs")
@@ -127,8 +142,18 @@ def test_jobs_page_selects_most_recent_by_default(client, mocker):
     mocker.patch(
         "web.routes.jobs.jobs.list_pipelines",
         return_value=[
-            {"id": "11111111-1111-1111-1111-111111111111", "name": "alpha", "system_prompt": "PROMPT_ALPHA", "created_at": "2026-06-01T00:00:00+00:00"},
-            {"id": "22222222-2222-2222-2222-222222222222", "name": "beta", "system_prompt": "PROMPT_BETA", "created_at": "2026-06-02T00:00:00+00:00"},
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "name": "alpha",
+                "system_prompt": "PROMPT_ALPHA",
+                "created_at": "2026-06-01T00:00:00+00:00",
+            },
+            {
+                "id": "22222222-2222-2222-2222-222222222222",
+                "name": "beta",
+                "system_prompt": "PROMPT_BETA",
+                "created_at": "2026-06-02T00:00:00+00:00",
+            },
         ],
     )
     mocker.patch("web.routes.jobs.jobs.list_runs", return_value=[])
@@ -143,8 +168,18 @@ def test_jobs_pipeline_page_selects_that_pipeline(client, mocker):
     mocker.patch(
         "web.routes.jobs.jobs.list_pipelines",
         return_value=[
-            {"id": "11111111-1111-1111-1111-111111111111", "name": "alpha", "system_prompt": "PROMPT_ALPHA", "created_at": "2026-06-01T00:00:00+00:00"},
-            {"id": "22222222-2222-2222-2222-222222222222", "name": "beta", "system_prompt": "PROMPT_BETA", "created_at": "2026-06-02T00:00:00+00:00"},
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "name": "alpha",
+                "system_prompt": "PROMPT_ALPHA",
+                "created_at": "2026-06-01T00:00:00+00:00",
+            },
+            {
+                "id": "22222222-2222-2222-2222-222222222222",
+                "name": "beta",
+                "system_prompt": "PROMPT_BETA",
+                "created_at": "2026-06-02T00:00:00+00:00",
+            },
         ],
     )
     mocker.patch("web.routes.jobs.jobs.list_runs", return_value=[])

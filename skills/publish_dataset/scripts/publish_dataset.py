@@ -14,7 +14,7 @@ def main(argv=None) -> int:
     parser.add_argument("--sql", help="single query -> one table (use --format for jsonl/csv)")
     parser.add_argument(
         "--tables",
-        help='JSON object {table_name: sql} -> one sqlite file with several JOIN-able tables',
+        help="JSON object {table_name: sql} -> one sqlite file with several JOIN-able tables",
     )
     parser.add_argument("--format", default="sqlite", choices=["sqlite", "jsonl", "csv"])
     args = parser.parse_args(argv)
