@@ -4,6 +4,9 @@
 
 {% block content %}
 <style>
+  /* Fixed header, panes scroll internally — same as the Tag Manager. */
+  #section-jobs { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  #section-jobs .section-body { max-width: none; padding: 0; overflow: hidden; }
   #section-jobs .jobs-layout {
     display: grid; grid-template-columns: 280px 1fr; height: 100%;
     border-top: 1px solid #dee2e6;
@@ -11,7 +14,14 @@
   @media (max-width: 768px) { #section-jobs .jobs-layout { grid-template-columns: 1fr; } }
   #section-jobs .tm-pane-header .pane-title { text-transform: none; font-weight: 600; color: #212529; }
   #section-jobs .jobs-prompt { max-height: 7.5em; overflow: hidden; }
+  /* Soft fade over the cut-off text when clamped. */
+  #section-jobs .jobs-prompt.clamped { position: relative; }
+  #section-jobs .jobs-prompt.clamped::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3em;
+    background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0)); pointer-events: none;
+  }
   #section-jobs .jobs-prompt.expanded { max-height: none; }
+  #section-jobs .jobs-prompt.expanded::after { content: none; }
   #section-jobs .markdown-body :is(h1, h2, h3, h4) { font-size: 1rem; font-weight: 600; margin: .6rem 0 .3rem; }
   #section-jobs .markdown-body p { margin: 0 0 .5rem; }
   #section-jobs .markdown-body ul, #section-jobs .markdown-body ol { margin: 0 0 .5rem 1.1rem; }
@@ -122,7 +132,10 @@
   const toggle = root.querySelector('.jobs-prompt-toggle');
   if (prompt && toggle) {
     requestAnimationFrame(() => {
-      if (prompt.scrollHeight > prompt.clientHeight + 4) { toggle.classList.remove('d-none'); }
+      if (prompt.scrollHeight > prompt.clientHeight + 4) {
+        prompt.classList.add('clamped');
+        toggle.classList.remove('d-none');
+      }
     });
     toggle.addEventListener('click', () => {
       const expanded = prompt.classList.toggle('expanded');
