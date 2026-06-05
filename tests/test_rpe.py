@@ -141,6 +141,20 @@ def test_post_file_relogins_on_403(mocker):
     relogin.assert_called_once()
 
 
+def test_cli_apply_where_filters_rows():
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).parent.parent / "skills/rpe/scripts/query.py"
+    spec = importlib.util.spec_from_file_location("rpe_query_cli", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    rows = [{"Région_code": "11", "v": 1}, {"Région_code": "84", "v": 2}, {"Région_code": "11", "v": 3}]
+    assert mod.apply_where(rows, ["Région_code=11"]) == [{"Région_code": "11", "v": 1}, {"Région_code": "11", "v": 3}]
+    assert mod.apply_where(rows, []) == rows
+
+
 @pytest.mark.integration
 def test_live_login_query():
     client = rpe.RpeClient.connect()
