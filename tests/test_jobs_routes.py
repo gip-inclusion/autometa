@@ -36,6 +36,7 @@ def test_trigger_run_one_shot(client, mocker):
         ("get", "/api/jobs/runs/{id}/output"),
         ("post", "/api/jobs/runs/{id}/cancel"),
         ("post", "/api/jobs/pipelines/{id}/runs"),
+        ("get", "/jobs/pipelines/{id}"),
     ],
 )
 @pytest.mark.parametrize("bad", BAD_IDS)
@@ -120,6 +121,38 @@ def test_jobs_page_nests_runs_and_shows_download(client, mocker):
     assert "Télécharger" in r.text
     # download button only on the completed run, not the running one
     assert r.text.count("data-run=") == 1
+
+
+def test_jobs_page_selects_most_recent_by_default(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.list_pipelines",
+        return_value=[
+            {"id": "11111111-1111-1111-1111-111111111111", "name": "alpha", "system_prompt": "PROMPT_ALPHA", "created_at": "2026-06-01T00:00:00+00:00"},
+            {"id": "22222222-2222-2222-2222-222222222222", "name": "beta", "system_prompt": "PROMPT_BETA", "created_at": "2026-06-02T00:00:00+00:00"},
+        ],
+    )
+    mocker.patch("web.routes.jobs.jobs.list_runs", return_value=[])
+    r = client.get("/jobs")
+    assert r.status_code == 200
+    # beta is newer → selected → its prompt rendered in the detail pane; alpha's is not
+    assert "PROMPT_BETA" in r.text
+    assert "PROMPT_ALPHA" not in r.text
+
+
+def test_jobs_pipeline_page_selects_that_pipeline(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.list_pipelines",
+        return_value=[
+            {"id": "11111111-1111-1111-1111-111111111111", "name": "alpha", "system_prompt": "PROMPT_ALPHA", "created_at": "2026-06-01T00:00:00+00:00"},
+            {"id": "22222222-2222-2222-2222-222222222222", "name": "beta", "system_prompt": "PROMPT_BETA", "created_at": "2026-06-02T00:00:00+00:00"},
+        ],
+    )
+    mocker.patch("web.routes.jobs.jobs.list_runs", return_value=[])
+    r = client.get("/jobs/pipelines/11111111-1111-1111-1111-111111111111")
+    assert r.status_code == 200
+    assert "PROMPT_ALPHA" in r.text  # explicitly selected pipeline's prompt
+    assert "PROMPT_BETA" not in r.text
+    assert "tm-list-item active" in r.text  # selected row highlighted
 
 
 def test_jobs_page_survives_orchestrator_down(client, mocker):

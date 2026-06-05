@@ -102,34 +102,54 @@ def _run_date(iso: str | None) -> str:
         return iso
 
 
-@router.get("/jobs")
-def jobs_page(request: Request, user_email: str = Depends(get_current_user)):
-    data = get_sidebar_data(user_email)
-    pipelines: list = []
-    jobs_error = None
+def _load_pipelines() -> tuple[list, str | None]:
+    """Pipelines enriched with their runs, run count, and friendly dates, newest-active first."""
     try:
         pipelines = jobs.list_pipelines()
         runs = jobs.list_runs(limit=200)
-        by_pipeline: dict[str, list] = defaultdict(list)
-        for r in runs:
-            by_pipeline[r["pipeline_id"]].append(r)
-        for p in pipelines:
-            p_runs = sorted(by_pipeline.get(p["id"], []), key=lambda r: r.get("created_at") or "", reverse=True)
-            for r in p_runs:
-                r["created_at_display"] = _run_date(r.get("created_at"))
-            p["runs"] = p_runs
-            p["run_count"] = len(p_runs)
-            # Order pipelines by latest activity (most recent run, else creation).
-            p["last_activity"] = (p_runs[0].get("created_at") if p_runs else p.get("created_at")) or ""
-        pipelines.sort(key=lambda p: p["last_activity"], reverse=True)
     except httpx.HTTPError as exc:
         logger.warning("autometa-jobs unavailable: %s", exc)
-        jobs_error = "Service de jobs indisponible"
+        return [], "Service de jobs indisponible"
+    by_pipeline: dict[str, list] = defaultdict(list)
+    for r in runs:
+        by_pipeline[r["pipeline_id"]].append(r)
+    for p in pipelines:
+        p_runs = sorted(by_pipeline.get(p["id"], []), key=lambda r: r.get("created_at") or "", reverse=True)
+        for r in p_runs:
+            r["created_at_display"] = _run_date(r.get("created_at"))
+        p["runs"] = p_runs
+        p["run_count"] = len(p_runs)
+        # Order pipelines by latest activity (most recent run, else creation).
+        p["last_activity"] = (p_runs[0].get("created_at") if p_runs else p.get("created_at")) or ""
+        p["last_activity_display"] = _run_date(p["last_activity"])
+    pipelines.sort(key=lambda p: p["last_activity"], reverse=True)
+    return pipelines, None
+
+
+def _render_jobs(request: Request, user_email: str, selected_id: str | None):
+    data = get_sidebar_data(user_email)
+    pipelines, jobs_error = _load_pipelines()
+    selected = None
+    if pipelines:
+        if selected_id:
+            selected = next((p for p in pipelines if p["id"] == selected_id), None)
+        else:
+            selected = pipelines[0]  # most recently active
     return templates.TemplateResponse(
         request,
         "jobs.html",
-        {"section": "jobs", "pipelines": pipelines, "jobs_error": jobs_error, **data},
+        {"section": "jobs", "pipelines": pipelines, "selected": selected, "jobs_error": jobs_error, **data},
     )
+
+
+@router.get("/jobs")
+def jobs_page(request: Request, user_email: str = Depends(get_current_user)):
+    return _render_jobs(request, user_email, selected_id=None)
+
+
+@router.get("/jobs/pipelines/{pipeline_id}")
+def jobs_pipeline_page(pipeline_id: JobId, request: Request, user_email: str = Depends(get_current_user)):
+    return _render_jobs(request, user_email, selected_id=pipeline_id)
 
 
 @router.get("/jobs/runs/{run_id}")

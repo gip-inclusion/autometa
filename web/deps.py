@@ -3,8 +3,10 @@
 import os
 import re
 
+import markdown as md_lib
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from . import config
 from .helpers import format_relative_date
@@ -28,6 +30,14 @@ def regex_replace_filter(value, pattern, replacement=""):
 
 
 templates.env.filters["regex_replace"] = regex_replace_filter
+
+
+def markdown_filter(text: str | None) -> Markup:
+    """Render (agent-authored) markdown to HTML for display."""
+    return Markup(md_lib.markdown(text or "", extensions=["fenced_code", "tables", "sane_lists"]))
+
+
+templates.env.filters["markdown"] = markdown_filter
 
 
 def static_url(path: str) -> str:
