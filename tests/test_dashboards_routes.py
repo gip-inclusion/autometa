@@ -36,6 +36,15 @@ def _h(email=ADMIN):
     return {"X-Forwarded-Email": email}
 
 
+def test_new_dashboard_has_cron_metadata_defaults(client):
+    _make_dashboard("cron-defaults")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "cron-defaults"))
+        assert d.cron_schedule == "daily"
+        assert d.cron_timeout == 300
+        assert d.cron_enabled is True
+
+
 def test_latest_view_lists_active(client):
     _make_dashboard("latest-a")
     _make_dashboard("latest-archived", archived=True)
