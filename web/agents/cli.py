@@ -92,8 +92,9 @@ class CLIBackend(AgentBackend):
         elif config.ALLOWED_TOOLS:
             cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])
 
-        cmd.extend(["-p", prompt])
         cmd.extend(self._extra_cmd_args())
+        # Why: `--` ends option parsing so a prompt starting with `-` isn't read as a CLI flag.
+        cmd.extend(["-p", "--", prompt])
 
         logger.info(
             "Starting claude CLI (session=%s, resume=%s, prompt_length=%d)",
