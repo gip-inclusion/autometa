@@ -876,7 +876,6 @@ def test_discover_from_s3_reads_cron_meta_from_db(db_setup, mocker):
     assert tasks[0]["timeout"] == 1200
     assert tasks[0]["enabled"] is False
     download.assert_not_called()
-    download.assert_not_called()
 
 
 def test_backfill_cron_metadata_from_app_md(db_setup):
