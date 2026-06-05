@@ -41,6 +41,9 @@ ALLOWED_TOOLS = os.getenv(
     "Bash(.venv/bin/python:*)",
 )
 
+# Outils toujours bloqués (même sous --dangerously-skip-permissions). AskUserQuestion ne s'affiche pas dans notre UI.
+DISALLOWED_TOOLS = os.getenv("DISALLOWED_TOOLS", "AskUserQuestion")
+
 # Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder-next")
