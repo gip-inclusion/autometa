@@ -86,8 +86,6 @@ Report content...
 
 **Example:** `--tags "emplois,candidats,iae,analyse,stats"`
 
-If a tag you need doesn't exist, use `/wishlist` to request it.
-
 ## Alternative: Python API
 
 For scripts that need programmatic access:

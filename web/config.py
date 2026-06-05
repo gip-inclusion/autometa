@@ -147,7 +147,6 @@ TOOL_CALL_WARNING = int(os.getenv("TOOL_CALL_WARNING", "50"))
 # Notion integration
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
-NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 
 
 # Slack notifications
