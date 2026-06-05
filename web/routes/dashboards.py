@@ -19,6 +19,7 @@ from web.publications import (
     BLOCKED_CODES,
     ENVIRONMENTS,
     PublicationBlocked,
+    list_active_publications,
     list_publications,
     pause_refresh,
     publish,
@@ -30,10 +31,31 @@ from .html import get_sidebar_data, group_items_by_date
 
 router = APIRouter()
 
-VIEWS = ("latest", "mine", "archived")
+VIEWS = ("latest", "mine", "archived", "published")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
+
+
+def build_published_groups() -> list[dict]:
+    """Active publications grouped by dashboard (most recently published first), production line first."""
+    pubs = list_active_publications()
+    for p in pubs:
+        p["published_relative"] = format_relative_date(p["published_at"]) if p.get("published_at") else ""
+        p["refresh_relative"] = (
+            format_relative_date(p["last_successful_refresh_at"]) if p.get("last_successful_refresh_at") else ""
+        )
+        p["paused_relative"] = format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
+    groups: dict[str, dict] = {}
+    for p in pubs:
+        group = groups.setdefault(
+            p["dashboard_slug"],
+            {"slug": p["dashboard_slug"], "title": p["dashboard_title"], "publications": []},
+        )
+        group["publications"].append(p)
+    for group in groups.values():
+        group["publications"].sort(key=lambda p: 0 if p["environment"] == "production" else 1)
+    return list(groups.values())
 
 
 @router.get("/dashboards")
@@ -45,6 +67,23 @@ def dashboards_page(
 ):
     if view not in VIEWS:
         view = "latest"
+
+    if view == "published":
+        data = get_sidebar_data(user_email)
+        return templates.TemplateResponse(
+            request,
+            "dashboards.html",
+            {
+                "section": "dashboards",
+                "current_conv": None,
+                "view": view,
+                "q": q,
+                "grouped_items": None,
+                "pinned_cards": [],
+                "published_groups": build_published_groups(),
+                **data,
+            },
+        )
 
     active = store.list_dashboards()
 
@@ -83,6 +122,7 @@ def dashboards_page(
             "q": q,
             "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
+            "published_groups": None,
             **data,
         },
     )

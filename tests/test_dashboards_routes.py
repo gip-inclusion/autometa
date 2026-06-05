@@ -548,6 +548,60 @@ def test_detail_publication_row_omits_run_and_history_when_no_snapshot_cron(clie
     assert 'data-action="pub-run" data-slug=' not in r.text
 
 
+def _mock_publish_s3(mocker):
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+
+
+def test_published_view_lists_active_publications(client, mocker):
+    _mock_publish_s3(mocker)
+    _make_dashboard("pubv-listed", title="TDB Publié")
+    _make_dashboard("pubv-unpublished", title="TDB Non Publié")
+    client.post("/api/dashboards/pubv-listed/publish", json={"environment": "staging"}, headers=_h())
+    r = client.get("/dashboards?view=published", headers=_h())
+    assert r.status_code == 200
+    assert "TDB Publié" in r.text
+    assert "TDB Non Publié" not in r.text
+    assert "env-pill-staging" in r.text
+    assert 'href="/dashboards/pubv-listed/edit"' in r.text
+
+
+def test_published_view_groups_publications_prod_first(client, mocker):
+    _mock_publish_s3(mocker)
+    _make_dashboard("pubv-multi", title="TDB Multi")
+    client.post("/api/dashboards/pubv-multi/publish", json={"environment": "staging"}, headers=_h())
+    client.post("/api/dashboards/pubv-multi/publish", json={"environment": "production"}, headers=_h())
+    r = client.get("/dashboards?view=published", headers=_h())
+    assert r.status_code == 200
+    assert r.text.count("env-pill-prod") == 1
+    assert r.text.count("env-pill-staging") == 1
+    assert r.text.index("env-pill-prod") < r.text.index("env-pill-staging")
+
+
+def test_published_view_empty_state(client):
+    r = client.get("/dashboards?view=published", headers=_h())
+    assert r.status_code == 200
+    assert "Aucune publication active" in r.text
+
+
+def test_published_view_excludes_archived_dashboards(client, mocker):
+    _mock_publish_s3(mocker)
+    _make_dashboard("pubv-arch", title="TDB Archivé")
+    client.post("/api/dashboards/pubv-arch/publish", json={"environment": "staging"}, headers=_h())
+    client.post("/api/dashboards/pubv-arch/archive", json={"archived": True}, headers=_h())
+    r = client.get("/dashboards?view=published", headers=_h())
+    assert r.status_code == 200
+    assert "TDB Archivé" not in r.text
+
+
+def test_published_view_button_in_sidebar(client):
+    r = client.get("/dashboards", headers=_h())
+    assert r.status_code == 200
+    assert 'data-view="published"' in r.text
+
+
 def test_detail_shows_failure_suffix_when_last_refresh_failed(client, mocker):
     _make_dashboard("ui-failure")
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)

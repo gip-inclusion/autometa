@@ -154,6 +154,24 @@ def list_publications(slug: str, active_only: bool = True) -> list[dict]:
         return [_to_dict(p) for p in session.scalars(stmt)]
 
 
+def list_active_publications() -> list[dict]:
+    """Every active publication across non-archived dashboards, each enriched with its dashboard title."""
+    with get_db() as session:
+        stmt = (
+            select(DashboardPublication, Dashboard.title)
+            .join(Dashboard, Dashboard.slug == DashboardPublication.dashboard_slug)
+            .where(DashboardPublication.unpublished_at.is_(None), ~Dashboard.is_archived)
+            .order_by(DashboardPublication.published_at.desc())
+        )
+        result = []
+        for pub, title in session.execute(stmt):
+            row = _to_dict(pub)
+            row["dashboard_slug"] = pub.dashboard_slug
+            row["dashboard_title"] = title
+            result.append(row)
+        return result
+
+
 def pause_refresh(publication_id: str) -> bool:
     return _set_paused(publication_id, paused=True)
 
