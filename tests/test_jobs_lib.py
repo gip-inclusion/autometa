@@ -5,6 +5,9 @@ import pytest
 
 from lib import jobs
 
+RUN_ID = "11111111-1111-1111-1111-111111111111"
+PIPELINE_ID = "22222222-2222-2222-2222-222222222222"
+
 
 @pytest.fixture(autouse=True)
 def _autometa_jobs_config(mocker):
@@ -39,14 +42,14 @@ def test_create_pipeline_injects_job_definition_id(mocker):
 
 def test_trigger_run_one_shot_sends_empty_body(mocker):
     req = mocker.patch("httpx.request", return_value=_fake_response({"id": "r1", "status": "queued"}))
-    jobs.trigger_run("p1")
-    assert req.call_args.args == ("POST", "https://orch.example/pipelines/p1/runs")
+    jobs.trigger_run(PIPELINE_ID)
+    assert req.call_args.args == ("POST", f"https://orch.example/pipelines/{PIPELINE_ID}/runs")
     assert req.call_args.kwargs["json"] == {}
 
 
 def test_trigger_run_with_input_uri_and_key(mocker):
     req = mocker.patch("httpx.request", return_value=_fake_response({"id": "r1"}))
-    jobs.trigger_run("p1", input_uri="s3://pipometa/inputs/x.json", idempotency_key="conv:1")
+    jobs.trigger_run(PIPELINE_ID, input_uri="s3://pipometa/inputs/x.json", idempotency_key="conv:1")
     assert req.call_args.kwargs["json"] == {
         "input_uri": "s3://pipometa/inputs/x.json",
         "idempotency_key": "conv:1",
@@ -60,39 +63,46 @@ def test_list_runs_passes_filters(mocker):
 
 
 @pytest.mark.parametrize(
-    "fn,method,path",
+    "fn,method,suffix",
     [
-        ("get_run", "GET", "https://orch.example/runs/r1"),
-        ("get_run_events", "GET", "https://orch.example/runs/r1/events"),
-        ("cancel_run", "POST", "https://orch.example/runs/r1/cancel"),
+        ("get_run", "GET", ""),
+        ("get_run_events", "GET", "/events"),
+        ("cancel_run", "POST", "/cancel"),
     ],
 )
-def test_run_endpoints_route_correctly(mocker, fn, method, path):
+def test_run_endpoints_route_correctly(mocker, fn, method, suffix):
     req = mocker.patch("httpx.request", return_value=_fake_response({"id": "r1"}))
-    getattr(jobs, fn)("r1")
-    assert req.call_args.args == (method, path)
+    getattr(jobs, fn)(RUN_ID)
+    assert req.call_args.args == (method, f"https://orch.example/runs/{RUN_ID}{suffix}")
 
 
 def test_get_run_output_returns_text(mocker):
     resp = httpx.Response(200, text="# artefact\nbonjour", request=httpx.Request("GET", "https://orch.example"))
     get = mocker.patch("httpx.get", return_value=resp)
-    assert jobs.get_run_output("r1") == "# artefact\nbonjour"
-    assert get.call_args.args == ("https://orch.example/runs/r1/output",)
+    assert jobs.get_run_output(RUN_ID) == "# artefact\nbonjour"
+    assert get.call_args.args == (f"https://orch.example/runs/{RUN_ID}/output",)
     assert get.call_args.kwargs["headers"]["Authorization"] == "Bearer pmk_test"
 
 
 def test_get_run_output_url_presigns(mocker):
     req = mocker.patch("httpx.request", return_value=_fake_response({"url": "https://s3/x", "expires_in": 120}))
-    out = jobs.get_run_output_url("r1", expires_in=120)
+    out = jobs.get_run_output_url(RUN_ID, expires_in=120)
     assert out == {"url": "https://s3/x", "expires_in": 120}
-    assert req.call_args.args == ("GET", "https://orch.example/runs/r1/output")
+    assert req.call_args.args == ("GET", f"https://orch.example/runs/{RUN_ID}/output")
     assert req.call_args.kwargs["params"] == {"presign": 1, "expires_in": 120}
+
+
+def test_invalid_id_rejected_before_request(mocker):
+    req = mocker.patch("httpx.request")
+    with pytest.raises(ValueError):
+        jobs.get_run("not-a-uuid")
+    req.assert_not_called()
 
 
 def test_http_error_propagates(mocker):
     mocker.patch("httpx.request", return_value=_fake_response({"detail": "nope"}, status=404))
     with pytest.raises(httpx.HTTPStatusError):
-        jobs.get_run("missing")
+        jobs.get_run(RUN_ID)
 
 
 def test_create_pipeline_notifies_slack(mocker):
@@ -107,7 +117,7 @@ def test_trigger_run_notifies_slack(mocker):
     mocker.patch("httpx.request", return_value=_fake_response({"id": "r1", "status": "queued"}))
     mocker.patch("lib.jobs.config.BASE_URL", "https://a.example")
     notify = mocker.patch("lib.jobs.notify_alert_channel")
-    jobs.trigger_run("p1")
+    jobs.trigger_run(PIPELINE_ID)
     notify.assert_called_once()
     msg = notify.call_args.args[0]
     assert "r1" in msg

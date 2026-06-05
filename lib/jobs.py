@@ -1,9 +1,16 @@
 """Thin HTTP client for the autometa-jobs orchestrator."""
 
+import uuid
+
 import httpx
 
 from web import config
 from web.alerts import notify_alert_channel
+
+
+def _safe_id(value: str) -> str:
+    """Validate an orchestrator id is a UUID before interpolating it into a request URL (SSRF guard)."""
+    return str(uuid.UUID(str(value)))
 
 
 def _request(method: str, path: str, *, json: dict | None = None, params: dict | None = None):
@@ -43,7 +50,7 @@ def trigger_run(pipeline_id: str, input_uri: str | None = None, idempotency_key:
         body["input_uri"] = input_uri
     if idempotency_key:
         body["idempotency_key"] = idempotency_key
-    run = _request("POST", f"/pipelines/{pipeline_id}/runs", json=body)
+    run = _request("POST", f"/pipelines/{_safe_id(pipeline_id)}/runs", json=body)
     run_id = run.get("id", "?")
     notify_alert_channel(f"🚀 Job lancé : run `{run_id}` — statut {run.get('status', '?')}\n{run_url(run_id)}")
     return run
@@ -59,21 +66,21 @@ def list_runs(pipeline_id: str | None = None, status: str | None = None, limit: 
 
 
 def get_run(run_id: str) -> dict:
-    return _request("GET", f"/runs/{run_id}")
+    return _request("GET", f"/runs/{_safe_id(run_id)}")
 
 
 def get_run_events(run_id: str) -> list[dict]:
-    return _request("GET", f"/runs/{run_id}/events")
+    return _request("GET", f"/runs/{_safe_id(run_id)}/events")
 
 
 def cancel_run(run_id: str) -> dict:
-    return _request("POST", f"/runs/{run_id}/cancel")
+    return _request("POST", f"/runs/{_safe_id(run_id)}/cancel")
 
 
 def get_run_output(run_id: str) -> str:
     """The run's full artifact text — what the agent reads to work with results."""
     resp = httpx.get(
-        f"{config.AUTOMETA_JOBS_URL}/runs/{run_id}/output",
+        f"{config.AUTOMETA_JOBS_URL}/runs/{_safe_id(run_id)}/output",
         headers={"Authorization": f"Bearer {config.AUTOMETA_JOBS_API_KEY}"},
         timeout=60,
     )
@@ -83,7 +90,7 @@ def get_run_output(run_id: str) -> str:
 
 def get_run_output_url(run_id: str, expires_in: int = 3600) -> dict:
     """A short-lived download URL for the artifact — for the UI to link."""
-    return _request("GET", f"/runs/{run_id}/output", params={"presign": 1, "expires_in": expires_in})
+    return _request("GET", f"/runs/{_safe_id(run_id)}/output", params={"presign": 1, "expires_in": expires_in})
 
 
 def run_url(run_id: str) -> str:
