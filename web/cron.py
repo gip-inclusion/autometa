@@ -251,6 +251,21 @@ def discover_publications() -> list[dict]:
     return tasks
 
 
+def backfill_cron_metadata(session, download) -> int:
+    """One-time: copy schedule/timeout/enabled from each has_cron dashboard's S3 APP.md into its row."""
+    updated = 0
+    for dashboard in session.scalars(select(Dashboard).where(Dashboard.has_cron)):
+        raw = download(f"{dashboard.slug}/APP.md")
+        if raw is None:
+            continue
+        meta = parse_frontmatter_text(raw.decode())
+        dashboard.cron_schedule = get_schedule(meta)
+        dashboard.cron_timeout = get_timeout(meta)
+        dashboard.cron_enabled = is_enabled(meta)
+        updated += 1
+    return updated
+
+
 def discover_cron_tasks() -> list[dict]:
     """Discover all cron tasks: system → app → publication."""
     tasks = discover_from_dir(config.CRON_DIR, "CRON.md", "system")

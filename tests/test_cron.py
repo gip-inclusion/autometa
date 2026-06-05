@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 
 from web import config
 from web.cron import (
+    backfill_cron_metadata,
     discover_cron_tasks,
     discover_from_dir,
     discover_from_s3,
@@ -876,3 +877,17 @@ def test_discover_from_s3_reads_cron_meta_from_db(db_setup, mocker):
     assert tasks[0]["enabled"] is False
     download.assert_not_called()
     download.assert_not_called()
+
+
+def test_backfill_cron_metadata_from_app_md(db_setup):
+    _seed_dashboard("bf-app", has_cron=True)
+    app_md = b"---\ntitle: x\nschedule: weekly\ntimeout: 1200\ncron: false\n---\n## body\n"
+    fake = {"bf-app/APP.md": app_md}
+    with get_db() as session:
+        count = backfill_cron_metadata(session, lambda path: fake.get(path))
+    assert count == 1
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "bf-app"))
+        assert d.cron_schedule == "weekly"
+        assert d.cron_timeout == 1200
+        assert d.cron_enabled is False
