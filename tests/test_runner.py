@@ -94,6 +94,108 @@ def test_cancel_publishes_and_updates_db(runner, mocker):
     asyncio.run(_run())
 
 
+def test_cancel_clears_needs_response_before_backend_cancel_completes(runner, mocker):
+    """Cancel must mark the conv stopped before the slow backend.cancel."""
+    mock_store = mocker.patch("web.runner.store")
+    backend_cancel_started = asyncio.Event()
+    backend_cancel_may_finish = asyncio.Event()
+
+    async def slow_backend_cancel(conv_id):
+        backend_cancel_started.set()
+        await backend_cancel_may_finish.wait()
+
+    runner.backend.cancel = slow_backend_cancel
+    runner._running["c1"] = mocker.MagicMock()
+
+    async def _run():
+        cancel_task = asyncio.create_task(runner.cancel("c1"))
+        await backend_cancel_started.wait()
+        cleared = any(c.kwargs.get("needs_response") is False for c in mock_store.update_conversation.call_args_list)
+        backend_cancel_may_finish.set()
+        await cancel_task
+        assert cleared, "needs_response still True while backend.cancel runs -> immediate resend would 409"
+
+    asyncio.run(_run())
+
+
+def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, mocker):
+    """submit() must clear the done marker a prior cancel left behind."""
+    mocker.patch("web.runner.store")
+
+    async def _run():
+        await runner.cancel("c1")
+        assert await runner.is_done("c1")  # stale marker left by cancel (TTL 600s)
+        await runner.submit("c1", "nouvelle question", [])
+        assert not await runner.is_done("c1"), "new run must not inherit the previous cancel's done marker"
+
+    asyncio.run(_run())
+
+
+def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
+    """An old run finishing must not clobber a same-conv restart."""
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch("web.runner.store")
+
+    old_can_finish = asyncio.Event()
+
+    async def old_stream(**kwargs):
+        await old_can_finish.wait()
+        return
+        yield  # noqa: F841
+
+    async def new_stream(**kwargs):
+        await asyncio.sleep(5)
+        yield make_event("assistant", "x")
+
+    async def _run():
+        runner.backend.send_message = old_stream
+        old_task = asyncio.create_task(runner._run_agent("c1", "old", [], None, None))
+        runner._running["c1"] = old_task
+        await asyncio.sleep(0.05)
+
+        await runner.cancel("c1")
+        assert "c1" not in runner._running
+
+        runner.backend.send_message = new_stream
+        new_task = asyncio.create_task(runner._run_agent("c1", "new", [], None, None))
+        runner._running["c1"] = new_task
+        await runner.cleanup("c1")
+        await asyncio.sleep(0.05)
+        assert runner._running.get("c1") is new_task
+
+        old_can_finish.set()
+        await asyncio.sleep(0.1)
+
+        assert runner._running.get("c1") is new_task, "old run's finally evicted the restarted run"
+        assert not await runner.is_done("c1"), "old run's finally marked the restarted run as done"
+
+        new_task.cancel()
+        old_task.cancel()
+        await asyncio.gather(new_task, old_task, return_exceptions=True)
+
+    asyncio.run(_run())
+
+
+def test_run_agent_surfaces_backend_error_event(runner, mocker):
+    """A backend 'error' event (CLI exit 1 on a dash prompt) must reach the user."""
+    mock_store = mocker.patch("web.runner.store")
+    mock_msg = mocker.MagicMock()
+    mock_msg.id = 1
+    mock_store.add_message.return_value = mock_msg
+
+    async def err_stream(**kwargs):
+        yield make_event("error", "Process exited with code 1: error: unknown option '- foo'")
+
+    runner.backend.send_message = err_stream
+
+    async def _run():
+        await runner._run_agent("c1", "- foo", [], None, None)
+        stored = [str(c.args) for c in mock_store.add_message.call_args_list]
+        assert any("unknown option" in s for s in stored), "backend error event was dropped; user sees nothing"
+
+    asyncio.run(_run())
+
+
 def test_notify_publishes_update(runner, fake_redis):
     async def _run():
         pubsub = fake_redis.pubsub()

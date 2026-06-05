@@ -227,6 +227,38 @@ def test_race_condition_pm_finishes_before_sse_connect(app, client):
     assert events[-1]["event"] == "done"
 
 
+def test_resend_after_cancel_does_not_lose_answer(app, client):
+    """Resending after a cancel clears the stale done key so the answer streams."""
+    from web.database import store
+
+    conv = store.create_conversation(user_id="test@example.com")
+    store.add_message(conv.id, "user", "Q1")  # not the first message -> no title/tag LLM calls
+
+    r = _sync_redis()
+    r.set("autometa:done:" + conv.id, "1", ex=600)  # leftover marker from a previous cancel
+
+    resp = client.post(
+        f"/api/conversations/{conv.id}/messages",
+        json={"content": "ma nouvelle question"},
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert resp.status_code == 200
+    after_id = resp.json()["after_id"]
+    assert not r.exists("autometa:done:" + conv.id), "submit did not clear the stale done key"
+
+    t = _simulate_pm(conv.id, [("assistant", "Real answer")])
+    response = client.get(
+        f"/api/conversations/{conv.id}/stream?after={after_id}",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    t.join()
+    r.close()
+    events = _parse_sse_events(response.content)
+    assistant = [e for e in events if e["event"] == "assistant"]
+    assert len(assistant) == 1, "new run's answer was lost"
+    assert assistant[0]["data"]["content"] == "Real answer"
+
+
 def test_needs_response_false_returns_done(app, client):
     """Conversation with needs_response=False returns immediate done."""
     from web.database import store
