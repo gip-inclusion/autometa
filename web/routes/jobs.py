@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from lib import jobs
 from web.deps import get_current_user, templates
-from web.helpers import format_relative_date
+from web.helpers import format_relative_date, sanitize_for_log
 from web.routes.html import get_sidebar_data
 
 logger = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ def job_run_page(run_id: JobId, request: Request, user_email: str = Depends(get_
         pipeline_id = jobs.get_run(run_id).get("pipeline_id")
     except httpx.HTTPError as exc:
         # Non-fatal: the page still renders; the back link just falls back to /jobs.
-        logger.warning("could not resolve parent pipeline for run %s: %s", run_id, exc)
+        logger.warning("could not resolve parent pipeline for run %s: %s", sanitize_for_log(run_id), exc)
     back_url = f"/jobs/pipelines/{pipeline_id}" if pipeline_id else "/jobs"
     return templates.TemplateResponse(
         request,
