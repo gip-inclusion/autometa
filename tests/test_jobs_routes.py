@@ -165,10 +165,23 @@ def test_jobs_page_survives_orchestrator_down(client, mocker):
     assert "indisponible" in r.text
 
 
-def test_run_detail_page_renders(client):
+def test_run_detail_page_renders(client, mocker):
+    mocker.patch("web.routes.jobs.jobs.get_run", return_value={"id": GOOD_ID, "pipeline_id": "p-parent"})
     r = client.get(f"/jobs/runs/{GOOD_ID}")
     assert r.status_code == 200
     assert GOOD_ID in r.text
+    # back link resolves to the parent pipeline's selecting URL
+    assert "/jobs/pipelines/p-parent" in r.text
+
+
+def test_run_detail_back_link_falls_back_when_orchestrator_down(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.get_run",
+        side_effect=httpx.ConnectError("down", request=httpx.Request("GET", "http://x")),
+    )
+    r = client.get(f"/jobs/runs/{GOOD_ID}")
+    assert r.status_code == 200
+    assert 'id="back-link" href="/jobs"' in r.text
 
 
 @pytest.mark.parametrize("bad", BAD_IDS)

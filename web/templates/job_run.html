@@ -8,7 +8,7 @@
     <div class="container">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div>
-          <p class="text-muted mb-1 small"><a id="back-link" href="/jobs" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">← Jobs</a></p>
+          <p class="text-muted mb-1 small"><a id="back-link" href="{{ back_url }}" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">← Jobs</a></p>
           <h1 class="mb-0"><i class="ri-robot-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Run <code>{{ run_id[:8] }}</code></h1>
         </div>
       </div>

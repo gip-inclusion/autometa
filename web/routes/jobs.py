@@ -155,8 +155,15 @@ def jobs_pipeline_page(pipeline_id: JobId, request: Request, user_email: str = D
 @router.get("/jobs/runs/{run_id}")
 def job_run_page(run_id: JobId, request: Request, user_email: str = Depends(get_current_user)):
     data = get_sidebar_data(user_email)
+    # Resolve the parent pipeline so "← Jobs" returns to it with that row selected.
+    pipeline_id = None
+    try:
+        pipeline_id = jobs.get_run(run_id).get("pipeline_id")
+    except httpx.HTTPError:
+        pass
+    back_url = f"/jobs/pipelines/{pipeline_id}" if pipeline_id else "/jobs"
     return templates.TemplateResponse(
         request,
         "job_run.html",
-        {"section": "jobs", "run_id": run_id, **data},
+        {"section": "jobs", "run_id": run_id, "back_url": back_url, **data},
     )
