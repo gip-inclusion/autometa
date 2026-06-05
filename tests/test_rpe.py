@@ -154,6 +154,10 @@ def test_cli_apply_where_filters_rows():
     assert mod.apply_where(rows, ["Région_code=11"]) == [{"Région_code": "11", "v": 1}, {"Région_code": "11", "v": 3}]
     assert mod.apply_where(rows, []) == rows
 
+    measures = [{"id": "Entrant en formation (switch)", "label": "Entrées"}, {"id": "X9F022", "label": "Accès"}]
+    assert mod._grep(measures, "entrant") == [measures[0]]
+    assert mod._grep(measures, None) == measures
+
 
 @pytest.mark.integration
 def test_live_login_query():
