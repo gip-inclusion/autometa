@@ -159,8 +159,9 @@ def job_run_page(run_id: JobId, request: Request, user_email: str = Depends(get_
     pipeline_id = None
     try:
         pipeline_id = jobs.get_run(run_id).get("pipeline_id")
-    except httpx.HTTPError:
-        pass
+    except httpx.HTTPError as exc:
+        # Non-fatal: the page still renders; the back link just falls back to /jobs.
+        logger.warning("could not resolve parent pipeline for run %s: %s", run_id, exc)
     back_url = f"/jobs/pipelines/{pipeline_id}" if pipeline_id else "/jobs"
     return templates.TemplateResponse(
         request,
