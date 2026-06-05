@@ -85,6 +85,9 @@ class TaskRunner:
         session_id: str | None = None,
     ):
         r = await get_redis()
+        # Why: a prior cancel/run leaves done:{conv} (TTL 600s); clear it so the new run's
+        # SSE stream doesn't see is_done()=True and close immediately.
+        await r.delete(f"{PREFIX}:done:{conv_id}")
         payload = json.dumps({
             "conv_id": conv_id,
             "prompt": prompt,
@@ -97,11 +100,13 @@ class TaskRunner:
 
     async def cancel(self, conv_id: str) -> bool:
         r = await get_redis()
+        # Why: clear needs_response before the up-to-5s backend.cancel so an immediate
+        # resend doesn't race the in-flight cancel and get a 409 "already running".
+        store.update_conversation(conv_id, needs_response=False)
         await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
         if conv_id in self._running:
             await self.backend.cancel(conv_id)
             self._running.pop(conv_id, None)
-        store.update_conversation(conv_id, needs_response=False)
         store.add_message(conv_id, "assistant", "*Interrompu.*")
         await self._notify_done(conv_id)
         return True
@@ -214,6 +219,7 @@ class TaskRunner:
     ):
         parent_ctx = extract_trace_context(trace_headers or {})
 
+        my_task = asyncio.current_task()
         cancel_task = asyncio.create_task(self._listen_cancel(conversation_id))
         self._cancel_tasks[conversation_id] = cancel_task
 
@@ -327,6 +333,15 @@ class TaskRunner:
                         if event.raw.get("type") == "result" and event.raw.get("usage"):
                             _record_thinking_tail(conversation_id, event.raw["usage"], run_usage)
 
+                    elif event.type == "error":
+                        store.add_message(
+                            conversation_id,
+                            "assistant",
+                            f"*Une erreur est survenue côté agent : {str(event.content)[:500]}*",
+                        )
+                        await self.notify(conversation_id)
+                        agent_status = "error"
+
                     # Why: raw holds the full CLI JSON event — can be MBs for tool results
                     event.raw = {}
 
@@ -349,13 +364,19 @@ class TaskRunner:
                 _close_tool_log()
                 tool_spans.close_all()
                 reset_conversation_id(conv_token)
-                store.update_conversation(conversation_id, needs_response=False)
-                await self.notify_done(conversation_id)
-                self._running.pop(conversation_id, None)
                 cancel_task.cancel()
-                self._cancel_tasks.pop(conversation_id, None)
-                r = await get_redis()
-                await r.delete(f"{PREFIX}:running:{conversation_id}")
+                # Why: after a cancel+resend the slot may now hold a newer run for this conv;
+                # only this run may clear its own state, never clobber the restart (slot is None
+                # means cancel already took ownership, or a direct call with no consumer slot).
+                slot = self._running.get(conversation_id)
+                if slot is my_task or slot is None:
+                    store.update_conversation(conversation_id, needs_response=False)
+                    await self.notify_done(conversation_id)
+                    self._running.pop(conversation_id, None)
+                    r = await get_redis()
+                    await r.delete(f"{PREFIX}:running:{conversation_id}")
+                if self._cancel_tasks.get(conversation_id) is cancel_task:
+                    self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
                 logger.info(
                     "agent.run.completed",
