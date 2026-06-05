@@ -101,6 +101,27 @@ def test_jobs_page_renders(client, mocker):
     assert "weekly" in r.text
 
 
+def test_jobs_page_nests_runs_and_shows_download(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.list_pipelines",
+        return_value=[{"id": "p1", "name": "weekly", "system_prompt": "Tu es analyste.", "created_at": "2026-06-01T10:00:00+00:00"}],
+    )
+    mocker.patch(
+        "web.routes.jobs.jobs.list_runs",
+        return_value=[
+            {"id": "aaaaaaaa-0000-0000-0000-000000000001", "status": "completed", "pipeline_id": "p1", "created_at": "2026-06-03T15:14:00+00:00"},
+            {"id": "bbbbbbbb-0000-0000-0000-000000000002", "status": "running", "pipeline_id": "p1", "created_at": "2026-06-03T16:00:00+00:00"},
+        ],
+    )
+    r = client.get("/jobs")
+    assert r.status_code == 200
+    assert "2 runs" in r.text  # run count badge on the pipeline
+    assert "aaaaaaaa" in r.text  # nested run, short id
+    assert "Télécharger" in r.text
+    # download button only on the completed run, not the running one
+    assert r.text.count("data-run=") == 1
+
+
 def test_jobs_page_survives_orchestrator_down(client, mocker):
     mocker.patch(
         "web.routes.jobs.jobs.list_pipelines",

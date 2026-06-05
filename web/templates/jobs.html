@@ -8,7 +8,7 @@
     <div class="container">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div>
-          <p class="text-muted mb-1 small">Pipelines et runs du moteur de jobs</p>
+          <p class="text-muted mb-1 small">Pipelines et leurs runs du moteur de jobs</p>
           <h1 class="mb-0"><i class="ri-robot-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Jobs</h1>
         </div>
       </div>
@@ -30,39 +30,51 @@
         </form>
       </section>
 
-      <section class="mb-5">
-        <h2 class="h6 text-muted">Pipelines</h2>
-        <table class="table table-sm">
-          <tbody>
-            {% for p in pipelines %}
-            <tr>
-              <td><strong>{{ p.name }}</strong></td>
-              <td class="text-muted small">{{ p.system_prompt | truncate(80) }}</td>
-              <td class="text-end">
-                <button class="btn btn-sm btn-outline-primary trigger-btn" data-pipeline="{{ p.id }}">Lancer</button>
-              </td>
-            </tr>
-            {% else %}
-            <tr><td class="text-muted">Aucun pipeline.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </section>
-
       <section>
-        <h2 class="h6 text-muted">Runs récents</h2>
-        <table class="table table-sm">
-          <tbody>
-            {% for r in runs %}
-            <tr>
-              <td><a href="/jobs/runs/{{ r.id }}"><code>{{ r.id[:8] }}</code></a></td>
-              <td>{{ r.status }}</td>
-            </tr>
+        <h2 class="h6 text-muted">Pipelines</h2>
+        {% set status_classes = {
+          "completed": "success", "failed": "danger", "timed_out": "danger",
+          "running": "primary", "starting": "info", "queued": "secondary",
+          "cancelled": "secondary", "quota_blocked": "warning"
+        } %}
+        {% for p in pipelines %}
+        <details class="card mb-2"{% if loop.first %} open{% endif %}>
+          <summary class="card-body py-2 px-3 d-flex justify-content-between align-items-start gap-3" style="cursor: pointer;">
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <strong>{{ p.name }}</strong>
+                <span class="badge bg-secondary rounded-pill">{{ p.run_count }} run{{ "s" if p.run_count != 1 else "" }}</span>
+              </div>
+              <div class="text-muted small mt-1">{{ p.system_prompt | truncate(240) }}</div>
+            </div>
+            <button class="btn btn-sm btn-outline-primary trigger-btn flex-shrink-0" data-pipeline="{{ p.id }}">Lancer</button>
+          </summary>
+          <div class="card-body pt-0">
+            {% if p.runs %}
+            <table class="table table-sm mb-0 align-middle">
+              <tbody>
+                {% for r in p.runs %}
+                <tr>
+                  <td><a href="/jobs/runs/{{ r.id }}"><code>{{ r.id[:8] }}</code></a></td>
+                  <td><span class="badge bg-{{ status_classes.get(r.status, "secondary") }}">{{ r.status }}</span></td>
+                  <td class="text-muted small">{{ r.created_at_display }}</td>
+                  <td class="text-end">
+                    {% if r.status == "completed" %}
+                    <button class="btn btn-sm btn-outline-secondary download-btn" data-run="{{ r.id }}">Télécharger</button>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
             {% else %}
-            <tr><td class="text-muted">Aucun run.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            <p class="text-muted small mb-0">Aucun run pour ce pipeline.</p>
+            {% endif %}
+          </div>
+        </details>
+        {% else %}
+        <p class="text-muted">Aucun pipeline.</p>
+        {% endfor %}
       </section>
     </div>
   </div>
@@ -81,12 +93,21 @@ document.getElementById('create-pipeline-form').addEventListener('submit', async
   if (resp.ok) { location.reload(); } else { alert('Échec : ' + (await resp.text())); }
 });
 document.querySelectorAll('.trigger-btn').forEach(btn => {
-  btn.addEventListener('click', async () => {
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();      // the button lives inside <summary>; don't toggle the disclosure
+    e.stopPropagation();
     const resp = await fetch(`/api/jobs/pipelines/${btn.dataset.pipeline}/runs`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
     });
     if (resp.ok) { const run = await resp.json(); location.href = `/jobs/runs/${run.id}`; }
     else { alert('Échec : ' + (await resp.text())); }
+  });
+});
+document.querySelectorAll('.download-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const resp = await fetch(`/api/jobs/runs/${btn.dataset.run}/output?download=1`);
+    if (resp.ok) { window.location = (await resp.json()).url; }
+    else { alert('Téléchargement indisponible'); }
   });
 });
 </script>

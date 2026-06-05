@@ -1,6 +1,8 @@
 """autometa-jobs — proxy endpoints and control-panel pages."""
 
 import logging
+from collections import defaultdict
+from datetime import datetime
 from typing import Annotated
 
 import httpx
@@ -10,6 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from lib import jobs
 from web.deps import get_current_user, templates
+from web.helpers import format_relative_date
 from web.routes.html import get_sidebar_data
 
 logger = logging.getLogger(__name__)
@@ -89,22 +92,43 @@ def run_output(run_id: JobId, download: bool = False):
         return _unavailable(exc)
 
 
+def _run_date(iso: str | None) -> str:
+    """ISO timestamp → friendly local string, tolerant of nulls and odd formats."""
+    if not iso:
+        return ""
+    try:
+        return format_relative_date(datetime.fromisoformat(iso))
+    except ValueError:
+        return iso
+
+
 @router.get("/jobs")
 def jobs_page(request: Request, user_email: str = Depends(get_current_user)):
     data = get_sidebar_data(user_email)
     pipelines: list = []
-    runs: list = []
     jobs_error = None
     try:
         pipelines = jobs.list_pipelines()
-        runs = jobs.list_runs(limit=50)
+        runs = jobs.list_runs(limit=200)
+        by_pipeline: dict[str, list] = defaultdict(list)
+        for r in runs:
+            by_pipeline[r["pipeline_id"]].append(r)
+        for p in pipelines:
+            p_runs = sorted(by_pipeline.get(p["id"], []), key=lambda r: r.get("created_at") or "", reverse=True)
+            for r in p_runs:
+                r["created_at_display"] = _run_date(r.get("created_at"))
+            p["runs"] = p_runs
+            p["run_count"] = len(p_runs)
+            # Order pipelines by latest activity (most recent run, else creation).
+            p["last_activity"] = (p_runs[0].get("created_at") if p_runs else p.get("created_at")) or ""
+        pipelines.sort(key=lambda p: p["last_activity"], reverse=True)
     except httpx.HTTPError as exc:
         logger.warning("autometa-jobs unavailable: %s", exc)
         jobs_error = "Service de jobs indisponible"
     return templates.TemplateResponse(
         request,
         "jobs.html",
-        {"section": "jobs", "pipelines": pipelines, "runs": runs, "jobs_error": jobs_error, **data},
+        {"section": "jobs", "pipelines": pipelines, "jobs_error": jobs_error, **data},
     )
 
 
