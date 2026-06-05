@@ -566,6 +566,12 @@ def test_published_view_lists_active_publications(client, mocker):
     assert "TDB Non Publié" not in r.text
     assert "env-pill-staging" in r.text
     assert 'href="/dashboards/pubv-listed/edit"' in r.text
+    prefix_marker = 'class="pub-row-url-prefix">'
+    assert prefix_marker in r.text
+    prefix_text = r.text.split(prefix_marker, 1)[1].split("</span>", 1)[0]
+    assert "https://" not in prefix_text
+    assert prefix_text.endswith("/dashboards/")
+    assert 'data-action="copy-url"' in r.text
 
 
 def test_published_view_groups_publications_prod_first(client, mocker):

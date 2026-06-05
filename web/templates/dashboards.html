@@ -92,14 +92,17 @@
                   </a>
                 </div>
                 {% for p in g.publications %}
-                <a href="{{ p.url }}" target="_blank" rel="noopener" class="pub-row">
+                <div class="pub-row">
                   <span class="pub-row-env">
                     {% if p.environment == 'production' %}
                     <span class="env-pill env-pill-prod">prod</span>
                     {% else %}
                     <span class="env-pill env-pill-staging">staging</span>
                     {% endif %}
-                    <span class="pub-row-url">{{ p.url }}</span>
+                    <a href="{{ p.url }}" target="_blank" rel="noopener" class="pub-row-url stretched-link"><span class="pub-row-url-prefix">{{ p.url_prefix }}</span>{{ p.url_name }}</a>
+                    <button type="button" class="btn btn-sm btn-link p-0 pub-row-copy" data-action="copy-url" data-url="{{ p.url }}" title="Copier l'URL">
+                      <i class="ri-file-copy-line"></i>
+                    </button>
                   </span>
                   <span class="dashboard-col">
                     {% if p.snapshot_has_cron %}
@@ -116,7 +119,7 @@
                     {% endif %}
                   </span>
                   <span class="dashboard-col">{{ p.published_relative or '—' }}</span>
-                </a>
+                </div>
                 {% endfor %}
               </div>
               {% endfor %}
@@ -223,6 +226,19 @@ document.body.addEventListener('htmx:afterSettle', () => {
 document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('dashboardsSearchInput');
   if (input && input.value) filterByText(input.value);
+});
+
+document.body.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="copy-url"]');
+  if (!btn) return;
+  e.preventDefault();
+  try { await navigator.clipboard.writeText(btn.dataset.url); }
+  catch (_) { return; }
+  const icon = btn.querySelector('i');
+  if (!icon) return;
+  const prev = icon.className;
+  icon.className = 'ri-check-line text-success';
+  setTimeout(() => { icon.className = prev; }, 1200);
 });
 </script>
 {% endblock %}

@@ -46,6 +46,9 @@ def build_published_groups() -> list[dict]:
             format_relative_date(p["last_successful_refresh_at"]) if p.get("last_successful_refresh_at") else ""
         )
         p["paused_relative"] = format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
+        prefix, _, name = p["url"].split("://", 1)[-1].rpartition("/")
+        p["url_prefix"] = f"{prefix}/"
+        p["url_name"] = name
     groups: dict[str, dict] = {}
     for p in pubs:
         group = groups.setdefault(

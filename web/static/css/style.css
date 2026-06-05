@@ -3779,6 +3779,7 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 }
 
 .pub-row {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 11rem 9rem;
   gap: 0.5rem;
@@ -3787,6 +3788,18 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   border-radius: 6px;
   color: inherit;
   text-decoration: none;
+}
+
+.pub-row-copy {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  color: #adb5bd;
+  line-height: 1;
+}
+
+.pub-row-copy:hover {
+  color: #495057;
 }
 
 .pub-row:hover {
@@ -3805,8 +3818,18 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #6c757d;
+  color: #495057;
+  text-decoration: none;
   font-size: 0.8125rem;
+}
+
+.pub-row-url:hover {
+  color: #495057;
+  text-decoration: underline;
+}
+
+.pub-row-url-prefix {
+  color: #adb5bd;
 }
 
 .env-pill {
