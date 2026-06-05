@@ -1,26 +1,13 @@
 import logging
-import os
 import shutil
-import subprocess
-import sys
-import time
 
 from prefect import flow
 
-from web import config
-from web.cron import (
-    discover_from_s3,
-    get_app_runs,
-    notify_cron_status_change,
-    prepare_s3_workdir,
-    record_run,
-    upload_s3_results,
-)
+from flows.base import record_and_notify, run_cron_subprocess
+from web.cron import discover_from_s3, prepare_s3_workdir, upload_s3_results
 from web.helpers import now_local, utcnow
 
 logger = logging.getLogger(__name__)
-
-MAX_OUTPUT_SIZE = 50_000
 
 
 def _is_due(schedule: str) -> bool:
@@ -29,53 +16,16 @@ def _is_due(schedule: str) -> bool:
 
 def _run_s3_app(app: dict) -> None:
     slug = app["slug"]
-    timeout = app["timeout"]
-    previous = get_app_runs(slug, limit=1)
-    previous_status = previous[0]["status"] if previous else None
-
     workdir, pre_hashes = prepare_s3_workdir(slug)
     started_at = utcnow()
-    t0 = time.monotonic()
-    status = "failure"
-    output = ""
-
     try:
-        result = subprocess.run(
-            [sys.executable, str(workdir / "cron.py")],
-            cwd=str(workdir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env={**os.environ, "PYTHONPATH": str(config.BASE_DIR)},
-        )
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        output = result.stdout
-        if result.stderr:
-            output += "\n--- stderr ---\n" + result.stderr
-        output = output[:MAX_OUTPUT_SIZE]
-        status = "success" if result.returncode == 0 else "failure"
+        status, output, duration_ms = run_cron_subprocess(str(workdir / "cron.py"), str(workdir), app["timeout"])
         if status == "success":
             upload_s3_results(slug, workdir, pre_hashes)
-    except subprocess.TimeoutExpired:
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        status = "timeout"
-        output = f"Script timed out after {timeout}s"
-    except OSError as e:
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        output = f"Error running script: {e}"
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
-    run_result = {
-        "slug": slug,
-        "status": status,
-        "output": output,
-        "duration_ms": elapsed_ms,
-        "started_at": started_at,
-        "finished_at": utcnow(),
-    }
-    record_run(run_result, "scheduled")
-    notify_cron_status_change(slug, status, previous_status, output)
+    record_and_notify(slug, status, output, started_at, duration_ms, "scheduled")
 
 
 @flow(name="s3-app-crons", log_prints=True)

@@ -620,7 +620,7 @@ def test_cron_alert_message_distinguishes_break_and_recovery(mocker):
 
 def test_run_cron_scheduled_failure_triggers_alert(interactive_dir, db_setup, mocker):
     create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
-    notify = mocker.patch("flows.runner.notify_cron_status_change")
+    notify = mocker.patch("flows.base.notify_cron_status_change")
 
     run_cron_task("bad-app", trigger="scheduled")
 
@@ -633,7 +633,7 @@ def test_run_cron_scheduled_failure_triggers_alert(interactive_dir, db_setup, mo
 
 def test_run_cron_manual_run_does_not_alert(interactive_dir, db_setup, mocker):
     create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
-    notify = mocker.patch("flows.runner.notify_cron_status_change")
+    notify = mocker.patch("flows.base.notify_cron_status_change")
 
     run_cron_task("bad-app", trigger="manual")
 
