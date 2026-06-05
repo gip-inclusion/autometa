@@ -3,6 +3,19 @@
 {% block title_suffix %} - Jobs{% endblock %}
 
 {% block content %}
+<style>
+  /* Disclosure affordance: hide native marker, use a rotating chevron instead. */
+  #section-jobs details > summary { list-style: none; }
+  #section-jobs details > summary::-webkit-details-marker { display: none; }
+  #section-jobs .disclosure-chevron { transition: transform .15s ease; }
+  #section-jobs details[open] .disclosure-chevron { transform: rotate(180deg); }
+  /* Description teaser: a couple of lines when closed, hidden when open (full prompt shows in the body). */
+  #section-jobs .pipeline-desc-teaser {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  #section-jobs details[open] .pipeline-desc-teaser { display: none; }
+  #section-jobs .pipeline-prompt { white-space: pre-wrap; max-height: 40vh; overflow: auto; }
+</style>
 <section class="section-content" id="section-jobs">
   <div class="section-header">
     <div class="container">
@@ -39,17 +52,21 @@
         } %}
         {% for p in pipelines %}
         <details class="card mb-2"{% if loop.first %} open{% endif %}>
-          <summary class="card-body py-2 px-3 d-flex justify-content-between align-items-start gap-3" style="cursor: pointer;">
-            <div class="flex-grow-1">
-              <div class="d-flex align-items-center gap-2 flex-wrap">
-                <strong>{{ p.name }}</strong>
-                <span class="badge bg-secondary rounded-pill">{{ p.run_count }} run{{ "s" if p.run_count != 1 else "" }}</span>
-              </div>
-              <div class="text-muted small mt-1">{{ p.system_prompt | truncate(240) }}</div>
+          <summary class="card-body py-2 px-3 d-flex justify-content-between align-items-center gap-3" style="cursor: pointer;">
+            <div class="flex-grow-1" style="min-width: 0;">
+              <div class="fw-semibold">{{ p.name }}</div>
+              <div class="text-muted small pipeline-desc-teaser">{{ p.system_prompt }}</div>
             </div>
-            <button class="btn btn-sm btn-outline-primary trigger-btn flex-shrink-0" data-pipeline="{{ p.id }}">Lancer</button>
+            <div class="d-flex align-items-center gap-2 flex-shrink-0">
+              <span class="badge rounded-pill bg-light text-secondary border fw-normal">{{ p.run_count }} run{{ "s" if p.run_count != 1 else "" }}</span>
+              <i class="ri-arrow-down-s-line disclosure-chevron text-muted"></i>
+            </div>
           </summary>
-          <div class="card-body pt-0">
+
+          <div class="card-body border-top">
+            <p class="text-muted small mb-1">Consigne</p>
+            <div class="small text-muted mb-3 pipeline-prompt">{{ p.system_prompt }}</div>
+
             {% if p.runs %}
             <table class="table table-sm mb-0 align-middle">
               <tbody>
@@ -70,6 +87,11 @@
             {% else %}
             <p class="text-muted small mb-0">Aucun run pour ce pipeline.</p>
             {% endif %}
+          </div>
+
+          <div class="card-body border-top py-2 d-flex justify-content-end gap-2">
+            {# Delete / Edit will live here once those features exist. #}
+            <button class="btn btn-sm btn-outline-primary trigger-btn" data-pipeline="{{ p.id }}">Lancer</button>
           </div>
         </details>
         {% else %}
@@ -93,9 +115,7 @@ document.getElementById('create-pipeline-form').addEventListener('submit', async
   if (resp.ok) { location.reload(); } else { alert('Échec : ' + (await resp.text())); }
 });
 document.querySelectorAll('.trigger-btn').forEach(btn => {
-  btn.addEventListener('click', async (e) => {
-    e.preventDefault();      // the button lives inside <summary>; don't toggle the disclosure
-    e.stopPropagation();
+  btn.addEventListener('click', async () => {
     const resp = await fetch(`/api/jobs/pipelines/${btn.dataset.pipeline}/runs`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
     });
