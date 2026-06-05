@@ -167,6 +167,17 @@ def test_launch_cli_reads_prompt_and_launches(mocker, tmp_path, capsys):
     assert "r1" in capsys.readouterr().out
 
 
+def test_launch_cli_passes_output_format(mocker, tmp_path):
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("Emit a CSV.")
+    car = mocker.patch("lib.jobs.create_and_run", return_value={"run_url": "u", "run_id": "r1"})
+    rc = _load_launch_cli().main([
+        "--name", "dora-csv", "--system-prompt-file", str(prompt_file), "--output-format", "csv",
+    ])
+    assert rc == 0
+    assert car.call_args.args[2] == {"output_format": "csv"}
+
+
 def test_launch_cli_orchestrator_error_returns_1(mocker, tmp_path, capsys):
     prompt_file = tmp_path / "p.txt"
     prompt_file.write_text("x")

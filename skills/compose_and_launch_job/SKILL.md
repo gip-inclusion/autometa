@@ -23,7 +23,8 @@ L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runne
    - **Rôle + contexte métier** — le contexte IAE / site / Dora distillé, pertinent pour la tâche (ce que signifient les entités et les colonnes, comment les interpréter).
    - **Accès aux données** — par ex. `Télécharge le jeu de données : curl -sL '<url-présignée>' -o data.sqlite`. Précisez le format, les noms de tables, les colonnes.
    - **La tâche** — étapes concrètes et question à résoudre.
-   - **Le livrable** — ce que doit être l'artefact final (le dernier message du worker devient l'artefact).
+   - **Le livrable — contrat de sortie (soyez explicite).** Choisissez **un seul** format et décrivez sa structure exacte (colonnes d'un CSV, schéma d'un JSON, ou sections d'un Markdown). Imposez au worker de **n'émettre que l'artefact** : « Ta réponse **est** le fichier. N'écris **rien d'autre** — ni introduction, ni commentaire, ni conclusion. » Pour du CSV : ligne d'en-tête puis lignes de données **uniquement**, sans bloc de code, sans prose. Déclarez le format au lancement avec `--output-format` (`csv`/`json`/`md`/`txt`) pour que l'artefact soit nommé et typé correctement (`output.csv`, `text/csv`).
+   - **⚠️ Modèle de l'artefact.** L'artefact est la **concaténation de TOUS les messages texte** du worker (pas seulement le dernier) — donc tout bavardage finit dedans. Et **une seule réponse est plafonnée à ~32 000 tokens de sortie**. Pour un gros livrable (longue liste, CSV de centaines de lignes), demandez une production **par lots sur plusieurs tours**, avec un `echo` Bash trivial entre les lots (point de contrôle qui clôt le message) — et **rien que l'artefact** à chaque tour.
    - **Note d'environnement** — le sandbox dispose de `Bash`, `python3` (stdlib `sqlite3`, plus `numpy`/`pandas`), `curl`, `git` ; aucune API Autometa.
 
    Écrivez le prompt dans un fichier (évite les soucis d'échappement shell).
@@ -43,7 +44,8 @@ L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runne
        --name dora-services-2026-06 \
        --system-prompt-file /tmp/job_prompt.md \
        --max-turns 40 \
-       --allowed-tools "Bash,Read,WebFetch"
+       --allowed-tools "Bash,Read,WebFetch" \
+       --output-format csv
    ```
 
    Affiche `{ "pipeline_id", "run_id", "status", "run_url" }`. Le `--name` doit être **unique** (incluez une date/un slug) ; en cas de collision l'orchestrateur renvoie une erreur — réessayez avec un autre nom.

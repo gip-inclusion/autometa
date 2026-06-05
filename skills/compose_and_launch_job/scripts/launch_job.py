@@ -16,6 +16,11 @@ def main(argv=None) -> int:
     parser.add_argument("--system-prompt-file", required=True, help="path to the composed, self-contained prompt")
     parser.add_argument("--max-turns", type=int, help="max agent turns (job autonomy budget)")
     parser.add_argument("--allowed-tools", help="comma-separated tools (e.g. Bash,Read,WebFetch)")
+    parser.add_argument(
+        "--output-format",
+        choices=["md", "csv", "json", "txt"],
+        help="artifact format: names the file (output.csv) and sets its content-type (default md)",
+    )
     parser.add_argument("--input-uri", help="optional s3:// input for reusable pipelines")
     args = parser.parse_args(argv)
 
@@ -25,6 +30,8 @@ def main(argv=None) -> int:
         overrides["max_turns"] = args.max_turns
     if args.allowed_tools:
         overrides["allowed_tools"] = args.allowed_tools.split(",")
+    if args.output_format:
+        overrides["output_format"] = args.output_format
     try:
         out = jobs.create_and_run(args.name, system_prompt, overrides or None, input_uri=args.input_uri)
     except httpx.HTTPError as exc:
