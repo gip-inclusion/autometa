@@ -13,6 +13,7 @@ from web.cron import (
     discover_cron_tasks,
     discover_from_dir,
     discover_from_s3,
+    discover_publications,
     get_app_runs,
     get_last_runs,
     get_schedule,
@@ -693,7 +694,16 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     assert getattr(record, "cron.task.duration") == 1234
 
 
-def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unpublished=False, paused=False):
+def _seed_dashboard_and_publication(
+    slug,
+    pub_id,
+    *,
+    snapshot_has_cron=True,
+    unpublished=False,
+    paused=False,
+    cron_schedule="daily",
+    cron_timeout=300,
+):
     now = datetime.now(timezone.utc)
     with get_db() as session:
         session.add(
@@ -708,6 +718,8 @@ def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unp
                 has_api_access=False,
                 has_cron=False,
                 has_persistence=False,
+                cron_schedule=cron_schedule,
+                cron_timeout=cron_timeout,
                 created_at=now,
                 updated_at=now,
             )
@@ -736,8 +748,6 @@ def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unp
     ],
 )
 def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpublished, paused, included):
-    from web.cron import discover_publications
-
     slug = f"disco-{int(snapshot_has_cron)}-{int(unpublished)}-{int(paused)}"
     pub_id = "discp1"
     _seed_dashboard_and_publication(
@@ -747,7 +757,6 @@ def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpubl
         unpublished=unpublished,
         paused=paused,
     )
-    mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: x\n---\n")
 
     tasks = discover_publications()
     slugs = [t["slug"] for t in tasks]
@@ -755,13 +764,8 @@ def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpubl
 
 
 def test_discover_publications_task_dict_shape(client, mocker):
-    from web.cron import discover_publications
-
-    _seed_dashboard_and_publication("shape-tdb", "shape1")
-    mocker.patch(
-        "web.cron.s3.publications.download",
-        return_value=b"---\ntitle: Shape\nschedule: weekly\ntimeout: 600\n---\n",
-    )
+    _seed_dashboard_and_publication("shape-tdb", "shape1", cron_schedule="weekly", cron_timeout=600)
+    download = mocker.patch("web.cron.s3.publications.download")
 
     tasks = discover_publications()
     assert len(tasks) == 1
@@ -776,6 +780,7 @@ def test_discover_publications_task_dict_shape(client, mocker):
     assert task["schedule"] == "weekly"
     assert task["timeout"] == 600
     assert task["enabled"] is True
+    download.assert_not_called()
 
 
 def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocker):

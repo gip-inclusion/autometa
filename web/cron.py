@@ -226,7 +226,7 @@ def discover_from_s3() -> list[dict]:
 
 
 def discover_publications() -> list[dict]:
-    """Tasks for active, non-paused publications whose snapshot has a cron.py — DB-only filter."""
+    """Tasks for active, non-paused publications; schedule/timeout from parent dashboard."""
     if not config.S3_BUCKET:
         return []
     with get_db() as session:
@@ -235,6 +235,8 @@ def discover_publications() -> list[dict]:
                 DashboardPublication.dashboard_slug,
                 DashboardPublication.publication_id,
                 Dashboard.title,
+                Dashboard.cron_schedule,
+                Dashboard.cron_timeout,
             )
             .join(Dashboard, Dashboard.slug == DashboardPublication.dashboard_slug)
             .where(
@@ -246,10 +248,8 @@ def discover_publications() -> list[dict]:
         ).all()
 
     tasks = []
-    for slug, pub_id, title in rows:
+    for slug, pub_id, title, schedule, timeout in rows:
         prefix = f"{slug}/{pub_id}/"
-        md_bytes = s3.publications.download(f"{prefix}APP.md")
-        meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
         tasks.append({
             "slug": f"{slug}-{pub_id}",
             "title": title,
@@ -257,9 +257,9 @@ def discover_publications() -> list[dict]:
             "source": "s3-publication",
             "path": prefix,
             "cron_path": f"{prefix}cron.py",
-            "enabled": is_enabled(meta),
-            "timeout": get_timeout(meta),
-            "schedule": get_schedule(meta),
+            "enabled": True,
+            "timeout": timeout,
+            "schedule": schedule,
             "publication_id": pub_id,
             "dashboard_slug": slug,
         })
