@@ -116,3 +116,18 @@ def test_skip_permissions_only_in_live_env(mocker, tmp_path, env_value, expects_
     cmd = captured["cmd"]
     assert ("--dangerously-skip-permissions" in cmd) is expects_skip
     assert ("--allowedTools" in cmd) is not expects_skip
+
+
+# AskUserQuestion never renders in the autometa UI, so app-started agents (CLIBackend)
+# always block it — in live and dev alike, regardless of the skip-permissions gating.
+@pytest.mark.parametrize("env_value", ["live", "dev"])
+def test_app_agents_always_block_askuserquestion(mocker, env_value):
+    from web import config
+    from web.agents.cli import CLIBackend
+
+    mocker.patch.object(config, "AUTOMETA_ENV", env_value)
+    mocker.patch.object(config, "ALLOWED_TOOLS", "Read,Bash(python:*)")
+    mocker.patch.object(config, "DISALLOWED_TOOLS", "AskUserQuestion")
+    args = CLIBackend()._tool_permission_args()
+
+    assert args[-2:] == ["--disallowedTools", "AskUserQuestion"]

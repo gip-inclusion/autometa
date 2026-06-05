@@ -37,6 +37,18 @@ class CLIBackend(AgentBackend):
         """Extra CLI arguments appended before -p. Override in subclasses."""
         return []
 
+    def _tool_permission_args(self) -> list[str]:
+        """Permission/tool flags for the CLI (allow-list + always-blocked tools)."""
+        args: list[str] = []
+        if config.AUTOMETA_ENV == "live":
+            args.append("--dangerously-skip-permissions")
+        elif config.ALLOWED_TOOLS:
+            args.extend(["--allowedTools", config.ALLOWED_TOOLS])
+        if config.DISALLOWED_TOOLS:
+            # Why: AskUserQuestion ne s'affiche pas dans notre UI (réponse vide) → l'agent pose ses questions en texte.
+            args.extend(["--disallowedTools", config.DISALLOWED_TOOLS])
+        return args
+
     def _build_prompt(self, message: str, history: list[dict]) -> str:
         if not history:
             return message
@@ -87,10 +99,7 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
-        if config.AUTOMETA_ENV == "live":
-            cmd.append("--dangerously-skip-permissions")
-        elif config.ALLOWED_TOOLS:
-            cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])
+        cmd.extend(self._tool_permission_args())
 
         cmd.extend(self._extra_cmd_args())
         # Why: `--` ends option parsing so a prompt starting with `-` isn't read as a CLI flag.
