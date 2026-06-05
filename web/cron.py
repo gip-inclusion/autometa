@@ -187,25 +187,28 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
 
 def discover_from_s3() -> list[dict]:
-    """Discover cron tasks for apps flagged `has_cron` in DB; metadata still from S3 APP.md."""
+    """Cron tasks for apps flagged `has_cron`; cron metadata from the DB row, script presence from S3."""
     if not config.S3_BUCKET:
         return []
 
     with get_db() as session:
         rows = session.execute(
-            select(Dashboard.slug, Dashboard.title)
+            select(
+                Dashboard.slug,
+                Dashboard.title,
+                Dashboard.cron_enabled,
+                Dashboard.cron_timeout,
+                Dashboard.cron_schedule,
+            )
             .where(Dashboard.has_cron, ~Dashboard.is_archived)
             .order_by(Dashboard.slug)
         ).all()
 
     tasks = []
-    for slug, title in rows:
+    for slug, title, enabled, timeout, schedule in rows:
         if not s3.interactive.exists(f"{slug}/cron.py"):
             logger.warning("Dashboard %s has has_cron=true but no cron.py on S3", slug)
             continue
-
-        md_bytes = s3.interactive.download(f"{slug}/APP.md")
-        meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
 
         tasks.append({
             "slug": slug,
@@ -214,9 +217,9 @@ def discover_from_s3() -> list[dict]:
             "source": "s3",
             "path": slug,
             "cron_path": f"{slug}/cron.py",
-            "enabled": is_enabled(meta),
-            "timeout": get_timeout(meta),
-            "schedule": get_schedule(meta),
+            "enabled": enabled,
+            "timeout": timeout,
+            "schedule": schedule,
         })
 
     return tasks

@@ -12,6 +12,7 @@ from web import config
 from web.cron import (
     discover_cron_tasks,
     discover_from_dir,
+    discover_from_s3,
     get_app_runs,
     get_last_runs,
     get_schedule,
@@ -367,7 +368,15 @@ def s3_cron_env(tmp_path, monkeypatch, db_setup):
     return {"cron_dir": cron_dir, "interactive_dir": interactive_dir}
 
 
-def _seed_dashboard(slug: str, *, has_cron: bool = True, title: str | None = None) -> None:
+def _seed_dashboard(
+    slug: str,
+    *,
+    has_cron: bool = True,
+    title: str | None = None,
+    cron_schedule: str = "daily",
+    cron_timeout: int = 300,
+    cron_enabled: bool = True,
+) -> None:
     now = datetime.now(timezone.utc)
     with get_db() as session:
         session.add(
@@ -380,6 +389,9 @@ def _seed_dashboard(slug: str, *, has_cron: bool = True, title: str | None = Non
                 is_archived=False,
                 has_api_access=False,
                 has_persistence=False,
+                cron_schedule=cron_schedule,
+                cron_timeout=cron_timeout,
+                cron_enabled=cron_enabled,
                 created_at=now,
                 updated_at=now,
             )
@@ -480,13 +492,9 @@ def test_discover_s3_app_skipped_when_has_cron_false(mocker, s3_cron_env):
     assert discover_cron_tasks() == []
 
 
-def test_discover_s3_app_metadata_parsed(mocker, s3_cron_env):
-    _seed_dashboard("titled-app", title="My S3 App")
-    app = mock_s3_app(
-        "titled-app",
-        app_md="---\ntitle: ignored\ntimeout: 600\nschedule: weekly\n---\n",
-    )
-    mocks = make_s3_mocks([app])
+def test_discover_s3_app_metadata_from_db(mocker, s3_cron_env):
+    _seed_dashboard("titled-app", title="My S3 App", cron_timeout=600, cron_schedule="weekly")
+    mocks = make_s3_mocks([mock_s3_app("titled-app")])
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
     assert tasks[0]["title"] == "My S3 App"
@@ -495,9 +503,8 @@ def test_discover_s3_app_metadata_parsed(mocker, s3_cron_env):
 
 
 def test_discover_s3_disabled_app(mocker, s3_cron_env):
-    _seed_dashboard("off-app")
-    app = mock_s3_app("off-app", app_md="---\ntitle: Off\ncron: false\n---\n")
-    mocks = make_s3_mocks([app])
+    _seed_dashboard("off-app", cron_enabled=False)
+    mocks = make_s3_mocks([mock_s3_app("off-app")])
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
     assert tasks[0]["enabled"] is False
@@ -862,3 +869,16 @@ def test_get_schedule_for_app_reads_db(db_setup):
         )
     assert get_schedule_for_app("sched-db") == "weekly"
     assert get_schedule_for_app("does-not-exist") == "daily"
+
+
+def test_discover_from_s3_reads_cron_meta_from_db(db_setup, mocker):
+    _seed_dashboard("disc-db", cron_schedule="weekly", cron_timeout=1200, cron_enabled=False)
+    mocker.patch("web.cron.s3.interactive.exists", return_value=True)
+    download = mocker.patch("web.cron.s3.interactive.download")
+    tasks = [t for t in discover_from_s3() if t["slug"] == "disc-db"]
+    assert len(tasks) == 1
+    assert tasks[0]["schedule"] == "weekly"
+    assert tasks[0]["timeout"] == 1200
+    assert tasks[0]["enabled"] is False
+    download.assert_not_called()
+    download.assert_not_called()
