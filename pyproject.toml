@@ -11,6 +11,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "markupsafe>=3.0.3",
     "markdown>=3.10",
+    "nh3>=0.2.18",
     # Utils
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
