@@ -49,6 +49,12 @@ def main() -> None:
     )
     ap.add_argument("--measure", action="append", default=[], help="measure_id exact, répétable (défaut: toutes)")
     ap.add_argument(
+        "--ddvar",
+        action="append",
+        default=[],
+        help="variable de bascule name=valeur (ex. Switch=0 pour mensuel vs cumul sur une mesure '(switch)'), répétable",
+    )
+    ap.add_argument(
         "--where",
         action="append",
         default=[],
@@ -71,7 +77,10 @@ def main() -> None:
             if args.month:  # série temporelle : ventiler par mois + lever le filtre de période figé du template
                 dims.append({"dim": args.month, "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
                 filters = {}
-            rows = client.query(args.query, dimensions=dims, measures=args.measure or None, filters=filters)
+            ddvars = {k: int(v) for k, _, v in (d.partition("=") for d in args.ddvar)} or None
+            rows = client.query(
+                args.query, dimensions=dims, measures=args.measure or None, filters=filters, ddvars=ddvars
+            )
             print(json.dumps(apply_where(rows, args.where), ensure_ascii=False, indent=1))
         else:
             ap.print_help()

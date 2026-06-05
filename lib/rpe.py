@@ -346,7 +346,12 @@ class RpeClient:
             "pageId": tpl["pageId"],
             "sel": json.dumps(sel, ensure_ascii=False),
         }
-        return self._parse(dataset, sel, self._post_file(params).json(), n)
+        rows = self._parse(dataset, sel, self._post_file(params).json(), n)
+        if rows and not any(r.get("measure_id") for r in rows):
+            logger.warning(
+                "RPE query : aucune mesure reconnue (valeurs de présence 1.0) — vérifier measure_id dans rpe_measure"
+            )
+        return rows
 
     def _post_file(self, params: dict) -> httpx.Response:
         headers = {"User-Agent": UA, "X-Requested-With": "XMLHttpRequest", "Referer": REFERER}

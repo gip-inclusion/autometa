@@ -104,6 +104,16 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 ```
 → une ligne par mois pour la Bretagne (code région 53).
 
+**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules d'un dataset : `python -c "from lib.rpe import RpeClient,_RES; …tpl['sel']['ddVars']"`). Exemple série mensuelle nette :
+
+```bash
+python skills/rpe/scripts/query.py --query "Entrants en formation" \
+  --dim C_TERRITOIRE_ID:1 --month D_DATEFPRIO \
+  --measure "Entrant en formation (switch)" --ddvar Switch=0 --where "Région_code=53"
+```
+
+⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` / `rpe_measure`. La lib loggue un avertissement dans ce cas.
+
 ## Combien de temps
 
 - En cache : instantané (SQL local).
