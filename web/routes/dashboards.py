@@ -71,48 +71,37 @@ def dashboards_page(
     if view not in VIEWS:
         view = "latest"
 
-    if view == "published":
-        data = get_sidebar_data(user_email)
-        return templates.TemplateResponse(
-            request,
-            "dashboards.html",
-            {
-                "section": "dashboards",
-                "current_conv": None,
-                "view": view,
-                "q": q,
-                "grouped_items": None,
-                "pinned_cards": [],
-                "published_groups": build_published_groups(),
-                **data,
-            },
-        )
-
-    active = store.list_dashboards()
-
-    if view == "archived":
-        items = store.list_archived_dashboards()
-    elif view == "mine":
-        items = [d for d in active if d["first_author_email"] == user_email]
-    else:
-        items = active
-
+    grouped_items = None
     pinned_cards = []
-    if view == "latest":
-        active_by_slug = {d["slug"]: d for d in active}
-        pinned_cards = [
-            active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
-        ]
+    published_groups = None
 
-    last_runs = get_last_runs(limit_per_app=1)
-    for d in items:
-        run = next(iter(last_runs.get(d["slug"], [])), None)
-        d["cron_status"] = run["status"] if run else None
-        d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
-        d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
-        d["sort_date"] = d["updated"]
+    if view == "published":
+        published_groups = build_published_groups()
+    else:
+        active = store.list_dashboards()
 
-    grouped_items = group_items_by_date(items)
+        if view == "archived":
+            items = store.list_archived_dashboards()
+        elif view == "mine":
+            items = [d for d in active if d["first_author_email"] == user_email]
+        else:
+            items = active
+
+        if view == "latest":
+            active_by_slug = {d["slug"]: d for d in active}
+            pinned_cards = [
+                active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
+            ]
+
+        last_runs = get_last_runs(limit_per_app=1)
+        for d in items:
+            run = next(iter(last_runs.get(d["slug"], [])), None)
+            d["cron_status"] = run["status"] if run else None
+            d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
+            d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
+            d["sort_date"] = d["updated"]
+
+        grouped_items = group_items_by_date(items)
 
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(
@@ -125,7 +114,7 @@ def dashboards_page(
             "q": q,
             "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
-            "published_groups": None,
+            "published_groups": published_groups,
             **data,
         },
     )
