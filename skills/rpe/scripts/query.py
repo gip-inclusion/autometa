@@ -17,6 +17,15 @@ def parse_dim(spec: str):
     return spec
 
 
+def _grep(items: list, term: str) -> list:
+    if not term:
+        return items
+    t = term.lower()
+    return [
+        i for i in items if t in str(i.get("id", "")).lower() or t in str(i.get("label") or i.get("name") or "").lower()
+    ]
+
+
 def apply_where(rows: list, wheres: list) -> list:
     """Filtre côté client : garde les lignes où row[col] == valeur (ET entre clauses)."""
     for clause in wheres:
@@ -29,9 +38,15 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Requêter le tableau de bord RPE (DigDash).")
     ap.add_argument("--list", action="store_true", help="lister les datasets")
     ap.add_argument("--measures", metavar="DATASET", help="lister les mesures d'un dataset")
+    ap.add_argument("--grep", metavar="TERME", help="filtrer --measures/--dims par sous-chaîne (id ou label)")
     ap.add_argument("--dims", metavar="DATASET", help="lister les dimensions d'un dataset")
     ap.add_argument("--query", metavar="DATASET", help="dataset à requêter")
     ap.add_argument("--dim", action="append", default=[], help="dimension de ventilation (id ou id:lPos), répétable")
+    ap.add_argument(
+        "--month",
+        metavar="DIM",
+        help="série temporelle : ventiler par mois sur cette dim date (lève le filtre de période)",
+    )
     ap.add_argument("--measure", action="append", default=[], help="measure_id exact, répétable (défaut: toutes)")
     ap.add_argument(
         "--where",
@@ -47,15 +62,16 @@ def main() -> None:
         if args.list:
             print(json.dumps(client.datasets(), ensure_ascii=False, indent=1))
         elif args.measures:
-            print(json.dumps(client.measures(args.measures), ensure_ascii=False, indent=1))
+            print(json.dumps(_grep(client.measures(args.measures), args.grep), ensure_ascii=False, indent=1))
         elif args.dims:
-            print(json.dumps(client.dimensions(args.dims), ensure_ascii=False, indent=1))
+            print(json.dumps(_grep(client.dimensions(args.dims), args.grep), ensure_ascii=False, indent=1))
         elif args.query:
-            rows = client.query(
-                args.query,
-                dimensions=[parse_dim(d) for d in args.dim],
-                measures=args.measure or None,
-            )
+            dims = [parse_dim(d) for d in args.dim]
+            filters = None
+            if args.month:  # série temporelle : ventiler par mois + lever le filtre de période figé du template
+                dims.append({"dim": args.month, "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
+                filters = {}
+            rows = client.query(args.query, dimensions=dims, measures=args.measure or None, filters=filters)
             print(json.dumps(apply_where(rows, args.where), ensure_ascii=False, indent=1))
         else:
             ap.print_help()

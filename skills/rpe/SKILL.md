@@ -95,6 +95,15 @@ python skills/rpe/scripts/query.py --query "Accès et présence en emploi" \
 ```
 → 8 lignes (2 sexes × 4 tranches d'âge) pour l'Île-de-France.
 
+**Série temporelle (évolution sur les mois)** — utiliser `--month <dim date>` (la dimension de catégorie « 2. Date », ex. `D_DATEFPRIO`, `D_DATETAETPED`). ⚠️ Indispensable : `--month` ventile par mois **et lève le filtre de période** du template (sinon la requête est figée sur le dernier mois → une seule ligne). Trouver la mesure et la dim date avec `--measures DS --grep …` et `--dims DS --grep date` :
+
+```bash
+python skills/rpe/scripts/query.py --query "Entrants en formation" \
+  --dim C_TERRITOIRE_ID:1 --month D_DATEFPRIO \
+  --measure "Région - Entrants en formation" --where "Région_code=53"
+```
+→ une ligne par mois pour la Bretagne (code région 53).
+
 ## Combien de temps
 
 - En cache : instantané (SQL local).
