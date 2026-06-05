@@ -1,0 +1,94 @@
+---
+name: rpe
+description: Indicateurs du Réseau pour l'emploi (France Travail) — accès/présence en emploi, formation, recrutement, RSA, par territoire et par mois. Données agrégées, nationales, couvrant tout le réseau (pas seulement nos services). À distinguer d'autometa_tables_db.
+---
+
+# RPE — Tableau de bord du Réseau pour l'emploi
+
+Données publiques du tableau de bord France Travail (`pilotage-rpe.francetravail.org`). Indicateurs officiels du **réseau pour l'emploi** : résultats d'accès à l'emploi, de formation, de recrutement et d'accompagnement, déclinés par territoire (commune → bassin → département → région) et par mois.
+
+## En quoi c'est différent d'autometa_tables_db (à lire avant de choisir)
+
+| | `rpe` (ce skill) | `autometa_tables_db` |
+|---|---|---|
+| Périmètre | **Tout le réseau pour l'emploi** (France Travail, national) | **Nos services** (les_emplois, dora, data·inclusion…) |
+| Granularité | **Agrégée** (cubes par territoire/mois ; pas de niveau individuel) | **Fine / niveau enregistrement** |
+| Source | Tableau de bord public France Travail | Nos bases applicatives |
+
+En une phrase : **RPE = la vision agrégée et nationale de France Travail sur tout le réseau ; autometa_tables = nos propres données de services, granulaires.** Les mesures RPE sont des agrégats (souvent des taux) : on ne peut pas les filtrer sur nos usagers/structures, ni les ré-agréger localement (pas de numérateur/dénominateur).
+
+## Quand demander à l'utilisateur de préciser
+
+Si la demande peut relever des **deux** (ex. « taux d'accès à l'emploi par territoire », « données emploi par département »), **poser la question avant de requêter**, en exposant la conséquence du choix :
+
+- **RPE** si on veut le résultat **officiel France Travail sur tout le réseau** (national/territorial, agrégé) — mais impossible de cibler nos usagers/structures, ni de descendre au niveau individuel.
+- **autometa_tables_db** si on veut **nos données de services** (périmètre inclusion, granulaire) — mais ce n'est pas la vision réseau/nationale.
+
+## Ce que contient le dataset
+
+Datasets « métier » (les principaux) :
+
+- **Accès et présence en emploi** — taux d'accès / de présence en emploi des demandeurs (1/3/6/12 mois, par public).
+- **Description des publics** — caractéristiques des inscrits (âge, sexe, niveau de formation, BRSA, QPV, BOE…).
+- **Entrants en formation** / **Sortants de formation** — entrées en formation et devenir en emploi à la sortie.
+- **Taux de recours** (+ par filière) — recours des établissements au réseau (offres, recrutements).
+- **Délai et taux de pourvoi des offres** (+ par filière) — taux et délai de pourvoi des offres d'emploi.
+- **Satisfaction DE** / **NPS** — satisfaction des demandeurs sur l'accompagnement.
+- **Fiches action** — fiches action des comités territoriaux (CTPE).
+- **Focus RSA (accompagnement rénové des BRSA)** — parcours des bénéficiaires du RSA, territoires pilotes.
+
+Dimensions transverses : géographie (commune/bassin/département/région), temps (mois), et caractéristiques publics (sexe, âge, niveau de formation, BRSA/QPV/BOE, type de parcours…). Catalogue exact dans `matometa.rpe_dataset` / `rpe_dimension` / `rpe_measure`.
+
+## Deux chemins : en cache vs à la demande
+
+**En cache (instantané)** — rafraîchi chaque nuit par le cron `refresh-rpe` dans le schéma `matometa`. Contient le catalogue et des **marginales** (`rpe_fact`) : chaque mesure ventilée par **une** dimension (surtout région et mois), au dernier mois.
+
+Schéma (`matometa`) :
+
+- `rpe_dataset(cube_key, name, cube_id, role_id)` — `name` = nom du dataset.
+- `rpe_dimension(dataset, dim_id, name, category, caption_dim, n_members)`.
+- `rpe_measure(dataset, measure_id, label)` — `measure_id` = id **exact** à passer à `query()`.
+- `rpe_fact(id, dataset, measure, measure_id, period, dimension, member_code, member_label, value)`.
+
+⚠️ Les **libellés de mesure ne sont pas uniques** (plusieurs mesures sources partagent un même `measure`, ex. mensuel vs cumul 12 mois). **Toujours filtrer/désambiguïser par `measure_id`**, pas par `measure`. Pour trouver le bon id : `SELECT measure_id, label FROM matometa.rpe_measure WHERE dataset=:ds AND label ILIKE :q`.
+
+```python
+from sqlalchemy import text
+from web.db import get_db
+
+with get_db() as s:
+    rows = s.execute(text("""
+        SELECT member_label AS region, period, value, measure_id
+        FROM matometa.rpe_fact
+        WHERE dataset = :ds AND dimension = 'Région' AND measure_id = :mid
+        ORDER BY value DESC
+    """), {"ds": "Accès et présence en emploi",
+           "mid": "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %"}).all()
+```
+
+**À la demande (`lib.rpe`)** — pour ce qui n'est pas en cache : un **croisement multi-dimensions** (région × sexe × âge), une **autre période**, un **grain fin** (bassin, commune), une mesure absente du cache.
+
+```python
+from lib.rpe import RpeClient
+
+c = RpeClient.connect()                          # login httpx, sans navigateur
+c.datasets(); c.measures(ds); c.dimensions(ds)   # explorer le catalogue
+rows = c.query(
+    "Accès et présence en emploi",
+    dimensions=[{"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 1}, "C_LBLSEXE"],  # région × sexe
+    measures=["Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %"],
+)
+c.close()
+```
+
+`measures` doit reprendre l'**id exact** (cf. `rpe_measure.measure_id` ou `c.measures(ds)`), sinon le serveur renvoie des valeurs de présence (1.0). Niveau géographique via `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département ; grains fins : explorer).
+
+## Combien de temps
+
+- En cache : instantané (SQL local).
+- À la demande, cube déjà calculé côté serveur : ~30 ms.
+- À la demande, **nouveau** croisement (cache serveur froid) : **1 à 20 s** au premier appel, puis ~30 ms. Pour de gros balayages, rester séquentiel ou ≤4 en parallèle (serveur public).
+
+## Script
+
+`skills/rpe/scripts/query.py` — explorer le catalogue et lancer une requête en CLI (`--list`, `--measures`, `--dims`, `--query`).
