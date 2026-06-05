@@ -1,19 +1,19 @@
 ---
 name: publish_dataset
-description: Export a SQL query result to S3 as a job-accessible dataset (sqlite/jsonl/csv) with a presigned URL. Use when composing an autometa-jobs run that must analyze data too large to embed in the job's prompt.
+description: Exporter le résultat d'une requête SQL vers S3 sous forme de jeu de données accessible par un job (sqlite/jsonl/csv) avec une URL présignée. À utiliser quand vous composez un run autometa-jobs qui doit analyser des données trop volumineuses pour être embarquées dans le prompt.
 ---
 
-# Publish Dataset
+# Publier un jeu de données
 
-Turn a SQL query against a PG source into a file an autometa-jobs worker can download over plain HTTPS.
+Transforme le résultat d'une requête SQL sur une source PG en un fichier qu'un worker autometa-jobs peut télécharger en HTTPS simple.
 
-The job sandbox has **no PG access and none of Autometa's domain knowledge** — it is a blank-slate Claude container. Any dataset it must work on has to be shipped to it as a file and fetched with `curl`. This skill produces that file and a time-boxed download URL.
+Le sandbox du job n'a **aucun accès PG ni aucune connaissance métier d'Autometa** — c'est un conteneur Claude vierge. Tout jeu de données qu'il doit exploiter doit lui être livré sous forme de fichier et récupéré avec `curl`. Cette skill produit ce fichier et une URL de téléchargement à durée limitée.
 
-## When to use
+## Quand l'utiliser
 
-When you (the Autometa agent) are setting up a job that analyzes a dataset too large for the prompt — e.g. "all Dora services". You publish the data here, then put the returned URL in the job's prompt.
+Quand vous (l'agent Autometa) préparez un job qui analyse un jeu de données trop volumineux pour le prompt — par ex. « tous les services Dora ». Vous publiez les données ici, puis vous mettez l'URL renvoyée dans le prompt du job.
 
-## Usage
+## Utilisation
 
 ```bash
 .venv/bin/python skills/publish_dataset/scripts/publish_dataset.py \
@@ -23,11 +23,11 @@ When you (the Autometa agent) are setting up a job that analyzes a dataset too l
     --format sqlite
 ```
 
-Prints JSON:
+Affiche du JSON :
 
 ```json
 {
-  "url": "<presigned GET URL, valid ~24h>",
+  "url": "<URL GET présignée, valide ~24h>",
   "format": "sqlite",
   "table": "data",
   "row_count": 1234,
@@ -36,11 +36,11 @@ Prints JSON:
 }
 ```
 
-`--source` is `autometa_tables_db` (priority — check `documentation.doc_autometa_tables` first) or `data_inclusion`.
+`--source` vaut `autometa_tables_db` (en priorité — vérifiez d'abord `documentation.doc_autometa_tables`) ou `data_inclusion`.
 
-## Multiple tables (relational data)
+## Plusieurs tables (données relationnelles)
 
-Relational data (e.g. Dora services + their structures) belongs in **several JOIN-able tables in one sqlite file**, not one denormalized table. Pass `--tables` a JSON map of `{table_name: sql}`:
+Des données relationnelles (par ex. les services Dora + leurs structures) doivent tenir dans **plusieurs tables JOIN-ables au sein d'un même fichier sqlite**, pas dans une seule table dénormalisée. Passez à `--tables` une map JSON `{nom_table: sql}` :
 
 ```bash
 .venv/bin/python skills/publish_dataset/scripts/publish_dataset.py \
@@ -49,18 +49,18 @@ Relational data (e.g. Dora services + their structures) belongs in **several JOI
     --tables '{"structures": "SELECT id, nom, departement FROM dora.structures", "services": "SELECT id, structure_id, nom, type FROM dora.services"}'
 ```
 
-The job agent then JOINs them locally: `SELECT s.nom, st.departement FROM services s JOIN structures st ON st.id = s.structure_id`. Table names must match `[a-z_][a-z0-9_]*`. Multi-table is sqlite-only (jsonl/csv are one-table-per-file).
+L'agent du job fait ensuite les JOIN localement : `SELECT s.nom, st.departement FROM services s JOIN structures st ON st.id = s.structure_id`. Les noms de tables doivent respecter `[a-z_][a-z0-9_]*`. Le multi-tables est réservé au format sqlite (jsonl/csv = une table par fichier).
 
 ## Formats
 
-- `sqlite` (default) — one table named `data`. The job agent queries it with stdlib `sqlite3` (full SQL, zero install). Best for large or relational data.
-- `jsonl` — one JSON object per line. Best for record-by-record reasoning.
-- `csv` — header + rows.
+- `sqlite` (par défaut) — une table nommée `data`. L'agent du job l'interroge avec le `sqlite3` de la stdlib (SQL complet, rien à installer). Idéal pour des données volumineuses ou relationnelles.
+- `jsonl` — un objet JSON par ligne. Idéal pour un raisonnement enregistrement par enregistrement.
+- `csv` — en-tête + lignes.
 
-## Handing the dataset to a job
+## Remettre le jeu de données à un job
 
-Embed the URL in the job's system prompt, e.g.:
+Embarquez l'URL dans le system prompt du job, par ex. :
 
-> Download the dataset: `curl -sL '<url>' -o data.sqlite`. It is a SQLite database with one table `data` (columns: id, nom, type, departement). Query it with Python's `sqlite3` to answer: …
+> Télécharge le jeu de données : `curl -sL '<url>' -o data.sqlite`. C'est une base SQLite avec une table `data` (colonnes : id, nom, type, departement). Interroge-la avec le module `sqlite3` de Python pour répondre à : …
 
-Because the job has no Autometa context, the prompt you write must also carry the **relevant domain knowledge** (what the columns mean, the business question, how to interpret the data) — the worker cannot read Autometa's knowledge base.
+Comme le job n'a aucun contexte Autometa, le prompt que vous écrivez doit aussi porter la **connaissance métier pertinente** (ce que signifient les colonnes, la question métier, comment interpréter les données) — le worker ne peut pas lire la base de connaissance d'Autometa.
