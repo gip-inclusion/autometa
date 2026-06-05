@@ -15,6 +15,7 @@ from web.cron import (
     get_app_runs,
     get_last_runs,
     get_schedule,
+    get_schedule_for_app,
     get_timeout,
     is_enabled,
     notify_cron_status_change,
@@ -840,3 +841,24 @@ def test_run_cron_task_publication_two_states_independent(client, mocker):
         row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "two001"))
         assert row.last_refresh_status == "failure"
     assert notify.called
+
+
+def test_get_schedule_for_app_reads_db(db_setup):
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(
+            Dashboard(
+                slug="sched-db",
+                title="x",
+                first_author_email="a@x",
+                is_archived=False,
+                has_api_access=False,
+                has_cron=True,
+                has_persistence=False,
+                cron_schedule="weekly",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    assert get_schedule_for_app("sched-db") == "weekly"
+    assert get_schedule_for_app("does-not-exist") == "daily"

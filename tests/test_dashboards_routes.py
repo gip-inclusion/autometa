@@ -575,3 +575,16 @@ def test_detail_shows_failure_suffix_when_last_refresh_failed(client, mocker):
     r = client.get("/dashboards/ui-failure/edit", headers=_h())
     assert r.status_code == 200
     assert "rafraîchissement en échec" in r.text
+
+
+def test_detail_next_run_does_not_download_app_md(client, mocker):
+    _make_dashboard("next-run-nos3")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "next-run-nos3"))
+        d.has_cron = True
+        d.cron_schedule = "weekly"
+    download = mocker.patch("web.cron.s3.interactive.download")
+    r = client.get("/dashboards/next-run-nos3/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Prochaine exécution" in r.text
+    download.assert_not_called()

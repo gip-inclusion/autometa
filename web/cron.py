@@ -91,11 +91,10 @@ def is_due(schedule: str) -> bool:
 
 
 def get_schedule_for_app(slug: str) -> str:
-    """Read just one APP.md to determine an app's cron schedule. Defaults to 'daily'."""
-    md_bytes = s3.interactive.download(f"{slug}/APP.md")
-    if md_bytes is None:
-        return "daily"
-    return get_schedule(parse_frontmatter_text(md_bytes.decode()))
+    """An app's cron schedule from its dashboard row. Defaults to 'daily'."""
+    with get_db() as session:
+        schedule = session.scalar(select(Dashboard.cron_schedule).where(Dashboard.slug == slug))
+    return schedule or "daily"
 
 
 def next_cron_run(schedule: str, now=None):
