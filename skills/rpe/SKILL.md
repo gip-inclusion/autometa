@@ -41,7 +41,7 @@ Dimensions transverses : géographie (commune/bassin/département/région), temp
 
 ## Deux chemins : en cache vs à la demande
 
-**En cache (instantané)** — rafraîchi chaque nuit par le cron `refresh-rpe` dans le schéma `matometa`. Contient le catalogue et des **marginales** (`rpe_fact`) : chaque mesure ventilée par **une** dimension (surtout région et mois), au dernier mois.
+**En cache (instantané)** — rafraîchi chaque nuit par le cron `refresh-rpe` dans le schéma `matometa`. Contient le catalogue et des **marginales** (`rpe_fact`) : chaque mesure ventilée par **une** dimension.
 
 Schéma (`matometa`) :
 
@@ -49,6 +49,16 @@ Schéma (`matometa`) :
 - `rpe_dimension(dataset, dim_id, name, category, caption_dim, n_members)`.
 - `rpe_measure(dataset, measure_id, label)` — `measure_id` = id **exact** à passer à `query()`.
 - `rpe_fact(id, dataset, measure, measure_id, period, dimension, member_code, member_label, value)`.
+
+**Toujours interroger la couverture réelle du cache** (la liste évolue avec la config du mirror — ne pas s'en remettre à une doc figée) :
+
+```sql
+SELECT dataset, dimension, count(*) AS lignes, count(DISTINCT period) AS periodes,
+       min(period) AS du, max(period) AS au
+FROM matometa.rpe_fact GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+Granularités géo matérialisées (selon `lib.rpe.MIRROR_GEO`) : `dimension='Région'` (codes INSEE région, ex. `11`), `dimension='Département'` (ex. `59`), et `dimension='Territoire'` si activé = CLPE (codes ex. `CLPE74001`). Référence commune↔CLPE↔INSEE : `knowledge/stats/clpe.md` (table `public.ref_clpe_ft`) — ⚠️ format de code CLPE différent côté RPE (`CLPE74001`) vs ref (`CLPE_001`), jointure non triviale. Si la granularité/période voulue n'est **pas** dans la couverture ci-dessus → requête à la demande.
 
 ⚠️ Les **libellés de mesure ne sont pas uniques** (plusieurs mesures sources partagent un même `measure`, ex. mensuel vs cumul 12 mois). **Toujours filtrer/désambiguïser par `measure_id`**, pas par `measure`. Pour trouver le bon id : `SELECT measure_id, label FROM matometa.rpe_measure WHERE dataset=:ds AND label ILIKE :q`.
 

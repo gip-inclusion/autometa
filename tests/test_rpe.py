@@ -159,6 +159,15 @@ def test_cli_apply_where_filters_rows():
     assert mod._grep(measures, None) == measures
 
 
+def test_default_mirror_dims_materializes_configured_geo_levels():
+    dims = [{"id": "C_TERRITOIRE_ID"}, {"id": "D_DATETAETPED", "time": True}, {"id": "C_LBLSEXE"}]
+    out = rpe._default_mirror_dims(dims)
+    geo = {(d["dim"], d.get("lPos")) for d in out if d["dim"] == "C_TERRITOIRE_ID"}
+    assert ("C_TERRITOIRE_ID", 1) in geo  # Région
+    assert ("C_TERRITOIRE_ID", 0) in geo  # Département
+    assert any(d["dim"] == "D_DATETAETPED" for d in out)  # temps
+
+
 @pytest.mark.integration
 def test_live_login_query():
     client = rpe.RpeClient.connect()
