@@ -435,8 +435,8 @@ GEO_LEVELS = {
     "Département": {"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 0},  # ~111
     "CLPE": {"dim": "C_TERRITOIRE_ID", "hPos": -1, "lPos": -1},  # ~363 (territoire feuille)
 }
-# Couverture géo matérialisée chaque nuit par le mirror (configurable). Ajouter "CLPE" pour le niveau territoire.
-MIRROR_GEO = ["Région", "Département"]
+# Couverture géo matérialisée chaque nuit par le mirror (configurable).
+MIRROR_GEO = ["Région", "Département", "CLPE"]
 
 
 def _default_mirror_dims(dims: list[dict]) -> list:
