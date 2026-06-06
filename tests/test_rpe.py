@@ -159,14 +159,67 @@ def test_cli_apply_where_filters_rows():
     assert mod._grep(measures, None) == measures
 
 
-def test_default_mirror_dims_materializes_configured_geo_levels():
+def test_mirror_plan_geo_labels_and_time():
     dims = [{"id": "C_TERRITOIRE_ID"}, {"id": "D_DATETAETPED", "time": True}, {"id": "C_LBLSEXE"}]
-    out = rpe._default_mirror_dims(dims)
-    geo = {(d["dim"], d.get("lPos")) for d in out if d["dim"] == "C_TERRITOIRE_ID"}
-    for level in rpe.MIRROR_GEO:
-        spec = rpe.GEO_LEVELS[level]
-        assert (spec["dim"], spec["lPos"]) in geo
-    assert any(d["dim"] == "D_DATETAETPED" for d in out)  # temps
+    plan = rpe._mirror_plan(dims)
+    geo = {(label, spec.get("lPos")) for label, spec in plan if label}
+    for level in rpe.MIRROR_GEO:  # géo nommée canonique, au bon niveau de C_TERRITOIRE_ID
+        assert (level, rpe.GEO_LEVELS[level]["lPos"]) in geo
+    assert any(label is None and spec["dim"] == "D_DATETAETPED" for label, spec in plan)  # temps (header brut)
+
+
+def test_store_facts_full_replace():
+    from sqlalchemy import text
+
+    from web.db import get_engine
+
+    rpe.ensure_schema()
+    base = {
+        "measure": "m",
+        "measure_id": "m",
+        "period": "2025-09",
+        "dimension": "Région",
+        "member_code": "11",
+        "member_label": "IDF",
+    }
+    rpe.store_facts([{**base, "dataset": "__t1__", "value": 1.0}, {**base, "dataset": "__t2__", "value": 9.0}])
+    rpe.store_facts([{**base, "dataset": "__t1__", "value": 2.0}])  # remplacement complet → __t2__ disparaît
+    with get_engine().connect() as c:
+        ds = [r[0] for r in c.execute(text("SELECT DISTINCT dataset FROM matometa.rpe_fact"))]
+        v = c.execute(text("SELECT value FROM matometa.rpe_fact WHERE dataset='__t1__'")).scalar()
+    assert ds == ["__t1__"] and v == 2.0
+    assert rpe.store_facts([]) == 0  # payload vide → cache non vidé
+    with get_engine().connect() as c:
+        assert c.execute(text("SELECT count(*) FROM matometa.rpe_fact")).scalar() == 1
+
+
+def test_update_measure_labels_upsert():
+    from sqlalchemy import text
+
+    from web.db import get_engine
+
+    rpe.ensure_schema()
+    with get_engine().begin() as c:
+        c.execute(text("DELETE FROM matometa.rpe_measure WHERE dataset='__t__'"))
+        c.execute(rpe.rpe_measure.insert().values(dataset="__t__", measure_id="mid1", label="old"))
+    rpe.update_measure_labels([
+        {"dataset": "__t__", "measure_id": "mid1", "measure": "new"},
+        {"dataset": "__t__", "measure_id": "mid2", "measure": "fresh"},
+    ])
+    with get_engine().connect() as c:
+        got = dict(c.execute(text("SELECT measure_id, label FROM matometa.rpe_measure WHERE dataset='__t__'")).all())
+    with get_engine().begin() as c:
+        c.execute(text("DELETE FROM matometa.rpe_measure WHERE dataset='__t__'"))
+    assert got == {"mid1": "new", "mid2": "fresh"}
+
+
+def test_refresh_alerts_and_reraises_on_login_failure(mocker):
+    mocker.patch.object(rpe, "ensure_schema")
+    mocker.patch.object(rpe.RpeClient, "connect", side_effect=rpe.RpeLoginError("boom"))
+    alert = mocker.patch.object(rpe, "notify_alert_channel")
+    with pytest.raises(rpe.RpeLoginError):
+        rpe.refresh()
+    alert.assert_called_once()
 
 
 def test_norm_unifies_apostrophes_case_space():
