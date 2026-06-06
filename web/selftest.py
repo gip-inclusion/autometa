@@ -417,6 +417,12 @@ def _check_slack() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
+def _check_rpe() -> tuple[bool, str]:
+    from lib.rpe import check_connectivity
+
+    return check_connectivity(timeout=SELFTEST_TIMEOUT_SEC)
+
+
 def _check_data_inclusion() -> tuple[bool, str]:
     from lib.query import CallerType, execute_data_inclusion_query
 
@@ -445,6 +451,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     for inst in list_instances("metabase"):
         specs.append((f"Metabase ({inst})", lambda i=inst: _check_metabase_instance(i)))
     specs += [
+        ("RPE (France Travail)", _check_rpe),
         ("data·inclusion", _check_data_inclusion),
         ("Notion", _check_notion),
         ("Grist", _check_grist),
