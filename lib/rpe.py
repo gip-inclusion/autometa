@@ -145,13 +145,13 @@ def _ok(resp: httpx.Response) -> bool:
     return resp.status_code == 200 and resp.text.startswith("//OK")
 
 
-def _attempt_login(permutation: str, strong_name: str) -> httpx.Client | None:
-    client = httpx.Client(headers={"User-Agent": UA}, timeout=TIMEOUT)
+def _attempt_login(permutation: str, strong_name: str, timeout: int = TIMEOUT) -> httpx.Client | None:
+    client = httpx.Client(headers={"User-Agent": UA}, timeout=timeout)
     headers = _gwt_headers(permutation)
 
     def gwt(payload: str) -> httpx.Response:
         body = payload.replace(BAKED_STRONG_NAME, strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
-        return client.post(MODULE + "dash", content=body, headers=headers, timeout=TIMEOUT)
+        return client.post(MODULE + "dash", content=body, headers=headers, timeout=timeout)
 
     settings = gwt(_RES["gwt"]["getUserSettings"])
     login = gwt(_RES["gwt"]["login"])
@@ -191,6 +191,18 @@ def login() -> tuple[httpx.Client, str, str]:
             logger.info("RPE login réussi via build re-scrapé permutation=%s", permutation)
             return client, permutation, strong_name
     raise RpeLoginError("login impossible — identifiants ou valeurs de build GWT (strong-name/permutation) obsolètes")
+
+
+def check_connectivity(timeout: int = TIMEOUT) -> tuple[bool, str]:
+    """Connectivité RPE avec les valeurs de build par défaut, sans re-scrape (pour le selftest)."""
+    try:
+        client = _attempt_login(BAKED_PERMUTATION, BAKED_STRONG_NAME, timeout=timeout)
+    except httpx.HTTPError as e:
+        return False, f"injoignable : {e}"
+    if client is None:
+        return False, "login refusé (valeurs de build par défaut périmées ?)"
+    client.close()
+    return True, "login OK"
 
 
 def _period_of(sel: dict, breakdown_dim: str, member: dict) -> str | None:

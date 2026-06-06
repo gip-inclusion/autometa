@@ -2,6 +2,7 @@
 
 import json
 
+import httpx
 import pytest
 
 from lib import rpe
@@ -316,6 +317,19 @@ def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, alert
     assert out == {"cubeids": 1, "labels": 0, "facts": facts, "failed": len(failed)}
     client.close.assert_called_once()
     assert alert.call_count == alerts
+
+
+@pytest.mark.parametrize(
+    "outcome,expected_ok",
+    [("client", True), (None, False), ("raise", False)],
+)
+def test_check_connectivity(mocker, outcome, expected_ok):
+    if outcome == "raise":
+        mocker.patch.object(rpe, "_attempt_login", side_effect=httpx.ConnectError("boom"))
+    else:
+        mocker.patch.object(rpe, "_attempt_login", return_value=mocker.MagicMock() if outcome == "client" else None)
+    ok, _ = rpe.check_connectivity(timeout=1)
+    assert ok is expected_ok
 
 
 @pytest.mark.integration
