@@ -26,6 +26,11 @@ def _grep(items: list, term: str) -> list:
     ]
 
 
+def parse_ddvar(v: str):
+    """Valeur de bascule : entier si numérique (cas Switch=0), sinon chaîne brute."""
+    return int(v) if v.lstrip("-").isdigit() else v
+
+
 def apply_where(rows: list, wheres: list) -> list:
     """Filtre côté client : garde les lignes où row[col] == valeur (ET entre clauses)."""
     for clause in wheres:
@@ -77,7 +82,7 @@ def main() -> None:
             if args.month:  # série temporelle : ventiler par mois + lever le filtre de période figé du template
                 dims.append({"dim": args.month, "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
                 filters = {}
-            ddvars = {k: int(v) for k, _, v in (d.partition("=") for d in args.ddvar)} or None
+            ddvars = {k: parse_ddvar(v) for k, _, v in (d.partition("=") for d in args.ddvar)} or None
             rows = client.query(
                 args.query, dimensions=dims, measures=args.measure or None, filters=filters, ddvars=ddvars
             )

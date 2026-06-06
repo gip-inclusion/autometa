@@ -198,7 +198,10 @@ def _period_of(sel: dict, breakdown_dim: str, member: dict) -> str | None:
         return member.get("f")
     for f in sel.get("dimsToFilter") or []:
         if str(f.get("dim", "")).startswith("D_DATE") and f.get("selectedMembers"):
-            secs = int(f["selectedMembers"][0]) + 43200  # bornes de mois en Europe/Paris
+            try:
+                secs = int(f["selectedMembers"][0]) + 43200  # bornes de mois en Europe/Paris
+            except TypeError, ValueError:
+                continue
             return _epoch_month(secs)
     return None
 
