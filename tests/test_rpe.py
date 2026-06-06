@@ -158,6 +158,9 @@ def test_cli_apply_where_filters_rows():
     assert mod._grep(measures, "entrant") == [measures[0]]
     assert mod._grep(measures, None) == measures
 
+    assert mod.parse_ddvar("0") == 0 and mod.parse_ddvar("-3") == -3  # numérique → int
+    assert mod.parse_ddvar("Mensuel") == "Mensuel"  # non numérique → chaîne brute (pas de crash)
+
 
 def test_mirror_plan_geo_labels_and_time():
     dims = [{"id": "C_TERRITOIRE_ID"}, {"id": "D_DATETAETPED", "time": True}, {"id": "C_LBLSEXE"}]
@@ -191,6 +194,8 @@ def test_store_facts_full_replace():
     assert rpe.store_facts([]) == 0  # payload vide → cache non vidé
     with get_engine().connect() as c:
         assert c.execute(text("SELECT count(*) FROM matometa.rpe_fact")).scalar() == 1
+    with get_engine().begin() as c:
+        c.execute(text("DELETE FROM matometa.rpe_fact WHERE dataset='__t1__'"))
 
 
 def test_update_measure_labels_upsert():
@@ -237,6 +242,80 @@ def test_resolve_measures_tolerates_apostrophe_and_label(mocker):
     ]  # casse + ' droit
     assert client._resolve_measures("ds", ["Part des recours avec offre d'emploi"]) == [exact]  # par libellé
     assert client._resolve_measures("ds", ["inconnu"]) == ["inconnu"]  # laissé tel quel
+
+
+def test_prep_substitutes_strong_name_and_sid():
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.strong_name = "NEWSTRONG"
+    client.sid = "NEWSID"
+    payload = f"{rpe.BAKED_STRONG_NAME}|4c9184f37cff01deadbeef|x"
+    assert client._prep(payload) == "NEWSTRONG|NEWSID|x"
+
+
+def test_relogin_rewires_session_and_saves(mocker):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    old_http = mocker.MagicMock()
+    client.http = old_http
+    new_http = mocker.MagicMock()
+    new_http.cookies.get.return_value = "JSNEW"
+    mocker.patch("lib.rpe.login", return_value=(new_http, "PERM2", "STRONG2"))
+    mocker.patch.object(rpe.RpeClient, "_resolve_sid", return_value="SIDNEW")
+    save = mocker.patch("lib.rpe.save_session")
+    client._relogin()
+    old_http.close.assert_called_once()
+    assert client.http is new_http
+    assert (client.permutation, client.strong_name, client.sid) == ("PERM2", "STRONG2", "SIDNEW")
+    save.assert_called_once_with("JSNEW", "SIDNEW")
+
+
+def test_gwt_relogins_when_not_ok_then_retries(mocker):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.sid = "SID"
+    client.permutation = rpe.BAKED_PERMUTATION
+    client.strong_name = rpe.BAKED_STRONG_NAME
+    rbad = mocker.MagicMock(status_code=403, text="forbidden")
+    rok = mocker.MagicMock(status_code=200, text="//OK[data]")
+    client.http = mocker.MagicMock()
+    client.http.post.side_effect = [rbad, rok]
+    relogin = mocker.patch.object(rpe.RpeClient, "_relogin")
+    assert client._gwt("payload " + rpe.BAKED_STRONG_NAME) == "//OK[data]"
+    relogin.assert_called_once()
+    assert client.http.post.call_count == 2
+
+
+def test_mirror_records_failures_and_overrides_geo_label(mocker):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    key = next(iter(rpe._RES["datasets"]))
+    name = rpe._RES["datasets"][key]["cubeName"]
+    client.cubeids = {key: "CUBEID"}
+    mocker.patch.object(rpe.RpeClient, "dimensions", return_value=[{"id": "C_TERRITOIRE_ID"}])
+
+    def fake_query(ds, dims, timeout=None):
+        if dims[0] is rpe.GEO_LEVELS["Département"]:
+            raise KeyError("boom")
+        return [{"member_code": "84", "dimension": "ServerHeader"}]
+
+    mocker.patch.object(rpe.RpeClient, "query", side_effect=fake_query)
+    rows, failed = client.mirror()
+    assert sorted({r["dimension"] for r in rows}) == ["CLPE", "Région"]  # libellé géo canonique imposé
+    assert failed == [f"{name} / Département"]
+
+
+@pytest.mark.parametrize("facts,failed,alerts", [(42, [], 0), (0, ["ds / Région"], 1)])
+def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, alerts):
+    mocker.patch.object(rpe, "ensure_schema")
+    client = mocker.MagicMock()
+    client.refresh_catalog.return_value = {"k": "cube"}
+    client.mirror.return_value = ([{"x": 1}] if facts else [], failed)
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
+    mocker.patch.object(rpe, "store_catalog")
+    mocker.patch.object(rpe, "update_measure_labels", return_value=0)
+    mocker.patch.object(rpe, "store_facts", return_value=facts)
+    alert = mocker.patch.object(rpe, "notify_alert_channel")
+    out = rpe.refresh()
+    assert out == {"cubeids": 1, "labels": 0, "facts": facts, "failed": len(failed)}
+    client.close.assert_called_once()
+    assert alert.call_count == alerts
 
 
 @pytest.mark.integration
