@@ -429,13 +429,24 @@ class RpeClient:
         return rows
 
 
+# Niveaux géographiques (dim hiérarchique C_TERRITOIRE_ID) ; codes INSEE alignés région/dépt, CLPE pour le territoire.
+GEO_LEVELS = {
+    "Région": {"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 1},  # ~19
+    "Département": {"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 0},  # ~111
+    "CLPE": {"dim": "C_TERRITOIRE_ID", "hPos": -1, "lPos": -1},  # ~363 (territoire feuille)
+}
+# Couverture géo matérialisée chaque nuit par le mirror (configurable). Ajouter "CLPE" pour le niveau territoire.
+MIRROR_GEO = ["Région", "Département"]
+
+
 def _default_mirror_dims(dims: list[dict]) -> list:
-    out = []
-    for d in dims:
-        if d["id"] == "C_TERRITOIRE_ID":
-            out.append({"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 1})  # niveau Région
-        elif d.get("time") and d["id"].startswith("D_DATE"):
-            out.append({"dim": d["id"], "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
+    has_terr = any(d["id"] == "C_TERRITOIRE_ID" for d in dims)
+    out = [GEO_LEVELS[g] for g in MIRROR_GEO if has_terr]
+    out += [
+        {"dim": d["id"], "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}}
+        for d in dims
+        if d.get("time") and d["id"].startswith("D_DATE")
+    ]
     return out
 
 
