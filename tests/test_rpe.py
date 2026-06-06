@@ -169,6 +169,23 @@ def test_default_mirror_dims_materializes_configured_geo_levels():
     assert any(d["dim"] == "D_DATETAETPED" for d in out)  # temps
 
 
+def test_norm_unifies_apostrophes_case_space():
+    assert rpe._norm("Part  des  RECOURS ’X") == "part des recours 'x"
+
+
+def test_resolve_measures_tolerates_apostrophe_and_label(mocker):
+    cat = [{"id": "Part des recours avec offre d’emploi (Switch %)", "label": "Part des recours avec offre d’emploi"}]
+    mocker.patch.object(rpe.RpeClient, "measures", return_value=cat)
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    exact = cat[0]["id"]
+    assert client._resolve_measures("ds", [exact]) == [exact]  # déjà exact
+    assert client._resolve_measures("ds", ["part des recours avec offre d'emploi (switch %)"]) == [
+        exact
+    ]  # casse + ' droit
+    assert client._resolve_measures("ds", ["Part des recours avec offre d'emploi"]) == [exact]  # par libellé
+    assert client._resolve_measures("ds", ["inconnu"]) == ["inconnu"]  # laissé tel quel
+
+
 @pytest.mark.integration
 def test_live_login_query():
     client = rpe.RpeClient.connect()

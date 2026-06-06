@@ -208,6 +208,11 @@ def _epoch_month(secs: int) -> str:
     return datetime.fromtimestamp(secs, tz=timezone.utc).strftime("%Y-%m")
 
 
+def _norm(s: str) -> str:
+    """Normalise pour le matching de mesure : minuscules, apostrophes unifiées, espaces compactés."""
+    return " ".join((s or "").lower().replace("’", "'").replace("‘", "'").replace("´", "'").split())
+
+
 class RpeClient:
     """Session RPE authentifiée : requêtes getCubeResult arbitraires + rafraîchissement catalogue."""
 
@@ -287,6 +292,28 @@ class RpeClient:
     def dimensions(self, dataset: str) -> list[dict]:
         return _RES["catalog"][self._key(dataset)]["dimensions"]
 
+    def _resolve_measures(self, dataset: str, measures: list) -> list:
+        """Résout chaque mesure vers le measure_id exact (match normalisé id/label) ; tolère apostrophes/casse."""
+        cat = self.measures(dataset)
+        ids = {m["id"] for m in cat}
+        bynorm: dict[str, set] = {}
+        for m in cat:
+            bynorm.setdefault(_norm(m["id"]), set()).add(m["id"])
+            bynorm.setdefault(_norm(m.get("label") or ""), set()).add(m["id"])
+        out = []
+        for m in measures:
+            if m in ids:
+                out.append(m)
+                continue
+            cand = bynorm.get(_norm(m)) or set()
+            if len(cand) == 1:
+                resolved = next(iter(cand))
+                logger.info("RPE : mesure résolue %r → %r", m, resolved)
+                out.append(resolved)
+            else:
+                out.append(m)  # laissé tel quel → présence 1.0 + avertissement
+        return out
+
     def query(
         self,
         dataset: str,
@@ -303,6 +330,8 @@ class RpeClient:
             raise RpeLoginError(f"cubeId inconnu pour {dataset} — lancer refresh_catalog()")
         if measures is None:
             measures = [m["id"] for m in self.measures(dataset)]
+        else:
+            measures = self._resolve_measures(dataset, list(measures))
 
         dims = [d if isinstance(d, dict) else {"dim": d, "hPos": -1, "lPos": -1} for d in dimensions]
         sel = json.loads(json.dumps(tpl["sel"]))

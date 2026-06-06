@@ -91,7 +91,7 @@ rows = c.query(
 c.close()
 ```
 
-`measures` doit reprendre l'**id exact** (cf. `rpe_measure.measure_id` ou `c.measures(ds)`), sinon le serveur renvoie des valeurs de présence (1.0). Niveau géographique via `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département ; grains fins : explorer).
+`measures` : passer le `measure_id` exact, **ou** son libellé / une variante (la résolution est tolérante à la casse, aux apostrophes droites/courbes et aux espaces — match normalisé sur id et label ; un log `mesure résolue X → Y` confirme). Si aucune correspondance unique → valeurs de présence (1.0) + avertissement. Niveau géographique via `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département ; grains fins : explorer).
 
 ⚠️ **Filtrage géographique : filtrer côté client, pas côté serveur.** Le `filters=` serveur ignore le niveau hiérarchique (hardcodé level 0) → un `filters={"C_TERRITOIRE_ID": ["11"]}` renvoie des **valeurs fausses** (il matche un territoire feuille codé 11, pas la région). Méthode fiable : **ventiler par la dimension géo** (`C_TERRITOIRE_ID:1`) **et filtrer les lignes du résultat** par `member_code`/`Région_code`. En CLI, utiliser `--where`.
 
