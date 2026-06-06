@@ -58,7 +58,7 @@ SELECT dataset, dimension, count(*) AS lignes, count(DISTINCT period) AS periode
 FROM matometa.rpe_fact GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
-Granularités géo matérialisées (selon `lib.rpe.MIRROR_GEO`) : `dimension='Région'` (codes INSEE région, ex. `11`), `dimension='Département'` (ex. `59`), et `dimension='Territoire'` si activé = CLPE (codes ex. `CLPE74001`). Référence commune↔CLPE↔INSEE : `knowledge/stats/clpe.md` (table `public.ref_clpe_ft`) — ⚠️ format de code CLPE différent côté RPE (`CLPE74001`) vs ref (`CLPE_001`), jointure non triviale. Si la granularité/période voulue n'est **pas** dans la couverture ci-dessus → requête à la demande.
+Granularités géo matérialisées (selon `lib.rpe.MIRROR_GEO`, libellé canonique stocké dans `dimension`) : `dimension='Région'` (codes INSEE région, ex. `11`), `dimension='Département'` (ex. `59`), `dimension='CLPE'` (territoire, codes ex. `CLPE74001`). Référence commune↔CLPE↔INSEE : `knowledge/stats/clpe.md` (table `public.ref_clpe_ft`) — ⚠️ format de code CLPE différent côté RPE (`CLPE74001`) vs ref (`CLPE_001`), jointure non triviale. Si la granularité/période voulue n'est **pas** dans la couverture ci-dessus → requête à la demande.
 
 ⚠️ Les **libellés de mesure ne sont pas uniques** (plusieurs mesures sources partagent un même `measure`, ex. mensuel vs cumul 12 mois). **Toujours filtrer/désambiguïser par `measure_id`**, pas par `measure`. Pour trouver le bon id : `SELECT measure_id, label FROM matometa.rpe_measure WHERE dataset=:ds AND label ILIKE :q`.
 
