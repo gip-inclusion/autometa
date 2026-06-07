@@ -23,7 +23,7 @@ Pour créer un nouveau TDB ou modifier un TDB existant, **toujours** utiliser le
 
 ### `create_dashboard` (création)
 
-Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill copie le template, génère `APP.md`, insère la ligne `dashboards`, et retourne le chemin créé.
+Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill scaffolds `data/interactive/{slug}/`, insère la ligne `dashboards` + tags, et retourne le chemin créé.
 
 ```bash
 .venv/bin/python skills/create_dashboard/scripts/create_dashboard.py \
@@ -37,7 +37,7 @@ Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill copie le templa
 
 ### `update_dashboard` (modification)
 
-**Point d'entrée canonique** dès qu'un utilisateur exprime le souhait de modifier un TDB existant. Garantit que c'est le bon slug, met à jour DB + `APP.md`, et retourne l'`originating_user_email` (parfois différent) et le chemin des conventions à respecter pour la suite.
+**Point d'entrée canonique** dès qu'un utilisateur exprime le souhait de modifier un TDB existant. Garantit que c'est le bon slug, met à jour la DB, et retourne l'`originating_user_email` (parfois différent) et le chemin des conventions à respecter pour la suite.
 
 ```bash
 .venv/bin/python skills/update_dashboard/scripts/update_dashboard.py \
@@ -63,7 +63,6 @@ Chaque dashboard vit dans son propre dossier :
 ```
 data/interactive/
 └── mon-dashboard/
-    ├── APP.md              # OBLIGATOIRE : métadonnées (voir ci-dessous)
     ├── index.html          # Point d'entrée
     ├── style.css           # Styles
     ├── app.js              # Logique applicative
@@ -82,57 +81,29 @@ cp -r docs/dashboard-template data/interactive/mon-dashboard
 ```
 
 Le template fournit :
-- `APP.md` — métadonnées de l'application à compléter
 - `index.html` — page minimale à enrichir, mention `generated-at` à compléter sur le pied de page
 - `style.css` — police Marianne, palette DSFR, styles de base
 - `app.js` — chargement de `data.json` et affichage de la date de fraîcheur
 - `cron.py` — stub à remplir avec les appels `lib.query`
 
-Ensuite : compléter `APP.md`, écrire la logique dans `app.js`, remplir (si besoin) `cron.py`.
+Ensuite : écrire la logique dans `app.js`, remplir (si besoin) `cron.py`.
 
-Si le dashboard n'utilise pas de données pré-calculées (requêtes live via `/api/query` uniquement, ou dashboard qui n'a pas besoin d'être rafraîchi), supprimer `cron.py` et adapter les valeurs `cron` et `has_api_access` dans `APP.md`.
+Si le dashboard n'utilise pas de données pré-calculées (requêtes live via `/api/query` uniquement, ou dashboard qui n'a pas besoin d'être rafraîchi), supprimer `cron.py` et mettre à jour `has_cron` et `has_api_access` via `update_dashboard`.
 
-## APP.md
+## Métadonnées : source de vérité DB
 
-Chaque TDB **doit** avoir un fichier `APP.md` avec front-matter YAML. C'est conservé en parallèle de la DB pour que le dossier `data/interactive/{slug}/` reste lisible seul, et parce que `web/cron.py` y lit encore `schedule`, `timeout`, `enabled`.
+Les métadonnées d'un TDB (titre, description, tags, flags, cadence cron) vivent dans la table `dashboards`. C'est la source de vérité. Un TDB n'apparaît dans la liste que s'il a une ligne en DB — la présence du dossier `data/interactive/{slug}/` ne suffit pas.
 
-```markdown
----
-title: Mon Dashboard
-description: Description courte affichée sur la carte
-updated: 2026-04-22
-website: emplois
-category: Analyse de trafic
-tags: appli, trafic, analyse
-cron: true
-has_api_access: false
-authors: jean@example.com, marie@example.com
-conversation_id: abc-123-def
----
+Les métadonnées se définissent via les skills `create_dashboard` et `update_dashboard`, ou depuis l'éditeur de la page de détail du TDB.
 
-## À propos
+Champs cron portés par la ligne `dashboards` :
+- `cron_schedule` — crontab définissant la cadence (ex. `0 6 * * *`). Positionné via `--cron-schedule` (jetons `daily`/`weekly`/`monthly` ou crontab brut).
+- `cron_timeout` — timeout d'un run en secondes. Positionné via `--cron-timeout`.
+- `cron_enabled` — active ou désactive le cron. Togglable depuis l'UI `/cron`.
 
-Documentation optionnelle : usage, régénération des données, etc.
-```
+`web/cron.py` lit ces trois champs depuis la DB — pas depuis un fichier.
 
-**Champ obligatoire :**
-- `title` — nom affiché dans la liste des dashboards
-
-**Champs optionnels :**
-- `description` — affichée sous le titre dans la carte
-- `updated` — date au format `YYYY-MM-DD` (affichée en pied de carte)
-- `website` — site associé (voir [Tags valides](#tags-valides))
-- `category` — catégorie de filtrage
-- `tags` — liste séparée par virgules ou `[tag1, tag2]` (voir [Tags valides](#tags-valides))
-- `authors` — emails séparés par virgules
-- `conversation_id` — lien vers la conversation d'origine
-- `cron` — `true` / `false` pour activer ou désactiver le rafraîchissement programmé (voir [Mode par défaut](#mode-par-défaut--cronpy--datajson))
-- `has_api_access` — `true` si le dashboard appelle `/api/query` en live (voir [Modes non publiables](#modes-non-publiables))
-- `has_persistence` — `true` si le dashboard lit ou écrit dans le datalake (voir [Persistance en datalake](#persistance-en-datalake))
-
-`has_api_access` et `has_persistence` marquent le dashboard comme non publiable et doivent être déclarés dès qu'un de ces modes est utilisé.
-
-Un dashboard sans `APP.md` valide n'apparaît pas dans la liste.
+> **APP.md en cours de retrait.** Des fichiers `APP.md` peuvent encore exister sur S3 (fichiers legacy). Ils ne sont plus écrits ni lus pour les métadonnées. Leur suppression est une étape humaine ultérieure.
 
 ## Accès aux données
 
@@ -171,7 +142,6 @@ Un script `cron.py` dans le dossier du dashboard refresh `data.json` automatique
 
 ```
 data/interactive/mon-dashboard/
-├── APP.md
 ├── index.html
 ├── ...
 ├── cron.py      ← script de rafraîchissement
@@ -200,14 +170,7 @@ En production, `data.json` est synchronisé vers S3 — les fichiers écrits par
 
 #### Activation
 
-`cron: true` / `cron: false` dans le front-matter `APP.md`. Par défaut `true` quand `cron.py` existe. Bascule disponible depuis l'UI `/cron`.
-
-```yaml
----
-title: Mon Dashboard
-cron: true
----
-```
+Le cron est activé/désactivé (`cron_enabled`) depuis l'UI `/cron`. À distinguer de `has_cron`, le flag structurel indiquant qu'un `cron.py` existe.
 
 #### Lancement
 
@@ -243,7 +206,7 @@ Les deux modes qui suivent — requêtes live via `/api/query` et persistance en
 
 #### Requêtes live via `/api/query`
 
-À utiliser uniquement si `cron.py` n'est pas envisageable (temps réel strict, navigation aléatoire dans un gros jeu de données). Déclarer `has_api_access: true` dans `APP.md`.
+À utiliser uniquement si `cron.py` n'est pas envisageable (temps réel strict, navigation aléatoire dans un gros jeu de données). Passer `--has-api-access true` via `update_dashboard` (flag `has_api_access` en DB).
 
 ```javascript
 async function query(params) {
@@ -312,7 +275,7 @@ const result = await query({
 
 #### Persistance en datalake
 
-Pour qu'un dashboard **lise et écrive des données persistantes** (tracking, assignations, notes, état), passer par PostgreSQL datalake via le même endpoint `/api/query`. Déclarer `has_persistence: true` dans `APP.md`.
+Pour qu'un dashboard **lise et écrive des données persistantes** (tracking, assignations, notes, état), passer par PostgreSQL datalake via le même endpoint `/api/query`. Passer `--has-persistence true` via `update_dashboard` (flag `has_persistence` en DB).
 
 **Pourquoi pas de routes FastAPI ?** `web/` est baked dans l'image Docker et pas bind-mounté. Tout fichier créé ou modifié sous `/app/web/` atterrit dans le layer overlay du conteneur et disparaît au prochain restart. Ne jamais créer de routes, routers ou modules Python FastAPI depuis le conteneur.
 
@@ -577,7 +540,7 @@ Un dashboard peut être modifié depuis n'importe quelle conversation, du moment
 
 ## Tags valides
 
-Valeurs contrôlées pour les champs `website` et `tags` d'`APP.md`.
+Valeurs contrôlées pour les champs `website` et `tags` des skills `create_dashboard`/`update_dashboard`.
 
 ### Produits (champ `website`)
 - `emplois` — Emplois

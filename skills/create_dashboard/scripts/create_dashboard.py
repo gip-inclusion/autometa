@@ -34,6 +34,8 @@ def main() -> None:
     parser.add_argument("--has-cron", action="store_true", help="Include cron.py and set has_cron flag")
     parser.add_argument("--has-api-access", action="store_true", help="Set has_api_access flag")
     parser.add_argument("--has-persistence", action="store_true", help="Set has_persistence flag")
+    parser.add_argument("--cron-schedule", help="Cadence (daily|weekly|monthly) or a raw crontab string")
+    parser.add_argument("--cron-timeout", type=int, help="Cron run timeout in seconds")
     args = parser.parse_args()
 
     conversation_id, user_email = _require_runtime_context()
@@ -51,6 +53,8 @@ def main() -> None:
             has_cron=args.has_cron,
             has_api_access=args.has_api_access,
             has_persistence=args.has_persistence,
+            cron_schedule=args.cron_schedule,
+            cron_timeout=args.cron_timeout,
             first_author_email=user_email,
             created_in_conversation_id=conversation_id,
         )
