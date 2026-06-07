@@ -192,16 +192,16 @@
 
       {% if dashboard.has_cron %}
       <div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title">Configurer la cadence</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body p-4">
               <form class="cron-schedule-editor" data-slug="{{ dashboard.slug }}">
-                <div class="small fw-semibold mb-1">Cadence</div>
-                <div class="btn-group btn-group-sm d-flex" role="group" aria-label="Cadence">
+                <div class="small fw-semibold mb-2">Cadence</div>
+                <div class="btn-group d-flex" role="group" aria-label="Cadence">
                   <input type="radio" class="btn-check" name="cadence" id="cad-daily" value="daily" {% if cron_cadence == 'daily' %}checked{% endif %}>
                   <label class="btn btn-outline-secondary" for="cad-daily">Chaque nuit</label>
                   <input type="radio" class="btn-check" name="cadence" id="cad-weekly" value="weekly" {% if cron_cadence == 'weekly' %}checked{% endif %}>
@@ -209,7 +209,7 @@
                   <input type="radio" class="btn-check" name="cadence" id="cad-monthly" value="monthly" {% if cron_cadence == 'monthly' %}checked{% endif %}>
                   <label class="btn btn-outline-secondary" for="cad-monthly">1er du mois</label>
                 </div>
-                <div class="d-flex align-items-center gap-2 mt-3">
+                <div class="d-flex align-items-center gap-2 mt-4">
                   <label for="cron-timeout" class="small mb-0">Timeout</label>
                   <input type="number" id="cron-timeout" class="form-control form-control-sm" style="width: 6rem" min="1" value="{{ dashboard.cron_timeout }}" aria-label="Timeout en secondes">
                   <span class="small text-muted">s</span>
@@ -217,8 +217,8 @@
               </form>
             </div>
             <div class="modal-footer">
-              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-              <button type="button" class="btn btn-sm btn-primary" data-action="save-schedule">Enregistrer</button>
+              <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Annuler</button>
+              <button type="button" class="btn btn-primary px-4" data-action="save-schedule">Enregistrer</button>
             </div>
           </div>
         </div>
