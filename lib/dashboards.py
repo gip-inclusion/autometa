@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from web import config
+from web.cron import SCHEDULE_PRESETS, is_valid_schedule
 from web.db import get_db
 from web.models import Dashboard, DashboardTag, Tag
 
@@ -33,6 +34,15 @@ _WRITE_SQL_RE = re.compile(
 )
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _normalize_schedule(cron_schedule: str | None) -> str | None:
+    """Validate a cron schedule and normalize a cadence token to its preset crontab."""
+    if cron_schedule is None:
+        return None
+    if not is_valid_schedule(cron_schedule):
+        raise ValueError(f"Invalid cron schedule: {cron_schedule!r}")
+    return SCHEDULE_PRESETS.get(cron_schedule, cron_schedule)
 
 
 def normalize_tag_name(raw: str) -> str | None:
@@ -92,12 +102,17 @@ def create_dashboard(
     has_cron: bool = False,
     has_api_access: bool = False,
     has_persistence: bool = False,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
     first_author_email: str,
     created_in_conversation_id: str | None,
 ) -> Dashboard:
     """Crée un TDB : insertion DB + scaffold du dossier `data/interactive/{slug}/`."""
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
+    cron_schedule = _normalize_schedule(cron_schedule)
+    if cron_timeout is not None and (isinstance(cron_timeout, bool) or cron_timeout <= 0):
+        raise ValueError(f"Invalid cron timeout: {cron_timeout}")
 
     final_dir = config.INTERACTIVE_DIR / slug
     template_dir = config.BASE_DIR / "docs" / "dashboard-template"
@@ -139,6 +154,10 @@ def create_dashboard(
                 created_at=now,
                 updated_at=now,
             )
+            if cron_schedule is not None:
+                dashboard.cron_schedule = cron_schedule
+            if cron_timeout is not None:
+                dashboard.cron_timeout = cron_timeout
             session.add(dashboard)
             session.flush()
 
@@ -274,10 +293,15 @@ def update_dashboard(
     has_api_access: bool | None = None,
     has_persistence: bool | None = None,
     is_archived: bool | None = None,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
 ) -> DashboardUpdateResult:
     """Met à jour les métadonnées d'un TDB existant. None = no change."""
     if set_tags is not None and (add_tags or remove_tags):
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
+    cron_schedule = _normalize_schedule(cron_schedule)
+    if cron_timeout is not None and (isinstance(cron_timeout, bool) or cron_timeout <= 0):
+        raise ValueError(f"Invalid cron timeout: {cron_timeout}")
 
     fields_changed: list[str] = []
 
@@ -296,6 +320,8 @@ def update_dashboard(
             "has_api_access": has_api_access,
             "has_persistence": has_persistence,
             "is_archived": is_archived,
+            "cron_schedule": cron_schedule,
+            "cron_timeout": cron_timeout,
         }
         for field_name, value in scalar_updates.items():
             if value is None:

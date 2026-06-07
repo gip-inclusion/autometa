@@ -322,3 +322,45 @@ def test_update_dashboard_without_conversation_id(isolated):
     with get_db() as session:
         d = session.scalar(select(Dashboard).where(Dashboard.slug == "noconv"))
         assert d.title == "New"
+
+
+def test_create_dashboard_with_cron_schedule_normalizes_token(isolated):
+    _create("sched-tok", has_cron=True, cron_schedule="weekly", cron_timeout=600)
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-tok"))
+        assert d.cron_schedule == "0 6 * * 1"
+        assert d.cron_timeout == 600
+
+
+def test_create_dashboard_with_raw_crontab_stored_as_is(isolated):
+    _create("sched-raw", has_cron=True, cron_schedule="0 6 1,15 * *")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-raw"))
+        assert d.cron_schedule == "0 6 1,15 * *"
+
+
+def test_create_dashboard_rejects_invalid_schedule(isolated):
+    with pytest.raises(ValueError):
+        _create("sched-bad", has_cron=True, cron_schedule="not-a-crontab")
+
+
+def test_create_dashboard_rejects_nonpositive_timeout(isolated):
+    with pytest.raises(ValueError):
+        _create("bad-timeout", has_cron=True, cron_timeout=0)
+
+
+def test_update_dashboard_sets_cron_schedule_and_timeout(isolated):
+    _create("upd-sched")
+    result = update_dashboard(slug="upd-sched", updater_email="bob@x", cron_schedule="monthly", cron_timeout=900)
+    assert "cron_schedule" in result.fields_changed
+    assert "cron_timeout" in result.fields_changed
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "upd-sched"))
+        assert d.cron_schedule == "0 6 1 * *"
+        assert d.cron_timeout == 900
+
+
+def test_update_dashboard_rejects_invalid_schedule(isolated):
+    _create("upd-bad")
+    with pytest.raises(ValueError):
+        update_dashboard(slug="upd-bad", updater_email="bob@x", cron_schedule="garbage string here")
