@@ -57,7 +57,7 @@ def test_create_dashboard_happy_path(isolated):
 
     slug_dir = isolated / "happy"
     files = sorted(p.name for p in slug_dir.iterdir())
-    assert "APP.md" in files
+    assert "APP.md" not in files
     assert "cron.py" in files
     assert "index.html" in files
 
@@ -192,21 +192,6 @@ def test_update_dashboard_set_tags_mutex(isolated):
             set_tags=["a"],
             add_tags=["b"],
         )
-
-
-def test_update_dashboard_syncs_app_md_for_syncable_fields(isolated):
-    _create("sy", title="V1")
-    update_dashboard(slug="sy", updater_email="bob@x", in_conversation_id="c2", title="V2")
-    fm = (isolated / "sy" / "APP.md").read_text().split("---", 2)[1]
-    assert "title: V2" in fm
-
-
-def test_update_dashboard_archive_does_not_sync_app_md(isolated):
-    _create("ar2", title="V1")
-    fm_before = (isolated / "ar2" / "APP.md").read_text()
-    update_dashboard(slug="ar2", updater_email="bob@x", in_conversation_id="c2", is_archived=True)
-    fm_after = (isolated / "ar2" / "APP.md").read_text()
-    assert fm_before == fm_after
 
 
 @pytest.mark.parametrize(

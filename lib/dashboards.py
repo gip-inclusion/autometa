@@ -119,21 +119,6 @@ def create_dashboard(
                 continue
             shutil.copy2(src, staging_dir / src.name)
 
-        (staging_dir / "APP.md").write_text(
-            _render_app_md(
-                title=title,
-                description=description,
-                website=website,
-                category=category,
-                tags=tags,
-                first_author_email=first_author_email,
-                conversation_id=created_in_conversation_id,
-                has_cron=has_cron,
-                has_api_access=has_api_access,
-                has_persistence=has_persistence,
-            )
-        )
-
         with get_db() as session:
             if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
                 raise ValueError(f"Slug already exists in DB: {slug}")
@@ -233,80 +218,6 @@ def _upsert_tag(session: Session, name: str) -> Tag:
     return tag
 
 
-# TODO(louije/dashboard-drop-app-md): supprimer ce bloc et tout l'écosystème APP.md
-# (_render_app_md, _extract_app_md_body, _sync_app_md) une fois cron_schedule/cron_timeout
-# ajoutés à la table `dashboards` et `web/cron.py` migré sur la DB. Cf. spec V1 §5.
-def _frontmatter_lines(
-    *,
-    title: str,
-    description: str | None,
-    website: str | None,
-    category: str | None,
-    tags: list[str],
-    first_author_email: str,
-    conversation_id: str | None,
-    has_cron: bool,
-    has_api_access: bool,
-    has_persistence: bool,
-) -> list[str]:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    description_clean = (description or "").replace("\n", " ").strip()
-    return [
-        f"title: {title}",
-        f"description: {description_clean}",
-        f"updated: {today}",
-        f"website: {website or ''}",
-        f"category: {category or ''}",
-        f"tags: {', '.join(tags)}",
-        f"authors: {first_author_email}",
-        f"conversation_id: {conversation_id or ''}",
-        "",
-        f"cron: {'true' if has_cron else 'false'}",
-        f"has_api_access: {'true' if has_api_access else 'false'}",
-        f"has_persistence: {'true' if has_persistence else 'false'}",
-    ]
-
-
-def _render_app_md(
-    *,
-    title: str,
-    description: str | None,
-    website: str | None,
-    category: str | None,
-    tags: list[str],
-    first_author_email: str,
-    conversation_id: str | None,
-    has_cron: bool,
-    has_api_access: bool,
-    has_persistence: bool,
-) -> str:
-    description_clean = (description or "").replace("\n", " ").strip()
-    fm = "\n".join(
-        _frontmatter_lines(
-            title=title,
-            description=description,
-            website=website,
-            category=category,
-            tags=tags,
-            first_author_email=first_author_email,
-            conversation_id=conversation_id,
-            has_cron=has_cron,
-            has_api_access=has_api_access,
-            has_persistence=has_persistence,
-        )
-    )
-    body = description_clean or "TODO"
-    return f"---\n{fm}\n---\n\n## À propos\n\n{body}\n"
-
-
-def _extract_app_md_body(text: str) -> str:
-    """Returns `---<body-after-closing>` from APP.md text. Falls back to `---\\n` if malformed."""
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return "---\n"
-    return "---" + parts[2]
-
-
 def _apply_tag_updates(
     session: Session,
     slug: str,
@@ -347,37 +258,6 @@ def _apply_tag_updates(
     return True
 
 
-def _sync_app_md(session: Session, dashboard: Dashboard) -> None:
-    app_md_path = config.INTERACTIVE_DIR / dashboard.slug / "APP.md"
-    if not app_md_path.exists():
-        logger.warning("APP.md missing for slug %s, skipping sync", dashboard.slug)
-        return
-
-    tag_names = list(
-        session.scalars(
-            select(Tag.name)
-            .join(DashboardTag, DashboardTag.tag_id == Tag.id)
-            .where(DashboardTag.dashboard_slug == dashboard.slug)
-        ).all()
-    )
-    fm = "\n".join(
-        _frontmatter_lines(
-            title=dashboard.title,
-            description=dashboard.description,
-            website=dashboard.website,
-            category=dashboard.category,
-            tags=tag_names,
-            first_author_email=dashboard.first_author_email,
-            conversation_id=dashboard.created_in_conversation_id,
-            has_cron=dashboard.has_cron,
-            has_api_access=dashboard.has_api_access,
-            has_persistence=dashboard.has_persistence,
-        )
-    )
-    body = _extract_app_md_body(app_md_path.read_text())
-    app_md_path.write_text(f"---\n{fm}\n{body}")
-
-
 def update_dashboard(
     *,
     slug: str,
@@ -395,12 +275,11 @@ def update_dashboard(
     has_persistence: bool | None = None,
     is_archived: bool | None = None,
 ) -> DashboardUpdateResult:
-    """Met à jour les métadonnées d'un TDB existant (DB + sync APP.md). None = no change."""
+    """Met à jour les métadonnées d'un TDB existant. None = no change."""
     if set_tags is not None and (add_tags or remove_tags):
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
 
     fields_changed: list[str] = []
-    syncable_changed = False
 
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
@@ -424,17 +303,12 @@ def update_dashboard(
             if getattr(dashboard, field_name) != value:
                 setattr(dashboard, field_name, value)
                 fields_changed.append(field_name)
-                if field_name != "is_archived":
-                    syncable_changed = True
 
         if _apply_tag_updates(session, slug, add_tags, remove_tags, set_tags):
             fields_changed.append("tags")
-            syncable_changed = True
 
         if fields_changed:
             dashboard.updated_at = datetime.now(timezone.utc)
-            if syncable_changed:
-                _sync_app_md(session, dashboard)
 
         logger.info(
             "update_dashboard slug=%s updater=%s conv=%s originating=%s changed=%s",
