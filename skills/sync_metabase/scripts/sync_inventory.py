@@ -47,7 +47,7 @@ def extract_table_references(sql: str) -> list[str]:
     skip_words = {"select", "case", "when", "then", "else", "end", "as", "on", "and", "or"}
     for pattern in patterns:
         for match in re.findall(pattern, sql, re.IGNORECASE):
-            table = ([m for m in match if m][-1] if isinstance(match, tuple) else match)
+            table = [m for m in match if m][-1] if isinstance(match, tuple) else match
             if table and table.lower() not in skip_words:
                 tables.add(table)
     return sorted(tables)
@@ -142,7 +142,7 @@ def sync_instance(instance_name: str):
         try:
             sql = api.get_card_sql(card["id"])
             return (card["id"], sql, extract_table_references(sql))
-        except (MetabaseError, TimeoutError, OSError):
+        except MetabaseError, TimeoutError, OSError:
             return (card["id"], "", [])
 
     with ThreadPoolExecutor(max_workers=10) as executor:

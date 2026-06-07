@@ -20,7 +20,12 @@ def fetch_custom_dimensions(api: MatomoAPI, site_id: int) -> list[dict]:
     try:
         dims = api.get_configured_dimensions(site_id)
         return [
-            {"id": d.get("idcustomdimension"), "name": d.get("name"), "scope": d.get("scope"), "active": d.get("active")}
+            {
+                "id": d.get("idcustomdimension"),
+                "name": d.get("name"),
+                "scope": d.get("scope"),
+                "active": d.get("active"),
+            }
             for d in dims
         ]
     except MatomoError:
@@ -40,7 +45,9 @@ def fetch_saved_segments(api: MatomoAPI, site_id: int) -> list[dict]:
 def fetch_event_names(api: MatomoAPI, site_id: int, period: str, date: str) -> list[dict]:
     try:
         events = api.get_event_names(site_id, period, date, limit=200)
-        return [{"name": e.get("label"), "events": e.get("nb_events", 0), "visits": e.get("nb_visits", 0)} for e in events]
+        return [
+            {"name": e.get("label"), "events": e.get("nb_events", 0), "visits": e.get("nb_visits", 0)} for e in events
+        ]
     except MatomoError:
         return []
 
@@ -90,7 +97,9 @@ def fetch_baselines(api: MatomoAPI, site: SiteConfig, year: int) -> list[dict]:
             user_types = None
             if site.user_kind_dimension:
                 try:
-                    kinds = api.get_dimension(site_id=site.matomo_id, dimension_id=site.user_kind_dimension, period="month", date=month_date)
+                    kinds = api.get_dimension(
+                        site_id=site.matomo_id, dimension_id=site.user_kind_dimension, period="month", date=month_date
+                    )
                     user_types = json.dumps({k.get("label", "unknown"): k.get("nb_visits", 0) for k in kinds})
                 except MatomoError:
                     pass  # dimension not available for this month

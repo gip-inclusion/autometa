@@ -192,7 +192,9 @@ class CardsDB:
     def all_dashboards(self) -> list[Dashboard]:
         with get_db() as session:
             rows = session.scalars(
-                select(MetabaseDashboard).where(MetabaseDashboard.instance == self.instance).order_by(MetabaseDashboard.id)
+                select(MetabaseDashboard)
+                .where(MetabaseDashboard.instance == self.instance)
+                .order_by(MetabaseDashboard.id)
             ).all()
             return [Dashboard.from_model(m) for m in rows]
 

@@ -41,10 +41,20 @@ def to_timestamptz(table, column, nullable):
     op.add_column(table, sa.Column(tmp, sa.DateTime(timezone=True)))
     conn = op.get_bind()
     # Why: table/column are hardcoded constants above, not user input.
-    conn.execute(sa.text(
-        'UPDATE "' + table + '" SET "' + tmp + '" = "' + column + '"::timestamptz'
-        + ' WHERE "' + column + '" IS NOT NULL'
-    ))
+    conn.execute(
+        sa.text(
+            'UPDATE "'
+            + table
+            + '" SET "'
+            + tmp
+            + '" = "'
+            + column
+            + '"::timestamptz'
+            + ' WHERE "'
+            + column
+            + '" IS NOT NULL'
+        )
+    )
     op.drop_column(table, column)
     op.alter_column(table, tmp, new_column_name=column, nullable=nullable)
 
@@ -54,11 +64,13 @@ def to_text(table, column, nullable):
     op.add_column(table, sa.Column(tmp, sa.Text))
     conn = op.get_bind()
     # Why: table/column are hardcoded constants above, not user input.
-    conn.execute(sa.text(
-        'UPDATE "' + table + '" SET "' + tmp + '"'
-        " = to_char(\"" + column + "\", 'YYYY-MM-DD\"T\"HH24:MI:SS.US+00:00')"
-        ' WHERE "' + column + '" IS NOT NULL'
-    ))
+    conn.execute(
+        sa.text(
+            'UPDATE "' + table + '" SET "' + tmp + '"'
+            ' = to_char("' + column + '", \'YYYY-MM-DD"T"HH24:MI:SS.US+00:00\')'
+            ' WHERE "' + column + '" IS NOT NULL'
+        )
+    )
     op.drop_column(table, column)
     op.alter_column(table, tmp, new_column_name=column, nullable=nullable)
 
@@ -83,11 +95,14 @@ def downgrade() -> None:
     for idx_name in OLD_INDEXES:
         op.execute(sa.text('DROP INDEX IF EXISTS "' + idx_name + '"'))
 
-    op.create_index("idx_conversations_updated", "conversations", ["updated_at"],
-                     postgresql_ops={"updated_at": "DESC"})
-    op.create_index("idx_conversations_user_updated", "conversations", ["user_id", "updated_at"],
-                     postgresql_ops={"updated_at": "DESC"})
-    op.create_index("idx_reports_updated", "reports", ["updated_at"],
-                     postgresql_ops={"updated_at": "DESC"})
-    op.create_index("idx_cron_runs_slug_started", "cron_runs", ["app_slug", "started_at"],
-                     postgresql_ops={"started_at": "DESC"})
+    op.create_index("idx_conversations_updated", "conversations", ["updated_at"], postgresql_ops={"updated_at": "DESC"})
+    op.create_index(
+        "idx_conversations_user_updated",
+        "conversations",
+        ["user_id", "updated_at"],
+        postgresql_ops={"updated_at": "DESC"},
+    )
+    op.create_index("idx_reports_updated", "reports", ["updated_at"], postgresql_ops={"updated_at": "DESC"})
+    op.create_index(
+        "idx_cron_runs_slug_started", "cron_runs", ["app_slug", "started_at"], postgresql_ops={"started_at": "DESC"}
+    )

@@ -10,12 +10,12 @@ check-migrations:
 	uv run --frozen alembic check
 
 lint:
-	uv run --frozen ruff check web/ lib/ tests/
-	uv run --frozen ruff format --check web/ lib/ tests/
+	uv run --frozen ruff check
+	uv run --frozen ruff format --check
 
 format:
-	uv run --frozen ruff check --fix web/ lib/ tests/
-	uv run --frozen ruff format web/ lib/ tests/
+	uv run --frozen ruff check --fix
+	uv run --frozen ruff format
 
 security:
 	uv run --frozen bandit -r web/ lib/ -c pyproject.toml --severity-level medium --confidence-level high -q
