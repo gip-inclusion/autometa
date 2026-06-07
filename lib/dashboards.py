@@ -45,6 +45,15 @@ def _normalize_schedule(cron_schedule: str | None) -> str | None:
     return SCHEDULE_PRESETS.get(cron_schedule, cron_schedule)
 
 
+def _normalize_timeout(cron_timeout: int | None) -> int | None:
+    """Validate a cron timeout — a positive int (not a bool)."""
+    if cron_timeout is None:
+        return None
+    if isinstance(cron_timeout, bool) or cron_timeout <= 0:
+        raise ValueError(f"Invalid cron timeout: {cron_timeout}")
+    return cron_timeout
+
+
 def normalize_tag_name(raw: str) -> str | None:
     """Lowercase + kebab-case + strip. Retourne None si vide."""
     name = raw.strip().lower().replace(" ", "-")
@@ -111,8 +120,7 @@ def create_dashboard(
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
     cron_schedule = _normalize_schedule(cron_schedule)
-    if cron_timeout is not None and (isinstance(cron_timeout, bool) or cron_timeout <= 0):
-        raise ValueError(f"Invalid cron timeout: {cron_timeout}")
+    cron_timeout = _normalize_timeout(cron_timeout)
 
     final_dir = config.INTERACTIVE_DIR / slug
     template_dir = config.BASE_DIR / "docs" / "dashboard-template"
@@ -300,8 +308,7 @@ def update_dashboard(
     if set_tags is not None and (add_tags or remove_tags):
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
     cron_schedule = _normalize_schedule(cron_schedule)
-    if cron_timeout is not None and (isinstance(cron_timeout, bool) or cron_timeout <= 0):
-        raise ValueError(f"Invalid cron timeout: {cron_timeout}")
+    cron_timeout = _normalize_timeout(cron_timeout)
 
     fields_changed: list[str] = []
 

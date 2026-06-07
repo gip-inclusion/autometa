@@ -23,7 +23,7 @@ Pour créer un nouveau TDB ou modifier un TDB existant, **toujours** utiliser le
 
 ### `create_dashboard` (création)
 
-Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill scaffolds `data/interactive/{slug}/`, insère la ligne `dashboards` + tags, et retourne le chemin créé.
+Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill génère le scaffold de `data/interactive/{slug}/`, insère la ligne `dashboards` + tags, et retourne le chemin créé.
 
 ```bash
 .venv/bin/python skills/create_dashboard/scripts/create_dashboard.py \

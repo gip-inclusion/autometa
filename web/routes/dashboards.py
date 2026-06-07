@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from web.config import ADMIN_USERS
-from web.cron import cadence, get_last_runs, get_schedule_for_app, next_cron_run
+from web.cron import cadence, get_last_runs, next_cron_run
 from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
@@ -129,7 +129,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         last_run = runs[0] if runs else None
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
-        next_run_label = format_future_date(next_cron_run(get_schedule_for_app(slug)))
+        next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"]))
 
     is_pinned = ("app", slug) in store.get_pinned_ids()
     data = get_sidebar_data(user_email)

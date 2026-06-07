@@ -113,13 +113,6 @@ def is_due(schedule: str) -> bool:
     return True
 
 
-def get_schedule_for_app(slug: str) -> str:
-    """An app's cron schedule from its dashboard row. Defaults to 'daily'."""
-    with get_db() as session:
-        schedule = session.scalar(select(Dashboard.cron_schedule).where(Dashboard.slug == slug))
-    return schedule or "daily"
-
-
 def next_cron_run(schedule: str, now=None):
     """Next 06:00 dispatch time (local tz) for a schedule, by its day-level cadence."""
     now = now or now_local()
