@@ -588,3 +588,47 @@ def test_detail_next_run_does_not_download_app_md(client, mocker):
     assert r.status_code == 200
     assert "Prochaine exécution" in r.text
     download.assert_not_called()
+
+
+def test_update_schedule_endpoint_sets_cadence_and_timeout(client):
+    _make_dashboard("sched-ep")
+    r = client.post(
+        "/api/dashboards/sched-ep/schedule",
+        json={"cron_schedule": "weekly", "cron_timeout": 600},
+        headers=_h(),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "slug": "sched-ep"}
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-ep"))
+        assert d.cron_schedule == "0 6 * * 1"
+        assert d.cron_timeout == 600
+
+
+def test_update_schedule_endpoint_rejects_invalid_schedule(client):
+    _make_dashboard("sched-ep-bad")
+    r = client.post(
+        "/api/dashboards/sched-ep-bad/schedule",
+        json={"cron_schedule": "not-a-crontab"},
+        headers=_h(),
+    )
+    assert r.status_code == 400
+
+
+def test_update_schedule_endpoint_rejects_bad_timeout(client):
+    _make_dashboard("sched-ep-to")
+    r = client.post(
+        "/api/dashboards/sched-ep-to/schedule",
+        json={"cron_schedule": "daily", "cron_timeout": "abc"},
+        headers=_h(),
+    )
+    assert r.status_code == 400
+
+
+def test_update_schedule_endpoint_unknown_slug_404(client):
+    r = client.post(
+        "/api/dashboards/ghost/schedule",
+        json={"cron_schedule": "daily"},
+        headers=_h(),
+    )
+    assert r.status_code == 404

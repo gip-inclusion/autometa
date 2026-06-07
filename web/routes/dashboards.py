@@ -194,6 +194,31 @@ async def rename_dashboard(slug: Slug, request: Request, user_email: str = Depen
     return {"slug": slug, "title": title}
 
 
+@router.post("/api/dashboards/{slug}/schedule")
+async def update_dashboard_schedule(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    cron_schedule = payload.get("cron_schedule")
+    cron_timeout = payload.get("cron_timeout")
+    if cron_timeout is not None:
+        try:
+            cron_timeout = int(cron_timeout)
+        except TypeError, ValueError:
+            return JSONResponse({"error": "Invalid timeout"}, status_code=400)
+    try:
+        update_dashboard(
+            slug=slug,
+            updater_email=user_email,
+            cron_schedule=cron_schedule,
+            cron_timeout=cron_timeout,
+        )
+    except DashboardNotFound:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"ok": True, "slug": slug}
+
+
 @router.post("/api/dashboards/{slug}/publish")
 async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
     body = await request.body()
