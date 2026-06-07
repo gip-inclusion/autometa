@@ -154,7 +154,7 @@ class Dashboard(Base):
     has_api_access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     has_cron: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     has_persistence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    cron_schedule: Mapped[str] = mapped_column(Text, nullable=False, server_default="daily")
+    cron_schedule: Mapped[str] = mapped_column(Text, nullable=False, server_default="0 6 * * *")
     cron_timeout: Mapped[int] = mapped_column(Integer, nullable=False, server_default="300")
     cron_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

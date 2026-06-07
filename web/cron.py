@@ -30,7 +30,27 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
 
-SCHEDULES = ("daily", "weekly", "monthly")
+SCHEDULE_PRESETS = {
+    "daily": "0 6 * * *",
+    "weekly": "0 6 * * 1",
+    "monthly": "0 6 1 * *",
+}
+_CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.items()}
+
+
+def cadence(schedule: str) -> str:
+    """Reduce a stored schedule (crontab or legacy token) to a runner cadence: daily|weekly|monthly."""
+    # Why: the 06:00 dispatcher only honors day-level scheduling; an unrecognized crontab runs every
+    # tick (daily). The full crontab string is preserved in the DB for a future scheduler.
+    if schedule in SCHEDULE_PRESETS:
+        return schedule
+    return _CRONTAB_TO_CADENCE.get(schedule, "daily")
+
+
+def is_valid_schedule(schedule: str) -> bool:
+    """A storable schedule: a known cadence token, or any 5-field crontab string."""
+    return schedule in SCHEDULE_PRESETS or len(schedule.split()) == 5
+
 
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
@@ -85,11 +105,10 @@ def get_schedule(meta: dict) -> str:
 
 
 def is_due(schedule: str) -> bool:
-    if schedule == "daily":
-        return True
-    if schedule == "weekly":
+    reduced = cadence(schedule)
+    if reduced == "weekly":
         return now_local().weekday() == 0  # Monday
-    if schedule == "monthly":
+    if reduced == "monthly":
         return now_local().day == 1
     return True
 
@@ -102,15 +121,16 @@ def get_schedule_for_app(slug: str) -> str:
 
 
 def next_cron_run(schedule: str, now=None):
-    """Next scheduled execution time (local tz): 6h00 daily, 6h00 Monday weekly, 6h00 the 1st monthly."""
+    """Next 06:00 dispatch time (local tz) for a schedule, by its day-level cadence."""
     now = now or now_local()
     target = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if schedule == "weekly":
+    reduced = cadence(schedule)
+    if reduced == "weekly":
         days_ahead = (0 - target.weekday()) % 7
         if days_ahead == 0 and now >= target:
             days_ahead = 7
         return target + dt.timedelta(days=days_ahead)
-    if schedule == "monthly":
+    if reduced == "monthly":
         first_this = target.replace(day=1)
         if now < first_this:
             return first_this
@@ -270,7 +290,7 @@ def backfill_cron_metadata(session, download) -> int:
         if raw is None:
             continue
         meta = parse_frontmatter_text(raw.decode())
-        dashboard.cron_schedule = get_schedule(meta)
+        dashboard.cron_schedule = SCHEDULE_PRESETS.get(get_schedule(meta), SCHEDULE_PRESETS["daily"])
         dashboard.cron_timeout = get_timeout(meta)
         dashboard.cron_enabled = is_enabled(meta)
         updated += 1
@@ -356,13 +376,7 @@ def upload_s3_results(
 
 def _sentry_monitor_config(task: dict) -> dict:
     """Build Sentry Crons monitor config from task metadata."""
-    schedule = task.get("schedule", "daily")
-    if schedule == "weekly":
-        crontab = "0 6 * * 1"
-    elif schedule == "monthly":
-        crontab = "0 6 1 * *"
-    else:
-        crontab = "0 6 * * *"
+    crontab = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))]
     return {
         "schedule": {"type": "crontab", "value": crontab},
         "checkin_margin": 30,

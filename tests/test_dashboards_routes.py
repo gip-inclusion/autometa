@@ -40,7 +40,7 @@ def test_new_dashboard_has_cron_metadata_defaults(client):
     _make_dashboard("cron-defaults")
     with get_db() as session:
         d = session.scalar(select(Dashboard).where(Dashboard.slug == "cron-defaults"))
-        assert d.cron_schedule == "daily"
+        assert d.cron_schedule == "0 6 * * *"
         assert d.cron_timeout == 300
         assert d.cron_enabled is True
 

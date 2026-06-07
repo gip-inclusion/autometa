@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from web import config
 from web.cron import (
     backfill_cron_metadata,
+    cadence,
     discover_cron_tasks,
     discover_from_dir,
     discover_from_s3,
@@ -22,6 +23,7 @@ from web.cron import (
     get_timeout,
     is_due,
     is_enabled,
+    is_valid_schedule,
     next_cron_run,
     notify_cron_status_change,
     parse_frontmatter,
@@ -889,7 +891,7 @@ def test_backfill_cron_metadata_from_app_md(db_setup):
     assert count == 1
     with get_db() as session:
         d = session.scalar(select(Dashboard).where(Dashboard.slug == "bf-app"))
-        assert d.cron_schedule == "weekly"
+        assert d.cron_schedule == "0 6 * * 1"
         assert d.cron_timeout == 1200
         assert d.cron_enabled is False
 
@@ -897,17 +899,47 @@ def test_backfill_cron_metadata_from_app_md(db_setup):
 @pytest.mark.parametrize("day,expected", [(1, True), (2, False), (15, False), (28, False)])
 def test_is_due_monthly(mocker, day, expected):
     mocker.patch("web.cron.now_local", return_value=datetime(2026, 6, day, 7, 0))
-    assert is_due("monthly") is expected
+    assert is_due("0 6 1 * *") is expected
 
 
 def test_next_cron_run_monthly():
     # the 1st, before 6h -> today at 6h
-    assert next_cron_run("monthly", now=datetime(2026, 6, 1, 5, 0)) == datetime(2026, 6, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 1, 5, 0)) == datetime(2026, 6, 1, 6, 0)
     # the 1st, at/after 6h -> first of NEXT month at 6h (job already fired today)
-    assert next_cron_run("monthly", now=datetime(2026, 6, 1, 7, 0)) == datetime(2026, 7, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 1, 7, 0)) == datetime(2026, 7, 1, 6, 0)
     # mid-month -> first of next month at 6h
-    assert next_cron_run("monthly", now=datetime(2026, 6, 7, 8, 0)) == datetime(2026, 7, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 7, 8, 0)) == datetime(2026, 7, 1, 6, 0)
     # December rolls over to January next year
-    assert next_cron_run("monthly", now=datetime(2026, 12, 15, 8, 0)) == datetime(2027, 1, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 12, 15, 8, 0)) == datetime(2027, 1, 1, 6, 0)
     # December 1st, after 6h -> January 1st next year at 6h
-    assert next_cron_run("monthly", now=datetime(2026, 12, 1, 7, 0)) == datetime(2027, 1, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 12, 1, 7, 0)) == datetime(2027, 1, 1, 6, 0)
+
+
+@pytest.mark.parametrize(
+    "schedule,expected",
+    [
+        ("0 6 * * *", "daily"),
+        ("0 6 * * 1", "weekly"),
+        ("0 6 1 * *", "monthly"),
+        ("daily", "daily"),
+        ("weekly", "weekly"),
+        ("monthly", "monthly"),
+        ("0 6 15 * *", "daily"),  # unrecognized crontab -> daily
+    ],
+)
+def test_cadence(schedule, expected):
+    assert cadence(schedule) == expected
+
+
+@pytest.mark.parametrize(
+    "schedule,valid",
+    [
+        ("0 6 1 * *", True),
+        ("daily", True),
+        ("0 6 1 * * extra", False),
+        ("nonsense", False),
+        ("", False),
+    ],
+)
+def test_is_valid_schedule(schedule, valid):
+    assert is_valid_schedule(schedule) is valid
