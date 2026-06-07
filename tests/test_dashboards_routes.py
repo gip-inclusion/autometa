@@ -648,6 +648,8 @@ def test_detail_shows_schedule_editor_with_current_cadence(client):
     assert 'value="daily" checked' not in r.text  # exactly one checked...
     assert 'value="monthly" checked' not in r.text  # ...and it's weekly
     assert 'value="600"' in r.text  # timeout prefilled
+    assert 'id="scheduleModal"' in r.text  # editor lives in a modal
+    assert 'data-bs-target="#scheduleModal"' in r.text  # opened from the "Configurer" link
 
 
 def test_detail_no_schedule_editor_without_cron(client):
@@ -655,3 +657,4 @@ def test_detail_no_schedule_editor_without_cron(client):
     r = client.get("/dashboards/no-cron-ui/edit", headers=_h())
     assert r.status_code == 200
     assert 'id="cad-daily"' not in r.text
+    assert 'id="scheduleModal"' not in r.text
