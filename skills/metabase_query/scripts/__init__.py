@@ -3,6 +3,7 @@
 DEPRECATED: Import from lib.query instead:
     from lib.query import MetabaseAPI, MetabaseError
 """
+
 from lib.metabase import QueryResult
 from lib.query import MetabaseAPI, MetabaseError
 from lib.sources import get_metabase as load_api
