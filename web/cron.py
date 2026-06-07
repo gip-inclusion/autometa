@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
 
+SCHEDULES = ("daily", "weekly", "monthly")
+
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
 
@@ -87,6 +89,8 @@ def is_due(schedule: str) -> bool:
         return True
     if schedule == "weekly":
         return now_local().weekday() == 0  # Monday
+    if schedule == "monthly":
+        return now_local().day == 1
     return True
 
 
@@ -98,7 +102,7 @@ def get_schedule_for_app(slug: str) -> str:
 
 
 def next_cron_run(schedule: str, now=None):
-    """Next scheduled execution time (local tz). Matches `_sentry_monitor_config` cadence: 6h00 daily, or 6h00 Monday weekly."""
+    """Next scheduled execution time (local tz): 6h00 daily, 6h00 Monday weekly, 6h00 the 1st monthly."""
     now = now or now_local()
     target = now.replace(hour=6, minute=0, second=0, microsecond=0)
     if schedule == "weekly":
@@ -106,6 +110,13 @@ def next_cron_run(schedule: str, now=None):
         if days_ahead == 0 and now >= target:
             days_ahead = 7
         return target + dt.timedelta(days=days_ahead)
+    if schedule == "monthly":
+        first_this = target.replace(day=1)
+        if now < first_this:
+            return first_this
+        if target.month == 12:
+            return first_this.replace(year=target.year + 1, month=1)
+        return first_this.replace(month=target.month + 1)
     if now >= target:
         return target + dt.timedelta(days=1)
     return target
@@ -348,6 +359,8 @@ def _sentry_monitor_config(task: dict) -> dict:
     schedule = task.get("schedule", "daily")
     if schedule == "weekly":
         crontab = "0 6 * * 1"
+    elif schedule == "monthly":
+        crontab = "0 6 1 * *"
     else:
         crontab = "0 6 * * *"
     return {

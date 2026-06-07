@@ -20,7 +20,9 @@ from web.cron import (
     get_schedule,
     get_schedule_for_app,
     get_timeout,
+    is_due,
     is_enabled,
+    next_cron_run,
     notify_cron_status_change,
     parse_frontmatter,
     run_cron_task,
@@ -890,3 +892,22 @@ def test_backfill_cron_metadata_from_app_md(db_setup):
         assert d.cron_schedule == "weekly"
         assert d.cron_timeout == 1200
         assert d.cron_enabled is False
+
+
+@pytest.mark.parametrize("day,expected", [(1, True), (2, False), (15, False), (28, False)])
+def test_is_due_monthly(mocker, day, expected):
+    mocker.patch("web.cron.now_local", return_value=datetime(2026, 6, day, 7, 0))
+    assert is_due("monthly") is expected
+
+
+def test_next_cron_run_monthly():
+    # the 1st, before 6h -> today at 6h
+    assert next_cron_run("monthly", now=datetime(2026, 6, 1, 5, 0)) == datetime(2026, 6, 1, 6, 0)
+    # the 1st, at/after 6h -> first of NEXT month at 6h (job already fired today)
+    assert next_cron_run("monthly", now=datetime(2026, 6, 1, 7, 0)) == datetime(2026, 7, 1, 6, 0)
+    # mid-month -> first of next month at 6h
+    assert next_cron_run("monthly", now=datetime(2026, 6, 7, 8, 0)) == datetime(2026, 7, 1, 6, 0)
+    # December rolls over to January next year
+    assert next_cron_run("monthly", now=datetime(2026, 12, 15, 8, 0)) == datetime(2027, 1, 1, 6, 0)
+    # December 1st, after 6h -> January 1st next year at 6h
+    assert next_cron_run("monthly", now=datetime(2026, 12, 1, 7, 0)) == datetime(2027, 1, 1, 6, 0)
