@@ -3812,3 +3812,21 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 .dashboard-pin-cog:hover {
   color: var(--bs-primary);
 }
+
+/* itou-theme bundles Bootstrap's modal CSS but omits .modal-backdrop, so the
+   JS-inserted backdrop element renders unstyled (invisible). Restore the dim. */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1050;
+  width: 100vw;
+  height: 100vh;
+  background-color: #000;
+  opacity: 0;
+  transition: opacity 0.15s linear;
+}
+
+.modal-backdrop.show {
+  opacity: 0.5;
+}
