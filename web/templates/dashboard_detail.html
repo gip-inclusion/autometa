@@ -84,6 +84,24 @@
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-action="cron-history" data-slug="{{ dashboard.slug }}">Historique</button>
                 <button type="button" class="btn btn-sm btn-outline-primary" data-action="run-cron">Déclencher un run</button>
               </div>
+              <form class="cron-schedule-editor mt-3" data-slug="{{ dashboard.slug }}">
+                <div class="small fw-semibold mb-1">Cadence</div>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Cadence">
+                  <input type="radio" class="btn-check" name="cadence" id="cad-daily" value="daily" {% if cron_cadence == 'daily' %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary" for="cad-daily">Chaque nuit</label>
+                  <input type="radio" class="btn-check" name="cadence" id="cad-weekly" value="weekly" {% if cron_cadence == 'weekly' %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary" for="cad-weekly">Chaque semaine</label>
+                  <input type="radio" class="btn-check" name="cadence" id="cad-monthly" value="monthly" {% if cron_cadence == 'monthly' %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary" for="cad-monthly">1er du mois</label>
+                </div>
+                <div class="d-flex align-items-center gap-2 mt-2">
+                  <label for="cron-timeout" class="small mb-0">Timeout</label>
+                  <input type="number" id="cron-timeout" class="form-control form-control-sm" style="width: 6rem" min="1" value="{{ dashboard.cron_timeout }}" aria-label="Timeout en secondes">
+                  <span class="small text-muted">s</span>
+                  <button type="button" class="btn btn-sm btn-primary" data-action="save-schedule">Enregistrer</button>
+                  <span class="small text-success d-none" data-role="schedule-saved">Enregistré ✓</span>
+                </div>
+              </form>
               {% else %}
               <p class="text-muted mb-0">Pas de cron configuré.</p>
               {% endif %}
@@ -259,6 +277,20 @@
       e.target.textContent = 'En cours…';
       await post(`/api/cron/${slug}/run`, {});
       window.location.reload();
+    });
+
+    root.querySelector('[data-action="save-schedule"]')?.addEventListener('click', async (e) => {
+      const form = e.target.closest('.cron-schedule-editor');
+      const cron_schedule = form.querySelector('input[name="cadence"]:checked')?.value;
+      const cron_timeout = parseInt(form.querySelector('#cron-timeout').value, 10);
+      if (!cron_schedule) { alert('Sélectionner une cadence'); return; }
+      e.target.disabled = true;
+      const res = await post(`/api/dashboards/${form.dataset.slug}/schedule`, { cron_schedule, cron_timeout });
+      e.target.disabled = false;
+      if (!res.ok) { await reportFailure('Enregistrement de la cadence', res); return; }
+      const saved = form.querySelector('[data-role="schedule-saved"]');
+      saved.classList.remove('d-none');
+      setTimeout(() => saved.classList.add('d-none'), 1500);
     });
 
     async function reportFailure(label, res) {

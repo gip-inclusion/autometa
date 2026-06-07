@@ -632,3 +632,26 @@ def test_update_schedule_endpoint_unknown_slug_404(client):
         headers=_h(),
     )
     assert r.status_code == 404
+
+
+def test_detail_shows_schedule_editor_with_current_cadence(client):
+    _make_dashboard("sched-ui")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-ui"))
+        d.has_cron = True
+        d.cron_schedule = "0 6 * * 1"  # weekly
+        d.cron_timeout = 600
+    r = client.get("/dashboards/sched-ui/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Chaque nuit" in r.text and "Chaque semaine" in r.text and "1er du mois" in r.text
+    assert 'value="weekly" checked' in r.text  # weekly preselected
+    assert 'value="daily" checked' not in r.text  # exactly one checked...
+    assert 'value="monthly" checked' not in r.text  # ...and it's weekly
+    assert 'value="600"' in r.text  # timeout prefilled
+
+
+def test_detail_no_schedule_editor_without_cron(client):
+    _make_dashboard("no-cron-ui")
+    r = client.get("/dashboards/no-cron-ui/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'id="cad-daily"' not in r.text

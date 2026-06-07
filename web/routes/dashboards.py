@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from web.config import ADMIN_USERS
-from web.cron import get_last_runs, get_schedule_for_app, next_cron_run
+from web.cron import cadence, get_last_runs, get_schedule_for_app, next_cron_run
 from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
@@ -99,6 +99,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     if dashboard is None:
         return RedirectResponse("/dashboards", status_code=302)
 
+    cron_cadence = cadence(dashboard["cron_schedule"])
     dashboard["formatted_date"] = format_relative_date(dashboard["updated"]) if dashboard.get("updated") else ""
     dashboard_publications = list_publications(slug)
     can_publish = not (dashboard["has_api_access"] or dashboard["has_persistence"])
@@ -144,6 +145,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "dashboard_drifted": dashboard_drifted,
             "has_active_production": has_active_production,
             "relative_updated": relative_updated,
+            "cron_cadence": cron_cadence,
             "last_run": last_run,
             "next_run_label": next_run_label,
             "is_pinned": is_pinned,
