@@ -5,15 +5,16 @@ Revises: 1ab3818607f7
 Create Date: 2026-06-07 16:23:06.544358
 
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'c89f7601677b'
-down_revision: Union[str, Sequence[str], None] = '1ab3818607f7'
+revision: str = "c89f7601677b"
+down_revision: Union[str, Sequence[str], None] = "1ab3818607f7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
