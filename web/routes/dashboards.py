@@ -216,8 +216,8 @@ async def update_dashboard_schedule(slug: Slug, request: Request, user_email: st
         )
     except DashboardNotFound:
         return JSONResponse({"error": "Dashboard not found"}, status_code=404)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
+    except ValueError:
+        return JSONResponse({"error": "Cadence ou timeout invalide"}, status_code=400)
     return {"ok": True, "slug": slug}
 
 
