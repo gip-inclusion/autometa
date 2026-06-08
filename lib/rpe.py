@@ -352,7 +352,6 @@ class RpeClient:
     ) -> list[dict]:
         """Requête getCubeResult arbitraire ; renvoie des lignes tidy (mesure, dimensions, période, valeur)."""
         key = self._key(dataset)
-        tpl = _RES["datasets"][key]
         cubeid = self.cubeids.get(key)
         if not cubeid:
             raise RpeLoginError(f"cubeId inconnu pour {dataset} — lancer refresh_catalog()")
@@ -362,7 +361,7 @@ class RpeClient:
             measures = self._resolve_measures(dataset, list(measures))
 
         dims = [d if isinstance(d, dict) else {"dim": d, "hPos": -1, "lPos": -1} for d in dimensions]
-        sel = json.loads(json.dumps(tpl["sel"]))
+        sel = json.loads(json.dumps(_RES["sel"]))
         sel["dimsToExplore"] = [
             {
                 "dim": d["dim"],
@@ -399,8 +398,8 @@ class RpeClient:
         params = {
             "method": "getCubeResult",
             "cubeid": cubeid,
-            "frameId": tpl["frameId"],
-            "pageId": tpl["pageId"],
+            "frameId": "",  # Why: vestigial — getCubeResult n'utilise que cubeid + sel (vérifié en spike)
+            "pageId": "",
             "sel": json.dumps(sel, ensure_ascii=False),
         }
         rows = self._parse(dataset, sel, self._post_file(params, timeout).json(), n)
