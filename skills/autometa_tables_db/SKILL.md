@@ -13,7 +13,7 @@ Base PostgreSQL contenant les tables exportées depuis les différentes bases de
 
 1. Interroger `documentation.doc_autometa_tables` pour obtenir la liste et la description des tables disponibles.
 2. Si les tables nécessaires sont présentes → requêter `autometa_tables_db` directement en SQL.
-3. Si absentes → utiliser Metabase normalement.
+3. Si absentes → **ne pas s'arrêter là**. Invoquer le skill `metabase_query` pour rechercher la donnée dans les instances Metabase (`stats`, `datalake`, `dora`). Utiliser `search_cards(query)` pour identifier les cartes pertinentes, puis `execute_card(card_id)` ou `execute_sql(sql)` pour récupérer les données. Ne déclarer une donnée absente qu'après avoir cherché dans autometa_tables_db **et** dans Metabase.
 
 ## Documentation des tables
 
