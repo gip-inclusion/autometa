@@ -353,6 +353,32 @@ def test_live_refresh_catalog_returns_cubeids():
         client.close()
 
 
+def test_query_uses_shared_sel_and_blank_frame(mocker):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    key = next(iter(rpe._RES["datasets"]))
+    client.cubeids = {key: "CUBE123"}
+    captured = {}
+
+    class FakeResp:
+        def json(self):
+            return {
+                "axis": [[{"i": "m1", "f": "M1"}], [{"i": "84", "f": "ARA"}]],
+                "lines": [[0, 0, 5.0]],
+                "dimsAndMeasuresHeaders": ["Region"],
+            }
+
+    def fake_post(params, timeout=60):
+        captured.update(params)
+        return FakeResp()
+
+    mocker.patch.object(client, "_post_file", side_effect=fake_post)
+    rows = client.query(rpe._RES["datasets"][key]["cubeName"], ["C_TERRITOIRE_ID"], measures=["m1"])
+    assert rows and rows[0]["value"] == 5.0
+    sel = json.loads(captured["sel"])
+    assert sel["measuresToKeep"] == ["m1"]
+    assert captured["frameId"] == "" and captured["pageId"] == ""
+
+
 def test_refresh_catalog_uses_all_wallet_frames(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.cubeids = {}
