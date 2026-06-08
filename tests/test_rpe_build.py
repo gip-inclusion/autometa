@@ -1,3 +1,6 @@
+import json
+import pathlib
+
 import pytest
 
 import lib.rpe_build as rb
@@ -43,3 +46,15 @@ def test_validate_gate(fresh, smoke, expected_passed, expected_no_cubeid):
     assert report["failures"]["no_cubeid"] == expected_no_cubeid
     if expected_passed:
         assert report["coverage"]["cubeids"] == "2/2"
+
+
+@pytest.mark.integration
+def test_build_reproduces_existing_datasets():
+    current = json.loads(pathlib.Path("lib/rpe_templates.json").read_text(encoding="utf-8"))
+    candidate, report = rb.build_templates()
+    assert report["fully_browserless"] is True
+    assert report["duration_s"] < 300
+    assert report["passed"], report["failures"]
+    assert set(candidate["datasets"]) == set(current["datasets"])
+    covered, total = report["coverage"]["cubeids"].split("/")
+    assert covered == total
