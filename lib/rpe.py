@@ -11,6 +11,7 @@ from sqlalchemy import Column, DateTime, Float, Integer, MetaData, String, Table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.rpe_gwt import build_flowsview_payload, extract_frame_ids, flowsview_header
 from web.alerts import notify_alert_channel
 from web.db import get_engine
 
@@ -457,13 +458,12 @@ class RpeClient:
         return rows
 
     def refresh_catalog(self) -> dict:
-        """Rafraîchit les cubeIds (qui tournent au rebuild) via getFlowsView ; renvoie {cube_key: cube_id}."""
+        """Rafraîchit tous les cubeIds (qui tournent au rebuild) via un getFlowsView portant tous les frames du wallet."""
         self._gwt(_RES["gwt"]["getUserParams"])
-        self._gwt(_RES["gwt"]["loadWallet"])
-        found = set()
-        for payload in _RES["gwt"]["getFlowsView"]:
-            found.update(_CUBE_RE.findall(self._gwt(payload)))
-        fresh = {cube.split("_")[0]: cube for cube in found}
+        wallet = self._gwt(_RES["gwt"]["loadWallet"])
+        header = flowsview_header(_RES["gwt"]["getFlowsView"][0])
+        resp = self._gwt(build_flowsview_payload(extract_frame_ids(wallet), header))
+        fresh = {cube.split("_")[0]: cube for cube in _CUBE_RE.findall(resp)}
         self.cubeids.update(fresh)
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
         return fresh

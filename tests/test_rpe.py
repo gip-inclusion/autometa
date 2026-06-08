@@ -351,3 +351,31 @@ def test_live_refresh_catalog_returns_cubeids():
         assert all(rpe._CUBE_RE.fullmatch(v) for v in fresh.values())
     finally:
         client.close()
+
+
+def test_refresh_catalog_uses_all_wallet_frames(mocker):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.cubeids = {}
+    wallet = '//OK[["A","11aa11","B","22bb22"],7]'
+    k1 = "fba0c2c4f5e0987f8c5d1cdd5bba387a"
+    k2 = "41394d15cebee6301ae0d5c2bb76512d"
+    flows = f'"{k1}_{"0" * 32}_0_1700000000000","{k2}_{"0" * 32}_0_1700000000000"'
+
+    def fake_gwt(payload):
+        if "loadWallet" in payload:
+            return wallet
+        if "ItemIdentifier" in payload:
+            return flows
+        return ""
+
+    mocker.patch.object(client, "_gwt", side_effect=fake_gwt)
+    mocker.patch.dict(
+        rpe._RES["gwt"],
+        {
+            "getUserParams": "getUserParams",
+            "loadWallet": "loadWallet",
+            "getFlowsView": ["7|3|19|" + "|".join(str(i) for i in range(1, 20)) + "|x|"],
+        },
+    )
+    fresh = client.refresh_catalog()
+    assert set(fresh) == {k1, k2}
