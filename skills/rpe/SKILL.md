@@ -114,7 +114,7 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 ```
 → une ligne par mois pour la Bretagne (code région 53).
 
-**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules d'un dataset : `python -c "from lib.rpe import RpeClient,_RES; …tpl['sel']['ddVars']"`). Exemple série mensuelle nette :
+**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules d'un dataset : `python -c "from lib.rpe import RpeClient,_RES; …_RES['sel']['ddVars']"`). Exemple série mensuelle nette :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
