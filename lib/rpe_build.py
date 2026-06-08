@@ -7,20 +7,10 @@ from pathlib import Path
 
 import httpx
 
-from lib.rpe import _CUBE_RE, _RES, MIRROR_TIMEOUT, RpeClient
-from lib.rpe_gwt import build_flowsview_payload, extract_frame_ids, flowsview_header
+from lib.rpe import MIRROR_TIMEOUT, RpeClient
 
 logger = logging.getLogger(__name__)
 TEMPLATES_PATH = Path(__file__).parent / "rpe_templates.json"
-
-
-def fetch_fresh_cubeids(client: RpeClient) -> dict:
-    """Tous les cubeIds rotatifs via un getFlowsView portant tous les frames du wallet."""
-    client._gwt(_RES["gwt"]["getUserParams"])
-    wallet = client._gwt(_RES["gwt"]["loadWallet"])
-    header = flowsview_header(_RES["gwt"]["getFlowsView"][0])
-    resp = client._gwt(build_flowsview_payload(extract_frame_ids(wallet), header))
-    return {cube.split("_")[0]: cube for cube in _CUBE_RE.findall(resp)}
 
 
 def assemble(current: dict, fresh_cubeids: dict) -> dict:
@@ -79,7 +69,7 @@ def build_templates(client: RpeClient | None = None, current: dict | None = None
     client = client or RpeClient.connect()
     current = current or json.loads(TEMPLATES_PATH.read_text(encoding="utf-8"))
     try:
-        fresh = fetch_fresh_cubeids(client)
+        fresh = client.refresh_catalog()
         candidate = assemble(current, fresh)
         smoke = smoke_test(client, candidate)
     finally:
