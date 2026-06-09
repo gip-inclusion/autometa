@@ -293,27 +293,20 @@ def _emit(**kwargs) -> str:
     return captured.getvalue()
 
 
-def test_emit_api_signal_masks_postgres_password():
-    out = _emit(
-        source="autometa_tables_db",
-        instance="default",
-        url="postgresql://reader:supersecret@db.example:5432/autometa",
-        sql="SELECT 1",
-    )
-    assert "supersecret" not in out
-    assert "reader:***@db.example:5432" in out
-
-
-def test_emit_api_signal_masks_secret_query_param():
-    out = _emit(
-        source="matomo",
-        instance="inclusion",
-        url="https://matomo.example/?module=API&token_auth=DEADBEEF&method=VisitsSummary.get",
-    )
-    assert "DEADBEEF" not in out
-    assert "token_auth" in out
-
-
-def test_emit_api_signal_leaves_clean_url_unchanged():
-    out = _emit(source="metabase", instance="stats", url="https://stats.example/question/123")
-    assert "https://stats.example/question/123" in out
+@pytest.mark.parametrize(
+    "url, secret, must_contain",
+    [
+        ("postgresql://reader:supersecret@db.example:5432/autometa", "supersecret", "reader:***@db.example:5432"),
+        ("postgresql://u:p%40ss%3Aw@db:5432/x", "p%40ss%3Aw", "u:***@db:5432"),
+        ("postgresql://u:ipv6secret@[2001:db8::1]:5432/x", "ipv6secret", "[2001:db8::1]:5432"),
+        ("https://m.example/?module=API&token_auth=DEADBEEF&method=X", "DEADBEEF", "token_auth"),
+        ("https://m.example/?access_token=ABC123XYZ", "ABC123XYZ", "access_token"),
+        ("ssh-host-no-creds", None, "ssh-host-no-creds"),
+        ("https://stats.example/question/123", None, "https://stats.example/question/123"),
+    ],
+)
+def test_emit_api_signal_masks_credentials(url, secret, must_contain):
+    out = _emit(source="x", instance="y", url=url)
+    if secret is not None:
+        assert secret not in out
+    assert must_contain in out
