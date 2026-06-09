@@ -282,3 +282,38 @@ def test_emit_api_signal_is_silent_outside_agent_subprocess(monkeypatch):
 
     sys.stdout = old_stdout
     assert captured.getvalue() == ""
+
+
+def _emit(**kwargs) -> str:
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    emit_api_signal(**kwargs)
+    sys.stdout = old_stdout
+    return captured.getvalue()
+
+
+def test_emit_api_signal_masks_postgres_password():
+    out = _emit(
+        source="autometa_tables_db",
+        instance="default",
+        url="postgresql://reader:supersecret@db.example:5432/autometa",
+        sql="SELECT 1",
+    )
+    assert "supersecret" not in out
+    assert "reader:***@db.example:5432" in out
+
+
+def test_emit_api_signal_masks_secret_query_param():
+    out = _emit(
+        source="matomo",
+        instance="inclusion",
+        url="https://matomo.example/?module=API&token_auth=DEADBEEF&method=VisitsSummary.get",
+    )
+    assert "DEADBEEF" not in out
+    assert "token_auth" in out
+
+
+def test_emit_api_signal_leaves_clean_url_unchanged():
+    out = _emit(source="metabase", instance="stats", url="https://stats.example/question/123")
+    assert "https://stats.example/question/123" in out

@@ -18,11 +18,33 @@ import json
 import re
 import sys
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from web import config
 
 # Signal pattern for parsing — accepts both legacy MATOMETA and current AUTOMETA prefix
 SIGNAL_PATTERN = re.compile(r"\[(?:AUTOMETA|MATOMETA):API:({.*?})\]")
+
+# Query params whose value is a credential and must never reach tool output (stored in messages.content, shown in UI).
+_SECRET_QUERY_KEYS = frozenset({"token_auth", "token", "api_key", "apikey", "key", "password", "secret"})
+
+
+def _mask_url(url: str) -> str:
+    """Redact userinfo passwords (e.g. Postgres DSNs) and secret query params from a signal URL."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    netloc = parts.netloc
+    if parts.password:
+        host = f"{parts.hostname or ''}:{parts.port}" if parts.port else (parts.hostname or "")
+        netloc = f"{parts.username}:***@{host}" if parts.username else f"***@{host}"
+    query = parts.query
+    if query:
+        pairs = parse_qsl(query, keep_blank_values=True)
+        if any(k.lower() in _SECRET_QUERY_KEYS for k, _ in pairs):
+            query = urlencode([(k, "***" if k.lower() in _SECRET_QUERY_KEYS else v) for k, v in pairs])
+    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
 
 
 def emit_api_signal(
@@ -42,7 +64,7 @@ def emit_api_signal(
     signal = {
         "source": source,
         "instance": instance,
-        "url": url,
+        "url": _mask_url(url),
     }
 
     if method:
