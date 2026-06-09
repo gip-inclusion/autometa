@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from web import config, llm
 from web.alerts import notify_alert_channel
+from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
@@ -750,7 +751,8 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         return JSONResponse({"error": "No file selected"}, status_code=400)
 
     try:
-        uploaded_file, text_content = do_upload_file(
+        uploaded_file, text_content = await run_in_thread(
+            do_upload_file,
             file_obj=file.file,
             filename=file.filename,
             conversation_id=conv_id,
