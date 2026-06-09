@@ -169,6 +169,11 @@ REDIS_URL = os.getenv("REDIS_URL") or os.getenv("SCALINGO_REDIS_URL") or "redis:
 # Web server
 WEB_WORKERS = int(os.getenv("WEB_WORKERS", os.cpu_count() or 1))
 
+# Memory profiling (diagnostic): log RSS/heap stats every N seconds; 0 disables.
+# DEEP adds a heap-type histogram + tracemalloc — heavier, so off by default.
+MEMORY_PROFILE_INTERVAL = int(os.getenv("MEMORY_PROFILE_INTERVAL", "300"))
+MEMORY_PROFILE_DEEP = os.getenv("MEMORY_PROFILE_DEEP", "false").lower() == "true"
+
 # Additional directories the agent can access (beyond working directory)
 KNOWLEDGE_DIR = BASE_DIR / "knowledge"
 ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KNOWLEDGE_DIR)]
