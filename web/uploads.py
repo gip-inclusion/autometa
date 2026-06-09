@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import BinaryIO, Optional, Tuple
 
 from botocore.exceptions import ClientError
+from sqlalchemy import text
 
 from web.helpers import utcnow
 
@@ -471,8 +472,9 @@ def delete_file(uploaded_file: UploadedFile) -> bool:
     """
     with get_db() as conn:
         count = conn.execute(
-            "SELECT COUNT(*) as cnt FROM uploaded_files WHERE stored_filename = %s", (uploaded_file.stored_filename,)
-        ).fetchone()["cnt"]
+            text("SELECT COUNT(*) FROM uploaded_files WHERE stored_filename = :name"),
+            {"name": uploaded_file.stored_filename},
+        ).scalar_one()
 
     if count > 1:
         # Other records reference this file, just delete the DB record

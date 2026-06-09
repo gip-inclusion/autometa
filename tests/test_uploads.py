@@ -26,6 +26,7 @@ from web.uploads import (
     BlockedFileTypeError,
     FileTooLargeError,
     compute_sha256,
+    delete_file,
     format_file_for_context,
     generate_stored_filename,
     is_text_file,
@@ -431,6 +432,21 @@ def test_database_integration_files_by_hash():
     found = store.get_uploaded_file_by_hash(result.sha256_hash)
     assert found is not None
     assert found.id == result.id
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_delete_file_keeps_file_when_still_referenced(mocker):
+    conv = store.create_conversation(user_id="u@example.com")
+    shared = "dedup-shared.bin"
+    f1 = store.add_uploaded_file(conv.id, "u@example.com", "a.bin", shared, "/tmp/x", 1, "h-shared")
+    store.add_uploaded_file(conv.id, "u@example.com", "b.bin", shared, "/tmp/x", 1, "h-shared")
+
+    delete_record = mocker.patch("web.uploads.store.delete_uploaded_file")
+    unlink = mocker.patch("web.uploads.Path.unlink")
+
+    assert delete_file(f1) is True
+    delete_record.assert_called_once_with(f1.id)
+    unlink.assert_not_called()
 
 
 @pytest.mark.usefixtures("setup_db")
