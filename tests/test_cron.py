@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select, text
 
-from web import config
+from web import config, cron
 from web.cron import (
     discover_cron_tasks,
     discover_from_dir,
@@ -19,6 +19,7 @@ from web.cron import (
     is_enabled,
     notify_cron_status_change,
     parse_frontmatter,
+    run_all,
     run_cron_task,
     set_cron_enabled,
 )
@@ -435,14 +436,12 @@ def make_s3_mocks(apps: list[dict]):
 
 
 def _patch_s3(mocker, mocks):
-    mocker.patch("web.cron.s3.interactive.list_directories", side_effect=mocks["list_directories"])
-    mocker.patch("web.cron.s3.interactive.exists", side_effect=mocks["exists"])
+    mocker.patch("web.cron.s3.interactive.list_files", side_effect=mocks["list_files"])
     mocker.patch("web.cron.s3.interactive.download", side_effect=mocks["download"])
 
 
 def _patch_s3_full(mocker, mocks):
     _patch_s3(mocker, mocks)
-    mocker.patch("web.cron.s3.interactive.list_files", side_effect=mocks["list_files"])
     mocker.patch("web.cron.s3.interactive.upload", side_effect=mocks["upload"])
 
 
@@ -529,6 +528,32 @@ def test_discover_s3_multiple_apps_sorted(mocker, s3_cron_env):
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
     assert [t["slug"] for t in tasks] == ["alpha-app", "zeta-app"]
+
+
+def test_discover_lists_bucket_once_regardless_of_dashboard_count(mocker, s3_cron_env):
+    for slug in ("a-app", "b-app", "c-app"):
+        _seed_dashboard(slug)
+    mocks = make_s3_mocks([mock_s3_app(s) for s in ("a-app", "b-app", "c-app")])
+    list_files = mocker.patch("web.cron.s3.interactive.list_files", side_effect=mocks["list_files"])
+    mocker.patch("web.cron.s3.interactive.download", side_effect=mocks["download"])
+
+    tasks = discover_cron_tasks()
+
+    assert len(tasks) == 3
+    assert list_files.call_count == 1
+
+
+def test_run_all_does_not_rediscover_per_task(mocker, s3_cron_env):
+    for slug in ("one-app", "two-app"):
+        _seed_dashboard(slug)
+    mocks = make_s3_mocks([mock_s3_app(s) for s in ("one-app", "two-app")])
+    _patch_s3_full(mocker, mocks)
+    find_task = mocker.spy(cron, "find_task")
+
+    results = run_all(dry_run=False)
+
+    assert {r["slug"] for r in results} == {"one-app", "two-app"}
+    assert find_task.call_count == 0
 
 
 def test_run_s3_executes_script(mocker, s3_cron_env):
@@ -653,8 +678,6 @@ def test_cron_alert_snippet_escapes_triple_backticks(mocker):
 def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     import logging
 
-    from web.cron import run_all
-
     mocker.patch(
         "web.cron.discover_cron_tasks",
         return_value=[
@@ -670,7 +693,7 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     )
     mocker.patch("web.cron.is_due", return_value=True)
     mocker.patch(
-        "web.cron.run_cron_task",
+        "web.cron.execute_task",
         return_value={"slug": "my-task", "status": "success", "duration_ms": 1234, "output": ""},
     )
 
