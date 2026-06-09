@@ -137,8 +137,9 @@ CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 # Skip CLI auth check (local dev convenience)
 SKIP_CLI_AUTH_CHECK = os.getenv("SKIP_CLI_AUTH_CHECK", "false").lower() == "true"
 
-# Max concurrent agent processes
-MAX_CONCURRENT_AGENTS = int(os.getenv("MAX_CONCURRENT_AGENTS", "2"))
+# Max concurrent agent processes. Single web worker (WEB_CONCURRENCY=1) leaves headroom for
+# more CLI children: ~200MiB worker + 4×~350MiB agents fits the 2GiB dyno.
+MAX_CONCURRENT_AGENTS = int(os.getenv("MAX_CONCURRENT_AGENTS", "4"))
 
 # Tool call budget per agent turn (0 = unlimited)
 MAX_TOOL_CALLS = int(os.getenv("MAX_TOOL_CALLS", "200"))
