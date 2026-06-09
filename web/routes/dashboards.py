@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
+from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.cron import get_last_runs, get_schedule_for_app, next_cron_run
 from web.database import store
@@ -192,7 +193,7 @@ async def toggle_archive(slug: Slug, request: Request, user_email: str = Depends
     archived = bool(payload.get("archived", True))
     if archived:
         for pub in list_publications(slug, active_only=True):
-            unpublish(pub["publication_id"])
+            await run_in_thread(unpublish, pub["publication_id"])
     try:
         update_dashboard(slug=slug, updater_email=user_email, is_archived=archived)
     except DashboardNotFound:
@@ -234,7 +235,7 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
     if environment not in ENVIRONMENTS:
         return JSONResponse({"error": "Invalid environment"}, status_code=400)
     try:
-        return publish(slug, environment, user_email)
+        return await run_in_thread(publish, slug, environment, user_email)
     except PublicationBlocked as exc:
         reason = exc.code if exc.code in BLOCKED_CODES else "blocked"
         return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
@@ -242,7 +243,7 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
 
 @router.post("/api/publications/{publication_id}/unpublish")
 async def unpublish_publication(publication_id: PublicationId, user_email: str = Depends(get_current_user)):
-    if not unpublish(publication_id):
+    if not await run_in_thread(unpublish, publication_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return {"ok": True}
 
