@@ -1,5 +1,7 @@
 """Tests for web/session_sync.py — S3 session file management."""
 
+from botocore.exceptions import BotoCoreError
+
 from web import session_sync
 
 
@@ -73,11 +75,48 @@ def test_download_and_upload_roundtrip(monkeypatch, mocker, tmp_path):
 
 
 def test_download_nonexistent_session(monkeypatch, mocker, tmp_path):
-    mocker.patch.object(session_sync.s3.sessions, "download", return_value=None)
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", return_value=None)
+    mocker.patch.object(session_sync.time, "sleep")
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
     monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
 
     assert session_sync.download_session("does-not-exist") is False
+    assert dl.call_count == session_sync._DOWNLOAD_ATTEMPTS
+
+
+def test_download_session_retries_then_succeeds(monkeypatch, mocker, tmp_path):
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", side_effect=[None, b'{"type":"message"}\n'])
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+    mocker.patch.object(session_sync.time, "sleep")
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+
+    assert session_sync.download_session("sess-1") is True
+    assert dl.call_count == 2
+    assert (tmp_path / "sess-1.jsonl").read_bytes() == b'{"type":"message"}\n'
+
+
+def test_download_session_retries_on_network_error(monkeypatch, mocker, tmp_path):
+    dl = mocker.patch.object(
+        session_sync.s3.sessions, "download", side_effect=[BotoCoreError(), b'{"type":"message"}\n']
+    )
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+    mocker.patch.object(session_sync.time, "sleep")
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+
+    assert session_sync.download_session("sess-2") is True
+    assert dl.call_count == 2
+
+
+def test_download_session_gives_up_after_repeated_network_errors(monkeypatch, mocker, tmp_path):
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", side_effect=BotoCoreError)
+    mocker.patch.object(session_sync.time, "sleep")
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+
+    assert session_sync.download_session("sess-3") is False
+    assert dl.call_count == session_sync._DOWNLOAD_ATTEMPTS
 
 
 def test_copy_session_returns_false_without_s3(monkeypatch):
