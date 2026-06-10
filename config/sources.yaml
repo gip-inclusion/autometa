@@ -63,6 +63,9 @@ matomo:
 
 tag_manager:
   sites:
+    - name: Autometa
+      matomo_id: 224
+      container_id: TvNd7LvK
     - name: Communauté
       matomo_id: 206
       container_id: GTln5jDH

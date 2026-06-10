@@ -77,3 +77,20 @@ Si l'une manque, le script échoue avec code retour non nul.
 Avant d'écrire le code du TDB (HTML/JS/cron.py), lire `docs/interactive-dashboards.md` pour respecter les conventions (vanilla JS, pas de framework, palette DSFR, structure des fichiers, modes `cron.py` vs `/api/query`).
 
 Un `cron.py` ne lit et n'écrit que dans le dossier de son propre dashboard : il ne référence jamais un autre dashboard (`../autre/` ou `/app/data/interactive/autre/`), il régénère ses données depuis la source primaire.
+
+Le modèle HTML contient un script d'appel du tag manager de Matomo. Il faut le laisser, sauf instruction contraire explicite. Ce script est sur le modèle qu'on trouve dans `base.html` :
+
+```html
+<!-- Matomo Tag Manager -->
+<script>
+var _mtm = window._mtm = window._mtm || [];
+_mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
+(function() {
+  var d = document, g = d.createElement('script'), s = d.getElementsByTagName('script')[0];
+  g.async = true;
+  g.src = '{{ matomo_tracking_url }}/js/container_{{ matomo_tag_manager_container_id }}.js';
+  s.parentNode.insertBefore(g, s);
+})();
+</script>
+```
+
