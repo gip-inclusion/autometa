@@ -56,13 +56,17 @@ def test_get_conversation_shared_read_with_is_owner_flag(client, owner, viewer, 
 
 
 def test_get_conversation_not_found(client):
-    assert client.get("/api/conversations/nope", headers=headers()).status_code == 404
+    r = client.get("/api/conversations/nope", headers=headers())
+
+    assert r.status_code == 404
 
 
 def test_delete_conversation_denied_for_non_owner(client):
     conv = store.create_conversation(user_id=ALICE)
 
-    assert client.delete(f"/api/conversations/{conv.id}", headers=headers(BOB)).status_code == 403
+    r = client.delete(f"/api/conversations/{conv.id}", headers=headers(BOB))
+
+    assert r.status_code == 403
     assert store.get_conversation(conv.id) is not None
 
 
@@ -70,14 +74,18 @@ def test_delete_conversation_denied_for_non_owner(client):
 def test_delete_conversation_allowed_for_owner_and_admin(client, deleter):
     conv = store.create_conversation(user_id=ALICE)
 
-    assert client.delete(f"/api/conversations/{conv.id}", headers=headers(deleter)).status_code == 200
+    r = client.delete(f"/api/conversations/{conv.id}", headers=headers(deleter))
+
+    assert r.status_code == 200
     assert store.get_conversation(conv.id) is None
 
 
 def test_pin_requires_admin(client):
     conv = store.create_conversation(user_id=ALICE)
 
-    assert client.post(f"/api/conversations/{conv.id}/pin", headers=headers(ALICE)).status_code == 403
+    r = client.post(f"/api/conversations/{conv.id}/pin", headers=headers(ALICE))
+
+    assert r.status_code == 403
 
 
 def test_pin_and_unpin_as_admin(client):
@@ -87,13 +95,16 @@ def test_pin_and_unpin_as_admin(client):
     assert r.status_code == 200
     assert r.json() == {"ok": True, "label": "Suivi"}
 
-    assert client.delete(f"/api/conversations/{conv.id}/pin", headers=headers(ADMIN)).json() == {"ok": True}
+    r = client.delete(f"/api/conversations/{conv.id}/pin", headers=headers(ADMIN))
+    assert r.json() == {"ok": True}
 
 
 def test_unpin_requires_admin(client):
     conv = store.create_conversation(user_id=ALICE)
 
-    assert client.delete(f"/api/conversations/{conv.id}/pin", headers=headers(ALICE)).status_code == 403
+    r = client.delete(f"/api/conversations/{conv.id}/pin", headers=headers(ALICE))
+
+    assert r.status_code == 403
 
 
 def test_fork_creates_copy_owned_by_forker(client):
