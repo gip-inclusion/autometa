@@ -407,6 +407,31 @@ def test_query_uses_shared_sel_and_blank_frame(mocker):
     assert captured["frameId"] == "" and captured["pageId"] == ""
 
 
+@pytest.mark.integration
+def test_live_charts_populated():
+    from sqlalchemy import text
+
+    from lib.rpe_gwt import parse_charts
+    from web.db import get_engine
+
+    rpe.ensure_schema()
+    client = rpe.RpeClient.connect()
+    try:
+        _fresh, flows = client.refresh_catalog()
+    finally:
+        client.close()
+    n = rpe.store_charts(parse_charts(flows))
+    assert n > 100  # FT adds/removes charts; loose lower bound, don't pin ~400
+    with get_engine().connect() as c:
+        hits = c.execute(
+            text(
+                "SELECT count(*) FROM matometa.rpe_chart "
+                "WHERE chart_title ILIKE '%recours%' OR array_to_string(measures_shown, ' ') ILIKE '%recours%'"
+            )
+        ).scalar()
+    assert hits >= 1
+
+
 def test_refresh_catalog_uses_all_wallet_frames(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.cubeids = {}
