@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
 import pytest
@@ -32,7 +31,7 @@ def fake_redis():
 def make_runner(mocker, fake_redis, max_concurrent=2):
     mock_backend = mocker.MagicMock()
     mock_backend.send_message = _noop_stream
-    mock_backend.cancel = AsyncMock()
+    mock_backend.cancel = mocker.AsyncMock()
     mocker.patch("web.runner.get_agent", return_value=mock_backend)
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", max_concurrent)
