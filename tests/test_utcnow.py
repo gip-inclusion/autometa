@@ -21,7 +21,8 @@ def test_utcnow_isoformat_contains_offset():
 @pytest.mark.parametrize(
     "module_path,function_or_attr",
     [
-        ("web.database", "utcnow"),
+        ("web.stores.records", "utcnow"),
+        ("web.stores.conversations", "utcnow"),
         ("web.cron", "utcnow"),
         ("web.slack_feedback", "utcnow"),
     ],
