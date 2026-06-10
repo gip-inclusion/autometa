@@ -45,7 +45,7 @@ Dimensions transverses : géographie (commune/bassin/département/région), temp
 
 Schéma (`matometa`) :
 
-- `rpe_dataset(cube_key, name, cube_id, role_id)` — `name` = nom du dataset.
+- `rpe_dataset(cube_key, name, cube_id)` — `name` = nom du dataset.
 - `rpe_dimension(dataset, dim_id, name, category, caption_dim, n_members)`.
 - `rpe_measure(dataset, measure_id, label)` — `measure_id` = id **exact** à passer à `query()`.
 - `rpe_fact(id, dataset, measure, measure_id, period, dimension, member_code, member_label, value)`.
@@ -114,7 +114,7 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 ```
 → une ligne par mois pour la Bretagne (code région 53).
 
-**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules d'un dataset : `python -c "from lib.rpe import RpeClient,_RES; …_RES['sel']['ddVars']"`). Exemple série mensuelle nette :
+**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules disponibles : `python -c "from lib.rpe_gwt import SEL; print([v['name'] for v in SEL['ddVars']])"`). Exemple série mensuelle nette :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
