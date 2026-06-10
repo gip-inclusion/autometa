@@ -306,15 +306,16 @@ def test_mirror_records_failures_and_overrides_geo_label(mocker):
 def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, alerts):
     mocker.patch.object(rpe, "ensure_schema")
     client = mocker.MagicMock()
-    client.refresh_catalog.return_value = {"k": "cube"}
+    client.refresh_catalog.return_value = ({"k": "cube"}, "")
     client.mirror.return_value = ([{"x": 1}] if facts else [], failed)
     mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
     mocker.patch.object(rpe, "store_catalog")
     mocker.patch.object(rpe, "update_measure_labels", return_value=0)
     mocker.patch.object(rpe, "store_facts", return_value=facts)
+    mocker.patch.object(rpe, "store_charts", return_value=0)
     alert = mocker.patch.object(rpe, "notify_alert_channel")
     out = rpe.refresh()
-    assert out == {"cubeids": 1, "labels": 0, "facts": facts, "failed": len(failed)}
+    assert out == {"cubeids": 1, "labels": 0, "facts": facts, "charts": 0, "failed": len(failed)}
     client.close.assert_called_once()
     assert alert.call_count == alerts
 
@@ -430,5 +431,6 @@ def test_refresh_catalog_uses_all_wallet_frames(mocker):
             "getFlowsView": ["7|3|19|" + "|".join(str(i) for i in range(1, 20)) + "|x|"],
         },
     )
-    fresh = client.refresh_catalog()
+    fresh, flows = client.refresh_catalog()
     assert set(fresh) == {k1, k2}
+    assert k1 in flows
