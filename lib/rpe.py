@@ -1,24 +1,36 @@
 """Client du tableau de bord RPE (France Travail / DigDash) : login, requêtes à la demande, catalogue. httpx pur."""
 
+import copy
 import json
 import logging
 import re
+from collections import defaultdict
 from datetime import datetime, timezone
-from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import ARRAY, Column, DateTime, Float, Integer, MetaData, String, Table, delete, insert, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.rpe_gwt import build_flowsview_payload, extract_frame_ids, flowsview_header, parse_charts
+from lib.rpe_gwt import (
+    GWT,
+    SEL,
+    build_flowsview_payload,
+    cube_dm_urls,
+    extract_frame_ids,
+    flowsview_header,
+    parse_charts,
+    parse_cube_dm,
+)
 from web.alerts import notify_alert_channel
 from web.db import get_engine
 
 logger = logging.getLogger(__name__)
 
 # Données publiques du tableau de bord en accès libre (identifiants présents dans l'URL publique).
-BASE = "https://pilotage-rpe.francetravail.org/digdash_dashboard"
+HOST = "https://pilotage-rpe.francetravail.org"
+BASE = HOST + "/digdash_dashboard"
 MODULE = BASE + "/dashboard/"
 PUBLIC_PASS = "yYjL2p#9LSHeT8p0"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36"
@@ -31,7 +43,6 @@ SESSION_TTL_S = 1200  # < 30 min Tomcat idle ; un 403 déclenche de toute façon
 BAKED_PERMUTATION = "2D1551B7C160B162D34A4CD10515557B"
 BAKED_STRONG_NAME = "B28E527AF46D9C6155A876F4769EC2F4"
 
-_RES = json.loads((Path(__file__).parent / "rpe_templates.json").read_text(encoding="utf-8"))
 _SID_RE = re.compile(r"4c9184f37cff01[0-9a-f]+")
 _CUBE_RE = re.compile(r"[0-9a-f]{32}_[0-9a-f]{32}_[0-9a-f]+_[0-9]{13}")
 _HEX32_RE = re.compile(r"[0-9A-F]{32}")
@@ -42,14 +53,12 @@ class RpeLoginError(RuntimeError):
 
 
 _metadata = MetaData(schema=SCHEMA)
-rpe_theme = Table("rpe_theme", _metadata, Column("role_id", String, primary_key=True), Column("name", String))
 rpe_dataset = Table(
     "rpe_dataset",
     _metadata,
     Column("cube_key", String, primary_key=True),
     Column("name", String),
     Column("cube_id", String),
-    Column("role_id", String),
 )
 rpe_dimension = Table(
     "rpe_dimension",
@@ -164,8 +173,8 @@ def _attempt_login(permutation: str, strong_name: str, timeout: int = TIMEOUT) -
         body = payload.replace(BAKED_STRONG_NAME, strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
         return client.post(MODULE + "dash", content=body, headers=headers, timeout=timeout)
 
-    settings = gwt(_RES["gwt"]["getUserSettings"])
-    login = gwt(_RES["gwt"]["login"])
+    settings = gwt(GWT["getUserSettings"])
+    login = gwt(GWT["login"])
     if _ok(settings) and _ok(login):
         return client
     client.close()
@@ -252,6 +261,7 @@ class RpeClient:
         self.permutation = permutation
         self.strong_name = strong_name
         self.sid = sid or self._resolve_sid()
+        self.catalog = self._load_catalog()
         self.cubeids = self._load_cubeids()
 
     @classmethod
@@ -288,14 +298,15 @@ class RpeClient:
         sid = self.http.cookies.get("digdashSessionId")
         if sid:
             return sid
-        body = (
-            _RES["gwt"]["getUserSettings"]
-            .replace(BAKED_STRONG_NAME, self.strong_name)
-            .replace("__RPE_PASS__", PUBLIC_PASS)
-        )
+        body = GWT["getUserSettings"].replace(BAKED_STRONG_NAME, self.strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
         r = self.http.post(MODULE + "dash", content=body, headers=_gwt_headers(self.permutation), timeout=TIMEOUT)
         m = _SID_RE.search(r.text)
-        return m.group(0) if m else None
+        if not m:
+            logger.warning(
+                "RPE : sid de session introuvable (statut %s) — requêtes ultérieures risquent un 403", r.status_code
+            )
+            return None
+        return m.group(0)
 
     def _load_cubeids(self) -> dict:
         cubeids = {}
@@ -307,27 +318,53 @@ class RpeClient:
                         if row.cube_id:
                             cubeids[row.cube_key] = row.cube_id
         except SQLAlchemyError as e:
-            logger.warning("RPE : cubeIds DB indisponibles, repli sur la graine (%s)", e)
-        for key, cat in _RES["catalog"].items():  # graine : cubeIds capturés, à défaut de DB
-            cubeids.setdefault(key, cat.get("cubeId"))
+            logger.warning("RPE : cubeIds DB indisponibles (%s)", e)
         return cubeids
 
+    def _load_catalog(self) -> dict:
+        """Catalogue {cube_key: {cubeName, dimensions, measures}} depuis la DB (vide tant que le cron n'a pas tourné)."""
+        catalog: dict = {}
+        try:
+            eng = get_engine()
+            with eng.connect() as conn:
+                if not eng.dialect.has_table(conn, "rpe_dataset", schema=SCHEMA):
+                    return catalog
+                names = {r.cube_key: r.name for r in conn.execute(select(rpe_dataset.c.cube_key, rpe_dataset.c.name))}
+                dims: dict[str, list] = defaultdict(list)
+                for r in conn.execute(select(rpe_dimension)):
+                    dims[r.dataset].append({
+                        "id": r.dim_id,
+                        "name": r.name,
+                        "category": r.category,
+                        "captionDim": r.caption_dim,
+                        "nbMembers": r.n_members,
+                    })
+                meas: dict[str, list] = defaultdict(list)
+                for r in conn.execute(select(rpe_measure)):
+                    meas[r.dataset].append({"id": r.measure_id, "label": r.label})
+        except SQLAlchemyError as e:
+            logger.warning("RPE : catalogue DB indisponible (%s)", e)
+            return catalog
+        for cube_key, name in names.items():
+            catalog[cube_key] = {"cubeName": name, "dimensions": dims.get(name, []), "measures": meas.get(name, [])}
+        return catalog
+
     def _key(self, dataset: str) -> str:
-        if dataset in _RES["datasets"]:
+        if dataset in self.catalog:
             return dataset
-        for key, d in _RES["datasets"].items():
-            if d.get("cubeName") == dataset:
+        for key, d in self.catalog.items():
+            if d["cubeName"] == dataset:
                 return key
         raise KeyError(f"dataset inconnu : {dataset}")
 
     def datasets(self) -> list[str]:
-        return [d["cubeName"] for d in _RES["datasets"].values()]
+        return [d["cubeName"] for d in self.catalog.values()]
 
     def measures(self, dataset: str) -> list[dict]:
-        return _RES["catalog"][self._key(dataset)]["measures"]
+        return self.catalog[self._key(dataset)]["measures"]
 
     def dimensions(self, dataset: str) -> list[dict]:
-        return _RES["catalog"][self._key(dataset)]["dimensions"]
+        return self.catalog[self._key(dataset)]["dimensions"]
 
     def _resolve_measures(self, dataset: str, measures: list) -> list:
         """Résout chaque mesure vers le measure_id exact (match normalisé id/label) ; tolère apostrophes/casse."""
@@ -371,7 +408,7 @@ class RpeClient:
             measures = self._resolve_measures(dataset, list(measures))
 
         dims = [d if isinstance(d, dict) else {"dim": d, "hPos": -1, "lPos": -1} for d in dimensions]
-        sel = json.loads(json.dumps(_RES["sel"]))
+        sel = copy.deepcopy(SEL)
         sel["dimsToExplore"] = [
             {
                 "dim": d["dim"],
@@ -468,9 +505,9 @@ class RpeClient:
 
     def refresh_catalog(self) -> tuple[dict, str]:
         """Rafraîchit tous les cubeIds via getFlowsView (tous les frames du wallet) ; renvoie (cubeids, réponse brute)."""
-        self._gwt(_RES["gwt"]["getUserParams"])
-        wallet = self._gwt(_RES["gwt"]["loadWallet"])
-        header = flowsview_header(_RES["gwt"]["getFlowsView"][0])
+        self._gwt(GWT["getUserParams"])
+        wallet = self._gwt(GWT["loadWallet"])
+        header = flowsview_header(GWT["getFlowsView"])
         resp = self._gwt(build_flowsview_payload(extract_frame_ids(wallet), header))
         fresh = {cube.split("_")[0]: cube for cube in _CUBE_RE.findall(resp)}
         self.cubeids.update(fresh)
@@ -481,10 +518,10 @@ class RpeClient:
         """Cache des « données faciles » : marginales géo (libellé canonique) + temps. Renvoie (lignes, échecs)."""
         rows: list[dict] = []
         failed: list[str] = []
-        for key, tpl in _RES["datasets"].items():
+        for key, cat in self.catalog.items():
             if key not in self.cubeids:
                 continue
-            name = tpl["cubeName"]
+            name = cat["cubeName"]
             plan = [(None, d) for d in dimensions] if dimensions else _mirror_plan(self.dimensions(name))
             for label, spec in plan:
                 try:
@@ -498,6 +535,14 @@ class RpeClient:
                     logger.warning("mirror : échec %s : %s", failed[-1], e)
         logger.info("mirror : %d lignes, %d échecs", len(rows), len(failed))
         return rows, failed
+
+    def fetch_cube_dm(self, url: str, timeout: int = TIMEOUT) -> str:
+        """Télécharge un fichier cube_dm (catalogue d'un cube). Why: le contexte /ddenterpriseapi exige
+        les identifiants publics en paramètres (les cookies de session y renvoient 401)."""
+        full = HOST + url + "&user=public&pass=" + quote(PUBLIC_PASS, safe="")
+        r = self.http.get(full, headers={"User-Agent": UA, "Referer": REFERER}, timeout=timeout)
+        r.raise_for_status()
+        return r.text
 
 
 # Niveaux géographiques (dim hiérarchique C_TERRITOIRE_ID) ; codes INSEE alignés région/dépt, CLPE pour le territoire.
@@ -515,6 +560,8 @@ def _mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
     """Plan de ventilation du mirror : (libellé canonique | None, spec de dimension). Géo nommée, temps brut."""
     has_terr = any(d["id"] == "C_TERRITOIRE_ID" for d in dims)
     plan: list[tuple[str | None, dict]] = [(g, GEO_LEVELS[g]) for g in MIRROR_GEO] if has_terr else []
+    # Why: `time` n'est présent que sur le catalogue fraîchement dérivé (refresh) ; le mirror tourne
+    # toujours sur ce catalogue-là, jamais sur celui rechargé de la DB (qui n'a pas la colonne time).
     plan += [
         (None, {"dim": d["id"], "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
         for d in dims
@@ -523,28 +570,59 @@ def _mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
     return plan
 
 
-def store_catalog(client: RpeClient, fresh_cubeids: dict) -> None:
+def build_catalog(client: RpeClient, flows_response: str) -> tuple[dict, int]:
+    """Catalogue {cube_key: {cubeName, dimensions, measures}} httpx + nb de cube_dm en échec (dims via cube_dm, mesures via graphes ; DDAudit exclus)."""
+    measures_by_cube: dict[str, list] = defaultdict(list)
+    seen: dict[str, set] = defaultdict(set)
+    for ch in parse_charts(flows_response):
+        for m in ch["measures_shown"]:
+            if m not in seen[ch["cube_key"]]:
+                seen[ch["cube_key"]].add(m)
+                measures_by_cube[ch["cube_key"]].append({"id": m, "label": m})
+    catalog: dict = {}
+    failed = 0
+    for cube_key, url in cube_dm_urls(flows_response).items():
+        try:
+            parsed = parse_cube_dm(client.fetch_cube_dm(url))
+        except httpx.HTTPError as e:  # Why: ne pas logger e (l'URL porte le mot de passe public en clair)
+            failed += 1
+            logger.warning("build_catalog : cube_dm %s injoignable (%s)", cube_key, type(e).__name__)
+            continue
+        name = parsed["cube_name"]
+        if not name or name.startswith("DDAudit"):  # cubes d'audit DigDash internes
+            continue
+        catalog[cube_key] = {
+            "cubeName": name,
+            "dimensions": [
+                {
+                    "id": d["id"],
+                    "name": d["name"],
+                    "category": d["category"],
+                    "captionDim": d["caption_dim"],
+                    "nbMembers": d["n_members"],
+                    "time": d["time"],
+                }
+                for d in parsed["dimensions"]
+            ],
+            "measures": measures_by_cube.get(cube_key, []),
+        }
+    logger.info("build_catalog : %d datasets (hors DDAudit), %d cube_dm en échec", len(catalog), failed)
+    return catalog, failed
+
+
+def store_catalog(fresh_cubeids: dict, catalog: dict) -> int:
+    """Remplacement complet du catalogue (dataset/dimension/measure). Catalogue vide → no-op (cache conservé)."""
+    if not catalog:
+        logger.warning("store_catalog : catalogue vide, cache inchangé")
+        return 0
     eng = get_engine()
-    cat = _RES["catalog"]
     with eng.begin() as conn:
-        conn.execute(delete(rpe_theme))
         conn.execute(delete(rpe_dataset))
         conn.execute(delete(rpe_dimension))
         conn.execute(delete(rpe_measure))
-        roles = {c.get("roleId") for c in cat.values() if c.get("roleId")}
-        if roles:
-            conn.execute(insert(rpe_theme), [{"role_id": r, "name": r} for r in roles])
         conn.execute(
             insert(rpe_dataset),
-            [
-                {
-                    "cube_key": k,
-                    "name": c["cubeName"],
-                    "cube_id": fresh_cubeids.get(k, c.get("cubeId")),
-                    "role_id": c.get("roleId"),
-                }
-                for k, c in cat.items()
-            ],
+            [{"cube_key": k, "name": c["cubeName"], "cube_id": fresh_cubeids.get(k)} for k, c in catalog.items()],
         )
         dims = [
             {
@@ -555,18 +633,19 @@ def store_catalog(client: RpeClient, fresh_cubeids: dict) -> None:
                 "caption_dim": d.get("captionDim"),
                 "n_members": d.get("nbMembers"),
             }
-            for c in cat.values()
+            for c in catalog.values()
             for d in c["dimensions"]
         ]
         if dims:
             conn.execute(insert(rpe_dimension), dims)
         meas = [
             {"dataset": c["cubeName"], "measure_id": m["id"], "label": m["label"]}
-            for c in cat.values()
+            for c in catalog.values()
             for m in c["measures"]
         ]
         if meas:
             conn.execute(insert(rpe_measure), meas)
+    return len(catalog)
 
 
 def update_measure_labels(rows: list[dict]) -> int:
@@ -594,16 +673,15 @@ def store_facts(rows: list[dict]) -> int:
     return len(payload)
 
 
-def store_charts(records: list[dict]) -> int:
-    """Remplacement complet de `rpe_chart` (sinon on garde le cache). Résout cube_name depuis le catalogue."""
+def store_charts(records: list[dict], cube_names: dict) -> int:
+    """Remplacement complet de `rpe_chart` (sinon on garde le cache). cube_names : {cube_key: cubeName}."""
     if not records:  # parse vide → ne pas vider le cache
         return 0
-    names = {k: c["cubeName"] for k, c in _RES["catalog"].items()}
     payload = [
         {
             "chart_title": r["chart_title"],
             "cube_key": r["cube_key"],
-            "cube_name": names.get(r["cube_key"]),
+            "cube_name": cube_names.get(r["cube_key"]),
             "measures_shown": r["measures_shown"],
             "dims_shown": r["dims_shown"],
         }
@@ -625,26 +703,41 @@ def refresh() -> dict:
         raise
     try:
         fresh, flows = client.refresh_catalog()
-        store_catalog(client, fresh)
+        catalog, dm_failed = build_catalog(client, flows)
+        client.catalog = catalog  # le mirror ventile sur le catalogue fraîchement dérivé (flag time inclus)
+        cat_n = store_catalog(fresh, catalog)
         rows, failed = client.mirror()
         labels = update_measure_labels(rows)
         n = store_facts(rows)
-        charts = store_charts(parse_charts(flows))
-    except (httpx.HTTPError, ValueError) as e:
-        notify_alert_channel(f"RPE refresh : échec rafraîchissement ({e})")
+        cube_names = {k: c["cubeName"] for k, c in catalog.items()}
+        charts = store_charts(parse_charts(flows), cube_names)
+    except (httpx.HTTPError, ValueError, SQLAlchemyError) as e:
+        notify_alert_channel(f"RPE refresh : échec rafraîchissement ({type(e).__name__})")
         raise
     finally:
         client.close()
+    if cat_n == 0:  # Why: aucun cube_dm parsé → format probablement changé ; cache catalogue conservé
+        notify_alert_channel("RPE refresh : catalogue vide, cache inchangé")
+    elif dm_failed:  # Why: catalogue partiel stocké → datasets potentiellement manquants, à investiguer
+        notify_alert_channel(f"RPE refresh : catalogue partiel ({dm_failed} cube_dm injoignables)")
     if n == 0:  # remplacement non effectué → le cache sert des données périmées
         notify_alert_channel(f"RPE refresh : mirror vide, cache inchangé ({len(failed)} requêtes en échec)")
     if charts == 0 and flows:  # Why: getFlowsView a répondu mais aucun graphe parsé → format probablement changé
         notify_alert_channel("RPE refresh : aucun graphe parsé, rpe_chart inchangé")
     logger.info(
-        "RPE refresh terminé : %d cubeIds, %d libellés, %d faits, %d graphes, %d échecs",
+        "RPE refresh terminé : %d datasets, %d cubeIds, %d libellés, %d faits, %d graphes, %d échecs",
+        cat_n,
         len(fresh),
         labels,
         n,
         charts,
         len(failed),
     )
-    return {"cubeids": len(fresh), "labels": labels, "facts": n, "charts": charts, "failed": len(failed)}
+    return {
+        "datasets": cat_n,
+        "cubeids": len(fresh),
+        "labels": labels,
+        "facts": n,
+        "charts": charts,
+        "failed": len(failed),
+    }

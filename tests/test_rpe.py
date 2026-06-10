@@ -77,9 +77,9 @@ def test_epoch_month():
 def test_query_builds_multidim_sel_and_parses(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.sid = "sid"
-    key = next(iter(rpe._RES["datasets"]))
-    name = rpe._RES["datasets"][key]["cubeName"]
-    client.cubeids = {key: "CUBEID"}
+    name = DATASET
+    client.catalog = {"CK1": {"cubeName": name, "dimensions": [], "measures": [{"id": "MID", "label": "M"}]}}
+    client.cubeids = {"CK1": "CUBEID"}
 
     captured = {}
 
@@ -112,6 +112,7 @@ def test_query_builds_multidim_sel_and_parses(mocker):
 def test_query_raises_without_cubeid(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.sid = "sid"
+    client.catalog = {"CK1": {"cubeName": DATASET, "dimensions": [], "measures": []}}
     client.cubeids = {}
     client.http = mocker.MagicMock()
     with pytest.raises(rpe.RpeLoginError):
@@ -156,8 +157,8 @@ def test_cli_apply_where_filters_rows():
     assert mod.apply_where(rows, []) == rows
 
     measures = [{"id": "Entrant en formation (switch)", "label": "Entrées"}, {"id": "X9F022", "label": "Accès"}]
-    assert mod._grep(measures, "entrant") == [measures[0]]
-    assert mod._grep(measures, None) == measures
+    assert mod.grep(measures, "entrant") == [measures[0]]
+    assert mod.grep(measures, None) == measures
 
     assert mod.parse_ddvar("0") == 0 and mod.parse_ddvar("-3") == -3  # numérique → int
     assert mod.parse_ddvar("Mensuel") == "Mensuel"  # non numérique → chaîne brute (pas de crash)
@@ -286,9 +287,9 @@ def test_gwt_relogins_when_not_ok_then_retries(mocker):
 
 def test_mirror_records_failures_and_overrides_geo_label(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
-    key = next(iter(rpe._RES["datasets"]))
-    name = rpe._RES["datasets"][key]["cubeName"]
-    client.cubeids = {key: "CUBEID"}
+    name = DATASET
+    client.catalog = {"CK1": {"cubeName": name, "dimensions": [], "measures": []}}
+    client.cubeids = {"CK1": "CUBEID"}
     mocker.patch.object(rpe.RpeClient, "dimensions", return_value=[{"id": "C_TERRITOIRE_ID"}])
 
     def fake_query(ds, dims, timeout=None):
@@ -302,20 +303,26 @@ def test_mirror_records_failures_and_overrides_geo_label(mocker):
     assert failed == [f"{name} / Département"]
 
 
-@pytest.mark.parametrize("facts,failed,alerts", [(42, [], 0), (0, ["ds / Région"], 1)])
-def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, alerts):
+@pytest.mark.parametrize(
+    "facts,failed,dm_failed,alerts",
+    [(42, [], 0, 0), (0, ["ds / Région"], 0, 1), (42, [], 3, 1)],  # mirror vide → 1 ; catalogue partiel → 1
+)
+def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, dm_failed, alerts):
     mocker.patch.object(rpe, "ensure_schema")
     client = mocker.MagicMock()
     client.refresh_catalog.return_value = ({"k": "cube"}, "")
     client.mirror.return_value = ([{"x": 1}] if facts else [], failed)
     mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
-    mocker.patch.object(rpe, "store_catalog")
+    mocker.patch.object(
+        rpe, "build_catalog", return_value=({"k": {"cubeName": "N", "dimensions": [], "measures": []}}, dm_failed)
+    )
+    mocker.patch.object(rpe, "store_catalog", return_value=1)
     mocker.patch.object(rpe, "update_measure_labels", return_value=0)
     mocker.patch.object(rpe, "store_facts", return_value=facts)
     mocker.patch.object(rpe, "store_charts", return_value=0)
     alert = mocker.patch.object(rpe, "notify_alert_channel")
     out = rpe.refresh()
-    assert out == {"cubeids": 1, "labels": 0, "facts": facts, "charts": 0, "failed": len(failed)}
+    assert out == {"datasets": 1, "cubeids": 1, "labels": 0, "facts": facts, "charts": 0, "failed": len(failed)}
     client.close.assert_called_once()
     assert alert.call_count == alerts
 
@@ -353,8 +360,14 @@ def test_refresh_alerts_on_empty_charts(mocker):
 def test_live_login_query():
     client = rpe.RpeClient.connect()
     try:
-        rows = client.query(DATASET, [{"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 1}])
-        assert rows and all("member_code" in r for r in rows)
+        fresh, flows = client.refresh_catalog()  # catalogue dérivé en httpx (pas de JSON committé)
+        client.catalog, _ = rpe.build_catalog(client, flows)
+        names = {c["cubeName"] for c in client.catalog.values()}
+        assert DATASET in names  # le cube métier lourd est catalogué (sans requête : compute serveur trop coûteux)
+        # Requête réelle sur un cube léger (les gros cubes peuvent recalculer >60s après rotation nocturne).
+        light = next(n for n in ("Indicateurs", "NPS", "Satisfaction DE") if n in names)
+        rows = client.query(light, [client.dimensions(light)[0]["id"]], timeout=90)
+        assert all("member_code" in r for r in rows)  # parse correct (cube léger peut renvoyer 0 ligne)
     finally:
         client.close()
 
@@ -376,31 +389,134 @@ def test_store_charts_full_replace():
     from web.db import get_engine
 
     rpe.ensure_schema()
-    donor = next(iter(rpe._RES["catalog"]))  # any real cube_key from the loaded catalog
-    rpe.store_charts([
-        {"chart_title": "__c1__", "cube_key": donor, "measures_shown": ["m"], "dims_shown": ["d"]},
-        {"chart_title": "__c2__", "cube_key": "zzz", "measures_shown": [], "dims_shown": []},
-    ])
-    rpe.store_charts([{"chart_title": "__c1__", "cube_key": donor, "measures_shown": ["m2"], "dims_shown": []}])
+    names = {"CKa": "__cube_a__"}
+    rpe.store_charts(
+        [
+            {"chart_title": "__c1__", "cube_key": "CKa", "measures_shown": ["m"], "dims_shown": ["d"]},
+            {"chart_title": "__c2__", "cube_key": "zzz", "measures_shown": [], "dims_shown": []},
+        ],
+        names,
+    )
+    rpe.store_charts([{"chart_title": "__c1__", "cube_key": "CKa", "measures_shown": ["m2"], "dims_shown": []}], names)
     with get_engine().connect() as c:
         titles = [r[0] for r in c.execute(text("SELECT chart_title FROM matometa.rpe_chart"))]
         row = c.execute(
             text("SELECT cube_name, measures_shown FROM matometa.rpe_chart WHERE chart_title='__c1__'")
         ).first()
     assert titles == ["__c1__"]  # full replace dropped __c2__
-    assert row[0] is not None  # cube_name resolved from the catalog
+    assert row[0] == "__cube_a__"  # cube_name resolved from the passed name map
     assert row[1] == ["m2"]
-    assert rpe.store_charts([]) == 0  # empty parse → no wipe
+    assert rpe.store_charts([], names) == 0  # empty parse → no wipe
     with get_engine().connect() as c:
         assert c.execute(text("SELECT count(*) FROM matometa.rpe_chart")).scalar() == 1
     with get_engine().begin() as c:
         c.execute(text("DELETE FROM matometa.rpe_chart"))
 
 
+def test_build_catalog_dims_from_cube_dm_measures_from_charts_excludes_ddaudit(mocker):
+    mocker.patch.object(rpe, "cube_dm_urls", return_value={"CK1": "/url1", "CKaudit": "/url2"})
+    mocker.patch.object(
+        rpe,
+        "parse_charts",
+        return_value=[
+            {"cube_key": "CK1", "measures_shown": ["Taux A", "Taux B"], "dims_shown": []},
+            {"cube_key": "CK1", "measures_shown": ["Taux A"], "dims_shown": []},  # mesure déjà vue
+            {"cube_key": "CKaudit", "measures_shown": ["Audit"], "dims_shown": []},
+        ],
+    )
+    mocker.patch.object(
+        rpe,
+        "parse_cube_dm",
+        side_effect=lambda js: {
+            "/url1": {
+                "cube_name": "Accès et présence en emploi",
+                "dimensions": [
+                    {
+                        "id": "C_TERRITOIRE_ID",
+                        "name": "Territoire",
+                        "category": "1. Territoire",
+                        "caption_dim": "C_LBLTERRITOIRE",
+                        "n_members": 363,
+                        "time": False,
+                    }
+                ],
+            },
+            "/url2": {"cube_name": "DDAudit: Sessions", "dimensions": []},
+        }[js],
+    )
+    client = mocker.MagicMock()
+    client.fetch_cube_dm.side_effect = lambda url, **kw: url
+    catalog, failed = rpe.build_catalog(client, "FLOWS")
+    assert failed == 0
+    assert set(catalog) == {"CK1"}  # DDAudit exclu
+    assert catalog["CK1"]["cubeName"] == "Accès et présence en emploi"
+    assert catalog["CK1"]["measures"] == [{"id": "Taux A", "label": "Taux A"}, {"id": "Taux B", "label": "Taux B"}]
+    dim = catalog["CK1"]["dimensions"][0]
+    assert dim == {
+        "id": "C_TERRITOIRE_ID",
+        "name": "Territoire",
+        "category": "1. Territoire",
+        "captionDim": "C_LBLTERRITOIRE",
+        "nbMembers": 363,
+        "time": False,
+    }
+
+
+def test_build_catalog_counts_cube_dm_fetch_failures(mocker):
+    mocker.patch.object(rpe, "cube_dm_urls", return_value={"CK1": "/ok", "CK2": "/boom"})
+    mocker.patch.object(rpe, "parse_charts", return_value=[])
+    mocker.patch.object(rpe, "parse_cube_dm", return_value={"cube_name": "Cube 1", "dimensions": []})
+    client = mocker.MagicMock()
+
+    def fetch(url, **kw):
+        if url == "/boom":
+            raise httpx.ConnectError("down")
+        return url
+
+    client.fetch_cube_dm.side_effect = fetch
+    catalog, failed = rpe.build_catalog(client, "FLOWS")
+    assert set(catalog) == {"CK1"}  # le cube en échec est absent
+    assert failed == 1  # signalé pour alerte (catalogue partiel)
+
+
+def test_store_catalog_full_replace_and_empty_guard():
+    from sqlalchemy import text
+
+    from web.db import get_engine
+
+    rpe.ensure_schema()
+    catalog = {
+        "CKtest": {
+            "cubeName": "__cube_test__",
+            "dimensions": [
+                {"id": "D1", "name": "Dim 1", "category": "1. T", "captionDim": "C_LBL", "nbMembers": 5, "time": True}
+            ],
+            "measures": [{"id": "M1", "label": "Mesure 1"}],
+        }
+    }
+    assert rpe.store_catalog({"CKtest": "cubeid_x"}, catalog) == 1
+    with get_engine().connect() as c:
+        ds = c.execute(text("SELECT cube_key, name, cube_id FROM matometa.rpe_dataset WHERE cube_key='CKtest'")).first()
+        dim = c.execute(
+            text("SELECT dim_id, caption_dim, n_members FROM matometa.rpe_dimension WHERE dataset='__cube_test__'")
+        ).first()
+        meas = c.execute(text("SELECT measure_id FROM matometa.rpe_measure WHERE dataset='__cube_test__'")).first()
+    assert ds == ("CKtest", "__cube_test__", "cubeid_x")
+    assert dim == ("D1", "C_LBL", 5)
+    assert meas == ("M1",)
+    assert rpe.store_catalog({}, {}) == 0  # catalogue vide → pas d'écrasement
+    with get_engine().connect() as c:
+        assert c.execute(text("SELECT count(*) FROM matometa.rpe_dataset WHERE cube_key='CKtest'")).scalar() == 1
+    with get_engine().begin() as c:
+        c.execute(text("DELETE FROM matometa.rpe_dataset WHERE cube_key='CKtest'"))
+        c.execute(text("DELETE FROM matometa.rpe_dimension WHERE dataset='__cube_test__'"))
+        c.execute(text("DELETE FROM matometa.rpe_measure WHERE dataset='__cube_test__'"))
+
+
 def test_query_uses_shared_sel_and_blank_frame(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
-    key = next(iter(rpe._RES["datasets"]))
-    client.cubeids = {key: "CUBE123"}
+    client.catalog = {"CK1": {"cubeName": DATASET, "dimensions": [], "measures": [{"id": "m1", "label": "M1"}]}}
+    client.cubeids = {"CK1": "CUBE123"}
     captured = {}
 
     class FakeResp:
@@ -416,7 +532,7 @@ def test_query_uses_shared_sel_and_blank_frame(mocker):
         return FakeResp()
 
     mocker.patch.object(client, "_post_file", side_effect=fake_post)
-    rows = client.query(rpe._RES["datasets"][key]["cubeName"], ["C_TERRITOIRE_ID"], measures=["m1"])
+    rows = client.query(DATASET, ["C_TERRITOIRE_ID"], measures=["m1"])
     assert rows and rows[0]["value"] == 5.0
     sel = json.loads(captured["sel"])
     assert sel["measuresToKeep"] == ["m1"]
@@ -434,9 +550,11 @@ def test_live_charts_populated():
     client = rpe.RpeClient.connect()
     try:
         _fresh, flows = client.refresh_catalog()
+        catalog, _ = rpe.build_catalog(client, flows)
     finally:
         client.close()
-    n = rpe.store_charts(parse_charts(flows))
+    cube_names = {k: c["cubeName"] for k, c in catalog.items()}
+    n = rpe.store_charts(parse_charts(flows), cube_names)
     assert n > 100  # FT adds/removes charts; loose lower bound, don't pin ~400
     with get_engine().connect() as c:
         hits = c.execute(
@@ -464,14 +582,6 @@ def test_refresh_catalog_uses_all_wallet_frames(mocker):
         return ""
 
     mocker.patch.object(client, "_gwt", side_effect=fake_gwt)
-    mocker.patch.dict(
-        rpe._RES["gwt"],
-        {
-            "getUserParams": "getUserParams",
-            "loadWallet": "loadWallet",
-            "getFlowsView": ["7|3|19|" + "|".join(str(i) for i in range(1, 20)) + "|x|"],
-        },
-    )
     fresh, flows = client.refresh_catalog()
     assert set(fresh) == {k1, k2}
     assert k1 in flows

@@ -17,7 +17,7 @@ def parse_dim(spec: str):
     return spec
 
 
-def _grep(items: list, term: str) -> list:
+def grep(items: list, term: str) -> list:
     if not term:
         return items
     t = term.lower()
@@ -73,9 +73,9 @@ def main() -> None:
         if args.list:
             print(json.dumps(client.datasets(), ensure_ascii=False, indent=1))
         elif args.measures:
-            print(json.dumps(_grep(client.measures(args.measures), args.grep), ensure_ascii=False, indent=1))
+            print(json.dumps(grep(client.measures(args.measures), args.grep), ensure_ascii=False, indent=1))
         elif args.dims:
-            print(json.dumps(_grep(client.dimensions(args.dims), args.grep), ensure_ascii=False, indent=1))
+            print(json.dumps(grep(client.dimensions(args.dims), args.grep), ensure_ascii=False, indent=1))
         elif args.query:
             dims = [parse_dim(d) for d in args.dim]
             filters = None
