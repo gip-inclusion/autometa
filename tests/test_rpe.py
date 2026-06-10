@@ -347,7 +347,7 @@ def test_live_login_query():
 def test_live_refresh_catalog_returns_cubeids():
     client = rpe.RpeClient.connect()
     try:
-        fresh = client.refresh_catalog()
+        fresh, _flows = client.refresh_catalog()
         assert len(fresh) >= 5
         assert all(rpe._CUBE_RE.fullmatch(v) for v in fresh.values())
     finally:
