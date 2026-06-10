@@ -368,7 +368,13 @@ def unpin_conversation(conv_id: str, user_email: str = Depends(get_current_user)
 
 
 @router.patch("/{conv_id}")
-async def update_conversation(conv_id: str, request: Request):
+async def update_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if conv.user_id and conv.user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
     data = await request.json()
     if not data:
         return JSONResponse({"error": "No data provided"}, status_code=400)
@@ -382,10 +388,12 @@ async def update_conversation(conv_id: str, request: Request):
 
 
 @router.post("/{conv_id}/generate-title")
-def generate_title(conv_id: str):
+def generate_title(conv_id: str, user_email: str = Depends(get_current_user)):
     conv = store.get_conversation(conv_id)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if conv.user_id and conv.user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     user_messages = []
     last_assistant_msg = None
@@ -698,10 +706,12 @@ async def stream_conversation(
 
 
 @router.post("/{conv_id}/cancel")
-async def cancel_conversation(conv_id: str):
+async def cancel_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv or not conv.needs_response:
         return {"status": "not_running"}
+    if conv.user_id and conv.user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     await runner.cancel(conv_id)
     return {"status": "cancelled"}
@@ -714,7 +724,13 @@ def get_conversation_tags(conv_id: str):
 
 
 @router.put("/{conv_id}/tags")
-async def set_conversation_tags(conv_id: str, request: Request):
+async def set_conversation_tags(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if conv.user_id and conv.user_id != user_email:
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
     data = await request.json()
     if not data or "tags" not in data:
         return JSONResponse({"error": "Missing 'tags' field"}, status_code=400)
