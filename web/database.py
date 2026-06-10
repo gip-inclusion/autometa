@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 
 from . import session_sync
 from .db import get_db
@@ -702,9 +702,13 @@ class ConversationStore:
                 for c in models
             ]
 
-    def get_running_conversation_ids(self) -> list[str]:
+    def get_running_conversation_ids(self, user_id: Optional[str] = None) -> list[str]:
         with get_db() as session:
-            return list(session.scalars(select(ConvModel.id).where(ConvModel.needs_response == 1)).all())
+            query = select(ConvModel.id).where(ConvModel.needs_response == 1)
+            if user_id:
+                # Why: NULL owner means legacy conversation visible to everyone (same rule as routes)
+                query = query.where(or_(ConvModel.user_id == user_id, ConvModel.user_id.is_(None)))
+            return list(session.scalars(query).all())
 
     def clear_all_needs_response(self) -> list[str]:
         """Clear needs_response for all conversations. Used on PM startup to unstick zombies."""

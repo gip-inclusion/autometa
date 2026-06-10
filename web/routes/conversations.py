@@ -214,8 +214,8 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
 
 
 @router.get("/running")
-def get_running():
-    return {"running": store.get_running_conversation_ids()}
+def get_running(user_email: str = Depends(get_current_user)):
+    return {"running": store.get_running_conversation_ids(user_id=user_email)}
 
 
 @router.get("/flagged")
