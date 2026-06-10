@@ -82,8 +82,8 @@ Le fichier `CLAUDE.md` contient le system prompt. Sections clés :
 
 ```bash
 # Cloner le repo
-git clone https://github.com/gip-inclusion/Matometa.git
-cd Matometa
+git clone https://github.com/gip-inclusion/autometa.git
+cd autometa
 
 # Environnement Python
 python -m venv .venv
