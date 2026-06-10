@@ -333,6 +333,22 @@ def test_check_connectivity(mocker, outcome, expected_ok):
     assert ok is expected_ok
 
 
+def test_refresh_alerts_on_empty_charts(mocker):
+    mocker.patch.object(rpe, "ensure_schema")
+    client = mocker.MagicMock()
+    client.refresh_catalog.return_value = ({"k": "cube"}, "non-empty-flows")
+    client.mirror.return_value = ([{"x": 1}], [])
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
+    mocker.patch.object(rpe, "store_catalog")
+    mocker.patch.object(rpe, "update_measure_labels", return_value=0)
+    mocker.patch.object(rpe, "store_facts", return_value=1)
+    mocker.patch.object(rpe, "store_charts", return_value=0)
+    alert = mocker.patch.object(rpe, "notify_alert_channel")
+    out = rpe.refresh()
+    assert out["charts"] == 0
+    alert.assert_called_once()  # mirror non-empty (n=1) → no mirror alert; flows non-empty + charts=0 → charts alert
+
+
 @pytest.mark.integration
 def test_live_login_query():
     client = rpe.RpeClient.connect()
