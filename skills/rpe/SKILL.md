@@ -124,6 +124,18 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 
 ⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` / `rpe_measure`. La lib loggue un avertissement dans ce cas.
 
+## Trouver le bon indicateur (routage)
+
+`matometa.rpe_chart` documente chaque graphe du tableau de bord source : `chart_title`, `cube_name`, `measures_shown` (noms des mesures affichées), `dims_shown`. C'est la façon la plus rapide de router une question vers le bon cube/mesure (les graphes ne montrent que le sous-ensemble pertinent des mesures, avec un libellé lisible).
+
+```sql
+SELECT chart_title, cube_name, measures_shown, dims_shown
+FROM matometa.rpe_chart
+WHERE chart_title ILIKE :q OR array_to_string(measures_shown, ' ') ILIKE :q;
+```
+
+Puis interroger le cube avec la mesure trouvée — `query()` résout le nom de mesure en identifiant technique.
+
 ## Combien de temps
 
 - En cache : instantané (SQL local).
