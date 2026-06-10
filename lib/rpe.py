@@ -637,6 +637,8 @@ def refresh() -> dict:
         client.close()
     if n == 0:  # remplacement non effectué → le cache sert des données périmées
         notify_alert_channel(f"RPE refresh : mirror vide, cache inchangé ({len(failed)} requêtes en échec)")
+    if charts == 0 and flows:  # Why: getFlowsView a répondu mais aucun graphe parsé → format probablement changé
+        notify_alert_channel("RPE refresh : aucun graphe parsé, rpe_chart inchangé")
     logger.info(
         "RPE refresh terminé : %d cubeIds, %d libellés, %d faits, %d graphes, %d échecs",
         len(fresh),
