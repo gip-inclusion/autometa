@@ -66,3 +66,27 @@ def test_dash_prompt_is_passed_after_double_dash_on_resume(mocker, tmp_path):
 
     cmd = captured["cmd"]
     assert cmd[-3:] == ["-p", "--", "- une question"], cmd
+
+
+def test_tool_permission_args_blocks_askuserquestion(mocker):
+    from web import config
+    from web.agents.cli import CLIBackend
+
+    mocker.patch.object(config, "CONTAINER_ENV", False)
+    mocker.patch.object(config, "ALLOWED_TOOLS", "Read,Bash(python:*)")
+    mocker.patch.object(config, "DISALLOWED_TOOLS", "AskUserQuestion")
+    args = CLIBackend()._tool_permission_args()
+
+    assert args == ["--allowedTools", "Read,Bash(python:*)", "--disallowedTools", "AskUserQuestion"]
+
+
+def test_tool_permission_args_blocks_askuserquestion_in_container(mocker):
+    from web import config
+    from web.agents.cli import CLIBackend
+
+    mocker.patch.object(config, "CONTAINER_ENV", True)
+    mocker.patch.object(config, "DISALLOWED_TOOLS", "AskUserQuestion")
+    args = CLIBackend()._tool_permission_args()
+
+    assert "--dangerously-skip-permissions" in args
+    assert args[-2:] == ["--disallowedTools", "AskUserQuestion"]

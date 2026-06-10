@@ -27,7 +27,8 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 
 Sources de données :
 
-- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue.
+- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue. _Nos services, granulaire._
+- **RPE (Réseau pour l'emploi)** → Tableau de bord public France Travail (DigDash). Indicateurs **agrégés, nationaux/territoriaux, couvrant tout le réseau** (emploi, formation, recrutement, RSA), **pas spécifiques à nos services** et sans niveau individuel. Skill `rpe` (cache nightly dans le schéma `matometa`). Si une demande peut relever de `rpe` **ou** d'`autometa_tables_db`, demander à l'utilisateur de préciser (réseau national agrégé vs nos services granulaires).
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
 - **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH)
