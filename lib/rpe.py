@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from sqlalchemy import Column, DateTime, Float, Integer, MetaData, String, Table, delete, insert, select, text
+from sqlalchemy import ARRAY, Column, DateTime, Float, Integer, MetaData, String, Table, delete, insert, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -88,6 +88,16 @@ rpe_session = Table(
     Column("jsessionid", String),
     Column("sid", String),
     Column("created_at", DateTime(timezone=True)),
+)
+rpe_chart = Table(
+    "rpe_chart",
+    _metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("chart_title", String),
+    Column("cube_key", String),
+    Column("cube_name", String),
+    Column("measures_shown", ARRAY(String)),
+    Column("dims_shown", ARRAY(String)),
 )
 
 
@@ -581,6 +591,27 @@ def store_facts(rows: list[dict]) -> int:
     with get_engine().begin() as conn:
         conn.execute(delete(rpe_fact))  # remplacement complet : aucune donnée périmée conservée
         conn.execute(insert(rpe_fact), payload)
+    return len(payload)
+
+
+def store_charts(records: list[dict]) -> int:
+    """Remplacement complet de `rpe_chart` (sinon on garde le cache). Résout cube_name depuis le catalogue."""
+    if not records:  # parse vide → ne pas vider le cache
+        return 0
+    names = {k: c["cubeName"] for k, c in _RES["catalog"].items()}
+    payload = [
+        {
+            "chart_title": r["chart_title"],
+            "cube_key": r["cube_key"],
+            "cube_name": names.get(r["cube_key"]),
+            "measures_shown": r["measures_shown"],
+            "dims_shown": r["dims_shown"],
+        }
+        for r in records
+    ]
+    with get_engine().begin() as conn:
+        conn.execute(delete(rpe_chart))
+        conn.execute(insert(rpe_chart), payload)
     return len(payload)
 
 

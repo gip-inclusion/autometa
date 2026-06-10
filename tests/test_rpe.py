@@ -353,6 +353,33 @@ def test_live_refresh_catalog_returns_cubeids():
         client.close()
 
 
+def test_store_charts_full_replace():
+    from sqlalchemy import text
+
+    from web.db import get_engine
+
+    rpe.ensure_schema()
+    donor = next(iter(rpe._RES["catalog"]))  # any real cube_key from the loaded catalog
+    rpe.store_charts([
+        {"chart_title": "__c1__", "cube_key": donor, "measures_shown": ["m"], "dims_shown": ["d"]},
+        {"chart_title": "__c2__", "cube_key": "zzz", "measures_shown": [], "dims_shown": []},
+    ])
+    rpe.store_charts([{"chart_title": "__c1__", "cube_key": donor, "measures_shown": ["m2"], "dims_shown": []}])
+    with get_engine().connect() as c:
+        titles = [r[0] for r in c.execute(text("SELECT chart_title FROM matometa.rpe_chart"))]
+        row = c.execute(
+            text("SELECT cube_name, measures_shown FROM matometa.rpe_chart WHERE chart_title='__c1__'")
+        ).first()
+    assert titles == ["__c1__"]  # full replace dropped __c2__
+    assert row[0] is not None  # cube_name resolved from the catalog
+    assert row[1] == ["m2"]
+    assert rpe.store_charts([]) == 0  # empty parse → no wipe
+    with get_engine().connect() as c:
+        assert c.execute(text("SELECT count(*) FROM matometa.rpe_chart")).scalar() == 1
+    with get_engine().begin() as c:
+        c.execute(text("DELETE FROM matometa.rpe_chart"))
+
+
 def test_query_uses_shared_sel_and_blank_frame(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     key = next(iter(rpe._RES["datasets"]))
