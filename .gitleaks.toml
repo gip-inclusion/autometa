@@ -1,8 +1,9 @@
 # Why: les identifiants RPE ne sont pas des secrets — compte « public » d'un tableau de bord
 # PUBLIC de France Travail (pilotage-rpe.francetravail.org), transmis en clair dans l'URL
 # publique. `lib/rpe_gwt.py` contient les gabarits de requêtes GWT capturés (sid de session
-# publique, hash de build GWT) ; le mot de passe y est un placeholder `__RPE_PASS__`. Aucun
-# secret réel n'est exposé.
+# publique, hash de build GWT) ; le mot de passe y est un placeholder `__RPE_PASS__`. Les
+# fixtures de test contiennent des cube_key/cube_id synthétiques (hex 32) du dashboard public.
+# Aucun secret réel n'est exposé.
 [extend]
 useDefault = true
 
@@ -10,6 +11,7 @@ useDefault = true
 description = "RPE public-dashboard public-user credentials & captured request templates"
 paths = [
   '''lib/rpe_gwt\.py''',
+  '''tests/test_rpe_gwt\.py''',
 ]
 regexes = [
   '''yYjL2p''',
