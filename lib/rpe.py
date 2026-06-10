@@ -11,7 +11,7 @@ from sqlalchemy import ARRAY, Column, DateTime, Float, Integer, MetaData, String
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.rpe_gwt import build_flowsview_payload, extract_frame_ids, flowsview_header
+from lib.rpe_gwt import build_flowsview_payload, extract_frame_ids, flowsview_header, parse_charts
 from web.alerts import notify_alert_channel
 from web.db import get_engine
 
@@ -466,8 +466,8 @@ class RpeClient:
             rows.append(row)
         return rows
 
-    def refresh_catalog(self) -> dict:
-        """Rafraîchit tous les cubeIds (qui tournent au rebuild) via un getFlowsView portant tous les frames du wallet."""
+    def refresh_catalog(self) -> tuple[dict, str]:
+        """Rafraîchit tous les cubeIds via getFlowsView (tous les frames du wallet) ; renvoie (cubeids, réponse brute)."""
         self._gwt(_RES["gwt"]["getUserParams"])
         wallet = self._gwt(_RES["gwt"]["loadWallet"])
         header = flowsview_header(_RES["gwt"]["getFlowsView"][0])
@@ -475,7 +475,7 @@ class RpeClient:
         fresh = {cube.split("_")[0]: cube for cube in _CUBE_RE.findall(resp)}
         self.cubeids.update(fresh)
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
-        return fresh
+        return fresh, resp
 
     def mirror(self, dimensions: list | None = None) -> tuple[list[dict], list[str]]:
         """Cache des « données faciles » : marginales géo (libellé canonique) + temps. Renvoie (lignes, échecs)."""
@@ -624,11 +624,12 @@ def refresh() -> dict:
         notify_alert_channel(f"RPE refresh : login impossible ({e})")
         raise
     try:
-        fresh = client.refresh_catalog()
+        fresh, flows = client.refresh_catalog()
         store_catalog(client, fresh)
         rows, failed = client.mirror()
         labels = update_measure_labels(rows)
         n = store_facts(rows)
+        charts = store_charts(parse_charts(flows))
     except (httpx.HTTPError, ValueError) as e:
         notify_alert_channel(f"RPE refresh : échec rafraîchissement ({e})")
         raise
@@ -637,6 +638,11 @@ def refresh() -> dict:
     if n == 0:  # remplacement non effectué → le cache sert des données périmées
         notify_alert_channel(f"RPE refresh : mirror vide, cache inchangé ({len(failed)} requêtes en échec)")
     logger.info(
-        "RPE refresh terminé : %d cubeIds, %d libellés, %d faits, %d échecs", len(fresh), labels, n, len(failed)
+        "RPE refresh terminé : %d cubeIds, %d libellés, %d faits, %d graphes, %d échecs",
+        len(fresh),
+        labels,
+        n,
+        charts,
+        len(failed),
     )
-    return {"cubeids": len(fresh), "labels": labels, "facts": n, "failed": len(failed)}
+    return {"cubeids": len(fresh), "labels": labels, "facts": n, "charts": charts, "failed": len(failed)}

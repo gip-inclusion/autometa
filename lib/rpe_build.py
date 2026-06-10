@@ -69,7 +69,7 @@ def build_templates(client: RpeClient | None = None, current: dict | None = None
     client = client or RpeClient.connect()
     current = current or json.loads(TEMPLATES_PATH.read_text(encoding="utf-8"))
     try:
-        fresh = client.refresh_catalog()
+        fresh, _flows = client.refresh_catalog()
         candidate = assemble(current, fresh)
         smoke = smoke_test(client, candidate)
     finally:
