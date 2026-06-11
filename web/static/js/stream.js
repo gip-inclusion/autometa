@@ -18,6 +18,7 @@ function isValidConversationId(id) {
 
 let eventSource = null;
 let eventSourceConversationId = null;  // Track which conversation the eventSource belongs to
+let isStreaming = false;  // Agent is generating: input reste éditable mais l'envoi est bloqué
 let retryCount = 0;
 let lastUserMessage = null;
 const MAX_RETRIES = 3;
@@ -34,6 +35,9 @@ let _sidebarSpinnerConvId = null;
  * Send a message to the agent
  */
 async function sendMessage() {
+  // L'agent répond encore : on laisse l'utilisateur préparer son message mais on bloque l'envoi
+  if (isStreaming) return;
+
   const input = document.getElementById('chatInput');
   const message = input.value.trim();
   const hasFiles = pendingFiles.length > 0;
@@ -406,16 +410,15 @@ async function killAgent(convId, alertElement, cardElement) {
 // =============================================================================
 
 /**
- * Show/hide streaming state (send/cancel buttons, input, sidebar spinner)
+ * Show/hide streaming state (send/cancel buttons, sidebar spinner)
  */
 function setStreamingState(streaming) {
   const sendBtn = document.getElementById('chatSendBtn');
   const cancelBtn = document.getElementById('chatCancelBtn');
-  const input = document.getElementById('chatInput');
 
+  isStreaming = streaming;
   if (sendBtn) sendBtn.style.display = streaming ? 'none' : 'flex';
   if (cancelBtn) cancelBtn.style.display = streaming ? 'flex' : 'none';
-  if (input) input.disabled = streaming;
 
   // Manage sidebar spinner
   if (streaming && currentConversationId) {
