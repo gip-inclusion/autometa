@@ -128,8 +128,8 @@ PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
 PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_URL_PROD", "https://statistiques.inclusion.gouv.fr")
 
 
-# Container environment flag (set in Docker — bypasses permission checks)
-CONTAINER_ENV = bool(os.getenv("CONTAINER_ENV"))
+# Deployment environment: "live" on servers (Scalingo), "dev" (default) on local machines.
+AUTOMETA_ENV = os.getenv("AUTOMETA_ENV", "dev")
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
