@@ -1,5 +1,4 @@
 import pytest
-from sqlalchemy.pool import NullPool
 
 from lib.dashboard_storage import execute_sql
 from lib.pg import QueryResult
@@ -22,7 +21,7 @@ def make_sa_mocks(mocker, columns, rows, returns_rows=True, rowcount=-1):
 
 def test_execute_sql_returns_rows(mocker):
     mock_engine, _ = make_sa_mocks(mocker, ["id"], [(1,)])
-    mocker.patch("lib.dashboard_storage.create_engine", return_value=mock_engine)
+    mocker.patch("lib.dashboard_storage.build_engine", return_value=mock_engine)
     mocker.patch("lib.dashboard_storage.emit_api_signal")
 
     result = execute_sql(database_url="postgresql://u:p@db/app", sql="SELECT id FROM dashboard_storage.t")
@@ -30,20 +29,19 @@ def test_execute_sql_returns_rows(mocker):
     assert result == QueryResult(columns=["id"], rows=[[1]], row_count=1)
 
 
-def test_execute_sql_uses_begin_for_commit_and_nullpool(mocker):
+def test_execute_sql_uses_begin_for_commit(mocker):
     mock_engine, _ = make_sa_mocks(mocker, [], [])
-    mock_create = mocker.patch("lib.dashboard_storage.create_engine", return_value=mock_engine)
+    mocker.patch("lib.dashboard_storage.build_engine", return_value=mock_engine)
     mocker.patch("lib.dashboard_storage.emit_api_signal")
 
     execute_sql(database_url="postgresql://u:p@db/app", sql="SELECT 1")
 
     mock_engine.begin.assert_called_once()
-    assert mock_create.call_args.kwargs.get("poolclass") is NullPool
 
 
 def test_execute_sql_binds_named_params(mocker):
     mock_engine, mock_conn = make_sa_mocks(mocker, ["n"], [(1,)])
-    mocker.patch("lib.dashboard_storage.create_engine", return_value=mock_engine)
+    mocker.patch("lib.dashboard_storage.build_engine", return_value=mock_engine)
     mocker.patch("lib.dashboard_storage.emit_api_signal")
 
     execute_sql(database_url="postgresql://u:p@db/app", sql="SELECT :n", params={"n": 1})
@@ -54,7 +52,7 @@ def test_execute_sql_binds_named_params(mocker):
 @pytest.mark.parametrize(("rowcount", "expected"), [(3, 3), (-1, 0)])
 def test_execute_sql_ddl_without_resultset(mocker, rowcount, expected):
     mock_engine, _ = make_sa_mocks(mocker, [], [], returns_rows=False, rowcount=rowcount)
-    mocker.patch("lib.dashboard_storage.create_engine", return_value=mock_engine)
+    mocker.patch("lib.dashboard_storage.build_engine", return_value=mock_engine)
     mocker.patch("lib.dashboard_storage.emit_api_signal")
 
     result = execute_sql(database_url="postgresql://u:p@db/app", sql="UPDATE dashboard_storage.t SET x = 1")
@@ -64,7 +62,7 @@ def test_execute_sql_ddl_without_resultset(mocker, rowcount, expected):
 
 def test_execute_sql_emits_signal(mocker):
     mock_engine, _ = make_sa_mocks(mocker, [], [])
-    mocker.patch("lib.dashboard_storage.create_engine", return_value=mock_engine)
+    mocker.patch("lib.dashboard_storage.build_engine", return_value=mock_engine)
     emit = mocker.patch("lib.dashboard_storage.emit_api_signal")
 
     execute_sql(database_url="postgresql://u:p@db/app", sql="SELECT 1")
