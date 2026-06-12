@@ -23,6 +23,7 @@ HOOK_ONLY_CODE = (
         ("/app/.claude/hooks/guard_write_paths.py", False),
         ("lib/foo.py", True),
         ("web/routes/bar.py", True),
+        (".claude/hooks/../../lib/evil.py", True),
     ],
 )
 def test_hook_scripts_exempt_from_import_env_sql_checks(path, expect_violations):
