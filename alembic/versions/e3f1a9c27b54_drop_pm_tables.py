@@ -14,7 +14,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.drop_index(op.f("idx_pm_commands_pending"), table_name="pm_commands")
+    # Why: no drop_index — a1b2c3d4e5f6 already cascade-dropped idx_pm_commands_pending
+    # when it replaced the processed_at column; drop_table removes any remaining indexes.
     op.drop_table("pm_commands")
     op.drop_table("pm_heartbeat")
 
@@ -28,9 +29,6 @@ def downgrade() -> None:
         sa.Column("payload", sa.Text),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("processed_at", sa.DateTime(timezone=True)),
-    )
-    op.create_index(
-        "idx_pm_commands_pending", "pm_commands", ["processed_at"], postgresql_where=sa.text("processed_at IS NULL")
     )
     op.create_table(
         "pm_heartbeat",
