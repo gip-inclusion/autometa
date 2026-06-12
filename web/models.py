@@ -250,26 +250,6 @@ class PinnedItem(Base):
     __table_args__ = (UniqueConstraint("item_type", "item_id"),)
 
 
-class PmCommand(Base):
-    __tablename__ = "pm_commands"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    conversation_id: Mapped[str] = mapped_column(Text, nullable=False)
-    command: Mapped[str] = mapped_column(Text, nullable=False)
-    payload: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-    __table_args__ = (Index("idx_pm_commands_pending", "processed_at", postgresql_where="processed_at IS NULL"),)
-
-
-class PmHeartbeat(Base):
-    __tablename__ = "pm_heartbeat"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class SchemaVersion(Base):
     __tablename__ = "schema_version"
 
