@@ -375,7 +375,7 @@ const result = await response.json();
 - **Une seule instruction par requête** — le résultat (lignes, `row_count`) ne reflète que la dernière instruction d'un SQL multi-instructions, et le binding de `params` n'y est pas fiable. Une requête = une instruction.
 - **Pas de DDL depuis le frontend** — seul l'agent (Python) exécute CREATE/ALTER.
 - Les DDL et DML sans `RETURNING` renvoient un résultat vide avec `row_count` = lignes affectées.
-- Le schéma legacy `matometa` est accessible via la même source (alias `matometa_db` accepté ; droits accordés à l'installation du rôle) ; ne plus y créer de nouvelles tables. L'ancienne persistance « datalake » via Metabase est dépréciée — ne plus l'utiliser pour du neuf.
+- Le schéma legacy `matometa` est accessible via la même source (alias `matometa_db` accepté ; droits accordés à l'installation du rôle) ; ne plus y créer de nouvelles tables. L'ancienne persistance « datalake » via Metabase est dépréciée — ne plus l'utiliser pour du neuf. Pour les TDB legacy encore sur ce chemin : les DDL et DML sans `RETURNING` y renvoient une erreur Metabase (pas de ResultSet) alors que l'opération a bien été exécutée — ne pas traiter cette erreur comme un échec d'écriture.
 
 ### Performance
 
