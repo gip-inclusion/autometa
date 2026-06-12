@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/conversations")
 
 
+def can_mutate_conversation(conv, user_email: str) -> bool:
+    """NULL-owner conversations are mutable by everyone; otherwise owner or admin."""
+    return not conv.user_id or conv.user_id == user_email or user_email in ADMIN_USERS
+
+
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
 
     def _generate():
@@ -372,7 +377,7 @@ async def update_conversation(conv_id: str, request: Request, user_email: str = 
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     data = await request.json()
@@ -392,7 +397,7 @@ def generate_title(conv_id: str, user_email: str = Depends(get_current_user)):
     conv = store.get_conversation(conv_id)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     user_messages = []
@@ -708,10 +713,13 @@ async def stream_conversation(
 @router.post("/{conv_id}/cancel")
 async def cancel_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     conv = store.get_conversation(conv_id, include_messages=False)
-    if not conv or not conv.needs_response:
+    if not conv:
         return {"status": "not_running"}
-    if conv.user_id and conv.user_id != user_email:
+    # Why: permission before the running check, so non-owners can't probe running state.
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
+    if not conv.needs_response:
+        return {"status": "not_running"}
 
     await runner.cancel(conv_id)
     return {"status": "cancelled"}
@@ -728,7 +736,7 @@ async def set_conversation_tags(conv_id: str, request: Request, user_email: str 
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     data = await request.json()
