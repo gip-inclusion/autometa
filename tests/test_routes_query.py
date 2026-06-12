@@ -46,6 +46,8 @@ def test_cors_allowed_origins_parsed_from_env(monkeypatch):
         ({"source": "matometa_db", "sql": "SELECT 1"}, None),
         ({"source": "data_inclusion", "sql": "SELECT 1"}, None),
         ({"source": "autometa_tables_db", "sql": "SELECT 1"}, None),
+        ({"source": "dashboard_storage"}, "sql is required for this source"),
+        ({"source": "data_inclusion"}, "sql is required for this source"),
     ],
 )
 def test_validate_query_request(data, expected):

@@ -31,6 +31,10 @@ def validate_query_request(data: dict) -> str | None:
         return "source is required"
     if data["source"] in ("metabase", "matomo") and not data.get("instance"):
         return "instance is required for metabase and matomo sources"
+    if data["source"] in ("data_inclusion", "autometa_tables_db", "dashboard_storage", "matometa_db") and not data.get(
+        "sql"
+    ):
+        return "sql is required for this source"
     return None
 
 
