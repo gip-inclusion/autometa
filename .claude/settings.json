@@ -3,7 +3,10 @@
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{"type": "command", "command": "python3 .claude/hooks/check_python.py"}]
+        "hooks": [
+          {"type": "command", "command": "python3 .claude/hooks/guard_write_paths.py"},
+          {"type": "command", "command": "python3 .claude/hooks/check_python.py"}
+        ]
       }
     ],
     "PostToolUse": [
