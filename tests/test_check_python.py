@@ -12,11 +12,7 @@ _spec.loader.exec_module(check_python)
 
 # Why: assembled so this test file's own lines don't trigger the hook when written via Edit/Write.
 HOOK_ONLY_CODE = (
-    "import psycopg2\n"
-    + "url = os."
-    + 'environ.get("DATABASE_URL")\n'
-    + '"SELECT id FROM foo WHERE id = %'
-    + 's"\n'
+    "import psycopg2\n" + "url = os." + 'environ.get("DATABASE_URL")\n' + '"SELECT id FROM foo WHERE id = %' + 's"\n'
 )
 
 
