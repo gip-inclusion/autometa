@@ -15,7 +15,7 @@ Flags portés par la ligne `dashboards` :
 - `is_archived` — un TDB archivé est invisible des listes par défaut.
 - `has_cron` — `cron.py` du TDB doit être exécuté périodiquement.
 - `has_api_access` — appelle `/api/query` en live (rend le TDB **non publiable**).
-- `has_persistence` — écrit dans le datalake via `/api/query` (idem, **non publiable**).
+- `has_persistence` — lit ou écrit via `dashboard_storage` (idem, **non publiable**).
 
 ## Création et modification : passer par les skills
 
@@ -128,7 +128,7 @@ Documentation optionnelle : usage, régénération des données, etc.
 - `conversation_id` — lien vers la conversation d'origine
 - `cron` — `true` / `false` pour activer ou désactiver le rafraîchissement programmé (voir [Mode par défaut](#mode-par-défaut--cronpy--datajson))
 - `has_api_access` — `true` si le dashboard appelle `/api/query` en live (voir [Modes non publiables](#modes-non-publiables))
-- `has_persistence` — `true` si le dashboard lit ou écrit dans le datalake (voir [Persistance en datalake](#persistance-en-datalake))
+- `has_persistence` — `true` si le dashboard lit ou écrit via `dashboard_storage` (voir [Persistance dashboard_storage](#persistance-dashboard_storage))
 
 `has_api_access` et `has_persistence` marquent le dashboard comme non publiable et doivent être déclarés dès qu'un de ces modes est utilisé.
 
@@ -179,6 +179,8 @@ data/interactive/mon-dashboard/
 ```
 
 Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il peut importer `lib.query` pour appeler Matomo / Metabase. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
+
+**Un `cron.py` ne tourne que si le TDB est enregistré** avec `has_cron` : le système de cron découvre les tâches via la table `dashboards`, pas en scannant les dossiers. Un dossier non enregistré n'est jamais exécuté.
 
 **Le cron ne voit que son propre dossier.** En production il tourne isolé dans un répertoire temporaire ; les autres dashboards n'existent pas à côté de lui. Un chemin `../autre-dashboard/…` ou `/app/data/interactive/autre/…` ne résout rien. Si le cron a besoin de données produites par un autre dashboard, il les régénère depuis la source primaire (Matomo, Metabase, GitHub…) plutôt que de lire son `data.json`. Régénérer les mêmes données dans deux dashboards est acceptable ; les coupler via un fichier ne l'est pas.
 
@@ -237,7 +239,7 @@ Sur la VM actuelle, entrée crontab système :
 
 ### Modes non publiables
 
-Les deux modes qui suivent — requêtes live via `/api/query` et persistance en datalake — dépendent de l'endpoint `/api/query`, protégé par oauth2-proxy. **Un dashboard qui les utilise ne peut pas être publié** : il ne fonctionne que derrière une session authentifiée.
+Les deux modes qui suivent — requêtes live via `/api/query` et persistance `dashboard_storage` — dépendent de l'endpoint `/api/query`, protégé par oauth2-proxy. **Un dashboard qui les utilise ne peut pas être publié** : il ne fonctionne que derrière une session authentifiée.
 
 **Ne pas adopter ces modes sans avoir demandé confirmation explicite à l'utilisateur.** Par défaut, pré-calculer les données via `cron.py`.
 
@@ -310,103 +312,70 @@ const result = await query({
 
 **Instances disponibles :** voir `config/sources.yaml`. Les instances Metabase et Matomo y sont listées.
 
-#### Persistance en datalake
+#### Persistance dashboard_storage
 
-Pour qu'un dashboard **lise et écrive des données persistantes** (tracking, assignations, notes, état), passer par PostgreSQL datalake via le même endpoint `/api/query`. Déclarer `has_persistence: true` dans `APP.md`.
+Pour qu'un dashboard **lise et écrive des données persistantes** (tracking, assignations, notes, état), utiliser le schéma `dashboard_storage` de la base PostgreSQL applicative. Déclarer `has_persistence: true`.
 
-**Pourquoi pas de routes FastAPI ?** `web/` est baked dans l'image Docker et pas bind-mounté. Tout fichier créé ou modifié sous `/app/web/` atterrit dans le layer overlay du conteneur et disparaît au prochain restart. Ne jamais créer de routes, routers ou modules Python FastAPI depuis le conteneur.
+**Pourquoi pas de routes FastAPI ?** `web/` est baked dans l'image Docker et pas bind-mounté. Tout fichier créé ou modifié sous `/app/web/` atterrit dans le layer overlay du conteneur et disparaît au prochain restart. Ne jamais créer de routes, routers ou modules Python FastAPI depuis le conteneur (bloqué par hook en prod).
 
 **Architecture :**
 
 ```
-Frontend (JS)  ──POST /api/query──▶  FastAPI /api/query  ──▶  Metabase API  ──▶  Datalake PostgreSQL
-                                      (existant)              (native query)     (read + write)
+Frontend (JS) ──POST /api/query {source: "dashboard_storage"}──▶ FastAPI ──▶ PostgreSQL applicative
+                                                                              (rôle restreint au schéma)
 ```
 
-L'endpoint expose du SQL brut via la native query Metabase. L'utilisateur datalake a les droits en écriture : INSERT, UPDATE, DELETE, CREATE TABLE fonctionnent.
+Le rôle PostgreSQL `dashboard_storage` n'a **aucun droit** sur le schéma `public` : les tables applicatives (conversations, messages…) sont hors d'atteinte, même via SQL brut.
 
-**Schéma `matometa` :** toutes les tables Autometa vivent dans un schéma `matometa` dédié, à l'écart des tables principales dans `public`. Le schéma existe déjà.
-
-**1. Créer la table** (côté agent, script Python) :
+**1. Créer la table** (côté agent, script Python — jamais depuis le frontend) :
 
 ```python
-from lib.query import execute_metabase_query, CallerType
+from lib.query import CallerType, execute_dashboard_storage_query
 
-# DDL s'exécute mais Metabase renvoie une erreur de parse (pas de ResultSet).
-# Comportement normal — ignorer, la table EST créée.
-execute_metabase_query(
-    instance="datalake",
-    caller=CallerType.AGENT,
+execute_dashboard_storage_query(
     sql="""
-        CREATE TABLE IF NOT EXISTS matometa.myapp_tracking (
+        CREATE TABLE IF NOT EXISTS dashboard_storage.myapp_tracking (
             id SERIAL PRIMARY KEY,
-            item_id TEXT NOT NULL,
-            assigned_to TEXT,
+            item_id TEXT NOT NULL UNIQUE,
             status TEXT DEFAULT 'pending',
             note TEXT,
             updated_by TEXT,
-            updated_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(item_id)
+            updated_at TIMESTAMP DEFAULT NOW()
         )
     """,
-    database_id=2,
+    caller=CallerType.AGENT,
 )
 ```
 
-**2. Lecture depuis le frontend** :
+**2. Lecture / écriture depuis le frontend** — toute valeur issue d'une saisie passe par `params` (requête paramétrée), jamais par interpolation dans le SQL :
 
 ```javascript
-async function loadTracking() {
-    const response = await fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            source: 'metabase',
-            instance: 'datalake',
-            database_id: 2,
-            sql: 'SELECT * FROM matometa.myapp_tracking ORDER BY updated_at DESC'
-        })
-    });
-    const result = await response.json();
-    if (result.success) {
-        return result.data;
-    }
-    throw new Error(result.error);
-}
+const response = await fetch('/api/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        source: 'dashboard_storage',
+        sql: `INSERT INTO dashboard_storage.myapp_tracking (item_id, status, note, updated_by)
+              VALUES (:item_id, :status, :note, :updated_by)
+              ON CONFLICT (item_id) DO UPDATE
+              SET status = EXCLUDED.status, note = EXCLUDED.note,
+                  updated_by = EXCLUDED.updated_by, updated_at = NOW()
+              RETURNING *`,
+        params: { item_id: itemId, status: status, note: note, updated_by: userName }
+    })
+});
+const result = await response.json();
 ```
 
-**3. Écriture depuis le frontend** :
+**Règles :**
 
-```javascript
-async function saveTracking(itemId, assignedTo, status, note, userName) {
-    const response = await fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            source: 'metabase',
-            instance: 'datalake',
-            database_id: 2,
-            sql: `INSERT INTO matometa.myapp_tracking (item_id, assigned_to, status, note, updated_by)
-                  VALUES ('${itemId}', '${assignedTo}', '${status}', '${note}', '${userName}')
-                  ON CONFLICT (item_id) DO UPDATE
-                  SET assigned_to = EXCLUDED.assigned_to,
-                      status = EXCLUDED.status,
-                      note = EXCLUDED.note,
-                      updated_by = EXCLUDED.updated_by,
-                      updated_at = NOW()
-                  RETURNING *`
-        })
-    });
-    return response.json();
-}
-```
-
-**Règles importantes :**
-
-- **Quirk ResultSet Metabase** — les DDL (CREATE, DROP, ALTER) et DML sans RETURNING (INSERT, UPDATE, DELETE simples) s'exécutent mais Metabase renvoie une erreur (pas de result set). L'opération aboutit. Toujours utiliser `RETURNING` sur INSERT / UPDATE / DELETE pour une réponse propre, ou ignorer l'erreur pour les DDL.
-- **Schéma** — toujours utiliser `matometa` (ex : `matometa.myapp_tracking`). Ne jamais créer de tables dans `public`.
-- **Injection SQL** — l'exemple interpole des chaînes pour la clarté. En production, échapper les entrées utilisateur avant de les insérer dans le SQL. `/api/query` ne supporte pas les requêtes paramétrées — valider et échapper en JavaScript.
-- **Pas de DDL depuis le frontend** — seul l'agent (Python) exécute CREATE TABLE / ALTER TABLE. Le frontend fait uniquement SELECT, INSERT, UPDATE, DELETE sur des tables existantes.
+- **Schéma** — toujours `dashboard_storage.<table>`. Jamais de tables dans `public` (le rôle n'y a de toute façon aucun droit).
+- **`params` obligatoire** pour toute valeur dynamique — paramètres nommés `:nom`.
+- **Deux-points** — hors guillemets SQL, `:mot` est interprété comme paramètre nommé (échappement : `\:`). Les littéraux entre guillemets (`'12:30'`, URL) passent tels quels, et `::` (cast) est accepté. Toute valeur dynamique passe par `params`, jamais par interpolation.
+- **Une seule instruction par requête** — le résultat (lignes, `row_count`) ne reflète que la dernière instruction d'un SQL multi-instructions, et le binding de `params` n'y est pas fiable. Une requête = une instruction.
+- **Pas de DDL depuis le frontend** — seul l'agent (Python) exécute CREATE/ALTER.
+- Les DDL et DML sans `RETURNING` renvoient un résultat vide avec `row_count` = lignes affectées.
+- Le schéma legacy `matometa` est accessible via la même source (alias `matometa_db` accepté ; droits accordés à l'installation du rôle) ; ne plus y créer de nouvelles tables. L'ancienne persistance « datalake » via Metabase est dépréciée — ne plus l'utiliser pour du neuf.
 
 ### Performance
 
