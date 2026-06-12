@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, case, distinct, func, or_, select
 
 from . import session_sync
 from .db import get_db
@@ -496,36 +496,24 @@ class ConversationStore:
         exclude_report_containers: bool = True,
     ) -> list[Conversation]:
         with get_db() as session:
-            conditions = []
-            params: dict = {}
+            stmt = select(ConvModel, ReportModel.id, ReportModel.title).outerjoin(
+                ReportModel, ReportModel.conversation_id == ConvModel.id
+            )
 
             if user_id:
-                conditions.append("c.user_id = :user_id")
-                params["user_id"] = user_id
+                stmt = stmt.where(ConvModel.user_id == user_id)
 
             if conv_type:
-                conditions.append("c.conv_type = :conv_type")
-                params["conv_type"] = conv_type
+                stmt = stmt.where(ConvModel.conv_type == conv_type)
             else:
-                conditions.append("(c.conv_type = 'exploration' OR c.conv_type IS NULL)")
+                stmt = stmt.where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
 
             if exclude_report_containers:
-                conditions.append("r.id IS NULL")
+                stmt = stmt.where(ReportModel.id.is_(None))
 
-            where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            params["lim"] = limit
-
-            query = text(f"""
-                SELECT c.*, r.id as report_id, r.title as report_title
-                FROM conversations c
-                LEFT JOIN reports r ON r.conversation_id = c.id
-                {where}
-                ORDER BY c.updated_at DESC
-                LIMIT :lim
-            """)
-
-            rows = session.execute(query, params).mappings().all()
-            return [_conv_with_report_row(row, row["report_id"], row["report_title"]) for row in rows]
+            stmt = stmt.order_by(ConvModel.updated_at.desc()).limit(limit)
+            rows = session.execute(stmt).all()
+            return [_conv_with_report_row(conv, report_id, report_title) for conv, report_id, report_title in rows]
 
     def pin_item(self, item_type: str, item_id: str, label: str) -> bool:
         with get_db() as session:
@@ -1048,50 +1036,35 @@ class ConversationStore:
     ) -> dict[str, list[Tag]]:
         """Get tags actually used by conversations, grouped by type with counts."""
         with get_db() as session:
-            params: dict = {}
-            conv_filter = "(c.conv_type = 'exploration' OR c.conv_type IS NULL)"
+            conv_match = [or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None))]
 
             if user_id:
-                conv_filter += " AND c.user_id = :user_id"
-                params["user_id"] = user_id
+                conv_match.append(ConvModel.user_id == user_id)
 
             if active_tag_names:
-                tag_placeholders = ", ".join(f":tn{i}" for i in range(len(active_tag_names)))
-                for i, name in enumerate(active_tag_names):
-                    params[f"tn{i}"] = name
-                params["tag_count"] = len(active_tag_names)
-                conv_filter += f"""
-                    AND c.id IN (
-                        SELECT conversation_id FROM conversation_tags ct2
-                        JOIN tags t2 ON ct2.tag_id = t2.id
-                        WHERE t2.name IN ({tag_placeholders})
-                        GROUP BY conversation_id
-                        HAVING COUNT(DISTINCT t2.name) = :tag_count
-                    )
-                """
+                matching_convs = (
+                    select(ConvTagModel.conversation_id)
+                    .join(TagModel, ConvTagModel.tag_id == TagModel.id)
+                    .where(TagModel.name.in_(active_tag_names))
+                    .group_by(ConvTagModel.conversation_id)
+                    .having(func.count(distinct(TagModel.name)) == len(active_tag_names))
+                )
+                conv_match.append(ConvModel.id.in_(matching_convs))
 
-            query = text(f"""
-                SELECT t.*,
-                       COUNT(DISTINCT CASE
-                           WHEN c.id IS NOT NULL AND {conv_filter} THEN c.id
-                           ELSE NULL
-                       END) as count
-                FROM tags t
-                INNER JOIN conversation_tags ct ON t.id = ct.tag_id
-                INNER JOIN conversations c ON ct.conversation_id = c.id
-                WHERE (c.conv_type = 'exploration' OR c.conv_type IS NULL)
-                GROUP BY t.id, t.name, t.type, t.label
-                HAVING COUNT(DISTINCT c.id) > 0
-                ORDER BY t.type, t.label
-            """)
+            count_expr = func.count(distinct(case((and_(*conv_match), ConvModel.id))))
+            stmt = (
+                select(TagModel, count_expr)
+                .join(ConvTagModel, TagModel.id == ConvTagModel.tag_id)
+                .join(ConvModel, ConvTagModel.conversation_id == ConvModel.id)
+                .where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
+                .group_by(TagModel.id, TagModel.name, TagModel.type, TagModel.label)
+                .having(func.count(distinct(ConvModel.id)) > 0)
+                .order_by(TagModel.type, TagModel.label)
+            )
 
-            rows = session.execute(query, params).mappings().all()
             result: dict[str, list[Tag]] = {}
-            for row in rows:
-                tag = Tag(id=row["id"], name=row["name"], type=row["type"], label=row["label"], count=row["count"])
-                if tag.type not in result:
-                    result[tag.type] = []
-                result[tag.type].append(tag)
+            for t, count in session.execute(stmt).all():
+                result.setdefault(t.type, []).append(_model_to_tag(t, count))
             return result
 
     def get_used_report_tags_by_type(self) -> dict[str, list[Tag]]:
@@ -1215,46 +1188,27 @@ class ConversationStore:
         limit: int = 100,
     ) -> list[tuple[Conversation, list[Tag]]]:
         with get_db() as session:
-            conditions = ["(c.conv_type = 'exploration' OR c.conv_type IS NULL)"]
-            params: dict = {}
+            stmt = select(ConvModel).where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
 
             if user_id:
-                conditions.append("c.user_id = :user_id")
-                params["user_id"] = user_id
+                stmt = stmt.where(ConvModel.user_id == user_id)
 
             if tag_names:
-                for i, tag_name in enumerate(tag_names):
-                    key = f"tag_{i}"
-                    conditions.append(f"""
-                        EXISTS (
-                            SELECT 1 FROM conversation_tags ct
-                            JOIN tags t ON ct.tag_id = t.id
-                            WHERE ct.conversation_id = c.id AND t.name = :{key}
-                        )
-                    """)
-                    params[key] = tag_name
+                for tag_name in tag_names:
+                    stmt = stmt.where(
+                        select(ConvTagModel.conversation_id)
+                        .join(TagModel, ConvTagModel.tag_id == TagModel.id)
+                        .where(ConvTagModel.conversation_id == ConvModel.id, TagModel.name == tag_name)
+                        .exists()
+                    )
 
-            where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            params["lim"] = limit
+            stmt = stmt.order_by(ConvModel.updated_at.desc()).limit(limit)
+            convs = session.scalars(stmt).all()
 
-            query = text(f"""
-                SELECT c.*, r.id as report_id, r.title as report_title
-                FROM conversations c
-                LEFT JOIN reports r ON r.conversation_id = c.id AND r.id IS NULL
-                {where}
-                ORDER BY c.updated_at DESC
-                LIMIT :lim
-            """)
+            tags_by_conv = self._batch_fetch_conv_tags(session, [c.id for c in convs])
 
-            rows = session.execute(query, params).mappings().all()
-
-            conv_ids = [row["id"] for row in rows]
-            tags_by_conv = self._batch_fetch_conv_tags(session, conv_ids)
-
-            return [
-                (_conv_with_report_row(row, row["report_id"], row["report_title"]), tags_by_conv.get(row["id"], []))
-                for row in rows
-            ]
+            # Why: the legacy SQL joined reports with `AND r.id IS NULL`, which never matches — kept as no report.
+            return [(_conv_with_report_row(c, None, None), tags_by_conv.get(c.id, [])) for c in convs]
 
     def list_reports_with_tags(
         self,
@@ -1263,41 +1217,26 @@ class ConversationStore:
         limit: int = 100,
     ) -> list[tuple[Report, list[Tag]]]:
         with get_db() as session:
-            conditions: list[str] = []
-            params: dict = {}
+            stmt = select(ReportModel)
 
             if not include_archived:
-                conditions.append("(r.archived = 0 OR r.archived IS NULL)")
+                stmt = stmt.where(or_(ReportModel.archived == 0, ReportModel.archived.is_(None)))
 
             if tag_names:
-                for i, tag_name in enumerate(tag_names):
-                    key = f"tag_{i}"
-                    conditions.append(f"""
-                        EXISTS (
-                            SELECT 1 FROM report_tags rt
-                            JOIN tags t ON rt.tag_id = t.id
-                            WHERE rt.report_id = r.id AND t.name = :{key}
-                        )
-                    """)
-                    params[key] = tag_name
+                for tag_name in tag_names:
+                    stmt = stmt.where(
+                        select(ReportTagModel.report_id)
+                        .join(TagModel, ReportTagModel.tag_id == TagModel.id)
+                        .where(ReportTagModel.report_id == ReportModel.id, TagModel.name == tag_name)
+                        .exists()
+                    )
 
-            where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            params["lim"] = limit
+            stmt = stmt.order_by(ReportModel.updated_at.desc()).limit(limit)
+            reports = session.scalars(stmt).all()
 
-            query = text(f"""
-                SELECT r.*
-                FROM reports r
-                {where}
-                ORDER BY r.updated_at DESC
-                LIMIT :lim
-            """)
+            tags_by_report = self._batch_fetch_report_tags(session, [r.id for r in reports])
 
-            rows = session.execute(query, params).mappings().all()
-
-            report_ids = [row["id"] for row in rows]
-            tags_by_report = self._batch_fetch_report_tags(session, report_ids)
-
-            return [(_model_to_report_from_row(row), tags_by_report.get(row["id"], [])) for row in rows]
+            return [(_model_to_report(r), tags_by_report.get(r.id, [])) for r in reports]
 
     def add_uploaded_file(
         self,
@@ -1439,25 +1378,6 @@ class ConversationStore:
         for report_id, t in rows:
             result[report_id].append(_model_to_tag(t))
         return result
-
-
-def _model_to_report_from_row(row) -> Report:
-    return Report(
-        id=row["id"],
-        title=row["title"],
-        website=row["website"],
-        category=row["category"],
-        tags=json.loads(row["tags"]) if row["tags"] else [],
-        original_query=row["original_query"],
-        source_conversation_id=row["source_conversation_id"],
-        user_id=row["user_id"],
-        archived=bool(row["archived"]) if row["archived"] else False,
-        version=row["version"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-        conversation_id=row["conversation_id"],
-        message_id=row["message_id"],
-    )
 
 
 class LazyConversationStore:
