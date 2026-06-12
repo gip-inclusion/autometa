@@ -87,7 +87,7 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
-        if config.CONTAINER_ENV:
+        if config.AUTOMETA_ENV == "live":
             cmd.append("--dangerously-skip-permissions")
         elif config.ALLOWED_TOOLS:
             cmd.extend(["--allowedTools", config.ALLOWED_TOOLS])
