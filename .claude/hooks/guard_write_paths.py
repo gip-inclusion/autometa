@@ -59,7 +59,7 @@ def verdict(path, repo_root, env, exists=slug_exists):
         return BLOCK_CODE_MSG
     if len(parts) >= 3 and parts[1] == "interactive":
         if len(parts) == 3:
-            return BLOCK_ROOT_HTML_MSG if parts[2].lower().endswith(".html") else None
+            return BLOCK_ROOT_HTML_MSG if parts[2].lower().endswith((".html", ".htm")) else None
         if not exists(parts[2]):
             return BLOCK_UNREGISTERED_MSG
     return None

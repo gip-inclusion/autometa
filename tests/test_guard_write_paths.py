@@ -91,6 +91,7 @@ def test_live_allows_registered_slug_dir():
 
 def test_live_blocks_html_at_interactive_root():
     assert _verdict("/app/data/interactive/page.html") == guard.BLOCK_ROOT_HTML_MSG
+    assert _verdict("/app/data/interactive/page.htm") == guard.BLOCK_ROOT_HTML_MSG
     assert _verdict("/app/data/interactive/export.csv") is None
 
 
