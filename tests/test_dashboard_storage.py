@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy.pool import NullPool
 
 from lib.dashboard_storage import execute_sql
@@ -50,14 +51,15 @@ def test_execute_sql_binds_named_params(mocker):
     assert mock_conn.execute.call_args.args[1] == {"n": 1}
 
 
-def test_execute_sql_ddl_without_resultset(mocker):
-    mock_engine, _ = make_sa_mocks(mocker, [], [], returns_rows=False, rowcount=3)
+@pytest.mark.parametrize(("rowcount", "expected"), [(3, 3), (-1, 0)])
+def test_execute_sql_ddl_without_resultset(mocker, rowcount, expected):
+    mock_engine, _ = make_sa_mocks(mocker, [], [], returns_rows=False, rowcount=rowcount)
     mocker.patch("lib.dashboard_storage.create_engine", return_value=mock_engine)
     mocker.patch("lib.dashboard_storage.emit_api_signal")
 
     result = execute_sql(database_url="postgresql://u:p@db/app", sql="UPDATE dashboard_storage.t SET x = 1")
 
-    assert result == QueryResult(columns=[], rows=[], row_count=3)
+    assert result == QueryResult(columns=[], rows=[], row_count=expected)
 
 
 def test_execute_sql_emits_signal(mocker):
