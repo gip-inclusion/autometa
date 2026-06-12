@@ -86,7 +86,9 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev --frozen
       - name: Unit tests
-        run: uv run pytest tests/ -q --tb=short -m "not integration"
+        run: >-
+          uv run --with 'pytest-cov>=7' pytest tests/ -q --tb=short -m "not integration"
+          --cov=web --cov=lib --cov-report=term-missing:skip-covered
 
   docker:
     name: Docker
