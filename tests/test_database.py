@@ -84,7 +84,7 @@ def test_cancel_unstick_zombie_conversation(client):
     conv = store.create_conversation(user_id="test@test.com")
     store.update_conversation(conv.id, needs_response=True)
 
-    resp = client.post(f"/api/conversations/{conv.id}/cancel")
+    resp = client.post(f"/api/conversations/{conv.id}/cancel", headers={"X-Forwarded-Email": "test@test.com"})
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "cancelled"
@@ -96,7 +96,7 @@ def test_cancel_clears_needs_response(client):
     conv = store.create_conversation(user_id="test@test.com")
     store.update_conversation(conv.id, needs_response=True)
 
-    resp = client.post(f"/api/conversations/{conv.id}/cancel")
+    resp = client.post(f"/api/conversations/{conv.id}/cancel", headers={"X-Forwarded-Email": "test@test.com"})
 
     assert resp.status_code == 200
     updated = store.get_conversation(conv.id, include_messages=False)
