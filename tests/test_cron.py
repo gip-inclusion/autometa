@@ -696,6 +696,7 @@ def _seed_dashboard_and_publication(
     paused=False,
     cron_schedule="daily",
     cron_timeout=300,
+    cron_enabled=True,
 ):
     now = datetime.now(timezone.utc)
     with get_db() as session:
@@ -713,6 +714,7 @@ def _seed_dashboard_and_publication(
                 has_persistence=False,
                 cron_schedule=cron_schedule,
                 cron_timeout=cron_timeout,
+                cron_enabled=cron_enabled,
                 created_at=now,
                 updated_at=now,
             )
@@ -774,6 +776,13 @@ def test_discover_publications_task_dict_shape(client, mocker):
     assert task["timeout"] == 600
     assert task["enabled"] is True
     download.assert_not_called()
+
+
+def test_discover_publications_inherits_disabled_cron_from_parent(client):
+    _seed_dashboard_and_publication("pub-off", "poff1", cron_enabled=False)
+    tasks = discover_publications()
+    assert len(tasks) == 1
+    assert tasks[0]["enabled"] is False
 
 
 def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocker):
@@ -912,8 +921,14 @@ def test_cadence(schedule, expected):
 @pytest.mark.parametrize(
     "schedule,valid",
     [
-        ("0 6 1 * *", True),
         ("daily", True),
+        ("weekly", True),
+        ("monthly", True),
+        ("0 6 * * *", True),  # daily preset crontab
+        ("0 6 * * 1", True),  # weekly preset crontab
+        ("0 6 1 * *", True),  # monthly preset crontab
+        ("0 6 1,15 * *", False),  # 5-field but not a preset -> would silently run daily
+        ("0 9 * * *", False),  # 5-field non-preset -> rejected
         ("0 6 1 * * extra", False),
         ("nonsense", False),
         ("", False),

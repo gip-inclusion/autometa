@@ -56,7 +56,7 @@ Sortie sur stdout (JSON) :
 | `--has-cron` | | Inclure `cron.py` du template + flag DB à `true` |
 | `--has-api-access` | | Flag DB à `true` (TDB qui appelle `/api/query` en live, **non publiable**) |
 | `--has-persistence` | | Flag DB à `true` (TDB qui écrit dans le datalake, **non publiable**) |
-| `--cron-schedule` | | Cadence `daily`/`weekly`/`monthly` ou crontab brut ; défaut chaque nuit |
+| `--cron-schedule` | | Cadence `daily`/`weekly`/`monthly` (ou leur crontab équivalent) ; défaut chaque nuit |
 | `--cron-timeout` | | Timeout d'un run cron en secondes |
 
 ## Variables d'environnement

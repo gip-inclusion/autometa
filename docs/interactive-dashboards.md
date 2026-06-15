@@ -97,7 +97,7 @@ Les métadonnées d'un TDB (titre, description, tags, flags, cadence cron) viven
 Les métadonnées se définissent via les skills `create_dashboard` et `update_dashboard`, ou depuis l'éditeur de la page de détail du TDB.
 
 Champs cron portés par la ligne `dashboards` :
-- `cron_schedule` — crontab définissant la cadence (ex. `0 6 * * *`). Positionné via `--cron-schedule` (jetons `daily`/`weekly`/`monthly` ou crontab brut).
+- `cron_schedule` — crontab définissant la cadence (ex. `0 6 * * *`). Positionné via `--cron-schedule` : jetons `daily`/`weekly`/`monthly` ou leur crontab équivalent uniquement (le dispatcher 06h ne gère que ces trois cadences).
 - `cron_timeout` — timeout d'un run en secondes. Positionné via `--cron-timeout`.
 - `cron_enabled` — active ou désactive le cron. Togglable depuis l'UI `/cron`.
 

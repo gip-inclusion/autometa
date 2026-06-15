@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("--has-cron", action="store_true", help="Include cron.py and set has_cron flag")
     parser.add_argument("--has-api-access", action="store_true", help="Set has_api_access flag")
     parser.add_argument("--has-persistence", action="store_true", help="Set has_persistence flag")
-    parser.add_argument("--cron-schedule", help="Cadence (daily|weekly|monthly) or a raw crontab string")
+    parser.add_argument("--cron-schedule", help="Cadence: daily, weekly or monthly (or the equivalent preset crontab)")
     parser.add_argument("--cron-timeout", type=int, help="Cron run timeout in seconds")
     args = parser.parse_args()
 

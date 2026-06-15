@@ -47,7 +47,7 @@ def main() -> None:
     parser.add_argument("--has-cron", type=_bool_arg, default=None)
     parser.add_argument("--has-api-access", type=_bool_arg, default=None)
     parser.add_argument("--has-persistence", type=_bool_arg, default=None)
-    parser.add_argument("--cron-schedule", help="Cadence (daily|weekly|monthly) or a raw crontab string")
+    parser.add_argument("--cron-schedule", help="Cadence: daily, weekly or monthly (or the equivalent preset crontab)")
     parser.add_argument("--cron-timeout", type=int, help="Cron run timeout in seconds")
     archive_group = parser.add_mutually_exclusive_group()
     archive_group.add_argument("--archive", action="store_true")

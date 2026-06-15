@@ -11,10 +11,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import sentry_sdk
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
@@ -39,17 +41,19 @@ _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.ite
 
 
 def cadence(schedule: str) -> str:
-    """Reduce a stored schedule (crontab or legacy token) to a runner cadence: daily|weekly|monthly."""
-    # Why: the 06:00 dispatcher only honors day-level scheduling; an unrecognized crontab runs every
-    # tick (daily). The full crontab string is preserved in the DB for a future scheduler.
+    """Reduce a stored schedule (crontab or cadence token) to a runner cadence: daily|weekly|monthly."""
+    # Why: the 06:00 dispatcher only honors day-level scheduling. is_valid_schedule restricts stored
+    # values to the three presets; this daily fallback only guards legacy or backfilled rows.
     if schedule in SCHEDULE_PRESETS:
         return schedule
     return _CRONTAB_TO_CADENCE.get(schedule, "daily")
 
 
 def is_valid_schedule(schedule: str) -> bool:
-    """A storable schedule: a known cadence token, or any 5-field crontab string."""
-    return schedule in SCHEDULE_PRESETS or len(schedule.split()) == 5
+    """A storable schedule: a cadence token (daily|weekly|monthly) or its exact preset crontab."""
+    # Why: the 06:00 dispatcher only honors these three cadences. Accepting an arbitrary crontab would
+    # store a schedule that silently runs daily — reject it until a real scheduler lands.
+    return schedule in SCHEDULE_PRESETS or schedule in _CRONTAB_TO_CADENCE
 
 
 # Cron statuses that count as "broken" for Slack alerts
@@ -246,6 +250,7 @@ def discover_publications() -> list[dict]:
                 Dashboard.title,
                 Dashboard.cron_schedule,
                 Dashboard.cron_timeout,
+                Dashboard.cron_enabled,
             )
             .join(Dashboard, Dashboard.slug == DashboardPublication.dashboard_slug)
             .where(
@@ -257,7 +262,7 @@ def discover_publications() -> list[dict]:
         ).all()
 
     tasks = []
-    for slug, pub_id, title, schedule, timeout in rows:
+    for slug, pub_id, title, schedule, timeout, enabled in rows:
         prefix = f"{slug}/{pub_id}/"
         tasks.append({
             "slug": f"{slug}-{pub_id}",
@@ -266,7 +271,7 @@ def discover_publications() -> list[dict]:
             "source": "s3-publication",
             "path": prefix,
             "cron_path": f"{prefix}cron.py",
-            "enabled": True,
+            "enabled": enabled,
             "timeout": timeout,
             "schedule": schedule,
             "publication_id": pub_id,
@@ -275,7 +280,7 @@ def discover_publications() -> list[dict]:
     return tasks
 
 
-def backfill_cron_metadata(session, download) -> int:
+def backfill_cron_metadata(session: Session, download: Callable[[str], bytes | None]) -> int:
     """One-time: copy schedule/timeout/enabled from each has_cron dashboard's S3 APP.md into its row."""
     updated = 0
     for dashboard in session.scalars(select(Dashboard).where(Dashboard.has_cron)):
@@ -288,6 +293,12 @@ def backfill_cron_metadata(session, download) -> int:
         dashboard.cron_enabled = is_enabled(meta)
         updated += 1
     return updated
+
+
+def run_cron_backfill() -> int:
+    """One-time operator entry point: backfill cron metadata from S3 APP.md, committing on success."""
+    with get_db() as session:
+        return backfill_cron_metadata(session, s3.interactive.download)
 
 
 def discover_cron_tasks() -> list[dict]:

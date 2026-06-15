@@ -332,11 +332,16 @@ def test_create_dashboard_with_cron_schedule_normalizes_token(isolated):
         assert d.cron_timeout == 600
 
 
-def test_create_dashboard_with_raw_crontab_stored_as_is(isolated):
-    _create("sched-raw", has_cron=True, cron_schedule="0 6 1,15 * *")
+def test_create_dashboard_with_preset_crontab_stored_as_is(isolated):
+    _create("sched-raw", has_cron=True, cron_schedule="0 6 1 * *")
     with get_db() as session:
         d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-raw"))
-        assert d.cron_schedule == "0 6 1,15 * *"
+        assert d.cron_schedule == "0 6 1 * *"
+
+
+def test_create_dashboard_rejects_non_preset_crontab(isolated):
+    with pytest.raises(ValueError):
+        _create("sched-nonpreset", has_cron=True, cron_schedule="0 6 1,15 * *")
 
 
 def test_create_dashboard_rejects_invalid_schedule(isolated):
