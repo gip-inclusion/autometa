@@ -107,6 +107,14 @@ data_inclusion:
 autometa_tables_db:
   database_url: ${env.AUTOMETA_TABLES_DATABASE_URL}
 
+zendesk:
+  _default: emplois
+
+  emplois:
+    subdomain: ${env.ZENDESK_SUBDOMAIN}
+    email: ${env.ZENDESK_EMAIL}
+    token: ${env.ZENDESK_API_TOKEN}
+
 livestorm:
   api_key: ${env.LIVESTORM_API_KEY}
 

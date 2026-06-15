@@ -9,6 +9,7 @@ import yaml
 
 from .matomo import MatomoAPI
 from .metabase import MetabaseAPI
+from .zendesk import ZendeskAPI
 
 # Config file location
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "sources.yaml"
@@ -108,6 +109,17 @@ def get_matomo(instance: str | None = None):
 
     return MatomoAPI(
         url=url,
+        token=config["token"],
+        instance=instance_name,
+    )
+
+
+def get_zendesk() -> ZendeskAPI:
+    config = get_source_config("zendesk")
+    instance_name = get_default_instance("zendesk") or "emplois"
+    return ZendeskAPI(
+        subdomain=config["subdomain"],
+        email=config["email"],
         token=config["token"],
         instance=instance_name,
     )
