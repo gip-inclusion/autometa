@@ -67,7 +67,9 @@ dev = [
 # =============================================================================
 
 [tool.ruff]
-target-version = "py314"
+# Why: ruff 0.15.12's formatter strips the required parens from `except (A, B):` under
+# target py314, emitting invalid Python 3. Pin to py313 (no 3.14-only syntax is used).
+target-version = "py313"
 line-length = 120
 # evals/: experimental evaluation scripts, intentionally loose style
 # skills/pdf/: vendored Anthropic skill (proprietary upstream) — don't reformat

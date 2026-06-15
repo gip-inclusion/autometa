@@ -142,7 +142,7 @@ def sync_instance(instance_name: str):
         try:
             sql = api.get_card_sql(card["id"])
             return (card["id"], sql, extract_table_references(sql))
-        except MetabaseError, TimeoutError, OSError:
+        except (MetabaseError, TimeoutError, OSError):
             return (card["id"], "", [])
 
     with ThreadPoolExecutor(max_workers=10) as executor:
