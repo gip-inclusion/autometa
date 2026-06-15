@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func, or_, select
@@ -304,12 +304,14 @@ class ConversationsMixin:
                 for c in models
             ]
 
-    def get_running_conversation_ids(self, user_id: Optional[str] = None) -> list[str]:
+    def get_running_conversation_ids(self, user_id: Optional[str] = None, older_than_seconds: int = 0) -> list[str]:
         with get_db() as session:
             query = select(ConvModel.id).where(ConvModel.needs_response == 1)
             if user_id:
                 # Why: NULL owner means legacy conversation visible to everyone (same rule as routes)
                 query = query.where(or_(ConvModel.user_id == user_id, ConvModel.user_id.is_(None)))
+            if older_than_seconds:
+                query = query.where(ConvModel.updated_at < utcnow() - timedelta(seconds=older_than_seconds))
             return list(session.scalars(query).all())
 
     def clear_all_needs_response(self) -> list[str]:
