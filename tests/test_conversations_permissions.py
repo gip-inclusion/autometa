@@ -30,8 +30,9 @@ def make_request(client, method, path, email, running=False, owner=ALICE):
 
 
 @pytest.mark.parametrize("method,path,running", [*MUTATIONS, ("POST", "/generate-title", False)])
-def test_mutations_denied_for_non_owner(client, method, path, running):
-    conv, r = make_request(client, method, path, BOB, running=running)
+@pytest.mark.parametrize("email", [BOB, ADMIN])
+def test_mutations_denied_for_non_owner(client, method, path, running, email):
+    conv, r = make_request(client, method, path, email, running=running)
 
     assert r.status_code == 403
     if method == "PATCH":
@@ -39,10 +40,9 @@ def test_mutations_denied_for_non_owner(client, method, path, running):
 
 
 @pytest.mark.parametrize("method,path,running", MUTATIONS)
-@pytest.mark.parametrize("email", [ALICE, ADMIN])
-def test_mutations_allowed_for_owner_and_admin(client, mocker, method, path, running, email):
+def test_mutations_allowed_for_owner(client, mocker, method, path, running):
     mocker.patch("web.routes.conversations.runner.cancel", mocker.AsyncMock())
-    conv, r = make_request(client, method, path, email, running=running)
+    conv, r = make_request(client, method, path, ALICE, running=running)
 
     assert r.status_code == 200
     if method == "PATCH":

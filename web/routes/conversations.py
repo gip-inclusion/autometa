@@ -36,8 +36,8 @@ router = APIRouter(prefix="/api/conversations")
 
 
 def can_mutate_conversation(conv, user_email: str) -> bool:
-    """NULL-owner conversations are mutable by everyone; otherwise owner or admin."""
-    return not conv.user_id or conv.user_id == user_email or user_email in ADMIN_USERS
+    """NULL-owner conversations are mutable by everyone; otherwise the owner only (same rule as POST /messages and the file endpoints)."""
+    return not conv.user_id or conv.user_id == user_email
 
 
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
@@ -480,7 +480,7 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     # Check ownership - only owner can send messages
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse(
             {
                 "error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."
@@ -764,7 +764,7 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     # Check ownership
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     # Check conversation type
@@ -863,7 +863,7 @@ async def copy_file(conv_id: str, file_id: int, request: Request, user_email: st
 
     # Check ownership
     conv = store.get_conversation(conv_id, include_messages=False)
-    if conv and conv.user_id and conv.user_id != user_email:
+    if conv and not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     body = await request.body()
