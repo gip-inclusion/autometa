@@ -2,12 +2,18 @@
 
 from sqlalchemy import text
 
-from .db import get_db, init_tables
+from .db import get_db, get_engine, init_tables
 
 
 def init_db():
     """Initialize database schema via SQLAlchemy models."""
+    engine = get_engine()
+
+    with engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
     init_tables()
+
     with get_db() as session:
         seed_tags(session)
 

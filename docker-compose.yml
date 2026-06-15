@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgis/postgis:18-3.6
+    build:
+      context: .
+      dockerfile: Dockerfile.db
     restart: unless-stopped
     environment:
       POSTGRES_USER: autometa
