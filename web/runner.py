@@ -50,12 +50,14 @@ class TaskRunner:
         self._worker_id = uuid.uuid4().hex[:12]
         self._consumer_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._sweep_task: asyncio.Task | None = None
 
     async def startup(self):
         r = await get_redis()
         await self._recover_stuck(r)
         self._consumer_task = asyncio.create_task(self._consumer_loop())
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self._sweep_task = asyncio.create_task(self._sweep_loop())
         logger.info(
             "Task runner started (worker=%s, max_concurrent=%s)",
             self._worker_id,
@@ -63,7 +65,7 @@ class TaskRunner:
         )
 
     async def shutdown(self):
-        for task in (self._consumer_task, self._heartbeat_task):
+        for task in (self._consumer_task, self._heartbeat_task, self._sweep_task):
             if task:
                 task.cancel()
         for task in self._cancel_tasks.values():
@@ -140,39 +142,53 @@ class TaskRunner:
     async def _consumer_loop(self):
         r = await get_redis()
         while True:
-            if len(self._running) >= config.MAX_CONCURRENT_AGENTS:
-                await asyncio.sleep(0.5)
-                continue
-            result = await r.blpop(f"{PREFIX}:tasks", timeout=1)
-            if result is None:
-                continue
-            _, payload_str = result
-            payload = json.loads(payload_str)
-            conv_id = payload["conv_id"]
-            if conv_id in self._running:
-                continue
-            # Skip stale tasks (already handled or cancelled)
-            conv = store.get_conversation(conv_id, include_messages=False)
-            if not conv or not conv.needs_response:
-                continue
-            await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
-            sid = payload.get("session_id")
-            if sid:
-                await asyncio.to_thread(session_sync.download_session, sid)
-            history = history_for_turn(conv_id, sid, payload["history"])
-            # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
-            trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
-            task = asyncio.create_task(
-                self._run_agent(
-                    conv_id,
-                    payload["prompt"],
-                    history,
-                    payload.get("user_email"),
-                    trace_headers,
-                    sid,
+            conv_id = None
+            try:
+                if len(self._running) >= config.MAX_CONCURRENT_AGENTS:
+                    await asyncio.sleep(0.5)
+                    continue
+                result = await r.blpop(f"{PREFIX}:tasks", timeout=1)
+                if result is None:
+                    continue
+                _, payload_str = result
+                payload = json.loads(payload_str)
+                conv_id = payload["conv_id"]
+                if conv_id in self._running:
+                    continue
+                # Skip stale tasks (already handled or cancelled)
+                conv = store.get_conversation(conv_id, include_messages=False)
+                if not conv or not conv.needs_response:
+                    continue
+                await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
+                sid = payload.get("session_id")
+                if sid:
+                    await asyncio.to_thread(session_sync.download_session, sid)
+                history = history_for_turn(conv_id, sid, payload["history"])
+                # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
+                trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
+                task = asyncio.create_task(
+                    self._run_agent(
+                        conv_id,
+                        payload["prompt"],
+                        history,
+                        payload.get("user_email"),
+                        trace_headers,
+                        sid,
+                    )
                 )
-            )
-            self._running[conv_id] = task
+                self._running[conv_id] = task
+            except Exception:
+                # Why: one bad task (DB/Redis blip, malformed payload) must never kill the loop
+                # and strand every future conversation (silent consumer death, 2026-06-12 outage).
+                logger.exception("consumer loop failed handling task (conv=%s)", conv_id)
+                if conv_id:
+                    try:
+                        await self._release_conversation(r, conv_id, "*Une erreur s'est produite, merci de réessayer.*")
+                    except Exception:
+                        # Why: recovery hits the same DB/Redis that may still be down; never let it
+                        # re-kill the loop. The periodic sweep reconciles this conversation later.
+                        logger.exception("consumer recovery failed (conv=%s)", conv_id)
+                await asyncio.sleep(0.5)
 
     async def _heartbeat_loop(self):
         r = await get_redis()
@@ -182,19 +198,43 @@ class TaskRunner:
                 await r.expire(f"{PREFIX}:running:{conv_id}", 300)
             await asyncio.sleep(10)
 
-    async def _recover_stuck(self, r):
-        stuck = store.get_running_conversation_ids()
+    async def _release_conversation(self, r, conv_id, note):
+        """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""
+        store.update_conversation(conv_id, needs_response=False)
+        store.add_message(conv_id, "assistant", note)
+        await self.notify_done(conv_id)
+        await r.delete(f"{PREFIX}:running:{conv_id}")
+
+    async def _reconcile_stuck(self, r, min_age_seconds, note):
+        stuck = store.get_running_conversation_ids(older_than_seconds=min_age_seconds)
         cleared = 0
         for conv_id in stuck:
             worker = await r.get(f"{PREFIX}:running:{conv_id}")
             if worker and await r.exists(f"{PREFIX}:worker:{worker}"):
                 continue
-            store.update_conversation(conv_id, needs_response=False)
-            store.add_message(conv_id, "assistant", "*Interrompu (redémarrage serveur).*")
-            await r.delete(f"{PREFIX}:running:{conv_id}")
+            await self._release_conversation(r, conv_id, note)
             cleared += 1
+        return cleared
+
+    async def _recover_stuck(self, r):
+        cleared = await self._reconcile_stuck(r, 0, "*Interrompu (redémarrage serveur).*")
         if cleared:
             logger.info("Cleared %s stuck conversations on startup", cleared)
+
+    async def _sweep_loop(self):
+        r = await get_redis()
+        while True:
+            # Why: reconciliation otherwise runs only at startup; a long-lived process that never
+            # restarts accumulates zombies indefinitely. A live run is protected by the worker-key
+            # check in _reconcile_stuck; the 15min age only guards convs queued but not yet picked up.
+            await asyncio.sleep(60)
+            try:
+                cleared = await self._reconcile_stuck(r, 900, "*Interrompu.*")
+                if cleared:
+                    logger.info("Swept %s stuck conversations", cleared)
+            except Exception:
+                # Why: a sweep glitch (DB/Redis blip) must never kill the loop it runs in.
+                logger.exception("stuck-conversation sweep failed")
 
     async def _listen_cancel(self, conv_id: str):
         r = await get_redis()
