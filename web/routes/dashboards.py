@@ -129,7 +129,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         last_run = runs[0] if runs else None
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
-        next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"]))
+        if dashboard["cron_enabled"]:
+            next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"]))
 
     is_pinned = ("app", slug) in store.get_pinned_ids()
     data = get_sidebar_data(user_email)

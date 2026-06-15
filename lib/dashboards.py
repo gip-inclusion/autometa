@@ -330,17 +330,21 @@ def update_dashboard(
             "cron_schedule": cron_schedule,
             "cron_timeout": cron_timeout,
         }
+        content_changed = False
         for field_name, value in scalar_updates.items():
             if value is None:
                 continue
             if getattr(dashboard, field_name) != value:
                 setattr(dashboard, field_name, value)
                 fields_changed.append(field_name)
+                if field_name not in ("cron_schedule", "cron_timeout"):
+                    content_changed = True
 
         if _apply_tag_updates(session, slug, add_tags, remove_tags, set_tags):
             fields_changed.append("tags")
+            content_changed = True
 
-        if fields_changed:
+        if content_changed:
             dashboard.updated_at = datetime.now(timezone.utc)
 
         logger.info(

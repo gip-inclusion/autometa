@@ -365,6 +365,22 @@ def test_update_dashboard_sets_cron_schedule_and_timeout(isolated):
         assert d.cron_timeout == 900
 
 
+def test_update_dashboard_cron_fields_do_not_bump_updated_at(isolated):
+    _create("cron-noupd")
+    old = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    with get_db() as session:
+        session.scalar(select(Dashboard).where(Dashboard.slug == "cron-noupd")).updated_at = old
+
+    r = update_dashboard(slug="cron-noupd", updater_email="bob@x", cron_schedule="weekly", cron_timeout=600)
+    assert sorted(r.fields_changed) == ["cron_schedule", "cron_timeout"]
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "cron-noupd")).updated_at == old
+
+    update_dashboard(slug="cron-noupd", updater_email="bob@x", title="New")
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "cron-noupd")).updated_at > old
+
+
 def test_update_dashboard_rejects_invalid_schedule(isolated):
     _create("upd-bad")
     with pytest.raises(ValueError):
