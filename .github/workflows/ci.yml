@@ -54,12 +54,17 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar xz
+          range=""
           if [ "$EVENT" = "pull_request" ]; then
             range="$BASE_SHA..$HEAD_SHA"
-          else
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
             range="$BEFORE_SHA..$AFTER_SHA"
           fi
-          ./gitleaks detect --source . -v --log-opts="$range"
+          if [ -n "$range" ]; then
+            ./gitleaks detect --source . -v --log-opts="$range"
+          else
+            ./gitleaks detect --source . -v
+          fi
 
   test:
     name: Tests
