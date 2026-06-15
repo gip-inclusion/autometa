@@ -67,11 +67,11 @@ def test_parse_multi_dim_keeps_both_dimensions():
 )
 def test_period_of(breakdown, sel, expected):
     member = {"f": "sept. 2025"} if "ate" in breakdown else {"f": "BRETAGNE"}
-    assert rpe._period_of(sel, breakdown, member) == expected
+    assert rpe.period_of(sel, breakdown, member) == expected
 
 
 def test_epoch_month():
-    assert rpe._epoch_month(1756677600 + 43200) == "2025-09"
+    assert rpe.epoch_month(1756677600 + 43200) == "2025-09"
 
 
 def test_query_builds_multidim_sel_and_parses(mocker):
@@ -177,7 +177,7 @@ def test_cli_apply_where_filters_rows():
 
 def test_mirror_plan_geo_labels_and_time():
     dims = [{"id": "C_TERRITOIRE_ID"}, {"id": "D_DATETAETPED", "time": True}, {"id": "C_LBLSEXE"}]
-    plan = rpe._mirror_plan(dims)
+    plan = rpe.mirror_plan(dims)
     geo = {(label, spec.get("lPos")) for label, spec in plan if label}
     for level in rpe.MIRROR_GEO:  # géo nommée canonique, au bon niveau de C_TERRITOIRE_ID
         assert (level, rpe.GEO_LEVELS[level]["lPos"]) in geo
@@ -241,7 +241,7 @@ def test_refresh_alerts_and_reraises_on_login_failure(mocker):
 
 
 def test_norm_unifies_apostrophes_case_space():
-    assert rpe._norm("Part  des  RECOURS ’X") == "part des recours 'x"
+    assert rpe.norm("Part  des  RECOURS ’X") == "part des recours 'x"
 
 
 def test_resolve_measures_tolerates_apostrophe_and_label(mocker):
@@ -389,7 +389,7 @@ def test_live_refresh_catalog_returns_cubeids():
     try:
         fresh, _flows = client.refresh_catalog()
         assert len(fresh) >= 5
-        assert all(rpe._CUBE_RE.fullmatch(v) for v in fresh.values())
+        assert all(rpe.CUBE_RE.fullmatch(v) for v in fresh.values())
     finally:
         client.close()
 

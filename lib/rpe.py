@@ -45,7 +45,7 @@ BAKED_PERMUTATION = "2D1551B7C160B162D34A4CD10515557B"
 BAKED_STRONG_NAME = "B28E527AF46D9C6155A876F4769EC2F4"
 
 _SID_RE = re.compile(r"4c9184f37cff01[0-9a-f]+")
-_CUBE_RE = re.compile(r"[0-9a-f]{32}_[0-9a-f]{32}_[0-9a-f]+_[0-9]{13}")
+CUBE_RE = re.compile(r"[0-9a-f]{32}_[0-9a-f]{32}_[0-9a-f]+_[0-9]{13}")
 _HEX32_RE = re.compile(r"[0-9A-F]{32}")
 
 
@@ -226,7 +226,7 @@ def check_connectivity(timeout: int = TIMEOUT) -> tuple[bool, str]:
     return True, "login OK"
 
 
-def _period_of(sel: dict, breakdown_dim: str, member: dict) -> str | None:
+def period_of(sel: dict, breakdown_dim: str, member: dict) -> str | None:
     if breakdown_dim and "ate" in breakdown_dim:  # "Date d'observation", "Mois d'entrée…"
         return member.get("f")
     for f in sel.get("dimsToFilter") or []:
@@ -235,15 +235,15 @@ def _period_of(sel: dict, breakdown_dim: str, member: dict) -> str | None:
                 secs = int(f["selectedMembers"][0]) + 43200  # bornes de mois en Europe/Paris
             except TypeError, ValueError:
                 continue
-            return _epoch_month(secs)
+            return epoch_month(secs)
     return None
 
 
-def _epoch_month(secs: int) -> str:
+def epoch_month(secs: int) -> str:
     return datetime.fromtimestamp(secs, tz=timezone.utc).strftime("%Y-%m")
 
 
-def _norm(s: str) -> str:
+def norm(s: str) -> str:
     """Normalise pour le matching de mesure : minuscules, apostrophes unifiées, espaces compactés."""
     return " ".join((s or "").lower().replace("’", "'").replace("‘", "'").replace("´", "'").split())
 
@@ -373,14 +373,14 @@ class RpeClient:
         ids = {m["id"] for m in cat}
         bynorm: dict[str, set] = {}
         for m in cat:
-            bynorm.setdefault(_norm(m["id"]), set()).add(m["id"])
-            bynorm.setdefault(_norm(m.get("label") or ""), set()).add(m["id"])
+            bynorm.setdefault(norm(m["id"]), set()).add(m["id"])
+            bynorm.setdefault(norm(m.get("label") or ""), set()).add(m["id"])
         out = []
         for m in measures:
             if m in ids:
                 out.append(m)
                 continue
-            cand = bynorm.get(_norm(m)) or set()
+            cand = bynorm.get(norm(m)) or set()
             if len(cand) == 1:
                 resolved = next(iter(cand))
                 logger.info("RPE : mesure résolue %r → %r", m, resolved)
@@ -506,7 +506,7 @@ class RpeClient:
                     row["dimension"] = name
                     row["member_code"] = mem.get("i")
                     row["member_label"] = mem.get("f") or mem.get("i")
-                    row["period"] = _period_of(sel, name, mem)
+                    row["period"] = period_of(sel, name, mem)
             rows.append(row)
         return rows
 
@@ -516,7 +516,7 @@ class RpeClient:
         wallet = self._gwt(GWT["loadWallet"])
         header = flowsview_header(GWT["getFlowsView"])
         resp = self._gwt(build_flowsview_payload(extract_frame_ids(wallet), header))
-        fresh = {cube.split("_")[0]: cube for cube in _CUBE_RE.findall(resp)}
+        fresh = {cube.split("_")[0]: cube for cube in CUBE_RE.findall(resp)}
         self.cubeids.update(fresh)
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
         return fresh, resp
@@ -529,7 +529,7 @@ class RpeClient:
             if key not in self.cubeids:
                 continue
             name = cat["cubeName"]
-            plan = [(None, d) for d in dimensions] if dimensions else _mirror_plan(self.dimensions(name))
+            plan = [(None, d) for d in dimensions] if dimensions else mirror_plan(self.dimensions(name))
             for label, spec in plan:
                 try:
                     r = self.query(name, [spec], timeout=MIRROR_TIMEOUT)
@@ -562,7 +562,7 @@ MIRROR_GEO = ["Région", "Département", "CLPE"]
 MIRROR_TIMEOUT = 45  # borne par appel mirror (cube froid ~1-20s), pour ne pas faire exploser le budget cron
 
 
-def _mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
+def mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
     """Plan de ventilation du mirror : (libellé canonique | None, spec de dimension). Géo nommée, temps brut."""
     has_terr = any(d["id"] == "C_TERRITOIRE_ID" for d in dims)
     plan: list[tuple[str | None, dict]] = [(g, GEO_LEVELS[g]) for g in MIRROR_GEO] if has_terr else []
