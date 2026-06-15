@@ -6,7 +6,9 @@ import json
 import fakeredis.aioredis
 import pytest
 
+from web import complexity
 from web.agents.base import AgentMessage
+from web.database import Message
 from web.runner import (
     RunUsage,
     TaskRunner,
@@ -916,3 +918,40 @@ def test_run_agent_emits_error_status_on_exception(runner, mocker, caplog):
     matches = [r for r in caplog.records if r.message == "agent.run.completed"]
     assert len(matches) == 1
     assert getattr(matches[0], "agent.status") == "error"
+
+
+def _complex_messages(n=41):
+    return [Message(type="user", content="q") for _ in range(n)]
+
+
+def test_maybe_alert_complexity_injects_once_when_complex(runner, mocker):
+    mock_store = mocker.patch("web.runner.store")
+    conv = mocker.MagicMock()
+    conv.messages = _complex_messages()
+    mock_store.get_conversation.return_value = conv
+
+    asyncio.run(runner._maybe_alert_complexity("c1"))
+
+    mock_store.add_message.assert_called_once_with("c1", "assistant", complexity.ALERT_MESSAGE)
+
+
+def test_maybe_alert_complexity_skips_when_already_alerted(runner, mocker):
+    mock_store = mocker.patch("web.runner.store")
+    conv = mocker.MagicMock()
+    conv.messages = _complex_messages() + [Message(type="assistant", content=complexity.ALERT_MESSAGE)]
+    mock_store.get_conversation.return_value = conv
+
+    asyncio.run(runner._maybe_alert_complexity("c1"))
+
+    mock_store.add_message.assert_not_called()
+
+
+def test_maybe_alert_complexity_skips_when_simple(runner, mocker):
+    mock_store = mocker.patch("web.runner.store")
+    conv = mocker.MagicMock()
+    conv.messages = [Message(type="user", content="q")]
+    mock_store.get_conversation.return_value = conv
+
+    asyncio.run(runner._maybe_alert_complexity("c1"))
+
+    mock_store.add_message.assert_not_called()

@@ -20,7 +20,7 @@ from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
 from lib.tool_taxonomy import classify_tool
 
-from . import alerts, config, session_sync
+from . import alerts, complexity, config, session_sync
 from .agents import get_agent
 from .database import store
 from .helpers import utcnow
@@ -202,6 +202,17 @@ class TaskRunner:
                 # and the periodic sweep both rely on it refreshing the worker/running keys.
                 logger.exception("heartbeat loop iteration failed")
             await asyncio.sleep(10)
+
+    async def _maybe_alert_complexity(self, conv_id: str):
+        conv = store.get_conversation(conv_id, include_messages=True)
+        if not conv:
+            return
+        reasons = complexity.evaluate(conv.messages)
+        if not reasons or complexity.already_alerted(conv.messages):
+            return
+        logger.info("Conversation %s jugée complexe (%s)", conv_id, ", ".join(reasons))
+        store.add_message(conv_id, "assistant", complexity.ALERT_MESSAGE)
+        await self.notify(conv_id)
 
     async def _release_conversation(self, r, conv_id, note):
         """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""
@@ -406,6 +417,8 @@ class TaskRunner:
                 full_response = " ".join(all_assistant_texts)
                 if full_response:
                     _check_failure(conversation_id, full_response)
+
+                await self._maybe_alert_complexity(conversation_id)
 
                 span.set_status(Status(StatusCode.OK))
 
