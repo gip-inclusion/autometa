@@ -219,6 +219,11 @@ MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")
 MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "")
 
 
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+EMBEDDING_BATCH_SIZE = int(os.environ.get("EMBEDDING_BATCH_SIZE", "32"))
+EMBEDDING_CONTENT_PREVIEW_LENGTH = int(os.environ.get("EMBEDDING_CONTENT_PREVIEW_LENGTH", "500"))
+
+
 def agent_conversation_id() -> str | None:
     """Conversation id injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_CONVERSATION_ID")
