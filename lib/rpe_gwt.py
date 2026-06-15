@@ -160,8 +160,7 @@ def _dim_attr(block: str, attr: str) -> str | None:
 
 
 def parse_cube_dm(js: str) -> dict:
-    """Cube depuis son fichier cube_dm : cubeName + dimensions décorées. Why: les mesures listées ici sont
-    des intermédiaires techniques (X9F036…), pas les mesures requêtables — celles-ci viennent des graphes."""
+    """Cube depuis son cube_dm : cubeName + dimensions (les mesures y sont des intermédiaires techniques, pas les requêtables — cf. graphes)."""
     name = _CUBENAME_RE.search(js)
     dim_matches = list(_ADDDIM_RE.finditer(js))
     dims = []

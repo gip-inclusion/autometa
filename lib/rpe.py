@@ -24,6 +24,7 @@ from lib.rpe_gwt import (
     parse_cube_dm,
 )
 from web.alerts import notify_alert_channel
+from web.config import RPE_PUBLIC_PASS
 from web.db import get_engine
 
 logger = logging.getLogger(__name__)
@@ -32,9 +33,9 @@ logger = logging.getLogger(__name__)
 HOST = "https://pilotage-rpe.francetravail.org"
 BASE = HOST + "/digdash_dashboard"
 MODULE = BASE + "/dashboard/"
-PUBLIC_PASS = "yYjL2p#9LSHeT8p0"
+PUBLIC_PASS = RPE_PUBLIC_PASS
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36"
-REFERER = BASE + "/index.html?domain=ddenterpriseapi&user=public&pass=yYjL2p%239LSHeT8p0"
+REFERER = BASE + "/index.html?domain=ddenterpriseapi&user=public&pass=" + quote(PUBLIC_PASS, safe="")
 TIMEOUT = 60
 SCHEMA = "matometa"
 SESSION_TTL_S = 1200  # < 30 min Tomcat idle ; un 403 déclenche de toute façon un re-login
@@ -397,7 +398,7 @@ class RpeClient:
         ddvars: dict | None = None,
         timeout: int = TIMEOUT,
     ) -> list[dict]:
-        """Requête getCubeResult arbitraire ; renvoie des lignes tidy (mesure, dimensions, période, valeur)."""
+        """Requête getCubeResult ; lignes tidy. `filters` = filtre serveur niveau 0 (interdit sur la géo hiérarchique — filtrer côté résultat)."""
         key = self._key(dataset)
         cubeid = self.cubeids.get(key)
         if not cubeid:
@@ -432,8 +433,14 @@ class RpeClient:
         sel["measuresToKeepHidden"] = [False] * nm
         sel["measuresToKeepHiddenLabel"] = [False] * nm
         if filters is not None:
-            # Why: filtre niveau 0 uniquement — non fiable sur une dimension hiérarchique (géo).
-            # Pour la géo, ventiler par la dimension et filtrer les lignes du résultat (cf. SKILL --where).
+            # Why: le filtre serveur est codé au niveau 0 → résultat faux sur une dim géo hiérarchique.
+            # Échouer fort plutôt que renvoyer des valeurs silencieusement fausses : ventiler par la dim
+            # géo et filtrer les lignes du résultat côté client (cf. SKILL --where).
+            if "C_TERRITOIRE_ID" in filters:
+                raise ValueError(
+                    "filtre serveur non fiable sur C_TERRITOIRE_ID (dim géo hiérarchique) : "
+                    "ventiler par la dimension puis filtrer le résultat côté client"
+                )
             sel["dimsToFilter"] = [
                 {"dim": d, "hierarchy": 0, "level": 0, "selectedMembers": list(codes), "mode": 0}
                 for d, codes in filters.items()
@@ -537,8 +544,7 @@ class RpeClient:
         return rows, failed
 
     def fetch_cube_dm(self, url: str, timeout: int = TIMEOUT) -> str:
-        """Télécharge un fichier cube_dm (catalogue d'un cube). Why: le contexte /ddenterpriseapi exige
-        les identifiants publics en paramètres (les cookies de session y renvoient 401)."""
+        """Télécharge un cube_dm (catalogue d'un cube) ; identifiants publics en query (cookies → 401 sur /ddenterpriseapi)."""
         full = HOST + url + "&user=public&pass=" + quote(PUBLIC_PASS, safe="")
         r = self.http.get(full, headers={"User-Agent": UA, "Referer": REFERER}, timeout=timeout)
         r.raise_for_status()

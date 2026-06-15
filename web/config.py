@@ -44,6 +44,9 @@ ALLOWED_TOOLS = os.getenv(
 # Outils toujours bloqués (même sous --dangerously-skip-permissions). AskUserQuestion ne s'affiche pas dans notre UI.
 DISALLOWED_TOOLS = os.getenv("DISALLOWED_TOOLS", "AskUserQuestion")
 
+# Compte « public » du tableau de bord public RPE (France Travail), transmis en clair dans l'URL publique — pas un secret.
+RPE_PUBLIC_PASS = os.getenv("RPE_PUBLIC_PASS", "yYjL2p#9LSHeT8p0")
+
 # Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder-next")

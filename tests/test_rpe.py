@@ -119,6 +119,17 @@ def test_query_raises_without_cubeid(mocker):
         client.query(DATASET, ["C_LBLSEXE"], ["MID"])
 
 
+def test_query_rejects_server_side_geo_filter(mocker):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.sid = "sid"
+    client.catalog = {"CK1": {"cubeName": DATASET, "dimensions": [], "measures": [{"id": "MID", "label": "M"}]}}
+    client.cubeids = {"CK1": "CUBEID"}
+    client.http = mocker.MagicMock()
+    with pytest.raises(ValueError, match="C_TERRITOIRE_ID"):
+        client.query(DATASET, ["C_LBLSEXE"], ["MID"], filters={"C_TERRITOIRE_ID": ["11"]})
+    client.http.post.assert_not_called()
+
+
 def test_connect_reuses_cached_session(mocker):
     mocker.patch("lib.rpe.load_cached_session", return_value=("JS123", "SID456"))
     login_spy = mocker.patch("lib.rpe.login", side_effect=AssertionError("ne doit pas se reconnecter"))
