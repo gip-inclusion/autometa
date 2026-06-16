@@ -128,8 +128,8 @@ PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
 PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_URL_PROD", "https://statistiques.inclusion.gouv.fr")
 
 
-# Container environment flag (set in Docker — bypasses permission checks)
-CONTAINER_ENV = bool(os.getenv("CONTAINER_ENV"))
+# Deployment environment: "live" on servers (Scalingo), "dev" (default) on local machines.
+AUTOMETA_ENV = os.getenv("AUTOMETA_ENV", "dev")
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
@@ -200,6 +200,9 @@ DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE
 
 # autometa_tables_db — tables Metabase centralisées (connexion directe Scalingo)
 AUTOMETA_TABLES_DATABASE_URL = os.getenv("AUTOMETA_TABLES_DATABASE_URL", "")
+
+# DSN du rôle restreint au schéma dashboard_storage de la DB applicative (persistance des TDB)
+DASHBOARD_STORAGE_DB_URL = (os.getenv("DASHBOARD_STORAGE_DB_URL") or "").replace("postgres://", "postgresql://")
 
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")

@@ -26,6 +26,26 @@ def cors_headers(origin: str | None) -> dict:
     return headers
 
 
+def validate_query_request(data: dict) -> str | None:
+    if not data.get("source"):
+        return "source is required"
+    if data["source"] in ("metabase", "matomo") and not data.get("instance"):
+        return "instance is required for metabase and matomo sources"
+    if data["source"] in ("data_inclusion", "autometa_tables_db", "dashboard_storage", "matometa_db") and not data.get(
+        "sql"
+    ):
+        return "sql is required for this source"
+    return None
+
+
+def coerce_timeout(value) -> int:
+    # Why: client-supplied; bound it so it can't inject libpq options or set an unbounded statement_timeout.
+    try:
+        return max(1, min(int(value), 600))
+    except TypeError, ValueError:
+        return 60
+
+
 # FIXME(vperron): many code smells here.
 # - the variable bodies but a dingle API entry seems like a bad practice,
 #   we should probably have a metabase query and a matomo query endpoints.
@@ -38,8 +58,8 @@ async def query(request: Request):
     Execute a query against Metabase or Matomo.
 
     Request body (JSON):
-        source: "metabase" or "matomo"
-        instance: Instance name (e.g., "stats", "datalake", "inclusion")
+        source: "metabase", "matomo", "data_inclusion", "autometa_tables_db" or "dashboard_storage" ("matometa_db" is a legacy alias)
+        instance: Instance name — required for metabase/matomo only
         caller: "app" or "agent"
 
         # For Metabase:
@@ -76,11 +96,12 @@ async def query(request: Request):
     if not data:
         return JSONResponse({"error": "JSON body required"}, status_code=400, headers=cors)
 
-    source = data.get("source")
-    instance = data.get("instance")
+    error = validate_query_request(data)
+    if error:
+        return JSONResponse({"error": error}, status_code=400, headers=cors)
 
-    if not source or not instance:
-        return JSONResponse({"error": "source and instance are required"}, status_code=400, headers=cors)
+    source = data["source"]
+    instance = data.get("instance") or ""
 
     # execute_query is synchronous — run in threadpool
     result = await asyncio.to_thread(
@@ -93,7 +114,7 @@ async def query(request: Request):
         card_id=data.get("card_id"),
         method=data.get("method"),
         params=data.get("params"),
-        timeout=data.get("timeout", 60),
+        timeout=coerce_timeout(data.get("timeout", 60)),
     )
 
     if not result.success:

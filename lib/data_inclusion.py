@@ -5,8 +5,7 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import paramiko
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import NullPool
+from sqlalchemy import text
 
 # sshtunnel 0.4.0 references paramiko.DSSKey which was removed in paramiko 4.0
 if not hasattr(paramiko, "DSSKey"):
@@ -15,7 +14,7 @@ if not hasattr(paramiko, "DSSKey"):
 from sshtunnel import SSHTunnelForwarder  # noqa: E402
 
 from .api_signals import emit_api_signal
-from .pg import QueryResult
+from .pg import QueryResult, build_engine
 
 
 class SSHError(Exception):
@@ -58,11 +57,7 @@ def execute_sql(
     emit_api_signal(source="data_inclusion", instance="datawarehouse", url=ssh_host, sql=sql)
     with _open_tunnel(database_url, ssh_host, ssh_user, ssh_key, ssh_key_passphrase) as (parsed, tunnel):
         url = f"postgresql://{parsed.username}:{parsed.password}@127.0.0.1:{tunnel.local_bind_port}/{parsed.path.lstrip('/')}"
-        engine = create_engine(
-            url,
-            poolclass=NullPool,
-            connect_args={"options": f"-c statement_timeout={timeout * 1000}"},
-        )
+        engine = build_engine(url, timeout)
         with engine.connect() as conn:
             result = conn.execute(text(sql))
             columns = list(result.keys())

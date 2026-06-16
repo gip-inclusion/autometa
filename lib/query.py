@@ -11,6 +11,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .autometa_tables_db import execute_sql as _atdb_execute_sql
+from .dashboard_storage import execute_sql as _ds_execute_sql
 from .data_inclusion import execute_sql as _di_execute_sql
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
@@ -223,6 +224,38 @@ def execute_autometa_tables_query(
     return _run_traced_query("autometa_tables.query", attrs, _do)
 
 
+def execute_dashboard_storage_query(
+    sql: str,
+    caller: CallerType,
+    params: Optional[dict] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Execute SQL on the dashboard_storage schema of the app database. Returns QueryResult, never raises."""
+    from web import config
+
+    attrs = {
+        "db.system": "postgresql",
+        "db.name": "dashboard_storage",
+        "caller": caller.value,
+        "db.statement.hash": _sql_hash(sql),
+    }
+
+    def _do():
+        if not config.DASHBOARD_STORAGE_DB_URL:
+            raise ValueError("DASHBOARD_STORAGE_DB_URL is not configured")
+        return _wrap_columns_rows(
+            _ds_execute_sql(
+                database_url=config.DASHBOARD_STORAGE_DB_URL,
+                sql=sql,
+                params=params,
+                timeout=timeout,
+            )
+        )
+
+    # Why: SQLAlchemy/psycopg2 can raise a wide variety of errors; caller checks result.success.
+    return _run_traced_query("dashboard_storage.query", attrs, _do)
+
+
 def execute_query(
     source: str,
     instance: str,
@@ -237,6 +270,8 @@ def execute_query(
     # Common
     timeout: int = 60,
 ) -> QueryResult:
+    if source in ("dashboard_storage", "matometa_db"):  # matometa_db : alias legacy utilisé par des app.js déployés
+        return execute_dashboard_storage_query(sql=sql or "", caller=caller, params=params, timeout=timeout)
     if source == "metabase":
         return execute_metabase_query(
             instance=instance,
@@ -269,5 +304,5 @@ def execute_query(
     return QueryResult(
         success=False,
         data=None,
-        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', or 'autometa_tables_db'.",
+        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', or 'dashboard_storage'.",
     )

@@ -369,3 +369,53 @@ def test_matomo_query_completion_log_includes_error(mocker, caplog):
     record = matches[0]
     assert getattr(record, "query.success") is False
     assert getattr(record, "query.error.message") == "boom"
+
+
+def test_execute_dashboard_storage_query_calls_client(mocker):
+    from lib import query as q
+
+    mocker.patch("web.config.DASHBOARD_STORAGE_DB_URL", "postgresql://u:p@db/app")
+    client = mocker.patch(
+        "lib.query._ds_execute_sql",
+        return_value=mocker.MagicMock(columns=["x"], rows=[[1]], row_count=1),
+    )
+
+    result = q.execute_dashboard_storage_query(sql="SELECT :x", caller=q.CallerType.AGENT, params={"x": 1})
+
+    assert result.success is True
+    assert result.data == {"columns": ["x"], "rows": [[1]], "row_count": 1}
+    assert client.call_args.kwargs["params"] == {"x": 1}
+    assert client.call_args.kwargs["timeout"] == 60
+
+
+def test_execute_dashboard_storage_query_fails_without_dsn(mocker):
+    from lib import query as q
+
+    mocker.patch("web.config.DASHBOARD_STORAGE_DB_URL", None)
+
+    result = q.execute_dashboard_storage_query(sql="SELECT 1", caller=q.CallerType.AGENT)
+
+    assert result.success is False
+    assert "DASHBOARD_STORAGE_DB_URL" in result.error
+
+
+@pytest.mark.parametrize("source", ["dashboard_storage", "matometa_db"])
+def test_execute_query_routes_dashboard_storage_and_legacy_alias(mocker, source):
+    from lib import query as q
+
+    helper = mocker.patch("lib.query.execute_dashboard_storage_query")
+
+    q.execute_query(source=source, instance="", caller=q.CallerType.APP, sql="SELECT 1", params={"a": 1})
+
+    assert helper.call_args.kwargs["sql"] == "SELECT 1"
+    assert helper.call_args.kwargs["params"] == {"a": 1}
+    assert helper.call_args.kwargs["timeout"] == 60
+
+
+def test_execute_query_unknown_source_lists_dashboard_storage():
+    from lib import query as q
+
+    result = q.execute_query(source="nope", instance="x", caller=q.CallerType.APP)
+
+    assert result.success is False
+    assert "dashboard_storage" in result.error

@@ -1,6 +1,9 @@
-"""Shared PostgreSQL query result type."""
+"""Shared PostgreSQL query result type and engine builder."""
 
 from dataclasses import dataclass
+
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 
 
 @dataclass
@@ -20,3 +23,12 @@ class QueryResult:
         if self.row_count > max_rows:
             lines.append(f"_({self.row_count - max_rows} lignes supplémentaires)_")
         return "\n".join(lines)
+
+
+def build_engine(database_url: str, timeout: int):
+    """Engine NullPool avec statement_timeout — connexions ponctuelles des clients SQL."""
+    return create_engine(
+        database_url,
+        poolclass=NullPool,
+        connect_args={"options": f"-c statement_timeout={timeout * 1000}"},
+    )

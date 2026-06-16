@@ -17,7 +17,8 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
    ```
 2. **Aucun match** : c'est bien une création — continuer.
 3. **Match proche** (par titre, slug ou sujet) : présenter le candidat à l'utilisateur (titre + lien `/interactive/{slug}/`) et lui demander s'il préfère modifier l'existant via `update_dashboard` plutôt que créer un nouveau TDB.
-4. **Slug envisagé déjà pris** : le skill échouera avec `Slug already exists`. Pivoter vers `update_dashboard` après confirmation.
+4. **Slug envisagé déjà pris en DB** : le skill échouera avec `Slug already exists`. Pivoter vers `update_dashboard` après confirmation.
+5. **Dossier existant mais non enregistré** (app legacy) : utiliser `--adopt` pour créer la ligne DB sans toucher aux fichiers.
 
 ## Usage
 ```bash
@@ -56,6 +57,7 @@ Sortie sur stdout (JSON) :
 | `--has-cron` | | Inclure `cron.py` du template + flag DB à `true` |
 | `--has-api-access` | | Flag DB à `true` (TDB qui appelle `/api/query` en live, **non publiable**) |
 | `--has-persistence` | | Flag DB à `true` (TDB qui écrit dans le datalake, **non publiable**) |
+| `--adopt` | | Enregistre un dossier `data/interactive/{slug}/` **existant** sans scaffold (ligne DB + tags uniquement). Échec si le dossier n'existe pas ou si le slug est déjà enregistré. |
 
 ## Variables d'environnement
 
