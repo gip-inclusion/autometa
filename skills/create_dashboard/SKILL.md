@@ -78,7 +78,7 @@ Avant d'écrire le code du TDB (HTML/JS/cron.py), lire `docs/interactive-dashboa
 
 Un `cron.py` ne lit et n'écrit que dans le dossier de son propre dashboard : il ne référence jamais un autre dashboard (`../autre/` ou `/app/data/interactive/autre/`), il régénère ses données depuis la source primaire.
 
-Le modèle HTML contient un script d'appel du tag manager de Matomo. Il faut le laisser, sauf instruction contraire explicite. Ce script est sur le modèle qu'on trouve dans `base.html` :
+Le modèle HTML contient, dans le `<head>`, un script d'appel du tag manager de Matomo. Il faut le laisser, sauf instruction contraire explicite. Il reprend le script de `base.html`, mais avec les valeurs en dur : le template est copié tel quel, sans rendu Jinja.
 
 ```html
 <!-- Matomo Tag Manager -->
@@ -88,7 +88,7 @@ _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
 (function() {
   var d = document, g = d.createElement('script'), s = d.getElementsByTagName('script')[0];
   g.async = true;
-  g.src = '{{ matomo_tracking_url }}/js/container_{{ matomo_tag_manager_container_id }}.js';
+  g.src = 'https://matomo.inclusion.beta.gouv.fr/js/container_TvNd7LvK.js';
   s.parentNode.insertBefore(g, s);
 })();
 </script>
