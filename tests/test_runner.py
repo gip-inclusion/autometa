@@ -550,6 +550,36 @@ def test_reconcile_skips_conversation_with_live_worker(mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_reconcile_skips_queued_conversation(mocker, fake_redis):
+    """A stuck conv whose task is still queued is waiting for a slot, not orphaned — keep it."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.get_running_conversation_ids.return_value = ["waiting"]
+
+    async def _run():
+        await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": "waiting", "prompt": "p", "history": []}))
+        cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=900, note="*x*", skip_queued=True)
+        mock_store.update_conversation.assert_not_called()
+        assert cleared == 0
+
+    asyncio.run(_run())
+
+
+def test_heartbeat_survives_redis_error(mocker, fake_redis):
+    """A Redis blip must not kill the heartbeat — reconcile liveness and the sweep depend on it."""
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch.object(fake_redis, "set", side_effect=RuntimeError("redis blip"))
+
+    async def _run():
+        hb = asyncio.create_task(runner._heartbeat_loop())
+        await asyncio.sleep(0.2)
+        assert not hb.done(), "heartbeat loop died on a Redis error"
+        hb.cancel()
+        await asyncio.gather(hb, return_exceptions=True)
+
+    asyncio.run(_run())
+
+
 def test_serialize_tool_use_with_category(mocker):
     mocker.patch("web.runner.classify_tool", return_value="API: Matomo")
     event = make_event("tool_use", {"tool": "Bash", "input": {"command": "curl ..."}})

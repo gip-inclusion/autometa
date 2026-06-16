@@ -193,9 +193,14 @@ class TaskRunner:
     async def _heartbeat_loop(self):
         r = await get_redis()
         while True:
-            await r.set(f"{PREFIX}:worker:{self._worker_id}", "1", ex=30)
-            for conv_id in list(self._running):
-                await r.expire(f"{PREFIX}:running:{conv_id}", 300)
+            try:
+                await r.set(f"{PREFIX}:worker:{self._worker_id}", "1", ex=30)
+                for conv_id in list(self._running):
+                    await r.expire(f"{PREFIX}:running:{conv_id}", 300)
+            except Exception:
+                # Why: a Redis blip must not kill the heartbeat — the reconcile liveness check
+                # and the periodic sweep both rely on it refreshing the worker/running keys.
+                logger.exception("heartbeat loop iteration failed")
             await asyncio.sleep(10)
 
     async def _release_conversation(self, r, conv_id, note):
@@ -205,10 +210,19 @@ class TaskRunner:
         await self.notify_done(conv_id)
         await r.delete(f"{PREFIX}:running:{conv_id}")
 
-    async def _reconcile_stuck(self, r, min_age_seconds, note):
+    async def _reconcile_stuck(self, r, min_age_seconds, note, skip_queued=False):
         stuck = store.get_running_conversation_ids(older_than_seconds=min_age_seconds)
+        if not stuck:
+            return 0
+        # Why: a conv still in the task queue is waiting for a free slot, not orphaned — don't
+        # cancel it. Only the periodic sweep needs this; startup recovery clears the backlog.
+        pending = set()
+        if skip_queued:
+            pending = {json.loads(t)["conv_id"] for t in await r.lrange(f"{PREFIX}:tasks", 0, -1)}
         cleared = 0
         for conv_id in stuck:
+            if conv_id in pending:
+                continue
             worker = await r.get(f"{PREFIX}:running:{conv_id}")
             if worker and await r.exists(f"{PREFIX}:worker:{worker}"):
                 continue
@@ -225,11 +239,11 @@ class TaskRunner:
         r = await get_redis()
         while True:
             # Why: reconciliation otherwise runs only at startup; a long-lived process that never
-            # restarts accumulates zombies indefinitely. A live run is protected by the worker-key
-            # check in _reconcile_stuck; the 15min age only guards convs queued but not yet picked up.
+            # restarts accumulates zombies indefinitely. Live runs are protected by the worker-key
+            # check, and convs still queued are skipped (skip_queued); the 15min age is a backstop.
             await asyncio.sleep(60)
             try:
-                cleared = await self._reconcile_stuck(r, 900, "*Interrompu.*")
+                cleared = await self._reconcile_stuck(r, 900, "*Interrompu (tâche bloquée).*", skip_queued=True)
                 if cleared:
                     logger.info("Swept %s stuck conversations", cleared)
             except Exception:
