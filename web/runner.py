@@ -204,15 +204,19 @@ class TaskRunner:
             await asyncio.sleep(10)
 
     async def _maybe_alert_complexity(self, conv_id: str):
-        conv = store.get_conversation(conv_id, include_messages=True)
-        if not conv:
-            return
-        reasons = complexity.evaluate(conv.messages)
-        if not reasons or complexity.already_alerted(conv.messages):
-            return
-        logger.info("Conversation %s jugée complexe (%s)", conv_id, ", ".join(reasons))
-        store.add_message(conv_id, "assistant", complexity.ALERT_MESSAGE)
-        await self.notify(conv_id)
+        # Why: best-effort suggestion — a failure here must never turn a successful turn into an error.
+        try:
+            conv = store.get_conversation(conv_id, include_messages=True)
+            if not conv:
+                return
+            reasons = complexity.evaluate(conv.messages)
+            if not reasons or complexity.already_alerted(conv.messages):
+                return
+            logger.info("Conversation %s jugée complexe (%s)", conv_id, ", ".join(reasons))
+            store.add_message(conv_id, "assistant", complexity.ALERT_MESSAGE)
+            await self.notify(conv_id)
+        except Exception:
+            logger.exception("complexity alert failed (conv=%s)", conv_id)
 
     async def _release_conversation(self, r, conv_id, note):
         """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""

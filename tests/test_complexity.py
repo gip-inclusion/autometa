@@ -65,6 +65,19 @@ def test_non_data_tool_calls_do_not_count_as_queries():
     assert complexity.evaluate([_read() for _ in range(60)]) == []
 
 
+def test_join_indicator_ignores_non_data_tools():
+    """A non-data tool whose input contains SQL-ish text must not trip the join indicator."""
+    bash = Message(
+        type="tool_use",
+        content=json.dumps({
+            "tool": "Bash",
+            "input": {"command": "echo SELECT FROM a JOIN b JOIN c JOIN d JOIN e"},
+            "category": "Bash",
+        }),
+    )
+    assert complexity.evaluate([bash]) == []
+
+
 def test_already_alerted_detects_previous_alert():
     messages = [_user(), _assistant(complexity.ALERT_MESSAGE)]
     assert complexity.already_alerted(messages)
@@ -84,4 +97,4 @@ def test_already_alerted_false_without_alert():
     ],
 )
 def test_table_count(sql, expected):
-    assert complexity._table_count(sql) == expected
+    assert complexity.table_count(sql) == expected

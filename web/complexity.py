@@ -39,7 +39,7 @@ def _is_data_category(category: str) -> bool:
     return category.startswith("API:") or category.startswith("Query:") or category in DATA_SKILLS
 
 
-def _table_count(sql: str) -> int:
+def table_count(sql: str) -> int:
     tables = set()
     for pattern in _TABLE_PATTERNS:
         for match in re.findall(pattern, sql, re.IGNORECASE):
@@ -64,7 +64,7 @@ def evaluate(messages) -> list[str]:
                 continue
             if _is_data_category(content.get("category", "")):
                 queries += 1
-            max_join = max(max_join, _table_count(json.dumps(content.get("input", ""))))
+                max_join = max(max_join, table_count(json.dumps(content.get("input", ""))))
         elif m.type == "tool_result":
             try:
                 content = json.loads(m.content)

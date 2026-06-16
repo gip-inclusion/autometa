@@ -955,3 +955,13 @@ def test_maybe_alert_complexity_skips_when_simple(runner, mocker):
     asyncio.run(runner._maybe_alert_complexity("c1"))
 
     mock_store.add_message.assert_not_called()
+
+
+def test_maybe_alert_complexity_swallows_errors(runner, mocker):
+    """A failure in the best-effort alert must not propagate and taint a successful turn."""
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.get_conversation.side_effect = RuntimeError("db blip")
+
+    asyncio.run(runner._maybe_alert_complexity("c1"))
+
+    mock_store.add_message.assert_not_called()
