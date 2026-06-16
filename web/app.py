@@ -146,7 +146,18 @@ def serve_interactive(request: Request, filename: str = ""):
 
 
 from .benchmark import router as benchmark_router  # noqa: E402
-from .routes import auth, conversations, cron, dashboards, html, knowledge, query, reports, tag_manager  # noqa: E402
+from .routes import (  # noqa: E402
+    auth,
+    conversations,
+    cron,
+    dashboards,
+    html,
+    jobs,
+    knowledge,
+    query,
+    reports,
+    tag_manager,
+)
 from .selftest import router as selftest_router  # noqa: E402
 
 app.include_router(selftest_router)
@@ -161,6 +172,7 @@ app.include_router(tag_manager.router)
 app.include_router(reports.html_router)
 app.include_router(cron.router)
 app.include_router(dashboards.router)
+app.include_router(jobs.router)
 app.include_router(html.router)
 
 

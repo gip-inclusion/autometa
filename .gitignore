@@ -30,5 +30,8 @@ knowledge/stats/_index.md
 auth/allowed_emails.txt
 docker-compose.local.yml
 .pm.pid
+flake.nix
+flake.lock
+.direnv/
 infra/scaleway/s3_backup/s3_backup.zip
 infra/scaleway/s3_backup/build/
