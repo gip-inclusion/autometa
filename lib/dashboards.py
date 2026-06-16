@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from web import config
+from web.cron import SCHEDULE_PRESETS, is_valid_schedule
 from web.db import get_db
 from web.models import Dashboard, DashboardTag, Tag
 
@@ -33,6 +34,24 @@ _WRITE_SQL_RE = re.compile(
 )
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _normalize_schedule(cron_schedule: str | None) -> str | None:
+    """Validate a cron schedule and normalize a cadence token to its preset crontab."""
+    if cron_schedule is None:
+        return None
+    if not is_valid_schedule(cron_schedule):
+        raise ValueError(f"Invalid cron schedule: {cron_schedule!r}")
+    return SCHEDULE_PRESETS.get(cron_schedule, cron_schedule)
+
+
+def _normalize_timeout(cron_timeout: int | None) -> int | None:
+    """Validate a cron timeout — a positive int (not a bool)."""
+    if cron_timeout is None:
+        return None
+    if isinstance(cron_timeout, bool) or cron_timeout <= 0:
+        raise ValueError(f"Invalid cron timeout: {cron_timeout}")
+    return cron_timeout
 
 
 def normalize_tag_name(raw: str) -> str | None:
@@ -93,6 +112,8 @@ def _insert_dashboard(
     has_cron: bool,
     has_api_access: bool,
     has_persistence: bool,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
     first_author_email: str,
     created_in_conversation_id: str | None,
 ) -> Dashboard:
@@ -112,6 +133,11 @@ def _insert_dashboard(
         created_at=now,
         updated_at=now,
     )
+    # Why: leave the server defaults in place when unset rather than inserting NULL into NOT NULL columns.
+    if cron_schedule is not None:
+        dashboard.cron_schedule = cron_schedule
+    if cron_timeout is not None:
+        dashboard.cron_timeout = cron_timeout
     session.add(dashboard)
     session.flush()
 
@@ -133,12 +159,16 @@ def create_dashboard(
     has_cron: bool = False,
     has_api_access: bool = False,
     has_persistence: bool = False,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
     first_author_email: str,
     created_in_conversation_id: str | None,
 ) -> Dashboard:
     """Crée un TDB : insertion DB + scaffold du dossier `data/interactive/{slug}/`."""
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
+    cron_schedule = _normalize_schedule(cron_schedule)
+    cron_timeout = _normalize_timeout(cron_timeout)
 
     final_dir = config.INTERACTIVE_DIR / slug
     template_dir = config.BASE_DIR / "docs" / "dashboard-template"
@@ -160,21 +190,6 @@ def create_dashboard(
                 continue
             shutil.copy2(src, staging_dir / src.name)
 
-        (staging_dir / "APP.md").write_text(
-            _render_app_md(
-                title=title,
-                description=description,
-                website=website,
-                category=category,
-                tags=tags,
-                first_author_email=first_author_email,
-                conversation_id=created_in_conversation_id,
-                has_cron=has_cron,
-                has_api_access=has_api_access,
-                has_persistence=has_persistence,
-            )
-        )
-
         with get_db() as session:
             if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
                 raise ValueError(f"Slug already exists in DB: {slug}")
@@ -190,6 +205,8 @@ def create_dashboard(
                 has_cron=has_cron,
                 has_api_access=has_api_access,
                 has_persistence=has_persistence,
+                cron_schedule=cron_schedule,
+                cron_timeout=cron_timeout,
                 first_author_email=first_author_email,
                 created_in_conversation_id=created_in_conversation_id,
             )
@@ -214,12 +231,16 @@ def adopt_dashboard(
     has_cron: bool = False,
     has_api_access: bool = False,
     has_persistence: bool = False,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
     first_author_email: str,
     created_in_conversation_id: str | None,
 ) -> Dashboard:
     """Enregistre un dossier data/interactive/{slug}/ existant, sans scaffold."""
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
+    cron_schedule = _normalize_schedule(cron_schedule)
+    cron_timeout = _normalize_timeout(cron_timeout)
 
     if not (config.INTERACTIVE_DIR / slug).is_dir():
         raise ValueError(f"No existing folder to adopt: {config.INTERACTIVE_DIR / slug}")
@@ -238,6 +259,8 @@ def adopt_dashboard(
             has_cron=has_cron,
             has_api_access=has_api_access,
             has_persistence=has_persistence,
+            cron_schedule=cron_schedule,
+            cron_timeout=cron_timeout,
             first_author_email=first_author_email,
             created_in_conversation_id=created_in_conversation_id,
         )
@@ -307,80 +330,6 @@ def _upsert_tag(session: Session, name: str) -> Tag:
     return tag
 
 
-# TODO(louije/dashboard-drop-app-md): supprimer ce bloc et tout l'écosystème APP.md
-# (_render_app_md, _extract_app_md_body, _sync_app_md) une fois cron_schedule/cron_timeout
-# ajoutés à la table `dashboards` et `web/cron.py` migré sur la DB. Cf. spec V1 §5.
-def _frontmatter_lines(
-    *,
-    title: str,
-    description: str | None,
-    website: str | None,
-    category: str | None,
-    tags: list[str],
-    first_author_email: str,
-    conversation_id: str | None,
-    has_cron: bool,
-    has_api_access: bool,
-    has_persistence: bool,
-) -> list[str]:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    description_clean = (description or "").replace("\n", " ").strip()
-    return [
-        f"title: {title}",
-        f"description: {description_clean}",
-        f"updated: {today}",
-        f"website: {website or ''}",
-        f"category: {category or ''}",
-        f"tags: {', '.join(tags)}",
-        f"authors: {first_author_email}",
-        f"conversation_id: {conversation_id or ''}",
-        "",
-        f"cron: {'true' if has_cron else 'false'}",
-        f"has_api_access: {'true' if has_api_access else 'false'}",
-        f"has_persistence: {'true' if has_persistence else 'false'}",
-    ]
-
-
-def _render_app_md(
-    *,
-    title: str,
-    description: str | None,
-    website: str | None,
-    category: str | None,
-    tags: list[str],
-    first_author_email: str,
-    conversation_id: str | None,
-    has_cron: bool,
-    has_api_access: bool,
-    has_persistence: bool,
-) -> str:
-    description_clean = (description or "").replace("\n", " ").strip()
-    fm = "\n".join(
-        _frontmatter_lines(
-            title=title,
-            description=description,
-            website=website,
-            category=category,
-            tags=tags,
-            first_author_email=first_author_email,
-            conversation_id=conversation_id,
-            has_cron=has_cron,
-            has_api_access=has_api_access,
-            has_persistence=has_persistence,
-        )
-    )
-    body = description_clean or "TODO"
-    return f"---\n{fm}\n---\n\n## À propos\n\n{body}\n"
-
-
-def _extract_app_md_body(text: str) -> str:
-    """Returns `---<body-after-closing>` from APP.md text. Falls back to `---\\n` if malformed."""
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return "---\n"
-    return "---" + parts[2]
-
-
 def _apply_tag_updates(
     session: Session,
     slug: str,
@@ -421,37 +370,6 @@ def _apply_tag_updates(
     return True
 
 
-def _sync_app_md(session: Session, dashboard: Dashboard) -> None:
-    app_md_path = config.INTERACTIVE_DIR / dashboard.slug / "APP.md"
-    if not app_md_path.exists():
-        logger.warning("APP.md missing for slug %s, skipping sync", dashboard.slug)
-        return
-
-    tag_names = list(
-        session.scalars(
-            select(Tag.name)
-            .join(DashboardTag, DashboardTag.tag_id == Tag.id)
-            .where(DashboardTag.dashboard_slug == dashboard.slug)
-        ).all()
-    )
-    fm = "\n".join(
-        _frontmatter_lines(
-            title=dashboard.title,
-            description=dashboard.description,
-            website=dashboard.website,
-            category=dashboard.category,
-            tags=tag_names,
-            first_author_email=dashboard.first_author_email,
-            conversation_id=dashboard.created_in_conversation_id,
-            has_cron=dashboard.has_cron,
-            has_api_access=dashboard.has_api_access,
-            has_persistence=dashboard.has_persistence,
-        )
-    )
-    body = _extract_app_md_body(app_md_path.read_text())
-    app_md_path.write_text(f"---\n{fm}\n{body}")
-
-
 def update_dashboard(
     *,
     slug: str,
@@ -468,13 +386,16 @@ def update_dashboard(
     has_api_access: bool | None = None,
     has_persistence: bool | None = None,
     is_archived: bool | None = None,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
 ) -> DashboardUpdateResult:
-    """Met à jour les métadonnées d'un TDB existant (DB + sync APP.md). None = no change."""
+    """Met à jour les métadonnées d'un TDB existant. None = no change."""
     if set_tags is not None and (add_tags or remove_tags):
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
+    cron_schedule = _normalize_schedule(cron_schedule)
+    cron_timeout = _normalize_timeout(cron_timeout)
 
     fields_changed: list[str] = []
-    syncable_changed = False
 
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
@@ -491,24 +412,25 @@ def update_dashboard(
             "has_api_access": has_api_access,
             "has_persistence": has_persistence,
             "is_archived": is_archived,
+            "cron_schedule": cron_schedule,
+            "cron_timeout": cron_timeout,
         }
+        content_changed = False
         for field_name, value in scalar_updates.items():
             if value is None:
                 continue
             if getattr(dashboard, field_name) != value:
                 setattr(dashboard, field_name, value)
                 fields_changed.append(field_name)
-                if field_name != "is_archived":
-                    syncable_changed = True
+                if field_name not in ("cron_schedule", "cron_timeout"):
+                    content_changed = True
 
         if _apply_tag_updates(session, slug, add_tags, remove_tags, set_tags):
             fields_changed.append("tags")
-            syncable_changed = True
+            content_changed = True
 
-        if fields_changed:
+        if content_changed:
             dashboard.updated_at = datetime.now(timezone.utc)
-            if syncable_changed:
-                _sync_app_md(session, dashboard)
 
         logger.info(
             "update_dashboard slug=%s updater=%s conv=%s originating=%s changed=%s",

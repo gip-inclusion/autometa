@@ -74,11 +74,11 @@
                   <span class="text-muted">Aucun run enregistré</span>
                 {% endif %}
               </p>
-              {% if next_run_label %}
               <p class="small text-muted mb-2">
-                <i class="ri-calendar-schedule-line"></i> Prochaine exécution : {{ next_run_label }}
+                <i class="ri-calendar-schedule-line"></i>
+                {% if next_run_label %}Prochaine exécution : {{ next_run_label }}{% else %}Cron désactivé{% endif %}
+                · <a href="#" data-bs-toggle="modal" data-bs-target="#scheduleModal">Configurer</a>
               </p>
-              {% endif %}
               <div class="d-flex gap-2 flex-wrap">
                 <a href="/api/cron/{{ dashboard.slug }}/script" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Voir le script</a>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-action="cron-history" data-slug="{{ dashboard.slug }}">Historique</button>
@@ -189,6 +189,41 @@
           {% endfor %}
       </div>
 
+      {% if dashboard.has_cron %}
+      <div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Configurer la cadence</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+            </div>
+            <div class="modal-body p-4">
+              <form class="cron-schedule-editor" data-slug="{{ dashboard.slug }}">
+                <div class="small fw-semibold mb-2">Cadence</div>
+                <div class="btn-group d-flex" role="group" aria-label="Cadence">
+                  <input type="radio" class="btn-check" name="cadence" id="cad-daily" value="daily" {% if cron_cadence == 'daily' %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary" for="cad-daily">Chaque nuit</label>
+                  <input type="radio" class="btn-check" name="cadence" id="cad-weekly" value="weekly" {% if cron_cadence == 'weekly' %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary" for="cad-weekly">Chaque semaine</label>
+                  <input type="radio" class="btn-check" name="cadence" id="cad-monthly" value="monthly" {% if cron_cadence == 'monthly' %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary" for="cad-monthly">1er du mois</label>
+                </div>
+                <div class="d-flex align-items-center gap-2 mt-4">
+                  <label for="cron-timeout" class="small mb-0">Timeout</label>
+                  <input type="number" id="cron-timeout" class="form-control form-control-sm" style="width: 6rem" min="1" value="{{ dashboard.cron_timeout }}" aria-label="Timeout en secondes">
+                  <span class="small text-muted">s</span>
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Annuler</button>
+              <button type="button" class="btn btn-primary px-4" data-action="save-schedule">Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="modal fade" id="cronLogModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
           <div class="modal-content">
@@ -258,6 +293,18 @@
       e.target.disabled = true;
       e.target.textContent = 'En cours…';
       await post(`/api/cron/${slug}/run`, {});
+      window.location.reload();
+    });
+
+    root.querySelector('[data-action="save-schedule"]')?.addEventListener('click', async (e) => {
+      const form = document.querySelector('.cron-schedule-editor');
+      const cron_schedule = form.querySelector('input[name="cadence"]:checked')?.value;
+      const cron_timeout = parseInt(form.querySelector('#cron-timeout').value, 10);
+      if (!cron_schedule) { alert('Sélectionner une cadence'); return; }
+      if (!Number.isInteger(cron_timeout) || cron_timeout < 1) { alert('Timeout invalide'); return; }
+      e.target.disabled = true;
+      const res = await post(`/api/dashboards/${form.dataset.slug}/schedule`, { cron_schedule, cron_timeout });
+      if (!res.ok) { e.target.disabled = false; await reportFailure('Enregistrement de la cadence', res); return; }
       window.location.reload();
     });
 

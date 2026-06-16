@@ -10,13 +10,20 @@ from sqlalchemy import select, text
 
 from web import config, cron
 from web.cron import (
+    backfill_cron_metadata,
+    cadence,
     discover_cron_tasks,
     discover_from_dir,
+    discover_from_s3,
+    discover_publications,
     get_app_runs,
     get_last_runs,
     get_schedule,
     get_timeout,
+    is_due,
     is_enabled,
+    is_valid_schedule,
+    next_cron_run,
     notify_cron_status_change,
     parse_frontmatter,
     run_all,
@@ -304,54 +311,43 @@ def test_get_app_runs_returns_runs(interactive_dir, db_setup):
     assert runs[0]["status"] == "success"
 
 
-def test_set_cron_enabled_disable(interactive_dir):
-    create_interactive_app(interactive_dir, "toggle-app", cron_script="pass")
-    assert set_cron_enabled("toggle-app", False) is True
-
-    content = (interactive_dir / "toggle-app" / "APP.md").read_text()
-    assert "cron: false" in content
-
-
-def test_set_cron_enabled_enable(interactive_dir):
-    create_interactive_app(
-        interactive_dir,
-        "off-app",
-        cron_script="pass",
-        app_md="---\ntitle: Off\ncron: false\n---\n",
-    )
-    assert set_cron_enabled("off-app", True) is True
-
-    content = (interactive_dir / "off-app" / "APP.md").read_text()
-    assert "cron: true" in content
-
-
-def test_set_cron_enabled_nonexistent_app(interactive_dir):
-    assert set_cron_enabled("nope", True) is False
-
-
-def test_set_cron_enabled_adds_field_when_missing(interactive_dir):
-    create_interactive_app(
-        interactive_dir,
-        "no-field",
-        cron_script="pass",
-        app_md="---\ntitle: No Field\n---\n",
-    )
-    set_cron_enabled("no-field", False)
-
-    content = (interactive_dir / "no-field" / "APP.md").read_text()
-    assert "cron: false" in content
+def test_set_cron_enabled_toggles_dashboard_column(db_setup):
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(
+            Dashboard(
+                slug="toggle-db",
+                title="x",
+                first_author_email="a@x",
+                is_archived=False,
+                has_api_access=False,
+                has_cron=True,
+                has_persistence=False,
+                cron_enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    assert set_cron_enabled("toggle-db", False) is True
+    with get_db() as session:
+        assert session.scalar(select(Dashboard.cron_enabled).where(Dashboard.slug == "toggle-db")) is False
+    assert set_cron_enabled("toggle-db", True) is True
+    with get_db() as session:
+        assert session.scalar(select(Dashboard.cron_enabled).where(Dashboard.slug == "toggle-db")) is True
 
 
-def test_set_cron_enabled_roundtrip(interactive_dir):
-    create_interactive_app(interactive_dir, "rt-app", cron_script="pass")
+def test_set_cron_enabled_unknown_slug_returns_false(db_setup, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CRON_DIR", tmp_path / "cron")
+    assert set_cron_enabled("no-such-dashboard", True) is False
 
-    set_cron_enabled("rt-app", False)
-    tasks = discover_cron_tasks()
-    assert tasks[0]["enabled"] is False
 
-    set_cron_enabled("rt-app", True)
-    tasks = discover_cron_tasks()
-    assert tasks[0]["enabled"] is True
+def test_set_cron_enabled_system_task_writes_cron_md(db_setup, tmp_path, monkeypatch):
+    cron_dir = tmp_path / "cron"
+    (cron_dir / "sys-task").mkdir(parents=True)
+    (cron_dir / "sys-task" / "CRON.md").write_text("---\ntitle: Sys\ncron: true\n---\n")
+    monkeypatch.setattr(config, "CRON_DIR", cron_dir)
+    assert set_cron_enabled("sys-task", False) is True
+    assert "cron: false" in (cron_dir / "sys-task" / "CRON.md").read_text()
 
 
 @pytest.fixture
@@ -367,7 +363,15 @@ def s3_cron_env(tmp_path, monkeypatch, db_setup):
     return {"cron_dir": cron_dir, "interactive_dir": interactive_dir}
 
 
-def _seed_dashboard(slug: str, *, has_cron: bool = True, title: str | None = None) -> None:
+def _seed_dashboard(
+    slug: str,
+    *,
+    has_cron: bool = True,
+    title: str | None = None,
+    cron_schedule: str = "daily",
+    cron_timeout: int = 300,
+    cron_enabled: bool = True,
+) -> None:
     now = datetime.now(timezone.utc)
     with get_db() as session:
         session.add(
@@ -380,6 +384,9 @@ def _seed_dashboard(slug: str, *, has_cron: bool = True, title: str | None = Non
                 is_archived=False,
                 has_api_access=False,
                 has_persistence=False,
+                cron_schedule=cron_schedule,
+                cron_timeout=cron_timeout,
+                cron_enabled=cron_enabled,
                 created_at=now,
                 updated_at=now,
             )
@@ -478,13 +485,9 @@ def test_discover_s3_app_skipped_when_has_cron_false(mocker, s3_cron_env):
     assert discover_cron_tasks() == []
 
 
-def test_discover_s3_app_metadata_parsed(mocker, s3_cron_env):
-    _seed_dashboard("titled-app", title="My S3 App")
-    app = mock_s3_app(
-        "titled-app",
-        app_md="---\ntitle: ignored\ntimeout: 600\nschedule: weekly\n---\n",
-    )
-    mocks = make_s3_mocks([app])
+def test_discover_s3_app_metadata_from_db(mocker, s3_cron_env):
+    _seed_dashboard("titled-app", title="My S3 App", cron_timeout=600, cron_schedule="weekly")
+    mocks = make_s3_mocks([mock_s3_app("titled-app")])
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
     assert tasks[0]["title"] == "My S3 App"
@@ -493,9 +496,8 @@ def test_discover_s3_app_metadata_parsed(mocker, s3_cron_env):
 
 
 def test_discover_s3_disabled_app(mocker, s3_cron_env):
-    _seed_dashboard("off-app")
-    app = mock_s3_app("off-app", app_md="---\ntitle: Off\ncron: false\n---\n")
-    mocks = make_s3_mocks([app])
+    _seed_dashboard("off-app", cron_enabled=False)
+    mocks = make_s3_mocks([mock_s3_app("off-app")])
     _patch_s3(mocker, mocks)
     tasks = discover_cron_tasks()
     assert tasks[0]["enabled"] is False
@@ -708,7 +710,17 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     assert getattr(record, "cron.task.duration") == 1234
 
 
-def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unpublished=False, paused=False):
+def _seed_dashboard_and_publication(
+    slug,
+    pub_id,
+    *,
+    snapshot_has_cron=True,
+    unpublished=False,
+    paused=False,
+    cron_schedule="daily",
+    cron_timeout=300,
+    cron_enabled=True,
+):
     now = datetime.now(timezone.utc)
     with get_db() as session:
         session.add(
@@ -723,6 +735,9 @@ def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unp
                 has_api_access=False,
                 has_cron=False,
                 has_persistence=False,
+                cron_schedule=cron_schedule,
+                cron_timeout=cron_timeout,
+                cron_enabled=cron_enabled,
                 created_at=now,
                 updated_at=now,
             )
@@ -751,8 +766,6 @@ def _seed_dashboard_and_publication(slug, pub_id, *, snapshot_has_cron=True, unp
     ],
 )
 def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpublished, paused, included):
-    from web.cron import discover_publications
-
     slug = f"disco-{int(snapshot_has_cron)}-{int(unpublished)}-{int(paused)}"
     pub_id = "discp1"
     _seed_dashboard_and_publication(
@@ -762,7 +775,6 @@ def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpubl
         unpublished=unpublished,
         paused=paused,
     )
-    mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: x\n---\n")
 
     tasks = discover_publications()
     slugs = [t["slug"] for t in tasks]
@@ -770,13 +782,8 @@ def test_discover_publications_filters(client, mocker, snapshot_has_cron, unpubl
 
 
 def test_discover_publications_task_dict_shape(client, mocker):
-    from web.cron import discover_publications
-
-    _seed_dashboard_and_publication("shape-tdb", "shape1")
-    mocker.patch(
-        "web.cron.s3.publications.download",
-        return_value=b"---\ntitle: Shape\nschedule: weekly\ntimeout: 600\n---\n",
-    )
+    _seed_dashboard_and_publication("shape-tdb", "shape1", cron_schedule="weekly", cron_timeout=600)
+    download = mocker.patch("web.cron.s3.publications.download")
 
     tasks = discover_publications()
     assert len(tasks) == 1
@@ -791,6 +798,14 @@ def test_discover_publications_task_dict_shape(client, mocker):
     assert task["schedule"] == "weekly"
     assert task["timeout"] == 600
     assert task["enabled"] is True
+    download.assert_not_called()
+
+
+def test_discover_publications_inherits_disabled_cron_from_parent(client):
+    _seed_dashboard_and_publication("pub-off", "poff1", cron_enabled=False)
+    tasks = discover_publications()
+    assert len(tasks) == 1
+    assert tasks[0]["enabled"] is False
 
 
 def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocker):
@@ -863,3 +878,84 @@ def test_run_cron_task_publication_two_states_independent(client, mocker):
         row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "two001"))
         assert row.last_refresh_status == "failure"
     assert notify.called
+
+
+def test_discover_from_s3_reads_cron_meta_from_db(db_setup, mocker):
+    _seed_dashboard("disc-db", cron_schedule="weekly", cron_timeout=1200, cron_enabled=False)
+    mocker.patch("web.cron.s3.interactive.list_files", return_value=[{"path": "disc-db/cron.py"}])
+    download = mocker.patch("web.cron.s3.interactive.download")
+    tasks = [t for t in discover_from_s3() if t["slug"] == "disc-db"]
+    assert len(tasks) == 1
+    assert tasks[0]["schedule"] == "weekly"
+    assert tasks[0]["timeout"] == 1200
+    assert tasks[0]["enabled"] is False
+    download.assert_not_called()
+
+
+def test_backfill_cron_metadata_from_app_md(db_setup):
+    _seed_dashboard("bf-app", has_cron=True)
+    app_md = b"---\ntitle: x\nschedule: weekly\ntimeout: 1200\ncron: false\n---\n## body\n"
+    fake = {"bf-app/APP.md": app_md}
+    with get_db() as session:
+        count = backfill_cron_metadata(session, lambda path: fake.get(path))
+    assert count == 1
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "bf-app"))
+        assert d.cron_schedule == "0 6 * * 1"
+        assert d.cron_timeout == 1200
+        assert d.cron_enabled is False
+
+
+@pytest.mark.parametrize("day,expected", [(1, True), (2, False), (15, False), (28, False)])
+def test_is_due_monthly(mocker, day, expected):
+    mocker.patch("web.cron.now_local", return_value=datetime(2026, 6, day, 7, 0))
+    assert is_due("0 6 1 * *") is expected
+
+
+def test_next_cron_run_monthly():
+    # the 1st, before 6h -> today at 6h
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 1, 5, 0)) == datetime(2026, 6, 1, 6, 0)
+    # the 1st, at/after 6h -> first of NEXT month at 6h (job already fired today)
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 1, 7, 0)) == datetime(2026, 7, 1, 6, 0)
+    # mid-month -> first of next month at 6h
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 7, 8, 0)) == datetime(2026, 7, 1, 6, 0)
+    # December rolls over to January next year
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 12, 15, 8, 0)) == datetime(2027, 1, 1, 6, 0)
+    # December 1st, after 6h -> January 1st next year at 6h
+    assert next_cron_run("0 6 1 * *", now=datetime(2026, 12, 1, 7, 0)) == datetime(2027, 1, 1, 6, 0)
+
+
+@pytest.mark.parametrize(
+    "schedule,expected",
+    [
+        ("0 6 * * *", "daily"),
+        ("0 6 * * 1", "weekly"),
+        ("0 6 1 * *", "monthly"),
+        ("daily", "daily"),
+        ("weekly", "weekly"),
+        ("monthly", "monthly"),
+        ("0 6 15 * *", "daily"),  # unrecognized crontab -> daily
+    ],
+)
+def test_cadence(schedule, expected):
+    assert cadence(schedule) == expected
+
+
+@pytest.mark.parametrize(
+    "schedule,valid",
+    [
+        ("daily", True),
+        ("weekly", True),
+        ("monthly", True),
+        ("0 6 * * *", True),  # daily preset crontab
+        ("0 6 * * 1", True),  # weekly preset crontab
+        ("0 6 1 * *", True),  # monthly preset crontab
+        ("0 6 1,15 * *", False),  # 5-field but not a preset -> would silently run daily
+        ("0 9 * * *", False),  # 5-field non-preset -> rejected
+        ("0 6 1 * * extra", False),
+        ("nonsense", False),
+        ("", False),
+    ],
+)
+def test_is_valid_schedule(schedule, valid):
+    assert is_valid_schedule(schedule) is valid

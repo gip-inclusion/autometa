@@ -10,7 +10,7 @@ from sqlalchemy import select
 from lib.dashboards import DashboardNotFound, update_dashboard
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
-from web.cron import get_last_runs, get_schedule_for_app, next_cron_run
+from web.cron import cadence, get_last_runs, next_cron_run
 from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
@@ -132,6 +132,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     if dashboard is None:
         return RedirectResponse("/dashboards", status_code=302)
 
+    cron_cadence = cadence(dashboard["cron_schedule"])
     dashboard["formatted_date"] = format_relative_date(dashboard["updated"]) if dashboard.get("updated") else ""
     dashboard_publications = list_publications(slug)
     can_publish = not (dashboard["has_api_access"] or dashboard["has_persistence"])
@@ -161,7 +162,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         last_run = runs[0] if runs else None
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
-        next_run_label = format_future_date(next_cron_run(get_schedule_for_app(slug)))
+        if dashboard["cron_enabled"]:
+            next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"]))
 
     is_pinned = ("app", slug) in store.get_pinned_ids()
     data = get_sidebar_data(user_email)
@@ -177,6 +179,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "dashboard_drifted": dashboard_drifted,
             "has_active_production": has_active_production,
             "relative_updated": relative_updated,
+            "cron_cadence": cron_cadence,
             "last_run": last_run,
             "next_run_label": next_run_label,
             "is_pinned": is_pinned,
@@ -225,6 +228,31 @@ async def rename_dashboard(slug: Slug, request: Request, user_email: str = Depen
     except DashboardNotFound:
         return JSONResponse({"error": "Dashboard not found"}, status_code=404)
     return {"slug": slug, "title": title}
+
+
+@router.post("/api/dashboards/{slug}/schedule")
+async def update_dashboard_schedule(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    body = await request.body()
+    payload = (await request.json()) if body else {}
+    cron_schedule = payload.get("cron_schedule")
+    cron_timeout = payload.get("cron_timeout")
+    if cron_timeout is not None:
+        try:
+            cron_timeout = int(cron_timeout)
+        except TypeError, ValueError:
+            return JSONResponse({"error": "Invalid timeout"}, status_code=400)
+    try:
+        update_dashboard(
+            slug=slug,
+            updater_email=user_email,
+            cron_schedule=cron_schedule,
+            cron_timeout=cron_timeout,
+        )
+    except DashboardNotFound:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    except ValueError:
+        return JSONResponse({"error": "Cadence ou timeout invalide"}, status_code=400)
+    return {"ok": True, "slug": slug}
 
 
 @router.post("/api/dashboards/{slug}/publish")

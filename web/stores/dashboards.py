@@ -25,6 +25,9 @@ def dashboard_to_dict(d, tags: list[str]) -> dict:
         "has_api_access": d.has_api_access,
         "has_cron": d.has_cron,
         "has_persistence": d.has_persistence,
+        "cron_schedule": d.cron_schedule,
+        "cron_timeout": d.cron_timeout,
+        "cron_enabled": d.cron_enabled,
         "url": f"/interactive/{d.slug}/",
         "is_interactive": True,
     }

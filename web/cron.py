@@ -11,10 +11,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import sentry_sdk
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
@@ -29,6 +31,30 @@ logger = logging.getLogger(__name__)
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
+
+SCHEDULE_PRESETS = {
+    "daily": "0 6 * * *",
+    "weekly": "0 6 * * 1",
+    "monthly": "0 6 1 * *",
+}
+_CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.items()}
+
+
+def cadence(schedule: str) -> str:
+    """Reduce a stored schedule (crontab or cadence token) to a runner cadence: daily|weekly|monthly."""
+    # Why: the 06:00 dispatcher only honors day-level scheduling. is_valid_schedule restricts stored
+    # values to the three presets; this daily fallback only guards legacy or backfilled rows.
+    if schedule in SCHEDULE_PRESETS:
+        return schedule
+    return _CRONTAB_TO_CADENCE.get(schedule, "daily")
+
+
+def is_valid_schedule(schedule: str) -> bool:
+    """A storable schedule: a cadence token (daily|weekly|monthly) or its exact preset crontab."""
+    # Why: the 06:00 dispatcher only honors these three cadences. Accepting an arbitrary crontab would
+    # store a schedule that silently runs daily — reject it until a real scheduler lands.
+    return schedule in SCHEDULE_PRESETS or schedule in _CRONTAB_TO_CADENCE
+
 
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
@@ -83,79 +109,65 @@ def get_schedule(meta: dict) -> str:
 
 
 def is_due(schedule: str) -> bool:
-    if schedule == "daily":
-        return True
-    if schedule == "weekly":
+    reduced = cadence(schedule)
+    if reduced == "weekly":
         return now_local().weekday() == 0  # Monday
+    if reduced == "monthly":
+        return now_local().day == 1
     return True
 
 
-def get_schedule_for_app(slug: str) -> str:
-    """Read just one APP.md to determine an app's cron schedule. Defaults to 'daily'."""
-    md_bytes = s3.interactive.download(f"{slug}/APP.md")
-    if md_bytes is None:
-        return "daily"
-    return get_schedule(parse_frontmatter_text(md_bytes.decode()))
-
-
 def next_cron_run(schedule: str, now=None):
-    """Next scheduled execution time (local tz). Matches `_sentry_monitor_config` cadence: 6h00 daily, or 6h00 Monday weekly."""
+    """Next 06:00 dispatch time (local tz) for a schedule, by its day-level cadence."""
     now = now or now_local()
     target = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if schedule == "weekly":
+    reduced = cadence(schedule)
+    if reduced == "weekly":
         days_ahead = (0 - target.weekday()) % 7
         if days_ahead == 0 and now >= target:
             days_ahead = 7
         return target + dt.timedelta(days=days_ahead)
+    if reduced == "monthly":
+        first_this = target.replace(day=1)
+        if now < first_this:
+            return first_this
+        if target.month == 12:
+            return first_this.replace(year=target.year + 1, month=1)
+        return first_this.replace(month=target.month + 1)
     if now >= target:
         return target + dt.timedelta(days=1)
     return target
 
 
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
-    """Toggle the `cron:` field in a task's metadata file.
-
-    Checks both system (CRON.md) and app (APP.md) locations.
-    Returns True if the file was updated, False if not found.
-    """
-    # Try system task first, then app task
-    for md_path in [
-        config.CRON_DIR / app_slug / "CRON.md",
-        config.INTERACTIVE_DIR / app_slug / "APP.md",
-    ]:
-        if not md_path.exists():
-            continue
-
-        content = md_path.read_text()
-        value_str = "true" if enabled else "false"
-
-        if not content.startswith("---"):
-            content = f"---\ncron: {value_str}\n---\n{content}"
-            md_path.write_text(content)
+    """Enable/disable a cron task. Dashboards → DB `cron_enabled`; system tasks → CRON.md."""
+    with get_db() as session:
+        dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == app_slug))
+        if dashboard is not None:
+            dashboard.cron_enabled = enabled
             return True
 
-        parts = content.split("---", 2)
-        if len(parts) < 3:
-            continue
+    md_path = config.CRON_DIR / app_slug / "CRON.md"
+    if not md_path.exists():
+        return False
 
-        lines = parts[1].strip().split("\n")
-        found = False
-        for i, line in enumerate(lines):
-            if ":" in line:
-                key, _ = line.split(":", 1)
-                if key.strip().lower() == "cron":
-                    lines[i] = f"cron: {value_str}"
-                    found = True
-                    break
-
-        if not found:
-            lines.append(f"cron: {value_str}")
-
-        content = "---\n" + "\n".join(lines) + "\n---" + parts[2]
-        md_path.write_text(content)
+    content = md_path.read_text()
+    value_str = "true" if enabled else "false"
+    if not content.startswith("---"):
+        md_path.write_text(f"---\ncron: {value_str}\n---\n{content}")
         return True
-
-    return False
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return False
+    lines = parts[1].strip().split("\n")
+    for i, line in enumerate(lines):
+        if ":" in line and line.split(":", 1)[0].strip().lower() == "cron":
+            lines[i] = f"cron: {value_str}"
+            break
+    else:
+        lines.append(f"cron: {value_str}")
+    md_path.write_text("---\n" + "\n".join(lines) + "\n---" + parts[2])
+    return True
 
 
 def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
@@ -188,13 +200,19 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
 
 
 def discover_from_s3() -> list[dict]:
-    """Discover cron tasks for apps flagged `has_cron` in DB; metadata still from S3 APP.md."""
+    """Cron tasks for apps flagged `has_cron`; cron metadata from the DB row, script presence from S3."""
     if not config.S3_BUCKET:
         return []
 
     with get_db() as session:
         rows = session.execute(
-            select(Dashboard.slug, Dashboard.title)
+            select(
+                Dashboard.slug,
+                Dashboard.title,
+                Dashboard.cron_enabled,
+                Dashboard.cron_timeout,
+                Dashboard.cron_schedule,
+            )
             .where(Dashboard.has_cron, ~Dashboard.is_archived)
             .order_by(Dashboard.slug)
         ).all()
@@ -209,13 +227,10 @@ def discover_from_s3() -> list[dict]:
     }
 
     tasks = []
-    for slug, title in rows:
+    for slug, title, enabled, timeout, schedule in rows:
         if slug not in cron_slugs:
             logger.warning("Dashboard %s has has_cron=true but no cron.py on S3", slug)
             continue
-
-        md_bytes = s3.interactive.download(f"{slug}/APP.md")
-        meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
 
         tasks.append({
             "slug": slug,
@@ -224,16 +239,16 @@ def discover_from_s3() -> list[dict]:
             "source": "s3",
             "path": slug,
             "cron_path": f"{slug}/cron.py",
-            "enabled": is_enabled(meta),
-            "timeout": get_timeout(meta),
-            "schedule": get_schedule(meta),
+            "enabled": enabled,
+            "timeout": timeout,
+            "schedule": schedule,
         })
 
     return tasks
 
 
 def discover_publications() -> list[dict]:
-    """Tasks for active, non-paused publications whose snapshot has a cron.py — DB-only filter."""
+    """Tasks for active, non-paused publications; schedule/timeout from parent dashboard."""
     if not config.S3_BUCKET:
         return []
     with get_db() as session:
@@ -242,6 +257,9 @@ def discover_publications() -> list[dict]:
                 DashboardPublication.dashboard_slug,
                 DashboardPublication.publication_id,
                 Dashboard.title,
+                Dashboard.cron_schedule,
+                Dashboard.cron_timeout,
+                Dashboard.cron_enabled,
             )
             .join(Dashboard, Dashboard.slug == DashboardPublication.dashboard_slug)
             .where(
@@ -253,10 +271,8 @@ def discover_publications() -> list[dict]:
         ).all()
 
     tasks = []
-    for slug, pub_id, title in rows:
+    for slug, pub_id, title, schedule, timeout, enabled in rows:
         prefix = f"{slug}/{pub_id}/"
-        md_bytes = s3.publications.download(f"{prefix}APP.md")
-        meta = parse_frontmatter_text(md_bytes.decode()) if md_bytes else {}
         tasks.append({
             "slug": f"{slug}-{pub_id}",
             "title": title,
@@ -264,13 +280,34 @@ def discover_publications() -> list[dict]:
             "source": "s3-publication",
             "path": prefix,
             "cron_path": f"{prefix}cron.py",
-            "enabled": is_enabled(meta),
-            "timeout": get_timeout(meta),
-            "schedule": get_schedule(meta),
+            "enabled": enabled,
+            "timeout": timeout,
+            "schedule": schedule,
             "publication_id": pub_id,
             "dashboard_slug": slug,
         })
     return tasks
+
+
+def backfill_cron_metadata(session: Session, download: Callable[[str], bytes | None]) -> int:
+    """One-time: copy schedule/timeout/enabled from each has_cron dashboard's S3 APP.md into its row."""
+    updated = 0
+    for dashboard in session.scalars(select(Dashboard).where(Dashboard.has_cron)):
+        raw = download(f"{dashboard.slug}/APP.md")
+        if raw is None:
+            continue
+        meta = parse_frontmatter_text(raw.decode())
+        dashboard.cron_schedule = SCHEDULE_PRESETS.get(get_schedule(meta), SCHEDULE_PRESETS["daily"])
+        dashboard.cron_timeout = get_timeout(meta)
+        dashboard.cron_enabled = is_enabled(meta)
+        updated += 1
+    return updated
+
+
+def run_cron_backfill() -> int:
+    """One-time operator entry point: backfill cron metadata from S3 APP.md, committing on success."""
+    with get_db() as session:
+        return backfill_cron_metadata(session, s3.interactive.download)
 
 
 def discover_cron_tasks() -> list[dict]:
@@ -352,11 +389,7 @@ def upload_s3_results(
 
 def _sentry_monitor_config(task: dict) -> dict:
     """Build Sentry Crons monitor config from task metadata."""
-    schedule = task.get("schedule", "daily")
-    if schedule == "weekly":
-        crontab = "0 6 * * 1"
-    else:
-        crontab = "0 6 * * *"
+    crontab = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))]
     return {
         "schedule": {"type": "crontab", "value": crontab},
         "checkin_margin": 30,

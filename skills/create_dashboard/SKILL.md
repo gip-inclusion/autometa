@@ -5,7 +5,7 @@ description: Create a new dashboard (TDB) — scaffolds files and inserts a row 
 
 # Create Dashboard Skill
 
-Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactive/{slug}/`, génère `APP.md` à partir des arguments, insère la ligne `dashboards` + tags. Chemin **unique** de création côté agent — ne jamais écrire les fichiers à la main.
+Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactive/{slug}/`, insère la ligne `dashboards` + tags. Chemin **unique** de création côté agent — ne jamais écrire les fichiers à la main.
 
 ## Avant de créer
 
@@ -57,6 +57,8 @@ Sortie sur stdout (JSON) :
 | `--has-cron` | | Inclure `cron.py` du template + flag DB à `true` |
 | `--has-api-access` | | Flag DB à `true` (TDB qui appelle `/api/query` en live, **non publiable**) |
 | `--has-persistence` | | Flag DB à `true` (TDB qui écrit dans le datalake, **non publiable**) |
+| `--cron-schedule` | | Cadence `daily`/`weekly`/`monthly` (ou leur crontab équivalent) ; défaut chaque nuit |
+| `--cron-timeout` | | Timeout d'un run cron en secondes |
 | `--adopt` | | Enregistre un dossier `data/interactive/{slug}/` **existant** sans scaffold (ligne DB + tags uniquement). Échec si le dossier n'existe pas ou si le slug est déjà enregistré. |
 
 ## Variables d'environnement

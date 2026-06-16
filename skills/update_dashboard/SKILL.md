@@ -9,7 +9,6 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 
 - Résout le slug (échec explicite si inconnu).
 - Met à jour les métadonnées DB en transaction.
-- Synchronise le frontmatter `APP.md` du workspace si les champs concernés changent.
 - Renvoie l'`originating_user_email` (premier auteur, ≠ utilisateur courant) et les conventions de codage à respecter pour la suite.
 
 ## Avant de lancer
@@ -67,6 +66,8 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | `--has-cron true\|false` | Met à jour le flag |
 | `--has-api-access true\|false` | Met à jour le flag |
 | `--has-persistence true\|false` | Met à jour le flag |
+| `--cron-schedule CADENCE` | Cadence `daily`/`weekly`/`monthly` (ou leur crontab équivalent) ; modifie `cron_schedule` en DB |
+| `--cron-timeout N` | Timeout d'un run cron en secondes ; modifie `cron_timeout` en DB |
 | `--archive` | Passe `is_archived=true` |
 | `--unarchive` | Passe `is_archived=false` |
 

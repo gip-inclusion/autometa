@@ -36,6 +36,15 @@ def _h(email=ADMIN):
     return {"X-Forwarded-Email": email}
 
 
+def test_new_dashboard_has_cron_metadata_defaults(client):
+    _make_dashboard("cron-defaults")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "cron-defaults"))
+        assert d.cron_schedule == "0 6 * * *"
+        assert d.cron_timeout == 300
+        assert d.cron_enabled is True
+
+
 def test_latest_view_lists_active(client):
     _make_dashboard("latest-a")
     _make_dashboard("latest-archived", archived=True)
@@ -626,3 +635,86 @@ def test_detail_shows_failure_suffix_when_last_refresh_failed(client, mocker):
     r = client.get("/dashboards/ui-failure/edit", headers=_h())
     assert r.status_code == 200
     assert "rafraîchissement en échec" in r.text
+
+
+def test_detail_next_run_does_not_download_app_md(client, mocker):
+    _make_dashboard("next-run-nos3")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "next-run-nos3"))
+        d.has_cron = True
+        d.cron_schedule = "weekly"
+    download = mocker.patch("web.cron.s3.interactive.download")
+    r = client.get("/dashboards/next-run-nos3/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Prochaine exécution" in r.text
+    download.assert_not_called()
+
+
+def test_update_schedule_endpoint_sets_cadence_and_timeout(client):
+    _make_dashboard("sched-ep")
+    r = client.post(
+        "/api/dashboards/sched-ep/schedule",
+        json={"cron_schedule": "weekly", "cron_timeout": 600},
+        headers=_h(),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "slug": "sched-ep"}
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-ep"))
+        assert d.cron_schedule == "0 6 * * 1"
+        assert d.cron_timeout == 600
+
+
+def test_update_schedule_endpoint_rejects_invalid_schedule(client):
+    _make_dashboard("sched-ep-bad")
+    r = client.post(
+        "/api/dashboards/sched-ep-bad/schedule",
+        json={"cron_schedule": "not-a-crontab"},
+        headers=_h(),
+    )
+    assert r.status_code == 400
+
+
+def test_update_schedule_endpoint_rejects_bad_timeout(client):
+    _make_dashboard("sched-ep-to")
+    r = client.post(
+        "/api/dashboards/sched-ep-to/schedule",
+        json={"cron_schedule": "daily", "cron_timeout": "abc"},
+        headers=_h(),
+    )
+    assert r.status_code == 400
+
+
+def test_update_schedule_endpoint_unknown_slug_404(client):
+    r = client.post(
+        "/api/dashboards/ghost/schedule",
+        json={"cron_schedule": "daily"},
+        headers=_h(),
+    )
+    assert r.status_code == 404
+
+
+def test_detail_shows_schedule_editor_with_current_cadence(client):
+    _make_dashboard("sched-ui")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-ui"))
+        d.has_cron = True
+        d.cron_schedule = "0 6 * * 1"  # weekly
+        d.cron_timeout = 600
+    r = client.get("/dashboards/sched-ui/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Chaque nuit" in r.text and "Chaque semaine" in r.text and "1er du mois" in r.text
+    assert 'value="weekly" checked' in r.text  # weekly preselected
+    assert 'value="daily" checked' not in r.text  # exactly one checked...
+    assert 'value="monthly" checked' not in r.text  # ...and it's weekly
+    assert 'value="600"' in r.text  # timeout prefilled
+    assert 'id="scheduleModal"' in r.text  # editor lives in a modal
+    assert 'data-bs-target="#scheduleModal"' in r.text  # opened from the "Configurer" link
+
+
+def test_detail_no_schedule_editor_without_cron(client):
+    _make_dashboard("no-cron-ui")
+    r = client.get("/dashboards/no-cron-ui/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'id="cad-daily"' not in r.text
+    assert 'id="scheduleModal"' not in r.text

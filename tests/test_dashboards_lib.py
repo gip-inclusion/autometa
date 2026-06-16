@@ -58,7 +58,7 @@ def test_create_dashboard_happy_path(isolated):
 
     slug_dir = isolated / "happy"
     files = sorted(p.name for p in slug_dir.iterdir())
-    assert "APP.md" in files
+    assert "APP.md" not in files
     assert "cron.py" in files
     assert "index.html" in files
 
@@ -195,21 +195,6 @@ def test_update_dashboard_set_tags_mutex(isolated):
         )
 
 
-def test_update_dashboard_syncs_app_md_for_syncable_fields(isolated):
-    _create("sy", title="V1")
-    update_dashboard(slug="sy", updater_email="bob@x", in_conversation_id="c2", title="V2")
-    fm = (isolated / "sy" / "APP.md").read_text().split("---", 2)[1]
-    assert "title: V2" in fm
-
-
-def test_update_dashboard_archive_does_not_sync_app_md(isolated):
-    _create("ar2", title="V1")
-    fm_before = (isolated / "ar2" / "APP.md").read_text()
-    update_dashboard(slug="ar2", updater_email="bob@x", in_conversation_id="c2", is_archived=True)
-    fm_after = (isolated / "ar2" / "APP.md").read_text()
-    assert fm_before == fm_after
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -338,6 +323,69 @@ def test_update_dashboard_without_conversation_id(isolated):
     with get_db() as session:
         d = session.scalar(select(Dashboard).where(Dashboard.slug == "noconv"))
         assert d.title == "New"
+
+
+def test_create_dashboard_with_cron_schedule_normalizes_token(isolated):
+    _create("sched-tok", has_cron=True, cron_schedule="weekly", cron_timeout=600)
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-tok"))
+        assert d.cron_schedule == "0 6 * * 1"
+        assert d.cron_timeout == 600
+
+
+def test_create_dashboard_with_preset_crontab_stored_as_is(isolated):
+    _create("sched-raw", has_cron=True, cron_schedule="0 6 1 * *")
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "sched-raw"))
+        assert d.cron_schedule == "0 6 1 * *"
+
+
+def test_create_dashboard_rejects_non_preset_crontab(isolated):
+    with pytest.raises(ValueError):
+        _create("sched-nonpreset", has_cron=True, cron_schedule="0 6 1,15 * *")
+
+
+def test_create_dashboard_rejects_invalid_schedule(isolated):
+    with pytest.raises(ValueError):
+        _create("sched-bad", has_cron=True, cron_schedule="not-a-crontab")
+
+
+def test_create_dashboard_rejects_nonpositive_timeout(isolated):
+    with pytest.raises(ValueError):
+        _create("bad-timeout", has_cron=True, cron_timeout=0)
+
+
+def test_update_dashboard_sets_cron_schedule_and_timeout(isolated):
+    _create("upd-sched")
+    result = update_dashboard(slug="upd-sched", updater_email="bob@x", cron_schedule="monthly", cron_timeout=900)
+    assert "cron_schedule" in result.fields_changed
+    assert "cron_timeout" in result.fields_changed
+    with get_db() as session:
+        d = session.scalar(select(Dashboard).where(Dashboard.slug == "upd-sched"))
+        assert d.cron_schedule == "0 6 1 * *"
+        assert d.cron_timeout == 900
+
+
+def test_update_dashboard_cron_fields_do_not_bump_updated_at(isolated):
+    _create("cron-noupd")
+    old = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    with get_db() as session:
+        session.scalar(select(Dashboard).where(Dashboard.slug == "cron-noupd")).updated_at = old
+
+    r = update_dashboard(slug="cron-noupd", updater_email="bob@x", cron_schedule="weekly", cron_timeout=600)
+    assert sorted(r.fields_changed) == ["cron_schedule", "cron_timeout"]
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "cron-noupd")).updated_at == old
+
+    update_dashboard(slug="cron-noupd", updater_email="bob@x", title="New")
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "cron-noupd")).updated_at > old
+
+
+def test_update_dashboard_rejects_invalid_schedule(isolated):
+    _create("upd-bad")
+    with pytest.raises(ValueError):
+        update_dashboard(slug="upd-bad", updater_email="bob@x", cron_schedule="garbage string here")
 
 
 def _adopt(slug, **overrides):

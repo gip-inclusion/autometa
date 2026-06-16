@@ -47,6 +47,8 @@ def main() -> None:
     parser.add_argument("--has-cron", type=_bool_arg, default=None)
     parser.add_argument("--has-api-access", type=_bool_arg, default=None)
     parser.add_argument("--has-persistence", type=_bool_arg, default=None)
+    parser.add_argument("--cron-schedule", help="Cadence: daily, weekly or monthly (or the equivalent preset crontab)")
+    parser.add_argument("--cron-timeout", type=int, help="Cron run timeout in seconds")
     archive_group = parser.add_mutually_exclusive_group()
     archive_group.add_argument("--archive", action="store_true")
     archive_group.add_argument("--unarchive", action="store_true")
@@ -75,6 +77,8 @@ def main() -> None:
             has_cron=args.has_cron,
             has_api_access=args.has_api_access,
             has_persistence=args.has_persistence,
+            cron_schedule=args.cron_schedule,
+            cron_timeout=args.cron_timeout,
             is_archived=is_archived,
         )
     except DashboardNotFound as exc:
