@@ -37,7 +37,7 @@ Sources de données :
 - Création **uniquement** via le skill `create_dashboard` (`--adopt` pour enregistrer un dossier existant). Jamais d'écriture directe dans `data/interactive/` pour un nouveau TDB.
 - Un `cron.py` ne tourne **que** si le TDB est enregistré avec `has_cron` — le système de cron lit la table `dashboards`.
 - Persistance de données : schéma `dashboard_storage` de la DB applicative — frontend via `POST /api/query` `{source: "dashboard_storage", sql, params}`, agent via `lib.query.execute_dashboard_storage_query`. Voir `docs/interactive-dashboards.md` § Persistance.
-- En prod, l'agent n'écrit que dans `data/`, `.claude/` et `/tmp` (hook de garde) : `web/`, `lib/`, `knowledge/`, etc. sont immuables — toute modification serait perdue au redéploiement.
+- En prod, un hook de garde bloque les écritures **Edit/Write** hors de `data/`, `.claude/` et `/tmp`. De toute façon `web/`, `lib/`, `knowledge/`, etc. sont baked dans l'image : toute modification (y compris via Bash, non couvert par le hook) est éphémère et perdue au redéploiement.
 - Scratchpad → `/tmp`. Fichiers one-off téléchargeables (csv, xlsx…) → racine de `data/interactive/`, jamais de `.html` hors TDB.
 
 ## Sites web

@@ -38,6 +38,14 @@ def validate_query_request(data: dict) -> str | None:
     return None
 
 
+def coerce_timeout(value) -> int:
+    # Why: client-supplied; bound it so it can't inject libpq options or set an unbounded statement_timeout.
+    try:
+        return max(1, min(int(value), 600))
+    except TypeError, ValueError:
+        return 60
+
+
 # FIXME(vperron): many code smells here.
 # - the variable bodies but a dingle API entry seems like a bad practice,
 #   we should probably have a metabase query and a matomo query endpoints.
@@ -106,7 +114,7 @@ async def query(request: Request):
         card_id=data.get("card_id"),
         method=data.get("method"),
         params=data.get("params"),
-        timeout=data.get("timeout", 60),
+        timeout=coerce_timeout(data.get("timeout", 60)),
     )
 
     if not result.success:
