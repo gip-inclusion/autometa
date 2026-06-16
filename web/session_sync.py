@@ -2,11 +2,18 @@
 
 import json
 import logging
+import time
 from pathlib import Path
+
+from botocore.exceptions import BotoCoreError
 
 from . import config, s3
 
 logger = logging.getLogger(__name__)
+
+# Why: resume sessions almost always exist in S3 (confirmed in prod); a transient download
+# blip would otherwise silently drop the conversation to the lossy history fallback.
+_DOWNLOAD_ATTEMPTS = 3
 
 
 def _get_project_slug() -> str:
@@ -29,8 +36,22 @@ def download_session(session_id: str) -> bool:
     if not config.S3_BUCKET:
         return False
 
-    content = s3.sessions.download(f"{session_id}.jsonl")
+    content = None
+    for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
+        try:
+            content = s3.sessions.download(f"{session_id}.jsonl")
+        except BotoCoreError as exc:
+            # Why: s3.download swallows ClientError to None but lets network/timeout errors raise.
+            logger.warning(
+                "Session %s download error (attempt %d/%d): %s", session_id, attempt, _DOWNLOAD_ATTEMPTS, exc
+            )
+        if content is not None:
+            break
+        if attempt < _DOWNLOAD_ATTEMPTS:
+            time.sleep(0.3 * attempt)  # 0.3s then 0.6s backoff; a genuine 404 also pays this
+
     if content is None:
+        logger.warning("Session %s unavailable in S3 after %d attempts", session_id, _DOWNLOAD_ATTEMPTS)
         return False
 
     local_path = get_session_path(session_id)
@@ -110,6 +131,13 @@ def copy_session(src_id: str, dst_id: str) -> bool:
     rewritten = _rewrite_session_id(content, dst_id)
     if not s3.sessions.upload(f"{dst_id}.jsonl", rewritten, "application/x-ndjson"):
         return False
+
+    local_path = get_session_path(dst_id)
+    try:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(rewritten)
+    except OSError:
+        logger.warning("Could not cache copied session %s locally; S3 copy stands", dst_id)
 
     logger.info("Copied session %s -> %s (%d bytes)", src_id, dst_id, len(rewritten))
     _copy_subagents(src_id, dst_id)

@@ -11,6 +11,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "markupsafe>=3.0.3",
     "markdown>=3.10",
+    "nh3>=0.2.18",
     # Utils
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
@@ -70,8 +71,8 @@ dev = [
 target-version = "py314"
 line-length = 120
 # evals/: experimental evaluation scripts, intentionally loose style
-# skills/: self-contained agent skill packages with their own conventions
-exclude = ["data/", ".venv/", "evals/", "skills/", "alembic/"]
+# skills/pdf/: vendored Anthropic skill (proprietary upstream) — don't reformat
+exclude = ["data/", ".venv/", "evals/", "skills/pdf/"]
 
 [tool.ruff.lint]
 preview = true

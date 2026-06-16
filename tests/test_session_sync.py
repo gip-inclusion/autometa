@@ -1,5 +1,7 @@
 """Tests for web/session_sync.py — S3 session file management."""
 
+from botocore.exceptions import BotoCoreError
+
 from web import session_sync
 
 
@@ -73,11 +75,48 @@ def test_download_and_upload_roundtrip(monkeypatch, mocker, tmp_path):
 
 
 def test_download_nonexistent_session(monkeypatch, mocker, tmp_path):
-    mocker.patch.object(session_sync.s3.sessions, "download", return_value=None)
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", return_value=None)
+    mocker.patch.object(session_sync.time, "sleep")
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
     monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
 
     assert session_sync.download_session("does-not-exist") is False
+    assert dl.call_count == session_sync._DOWNLOAD_ATTEMPTS
+
+
+def test_download_session_retries_then_succeeds(monkeypatch, mocker, tmp_path):
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", side_effect=[None, b'{"type":"message"}\n'])
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+    mocker.patch.object(session_sync.time, "sleep")
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+
+    assert session_sync.download_session("sess-1") is True
+    assert dl.call_count == 2
+    assert (tmp_path / "sess-1.jsonl").read_bytes() == b'{"type":"message"}\n'
+
+
+def test_download_session_retries_on_network_error(monkeypatch, mocker, tmp_path):
+    dl = mocker.patch.object(
+        session_sync.s3.sessions, "download", side_effect=[BotoCoreError(), b'{"type":"message"}\n']
+    )
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+    mocker.patch.object(session_sync.time, "sleep")
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+
+    assert session_sync.download_session("sess-2") is True
+    assert dl.call_count == 2
+
+
+def test_download_session_gives_up_after_repeated_network_errors(monkeypatch, mocker, tmp_path):
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", side_effect=BotoCoreError)
+    mocker.patch.object(session_sync.time, "sleep")
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+
+    assert session_sync.download_session("sess-3") is False
+    assert dl.call_count == session_sync._DOWNLOAD_ATTEMPTS
 
 
 def test_copy_session_returns_false_without_s3(monkeypatch):
@@ -91,7 +130,7 @@ def test_copy_session_returns_false_when_source_missing(monkeypatch, mocker):
     assert session_sync.copy_session("missing", "dst") is False
 
 
-def test_copy_session_rewrites_session_id_and_copies_subagents(monkeypatch, mocker):
+def test_copy_session_rewrites_session_id_and_copies_subagents(monkeypatch, mocker, tmp_path):
     src_id = "11111111-1111-1111-1111-111111111111"
     dst_id = "22222222-2222-2222-2222-222222222222"
 
@@ -118,6 +157,7 @@ def test_copy_session_rewrites_session_id_and_copies_subagents(monkeypatch, mock
         return [{"path": k, "size": len(v)} for k, v in files.items() if k.startswith(prefix)]
 
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
     mocker.patch.object(session_sync.s3.sessions, "download", side_effect=mock_download)
     mocker.patch.object(session_sync.s3.sessions, "upload", side_effect=mock_upload)
     mocker.patch.object(session_sync.s3.sessions, "list_files", side_effect=mock_list_files)
@@ -132,7 +172,7 @@ def test_copy_session_rewrites_session_id_and_copies_subagents(monkeypatch, mock
         assert dst_id.encode() in content
 
 
-def test_copy_session_keeps_going_when_jsonl_has_malformed_line(monkeypatch, mocker):
+def test_copy_session_keeps_going_when_jsonl_has_malformed_line(monkeypatch, mocker, tmp_path):
     src_id = "11111111-1111-1111-1111-111111111111"
     dst_id = "22222222-2222-2222-2222-222222222222"
 
@@ -145,6 +185,7 @@ def test_copy_session_keeps_going_when_jsonl_has_malformed_line(monkeypatch, moc
     uploaded = {}
 
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
     mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda p: files.get(p))
     mocker.patch.object(
         session_sync.s3.sessions,
@@ -160,7 +201,7 @@ def test_copy_session_keeps_going_when_jsonl_has_malformed_line(monkeypatch, moc
     assert dst_id.encode() in written
 
 
-def test_copy_session_logs_warning_when_subagent_upload_fails(monkeypatch, mocker, caplog):
+def test_copy_session_logs_warning_when_subagent_upload_fails(monkeypatch, mocker, caplog, tmp_path):
     src_id = "11111111-1111-1111-1111-111111111111"
     dst_id = "22222222-2222-2222-2222-222222222222"
 
@@ -173,6 +214,7 @@ def test_copy_session_logs_warning_when_subagent_upload_fails(monkeypatch, mocke
         return not path.endswith("subagents/agent-1.jsonl")
 
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
     mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda p: files.get(p))
     mocker.patch.object(session_sync.s3.sessions, "upload", side_effect=mock_upload)
     mocker.patch.object(
@@ -184,3 +226,41 @@ def test_copy_session_logs_warning_when_subagent_upload_fails(monkeypatch, mocke
     with caplog.at_level("WARNING", logger="web.session_sync"):
         assert session_sync.copy_session(src_id, dst_id) is True
     assert any("Failed to copy subagent file" in r.message for r in caplog.records)
+
+
+def test_copy_session_succeeds_when_local_write_fails(monkeypatch, mocker, tmp_path, caplog):
+    src_id = "11111111-1111-1111-1111-111111111111"
+    dst_id = "22222222-2222-2222-2222-222222222222"
+    files = {f"{src_id}.jsonl": b'{"type":"user","sessionId":"' + src_id.encode() + b'","content":"hi"}\n'}
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda p: files.get(p))
+    mocker.patch.object(session_sync.s3.sessions, "upload", return_value=True)
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+    mocker.patch("pathlib.Path.write_bytes", side_effect=OSError("disk full"))
+
+    assert session_sync.copy_session(src_id, dst_id) is True
+    assert "locally" in caplog.text.lower()
+
+
+def test_copy_session_writes_rewritten_file_to_local_disk(monkeypatch, mocker, tmp_path):
+    src_id = "11111111-1111-1111-1111-111111111111"
+    dst_id = "22222222-2222-2222-2222-222222222222"
+    src_jsonl = b'{"type":"user","sessionId":"' + src_id.encode() + b'","content":"hi"}\n'
+
+    files = {f"{src_id}.jsonl": src_jsonl}
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda p: files.get(p))
+    mocker.patch.object(session_sync.s3.sessions, "upload", return_value=True)
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+
+    assert session_sync.copy_session(src_id, dst_id) is True
+
+    local = tmp_path / f"{dst_id}.jsonl"
+    assert local.exists()
+    written = local.read_bytes()
+    assert dst_id.encode() in written
+    assert src_id.encode() not in written

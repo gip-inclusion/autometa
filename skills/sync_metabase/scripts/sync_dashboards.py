@@ -123,14 +123,14 @@ KNOWN_DASHBOARDS = {
 
 def extract_dashboard_text(dashboard_data: dict) -> str:
     texts = []
-    dashcards = dashboard_data.get('dashcards', [])
+    dashcards = dashboard_data.get("dashcards", [])
 
     for dc in dashcards:
-        viz = dc.get('visualization_settings', {})
-        text = viz.get('text', '')
-        card = dc.get('card')
+        viz = dc.get("visualization_settings", {})
+        text = viz.get("text", "")
+        card = dc.get("card")
         # Virtual cards have no card or card with no id
-        if text and (card is None or card.get('id') is None):
+        if text and (card is None or card.get("id") is None):
             texts.append(text)
 
     return "\n\n".join(texts)
@@ -197,9 +197,9 @@ def main():
     for dash_id in sorted(dashboard_ids):
         try:
             dashboard_data = api.get_dashboard(dash_id)
-            name = dashboard_data.get('name', f'Dashboard {dash_id}')
-            metabase_desc = dashboard_data.get('description', '')
-            collection_id = dashboard_data.get('collection_id')
+            name = dashboard_data.get("name", f"Dashboard {dash_id}")
+            metabase_desc = dashboard_data.get("description", "")
+            collection_id = dashboard_data.get("collection_id")
 
             # Extract text from virtual cards
             text_content = extract_dashboard_text(dashboard_data)

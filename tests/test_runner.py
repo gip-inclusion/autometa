@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
 import pytest
@@ -32,7 +31,7 @@ def fake_redis():
 def make_runner(mocker, fake_redis, max_concurrent=2):
     mock_backend = mocker.MagicMock()
     mock_backend.send_message = _noop_stream
-    mock_backend.cancel = AsyncMock()
+    mock_backend.cancel = mocker.AsyncMock()
     mocker.patch("web.runner.get_agent", return_value=mock_backend)
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", max_concurrent)
@@ -90,6 +89,108 @@ def test_cancel_publishes_and_updates_db(runner, mocker):
         await runner.cancel("c1")
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
         mock_store.add_message.assert_called_with("c1", "assistant", "*Interrompu.*")
+
+    asyncio.run(_run())
+
+
+def test_cancel_clears_needs_response_before_backend_cancel_completes(runner, mocker):
+    """Cancel must mark the conv stopped before the slow backend.cancel."""
+    mock_store = mocker.patch("web.runner.store")
+    backend_cancel_started = asyncio.Event()
+    backend_cancel_may_finish = asyncio.Event()
+
+    async def slow_backend_cancel(conv_id):
+        backend_cancel_started.set()
+        await backend_cancel_may_finish.wait()
+
+    runner.backend.cancel = slow_backend_cancel
+    runner._running["c1"] = mocker.MagicMock()
+
+    async def _run():
+        cancel_task = asyncio.create_task(runner.cancel("c1"))
+        await backend_cancel_started.wait()
+        cleared = any(c.kwargs.get("needs_response") is False for c in mock_store.update_conversation.call_args_list)
+        backend_cancel_may_finish.set()
+        await cancel_task
+        assert cleared, "needs_response still True while backend.cancel runs -> immediate resend would 409"
+
+    asyncio.run(_run())
+
+
+def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, mocker):
+    """submit() must clear the done marker a prior cancel left behind."""
+    mocker.patch("web.runner.store")
+
+    async def _run():
+        await runner.cancel("c1")
+        assert await runner.is_done("c1")  # stale marker left by cancel (TTL 600s)
+        await runner.submit("c1", "nouvelle question", [])
+        assert not await runner.is_done("c1"), "new run must not inherit the previous cancel's done marker"
+
+    asyncio.run(_run())
+
+
+def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
+    """An old run finishing must not clobber a same-conv restart."""
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch("web.runner.store")
+
+    old_can_finish = asyncio.Event()
+
+    async def old_stream(**kwargs):
+        await old_can_finish.wait()
+        return
+        yield  # noqa: F841
+
+    async def new_stream(**kwargs):
+        await asyncio.sleep(5)
+        yield make_event("assistant", "x")
+
+    async def _run():
+        runner.backend.send_message = old_stream
+        old_task = asyncio.create_task(runner._run_agent("c1", "old", [], None, None))
+        runner._running["c1"] = old_task
+        await asyncio.sleep(0.05)
+
+        await runner.cancel("c1")
+        assert "c1" not in runner._running
+
+        runner.backend.send_message = new_stream
+        new_task = asyncio.create_task(runner._run_agent("c1", "new", [], None, None))
+        runner._running["c1"] = new_task
+        await runner.cleanup("c1")
+        await asyncio.sleep(0.05)
+        assert runner._running.get("c1") is new_task
+
+        old_can_finish.set()
+        await asyncio.sleep(0.1)
+
+        assert runner._running.get("c1") is new_task, "old run's finally evicted the restarted run"
+        assert not await runner.is_done("c1"), "old run's finally marked the restarted run as done"
+
+        new_task.cancel()
+        old_task.cancel()
+        await asyncio.gather(new_task, old_task, return_exceptions=True)
+
+    asyncio.run(_run())
+
+
+def test_run_agent_surfaces_backend_error_event(runner, mocker):
+    """A backend 'error' event (CLI exit 1 on a dash prompt) must reach the user."""
+    mock_store = mocker.patch("web.runner.store")
+    mock_msg = mocker.MagicMock()
+    mock_msg.id = 1
+    mock_store.add_message.return_value = mock_msg
+
+    async def err_stream(**kwargs):
+        yield make_event("error", "Process exited with code 1: error: unknown option '- foo'")
+
+    runner.backend.send_message = err_stream
+
+    async def _run():
+        await runner._run_agent("c1", "- foo", [], None, None)
+        stored = [str(c.args) for c in mock_store.add_message.call_args_list]
+        assert any("unknown option" in s for s in stored), "backend error event was dropped; user sees nothing"
 
     asyncio.run(_run())
 
@@ -280,6 +381,92 @@ def test_consumer_skips_stale_task(mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_consumer_survives_task_handling_exception(mocker, fake_redis):
+    """A transient error on one task must not kill the loop; it must keep serving the next task."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    good_conv = mocker.MagicMock()
+    good_conv.needs_response = True
+    mock_store.get_conversation.side_effect = [RuntimeError("db connection lost"), good_conv]
+
+    async def slow_stream(*a, **kw):
+        await asyncio.sleep(10)
+        yield
+
+    runner.backend.send_message = slow_stream
+
+    async def _run():
+        for cid in ("boom", "good"):
+            await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": cid, "prompt": "p", "history": []}))
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(1.0)
+        assert "good" in runner._running, "consumer died on the first task's exception; the next task was never served"
+        consumer.cancel()
+        for t in runner._running.values():
+            t.cancel()
+        await asyncio.gather(consumer, *runner._running.values(), return_exceptions=True)
+
+    asyncio.run(_run())
+
+
+def test_consumer_survives_when_recovery_also_fails(mocker, fake_redis):
+    """A sustained outage makes the recovery I/O fail too; the loop must still survive and serve the next task."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    good_conv = mocker.MagicMock()
+    good_conv.needs_response = True
+    mock_store.get_conversation.side_effect = [RuntimeError("db down"), good_conv]
+    mock_store.update_conversation.side_effect = RuntimeError("db still down")
+
+    async def slow_stream(*a, **kw):
+        await asyncio.sleep(10)
+        yield
+
+    runner.backend.send_message = slow_stream
+
+    async def _run():
+        for cid in ("boom", "good"):
+            await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": cid, "prompt": "p", "history": []}))
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(1.0)
+        assert "good" in runner._running, "loop died when its own recovery I/O failed"
+        consumer.cancel()
+        for t in runner._running.values():
+            t.cancel()
+        await asyncio.gather(consumer, *runner._running.values(), return_exceptions=True)
+
+    asyncio.run(_run())
+
+
+def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
+    """A task erroring mid-setup is un-stuck (needs_response + running key), the user is told, the stream closes."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    conv = mocker.MagicMock()
+    conv.needs_response = True
+    mock_store.get_conversation.return_value = conv
+    sess = mocker.patch("web.runner.session_sync")
+    sess.download_session.side_effect = RuntimeError("s3 unreachable")
+
+    async def _run():
+        await fake_redis.rpush(
+            "autometa:tasks", json.dumps({"conv_id": "boom", "prompt": "p", "history": [], "session_id": "s1"})
+        )
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(0.3)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+        mock_store.update_conversation.assert_any_call("boom", needs_response=False)
+        assert not await fake_redis.exists("autometa:running:boom"), "running key left behind for the failed conv"
+        assert any(
+            c.args[0] == "boom" and c.args[1] == "assistant" and "erreur" in c.args[2].lower()
+            for c in mock_store.add_message.call_args_list
+        ), "no error message was shown to the user"
+        assert await runner.is_done("boom"), "stream never closed; client waits forever"
+
+    asyncio.run(_run())
+
+
 def test_run_agent_notifies_and_cleans_up(runner, mocker, fake_redis):
     mock_store = mocker.patch("web.runner.store")
     mock_msg = mocker.MagicMock()
@@ -326,6 +513,69 @@ def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
     async def _run():
         await runner._recover_stuck(fake_redis)
         assert mock_store.add_message.call_count == 2
+
+    asyncio.run(_run())
+
+
+def test_reconcile_clears_aged_stuck_conversations(mocker, fake_redis):
+    """Periodic reconcile must query with the age threshold (race protection) and clear dead-worker convs."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.get_running_conversation_ids.return_value = ["zombie"]
+
+    async def _run():
+        cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=300, note="*Interrompu.*")
+        mock_store.get_running_conversation_ids.assert_called_once_with(older_than_seconds=300)
+        mock_store.update_conversation.assert_called_once_with("zombie", needs_response=False)
+        mock_store.add_message.assert_called_once_with("zombie", "assistant", "*Interrompu.*")
+        assert await runner.is_done("zombie"), "swept conv's SSE stream was never closed"
+        assert cleared == 1
+
+    asyncio.run(_run())
+
+
+def test_reconcile_skips_conversation_with_live_worker(mocker, fake_redis):
+    """A conversation genuinely running on a live worker must never be cleared by reconcile."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.get_running_conversation_ids.return_value = ["live"]
+
+    async def _run():
+        await fake_redis.set("autometa:running:live", "w1")
+        await fake_redis.set("autometa:worker:w1", "1")
+        cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=300, note="*x*")
+        mock_store.update_conversation.assert_not_called()
+        assert cleared == 0
+
+    asyncio.run(_run())
+
+
+def test_reconcile_skips_queued_conversation(mocker, fake_redis):
+    """A stuck conv whose task is still queued is waiting for a slot, not orphaned — keep it."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.get_running_conversation_ids.return_value = ["waiting"]
+
+    async def _run():
+        await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": "waiting", "prompt": "p", "history": []}))
+        cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=900, note="*x*", skip_queued=True)
+        mock_store.update_conversation.assert_not_called()
+        assert cleared == 0
+
+    asyncio.run(_run())
+
+
+def test_heartbeat_survives_redis_error(mocker, fake_redis):
+    """A Redis blip must not kill the heartbeat — reconcile liveness and the sweep depend on it."""
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch.object(fake_redis, "set", side_effect=RuntimeError("redis blip"))
+
+    async def _run():
+        hb = asyncio.create_task(runner._heartbeat_loop())
+        await asyncio.sleep(0.2)
+        assert not hb.done(), "heartbeat loop died on a Redis error"
+        hb.cancel()
+        await asyncio.gather(hb, return_exceptions=True)
 
     asyncio.run(_run())
 

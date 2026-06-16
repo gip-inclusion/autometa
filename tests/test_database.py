@@ -1,6 +1,6 @@
 """Tests for database module."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -12,6 +12,7 @@ from web.database import (
     store,
 )
 from web.db import get_db
+from web.models import Conversation as ConvModel
 from web.models import Dashboard
 from web.models import UsageEvent as UsageEventModel
 
@@ -75,6 +76,19 @@ def test_clear_all_needs_response_clears_stuck_conversations(client):
     assert not updated.needs_response
 
 
+def test_get_running_conversation_ids_filters_by_age(client):
+    """The periodic sweep must skip freshly-queued convs — only ones stuck past the threshold."""
+    old = store.create_conversation(user_id="u@test.com")
+    fresh = store.create_conversation(user_id="u@test.com")
+    store.update_conversation(old.id, needs_response=True)
+    store.update_conversation(fresh.id, needs_response=True)
+    with get_db() as session:
+        session.get(ConvModel, old.id).updated_at = datetime.now(timezone.utc) - timedelta(seconds=600)
+
+    assert set(store.get_running_conversation_ids()) == {old.id, fresh.id}
+    assert store.get_running_conversation_ids(older_than_seconds=300) == [old.id]
+
+
 def test_clear_all_needs_response_noop_when_nothing_stuck(client):
     store.create_conversation(user_id="test@test.com")
     assert store.clear_all_needs_response() == []
@@ -84,7 +98,7 @@ def test_cancel_unstick_zombie_conversation(client):
     conv = store.create_conversation(user_id="test@test.com")
     store.update_conversation(conv.id, needs_response=True)
 
-    resp = client.post(f"/api/conversations/{conv.id}/cancel")
+    resp = client.post(f"/api/conversations/{conv.id}/cancel", headers={"X-Forwarded-Email": "test@test.com"})
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "cancelled"
@@ -96,7 +110,7 @@ def test_cancel_clears_needs_response(client):
     conv = store.create_conversation(user_id="test@test.com")
     store.update_conversation(conv.id, needs_response=True)
 
-    resp = client.post(f"/api/conversations/{conv.id}/cancel")
+    resp = client.post(f"/api/conversations/{conv.id}/cancel", headers={"X-Forwarded-Email": "test@test.com"})
 
     assert resp.status_code == 200
     updated = store.get_conversation(conv.id, include_messages=False)

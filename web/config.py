@@ -41,6 +41,13 @@ ALLOWED_TOOLS = os.getenv(
     "Bash(.venv/bin/python:*)",
 )
 
+# Outils toujours bloqués (même sous --dangerously-skip-permissions). AskUserQuestion ne s'affiche pas dans notre UI.
+DISALLOWED_TOOLS = os.getenv("DISALLOWED_TOOLS", "AskUserQuestion")
+
+# Compte « public » du tableau de bord public RPE (France Travail) — valeur publique (présente en clair dans l'URL
+# du TDB) mais fournie par l'environnement, jamais de défaut en dur (cf. rules/code.md, gitleaks).
+RPE_PUBLIC_PASS = os.getenv("RPE_PUBLIC_PASS", "")
+
 # Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder-next")
@@ -128,8 +135,8 @@ PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
 PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_URL_PROD", "https://statistiques.inclusion.gouv.fr")
 
 
-# Container environment flag (set in Docker — bypasses permission checks)
-CONTAINER_ENV = bool(os.getenv("CONTAINER_ENV"))
+# Deployment environment: "live" on servers (Scalingo), "dev" (default) on local machines.
+AUTOMETA_ENV = os.getenv("AUTOMETA_ENV", "dev")
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
@@ -137,8 +144,9 @@ CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 # Skip CLI auth check (local dev convenience)
 SKIP_CLI_AUTH_CHECK = os.getenv("SKIP_CLI_AUTH_CHECK", "false").lower() == "true"
 
-# Max concurrent agent processes
-MAX_CONCURRENT_AGENTS = int(os.getenv("MAX_CONCURRENT_AGENTS", "2"))
+# Max concurrent agent processes. Single web worker (WEB_CONCURRENCY=1) leaves headroom for
+# more CLI children: ~200MiB worker + 4×~350MiB agents fits the 2GiB dyno.
+MAX_CONCURRENT_AGENTS = int(os.getenv("MAX_CONCURRENT_AGENTS", "4"))
 
 # Tool call budget per agent turn (0 = unlimited)
 MAX_TOOL_CALLS = int(os.getenv("MAX_TOOL_CALLS", "200"))
@@ -147,12 +155,17 @@ TOOL_CALL_WARNING = int(os.getenv("TOOL_CALL_WARNING", "50"))
 # Notion integration
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
-NOTION_WISHLIST_DB = os.getenv("NOTION_WISHLIST_DB")
 
 
 # Slack notifications
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
+
+# autometa-jobs — autonomous agent job runner (orchestrator)
+AUTOMETA_JOBS_URL = os.getenv("AUTOMETA_JOBS_URL", "").rstrip("/")
+AUTOMETA_JOBS_API_KEY = os.getenv("AUTOMETA_JOBS_API_KEY", "")
+# All pipelines share one Scaleway worker container, so the job-definition id is global rather than per-pipeline.
+AUTOMETA_JOBS_DEFINITION_ID = os.getenv("AUTOMETA_JOBS_DEFINITION_ID", "")
 
 # Grist (webinaire data)
 GRIST_API_KEY = os.getenv("GRIST_API_KEY")
@@ -169,6 +182,11 @@ REDIS_URL = os.getenv("REDIS_URL") or os.getenv("SCALINGO_REDIS_URL") or "redis:
 
 # Web server
 WEB_WORKERS = int(os.getenv("WEB_WORKERS", os.cpu_count() or 1))
+
+# Memory profiling (diagnostic): log RSS/heap stats every N seconds; 0 disables.
+# DEEP adds a heap-type histogram + tracemalloc — heavier, so off by default.
+MEMORY_PROFILE_INTERVAL = int(os.getenv("MEMORY_PROFILE_INTERVAL", "300"))
+MEMORY_PROFILE_DEEP = os.getenv("MEMORY_PROFILE_DEEP", "false").lower() == "true"
 
 # Additional directories the agent can access (beyond working directory)
 KNOWLEDGE_DIR = BASE_DIR / "knowledge"
@@ -189,6 +207,9 @@ DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE
 
 # autometa_tables_db — tables Metabase centralisées (connexion directe Scalingo)
 AUTOMETA_TABLES_DATABASE_URL = os.getenv("AUTOMETA_TABLES_DATABASE_URL", "")
+
+# DSN du rôle restreint au schéma dashboard_storage de la DB applicative (persistance des TDB)
+DASHBOARD_STORAGE_DB_URL = (os.getenv("DASHBOARD_STORAGE_DB_URL") or "").replace("postgres://", "postgresql://")
 
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")

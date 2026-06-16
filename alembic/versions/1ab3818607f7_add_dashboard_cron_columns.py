@@ -1,7 +1,7 @@
 """add dashboard cron columns
 
 Revision ID: 1ab3818607f7
-Revises: 7b7df556b6d0
+Revises: e3f1a9c27b54
 Create Date: 2026-06-05 20:41:15.361973
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "1ab3818607f7"
-down_revision: Union[str, Sequence[str], None] = "7b7df556b6d0"
+down_revision: Union[str, Sequence[str], None] = "e3f1a9c27b54"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

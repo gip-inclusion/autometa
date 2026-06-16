@@ -3,7 +3,7 @@
 import pytest
 
 from web.config import CORS_ALLOWED_ORIGINS
-from web.routes.query import cors_headers
+from web.routes.query import coerce_timeout, cors_headers, validate_query_request
 
 
 def test_cors_headers_allowed_origin_from_config():
@@ -32,3 +32,41 @@ def test_cors_allowed_origins_parsed_from_env(monkeypatch):
     finally:
         monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
         importlib.reload(web.config)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({}, "source is required"),
+        ({"source": "metabase"}, "instance is required for metabase and matomo sources"),
+        ({"source": "matomo"}, "instance is required for metabase and matomo sources"),
+        ({"source": "metabase", "instance": "stats"}, None),
+        ({"source": "matomo", "instance": "inclusion"}, None),
+        ({"source": "dashboard_storage", "sql": "SELECT 1"}, None),
+        ({"source": "matometa_db", "sql": "SELECT 1"}, None),
+        ({"source": "data_inclusion", "sql": "SELECT 1"}, None),
+        ({"source": "autometa_tables_db", "sql": "SELECT 1"}, None),
+        ({"source": "dashboard_storage"}, "sql is required for this source"),
+        ({"source": "data_inclusion"}, "sql is required for this source"),
+    ],
+)
+def test_validate_query_request(data, expected):
+    assert validate_query_request(data) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (30, 30),
+        ("45", 45),
+        (60.9, 60),
+        (0, 1),
+        (-5, 1),
+        (10_000, 600),
+        ("evil", 60),
+        (None, 60),
+        ("0 -c search_path=public", 60),
+    ],
+)
+def test_coerce_timeout(value, expected):
+    assert coerce_timeout(value) == expected

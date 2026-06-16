@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from web import config, llm
 from web.alerts import notify_alert_channel
+from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
@@ -32,6 +33,11 @@ from web.uploads import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations")
+
+
+def can_mutate_conversation(conv, user_email: str) -> bool:
+    """NULL-owner conversations are mutable by everyone; otherwise the owner only (same rule as POST /messages and the file endpoints)."""
+    return not conv.user_id or conv.user_id == user_email
 
 
 def generate_conversation_title(user_message: str, conv_id: str) -> None:
@@ -213,8 +219,8 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
 
 
 @router.get("/running")
-def get_running():
-    return {"running": store.get_running_conversation_ids()}
+def get_running(user_email: str = Depends(get_current_user)):
+    return {"running": store.get_running_conversation_ids(user_id=user_email)}
 
 
 @router.get("/flagged")
@@ -367,7 +373,13 @@ def unpin_conversation(conv_id: str, user_email: str = Depends(get_current_user)
 
 
 @router.patch("/{conv_id}")
-async def update_conversation(conv_id: str, request: Request):
+async def update_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
     data = await request.json()
     if not data:
         return JSONResponse({"error": "No data provided"}, status_code=400)
@@ -381,10 +393,12 @@ async def update_conversation(conv_id: str, request: Request):
 
 
 @router.post("/{conv_id}/generate-title")
-def generate_title(conv_id: str):
+def generate_title(conv_id: str, user_email: str = Depends(get_current_user)):
     conv = store.get_conversation(conv_id)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     user_messages = []
     last_assistant_msg = None
@@ -466,7 +480,7 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     # Check ownership - only owner can send messages
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse(
             {
                 "error": "Cette conversation appartient à un autre utilisateur. Vous pouvez la consulter mais pas y ajouter de messages."
@@ -697,9 +711,14 @@ async def stream_conversation(
 
 
 @router.post("/{conv_id}/cancel")
-async def cancel_conversation(conv_id: str):
+async def cancel_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     conv = store.get_conversation(conv_id, include_messages=False)
-    if not conv or not conv.needs_response:
+    if not conv:
+        return {"status": "not_running"}
+    # Why: permission before the running check, so non-owners can't probe running state.
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    if not conv.needs_response:
         return {"status": "not_running"}
 
     await runner.cancel(conv_id)
@@ -713,7 +732,13 @@ def get_conversation_tags(conv_id: str):
 
 
 @router.put("/{conv_id}/tags")
-async def set_conversation_tags(conv_id: str, request: Request):
+async def set_conversation_tags(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+
     data = await request.json()
     if not data or "tags" not in data:
         return JSONResponse({"error": "Missing 'tags' field"}, status_code=400)
@@ -739,7 +764,7 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
 
     # Check ownership
-    if conv.user_id and conv.user_id != user_email:
+    if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     # Check conversation type
@@ -750,7 +775,8 @@ async def upload_file_endpoint(conv_id: str, file: UploadFile, user_email: str =
         return JSONResponse({"error": "No file selected"}, status_code=400)
 
     try:
-        uploaded_file, text_content = do_upload_file(
+        uploaded_file, text_content = await run_in_thread(
+            do_upload_file,
             file_obj=file.file,
             filename=file.filename,
             conversation_id=conv_id,
@@ -837,7 +863,7 @@ async def copy_file(conv_id: str, file_id: int, request: Request, user_email: st
 
     # Check ownership
     conv = store.get_conversation(conv_id, include_messages=False)
-    if conv and conv.user_id and conv.user_id != user_email:
+    if conv and not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
 
     body = await request.body()

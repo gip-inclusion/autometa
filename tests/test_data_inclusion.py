@@ -29,7 +29,7 @@ def test_execute_sql_opens_tunnel_and_queries(mocker):
     mock_sa_conn.execute.return_value = mock_sa_result
     mock_engine = mocker.MagicMock()
     mock_engine.connect.return_value = mock_sa_conn
-    mock_create_engine = mocker.patch("lib.data_inclusion.create_engine", return_value=mock_engine)
+    mock_build_engine = mocker.patch("lib.data_inclusion.build_engine", return_value=mock_engine)
     mocker.patch("lib.data_inclusion._parse_pkey", return_value=mocker.MagicMock())
     mocker.patch("lib.data_inclusion.emit_api_signal")
 
@@ -45,5 +45,4 @@ def test_execute_sql_opens_tunnel_and_queries(mocker):
     assert result == QueryResult(columns=["id", "source"], rows=[["dora--abc", "dora"]], row_count=1)
     _, kwargs = mock_tunnel_cls.call_args
     assert kwargs["remote_bind_address"] == ("remote-db", 5432)
-    _, engine_kwargs = mock_create_engine.call_args
-    assert engine_kwargs["connect_args"] == {"options": "-c statement_timeout=45000"}
+    assert mock_build_engine.call_args.args[1] == 45

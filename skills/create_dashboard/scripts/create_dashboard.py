@@ -5,7 +5,7 @@ import json
 import sys
 from datetime import timezone
 
-from lib.dashboards import create_dashboard
+from lib.dashboards import adopt_dashboard, create_dashboard
 from web import config
 
 
@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument("--has-persistence", action="store_true", help="Set has_persistence flag")
     parser.add_argument("--cron-schedule", help="Cadence: daily, weekly or monthly (or the equivalent preset crontab)")
     parser.add_argument("--cron-timeout", type=int, help="Cron run timeout in seconds")
+    parser.add_argument("--adopt", action="store_true", help="Register an existing folder (no scaffold)")
     args = parser.parse_args()
 
     conversation_id, user_email = _require_runtime_context()
@@ -43,7 +44,8 @@ def main() -> None:
     tags = [t.strip() for t in args.tags.split(",") if t.strip()]
 
     try:
-        dashboard = create_dashboard(
+        make = adopt_dashboard if args.adopt else create_dashboard
+        dashboard = make(
             slug=args.slug,
             title=args.title,
             description=args.description,

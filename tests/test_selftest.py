@@ -216,6 +216,7 @@ def test_run_all_checks_produces_check_instances(mocker):
     mocker.patch("web.selftest._check_s3", return_value=(False, "not configured"))
     mocker.patch("web.selftest._check_matomo", return_value=(True, "v5.0"))
     mocker.patch("web.selftest._check_metabase_instance", return_value=(True, "healthy"))
+    mocker.patch("web.selftest._check_rpe", return_value=(True, "login OK"))
     mocker.patch("web.selftest._check_notion", return_value=(False, "not set"))
     mocker.patch("web.selftest._check_grist", return_value=(False, "not set"))
     mocker.patch("web.selftest._check_livestorm", return_value=(False, "not set"))

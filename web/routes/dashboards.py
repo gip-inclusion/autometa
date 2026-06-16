@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
+from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.cron import cadence, get_last_runs, next_cron_run
 from web.database import store
@@ -19,6 +20,7 @@ from web.publications import (
     BLOCKED_CODES,
     ENVIRONMENTS,
     PublicationBlocked,
+    list_active_publications,
     list_publications,
     pause_refresh,
     publish,
@@ -30,10 +32,34 @@ from .html import get_sidebar_data, group_items_by_date
 
 router = APIRouter()
 
-VIEWS = ("latest", "mine", "archived")
+VIEWS = ("latest", "mine", "archived", "published")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
+
+
+def build_published_groups() -> list[dict]:
+    """Active publications grouped by dashboard (most recently published first), production line first."""
+    pubs = list_active_publications()
+    for p in pubs:
+        p["published_relative"] = format_relative_date(p["published_at"]) if p.get("published_at") else ""
+        p["refresh_relative"] = (
+            format_relative_date(p["last_successful_refresh_at"]) if p.get("last_successful_refresh_at") else ""
+        )
+        p["paused_relative"] = format_relative_date(p["refresh_paused_at"]) if p.get("refresh_paused_at") else ""
+        prefix, _, name = p["url"].split("://", 1)[-1].rpartition("/")
+        p["url_prefix"] = f"{prefix}/"
+        p["url_name"] = name
+    groups: dict[str, dict] = {}
+    for p in pubs:
+        group = groups.setdefault(
+            p["dashboard_slug"],
+            {"slug": p["dashboard_slug"], "title": p["dashboard_title"], "publications": []},
+        )
+        group["publications"].append(p)
+    for group in groups.values():
+        group["publications"].sort(key=lambda p: 0 if p["environment"] == "production" else 1)
+    return list(groups.values())
 
 
 @router.get("/dashboards")
@@ -46,31 +72,37 @@ def dashboards_page(
     if view not in VIEWS:
         view = "latest"
 
-    active = store.list_dashboards()
-
-    if view == "archived":
-        items = store.list_archived_dashboards()
-    elif view == "mine":
-        items = [d for d in active if d["first_author_email"] == user_email]
-    else:
-        items = active
-
+    grouped_items = None
     pinned_cards = []
-    if view == "latest":
-        active_by_slug = {d["slug"]: d for d in active}
-        pinned_cards = [
-            active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
-        ]
+    published_groups = None
 
-    last_runs = get_last_runs(limit_per_app=1)
-    for d in items:
-        run = next(iter(last_runs.get(d["slug"], [])), None)
-        d["cron_status"] = run["status"] if run else None
-        d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
-        d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
-        d["sort_date"] = d["updated"]
+    if view == "published":
+        published_groups = build_published_groups()
+    else:
+        active = store.list_dashboards()
 
-    grouped_items = group_items_by_date(items)
+        if view == "archived":
+            items = store.list_archived_dashboards()
+        elif view == "mine":
+            items = [d for d in active if d["first_author_email"] == user_email]
+        else:
+            items = active
+
+        if view == "latest":
+            active_by_slug = {d["slug"]: d for d in active}
+            pinned_cards = [
+                active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
+            ]
+
+        last_runs = get_last_runs(limit_per_app=1)
+        for d in items:
+            run = next(iter(last_runs.get(d["slug"], [])), None)
+            d["cron_status"] = run["status"] if run else None
+            d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
+            d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
+            d["sort_date"] = d["updated"]
+
+        grouped_items = group_items_by_date(items)
 
     data = get_sidebar_data(user_email)
     return templates.TemplateResponse(
@@ -83,6 +115,7 @@ def dashboards_page(
             "q": q,
             "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
+            "published_groups": published_groups,
             **data,
         },
     )
@@ -163,7 +196,7 @@ async def toggle_archive(slug: Slug, request: Request, user_email: str = Depends
     archived = bool(payload.get("archived", True))
     if archived:
         for pub in list_publications(slug, active_only=True):
-            unpublish(pub["publication_id"])
+            await run_in_thread(unpublish, pub["publication_id"])
     try:
         update_dashboard(slug=slug, updater_email=user_email, is_archived=archived)
     except DashboardNotFound:
@@ -230,7 +263,7 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
     if environment not in ENVIRONMENTS:
         return JSONResponse({"error": "Invalid environment"}, status_code=400)
     try:
-        return publish(slug, environment, user_email)
+        return await run_in_thread(publish, slug, environment, user_email)
     except PublicationBlocked as exc:
         reason = exc.code if exc.code in BLOCKED_CODES else "blocked"
         return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
@@ -238,7 +271,7 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
 
 @router.post("/api/publications/{publication_id}/unpublish")
 async def unpublish_publication(publication_id: PublicationId, user_email: str = Depends(get_current_user)):
-    if not unpublish(publication_id):
+    if not await run_in_thread(unpublish, publication_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return {"ok": True}
 

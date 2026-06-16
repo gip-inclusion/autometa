@@ -217,9 +217,18 @@ def discover_from_s3() -> list[dict]:
             .order_by(Dashboard.slug)
         ).all()
 
+    if not rows:
+        return []
+
+    # Why: one list_objects_v2 over the bucket beats one HeadObject per dashboard — discovery
+    # runs on every cron pass, and a per-slug exists() check floods S3 calls (and DEBUG logs).
+    cron_slugs = {
+        entry["path"].rsplit("/", 1)[0] for entry in s3.interactive.list_files("") if entry["path"].endswith("/cron.py")
+    }
+
     tasks = []
     for slug, title, enabled, timeout, schedule in rows:
-        if not s3.interactive.exists(f"{slug}/cron.py"):
+        if slug not in cron_slugs:
             logger.warning("Dashboard %s has has_cron=true but no cron.py on S3", slug)
             continue
 
@@ -391,10 +400,7 @@ def _sentry_monitor_config(task: dict) -> dict:
 
 
 def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
-    """Run a single cron task by slug.
-
-    Returns dict with: slug, status, output, duration_ms, started_at, finished_at.
-    """
+    """Resolve a task by slug and run it."""
     task = find_task(slug)
     if not task:
         return {
@@ -405,7 +411,12 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             "started_at": utcnow(),
             "finished_at": utcnow(),
         }
+    return execute_task(task, trigger)
 
+
+def execute_task(task: dict, trigger: str = "scheduled") -> dict:
+    """Run an already-discovered task; callers with the task dict skip re-discovery."""
+    slug = task["slug"]
     monitor_slug = f"cron-{slug}"
     monitor_config = _sentry_monitor_config(task)
     check_in_id = sentry_sdk.crons.api.capture_checkin(
@@ -622,7 +633,7 @@ def run_all(dry_run: bool = False) -> list[dict]:
             )
             continue
 
-        result = run_cron_task(task["slug"], trigger="scheduled")
+        result = execute_task(task, trigger="scheduled")
         logger.info(
             "cron.task",
             extra={

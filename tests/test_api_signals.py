@@ -282,3 +282,31 @@ def test_emit_api_signal_is_silent_outside_agent_subprocess(monkeypatch):
 
     sys.stdout = old_stdout
     assert captured.getvalue() == ""
+
+
+def _emit(**kwargs) -> str:
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    emit_api_signal(**kwargs)
+    sys.stdout = old_stdout
+    return captured.getvalue()
+
+
+@pytest.mark.parametrize(
+    "url, secret, must_contain",
+    [
+        ("postgresql://reader:supersecret@db.example:5432/autometa", "supersecret", "reader:***@db.example:5432"),
+        ("postgresql://u:p%40ss%3Aw@db:5432/x", "p%40ss%3Aw", "u:***@db:5432"),
+        ("postgresql://u:ipv6secret@[2001:db8::1]:5432/x", "ipv6secret", "[2001:db8::1]:5432"),
+        ("https://m.example/?module=API&token_auth=DEADBEEF&method=X", "DEADBEEF", "token_auth"),
+        ("https://m.example/?access_token=ABC123XYZ", "ABC123XYZ", "access_token"),
+        ("ssh-host-no-creds", None, "ssh-host-no-creds"),
+        ("https://stats.example/question/123", None, "https://stats.example/question/123"),
+    ],
+)
+def test_emit_api_signal_masks_credentials(url, secret, must_contain):
+    out = _emit(source="x", instance="y", url=url)
+    if secret is not None:
+        assert secret not in out
+    assert must_contain in out

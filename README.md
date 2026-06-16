@@ -82,8 +82,8 @@ Le fichier `CLAUDE.md` contient le system prompt. Sections clés :
 
 ```bash
 # Cloner le repo
-git clone https://github.com/gip-inclusion/Matometa.git
-cd Matometa
+git clone https://github.com/gip-inclusion/autometa.git
+cd autometa
 
 # Environnement Python
 python -m venv .venv
@@ -115,7 +115,7 @@ Toutes les variables sont documentées dans `.env.example`. Voici les groupes pr
 | **S3** | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Non (fichiers locaux) |
 | **Sources de données** | `MATOMO_API_KEY`, `METABASE_*_API_KEY`, `NOTION_TOKEN`, `GRIST_API_KEY` | Selon `config/sources.yaml` |
 | **Claude CLI** | `CLAUDE_CLI`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY` | Quand `AGENT_BACKEND=cli` |
-| **Conteneur** | `CONTAINER_ENV` | Scalingo / PaaS |
+| **Environnement** | `AUTOMETA_ENV` (`live` sur les serveurs, `dev` par défaut) | Scalingo / PaaS |
 | **OAuth2-Proxy** | `OAUTH2_PROXY_*` | Quand on utilise le buildpack oauth2-proxy |
 
 ## Déploiement
@@ -144,7 +144,7 @@ scalingo addons-add postgresql postgresql-starter-512
 scalingo env-set AGENT_BACKEND=cli
 scalingo env-set CLAUDE_CODE_OAUTH_TOKEN=xxx
 scalingo env-set ADMIN_USERS=user@example.com
-scalingo env-set CONTAINER_ENV=1
+scalingo env-set AUTOMETA_ENV=live
 
 # Sources de données (selon config/sources.yaml)
 scalingo env-set MATOMO_API_KEY=xxx

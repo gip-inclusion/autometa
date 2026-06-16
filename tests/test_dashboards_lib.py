@@ -9,6 +9,7 @@ from sqlalchemy import inspect, select
 
 from lib.dashboards import (
     DashboardNotFound,
+    adopt_dashboard,
     cleanup_orphan_scaffolds,
     create_dashboard,
     normalize_tag_name,
@@ -385,3 +386,58 @@ def test_update_dashboard_rejects_invalid_schedule(isolated):
     _create("upd-bad")
     with pytest.raises(ValueError):
         update_dashboard(slug="upd-bad", updater_email="bob@x", cron_schedule="garbage string here")
+
+
+def _adopt(slug, **overrides):
+    base = dict(
+        slug=slug,
+        title="T",
+        description="D",
+        website="emplois",
+        category="Test",
+        tags=[],
+        has_cron=False,
+        first_author_email="alice@x",
+        created_in_conversation_id="c1",
+    )
+    base.update(overrides)
+    return adopt_dashboard(**base)
+
+
+def test_adopt_registers_existing_folder_without_scaffold(isolated):
+    slug_dir = isolated / "legacy-app"
+    slug_dir.mkdir()
+    (slug_dir / "index.html").write_text("<html></html>")
+
+    d = _adopt("legacy-app", tags=["legacy"], has_cron=True)
+
+    assert d.slug == "legacy-app"
+    assert d.has_cron is True
+    assert sorted(p.name for p in slug_dir.iterdir()) == ["index.html"]
+    with get_db() as session:
+        assert session.scalar(select(Dashboard).where(Dashboard.slug == "legacy-app")) is not None
+        tag_names = sorted(
+            session.scalars(
+                select(Tag.name)
+                .join(DashboardTag, DashboardTag.tag_id == Tag.id)
+                .where(DashboardTag.dashboard_slug == "legacy-app")
+            ).all()
+        )
+    assert tag_names == ["legacy"]
+
+
+def test_adopt_requires_existing_folder(isolated):
+    with pytest.raises(ValueError, match="No existing folder"):
+        _adopt("ghost-app")
+
+
+def test_adopt_rejects_already_registered_slug(isolated):
+    _create("taken")
+    with pytest.raises(ValueError, match="already exists in DB"):
+        _adopt("taken")
+
+
+def test_create_on_existing_folder_suggests_adopt(isolated):
+    (isolated / "preexisting").mkdir()
+    with pytest.raises(ValueError, match="--adopt"):
+        _create("preexisting")

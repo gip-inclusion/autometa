@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import mimetypes
+import tracemalloc
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 
@@ -11,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, sync_to_s3
+from . import config, memory_introspect, sync_to_s3
 from . import s3 as s3_module
 from .log import setup_logging
 from .otel import init_otel, instrument_app
@@ -33,6 +34,22 @@ logger = logging.getLogger(__name__)
 init_otel()
 init_sentry()
 
+if config.MEMORY_PROFILE_DEEP:
+    tracemalloc.start(10)
+
+
+async def _memory_profile_loop():
+    while True:
+        await asyncio.sleep(config.MEMORY_PROFILE_INTERVAL)
+        try:
+            # Why: task count must be read on the loop thread; the heap scan (deep) is offloaded
+            # so gc.get_objects()/tracemalloc never block request serving on the single worker.
+            tasks = len(asyncio.all_tasks())
+            await asyncio.to_thread(memory_introspect.log_snapshot, deep=config.MEMORY_PROFILE_DEEP, tasks=tasks)
+        except Exception:
+            # Why: a profiling glitch must never kill the loop or affect request serving.
+            logger.exception("memory profile snapshot failed")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,10 +59,13 @@ async def lifespan(app: FastAPI):
     sync_to_s3.start_sync_watcher()
 
     await runner.startup()
+    mem_task = asyncio.create_task(_memory_profile_loop()) if config.MEMORY_PROFILE_INTERVAL > 0 else None
 
     yield
 
     warmup_task.cancel()
+    if mem_task:
+        mem_task.cancel()
     await runner.shutdown()
     await close_redis()
 
@@ -126,7 +146,18 @@ def serve_interactive(request: Request, filename: str = ""):
 
 
 from .benchmark import router as benchmark_router  # noqa: E402
-from .routes import auth, conversations, cron, dashboards, html, knowledge, query, reports, tag_manager  # noqa: E402
+from .routes import (  # noqa: E402
+    auth,
+    conversations,
+    cron,
+    dashboards,
+    html,
+    jobs,
+    knowledge,
+    query,
+    reports,
+    tag_manager,
+)
 from .selftest import router as selftest_router  # noqa: E402
 
 app.include_router(selftest_router)
@@ -141,6 +172,7 @@ app.include_router(tag_manager.router)
 app.include_router(reports.html_router)
 app.include_router(cron.router)
 app.include_router(dashboards.router)
+app.include_router(jobs.router)
 app.include_router(html.router)
 
 

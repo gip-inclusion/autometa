@@ -17,7 +17,8 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
    ```
 2. **Aucun match** : c'est bien une création — continuer.
 3. **Match proche** (par titre, slug ou sujet) : présenter le candidat à l'utilisateur (titre + lien `/interactive/{slug}/`) et lui demander s'il préfère modifier l'existant via `update_dashboard` plutôt que créer un nouveau TDB.
-4. **Slug envisagé déjà pris** : le skill échouera avec `Slug already exists`. Pivoter vers `update_dashboard` après confirmation.
+4. **Slug envisagé déjà pris en DB** : le skill échouera avec `Slug already exists`. Pivoter vers `update_dashboard` après confirmation.
+5. **Dossier existant mais non enregistré** (app legacy) : utiliser `--adopt` pour créer la ligne DB sans toucher aux fichiers.
 
 ## Usage
 ```bash
@@ -58,6 +59,7 @@ Sortie sur stdout (JSON) :
 | `--has-persistence` | | Flag DB à `true` (TDB qui écrit dans le datalake, **non publiable**) |
 | `--cron-schedule` | | Cadence `daily`/`weekly`/`monthly` (ou leur crontab équivalent) ; défaut chaque nuit |
 | `--cron-timeout` | | Timeout d'un run cron en secondes |
+| `--adopt` | | Enregistre un dossier `data/interactive/{slug}/` **existant** sans scaffold (ligne DB + tags uniquement). Échec si le dossier n'existe pas ou si le slug est déjà enregistré. |
 
 ## Variables d'environnement
 
@@ -79,3 +81,20 @@ Si l'une manque, le script échoue avec code retour non nul.
 Avant d'écrire le code du TDB (HTML/JS/cron.py), lire `docs/interactive-dashboards.md` pour respecter les conventions (vanilla JS, pas de framework, palette DSFR, structure des fichiers, modes `cron.py` vs `/api/query`).
 
 Un `cron.py` ne lit et n'écrit que dans le dossier de son propre dashboard : il ne référence jamais un autre dashboard (`../autre/` ou `/app/data/interactive/autre/`), il régénère ses données depuis la source primaire.
+
+Le modèle HTML contient, dans le `<head>`, un script d'appel du tag manager de Matomo. Il faut le laisser, sauf instruction contraire explicite. Il reprend le script de `base.html`, mais avec les valeurs en dur : le template est copié tel quel, sans rendu Jinja.
+
+```html
+<!-- Matomo Tag Manager -->
+<script>
+var _mtm = window._mtm = window._mtm || [];
+_mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
+(function() {
+  var d = document, g = d.createElement('script'), s = d.getElementsByTagName('script')[0];
+  g.async = true;
+  g.src = 'https://matomo.inclusion.beta.gouv.fr/js/container_TvNd7LvK.js';
+  s.parentNode.insertBefore(g, s);
+})();
+</script>
+```
+

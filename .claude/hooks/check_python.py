@@ -273,10 +273,13 @@ def check(code, path):
     violations.extend(check_file_name(path))
     violations.extend(check_docstrings(lines))
     violations.extend(check_comments(lines))
-    violations.extend(check_imports(lines, path))
-    violations.extend(check_env_vars(lines, path))
+    # Why: les hooks sont des scripts autonomes sensibles à la latence — psycopg2 direct,
+    # os.environ et params psycopg2 nommés y sont permis (pas d'import de web.config).
+    if ".claude/hooks/" not in os.path.normpath(path):
+        violations.extend(check_imports(lines, path))
+        violations.extend(check_env_vars(lines, path))
+        violations.extend(check_sql(lines))
     violations.extend(check_exceptions(lines))
-    violations.extend(check_sql(lines))
     violations.extend(check_api(lines))
     violations.extend(check_httpx_timeout(lines))
     violations.extend(check_log_fstrings(lines))

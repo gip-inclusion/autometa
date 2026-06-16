@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Jobs{% endblock %}
+
+{% block content %}
+<style>
+  /* Fixed header, panes scroll internally — same as the Tag Manager. */
+  #section-jobs { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  #section-jobs .section-body { max-width: none; padding: 0; overflow: hidden; }
+  #section-jobs .jobs-layout {
+    display: grid; grid-template-columns: 280px 1fr; height: 100%;
+    border-top: 1px solid #dee2e6;
+  }
+  @media (max-width: 768px) { #section-jobs .jobs-layout { grid-template-columns: 1fr; } }
+  #section-jobs .tm-pane-header .pane-title { text-transform: none; font-weight: 600; color: #212529; }
+  #section-jobs .jobs-prompt { max-height: 7.5em; overflow: hidden; }
+  /* Soft fade over the cut-off text when clamped. */
+  #section-jobs .jobs-prompt.clamped { position: relative; }
+  #section-jobs .jobs-prompt.clamped::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3em;
+    background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0)); pointer-events: none;
+  }
+  #section-jobs .jobs-prompt.expanded { max-height: none; }
+  #section-jobs .jobs-prompt.expanded::after { content: none; }
+  #section-jobs .markdown-body :is(h1, h2, h3, h4) { font-size: 1rem; font-weight: 600; margin: .6rem 0 .3rem; }
+  #section-jobs .markdown-body p { margin: 0 0 .5rem; }
+  #section-jobs .markdown-body ul, #section-jobs .markdown-body ol { margin: 0 0 .5rem 1.1rem; }
+  #section-jobs .markdown-body pre { background: #f8f9fa; padding: .5rem .75rem; border-radius: .375rem; overflow: auto; }
+  #section-jobs .markdown-body code { font-size: .85em; }
+  #section-jobs .markdown-body table { font-size: .85rem; }
+</style>
+<section class="section-content" id="section-jobs">
+  <div class="section-header">
+    <div class="container-fluid px-4">
+      <div class="d-flex align-items-center gap-3">
+        <div class="me-auto">
+          <p class="text-muted mb-1 small">Pipelines et leurs runs du moteur de jobs</p>
+          <h1 class="mb-0"><i class="ri-robot-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Jobs</h1>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-body p-0">
+    {% if jobs_error %}
+    <div class="alert alert-warning m-3">{{ jobs_error }}</div>
+    {% endif %}
+    {% set status_classes = {
+      "completed": "success", "failed": "danger", "timed_out": "danger",
+      "running": "primary", "starting": "info", "queued": "secondary",
+      "cancelled": "secondary", "quota_blocked": "warning"
+    } %}
+    <div class="jobs-layout">
+
+      <div class="tm-pane">
+        <div class="tm-pane-header"><span>Pipelines</span></div>
+        <div class="tm-pane-body">
+          {% for p in pipelines %}
+          <a href="/jobs/pipelines/{{ p.id }}"
+             class="tm-list-item{% if selected and selected.id == p.id %} active{% endif %}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <span class="tm-item-name">{{ p.name }}</span>
+            <span class="text-muted small">{{ p.run_count }} run{{ "s" if p.run_count != 1 else "" }}{% if p.last_activity_display %} · {{ p.last_activity_display }}{% endif %}</span>
+          </a>
+          {% else %}
+          <div class="tm-empty"><p class="text-muted">Aucun pipeline.</p></div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="tm-pane">
+        <div class="tm-pane-header">
+          <a href="/jobs" class="tm-pane-back" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true" aria-label="Retour aux pipelines">
+            <i class="ri-arrow-left-s-line"></i>
+          </a>
+          <span class="pane-title me-auto text-truncate">{% if selected %}{{ selected.name }}{% else %}Pipeline{% endif %}</span>
+          {% if selected %}
+          <button class="btn btn-sm btn-outline-primary trigger-btn" data-pipeline="{{ selected.id }}">Lancer</button>
+          {% endif %}
+        </div>
+        <div class="tm-pane-body">
+          {% if selected %}
+          <div class="p-3 border-bottom">
+            <div class="text-muted small text-uppercase mb-2" style="letter-spacing: .05em;">Consigne</div>
+            <div class="jobs-prompt markdown-body">{{ selected.system_prompt | markdown }}</div>
+            <button class="jobs-prompt-toggle btn btn-sm btn-link p-0 mt-1 d-none">Voir plus…</button>
+          </div>
+          <div class="p-3">
+            <div class="text-muted small text-uppercase mb-2" style="letter-spacing: .05em;">Runs</div>
+            {% if selected.runs %}
+            <table class="table table-sm align-middle mb-0">
+              <tbody>
+                {% for r in selected.runs %}
+                <tr>
+                  <td><a href="/jobs/runs/{{ r.id }}" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"><code>{{ r.id[:8] }}</code></a></td>
+                  <td><span class="badge bg-{{ status_classes.get(r.status, "secondary") }}">{{ r.status }}</span></td>
+                  <td class="text-muted small">{{ r.created_at_display }}</td>
+                  <td class="text-end">
+                    {% if r.status == "completed" %}
+                    <button class="download-btn btn btn-sm btn-link p-0 text-secondary" data-run="{{ r.id }}" title="Télécharger" aria-label="Télécharger">
+                      <i class="ri-download-2-line"></i>
+                    </button>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted small mb-0">Aucun run pour ce pipeline.</p>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="tm-empty">
+            <i class="ri-flow-chart ri-2x text-muted"></i>
+            <p class="text-muted mt-2">Choisir un pipeline</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<script>
+(function initJobs() {
+  const root = document.getElementById('section-jobs');
+  if (!root) return;
+
+  const prompt = root.querySelector('.jobs-prompt');
+  const toggle = root.querySelector('.jobs-prompt-toggle');
+  if (prompt && toggle) {
+    requestAnimationFrame(() => {
+      if (prompt.scrollHeight > prompt.clientHeight + 4) {
+        prompt.classList.add('clamped');
+        toggle.classList.remove('d-none');
+      }
+    });
+    toggle.addEventListener('click', () => {
+      const expanded = prompt.classList.toggle('expanded');
+      toggle.textContent = expanded ? 'Voir moins' : 'Voir plus…';
+    });
+  }
+
+  root.querySelectorAll('.trigger-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const resp = await fetch(`/api/jobs/pipelines/${btn.dataset.pipeline}/runs`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+      });
+      if (resp.ok) { const run = await resp.json(); window.location = `/jobs/runs/${run.id}`; }
+      else { alert('Échec : ' + (await resp.text())); }
+    });
+  });
+
+  root.querySelectorAll('.download-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const resp = await fetch(`/api/jobs/runs/${btn.dataset.run}/output?download=1`);
+      if (resp.ok) { window.location = (await resp.json()).url; }
+      else { alert('Téléchargement indisponible'); }
+    });
+  });
+})();
+</script>
+{% endblock %}

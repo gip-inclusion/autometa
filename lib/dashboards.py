@@ -100,6 +100,54 @@ def detect_api_flags(slug_dir: Path, metadata: dict) -> tuple[bool, bool]:
     )
 
 
+def _insert_dashboard(
+    session,
+    *,
+    slug: str,
+    title: str,
+    description: str | None,
+    website: str | None,
+    category: str | None,
+    tags: list[str],
+    has_cron: bool,
+    has_api_access: bool,
+    has_persistence: bool,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
+    first_author_email: str,
+    created_in_conversation_id: str | None,
+) -> Dashboard:
+    now = datetime.now(timezone.utc)
+    dashboard = Dashboard(
+        slug=slug,
+        title=title,
+        description=description,
+        website=website,
+        category=category,
+        first_author_email=first_author_email,
+        created_in_conversation_id=created_in_conversation_id,
+        is_archived=False,
+        has_api_access=has_api_access,
+        has_cron=has_cron,
+        has_persistence=has_persistence,
+        created_at=now,
+        updated_at=now,
+    )
+    # Why: leave the server defaults in place when unset rather than inserting NULL into NOT NULL columns.
+    if cron_schedule is not None:
+        dashboard.cron_schedule = cron_schedule
+    if cron_timeout is not None:
+        dashboard.cron_timeout = cron_timeout
+    session.add(dashboard)
+    session.flush()
+
+    for tag_name in normalize_tags(tags):
+        tag = _upsert_tag(session, tag_name)
+        session.add(DashboardTag(dashboard_slug=slug, tag_id=tag.id))
+    session.flush()
+    return dashboard
+
+
 def create_dashboard(
     *,
     slug: str,
@@ -126,7 +174,7 @@ def create_dashboard(
     template_dir = config.BASE_DIR / "docs" / "dashboard-template"
 
     if final_dir.exists():
-        raise ValueError(f"Slug already exists on disk: {final_dir}")
+        raise ValueError(f"Slug already exists on disk: {final_dir} — use --adopt to register the existing folder")
 
     # Why: scaffold staged sur le même FS pour un rename atomique avant le commit DB.
     # En cas de SIGKILL entre rename et commit, on tolère un dossier orphelin (GC par
@@ -146,34 +194,22 @@ def create_dashboard(
             if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
                 raise ValueError(f"Slug already exists in DB: {slug}")
 
-            now = datetime.now(timezone.utc)
-            dashboard = Dashboard(
+            dashboard = _insert_dashboard(
+                session,
                 slug=slug,
                 title=title,
                 description=description,
                 website=website,
                 category=category,
+                tags=tags,
+                has_cron=has_cron,
+                has_api_access=has_api_access,
+                has_persistence=has_persistence,
+                cron_schedule=cron_schedule,
+                cron_timeout=cron_timeout,
                 first_author_email=first_author_email,
                 created_in_conversation_id=created_in_conversation_id,
-                is_archived=False,
-                has_api_access=has_api_access,
-                has_cron=has_cron,
-                has_persistence=has_persistence,
-                created_at=now,
-                updated_at=now,
             )
-            if cron_schedule is not None:
-                dashboard.cron_schedule = cron_schedule
-            if cron_timeout is not None:
-                dashboard.cron_timeout = cron_timeout
-            session.add(dashboard)
-            session.flush()
-
-            for tag_name in normalize_tags(tags):
-                tag = _upsert_tag(session, tag_name)
-                session.add(DashboardTag(dashboard_slug=slug, tag_id=tag.id))
-
-            session.flush()
             os.rename(staging_dir, final_dir)
             renamed = True
             session.refresh(dashboard)
@@ -182,6 +218,55 @@ def create_dashboard(
     except Exception:
         shutil.rmtree(final_dir if renamed else staging_dir, ignore_errors=True)
         raise
+
+
+def adopt_dashboard(
+    *,
+    slug: str,
+    title: str,
+    description: str | None,
+    website: str | None,
+    category: str | None,
+    tags: list[str],
+    has_cron: bool = False,
+    has_api_access: bool = False,
+    has_persistence: bool = False,
+    cron_schedule: str | None = None,
+    cron_timeout: int | None = None,
+    first_author_email: str,
+    created_in_conversation_id: str | None,
+) -> Dashboard:
+    """Enregistre un dossier data/interactive/{slug}/ existant, sans scaffold."""
+    if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
+        raise ValueError(f"Invalid slug: {slug!r}")
+    cron_schedule = _normalize_schedule(cron_schedule)
+    cron_timeout = _normalize_timeout(cron_timeout)
+
+    if not (config.INTERACTIVE_DIR / slug).is_dir():
+        raise ValueError(f"No existing folder to adopt: {config.INTERACTIVE_DIR / slug}")
+
+    with get_db() as session:
+        if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
+            raise ValueError(f"Slug already exists in DB: {slug}")
+        dashboard = _insert_dashboard(
+            session,
+            slug=slug,
+            title=title,
+            description=description,
+            website=website,
+            category=category,
+            tags=tags,
+            has_cron=has_cron,
+            has_api_access=has_api_access,
+            has_persistence=has_persistence,
+            cron_schedule=cron_schedule,
+            cron_timeout=cron_timeout,
+            first_author_email=first_author_email,
+            created_in_conversation_id=created_in_conversation_id,
+        )
+        session.refresh(dashboard)
+        session.expunge(dashboard)
+        return dashboard
 
 
 def cleanup_orphan_scaffolds(staging_max_age_minutes: int = 10, dry_run: bool = True) -> dict:
