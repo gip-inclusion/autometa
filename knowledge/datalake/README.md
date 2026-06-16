@@ -89,6 +89,7 @@ SELECT
 FROM stats_pdi_data s
 JOIN stats_pdi_dedup d ON s.mois = d.mois
 GROUP BY d.mois, d.ratio_dedup_accompagnateurs, d.ratio_dedup_employeurs, d.ratio_dedup_beneficiaires;
+```
 
 ### stats_nps_gip
 Regroupe les NPS (net promoteur score) de chaque produit, mois par mois
@@ -204,6 +205,8 @@ WHERE date_derniere_connexion > CURRENT_DATE - INTERVAL '30 days'
 GROUP BY email
 HAVING COUNT(DISTINCT source) > 1
 ORDER BY nb_services DESC;
+```
+
 
 ### Product-Specific Data
 
