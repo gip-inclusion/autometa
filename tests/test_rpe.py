@@ -1,7 +1,6 @@
 """Tests for lib/rpe.py — sel building, response parsing, period resolution, and live RPE access."""
 
 import json
-import threading
 
 import httpx
 import pytest
@@ -120,22 +119,15 @@ def test_query_raises_without_cubeid(mocker):
         client.query(DATASET, ["C_LBLSEXE"], ["MID"])
 
 
-def test_query_geo_filter_uses_given_level(mocker):
+def test_query_rejects_server_side_geo_filter(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.sid = "sid"
     client.catalog = {"CK1": {"cubeName": DATASET, "dimensions": [], "measures": [{"id": "MID", "label": "M"}]}}
     client.cubeids = {"CK1": "CUBEID"}
-    captured = {}
-
-    def fake_post(params, timeout=None):
-        captured["sel"] = json.loads(params["sel"])
-        return mocker.MagicMock()
-
-    mocker.patch.object(client, "_post_file", side_effect=fake_post)
-    mocker.patch.object(rpe.RpeClient, "_parse", return_value=[])
-    client.query(DATASET, ["C_LBLSEXE"], ["MID"], filters={"C_TERRITOIRE_ID": {"members": ["11"], "level": 1}})
-    terr = next(f for f in captured["sel"]["dimsToFilter"] if f["dim"] == "C_TERRITOIRE_ID")
-    assert terr["level"] == 1 and terr["selectedMembers"] == ["11"]  # geo filter at the given (region) level, not 0
+    client.http = mocker.MagicMock()
+    with pytest.raises(ValueError, match="C_TERRITOIRE_ID"):
+        client.query(DATASET, ["C_LBLSEXE"], ["MID"], filters={"C_TERRITOIRE_ID": ["11"]})
+    client.http.post.assert_not_called()
 
 
 def test_connect_reuses_cached_session(mocker):
@@ -192,71 +184,19 @@ def test_mirror_plan_geo_labels_and_time():
     assert any(label is None and spec["dim"] == "D_DATETAETPED" for label, spec in plan)  # temps (header brut)
 
 
-def _mirror_client(mocker, query_side_effect, cubes=("A",)):
+def test_mirror_stops_at_time_budget(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
-    client.catalog = {f"CK{i}": {"cubeName": name} for i, name in enumerate(cubes)}
-    client.cubeids = {f"CK{i}": f"id{i}" for i, _ in enumerate(cubes)}
-    mocker.patch.object(client, "query", side_effect=query_side_effect)
-    return client
-
-
-def test_mirror_parallel_aggregates_rows(mocker):
-    client = _mirror_client(mocker, lambda name, specs, filters=None, timeout=None: [{"cube": name}], cubes=("A", "B"))
-    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], max_workers=2)
-    assert failed == []
-    assert sorted(r["cube"] for r in rows) == ["A", "B"]
-
-
-def test_mirror_retries_readtimeout_then_succeeds(mocker):
-    calls = []
-
-    def q(name, specs, filters=None, timeout=None):
-        calls.append(name)
-        if len(calls) == 1:
-            raise httpx.ReadTimeout("cold cube")
-        return [{"cube": name}]
-
-    client = _mirror_client(mocker, q)
-    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], max_workers=1)
-    assert failed == []
-    assert rows == [{"cube": "A"}]
-    assert len(calls) == 2  # time/non-geo marginal: round-2 retries the timeout once and succeeds
-
-
-def test_mirror_does_not_retry_http_errors(mocker):
-    req = httpx.Request("POST", "http://x")
-    err = httpx.HTTPStatusError("500", request=req, response=httpx.Response(500, request=req))
-    calls = []
-
-    def q(name, specs, filters=None, timeout=None):
-        calls.append(name)
-        raise err
-
-    client = _mirror_client(mocker, q)
-    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], max_workers=1)
-    assert rows == []
-    assert failed == ["A / C_LBLSEXE"]
-    assert len(calls) == 1  # 5xx is permanent — not retried
-
-
-def test_mirror_splits_timed_out_geo_marginal_by_region(mocker):
-    client = rpe.RpeClient.__new__(rpe.RpeClient)
-    client.catalog = {"CK0": {"cubeName": "light"}, "CK1": {"cubeName": "heavy"}}
+    client.catalog = {"CK0": {"cubeName": "A"}, "CK1": {"cubeName": "B"}}
     client.cubeids = {"CK0": "id0", "CK1": "id1"}
-    mocker.patch.object(client, "dimensions", return_value=[{"id": "C_TERRITOIRE_ID"}])
-
-    def q(name, specs, filters=None, timeout=None):
-        if name == "light":  # light cube succeeds whole — its Région marginal yields the region codes
-            return [{"member_code": "11"}, {"member_code": "44"}]
-        if filters is None:  # heavy cube: whole geo marginal times out
-            raise httpx.ReadTimeout("cold")
-        return [{"member_code": filters["C_TERRITOIRE_ID"]["members"][0], "value": 1.0}]  # per-region: fast
-
-    mocker.patch.object(client, "query", side_effect=q)
-    rows, failed = client.mirror(max_workers=4)
-    assert failed == []
-    heavy = sorted({r["member_code"] for r in rows if r.get("value") == 1.0})
-    assert heavy == ["11", "44"]  # heavy's timed-out geo marginals were split across the derived region codes
+    calls = []
+    mocker.patch.object(
+        client, "query", side_effect=lambda name, specs, timeout=None: (calls.append(name), [{"cube": name}])[1]
+    )
+    # monotonic: deadline computed at 0; first task's check passes (0), second task's check trips the budget
+    mocker.patch("lib.rpe.time.monotonic", side_effect=[0, 0, 999, 999])
+    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], budget_s=10)
+    assert calls == ["A"]  # stopped before the second cube once the budget was hit
+    assert rows == [{"cube": "A"}]
 
 
 def test_store_facts_full_replace():
@@ -342,7 +282,6 @@ def test_prep_substitutes_strong_name_and_sid():
 
 def test_relogin_rewires_session_and_saves(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
-    client._relogin_lock = threading.Lock()
     old_http = mocker.MagicMock()
     client.http = old_http
     new_http = mocker.MagicMock()
@@ -379,7 +318,7 @@ def test_mirror_records_failures_and_overrides_geo_label(mocker):
     client.cubeids = {"CK1": "CUBEID"}
     mocker.patch.object(rpe.RpeClient, "dimensions", return_value=[{"id": "C_TERRITOIRE_ID"}])
 
-    def fake_query(ds, dims, filters=None, timeout=None):
+    def fake_query(ds, dims, timeout=None):
         if dims[0] is rpe.GEO_LEVELS["Département"]:
             raise KeyError("boom")
         return [{"member_code": "84", "dimension": "ServerHeader"}]
