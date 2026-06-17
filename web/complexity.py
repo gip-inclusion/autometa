@@ -21,7 +21,7 @@ DATA_SKILLS = {
 
 ALERT_MESSAGE = (
     "*Votre requête semble compliquée ! N'hésitez pas à faire appel à un data "
-    "sur le canal tech-autometa en les taguant « @data ».*"
+    "sur le canal #lab-autometa en les taguant « @data ».*"
 )
 # Phrase stable servant à détecter une alerte déjà postée (anti-spam)
 _ALERT_SENTINEL = "faire appel à un data"
