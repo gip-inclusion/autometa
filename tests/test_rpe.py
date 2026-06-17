@@ -1,6 +1,7 @@
 """Tests for lib/rpe.py — sel building, response parsing, period resolution, and live RPE access."""
 
 import json
+import threading
 
 import httpx
 import pytest
@@ -184,6 +185,53 @@ def test_mirror_plan_geo_labels_and_time():
     assert any(label is None and spec["dim"] == "D_DATETAETPED" for label, spec in plan)  # temps (header brut)
 
 
+def _mirror_client(mocker, query_side_effect, cubes=("A",)):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.catalog = {f"CK{i}": {"cubeName": name} for i, name in enumerate(cubes)}
+    client.cubeids = {f"CK{i}": f"id{i}" for i, _ in enumerate(cubes)}
+    mocker.patch.object(client, "query", side_effect=query_side_effect)
+    return client
+
+
+def test_mirror_parallel_aggregates_rows(mocker):
+    client = _mirror_client(mocker, lambda name, specs, timeout=None: [{"cube": name}], cubes=("A", "B"))
+    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], max_workers=2)
+    assert failed == []
+    assert sorted(r["cube"] for r in rows) == ["A", "B"]
+
+
+def test_mirror_retries_readtimeout_then_succeeds(mocker):
+    calls = []
+
+    def q(name, specs, timeout=None):
+        calls.append(name)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("cold cube")
+        return [{"cube": name}]
+
+    client = _mirror_client(mocker, q)
+    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], max_workers=1, retries=1)
+    assert failed == []
+    assert rows == [{"cube": "A"}]
+    assert len(calls) == 2  # first attempt times out, retry hits the warmed result
+
+
+def test_mirror_does_not_retry_http_errors(mocker):
+    req = httpx.Request("POST", "http://x")
+    err = httpx.HTTPStatusError("500", request=req, response=httpx.Response(500, request=req))
+    calls = []
+
+    def q(name, specs, timeout=None):
+        calls.append(name)
+        raise err
+
+    client = _mirror_client(mocker, q)
+    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], max_workers=1, retries=1)
+    assert rows == []
+    assert failed == ["A / C_LBLSEXE"]
+    assert len(calls) == 1  # 5xx is permanent — not retried
+
+
 def test_store_facts_full_replace():
     from sqlalchemy import text
 
@@ -267,6 +315,7 @@ def test_prep_substitutes_strong_name_and_sid():
 
 def test_relogin_rewires_session_and_saves(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client._relogin_lock = threading.Lock()
     old_http = mocker.MagicMock()
     client.http = old_http
     new_http = mocker.MagicMock()

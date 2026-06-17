@@ -4,7 +4,9 @@ import copy
 import json
 import logging
 import re
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -261,6 +263,7 @@ class RpeClient:
         self.http = http
         self.permutation = permutation
         self.strong_name = strong_name
+        self._relogin_lock = threading.Lock()
         self.sid = sid or self._resolve_sid()
         self.catalog = self._load_catalog()
         self.cubeids = self._load_cubeids()
@@ -283,10 +286,14 @@ class RpeClient:
         return inst
 
     def _relogin(self) -> None:
-        self.http.close()
-        self.http, self.permutation, self.strong_name = login()
-        self.sid = self._resolve_sid()
-        save_session(self.http.cookies.get("JSESSIONID"), self.sid)
+        stale = self.http
+        with self._relogin_lock:
+            if self.http is not stale:  # Why: another thread already re-logged in under concurrency; reuse its session
+                return
+            self.http.close()
+            self.http, self.permutation, self.strong_name = login()
+            self.sid = self._resolve_sid()
+            save_session(self.http.cookies.get("JSESSIONID"), self.sid)
 
     def close(self) -> None:
         self.http.close()
@@ -521,27 +528,63 @@ class RpeClient:
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
         return fresh, resp
 
-    def mirror(self, dimensions: list | None = None) -> tuple[list[dict], list[str]]:
-        """Cache des « données faciles » : marginales géo (libellé canonique) + temps. Renvoie (lignes, échecs)."""
-        rows: list[dict] = []
-        failed: list[str] = []
+    def mirror(
+        self, dimensions: list | None = None, max_workers: int = 4, retries: int = 1
+    ) -> tuple[list[dict], list[str]]:
+        """Cache des « données faciles » (marginales géo + temps), en parallèle borné, avec réessai des timeouts."""
+        # Why: serveur public → concurrence ≤ max_workers. Un cube froid peut dépasser le timeout, mais la
+        # requête a souvent fini de chauffer le cache serveur : on réessaie les ReadTimeout (retries tours).
+        # Les erreurs HTTP (5xx) et de parsing sont définitives, pas réessayées.
+        tasks: list[tuple[str, str | None, dict]] = []
         for key, cat in self.catalog.items():
             if key not in self.cubeids:
                 continue
             name = cat["cubeName"]
             plan = [(None, d) for d in dimensions] if dimensions else mirror_plan(self.dimensions(name))
-            for label, spec in plan:
-                try:
-                    r = self.query(name, [spec], timeout=MIRROR_TIMEOUT)
-                    if label:  # libellé géo canonique (Région/Département/CLPE), découplé du header serveur
-                        for x in r:
-                            x["dimension"] = label
-                    rows.extend(r)
-                except (httpx.HTTPError, KeyError) as e:
-                    failed.append(f"{name} / {label or spec.get('dim')}")
-                    logger.warning("mirror : échec %s : %s", failed[-1], e)
+            tasks.extend((name, label, spec) for label, spec in plan)
+
+        rows: list[dict] = []
+        failed: list[str] = []
+        pending = tasks
+        for _ in range(retries + 1):
+            if not pending:
+                break
+            batch_rows, pending, permanent = self._mirror_batch(pending, max_workers)
+            rows.extend(batch_rows)
+            failed.extend(permanent)
+        failed.extend(f"{name} / {label or spec.get('dim')}" for name, label, spec in pending)
         logger.info("mirror : %d lignes, %d échecs", len(rows), len(failed))
         return rows, failed
+
+    def _mirror_batch(
+        self, tasks: list[tuple[str, str | None, dict]], max_workers: int
+    ) -> tuple[list[dict], list[tuple[str, str | None, dict]], list[str]]:
+        """Lot de tâches mirror en parallèle ; renvoie (lignes, à_réessayer (timeouts), échecs définitifs)."""
+        rows: list[dict] = []
+        retryable: list[tuple[str, str | None, dict]] = []
+        permanent: list[str] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(self._mirror_one, task): task for task in tasks}
+            for future in as_completed(futures):
+                name, label, spec = futures[future]
+                lbl = f"{name} / {label or spec.get('dim')}"
+                try:
+                    rows.extend(future.result())
+                except httpx.TimeoutException as e:
+                    retryable.append(futures[future])
+                    logger.warning("mirror : timeout (à réessayer) %s : %s", lbl, e)
+                except (httpx.HTTPError, KeyError) as e:
+                    permanent.append(lbl)
+                    logger.warning("mirror : échec %s : %s", lbl, e)
+        return rows, retryable, permanent
+
+    def _mirror_one(self, task: tuple[str, str | None, dict]) -> list[dict]:
+        name, label, spec = task
+        r = self.query(name, [spec], timeout=MIRROR_TIMEOUT)
+        if label:  # libellé géo canonique (Région/Département/CLPE), découplé du header serveur
+            for x in r:
+                x["dimension"] = label
+        return r
 
     def fetch_cube_dm(self, url: str, timeout: int = TIMEOUT) -> str:
         """Télécharge un cube_dm (catalogue d'un cube) ; identifiants publics en query (cookies → 401 sur /ddenterpriseapi)."""
