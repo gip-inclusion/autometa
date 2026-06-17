@@ -18,7 +18,7 @@ function isValidConversationId(id) {
 
 let eventSource = null;
 let eventSourceConversationId = null;  // Track which conversation the eventSource belongs to
-let isStreaming = false;
+let isStreaming = false;  // Agent is generating: input reste éditable mais l'envoi est bloqué
 let retryCount = 0;
 let lastUserMessage = null;
 const MAX_RETRIES = 3;
@@ -35,7 +35,7 @@ let _sidebarSpinnerConvId = null;
  * Send a message to the agent
  */
 async function sendMessage() {
-  // Block send while streaming; the input stays editable so the user can prepare the next message
+  // L'agent répond encore : on laisse l'utilisateur préparer son message mais on bloque l'envoi
   if (isStreaming) return;
 
   const input = document.getElementById('chatInput');
