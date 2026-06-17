@@ -207,10 +207,10 @@ class TaskRunner:
         # Why: best-effort suggestion — a failure here must never turn a successful turn into an error.
         try:
             conv = store.get_conversation(conv_id, include_messages=True)
-            if not conv:
+            if not conv or complexity.already_alerted(conv.messages):
                 return
             reasons = complexity.evaluate(conv.messages)
-            if not reasons or complexity.already_alerted(conv.messages):
+            if not reasons:
                 return
             logger.info("Conversation %s jugée complexe (%s)", conv_id, ", ".join(reasons))
             store.add_message(conv_id, "assistant", complexity.ALERT_MESSAGE)
