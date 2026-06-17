@@ -396,10 +396,11 @@ class RpeClient:
         dimensions: list,
         measures: list | None = None,
         filters: dict | None = None,
+        territory: tuple | None = None,
         ddvars: dict | None = None,
         timeout: int = TIMEOUT,
     ) -> list[dict]:
-        """Requête getCubeResult ; lignes tidy. `filters` = filtre serveur niveau 0 (interdit sur la géo hiérarchique — filtrer côté résultat)."""
+        """Requête getCubeResult ; lignes tidy. `territory=(palier, codes)` filtre la géo serveur au bon niveau ; `filters` = autres dims (niveau 0)."""
         key = self._key(dataset)
         cubeid = self.cubeids.get(key)
         if not cubeid:
@@ -433,19 +434,30 @@ class RpeClient:
         sel["fmtsForMeasure"] = [None] * nm
         sel["measuresToKeepHidden"] = [False] * nm
         sel["measuresToKeepHiddenLabel"] = [False] * nm
-        if filters is not None:
-            # Why: le filtre serveur est codé au niveau 0 → résultat faux sur une dim géo hiérarchique.
-            # Échouer fort plutôt que renvoyer des valeurs silencieusement fausses : ventiler par la dim
-            # géo et filtrer les lignes du résultat côté client (cf. SKILL --where).
-            if "C_TERRITOIRE_ID" in filters:
-                raise ValueError(
-                    "filtre serveur non fiable sur C_TERRITOIRE_ID (dim géo hiérarchique) : "
-                    "ventiler par la dimension puis filtrer le résultat côté client"
-                )
-            sel["dimsToFilter"] = [
-                {"dim": d, "hierarchy": 0, "level": 0, "selectedMembers": list(codes), "mode": 0}
-                for d, codes in filters.items()
-            ]
+        if filters is not None or territory is not None:
+            # Why: redéfinir dimsToFilter (même vide) lève le filtre de période figé par le template.
+            dims_to_filter = []
+            if territory is not None:
+                palier, codes = territory
+                dims_to_filter.append({
+                    "dim": "C_TERRITOIRE_ID",
+                    "hierarchy": 0,
+                    "level": GEO_LEVELS[palier]["lPos"],  # palier hiérarchique : région 1, dépt 0, CLPE -1
+                    "selectedMembers": list(codes),
+                    "mode": 0,
+                })
+            if filters:
+                # Why: la géo est hiérarchique (niveau par palier, cf. territory=) ; la filtrer ici la
+                # matcherait au niveau 0 quel que soit le code → valeurs silencieusement fausses.
+                if "C_TERRITOIRE_ID" in filters:
+                    raise ValueError(
+                        "filtrer la géo via territory=(palier, codes), pas filters (niveau hiérarchique requis)"
+                    )
+                dims_to_filter += [
+                    {"dim": d, "hierarchy": 0, "level": 0, "selectedMembers": list(codes), "mode": 0}
+                    for d, codes in filters.items()
+                ]
+            sel["dimsToFilter"] = dims_to_filter
         for v in sel.get("ddVars", []):
             if ddvars and v["name"] in ddvars:
                 v["cur"] = ddvars[v["name"]]

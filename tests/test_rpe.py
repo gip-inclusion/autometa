@@ -125,9 +125,40 @@ def test_query_rejects_server_side_geo_filter(mocker):
     client.catalog = {"CK1": {"cubeName": DATASET, "dimensions": [], "measures": [{"id": "MID", "label": "M"}]}}
     client.cubeids = {"CK1": "CUBEID"}
     client.http = mocker.MagicMock()
-    with pytest.raises(ValueError, match="C_TERRITOIRE_ID"):
+    with pytest.raises(ValueError, match="territory"):
         client.query(DATASET, ["C_LBLSEXE"], ["MID"], filters={"C_TERRITOIRE_ID": ["11"]})
     client.http.post.assert_not_called()
+
+
+@pytest.mark.parametrize("palier,expected_level", [("Région", 1), ("Département", 0), ("CLPE", -1)])
+def test_query_territory_filter_uses_palier_level(mocker, palier, expected_level):
+    client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.sid = "sid"
+    client.catalog = {"CK1": {"cubeName": DATASET, "dimensions": [], "measures": [{"id": "MID", "label": "M"}]}}
+    client.cubeids = {"CK1": "CUBEID"}
+    captured = {}
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        captured["params"] = data
+        resp = mocker.MagicMock(status_code=200)
+        resp.raise_for_status = lambda: None
+        resp.json = lambda: make_body(
+            [[{"p": 0, "i": "78", "f": "YVELINES"}]],
+            [[0, 0, 0.78]],
+            ["Territoire", "M"],
+            [{"p": 0, "m": 0, "i": "MID", "f": "M"}],
+        )
+        return resp
+
+    client.http = mocker.MagicMock()
+    client.http.post.side_effect = fake_post
+
+    client.query(DATASET, ["D_DATESATISACCO"], ["MID"], territory=(palier, ["78"]))
+
+    sel = json.loads(captured["params"]["sel"])
+    assert sel["dimsToFilter"] == [
+        {"dim": "C_TERRITOIRE_ID", "hierarchy": 0, "level": expected_level, "selectedMembers": ["78"], "mode": 0}
+    ]
 
 
 def test_connect_reuses_cached_session(mocker):
@@ -173,6 +204,18 @@ def test_cli_apply_where_filters_rows():
 
     assert mod.parse_ddvar("0") == 0 and mod.parse_ddvar("-3") == -3  # numérique → int
     assert mod.parse_ddvar("Mensuel") == "Mensuel"  # non numérique → chaîne brute (pas de crash)
+
+    assert mod.parse_territory([]) is None
+    assert mod.parse_territory(["78:dept"]) == ("Département", ["78"])
+    assert mod.parse_territory(["11:region"]) == ("Région", ["11"])
+    assert mod.parse_territory(["CLPE78001:cle"]) == ("CLPE", ["CLPE78001"])
+    assert mod.parse_territory(["78:dept", "92:dept"]) == ("Département", ["78", "92"])
+    with pytest.raises(SystemExit):
+        mod.parse_territory(["78"])  # palier manquant
+    with pytest.raises(SystemExit):
+        mod.parse_territory(["78:bidon"])  # palier inconnu
+    with pytest.raises(SystemExit):
+        mod.parse_territory(["78:dept", "11:region"])  # paliers mélangés
 
 
 def test_mirror_plan_geo_labels_and_time():
