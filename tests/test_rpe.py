@@ -18,6 +18,27 @@ def make_body(dim_axes, lines, headers, measures):
     }
 
 
+def test_render_gwt_fills_all_placeholders():
+    from lib import rpe_gwt
+
+    out = rpe_gwt.render_gwt(
+        "__STRONG_NAME__|__POLICY_LOGIN__|__POLICY_DASH__|__RPE_PASS__",
+        strong_name="S",
+        policy_login="L",
+        policy_dash="D",
+        public_pass="P",
+    )
+    assert out == "S|L|D|P"
+
+
+def test_gwt_templates_have_no_baked_hashes():
+    from lib import rpe_gwt
+
+    for payload in rpe_gwt.GWT.values():
+        assert "B28E527AF46D9C6155A876F4769EC2F4" not in payload
+        assert "__STRONG_NAME__" in payload
+
+
 def test_parse_single_dim():
     body = make_body(
         dim_axes=[[{"p": 0, "i": "84", "f": "AUVERGNE-RHÔNE-ALPES"}, {"p": 1, "i": "53", "f": "BRETAGNE"}]],
