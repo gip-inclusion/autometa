@@ -48,6 +48,13 @@ DISALLOWED_TOOLS = os.getenv("DISALLOWED_TOOLS", "AskUserQuestion")
 # du TDB) mais fournie par l'environnement, jamais de défaut en dur (cf. rules/code.md, gitleaks).
 RPE_PUBLIC_PASS = os.getenv("RPE_PUBLIC_PASS", "")
 
+# Signatures GWT du tableau de bord RPE — valeurs fragiles, jamais en dur dans le code (cf. spec rpe-resilience).
+# permutation/strong_name sont re-scrapés par le cron ; les deux policy tokens sont des graines (auto-décantage différé).
+RPE_PERMUTATION = os.getenv("RPE_PERMUTATION", "")
+RPE_STRONG_NAME = os.getenv("RPE_STRONG_NAME", "")
+RPE_POLICY_LOGIN = os.getenv("RPE_POLICY_LOGIN", "")
+RPE_POLICY_DASH = os.getenv("RPE_POLICY_DASH", "")
+
 # Ollama settings (used by cli-ollama backend and LLM short-prompt helper)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder-next")
