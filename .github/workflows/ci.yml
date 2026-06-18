@@ -108,6 +108,36 @@ jobs:
           uv run --with 'pytest-cov>=7' pytest tests/ -q --tb=short -m "not integration"
           --cov=web --cov=lib --cov-report=term-missing:skip-covered
 
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_USER: autometa
+          POSTGRES_PASSWORD: autometa
+          POSTGRES_DB: autometa_migcheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://autometa:autometa@localhost:5432/autometa_migcheck
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+      - run: uv sync --group dev --frozen
+      - name: Apply migrations on a fresh DB (catches broken chain)
+        run: uv run --frozen alembic upgrade head
+      - name: Check models match migrations (catches missing migration)
+        run: uv run --frozen alembic check
+
   docker:
     name: Docker
     runs-on: ubuntu-latest
