@@ -18,6 +18,38 @@ def make_body(dim_axes, lines, headers, measures):
     }
 
 
+def test_load_signatures_prefers_db_then_env(mocker):
+    mocker.patch("web.config.RPE_PERMUTATION", "ENVPERM")
+    mocker.patch("web.config.RPE_STRONG_NAME", "ENVSTRONG")
+    mocker.patch("web.config.RPE_POLICY_LOGIN", "ENVL")
+    mocker.patch("web.config.RPE_POLICY_DASH", "ENVD")
+    mocker.patch("web.config.RPE_PUBLIC_PASS", "PASS")
+
+    mocker.patch.object(rpe, "load_signature_row", return_value=None)
+    env_sig = rpe.load_signatures()
+    assert (
+        env_sig.permutation,
+        env_sig.strong_name,
+        env_sig.policy_login,
+        env_sig.policy_dash,
+        env_sig.public_pass,
+    ) == ("ENVPERM", "ENVSTRONG", "ENVL", "ENVD", "PASS")
+
+    mocker.patch.object(
+        rpe,
+        "load_signature_row",
+        return_value={
+            "permutation": "DBPERM",
+            "strong_name": "DBSTRONG",
+            "policy_login": "DBL",
+            "policy_dash": "DBD",
+        },
+    )
+    db_sig = rpe.load_signatures()
+    assert db_sig.permutation == "DBPERM" and db_sig.strong_name == "DBSTRONG"
+    assert db_sig.public_pass == "PASS"  # password always from env (public value)
+
+
 def test_render_gwt_fills_all_placeholders():
     from lib import rpe_gwt
 

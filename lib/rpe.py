@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -24,6 +25,7 @@ from lib.rpe_gwt import (
     parse_charts,
     parse_cube_dm,
 )
+from web import config
 from web.alerts import notify_alert_channel
 from web.config import RPE_PUBLIC_PASS
 from web.db import get_engine
@@ -52,6 +54,35 @@ _HEX32_RE = re.compile(r"[0-9A-F]{32}")
 
 class RpeLoginError(RuntimeError):
     """Login RPE impossible (identifiants ou valeurs de build GWT obsolètes)."""
+
+
+@dataclass
+class Signatures:
+    permutation: str
+    strong_name: str
+    policy_login: str
+    policy_dash: str
+    public_pass: str
+
+
+def load_signature_row() -> dict | None:
+    return None
+
+
+def load_signatures() -> Signatures:
+    """Signatures GWT : DB d'abord (dashboard_storage.rpe_signature), repli ENV. Mot de passe toujours depuis l'ENV."""
+    row = load_signature_row()
+    if row and all(row.get(k) for k in ("permutation", "strong_name", "policy_login", "policy_dash")):
+        return Signatures(
+            row["permutation"], row["strong_name"], row["policy_login"], row["policy_dash"], config.RPE_PUBLIC_PASS
+        )
+    return Signatures(
+        config.RPE_PERMUTATION,
+        config.RPE_STRONG_NAME,
+        config.RPE_POLICY_LOGIN,
+        config.RPE_POLICY_DASH,
+        config.RPE_PUBLIC_PASS,
+    )
 
 
 _metadata = MetaData(schema=SCHEMA)
