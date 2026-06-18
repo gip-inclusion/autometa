@@ -4,7 +4,6 @@ import copy
 import json
 import logging
 import re
-import time
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -513,41 +512,6 @@ class RpeClient:
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
         return fresh, resp
 
-    def mirror(self, dimensions: list | None = None, budget_s: float | None = None) -> tuple[list[dict], list[str]]:
-        """Cache séquentiel des « données faciles » (marginales géo + temps), borné en temps. Renvoie (lignes, échecs)."""
-        # Why: serveur public PARTAGÉ avec les requêtes live et qui SÉRIALISE les appels → séquentiel (paralléliser
-        # ne fait qu'allonger les délais et multiplier les timeouts, cf. skills/rpe/SKILL.md) et borné par budget_s,
-        # bien sous le timeout du cron : le cron FINIT et libère le serveur, quitte à cacher moins. Cube froid
-        # injoignable → échec sans réessai (le serveur ne sait pas le calculer).
-        deadline = time.monotonic() + (MIRROR_BUDGET_S if budget_s is None else budget_s)
-        rows: list[dict] = []
-        failed: list[str] = []
-        stopped = False
-        for key, cat in self.catalog.items():
-            if stopped:
-                break
-            if key not in self.cubeids:
-                continue
-            name = cat["cubeName"]
-            plan = [(None, d) for d in dimensions] if dimensions else mirror_plan(self.dimensions(name))
-            for label, spec in plan:
-                if time.monotonic() >= deadline:
-                    stopped = True
-                    break
-                try:
-                    r = self.query(name, [spec], timeout=MIRROR_TIMEOUT)
-                    if label:  # libellé géo canonique (Région/Département/CLPE), découplé du header serveur
-                        for x in r:
-                            x["dimension"] = label
-                    rows.extend(r)
-                except (httpx.HTTPError, KeyError) as e:
-                    failed.append(f"{name} / {label or spec.get('dim')}")
-                    logger.warning("mirror : échec %s : %s", failed[-1], e)
-        if stopped:
-            logger.warning("mirror : budget temps atteint, arrêt anticipé (serveur libéré pour les requêtes live)")
-        logger.info("mirror : %d lignes, %d échecs", len(rows), len(failed))
-        return rows, failed
-
     def fetch_cube_dm(self, url: str, timeout: int = TIMEOUT) -> str:
         """Télécharge un cube_dm (catalogue d'un cube) ; identifiants publics en query (cookies → 401 sur /ddenterpriseapi)."""
         full = HOST + url + "&user=public&pass=" + quote(PUBLIC_PASS, safe="")
@@ -562,24 +526,8 @@ GEO_LEVELS = {
     "Département": {"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 0},  # ~111
     "CLPE": {"dim": "C_TERRITOIRE_ID", "hPos": -1, "lPos": -1},  # ~363 (territoire feuille)
 }
-# Couverture géo matérialisée chaque nuit par le mirror (configurable).
+# Paliers géographiques dérivés pour la TOC (codes par niveau de C_TERRITOIRE_ID).
 MIRROR_GEO = ["Région", "Département", "CLPE"]
-MIRROR_TIMEOUT = 30  # fail-fast par appel (cube froid > ~20s = injoignable côté serveur) ; pas de réessai
-MIRROR_BUDGET_S = 360  # borne globale du mirror, bien sous le timeout cron (600s) : il s'arrête et persiste ce qu'il a
-
-
-def mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
-    """Plan de ventilation du mirror : (libellé canonique | None, spec de dimension). Géo nommée, temps brut."""
-    has_terr = any(d["id"] == "C_TERRITOIRE_ID" for d in dims)
-    plan: list[tuple[str | None, dict]] = [(g, GEO_LEVELS[g]) for g in MIRROR_GEO] if has_terr else []
-    # Why: `time` n'est présent que sur le catalogue fraîchement dérivé (refresh) ; le mirror tourne
-    # toujours sur ce catalogue-là, jamais sur celui rechargé de la DB (qui n'a pas la colonne time).
-    plan += [
-        (None, {"dim": d["id"], "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
-        for d in dims
-        if d.get("time") and d["id"].startswith("D_DATE")
-    ]
-    return plan
 
 
 def build_toc(client: RpeClient, flows_response: str) -> list[dict]:
@@ -699,8 +647,21 @@ def territory_codes(client: RpeClient, dataset: str) -> dict:
     return out
 
 
+def _has_territory(row: dict) -> bool:
+    return any(d.get("id") == "C_TERRITOIRE_ID" for d in row.get("dimensions") or [])
+
+
+def _canary_ok(client: RpeClient) -> bool:
+    """Canari live : un appel GWT léger valide la chaîne signatures/session de bout en bout."""
+    try:
+        return bool(client._gwt(GWT["getUserParams"]))
+    except httpx.HTTPError as e:
+        logger.warning("RPE canary : appel live en échec (%s)", type(e).__name__)
+        return False
+
+
 def refresh() -> dict:
-    """Point d'entrée cron : login → catalogue → cache données faciles → persistance matometa. Alerte en cas d'échec."""
+    """Cron : recouvre+valide les signatures GWT puis reconstruit la TOC dans dashboard_storage. Alerte si échec."""
     ensure_schema()
     try:
         client = RpeClient.connect()
@@ -708,42 +669,25 @@ def refresh() -> dict:
         notify_alert_channel(f"RPE refresh : login impossible ({e})")
         raise
     try:
-        fresh, flows = client.refresh_catalog()
-        catalog, dm_failed = build_catalog(client, flows)
-        client.catalog = catalog  # le mirror ventile sur le catalogue fraîchement dérivé (flag time inclus)
-        cat_n = store_catalog(fresh, catalog)
-        rows, failed = client.mirror()
-        labels = update_measure_labels(rows)
-        n = store_facts(rows)
-        cube_names = {k: c["cubeName"] for k, c in catalog.items()}
-        charts = store_charts(parse_charts(flows), cube_names)
+        if not _canary_ok(client):
+            notify_alert_channel(
+                "RPE refresh : canari live en échec — signatures NON persistées (dernier état conservé)"
+            )
+            return {"ok": False}
+        store_signature(client.sigs, client.sid, client.http.cookies.get("JSESSIONID"), client.bundle_nocache)
+        _fresh, flows = client.refresh_catalog()
+        rows = build_toc(client, flows)
+        client.catalog = {r["cube_key"]: {"cubeName": r["name"], "measures": r.get("measures", [])} for r in rows}
+        client.cubeids = {r["cube_key"]: r["cube_id"] for r in rows if r.get("cube_id")}
+        for r in rows:
+            r["territory_codes"] = territory_codes(client, r["name"]) if _has_territory(r) else {}
+        n = store_toc(rows)
     except (httpx.HTTPError, ValueError, SQLAlchemyError) as e:
-        notify_alert_channel(f"RPE refresh : échec rafraîchissement ({type(e).__name__})")
+        notify_alert_channel(f"RPE refresh : échec rebuild TOC ({type(e).__name__})")
         raise
     finally:
         client.close()
-    if cat_n == 0:  # Why: aucun cube_dm parsé → format probablement changé ; cache catalogue conservé
-        notify_alert_channel("RPE refresh : catalogue vide, cache inchangé")
-    elif dm_failed:  # Why: catalogue partiel stocké → datasets potentiellement manquants, à investiguer
-        notify_alert_channel(f"RPE refresh : catalogue partiel ({dm_failed} cube_dm injoignables)")
-    if n == 0:  # remplacement non effectué → le cache sert des données périmées
-        notify_alert_channel(f"RPE refresh : mirror vide, cache inchangé ({len(failed)} requêtes en échec)")
-    if charts == 0 and flows:  # Why: getFlowsView a répondu mais aucun graphe parsé → format probablement changé
-        notify_alert_channel("RPE refresh : aucun graphe parsé, rpe_chart inchangé")
-    logger.info(
-        "RPE refresh terminé : %d datasets, %d cubeIds, %d libellés, %d faits, %d graphes, %d échecs",
-        cat_n,
-        len(fresh),
-        labels,
-        n,
-        charts,
-        len(failed),
-    )
-    return {
-        "datasets": cat_n,
-        "cubeids": len(fresh),
-        "labels": labels,
-        "facts": n,
-        "charts": charts,
-        "failed": len(failed),
-    }
+    if n == 0:
+        notify_alert_channel("RPE refresh : TOC vide, cache inchangé")
+    logger.info("RPE refresh terminé : signatures OK, %d datasets en TOC", n)
+    return {"ok": True, "datasets": n}

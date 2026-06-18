@@ -289,77 +289,6 @@ def test_cli_apply_where_filters_rows():
         mod.parse_territory(["78:dept", "11:region"])  # paliers mélangés
 
 
-def test_mirror_plan_geo_labels_and_time():
-    dims = [{"id": "C_TERRITOIRE_ID"}, {"id": "D_DATETAETPED", "time": True}, {"id": "C_LBLSEXE"}]
-    plan = rpe.mirror_plan(dims)
-    geo = {(label, spec.get("lPos")) for label, spec in plan if label}
-    for level in rpe.MIRROR_GEO:  # géo nommée canonique, au bon niveau de C_TERRITOIRE_ID
-        assert (level, rpe.GEO_LEVELS[level]["lPos"]) in geo
-    assert any(label is None and spec["dim"] == "D_DATETAETPED" for label, spec in plan)  # temps (header brut)
-
-
-def test_mirror_stops_at_time_budget(mocker):
-    client = rpe.RpeClient.__new__(rpe.RpeClient)
-    client.catalog = {"CK0": {"cubeName": "A"}, "CK1": {"cubeName": "B"}}
-    client.cubeids = {"CK0": "id0", "CK1": "id1"}
-    calls = []
-    mocker.patch.object(
-        client, "query", side_effect=lambda name, specs, timeout=None: (calls.append(name), [{"cube": name}])[1]
-    )
-    # monotonic: deadline computed at 0; first task's check passes (0), second task's check trips the budget
-    mocker.patch("lib.rpe.time.monotonic", side_effect=[0, 0, 999, 999])
-    rows, failed = client.mirror(dimensions=[{"dim": "C_LBLSEXE"}], budget_s=10)
-    assert calls == ["A"]  # stopped before the second cube once the budget was hit
-    assert rows == [{"cube": "A"}]
-
-
-def test_store_facts_full_replace():
-    from sqlalchemy import text
-
-    from web.db import get_engine
-
-    rpe.ensure_schema()
-    base = {
-        "measure": "m",
-        "measure_id": "m",
-        "period": "2025-09",
-        "dimension": "Région",
-        "member_code": "11",
-        "member_label": "IDF",
-    }
-    rpe.store_facts([{**base, "dataset": "__t1__", "value": 1.0}, {**base, "dataset": "__t2__", "value": 9.0}])
-    rpe.store_facts([{**base, "dataset": "__t1__", "value": 2.0}])  # remplacement complet → __t2__ disparaît
-    with get_engine().connect() as c:
-        ds = [r[0] for r in c.execute(text("SELECT DISTINCT dataset FROM matometa.rpe_fact"))]
-        v = c.execute(text("SELECT value FROM matometa.rpe_fact WHERE dataset='__t1__'")).scalar()
-    assert ds == ["__t1__"] and v == 2.0
-    assert rpe.store_facts([]) == 0  # payload vide → cache non vidé
-    with get_engine().connect() as c:
-        assert c.execute(text("SELECT count(*) FROM matometa.rpe_fact")).scalar() == 1
-    with get_engine().begin() as c:
-        c.execute(text("DELETE FROM matometa.rpe_fact WHERE dataset='__t1__'"))
-
-
-def test_update_measure_labels_upsert():
-    from sqlalchemy import text
-
-    from web.db import get_engine
-
-    rpe.ensure_schema()
-    with get_engine().begin() as c:
-        c.execute(text("DELETE FROM matometa.rpe_measure WHERE dataset='__t__'"))
-        c.execute(rpe.rpe_measure.insert().values(dataset="__t__", measure_id="mid1", label="old"))
-    rpe.update_measure_labels([
-        {"dataset": "__t__", "measure_id": "mid1", "measure": "new"},
-        {"dataset": "__t__", "measure_id": "mid2", "measure": "fresh"},
-    ])
-    with get_engine().connect() as c:
-        got = dict(c.execute(text("SELECT measure_id, label FROM matometa.rpe_measure WHERE dataset='__t__'")).all())
-    with get_engine().begin() as c:
-        c.execute(text("DELETE FROM matometa.rpe_measure WHERE dataset='__t__'"))
-    assert got == {"mid1": "new", "mid2": "fresh"}
-
-
 def test_refresh_alerts_and_reraises_on_login_failure(mocker):
     mocker.patch.object(rpe, "ensure_schema")
     mocker.patch.object(rpe.RpeClient, "connect", side_effect=rpe.RpeLoginError("boom"))
@@ -396,6 +325,31 @@ def test_prep_substitutes_signatures_and_sid(mocker):
 
 def test_no_baked_constants():
     assert not hasattr(rpe, "BAKED_PERMUTATION") and not hasattr(rpe, "BAKED_STRONG_NAME")
+
+
+def test_refresh_persists_only_on_successful_validation(mocker):
+    mocker.patch.object(rpe, "ensure_schema")
+    client = mocker.MagicMock()
+    client.refresh_catalog.return_value = ({"CK1": "CID"}, "<flows>")
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
+    mocker.patch.object(rpe, "build_toc", return_value=[{"cube_key": "CK1", "name": "DS"}])
+    store_sig = mocker.patch.object(rpe, "store_signature")
+    store_toc = mocker.patch.object(rpe, "store_toc", return_value=1)
+    mocker.patch.object(rpe, "_canary_ok", return_value=True)
+    rpe.refresh()
+    store_sig.assert_called_once()
+    store_toc.assert_called_once()
+
+
+def test_refresh_alerts_and_skips_persist_on_canary_failure(mocker):
+    mocker.patch.object(rpe, "ensure_schema")
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=mocker.MagicMock())
+    mocker.patch.object(rpe, "_canary_ok", return_value=False)
+    store_sig = mocker.patch.object(rpe, "store_signature")
+    alert = mocker.patch.object(rpe, "notify_alert_channel")
+    rpe.refresh()
+    store_sig.assert_not_called()
+    alert.assert_called()
 
 
 def test_load_catalog_from_toc(mocker):
@@ -452,48 +406,6 @@ def test_gwt_relogins_when_not_ok_then_retries(mocker):
     assert client.http.post.call_count == 2
 
 
-def test_mirror_records_failures_and_overrides_geo_label(mocker):
-    client = rpe.RpeClient.__new__(rpe.RpeClient)
-    name = DATASET
-    client.catalog = {"CK1": {"cubeName": name, "dimensions": [], "measures": []}}
-    client.cubeids = {"CK1": "CUBEID"}
-    mocker.patch.object(rpe.RpeClient, "dimensions", return_value=[{"id": "C_TERRITOIRE_ID"}])
-
-    def fake_query(ds, dims, timeout=None):
-        if dims[0] is rpe.GEO_LEVELS["Département"]:
-            raise KeyError("boom")
-        return [{"member_code": "84", "dimension": "ServerHeader"}]
-
-    mocker.patch.object(rpe.RpeClient, "query", side_effect=fake_query)
-    rows, failed = client.mirror()
-    assert sorted({r["dimension"] for r in rows}) == ["CLPE", "Région"]  # libellé géo canonique imposé
-    assert failed == [f"{name} / Département"]
-
-
-@pytest.mark.parametrize(
-    "facts,failed,dm_failed,alerts",
-    [(42, [], 0, 0), (0, ["ds / Région"], 0, 1), (42, [], 3, 1)],  # mirror vide → 1 ; catalogue partiel → 1
-)
-def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, dm_failed, alerts):
-    mocker.patch.object(rpe, "ensure_schema")
-    client = mocker.MagicMock()
-    client.refresh_catalog.return_value = ({"k": "cube"}, "")
-    client.mirror.return_value = ([{"x": 1}] if facts else [], failed)
-    mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
-    mocker.patch.object(
-        rpe, "build_catalog", return_value=({"k": {"cubeName": "N", "dimensions": [], "measures": []}}, dm_failed)
-    )
-    mocker.patch.object(rpe, "store_catalog", return_value=1)
-    mocker.patch.object(rpe, "update_measure_labels", return_value=0)
-    mocker.patch.object(rpe, "store_facts", return_value=facts)
-    mocker.patch.object(rpe, "store_charts", return_value=0)
-    alert = mocker.patch.object(rpe, "notify_alert_channel")
-    out = rpe.refresh()
-    assert out == {"datasets": 1, "cubeids": 1, "labels": 0, "facts": facts, "charts": 0, "failed": len(failed)}
-    client.close.assert_called_once()
-    assert alert.call_count == alerts
-
-
 @pytest.mark.parametrize(
     "outcome,expected_ok",
     [("client", True), (None, False), ("raise", False)],
@@ -508,29 +420,29 @@ def test_check_connectivity(mocker, outcome, expected_ok):
     assert ok is expected_ok
 
 
-def test_refresh_alerts_on_empty_charts(mocker):
+def test_refresh_alerts_on_empty_toc(mocker):
     mocker.patch.object(rpe, "ensure_schema")
     client = mocker.MagicMock()
-    client.refresh_catalog.return_value = ({"k": "cube"}, "non-empty-flows")
-    client.mirror.return_value = ([{"x": 1}], [])
+    client.refresh_catalog.return_value = ({"k": "cube"}, "<flows>")
     mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
-    mocker.patch.object(rpe, "store_catalog")
-    mocker.patch.object(rpe, "update_measure_labels", return_value=0)
-    mocker.patch.object(rpe, "store_facts", return_value=1)
-    mocker.patch.object(rpe, "store_charts", return_value=0)
+    mocker.patch.object(rpe, "_canary_ok", return_value=True)
+    mocker.patch.object(rpe, "store_signature")
+    mocker.patch.object(rpe, "build_toc", return_value=[])
+    mocker.patch.object(rpe, "store_toc", return_value=0)
     alert = mocker.patch.object(rpe, "notify_alert_channel")
     out = rpe.refresh()
-    assert out["charts"] == 0
-    alert.assert_called_once()  # mirror non-empty (n=1) → no mirror alert; flows non-empty + charts=0 → charts alert
+    assert out == {"ok": True, "datasets": 0}
+    alert.assert_called_once()  # TOC vide → alerte cache inchangé
 
 
 @pytest.mark.integration
 def test_live_login_query():
     client = rpe.RpeClient.connect()
     try:
-        fresh, flows = client.refresh_catalog()  # catalogue dérivé en httpx (pas de JSON committé)
-        client.catalog, _ = rpe.build_catalog(client, flows)
-        names = {c["cubeName"] for c in client.catalog.values()}
+        _fresh, flows = client.refresh_catalog()  # catalogue dérivé en httpx (pas de JSON committé)
+        toc = rpe.build_toc(client, flows)
+        client.catalog = {r["cube_key"]: {"cubeName": r["name"], "dimensions": r["dimensions"]} for r in toc}
+        names = {r["name"] for r in toc}
         assert DATASET in names  # le cube métier lourd est catalogué (sans requête : compute serveur trop coûteux)
         # Requête réelle sur un cube léger (les gros cubes peuvent recalculer >60s après rotation nocturne).
         light = next(n for n in ("Indicateurs", "NPS", "Satisfaction DE") if n in names)
@@ -551,37 +463,7 @@ def test_live_refresh_catalog_returns_cubeids():
         client.close()
 
 
-def test_store_charts_full_replace():
-    from sqlalchemy import text
-
-    from web.db import get_engine
-
-    rpe.ensure_schema()
-    names = {"CKa": "__cube_a__"}
-    rpe.store_charts(
-        [
-            {"chart_title": "__c1__", "cube_key": "CKa", "measures_shown": ["m"], "dims_shown": ["d"]},
-            {"chart_title": "__c2__", "cube_key": "zzz", "measures_shown": [], "dims_shown": []},
-        ],
-        names,
-    )
-    rpe.store_charts([{"chart_title": "__c1__", "cube_key": "CKa", "measures_shown": ["m2"], "dims_shown": []}], names)
-    with get_engine().connect() as c:
-        titles = [r[0] for r in c.execute(text("SELECT chart_title FROM matometa.rpe_chart"))]
-        row = c.execute(
-            text("SELECT cube_name, measures_shown FROM matometa.rpe_chart WHERE chart_title='__c1__'")
-        ).first()
-    assert titles == ["__c1__"]  # full replace dropped __c2__
-    assert row[0] == "__cube_a__"  # cube_name resolved from the passed name map
-    assert row[1] == ["m2"]
-    assert rpe.store_charts([], names) == 0  # empty parse → no wipe
-    with get_engine().connect() as c:
-        assert c.execute(text("SELECT count(*) FROM matometa.rpe_chart")).scalar() == 1
-    with get_engine().begin() as c:
-        c.execute(text("DELETE FROM matometa.rpe_chart"))
-
-
-def test_build_catalog_dims_from_cube_dm_measures_from_charts_excludes_ddaudit(mocker):
+def test_build_toc_dims_from_cube_dm_measures_charts_excludes_ddaudit(mocker):
     mocker.patch.object(rpe, "cube_dm_urls", return_value={"CK1": "/url1", "CKaudit": "/url2"})
     mocker.patch.object(
         rpe,
@@ -614,13 +496,12 @@ def test_build_catalog_dims_from_cube_dm_measures_from_charts_excludes_ddaudit(m
     )
     client = mocker.MagicMock()
     client.fetch_cube_dm.side_effect = lambda url, **kw: url
-    catalog, failed = rpe.build_catalog(client, "FLOWS")
-    assert failed == 0
-    assert set(catalog) == {"CK1"}  # DDAudit exclu
-    assert catalog["CK1"]["cubeName"] == "Accès et présence en emploi"
-    assert catalog["CK1"]["measures"] == [{"id": "Taux A", "label": "Taux A"}, {"id": "Taux B", "label": "Taux B"}]
-    dim = catalog["CK1"]["dimensions"][0]
-    assert dim == {
+    rows = rpe.build_toc(client, "FLOWS")
+    assert {r["cube_key"] for r in rows} == {"CK1"}  # DDAudit exclu
+    row = rows[0]
+    assert row["name"] == "Accès et présence en emploi"
+    assert row["measures"] == [{"id": "Taux A", "label": "Taux A"}, {"id": "Taux B", "label": "Taux B"}]
+    assert row["dimensions"][0] == {
         "id": "C_TERRITOIRE_ID",
         "name": "Territoire",
         "category": "1. Territoire",
@@ -628,9 +509,10 @@ def test_build_catalog_dims_from_cube_dm_measures_from_charts_excludes_ddaudit(m
         "nbMembers": 363,
         "time": False,
     }
+    assert len(row["charts"]) == 2  # graphes du cube portés dans la TOC
 
 
-def test_build_catalog_counts_cube_dm_fetch_failures(mocker):
+def test_build_toc_skips_unreachable_cube_dm(mocker):
     mocker.patch.object(rpe, "cube_dm_urls", return_value={"CK1": "/ok", "CK2": "/boom"})
     mocker.patch.object(rpe, "parse_charts", return_value=[])
     mocker.patch.object(rpe, "parse_cube_dm", return_value={"cube_name": "Cube 1", "dimensions": []})
@@ -642,43 +524,38 @@ def test_build_catalog_counts_cube_dm_fetch_failures(mocker):
         return url
 
     client.fetch_cube_dm.side_effect = fetch
-    catalog, failed = rpe.build_catalog(client, "FLOWS")
-    assert set(catalog) == {"CK1"}  # le cube en échec est absent
-    assert failed == 1  # signalé pour alerte (catalogue partiel)
+    rows = rpe.build_toc(client, "FLOWS")
+    assert {r["cube_key"] for r in rows} == {"CK1"}  # le cube en échec est absent
 
 
-def test_store_catalog_full_replace_and_empty_guard():
+def test_store_toc_full_replace_and_empty_guard():
     from sqlalchemy import text
 
     from web.db import get_engine
 
     rpe.ensure_schema()
-    catalog = {
-        "CKtest": {
-            "cubeName": "__cube_test__",
-            "dimensions": [
-                {"id": "D1", "name": "Dim 1", "category": "1. T", "captionDim": "C_LBL", "nbMembers": 5, "time": True}
-            ],
+    rows = [
+        {
+            "cube_key": "__ck1__",
+            "cube_id": "cid1",
+            "name": "__ds1__",
             "measures": [{"id": "M1", "label": "Mesure 1"}],
-        }
-    }
-    assert rpe.store_catalog({"CKtest": "cubeid_x"}, catalog) == 1
+            "dimensions": [{"id": "D1"}],
+            "territory_codes": {"Région": ["11"]},
+            "charts": [],
+        },
+        {"cube_key": "__ck2__", "cube_id": "cid2", "name": "__ds2__"},
+    ]
+    assert rpe.store_toc(rows) == 2
+    assert rpe.store_toc([{"cube_key": "__ck1__", "cube_id": "cid1", "name": "__ds1__"}]) == 1  # remplacement complet
     with get_engine().connect() as c:
-        ds = c.execute(text("SELECT cube_key, name, cube_id FROM matometa.rpe_dataset WHERE cube_key='CKtest'")).first()
-        dim = c.execute(
-            text("SELECT dim_id, caption_dim, n_members FROM matometa.rpe_dimension WHERE dataset='__cube_test__'")
-        ).first()
-        meas = c.execute(text("SELECT measure_id FROM matometa.rpe_measure WHERE dataset='__cube_test__'")).first()
-    assert ds == ("CKtest", "__cube_test__", "cubeid_x")
-    assert dim == ("D1", "C_LBL", 5)
-    assert meas == ("M1",)
-    assert rpe.store_catalog({}, {}) == 0  # catalogue vide → pas d'écrasement
+        keys = {r[0] for r in c.execute(text("SELECT cube_key FROM dashboard_storage.rpe_toc"))}
+    assert keys == {"__ck1__"}  # __ck2__ disparu
+    assert rpe.store_toc([]) == 0  # TOC vide → pas d'écrasement
     with get_engine().connect() as c:
-        assert c.execute(text("SELECT count(*) FROM matometa.rpe_dataset WHERE cube_key='CKtest'")).scalar() == 1
+        assert c.execute(text("SELECT count(*) FROM dashboard_storage.rpe_toc")).scalar() == 1
     with get_engine().begin() as c:
-        c.execute(text("DELETE FROM matometa.rpe_dataset WHERE cube_key='CKtest'"))
-        c.execute(text("DELETE FROM matometa.rpe_dimension WHERE dataset='__cube_test__'"))
-        c.execute(text("DELETE FROM matometa.rpe_measure WHERE dataset='__cube_test__'"))
+        c.execute(text("DELETE FROM dashboard_storage.rpe_toc"))
 
 
 def test_query_uses_shared_sel_and_blank_frame(mocker):
@@ -708,27 +585,25 @@ def test_query_uses_shared_sel_and_blank_frame(mocker):
 
 
 @pytest.mark.integration
-def test_live_charts_populated():
+def test_live_toc_populated():
     from sqlalchemy import text
 
-    from lib.rpe_gwt import parse_charts
     from web.db import get_engine
 
     rpe.ensure_schema()
     client = rpe.RpeClient.connect()
     try:
         _fresh, flows = client.refresh_catalog()
-        catalog, _ = rpe.build_catalog(client, flows)
+        rows = rpe.build_toc(client, flows)
     finally:
         client.close()
-    cube_names = {k: c["cubeName"] for k, c in catalog.items()}
-    n = rpe.store_charts(parse_charts(flows), cube_names)
-    assert n > 100  # FT adds/removes charts; loose lower bound, don't pin ~400
+    n = rpe.store_toc(rows)
+    assert n >= 5  # FT ajoute/retire des datasets ; borne basse souple
     with get_engine().connect() as c:
         hits = c.execute(
             text(
-                "SELECT count(*) FROM matometa.rpe_chart "
-                "WHERE chart_title ILIKE '%recours%' OR array_to_string(measures_shown, ' ') ILIKE '%recours%'"
+                "SELECT count(*) FROM dashboard_storage.rpe_toc "
+                "WHERE charts::text ILIKE '%recours%' OR measures::text ILIKE '%recours%'"
             )
         ).scalar()
     assert hits >= 1
