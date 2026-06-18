@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -24,6 +24,7 @@ from lib.rpe_gwt import (
     flowsview_header,
     parse_charts,
     parse_cube_dm,
+    render_gwt,
 )
 from web import config
 from web.alerts import notify_alert_channel
@@ -42,10 +43,6 @@ REFERER = BASE + "/index.html?domain=ddenterpriseapi&user=public&pass=" + quote(
 TIMEOUT = 60
 SCHEMA = "dashboard_storage"
 SESSION_TTL_S = 1200  # < 30 min Tomcat idle ; un 403 déclenche de toute façon un re-login
-
-# Valeurs liées au build GWT, re-scrapables en cas d'échec de login (cf. _scrape_builds).
-BAKED_PERMUTATION = "2D1551B7C160B162D34A4CD10515557B"
-BAKED_STRONG_NAME = "B28E527AF46D9C6155A876F4769EC2F4"
 
 _SID_RE = re.compile(r"4c9184f37cff01[0-9a-f]+")
 CUBE_RE = re.compile(r"[0-9a-f]{32}_[0-9a-f]{32}_[0-9a-f]+_[0-9]{13}")
@@ -162,17 +159,23 @@ def _ok(resp: httpx.Response) -> bool:
     return resp.status_code == 200 and resp.text.startswith("//OK")
 
 
-def _attempt_login(permutation: str, strong_name: str, timeout: int = TIMEOUT) -> httpx.Client | None:
+def _attempt_login(sigs: Signatures, timeout: int = TIMEOUT) -> httpx.Client | None:
     client = httpx.Client(headers={"User-Agent": UA}, timeout=timeout)
-    headers = _gwt_headers(permutation)
+    headers = _gwt_headers(sigs.permutation)
 
     def gwt(payload: str) -> httpx.Response:
-        body = payload.replace(BAKED_STRONG_NAME, strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
+        body = render_gwt(
+            payload,
+            strong_name=sigs.strong_name,
+            policy_login=sigs.policy_login,
+            policy_dash=sigs.policy_dash,
+            public_pass=sigs.public_pass,
+        )
         return client.post(MODULE + "dash", content=body, headers=headers, timeout=timeout)
 
     settings = gwt(GWT["getUserSettings"])
-    login = gwt(GWT["login"])
-    if _ok(settings) and _ok(login):
+    login_resp = gwt(GWT["login"])
+    if _ok(settings) and _ok(login_resp):
         return client
     client.close()
     return None
@@ -196,28 +199,29 @@ def _scrape_builds() -> list[tuple[str, str]]:
     return pairs
 
 
-def login() -> tuple[httpx.Client, str, str]:
-    """Session authentifiée (httpx) + le couple (permutation, strong_name) retenu ; re-scrape et réessaie si échec."""
-    client = _attempt_login(BAKED_PERMUTATION, BAKED_STRONG_NAME)
+def login(sigs: Signatures) -> tuple[httpx.Client, Signatures]:
+    """Session authentifiée (httpx) + les Signatures retenues ; re-scrape permutation/strong_name et réessaie si échec."""
+    client = _attempt_login(sigs)
     if client is not None:
-        return client, BAKED_PERMUTATION, BAKED_STRONG_NAME
-    logger.warning("RPE login échoué avec les valeurs de build par défaut, re-scraping en cours")
+        return client, sigs
+    logger.warning("RPE login échoué avec les signatures courantes, re-scraping en cours")
     for permutation, strong_name in _scrape_builds():
-        client = _attempt_login(permutation, strong_name)
+        candidate = replace(sigs, permutation=permutation, strong_name=strong_name)
+        client = _attempt_login(candidate)
         if client is not None:
             logger.info("RPE login réussi via build re-scrapé permutation=%s", permutation)
-            return client, permutation, strong_name
+            return client, candidate
     raise RpeLoginError("login impossible — identifiants ou valeurs de build GWT (strong-name/permutation) obsolètes")
 
 
 def check_connectivity(timeout: int = TIMEOUT) -> tuple[bool, str]:
-    """Connectivité RPE avec les valeurs de build par défaut, sans re-scrape (pour le selftest)."""
+    """Connectivité RPE avec les signatures courantes, sans re-scrape (pour le selftest)."""
     try:
-        client = _attempt_login(BAKED_PERMUTATION, BAKED_STRONG_NAME, timeout=timeout)
+        client = _attempt_login(load_signatures(), timeout=timeout)
     except httpx.HTTPError as e:
         return False, f"injoignable : {e}"
     if client is None:
-        return False, "login refusé (valeurs de build par défaut périmées ?)"
+        return False, "login refusé (signatures GWT périmées ?)"
     client.close()
     return True, "login OK"
 
@@ -247,56 +251,67 @@ def norm(s: str) -> str:
 class RpeClient:
     """Session RPE authentifiée : requêtes getCubeResult arbitraires + rafraîchissement catalogue."""
 
-    def __init__(
-        self,
-        http: httpx.Client,
-        permutation: str = BAKED_PERMUTATION,
-        strong_name: str = BAKED_STRONG_NAME,
-        sid: str | None = None,
-    ):
+    def __init__(self, http: httpx.Client, sigs: Signatures, sid: str | None = None):
         self.http = http
-        self.permutation = permutation
-        self.strong_name = strong_name
+        self.sigs = sigs
         self.sid = sid or self._resolve_sid()
+        self.bundle_nocache = None
         self.catalog = self._load_catalog()
         self.cubeids = self._load_cubeids()
 
     @classmethod
     def connect(cls) -> "RpeClient":
         """Réutilise la session en cache si fraîche, sinon login httpx (un 403 ultérieur relance un login)."""
-        cached = load_cached_session()
-        if cached:
-            jsessionid, sid = cached
-            http = httpx.Client(
-                headers={"User-Agent": UA},
-                cookies={"JSESSIONID": jsessionid, "digdashSessionId": sid or ""},
-                timeout=TIMEOUT,
+        sigs = load_signatures()
+        row = load_signature_row()
+        if row and row.get("jsessionid"):
+            age = (
+                (datetime.now(timezone.utc) - row["validated_at"]).total_seconds() if row.get("validated_at") else None
             )
-            return cls(http, sid=sid)
-        http, permutation, strong_name = login()
-        inst = cls(http, permutation, strong_name)
-        save_session(http.cookies.get("JSESSIONID"), inst.sid)
+            if age is not None and age <= SESSION_TTL_S:
+                http = httpx.Client(
+                    headers={"User-Agent": UA},
+                    cookies={"JSESSIONID": row["jsessionid"], "digdashSessionId": row.get("sid") or ""},
+                    timeout=TIMEOUT,
+                )
+                return cls(http, sigs, sid=row.get("sid"))
+        http, sigs = login(sigs)
+        inst = cls(http, sigs)
+        store_signature(sigs, inst.sid, http.cookies.get("JSESSIONID"), inst.bundle_nocache)
         return inst
 
     def _relogin(self) -> None:
         self.http.close()
-        self.http, self.permutation, self.strong_name = login()
+        self.http, self.sigs = login(self.sigs)
         self.sid = self._resolve_sid()
-        save_session(self.http.cookies.get("JSESSIONID"), self.sid)
+        store_signature(self.sigs, self.sid, self.http.cookies.get("JSESSIONID"), self.bundle_nocache)
 
     def close(self) -> None:
         self.http.close()
 
     def _prep(self, payload: str) -> str:
-        """Substitue le strong-name courant (re-scrapé au besoin) + le sid dans un payload GWT."""
-        return _SID_RE.sub(self.sid or "", payload.replace(BAKED_STRONG_NAME, self.strong_name))
+        """Substitue les signatures GWT courantes (re-scrapées au besoin) + le sid dans un payload GWT."""
+        rendered = render_gwt(
+            payload,
+            strong_name=self.sigs.strong_name,
+            policy_login=self.sigs.policy_login,
+            policy_dash=self.sigs.policy_dash,
+            public_pass=self.sigs.public_pass,
+        )
+        return _SID_RE.sub(self.sid or "", rendered)
 
     def _resolve_sid(self) -> str | None:
         sid = self.http.cookies.get("digdashSessionId")
         if sid:
             return sid
-        body = GWT["getUserSettings"].replace(BAKED_STRONG_NAME, self.strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
-        r = self.http.post(MODULE + "dash", content=body, headers=_gwt_headers(self.permutation), timeout=TIMEOUT)
+        body = render_gwt(
+            GWT["getUserSettings"],
+            strong_name=self.sigs.strong_name,
+            policy_login=self.sigs.policy_login,
+            policy_dash=self.sigs.policy_dash,
+            public_pass=self.sigs.public_pass,
+        )
+        r = self.http.post(MODULE + "dash", content=body, headers=_gwt_headers(self.sigs.permutation), timeout=TIMEOUT)
         m = _SID_RE.search(r.text)
         if not m:
             logger.warning(
@@ -482,12 +497,15 @@ class RpeClient:
 
     def _gwt(self, payload: str) -> str:
         r = self.http.post(
-            MODULE + "dash", content=self._prep(payload), headers=_gwt_headers(self.permutation), timeout=TIMEOUT
+            MODULE + "dash", content=self._prep(payload), headers=_gwt_headers(self.sigs.permutation), timeout=TIMEOUT
         )
         if not _ok(r):  # session/build périmé → re-login (re-scrape éventuel) puis nouvel essai
             self._relogin()
             r = self.http.post(
-                MODULE + "dash", content=self._prep(payload), headers=_gwt_headers(self.permutation), timeout=TIMEOUT
+                MODULE + "dash",
+                content=self._prep(payload),
+                headers=_gwt_headers(self.sigs.permutation),
+                timeout=TIMEOUT,
             )
         return r.text if r.status_code == 200 else ""
 

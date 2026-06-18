@@ -223,8 +223,18 @@ def test_query_territory_filter_uses_palier_level(mocker, palier, expected_level
 
 
 def test_connect_reuses_cached_session(mocker):
-    mocker.patch("lib.rpe.load_cached_session", return_value=("JS123", "SID456"))
+    mocker.patch.object(rpe, "load_signatures", return_value=rpe.Signatures("P", "S", "L", "D", "PASS"))
+    mocker.patch.object(
+        rpe,
+        "load_signature_row",
+        return_value={
+            "jsessionid": "JS123",
+            "sid": "SID456",
+            "validated_at": rpe.datetime.now(rpe.timezone.utc),
+        },
+    )
     login_spy = mocker.patch("lib.rpe.login", side_effect=AssertionError("ne doit pas se reconnecter"))
+    mocker.patch.object(rpe.RpeClient, "_load_catalog", return_value={})
     mocker.patch.object(rpe.RpeClient, "_load_cubeids", return_value={})
     c = rpe.RpeClient.connect()
     assert c.sid == "SID456"
@@ -376,41 +386,47 @@ def test_resolve_measures_tolerates_apostrophe_and_label(mocker):
     assert client._resolve_measures("ds", ["inconnu"]) == ["inconnu"]  # laissé tel quel
 
 
-def test_prep_substitutes_strong_name_and_sid():
+def test_prep_substitutes_signatures_and_sid(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
-    client.strong_name = "NEWSTRONG"
-    client.sid = "NEWSID"
-    payload = f"{rpe.BAKED_STRONG_NAME}|4c9184f37cff01deadbeef|x"
-    assert client._prep(payload) == "NEWSTRONG|NEWSID|x"
+    client.sigs = rpe.Signatures("PERM", "STRONG", "PLOG", "PDASH", "PASS")
+    client.sid = "4c9184f37cff01abc"
+    out = client._prep("__STRONG_NAME__|__POLICY_DASH__|4c9184f37cff01bcdc32")
+    assert "STRONG" in out and "PDASH" in out and "4c9184f37cff01abc" in out and "__STRONG_NAME__" not in out
 
 
-def test_relogin_rewires_session_and_saves(mocker):
+def test_no_baked_constants():
+    assert not hasattr(rpe, "BAKED_PERMUTATION") and not hasattr(rpe, "BAKED_STRONG_NAME")
+
+
+def test_relogin_rewires_session_and_persists(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
+    client.sigs = rpe.Signatures("PERM", "STRONG", "PLOG", "PDASH", "PASS")
+    client.bundle_nocache = None
     old_http = mocker.MagicMock()
     client.http = old_http
     new_http = mocker.MagicMock()
     new_http.cookies.get.return_value = "JSNEW"
-    mocker.patch("lib.rpe.login", return_value=(new_http, "PERM2", "STRONG2"))
+    new_sigs = rpe.Signatures("PERM2", "STRONG2", "PLOG", "PDASH", "PASS")
+    mocker.patch("lib.rpe.login", return_value=(new_http, new_sigs))
     mocker.patch.object(rpe.RpeClient, "_resolve_sid", return_value="SIDNEW")
-    save = mocker.patch("lib.rpe.save_session")
+    store = mocker.patch("lib.rpe.store_signature")
     client._relogin()
     old_http.close.assert_called_once()
     assert client.http is new_http
-    assert (client.permutation, client.strong_name, client.sid) == ("PERM2", "STRONG2", "SIDNEW")
-    save.assert_called_once_with("JSNEW", "SIDNEW")
+    assert (client.sigs.permutation, client.sigs.strong_name, client.sid) == ("PERM2", "STRONG2", "SIDNEW")
+    store.assert_called_once_with(new_sigs, "SIDNEW", "JSNEW", None)
 
 
 def test_gwt_relogins_when_not_ok_then_retries(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.sid = "SID"
-    client.permutation = rpe.BAKED_PERMUTATION
-    client.strong_name = rpe.BAKED_STRONG_NAME
+    client.sigs = rpe.Signatures("PERM", "STRONG", "PLOG", "PDASH", "PASS")
     rbad = mocker.MagicMock(status_code=403, text="forbidden")
     rok = mocker.MagicMock(status_code=200, text="//OK[data]")
     client.http = mocker.MagicMock()
     client.http.post.side_effect = [rbad, rok]
     relogin = mocker.patch.object(rpe.RpeClient, "_relogin")
-    assert client._gwt("payload " + rpe.BAKED_STRONG_NAME) == "//OK[data]"
+    assert client._gwt("payload __STRONG_NAME__") == "//OK[data]"
     relogin.assert_called_once()
     assert client.http.post.call_count == 2
 
@@ -462,6 +478,7 @@ def test_refresh_success_and_alerts_on_empty_mirror(mocker, facts, failed, dm_fa
     [("client", True), (None, False), ("raise", False)],
 )
 def test_check_connectivity(mocker, outcome, expected_ok):
+    mocker.patch.object(rpe, "load_signatures", return_value=rpe.Signatures("P", "S", "L", "D", "PASS"))
     if outcome == "raise":
         mocker.patch.object(rpe, "_attempt_login", side_effect=httpx.ConnectError("boom"))
     else:
