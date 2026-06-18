@@ -1,9 +1,40 @@
 """Tests for web.routes.query CORS handling."""
 
-import pytest
+from datetime import date, datetime
+from decimal import Decimal
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from lib.query import QueryResult
 from web.config import CORS_ALLOWED_ORIGINS
+from web.routes import query as query_route
 from web.routes.query import coerce_timeout, cors_headers, validate_query_request
+
+
+def _client():
+    app = FastAPI()
+    app.include_router(query_route.router)
+    return TestClient(app)
+
+
+def test_query_serializes_postgres_native_types(mocker):
+    rows = [[date(2026, 6, 18), datetime(2026, 6, 18, 12, 0), Decimal("3.14")]]
+    mocker.patch.object(
+        query_route,
+        "execute_query",
+        return_value=QueryResult(
+            success=True,
+            data={"columns": ["day", "ts", "amount"], "rows": rows, "row_count": 1},
+            execution_time_ms=1,
+        ),
+    )
+
+    response = _client().post("/api/query", json={"source": "autometa_tables_db", "sql": "SELECT 1"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["rows"] == [["2026-06-18", "2026-06-18T12:00:00", 3.14]]
 
 
 def test_cors_headers_allowed_origin_from_config():
