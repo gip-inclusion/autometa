@@ -398,6 +398,27 @@ def test_no_baked_constants():
     assert not hasattr(rpe, "BAKED_PERMUTATION") and not hasattr(rpe, "BAKED_STRONG_NAME")
 
 
+def test_load_catalog_from_toc(mocker):
+    mocker.patch.object(
+        rpe,
+        "load_toc_rows",
+        return_value=[
+            {
+                "cube_key": "CK1",
+                "cube_id": "CID",
+                "name": "DS",
+                "measures": [{"id": "M", "label": "M"}],
+                "dimensions": [{"id": "C_TERRITOIRE_ID", "name": "Terr"}],
+                "territory_codes": {"Département": ["78"]},
+                "charts": [],
+            }
+        ],
+    )
+    cat, cubeids = rpe.catalog_from_toc()
+    assert cubeids["CK1"] == "CID"
+    assert cat["CK1"]["cubeName"] == "DS" and cat["CK1"]["measures"][0]["id"] == "M"
+
+
 def test_relogin_rewires_session_and_persists(mocker):
     client = rpe.RpeClient.__new__(rpe.RpeClient)
     client.sigs = rpe.Signatures("PERM", "STRONG", "PLOG", "PDASH", "PASS")

@@ -321,45 +321,11 @@ class RpeClient:
         return m.group(0)
 
     def _load_cubeids(self) -> dict:
-        cubeids = {}
-        try:
-            eng = get_engine()
-            with eng.connect() as conn:
-                if eng.dialect.has_table(conn, "rpe_dataset", schema=SCHEMA):
-                    for row in conn.execute(select(rpe_dataset.c.cube_key, rpe_dataset.c.cube_id)):
-                        if row.cube_id:
-                            cubeids[row.cube_key] = row.cube_id
-        except SQLAlchemyError as e:
-            logger.warning("RPE : cubeIds DB indisponibles (%s)", e)
-        return cubeids
+        return catalog_from_toc()[1]
 
     def _load_catalog(self) -> dict:
-        """Catalogue {cube_key: {cubeName, dimensions, measures}} depuis la DB (vide tant que le cron n'a pas tourné)."""
-        catalog: dict = {}
-        try:
-            eng = get_engine()
-            with eng.connect() as conn:
-                if not eng.dialect.has_table(conn, "rpe_dataset", schema=SCHEMA):
-                    return catalog
-                names = {r.cube_key: r.name for r in conn.execute(select(rpe_dataset.c.cube_key, rpe_dataset.c.name))}
-                dims: dict[str, list] = defaultdict(list)
-                for r in conn.execute(select(rpe_dimension)):
-                    dims[r.dataset].append({
-                        "id": r.dim_id,
-                        "name": r.name,
-                        "category": r.category,
-                        "captionDim": r.caption_dim,
-                        "nbMembers": r.n_members,
-                    })
-                meas: dict[str, list] = defaultdict(list)
-                for r in conn.execute(select(rpe_measure)):
-                    meas[r.dataset].append({"id": r.measure_id, "label": r.label})
-        except SQLAlchemyError as e:
-            logger.warning("RPE : catalogue DB indisponible (%s)", e)
-            return catalog
-        for cube_key, name in names.items():
-            catalog[cube_key] = {"cubeName": name, "dimensions": dims.get(name, []), "measures": meas.get(name, [])}
-        return catalog
+        """Catalogue {cube_key: {cubeName, dimensions, measures}} depuis la TOC (vide tant que le cron n'a pas tourné)."""
+        return catalog_from_toc()[0]
 
     def _key(self, dataset: str) -> str:
         if dataset in self.catalog:
@@ -616,29 +582,35 @@ def mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
     return plan
 
 
-def build_catalog(client: RpeClient, flows_response: str) -> tuple[dict, int]:
-    """Catalogue {cube_key: {cubeName, dimensions, measures}} httpx + nb de cube_dm en échec (dims via cube_dm, mesures via graphes ; DDAudit exclus)."""
+def build_toc(client: RpeClient, flows_response: str) -> list[dict]:
+    """TOC (un dict par dataset, forme rpe_toc) : dims via cube_dm, mesures + graphes via getFlowsView ; DDAudit exclus."""
+    charts_by_cube: dict[str, list] = defaultdict(list)
     measures_by_cube: dict[str, list] = defaultdict(list)
     seen: dict[str, set] = defaultdict(set)
     for ch in parse_charts(flows_response):
+        charts_by_cube[ch["cube_key"]].append(ch)
         for m in ch["measures_shown"]:
             if m not in seen[ch["cube_key"]]:
                 seen[ch["cube_key"]].add(m)
                 measures_by_cube[ch["cube_key"]].append({"id": m, "label": m})
-    catalog: dict = {}
+    cubeids = {cube.split("_")[0]: cube for cube in CUBE_RE.findall(flows_response)}
+    rows: list[dict] = []
     failed = 0
     for cube_key, url in cube_dm_urls(flows_response).items():
         try:
             parsed = parse_cube_dm(client.fetch_cube_dm(url))
         except httpx.HTTPError as e:  # Why: ne pas logger e (l'URL porte le mot de passe public en clair)
             failed += 1
-            logger.warning("build_catalog : cube_dm %s injoignable (%s)", cube_key, type(e).__name__)
+            logger.warning("build_toc : cube_dm %s injoignable (%s)", cube_key, type(e).__name__)
             continue
         name = parsed["cube_name"]
         if not name or name.startswith("DDAudit"):  # cubes d'audit DigDash internes
             continue
-        catalog[cube_key] = {
-            "cubeName": name,
+        rows.append({
+            "cube_key": cube_key,
+            "cube_id": cubeids.get(cube_key),
+            "name": name,
+            "measures": measures_by_cube.get(cube_key, []),
             "dimensions": [
                 {
                     "id": d["id"],
@@ -650,93 +622,81 @@ def build_catalog(client: RpeClient, flows_response: str) -> tuple[dict, int]:
                 }
                 for d in parsed["dimensions"]
             ],
-            "measures": measures_by_cube.get(cube_key, []),
-        }
-    logger.info("build_catalog : %d datasets (hors DDAudit), %d cube_dm en échec", len(catalog), failed)
-    return catalog, failed
+            "territory_codes": {},
+            "charts": charts_by_cube.get(cube_key, []),
+        })
+    logger.info("build_toc : %d datasets (hors DDAudit), %d cube_dm en échec", len(rows), failed)
+    return rows
 
 
-def store_catalog(fresh_cubeids: dict, catalog: dict) -> int:
-    """Remplacement complet du catalogue (dataset/dimension/measure). Catalogue vide → no-op (cache conservé)."""
-    if not catalog:
-        logger.warning("store_catalog : catalogue vide, cache inchangé")
+def store_toc(rows: list[dict]) -> int:
+    """Remplacement complet de rpe_toc avec refreshed_at=now. TOC vide → no-op (cache conservé)."""
+    if not rows:
+        logger.warning("store_toc : TOC vide, cache inchangé")
         return 0
-    eng = get_engine()
-    with eng.begin() as conn:
-        conn.execute(delete(rpe_dataset))
-        conn.execute(delete(rpe_dimension))
-        conn.execute(delete(rpe_measure))
-        conn.execute(
-            insert(rpe_dataset),
-            [{"cube_key": k, "name": c["cubeName"], "cube_id": fresh_cubeids.get(k)} for k, c in catalog.items()],
-        )
-        dims = [
-            {
-                "dataset": c["cubeName"],
-                "dim_id": d["id"],
-                "name": d["name"],
-                "category": d.get("category"),
-                "caption_dim": d.get("captionDim"),
-                "n_members": d.get("nbMembers"),
-            }
-            for c in catalog.values()
-            for d in c["dimensions"]
-        ]
-        if dims:
-            conn.execute(insert(rpe_dimension), dims)
-        meas = [
-            {"dataset": c["cubeName"], "measure_id": m["id"], "label": m["label"]}
-            for c in catalog.values()
-            for m in c["measures"]
-        ]
-        if meas:
-            conn.execute(insert(rpe_measure), meas)
-    return len(catalog)
-
-
-def update_measure_labels(rows: list[dict]) -> int:
-    """Rafraîchit les libellés de mesures (id→label) à partir des réponses getCubeResult (axis[0])."""
-    pairs = {(r["dataset"], r["measure_id"]): r["measure"] for r in rows if r.get("measure_id")}
-    if not pairs:
-        return 0
-    payload = [{"dataset": d, "measure_id": mid, "label": label} for (d, mid), label in pairs.items()]
-    stmt = pg_insert(rpe_measure).values(payload)
-    stmt = stmt.on_conflict_do_update(index_elements=["dataset", "measure_id"], set_={"label": stmt.excluded.label})
-    with get_engine().begin() as conn:
-        conn.execute(stmt)
-    return len(payload)
-
-
-def store_facts(rows: list[dict]) -> int:
-    """Remplacement complet de `rpe_fact` si le mirror a produit des données (sinon on garde le cache précédent)."""
-    cols = ("dataset", "measure", "measure_id", "period", "dimension", "member_code", "member_label", "value")
-    payload = [{c: r.get(c) for c in cols} for r in rows if "member_code" in r]
-    if not payload:  # mirror vide → ne pas vider le cache
-        return 0
-    with get_engine().begin() as conn:
-        conn.execute(delete(rpe_fact))  # remplacement complet : aucune donnée périmée conservée
-        conn.execute(insert(rpe_fact), payload)
-    return len(payload)
-
-
-def store_charts(records: list[dict], cube_names: dict) -> int:
-    """Remplacement complet de `rpe_chart` (sinon on garde le cache). cube_names : {cube_key: cubeName}."""
-    if not records:  # parse vide → ne pas vider le cache
-        return 0
+    now = datetime.now(timezone.utc)
     payload = [
         {
-            "chart_title": r["chart_title"],
             "cube_key": r["cube_key"],
-            "cube_name": cube_names.get(r["cube_key"]),
-            "measures_shown": r["measures_shown"],
-            "dims_shown": r["dims_shown"],
+            "cube_id": r.get("cube_id"),
+            "name": r["name"],
+            "measures": r.get("measures", []),
+            "dimensions": r.get("dimensions", []),
+            "territory_codes": r.get("territory_codes", {}),
+            "charts": r.get("charts", []),
+            "refreshed_at": now,
         }
-        for r in records
+        for r in rows
     ]
     with get_engine().begin() as conn:
-        conn.execute(delete(rpe_chart))
-        conn.execute(insert(rpe_chart), payload)
+        conn.execute(delete(rpe_toc))
+        conn.execute(insert(rpe_toc), payload)
     return len(payload)
+
+
+def load_toc_rows() -> list[dict]:
+    """Lignes brutes de rpe_toc (vide tant que le cron n'a pas tourné)."""
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            if not eng.dialect.has_table(conn, "rpe_toc", schema=SCHEMA):
+                return []
+            return [dict(r) for r in conn.execute(select(rpe_toc)).mappings()]
+    except SQLAlchemyError as e:
+        logger.warning("RPE : TOC DB indisponible (%s)", e)
+        return []
+
+
+def catalog_from_toc() -> tuple[dict, dict]:
+    """Reconstruit (catalogue {cube_key: {cubeName, dimensions, measures}}, cubeids {cube_key: cube_id}) depuis rpe_toc."""
+    catalog: dict = {}
+    cubeids: dict = {}
+    for r in load_toc_rows():
+        catalog[r["cube_key"]] = {
+            "cubeName": r["name"],
+            "dimensions": r.get("dimensions") or [],
+            "measures": r.get("measures") or [],
+        }
+        if r.get("cube_id"):
+            cubeids[r["cube_key"]] = r["cube_id"]
+    return catalog, cubeids
+
+
+def territory_codes(client: RpeClient, dataset: str) -> dict:
+    """Codes de territoire par palier (Région/Département/CLPE) d'un dataset géo ; un palier en échec → liste vide."""
+    measures = client.measures(dataset)
+    if not measures:
+        return {g: [] for g in MIRROR_GEO}
+    first = measures[0]["id"]
+    out: dict[str, list] = {}
+    for g in MIRROR_GEO:
+        try:
+            rows = client.query(dataset, [GEO_LEVELS[g]], measures=[first])
+            out[g] = [r["member_code"] for r in rows if r.get("member_code")]
+        except (httpx.HTTPError, KeyError) as e:
+            logger.warning("territory_codes : %s / %s en échec (%s)", dataset, g, type(e).__name__)
+            out[g] = []
+    return out
 
 
 def refresh() -> dict:
