@@ -691,3 +691,20 @@ def refresh() -> dict:
         notify_alert_channel("RPE refresh : TOC vide, cache inchangé")
     logger.info("RPE refresh terminé : signatures OK, %d datasets en TOC", n)
     return {"ok": True, "datasets": n}
+
+
+def doctor() -> dict:
+    """État de santé RPE : fraîcheur des signatures + canari live. Réponse déterministe (pas de devinette)."""
+    row = load_signature_row()
+    if not row or not all(row.get(k) for k in ("permutation", "strong_name", "policy_login", "policy_dash")):
+        return {"ok": False, "reason": "signatures absentes en DB (cron jamais passé ?) — repli ENV utilisé"}
+    try:
+        client = RpeClient.connect()
+    except RpeLoginError as e:
+        return {"ok": False, "reason": f"login impossible : {e}"}
+    try:
+        if not _canary_ok(client):
+            return {"ok": False, "reason": "canari live en échec — signature probablement périmée"}
+    finally:
+        client.close()
+    return {"ok": True, "reason": "signatures valides", "validated_at": str(row.get("validated_at"))}
