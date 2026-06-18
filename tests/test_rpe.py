@@ -376,6 +376,27 @@ def test_refresh_alerts_and_skips_persist_on_canary_failure(mocker):
     alert.assert_called()
 
 
+def test_global_territory_codes_derives_once_lightest_and_fails_fast(mocker):
+    client = mocker.MagicMock()
+    client.measures.return_value = [{"id": "M"}]
+    geo_rows = [
+        {"name": "Light", "dimensions": [{"id": "C_TERRITOIRE_ID", "nbMembers": 50}]},
+        {"name": "Heavy", "dimensions": [{"id": "C_TERRITOIRE_ID", "nbMembers": 5}]},  # trié en premier, mais timeout
+    ]
+
+    def fake_query(dataset, dims, measures=None, timeout=None):
+        if dataset == "Heavy":
+            raise httpx.ReadTimeout("boom")
+        return [{"member_code": "11"}, {"member_code": "84"}]
+
+    client.query.side_effect = fake_query
+    out = rpe.global_territory_codes(client, geo_rows)
+
+    assert out["Région"] == ["11", "84"]
+    heavy_calls = [c for c in client.query.call_args_list if c.args[0] == "Heavy"]
+    assert len(heavy_calls) == 1  # Région échoue → on n'insiste pas sur les autres paliers du cube lourd
+
+
 def test_load_catalog_from_toc(mocker):
     mocker.patch.object(
         rpe,
