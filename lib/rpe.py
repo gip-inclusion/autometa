@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import ARRAY, Column, DateTime, Float, Integer, MetaData, String, Table, delete, insert, select, text
+from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, String, Table, delete, insert, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -40,7 +40,7 @@ PUBLIC_PASS = RPE_PUBLIC_PASS
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36"
 REFERER = BASE + "/index.html?domain=ddenterpriseapi&user=public&pass=" + quote(PUBLIC_PASS, safe="")
 TIMEOUT = 60
-SCHEMA = "matometa"
+SCHEMA = "dashboard_storage"
 SESSION_TTL_S = 1200  # < 30 min Tomcat idle ; un 403 déclenche de toute façon un re-login
 
 # Valeurs liées au build GWT, re-scrapables en cas d'échec de login (cf. _scrape_builds).
@@ -66,7 +66,34 @@ class Signatures:
 
 
 def load_signature_row() -> dict | None:
-    return None
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            if not eng.dialect.has_table(conn, "rpe_signature", schema=SCHEMA):
+                return None
+            row = conn.execute(select(rpe_signature).where(rpe_signature.c.id == 1)).mappings().first()
+    except SQLAlchemyError as e:
+        logger.warning("RPE : lecture signature DB impossible (%s)", e)
+        return None
+    return dict(row) if row else None
+
+
+def store_signature(sigs: Signatures, sid: str | None, jsessionid: str | None, bundle_nocache: str | None) -> None:
+    payload = {
+        "id": 1,
+        "permutation": sigs.permutation,
+        "strong_name": sigs.strong_name,
+        "policy_login": sigs.policy_login,
+        "policy_dash": sigs.policy_dash,
+        "sid": sid,
+        "jsessionid": jsessionid,
+        "bundle_nocache": bundle_nocache,
+        "validated_at": datetime.now(timezone.utc),
+    }
+    stmt = pg_insert(rpe_signature).values(payload)
+    stmt = stmt.on_conflict_do_update(index_elements=["id"], set_={k: payload[k] for k in payload if k != "id"})
+    with get_engine().begin() as conn:
+        conn.execute(stmt)
 
 
 def load_signatures() -> Signatures:
@@ -86,60 +113,30 @@ def load_signatures() -> Signatures:
 
 
 _metadata = MetaData(schema=SCHEMA)
-rpe_dataset = Table(
-    "rpe_dataset",
-    _metadata,
-    Column("cube_key", String, primary_key=True),
-    Column("name", String),
-    Column("cube_id", String),
-)
-rpe_dimension = Table(
-    "rpe_dimension",
-    _metadata,
-    Column("dataset", String, primary_key=True),
-    Column("dim_id", String, primary_key=True),
-    Column("name", String),
-    Column("category", String),
-    Column("caption_dim", String),
-    Column("n_members", Integer),
-)
-rpe_measure = Table(
-    "rpe_measure",
-    _metadata,
-    Column("dataset", String, primary_key=True),
-    Column("measure_id", String, primary_key=True),
-    Column("label", String),
-)
-rpe_fact = Table(
-    "rpe_fact",
-    _metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("dataset", String),
-    Column("measure", String),
-    Column("measure_id", String),
-    Column("period", String),
-    Column("dimension", String),
-    Column("member_code", String),
-    Column("member_label", String),
-    Column("value", Float),
-)
-rpe_session = Table(
-    "rpe_session",
+rpe_signature = Table(
+    "rpe_signature",
     _metadata,
     Column("id", Integer, primary_key=True),
-    Column("jsessionid", String),
+    Column("permutation", String),
+    Column("strong_name", String),
+    Column("policy_login", String),
+    Column("policy_dash", String),
     Column("sid", String),
-    Column("created_at", DateTime(timezone=True)),
+    Column("jsessionid", String),
+    Column("bundle_nocache", String),
+    Column("validated_at", DateTime(timezone=True)),
 )
-rpe_chart = Table(
-    "rpe_chart",
+rpe_toc = Table(
+    "rpe_toc",
     _metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("chart_title", String),
-    Column("cube_key", String),
-    Column("cube_name", String),
-    Column("measures_shown", ARRAY(String)),
-    Column("dims_shown", ARRAY(String)),
+    Column("cube_key", String, primary_key=True),
+    Column("cube_id", String),
+    Column("name", String),
+    Column("measures", JSON),
+    Column("dimensions", JSON),
+    Column("territory_codes", JSON),
+    Column("charts", JSON),
+    Column("refreshed_at", DateTime(timezone=True)),
 )
 
 
@@ -148,39 +145,6 @@ def ensure_schema() -> None:
     with eng.begin() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
     _metadata.create_all(eng)
-
-
-def load_cached_session() -> tuple[str, str] | None:
-    """Renvoie (jsessionid, sid) en cache si frais (< SESSION_TTL_S), sinon None."""
-    try:
-        eng = get_engine()
-        with eng.connect() as conn:
-            if not eng.dialect.has_table(conn, "rpe_session", schema=SCHEMA):
-                return None
-            row = conn.execute(select(rpe_session).order_by(rpe_session.c.created_at.desc()).limit(1)).first()
-    except SQLAlchemyError as e:
-        logger.warning("RPE : lecture session en cache impossible (%s)", e)
-        return None
-    if not row or not row.jsessionid:
-        return None
-    age = (datetime.now(timezone.utc) - row.created_at).total_seconds()
-    if age > SESSION_TTL_S:
-        return None
-    return row.jsessionid, row.sid
-
-
-def save_session(jsessionid: str | None, sid: str | None) -> None:
-    if not jsessionid:
-        return
-    try:
-        with get_engine().begin() as conn:
-            conn.execute(delete(rpe_session))
-            conn.execute(
-                insert(rpe_session),
-                [{"id": 1, "jsessionid": jsessionid, "sid": sid, "created_at": datetime.now(timezone.utc)}],
-            )
-    except SQLAlchemyError as e:  # cache best-effort : le login reste valide sans persistance
-        logger.warning("RPE : mise en cache de la session impossible (%s)", e)
 
 
 def _gwt_headers(permutation: str) -> dict:

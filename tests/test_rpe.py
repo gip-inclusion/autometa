@@ -18,6 +18,14 @@ def make_body(dim_axes, lines, headers, measures):
     }
 
 
+@pytest.mark.integration
+def test_signature_roundtrip():
+    rpe.ensure_schema()
+    rpe.store_signature(rpe.Signatures("P", "S", "L", "D", "PASS"), sid="SID", jsessionid="J", bundle_nocache="n.js")
+    row = rpe.load_signature_row()
+    assert row["permutation"] == "P" and row["strong_name"] == "S" and row["sid"] == "SID"
+
+
 def test_load_signatures_prefers_db_then_env(mocker):
     mocker.patch("web.config.RPE_PERMUTATION", "ENVPERM")
     mocker.patch("web.config.RPE_STRONG_NAME", "ENVSTRONG")
