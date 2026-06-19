@@ -254,12 +254,6 @@ class PinnedItem(Base):
     __table_args__ = (UniqueConstraint("item_type", "item_id"),)
 
 
-class SchemaVersion(Base):
-    __tablename__ = "schema_version"
-
-    version: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-
 class MatomoBaseline(Base):
     __tablename__ = "matomo_baselines"
 
