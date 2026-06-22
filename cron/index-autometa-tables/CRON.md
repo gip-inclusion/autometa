@@ -6,6 +6,8 @@ timeout: 3600
 
 Recrée les index d'`autometa_tables_db` et rafraîchit les statistiques (`ANALYZE`). Les tables sont reconstruites périodiquement par le DAG `populate_matometa_db` de pilotage-airflow (`if_exists="replace"`), ce qui supprime les index ; ce cron les recrée après le chargement. La liste des index vit dans `cron.py` (`INDEXES`).
 
+Prod uniquement : prod et staging visent la **même** `autometa_tables_db`. Deux runs concurrents (un par environnement) font courir `CREATE INDEX IF NOT EXISTS` et provoquent des collisions `pg_class` (`UniqueViolation`). Le script ne s'exécute donc que si `AUTOMETA_ENV == "prod"` ; ailleurs il sort immédiatement.
+
 Tolérance aux pannes : chaque statement s'exécute en AUTOCOMMIT ; un échec isolé (table absente, colonne renommée) est logué sans bloquer les suivants. Le script raise en fin de run si au moins un statement a échoué — `web.cron` remonte `failure` à Sentry et Slack.
 
 Si le DAG termine après l'heure du cron, les index de la journée ne réapparaissent qu'au run suivant (ou via un déclenchement manuel depuis `/cron`).
