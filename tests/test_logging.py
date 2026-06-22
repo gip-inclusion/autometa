@@ -226,18 +226,18 @@ def test_cron_main_calls_setup_logging(mocker):
 
 @pytest.mark.parametrize(
     "env_value,expected",
-    [(None, "prod"), ("staging", "staging"), ("dev", "dev")],
+    [(None, "dev"), ("staging", "staging"), ("prod", "prod")],
 )
 def test_deployment_environment_reads_from_env(monkeypatch, env_value, expected):
     if env_value is None:
-        monkeypatch.delenv("DEPLOYMENT_ENV", raising=False)
+        monkeypatch.delenv("AUTOMETA_ENV", raising=False)
     else:
-        monkeypatch.setenv("DEPLOYMENT_ENV", env_value)
+        monkeypatch.setenv("AUTOMETA_ENV", env_value)
     from web import config
 
     try:
         importlib.reload(config)
         assert config.SENTRY_ENVIRONMENT == expected
     finally:
-        monkeypatch.delenv("DEPLOYMENT_ENV", raising=False)
+        monkeypatch.delenv("AUTOMETA_ENV", raising=False)
         importlib.reload(config)

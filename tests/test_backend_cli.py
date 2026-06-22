@@ -70,7 +70,10 @@ def test_dash_prompt_is_passed_after_double_dash_on_resume(mocker, tmp_path):
     assert cmd[-3:] == ["-p", "--", "- une question"], cmd
 
 
-@pytest.mark.parametrize(("env_value", "expects_skip"), [("live", True), ("dev", False)])
+@pytest.mark.parametrize(
+    ("env_value", "expects_skip"),
+    [("prod", True), ("staging", True), ("live", True), ("dev", False)],
+)
 def test_skip_permissions_only_in_live_env(mocker, tmp_path, env_value, expects_skip):
     import asyncio
 

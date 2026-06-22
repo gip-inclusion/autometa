@@ -110,6 +110,8 @@ def test_slug_exists_fails_open_on_connection_error(monkeypatch):
     [
         ('{"tool_input": {"file_path": "/app/web/x.py"}}', "dev", 0),
         ('{"tool_input": {"file_path": "/app/web/x.py"}}', "live", 2),
+        ('{"tool_input": {"file_path": "/app/web/x.py"}}', "staging", 2),
+        ('{"tool_input": {"file_path": "/app/web/x.py"}}', "prod", 2),
         ('{"tool_input": {"file_path": "/tmp/x.py"}}', "live", 0),
         ('{"tool_input": {}}', "live", 0),
         ("not json", "live", 1),
