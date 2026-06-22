@@ -145,7 +145,9 @@ PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
 PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_URL_PROD", "https://statistiques.inclusion.gouv.fr")
 
 
-# Deployment environment: "live" on servers (Scalingo), "dev" (default) on local machines.
+# Deployment environment: "prod" (app matometa) or "staging" (app autometa-staging) on Scalingo,
+# "dev" (default) on local machines. Anything other than "dev" is a server (write-guard active,
+# agents run with --dangerously-skip-permissions). Legacy value "live" = server, prod/staging undistinguished.
 AUTOMETA_ENV = os.getenv("AUTOMETA_ENV", "dev")
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
@@ -204,7 +206,7 @@ ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KN
 
 # Sentry
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
-SENTRY_ENVIRONMENT = os.getenv("DEPLOYMENT_ENV", "prod")
+SENTRY_ENVIRONMENT = AUTOMETA_ENV
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
 SENTRY_PROFILES_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0"))
 
