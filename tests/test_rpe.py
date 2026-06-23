@@ -327,6 +327,30 @@ def test_no_baked_constants():
     assert not hasattr(rpe, "BAKED_PERMUTATION") and not hasattr(rpe, "BAKED_STRONG_NAME")
 
 
+def test_doctor_reports_stale_reason(mocker):
+    mocker.patch.object(rpe, "load_signature_row", return_value=None)
+    rep = rpe.doctor()
+    assert rep["ok"] is False and "signature" in rep["reason"].lower()
+
+
+def test_doctor_ok_when_canary_passes(mocker):
+    mocker.patch.object(
+        rpe,
+        "load_signature_row",
+        return_value={
+            "permutation": "P",
+            "strong_name": "S",
+            "policy_login": "L",
+            "policy_dash": "D",
+            "validated_at": rpe.datetime.now(rpe.timezone.utc),
+        },
+    )
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=mocker.MagicMock())
+    mocker.patch.object(rpe, "_canary_ok", return_value=True)
+    rep = rpe.doctor()
+    assert rep["ok"] is True
+
+
 def test_refresh_persists_only_on_successful_validation(mocker):
     mocker.patch.object(rpe, "ensure_schema")
     client = mocker.MagicMock()

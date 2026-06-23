@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from lib.rpe import RpeClient  # noqa: E402
+from lib.rpe import RpeClient, doctor  # noqa: E402
 
 
 def parse_dim(spec: str):
@@ -71,6 +71,7 @@ def apply_where(rows: list, wheres: list) -> list:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Requêter le tableau de bord RPE (DigDash).")
+    ap.add_argument("--doctor", action="store_true", help="diagnostic santé RPE (fraîcheur signatures + canari live)")
     ap.add_argument("--list", action="store_true", help="lister les datasets")
     ap.add_argument("--measures", metavar="DATASET", help="lister les mesures d'un dataset")
     ap.add_argument("--grep", metavar="TERME", help="filtrer --measures/--dims par sous-chaîne (id ou label)")
@@ -104,6 +105,10 @@ def main() -> None:
         help="filtre côté client sur une colonne du résultat (ex. Région_code=11), répétable.",
     )
     args = ap.parse_args()
+
+    if args.doctor:
+        print(json.dumps(doctor(), ensure_ascii=False, indent=1))
+        return
 
     client = RpeClient.connect()
     try:
