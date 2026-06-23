@@ -7,6 +7,7 @@ for static HTML/JS apps served from /interactive.
 import asyncio
 
 from fastapi import APIRouter, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
 from lib.query import CallerType, execute_query
@@ -128,11 +129,11 @@ async def query(request: Request):
         )
 
     return JSONResponse(
-        {
+        jsonable_encoder({
             "success": True,
             "data": result.data,
             "execution_time_ms": result.execution_time_ms,
-        },
+        }),
         status_code=200,
         headers=cors,
     )
