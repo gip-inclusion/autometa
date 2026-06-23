@@ -91,26 +91,35 @@ rows = c.query(
 c.close()
 ```
 
-`measures` : passer le `measure_id` exact, **ou** son libellé / une variante (la résolution est tolérante à la casse, aux apostrophes droites/courbes et aux espaces — match normalisé sur id et label ; un log `mesure résolue X → Y` confirme). Si aucune correspondance unique → valeurs de présence (1.0) + avertissement. Niveau géographique via `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département ; grains fins : explorer).
+`measures` : passer le `measure_id` exact, **ou** son libellé / une variante (la résolution est tolérante à la casse, aux apostrophes droites/courbes et aux espaces — match normalisé sur id et label ; un log `mesure résolue X → Y` confirme). Si aucune correspondance unique → valeurs de présence (1.0) + avertissement. Pour **ventiler** par niveau géo, `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département) ; pour **filtrer** sur un territoire, voir `territory=` plus bas.
 
-⚠️ **Filtrage géographique : filtrer côté client, pas côté serveur.** Le `filters=` serveur ignore le niveau hiérarchique (hardcodé level 0) → un `filters={"C_TERRITOIRE_ID": ["11"]}` renvoie des **valeurs fausses** (il matche un territoire feuille codé 11, pas la région). Méthode fiable : **ventiler par la dimension géo** (`C_TERRITOIRE_ID:1`) **et filtrer les lignes du résultat** par `member_code`/`Région_code`. En CLI, utiliser `--where`.
+**Filtrage géographique : filtre serveur `territory=(palier, codes)` au bon niveau.** La dim géo `C_TERRITOIRE_ID` est hiérarchique ; le serveur l'honore au niveau du palier (**`Région`=1, `Département`=0, `CLPE`=-1**). Passer le palier explicitement via `territory=` (lib) ou `--territory CODE:PALIER` (CLI) — ne **jamais** mettre `C_TERRITOIRE_ID` dans `filters=` (matché au niveau 0 quel que soit le code → **valeurs silencieusement fausses** ; la lib lève une `ValueError`).
 
-**Croisement multi-dimensions + filtre géo, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
+```python
+c.query("Satisfaction DE", dimensions=["D_DATESATISACCO"],
+        measures=["Taux de satisfaction des demandeurs d'emploi pour leur accompagnement %"],
+        territory=("Département", ["78"]))   # série mensuelle des Yvelines
+```
+
+C'est **le** moyen d'atteindre les cubes lourds (cf. *Limites du serveur public*) : ventiler la géo en bloc les fait timeouter, mais une requête filtrée sur **un** territoire revient en ~0–12 s.
+
+Pour une ventilation par une **autre** dimension restreinte à un territoire, combiner `--territory` (géo) et `--where` (filtre client sur le reste) reste possible ; `--where` seul (sans `--territory`) convient quand le cube est léger.
+
+**Croisement multi-dimensions filtré sur un territoire, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Accès et présence en emploi" \
-  --dim C_TERRITOIRE_ID:1 --dim C_LBLSEXE --dim C_LBLCATEGORIEAGE \
-  --measure "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %" \
-  --where "Région_code=11"
+  --territory 11:region --dim C_LBLSEXE --dim C_LBLCATEGORIEAGE \
+  --measure "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %"
 ```
-→ 8 lignes (2 sexes × 4 tranches d'âge) pour l'Île-de-France.
+→ 8 lignes (2 sexes × 4 tranches d'âge) pour l'Île-de-France — le filtre serveur restreint le calcul à la région (rapide même sur un cube lourd).
 
 **Série temporelle (évolution sur les mois)** — utiliser `--month <dim date>` (la dimension de catégorie « 2. Date », ex. `D_DATEFPRIO`, `D_DATETAETPED`). ⚠️ Indispensable : `--month` ventile par mois **et lève le filtre de période** du template (sinon la requête est figée sur le dernier mois → une seule ligne). Trouver la mesure et la dim date avec `--measures DS --grep …` et `--dims DS --grep date` :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
-  --dim C_TERRITOIRE_ID:1 --month D_DATEFPRIO \
-  --measure "Région - Entrants en formation" --where "Région_code=53"
+  --territory 53:region --month D_DATEFPRIO \
+  --measure "Région - Entrants en formation"
 ```
 → une ligne par mois pour la Bretagne (code région 53).
 
@@ -118,8 +127,8 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
-  --dim C_TERRITOIRE_ID:1 --month D_DATEFPRIO \
-  --measure "Entrant en formation (switch)" --ddvar Switch=0 --where "Région_code=53"
+  --territory 53:region --month D_DATEFPRIO \
+  --measure "Entrant en formation (switch)" --ddvar Switch=0
 ```
 
 ⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` / `rpe_measure`. La lib loggue un avertissement dans ce cas.
@@ -147,9 +156,9 @@ Puis interroger le cube avec la mesure trouvée — `query()` résout le nom de 
 Le serveur DigDash de France Travail est **public, partagé avec nos requêtes live, et il sérialise les requêtes concurrentes**. Conséquences vérifiées (juin 2026) — ne pas les redécouvrir :
 
 - **Ne PAS paralléliser le mirror.** La concurrence n'accélère rien (le serveur sérialise) ; pire, l'attente en file fait courir le timeout de lecture → **plus** de timeouts, et ça **sature le serveur au point de casser les requêtes live**. Le mirror est **séquentiel + borné en temps** (`MIRROR_BUDGET_S`, bien sous le timeout du cron) : objectif = que le cron **finisse** et libère le serveur, quitte à cacher moins.
-- **Certains cubes sont injoignables** (Accès et présence, Entrants/Sortants de formation, Délai de pourvoi, Satisfaction, Description publics…) : leur marginale complète dépasse la **limite de calcul ~60 s du serveur** (il renvoie 5xx) — en bloc **comme** par région. Aucun découpage/réessai/parallélisme n'y change quoi que ce soit. On les laisse en échec (cache précédent conservé). Ce n'est pas un bug à corriger.
+- **Certains cubes sont trop lourds pour une ventilation géo complète** (Accès et présence, Entrants/Sortants de formation, Délai de pourvoi, Satisfaction, Description publics…) : ventiler **toute** la géo en un appel dépasse la **limite de calcul ~60 s du serveur** (il renvoie 5xx). Le mirror les laisse donc en échec (cache précédent conservé) — c'est attendu, pas un bug. **Mais ces cubes restent interrogeables à la demande** : une requête filtrée sur **un seul territoire** (`territory=(palier, codes)`, cf. *Deux chemins*) ne calcule que ce territoire et revient en ~0–12 s. « Injoignable en masse » ≠ « injoignable ».
 - **Pas de raccourci « fichier statique » pour les faits.** `getFile` ne sert que le catalogue/structure (`cube_dm`), pas les valeurs de mesures ; celles-ci sont calculées en direct par `getCubeResult`.
-- **Filtre géo serveur** : `C_TERRITOIRE_ID` est honoré au niveau = `lPos` du palier (**région 1, département 0, CLPE -1**) ; le niveau 0 codé en dur renvoie des valeurs **silencieusement fausses**. Utile pour une requête live mono-région ; **inutile pour le mirror en masse** (les cubes lourds timeoutent même filtrés par région sous charge).
+- **Filtre géo serveur** : passer par `territory=(palier, codes)` (niveau honoré : **région 1, département 0, CLPE -1**). Ne pas mettre `C_TERRITOIRE_ID` dans `filters=` (niveau 0 → valeurs fausses). Mono-territoire = rapide même sur un cube lourd ; **en masse sur tous les territoires**, le serveur sérialise/sature → réservé aux requêtes ciblées, pas au mirror.
 
 ## Script
 
