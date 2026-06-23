@@ -1,7 +1,4 @@
 {
-  "scripts": {
-    "postdeploy": "./postdeploy.sh"
-  },
   "env": {
     "DEPLOYMENT_ENV": {
       "description": "Logical environment label surfaced in Datadog logs (resource.deployment.environment) and Sentry events",

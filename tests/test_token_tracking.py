@@ -52,7 +52,7 @@ def db_setup():
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, pinned_items,
-                reports, conversations, tags, schema_version
+                reports, conversations, tags
                 CASCADE;
         """)
         )
