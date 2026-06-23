@@ -3,8 +3,8 @@
     "postdeploy": "./postdeploy.sh"
   },
   "env": {
-    "DEPLOYMENT_ENV": {
-      "description": "Logical environment label surfaced in Datadog logs (resource.deployment.environment) and Sentry events",
+    "AUTOMETA_ENV": {
+      "description": "Deployment environment: prod (matometa), staging (autometa-staging), dev (default). Seeds review/one-click apps; prod and staging set it via scalingo env-set",
       "value": "staging"
     }
   }
