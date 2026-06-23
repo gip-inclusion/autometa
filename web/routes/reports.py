@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from markupsafe import Markup
 
-from web import notion
+from lib import notion
 from web.config import ADMIN_USERS
 from web.database import get_db, store
 from web.deps import get_current_user, templates

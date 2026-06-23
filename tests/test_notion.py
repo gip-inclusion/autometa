@@ -1,8 +1,4 @@
-"""Tests for Notion publishing feature.
-
-Tests markdown-to-blocks conversion, frontmatter extraction,
-the publish API endpoint, and the UI button behavior.
-"""
+"""Tests for the Notion client (lib.notion): read, markdown conversion, publish endpoint, UI button."""
 
 import pytest
 
@@ -82,7 +78,7 @@ def report_with_db_query(app):
 
 
 def test_markdown_to_blocks_strips_yaml_frontmatter():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("---\ndate: 2026-01-01\n---\n\n# Title\n")
     types = [b["type"] for b in blocks]
@@ -91,7 +87,7 @@ def test_markdown_to_blocks_strips_yaml_frontmatter():
 
 
 def test_markdown_to_blocks_headings():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("# H1\n\n## H2\n\n### H3\n")
     types = [b["type"] for b in blocks]
@@ -99,7 +95,7 @@ def test_markdown_to_blocks_headings():
 
 
 def test_markdown_to_blocks_paragraph_with_inline_formatting():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("This is **bold** and *italic* and `code`.\n")
     assert len(blocks) == 1
@@ -112,7 +108,7 @@ def test_markdown_to_blocks_paragraph_with_inline_formatting():
 
 
 def test_markdown_to_blocks_link_parsing():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("See [example](https://example.com) here.\n")
     rich = blocks[0]["paragraph"]["rich_text"]
@@ -122,7 +118,7 @@ def test_markdown_to_blocks_link_parsing():
 
 
 def test_markdown_to_blocks_code_block_with_language():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("```python\nprint('hello')\n```\n")
     assert len(blocks) == 1
@@ -132,7 +128,7 @@ def test_markdown_to_blocks_code_block_with_language():
 
 
 def test_markdown_to_blocks_mermaid_block():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("```mermaid\nflowchart TD\n    A --> B\n```\n")
     assert blocks[0]["type"] == "code"
@@ -140,7 +136,7 @@ def test_markdown_to_blocks_mermaid_block():
 
 
 def test_markdown_to_blocks_table():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     md = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n"
     blocks = markdown_to_blocks(md)
@@ -156,7 +152,7 @@ def test_markdown_to_blocks_table():
 
 
 def test_markdown_to_blocks_bullet_list():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("- one\n- two\n")
     assert len(blocks) == 2
@@ -164,7 +160,7 @@ def test_markdown_to_blocks_bullet_list():
 
 
 def test_markdown_to_blocks_numbered_list():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("1. first\n2. second\n")
     assert len(blocks) == 2
@@ -172,7 +168,7 @@ def test_markdown_to_blocks_numbered_list():
 
 
 def test_markdown_to_blocks_divider():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks("text\n\n---\n\nmore text\n")
     types = [b["type"] for b in blocks]
@@ -181,7 +177,7 @@ def test_markdown_to_blocks_divider():
 
 def test_markdown_to_blocks_full_report_block_count():
     """The sample report should produce a reasonable number of blocks."""
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     blocks = markdown_to_blocks(SAMPLE_REPORT)
     assert len(blocks) > 10
@@ -200,7 +196,7 @@ def test_markdown_to_blocks_full_report_block_count():
 
 
 def test_markdown_to_blocks_code_block_truncated_at_2000():
-    from web.notion import markdown_to_blocks
+    from lib.notion import markdown_to_blocks
 
     long_code = "x" * 3000
     blocks = markdown_to_blocks(f"```python\n{long_code}\n```\n")
@@ -209,10 +205,10 @@ def test_markdown_to_blocks_code_block_truncated_at_2000():
 
 
 def test_frontmatter_extraction_query_overrides_db_field(mocker):
-    from web.notion import publish_report
+    from lib.notion import publish_report
 
-    mocker.patch("web.notion.is_configured", return_value=True)
-    mock_req = mocker.patch("web.notion.notion_request")
+    mocker.patch("lib.notion.is_configured", return_value=True)
+    mock_req = mocker.patch("lib.notion.notion_request")
     mock_req.return_value = {"id": "abc", "url": "https://notion.so/page"}
     publish_report(
         title="Test",
@@ -226,10 +222,10 @@ def test_frontmatter_extraction_query_overrides_db_field(mocker):
 
 
 def test_frontmatter_extraction_date_overrides_argument(mocker):
-    from web.notion import publish_report
+    from lib.notion import publish_report
 
-    mocker.patch("web.notion.is_configured", return_value=True)
-    mock_req = mocker.patch("web.notion.notion_request")
+    mocker.patch("lib.notion.is_configured", return_value=True)
+    mock_req = mocker.patch("lib.notion.notion_request")
     mock_req.return_value = {"id": "abc", "url": "https://notion.so/page"}
     publish_report(
         title="Test",
@@ -242,10 +238,10 @@ def test_frontmatter_extraction_date_overrides_argument(mocker):
 
 
 def test_frontmatter_extraction_db_field_used_when_no_frontmatter(mocker):
-    from web.notion import publish_report
+    from lib.notion import publish_report
 
-    mocker.patch("web.notion.is_configured", return_value=True)
-    mock_req = mocker.patch("web.notion.notion_request")
+    mocker.patch("lib.notion.is_configured", return_value=True)
+    mock_req = mocker.patch("lib.notion.notion_request")
     mock_req.return_value = {"id": "abc", "url": "https://notion.so/page"}
     content_no_fm = "# Just a heading\n\nSome text.\n"
     publish_report(
@@ -261,7 +257,7 @@ def test_frontmatter_extraction_db_field_used_when_no_frontmatter(mocker):
 
 
 def test_publish_notion_endpoint_returns_503_when_not_configured(mocker, app, client, report):
-    mocker.patch("web.notion.is_configured", return_value=False)
+    mocker.patch("lib.notion.is_configured", return_value=False)
     resp = client.post(
         f"/api/reports/{report.id}/publish-notion",
         headers={"X-Forwarded-Email": "test@example.com"},
@@ -270,7 +266,7 @@ def test_publish_notion_endpoint_returns_503_when_not_configured(mocker, app, cl
 
 
 def test_publish_notion_endpoint_returns_404_for_missing_report(mocker, app, client):
-    mocker.patch("web.notion.is_configured", return_value=True)
+    mocker.patch("lib.notion.is_configured", return_value=True)
     resp = client.post(
         "/api/reports/99999/publish-notion",
         headers={"X-Forwarded-Email": "test@example.com"},
@@ -279,8 +275,8 @@ def test_publish_notion_endpoint_returns_404_for_missing_report(mocker, app, cli
 
 
 def test_publish_notion_endpoint_publishes_and_stores_url(mocker, app, client, report):
-    mocker.patch("web.notion.is_configured", return_value=True)
-    mock_publish = mocker.patch("web.notion.publish_report")
+    mocker.patch("lib.notion.is_configured", return_value=True)
+    mock_publish = mocker.patch("lib.notion.publish_report")
     mock_publish.return_value = ("page-id-123", "https://notion.so/My-Page-123")
     resp = client.post(
         f"/api/reports/{report.id}/publish-notion",
@@ -301,8 +297,8 @@ def test_publish_notion_endpoint_publishes_and_stores_url(mocker, app, client, r
 
 
 def test_publish_notion_endpoint_returns_500_on_error(mocker, app, client, report):
-    mocker.patch("web.notion.is_configured", return_value=True)
-    mocker.patch("web.notion.publish_report", side_effect=Exception("timeout"))
+    mocker.patch("lib.notion.is_configured", return_value=True)
+    mocker.patch("lib.notion.publish_report", side_effect=Exception("timeout"))
     resp = client.post(
         f"/api/reports/{report.id}/publish-notion",
         headers={"X-Forwarded-Email": "test@example.com"},
@@ -321,9 +317,148 @@ def test_notion_button_shows_export_button_when_no_url(app, client, report):
     assert b'href="https://notion.so' not in resp.content
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.notion.so/ws/1455f321b60480f68fb4fbab8ad1a6e9?v=1535f321b6048065ab68000cb9523310",
+        "https://app.notion.com/p/gip-inclusion/1455f321b60480f68fb4fbab8ad1a6e9",
+        "https://www.notion.so/1455f321-b604-80f6-8fb4-fbab8ad1a6e9",
+        "https://www.notion.so/Page-Title-1455f321b60480f68fb4fbab8ad1a6e9#some-block",
+    ],
+)
+def test_db_id_from_url_ignores_view_id(url):
+    from lib import notion
+
+    assert notion.db_id_from_url(url) == "1455f321-b604-80f6-8fb4-fbab8ad1a6e9"
+
+
+def test_db_id_from_url_raises_without_id():
+    from lib import notion
+
+    with pytest.raises(ValueError, match="No Notion id"):
+        notion.db_id_from_url("https://www.notion.so/no-id-here")
+
+
+def test_query_database_paginates(mocker):
+    from lib import notion
+
+    req = mocker.patch(
+        "lib.notion.notion_request",
+        side_effect=[
+            {"results": [{"id": "a"}], "has_more": True, "next_cursor": "c1"},
+            {"results": [{"id": "b"}], "has_more": False},
+        ],
+    )
+    result = notion.query_database("db1")
+
+    assert [p["id"] for p in result] == ["a", "b"]
+    assert req.call_count == 2
+    assert req.call_args_list[0][0][1] == "databases/db1/query"
+    assert req.call_args_list[1][0][2]["start_cursor"] == "c1"
+
+
+def test_notion_request_retries_on_429(mocker):
+    from lib import notion
+
+    r429 = mocker.Mock(status_code=429, headers={"Retry-After": "0"})
+    r200 = mocker.Mock(status_code=200)
+    r200.json.return_value = {"ok": True}
+    req = mocker.patch("lib.notion.httpx.request", side_effect=[r429, r200])
+    sleep = mocker.patch("lib.notion.time.sleep")
+
+    assert notion.notion_request("GET", "users/me") == {"ok": True}
+    assert req.call_count == 2
+    sleep.assert_called_once_with(0.0)
+
+
+def test_notion_request_raises_after_persistent_429(mocker):
+    from lib import notion
+
+    r429 = mocker.Mock(status_code=429, headers={"Retry-After": "0"})
+    req = mocker.patch("lib.notion.httpx.request", return_value=r429)
+    mocker.patch("lib.notion.time.sleep")
+
+    with pytest.raises(RuntimeError, match="rate-limited"):
+        notion.notion_request("GET", "users/me")
+    assert req.call_count == 4
+
+
+def test_get_block_children_recurses_into_nested(mocker):
+    from lib import notion
+
+    req = mocker.patch(
+        "lib.notion.notion_request",
+        side_effect=[
+            {"results": [{"id": "p", "type": "paragraph", "has_children": True}], "has_more": False},
+            {"results": [{"id": "c", "type": "paragraph", "has_children": False}], "has_more": False},
+        ],
+    )
+    blocks = notion.get_block_children("root")
+
+    assert [b["id"] for b in blocks] == ["p", "c"]
+    assert req.call_count == 2
+
+
+def test_extract_page_properties_maps_types():
+    from lib import notion
+
+    page = {
+        "properties": {
+            "Name": {"type": "title", "title": [{"plain_text": "Hello"}]},
+            "Notes": {"type": "rich_text", "rich_text": [{"plain_text": "abc"}]},
+            "Cat": {"type": "select", "select": {"name": "X"}},
+            "Tags": {"type": "multi_select", "multi_select": [{"name": "a"}, {"name": "b"}]},
+            "When": {"type": "date", "date": {"start": "2026-01-01"}},
+            "Empty": {"type": "select", "select": None},
+            "Rel": {"type": "relation", "relation": [{"id": "r1"}]},
+            "Score": {"type": "formula", "formula": {"type": "number", "number": 42}},
+            "Other": {"type": "checkbox", "checkbox": True},
+        }
+    }
+    assert notion.extract_page_properties(page) == {
+        "Name": "Hello",
+        "Notes": "abc",
+        "Cat": "X",
+        "Tags": ["a", "b"],
+        "When": "2026-01-01",
+        "Empty": None,
+        "Rel": ["r1"],
+        "Score": 42,
+        "Other": None,
+    }
+
+
+def test_extract_page_title():
+    from lib import notion
+
+    page = {
+        "properties": {
+            "Tags": {"type": "multi_select", "multi_select": []},
+            "Name": {"type": "title", "title": [{"plain_text": "My page"}]},
+        }
+    }
+    assert notion.extract_page_title(page) == "My page"
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        ({"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "hi"}]}}, "hi"),
+        ({"type": "child_page", "child_page": {"title": "Page"}}, "Page"),
+        ({"type": "child_database", "child_database": {"title": "DB"}}, "DB"),
+        ({"type": "caption", "caption": {"text": [{"plain_text": "cap"}]}}, "cap"),
+        ({"type": "divider", "divider": {}}, ""),
+    ],
+)
+def test_extract_block_text(block, expected):
+    from lib import notion
+
+    assert notion.extract_block_text(block) == expected
+
+
 def test_notion_button_shows_link_after_publish(mocker, app, client, report):
-    mocker.patch("web.notion.is_configured", return_value=True)
-    mock_publish = mocker.patch("web.notion.publish_report")
+    mocker.patch("lib.notion.is_configured", return_value=True)
+    mock_publish = mocker.patch("lib.notion.publish_report")
     mock_publish.return_value = ("page-id", "https://notion.so/Page-123")
     client.post(
         f"/api/reports/{report.id}/publish-notion",
