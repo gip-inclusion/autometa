@@ -4,9 +4,8 @@ import copy
 import json
 import logging
 import re
-import threading
+import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -263,7 +262,6 @@ class RpeClient:
         self.http = http
         self.permutation = permutation
         self.strong_name = strong_name
-        self._relogin_lock = threading.Lock()
         self.sid = sid or self._resolve_sid()
         self.catalog = self._load_catalog()
         self.cubeids = self._load_cubeids()
@@ -286,14 +284,10 @@ class RpeClient:
         return inst
 
     def _relogin(self) -> None:
-        stale = self.http
-        with self._relogin_lock:
-            if self.http is not stale:  # Why: another thread already re-logged in under concurrency; reuse its session
-                return
-            self.http.close()
-            self.http, self.permutation, self.strong_name = login()
-            self.sid = self._resolve_sid()
-            save_session(self.http.cookies.get("JSESSIONID"), self.sid)
+        self.http.close()
+        self.http, self.permutation, self.strong_name = login()
+        self.sid = self._resolve_sid()
+        save_session(self.http.cookies.get("JSESSIONID"), self.sid)
 
     def close(self) -> None:
         self.http.close()
@@ -405,7 +399,7 @@ class RpeClient:
         ddvars: dict | None = None,
         timeout: int = TIMEOUT,
     ) -> list[dict]:
-        """Requête getCubeResult ; lignes tidy. `filters` : valeur simple = niveau 0, ou dict {members, level} pour la géo hiérarchique."""
+        """Requête getCubeResult ; lignes tidy. `filters` = filtre serveur niveau 0 (interdit sur la géo hiérarchique — filtrer côté résultat)."""
         key = self._key(dataset)
         cubeid = self.cubeids.get(key)
         if not cubeid:
@@ -440,20 +434,18 @@ class RpeClient:
         sel["measuresToKeepHidden"] = [False] * nm
         sel["measuresToKeepHiddenLabel"] = [False] * nm
         if filters is not None:
-            # Why: valeur simple → filtre niveau 0 ; dict {"members","level"} pour la géo hiérarchique
-            # (C_TERRITOIRE_ID : level = lPos du palier — Région 1, Département 0, CLPE -1 ; un mauvais
-            # niveau renvoie des valeurs silencieusement fausses, cf. GEO_LEVELS).
-            sel["dimsToFilter"] = []
-            for d, v in filters.items():
-                members = v["members"] if isinstance(v, dict) else v
-                level = v["level"] if isinstance(v, dict) else 0
-                sel["dimsToFilter"].append({
-                    "dim": d,
-                    "hierarchy": 0,
-                    "level": level,
-                    "selectedMembers": list(members),
-                    "mode": 0,
-                })
+            # Why: le filtre serveur est codé au niveau 0 → résultat faux sur une dim géo hiérarchique.
+            # Échouer fort plutôt que renvoyer des valeurs silencieusement fausses : ventiler par la dim
+            # géo et filtrer les lignes du résultat côté client (cf. SKILL --where).
+            if "C_TERRITOIRE_ID" in filters:
+                raise ValueError(
+                    "filtre serveur non fiable sur C_TERRITOIRE_ID (dim géo hiérarchique) : "
+                    "ventiler par la dimension puis filtrer le résultat côté client"
+                )
+            sel["dimsToFilter"] = [
+                {"dim": d, "hierarchy": 0, "level": 0, "selectedMembers": list(codes), "mode": 0}
+                for d, codes in filters.items()
+            ]
         for v in sel.get("ddVars", []):
             if ddvars and v["name"] in ddvars:
                 v["cur"] = ddvars[v["name"]]
@@ -530,81 +522,40 @@ class RpeClient:
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
         return fresh, resp
 
-    def mirror(self, dimensions: list | None = None, max_workers: int = 4) -> tuple[list[dict], list[str]]:
-        """Cache des « données faciles » en parallèle borné ; les marginales géo trop lourdes sont ventilées par région."""
-        # Why: serveur public → concurrence ≤ max_workers (il sérialise de toute façon). Une marginale géo d'un cube
-        # lourd dépasse le timeout en bloc, mais filtrée sur une seule région elle revient vite : on la ventile alors
-        # par région (codes dérivés des marginales légères du 1er tour) et on concatène. Marginale temps non
-        # ventilable (le filtre région change la sémantique) → simple réessai. 5xx/parsing = définitifs.
-        tasks: list[tuple[str, str | None, dict, str | None]] = []
+    def mirror(self, dimensions: list | None = None, budget_s: float | None = None) -> tuple[list[dict], list[str]]:
+        """Cache séquentiel des « données faciles » (marginales géo + temps), borné en temps. Renvoie (lignes, échecs)."""
+        # Why: serveur public PARTAGÉ avec les requêtes live et qui SÉRIALISE les appels → séquentiel (paralléliser
+        # ne fait qu'allonger les délais et multiplier les timeouts, cf. skills/rpe/SKILL.md) et borné par budget_s,
+        # bien sous le timeout du cron : le cron FINIT et libère le serveur, quitte à cacher moins. Cube froid
+        # injoignable → échec sans réessai (le serveur ne sait pas le calculer).
+        deadline = time.monotonic() + (MIRROR_BUDGET_S if budget_s is None else budget_s)
+        rows: list[dict] = []
+        failed: list[str] = []
+        stopped = False
         for key, cat in self.catalog.items():
+            if stopped:
+                break
             if key not in self.cubeids:
                 continue
             name = cat["cubeName"]
             plan = [(None, d) for d in dimensions] if dimensions else mirror_plan(self.dimensions(name))
-            tasks.extend((name, label, spec, None) for label, spec in plan)
-
-        rows: list[dict] = []
-        failed: list[str] = []
-        batch_rows, timed_out, permanent = self._mirror_batch(tasks, max_workers)
-        rows.extend(batch_rows)
-        failed.extend(permanent)
-
-        region_codes = sorted({
-            x["member_code"] for x in batch_rows if x.get("dimension") == "Région" and x.get("member_code")
-        })
-        round2: list[tuple[str, str | None, dict, str | None]] = []
-        for task in timed_out:
-            name, label, spec, region = task
-            if label is not None and region is None and region_codes:  # marginale géo nommée → ventiler par région
-                round2.extend((name, label, spec, code) for code in region_codes)
-            else:  # marginale temps / sous-tâche déjà filtrée / pas de codes région → simple réessai
-                round2.append(task)
-        if round2:
-            batch_rows, timed_out2, permanent2 = self._mirror_batch(round2, max_workers)
-            rows.extend(batch_rows)
-            failed.extend(permanent2)
-            failed.extend(self._task_label(t) for t in timed_out2)
-
+            for label, spec in plan:
+                if time.monotonic() >= deadline:
+                    stopped = True
+                    break
+                try:
+                    r = self.query(name, [spec], timeout=MIRROR_TIMEOUT)
+                    if label:  # libellé géo canonique (Région/Département/CLPE), découplé du header serveur
+                        for x in r:
+                            x["dimension"] = label
+                    rows.extend(r)
+                except (httpx.HTTPError, KeyError) as e:
+                    failed.append(f"{name} / {label or spec.get('dim')}")
+                    logger.warning("mirror : échec %s : %s", failed[-1], e)
+        if stopped:
+            logger.warning("mirror : budget temps atteint, arrêt anticipé (serveur libéré pour les requêtes live)")
         logger.info("mirror : %d lignes, %d échecs", len(rows), len(failed))
         return rows, failed
-
-    def _mirror_batch(
-        self, tasks: list[tuple[str, str | None, dict, str | None]], max_workers: int
-    ) -> tuple[list[dict], list[tuple[str, str | None, dict, str | None]], list[str]]:
-        """Lot de tâches mirror en parallèle ; renvoie (lignes, tâches en timeout, échecs définitifs)."""
-        rows: list[dict] = []
-        timed_out: list[tuple[str, str | None, dict, str | None]] = []
-        permanent: list[str] = []
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(self._mirror_one, task): task for task in tasks}
-            for future in as_completed(futures):
-                task = futures[future]
-                try:
-                    rows.extend(future.result())
-                except httpx.TimeoutException as e:
-                    timed_out.append(task)
-                    logger.warning("mirror : timeout %s : %s", self._task_label(task), e)
-                except (httpx.HTTPError, KeyError) as e:
-                    permanent.append(self._task_label(task))
-                    logger.warning("mirror : échec %s : %s", self._task_label(task), e)
-        return rows, timed_out, permanent
-
-    def _mirror_one(self, task: tuple[str, str | None, dict, str | None]) -> list[dict]:
-        name, label, spec, region = task
-        # Why: ventilation par région = filtre serveur C_TERRITOIRE_ID au niveau région (lPos), cf. GEO_LEVELS.
-        filters = {"C_TERRITOIRE_ID": {"members": [region], "level": GEO_LEVELS["Région"]["lPos"]}} if region else None
-        r = self.query(name, [spec], filters=filters, timeout=MIRROR_TIMEOUT)
-        if label:  # libellé géo canonique (Région/Département/CLPE), découplé du header serveur
-            for x in r:
-                x["dimension"] = label
-        return r
-
-    @staticmethod
-    def _task_label(task: tuple[str, str | None, dict, str | None]) -> str:
-        name, label, spec, region = task
-        base = f"{name} / {label or spec.get('dim')}"
-        return f"{base} [{region}]" if region else base
 
     def fetch_cube_dm(self, url: str, timeout: int = TIMEOUT) -> str:
         """Télécharge un cube_dm (catalogue d'un cube) ; identifiants publics en query (cookies → 401 sur /ddenterpriseapi)."""
@@ -622,7 +573,8 @@ GEO_LEVELS = {
 }
 # Couverture géo matérialisée chaque nuit par le mirror (configurable).
 MIRROR_GEO = ["Région", "Département", "CLPE"]
-MIRROR_TIMEOUT = 45  # borne par appel mirror (cube froid ~1-20s), pour ne pas faire exploser le budget cron
+MIRROR_TIMEOUT = 30  # fail-fast par appel (cube froid > ~20s = injoignable côté serveur) ; pas de réessai
+MIRROR_BUDGET_S = 360  # borne globale du mirror, bien sous le timeout cron (600s) : il s'arrête et persiste ce qu'il a
 
 
 def mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:

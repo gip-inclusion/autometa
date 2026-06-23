@@ -140,7 +140,16 @@ Puis interroger le cube avec la mesure trouvée — `query()` résout le nom de 
 
 - En cache : instantané (SQL local).
 - À la demande, cube déjà calculé côté serveur : ~30 ms.
-- À la demande, **nouveau** croisement (cache serveur froid) : **1 à 20 s** au premier appel, puis ~30 ms. Pour de gros balayages, rester séquentiel ou ≤4 en parallèle (serveur public).
+- À la demande, **nouveau** croisement (cache serveur froid) : **1 à 20 s** au premier appel, puis ~30 ms.
+
+## Limites du serveur public (à lire avant de « optimiser » le mirror)
+
+Le serveur DigDash de France Travail est **public, partagé avec nos requêtes live, et il sérialise les requêtes concurrentes**. Conséquences vérifiées (juin 2026) — ne pas les redécouvrir :
+
+- **Ne PAS paralléliser le mirror.** La concurrence n'accélère rien (le serveur sérialise) ; pire, l'attente en file fait courir le timeout de lecture → **plus** de timeouts, et ça **sature le serveur au point de casser les requêtes live**. Le mirror est **séquentiel + borné en temps** (`MIRROR_BUDGET_S`, bien sous le timeout du cron) : objectif = que le cron **finisse** et libère le serveur, quitte à cacher moins.
+- **Certains cubes sont injoignables** (Accès et présence, Entrants/Sortants de formation, Délai de pourvoi, Satisfaction, Description publics…) : leur marginale complète dépasse la **limite de calcul ~60 s du serveur** (il renvoie 5xx) — en bloc **comme** par région. Aucun découpage/réessai/parallélisme n'y change quoi que ce soit. On les laisse en échec (cache précédent conservé). Ce n'est pas un bug à corriger.
+- **Pas de raccourci « fichier statique » pour les faits.** `getFile` ne sert que le catalogue/structure (`cube_dm`), pas les valeurs de mesures ; celles-ci sont calculées en direct par `getCubeResult`.
+- **Filtre géo serveur** : `C_TERRITOIRE_ID` est honoré au niveau = `lPos` du palier (**région 1, département 0, CLPE -1**) ; le niveau 0 codé en dur renvoie des valeurs **silencieusement fausses**. Utile pour une requête live mono-région ; **inutile pour le mirror en masse** (les cubes lourds timeoutent même filtrés par région sous charge).
 
 ## Script
 
