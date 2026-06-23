@@ -4,13 +4,13 @@ import copy
 import json
 import logging
 import re
-import time
 from collections import defaultdict
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import ARRAY, Column, DateTime, Float, Integer, MetaData, String, Table, delete, insert, select, text
+from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, String, Table, delete, insert, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -23,7 +23,9 @@ from lib.rpe_gwt import (
     flowsview_header,
     parse_charts,
     parse_cube_dm,
+    render_gwt,
 )
+from web import config
 from web.alerts import notify_alert_channel
 from web.config import RPE_PUBLIC_PASS
 from web.db import get_engine
@@ -38,12 +40,8 @@ PUBLIC_PASS = RPE_PUBLIC_PASS
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36"
 REFERER = BASE + "/index.html?domain=ddenterpriseapi&user=public&pass=" + quote(PUBLIC_PASS, safe="")
 TIMEOUT = 60
-SCHEMA = "matometa"
+SCHEMA = "dashboard_storage"
 SESSION_TTL_S = 1200  # < 30 min Tomcat idle ; un 403 déclenche de toute façon un re-login
-
-# Valeurs liées au build GWT, re-scrapables en cas d'échec de login (cf. _scrape_builds).
-BAKED_PERMUTATION = "2D1551B7C160B162D34A4CD10515557B"
-BAKED_STRONG_NAME = "B28E527AF46D9C6155A876F4769EC2F4"
 
 _SID_RE = re.compile(r"4c9184f37cff01[0-9a-f]+")
 CUBE_RE = re.compile(r"[0-9a-f]{32}_[0-9a-f]{32}_[0-9a-f]+_[0-9]{13}")
@@ -54,61 +52,87 @@ class RpeLoginError(RuntimeError):
     """Login RPE impossible (identifiants ou valeurs de build GWT obsolètes)."""
 
 
+@dataclass
+class Signatures:
+    permutation: str
+    strong_name: str
+    policy_login: str
+    policy_dash: str
+    public_pass: str
+
+
+def load_signature_row() -> dict | None:
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            if not eng.dialect.has_table(conn, "rpe_signature", schema=SCHEMA):
+                return None
+            row = conn.execute(select(rpe_signature).where(rpe_signature.c.id == 1)).mappings().first()
+    except SQLAlchemyError as e:
+        logger.warning("RPE : lecture signature DB impossible (%s)", e)
+        return None
+    return dict(row) if row else None
+
+
+def store_signature(sigs: Signatures, sid: str | None, jsessionid: str | None, bundle_nocache: str | None) -> None:
+    payload = {
+        "id": 1,
+        "permutation": sigs.permutation,
+        "strong_name": sigs.strong_name,
+        "policy_login": sigs.policy_login,
+        "policy_dash": sigs.policy_dash,
+        "sid": sid,
+        "jsessionid": jsessionid,
+        "bundle_nocache": bundle_nocache,
+        "validated_at": datetime.now(timezone.utc),
+    }
+    stmt = pg_insert(rpe_signature).values(payload)
+    stmt = stmt.on_conflict_do_update(index_elements=["id"], set_={k: payload[k] for k in payload if k != "id"})
+    with get_engine().begin() as conn:
+        conn.execute(stmt)
+
+
+def load_signatures() -> Signatures:
+    """Signatures GWT : DB d'abord (dashboard_storage.rpe_signature), repli ENV. Mot de passe toujours depuis l'ENV."""
+    row = load_signature_row()
+    if row and all(row.get(k) for k in ("permutation", "strong_name", "policy_login", "policy_dash")):
+        return Signatures(
+            row["permutation"], row["strong_name"], row["policy_login"], row["policy_dash"], config.RPE_PUBLIC_PASS
+        )
+    return Signatures(
+        config.RPE_PERMUTATION,
+        config.RPE_STRONG_NAME,
+        config.RPE_POLICY_LOGIN,
+        config.RPE_POLICY_DASH,
+        config.RPE_PUBLIC_PASS,
+    )
+
+
 _metadata = MetaData(schema=SCHEMA)
-rpe_dataset = Table(
-    "rpe_dataset",
-    _metadata,
-    Column("cube_key", String, primary_key=True),
-    Column("name", String),
-    Column("cube_id", String),
-)
-rpe_dimension = Table(
-    "rpe_dimension",
-    _metadata,
-    Column("dataset", String, primary_key=True),
-    Column("dim_id", String, primary_key=True),
-    Column("name", String),
-    Column("category", String),
-    Column("caption_dim", String),
-    Column("n_members", Integer),
-)
-rpe_measure = Table(
-    "rpe_measure",
-    _metadata,
-    Column("dataset", String, primary_key=True),
-    Column("measure_id", String, primary_key=True),
-    Column("label", String),
-)
-rpe_fact = Table(
-    "rpe_fact",
-    _metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("dataset", String),
-    Column("measure", String),
-    Column("measure_id", String),
-    Column("period", String),
-    Column("dimension", String),
-    Column("member_code", String),
-    Column("member_label", String),
-    Column("value", Float),
-)
-rpe_session = Table(
-    "rpe_session",
+rpe_signature = Table(
+    "rpe_signature",
     _metadata,
     Column("id", Integer, primary_key=True),
-    Column("jsessionid", String),
+    Column("permutation", String),
+    Column("strong_name", String),
+    Column("policy_login", String),
+    Column("policy_dash", String),
     Column("sid", String),
-    Column("created_at", DateTime(timezone=True)),
+    Column("jsessionid", String),
+    Column("bundle_nocache", String),
+    Column("validated_at", DateTime(timezone=True)),
 )
-rpe_chart = Table(
-    "rpe_chart",
+rpe_toc = Table(
+    "rpe_toc",
     _metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("chart_title", String),
-    Column("cube_key", String),
-    Column("cube_name", String),
-    Column("measures_shown", ARRAY(String)),
-    Column("dims_shown", ARRAY(String)),
+    Column("cube_key", String, primary_key=True),
+    Column("cube_id", String),
+    Column("name", String),
+    Column("measures", JSON),
+    Column("dimensions", JSON),
+    Column("territory_codes", JSON),
+    Column("charts", JSON),
+    Column("refreshed_at", DateTime(timezone=True)),
 )
 
 
@@ -117,39 +141,6 @@ def ensure_schema() -> None:
     with eng.begin() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
     _metadata.create_all(eng)
-
-
-def load_cached_session() -> tuple[str, str] | None:
-    """Renvoie (jsessionid, sid) en cache si frais (< SESSION_TTL_S), sinon None."""
-    try:
-        eng = get_engine()
-        with eng.connect() as conn:
-            if not eng.dialect.has_table(conn, "rpe_session", schema=SCHEMA):
-                return None
-            row = conn.execute(select(rpe_session).order_by(rpe_session.c.created_at.desc()).limit(1)).first()
-    except SQLAlchemyError as e:
-        logger.warning("RPE : lecture session en cache impossible (%s)", e)
-        return None
-    if not row or not row.jsessionid:
-        return None
-    age = (datetime.now(timezone.utc) - row.created_at).total_seconds()
-    if age > SESSION_TTL_S:
-        return None
-    return row.jsessionid, row.sid
-
-
-def save_session(jsessionid: str | None, sid: str | None) -> None:
-    if not jsessionid:
-        return
-    try:
-        with get_engine().begin() as conn:
-            conn.execute(delete(rpe_session))
-            conn.execute(
-                insert(rpe_session),
-                [{"id": 1, "jsessionid": jsessionid, "sid": sid, "created_at": datetime.now(timezone.utc)}],
-            )
-    except SQLAlchemyError as e:  # cache best-effort : le login reste valide sans persistance
-        logger.warning("RPE : mise en cache de la session impossible (%s)", e)
 
 
 def _gwt_headers(permutation: str) -> dict:
@@ -167,17 +158,23 @@ def _ok(resp: httpx.Response) -> bool:
     return resp.status_code == 200 and resp.text.startswith("//OK")
 
 
-def _attempt_login(permutation: str, strong_name: str, timeout: int = TIMEOUT) -> httpx.Client | None:
+def _attempt_login(sigs: Signatures, timeout: int = TIMEOUT) -> httpx.Client | None:
     client = httpx.Client(headers={"User-Agent": UA}, timeout=timeout)
-    headers = _gwt_headers(permutation)
+    headers = _gwt_headers(sigs.permutation)
 
     def gwt(payload: str) -> httpx.Response:
-        body = payload.replace(BAKED_STRONG_NAME, strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
+        body = render_gwt(
+            payload,
+            strong_name=sigs.strong_name,
+            policy_login=sigs.policy_login,
+            policy_dash=sigs.policy_dash,
+            public_pass=sigs.public_pass,
+        )
         return client.post(MODULE + "dash", content=body, headers=headers, timeout=timeout)
 
     settings = gwt(GWT["getUserSettings"])
-    login = gwt(GWT["login"])
-    if _ok(settings) and _ok(login):
+    login_resp = gwt(GWT["login"])
+    if _ok(settings) and _ok(login_resp):
         return client
     client.close()
     return None
@@ -201,28 +198,29 @@ def _scrape_builds() -> list[tuple[str, str]]:
     return pairs
 
 
-def login() -> tuple[httpx.Client, str, str]:
-    """Session authentifiée (httpx) + le couple (permutation, strong_name) retenu ; re-scrape et réessaie si échec."""
-    client = _attempt_login(BAKED_PERMUTATION, BAKED_STRONG_NAME)
+def login(sigs: Signatures) -> tuple[httpx.Client, Signatures]:
+    """Session authentifiée (httpx) + les Signatures retenues ; re-scrape permutation/strong_name et réessaie si échec."""
+    client = _attempt_login(sigs)
     if client is not None:
-        return client, BAKED_PERMUTATION, BAKED_STRONG_NAME
-    logger.warning("RPE login échoué avec les valeurs de build par défaut, re-scraping en cours")
+        return client, sigs
+    logger.warning("RPE login échoué avec les signatures courantes, re-scraping en cours")
     for permutation, strong_name in _scrape_builds():
-        client = _attempt_login(permutation, strong_name)
+        candidate = replace(sigs, permutation=permutation, strong_name=strong_name)
+        client = _attempt_login(candidate)
         if client is not None:
             logger.info("RPE login réussi via build re-scrapé permutation=%s", permutation)
-            return client, permutation, strong_name
+            return client, candidate
     raise RpeLoginError("login impossible — identifiants ou valeurs de build GWT (strong-name/permutation) obsolètes")
 
 
 def check_connectivity(timeout: int = TIMEOUT) -> tuple[bool, str]:
-    """Connectivité RPE avec les valeurs de build par défaut, sans re-scrape (pour le selftest)."""
+    """Connectivité RPE avec les signatures courantes, sans re-scrape (pour le selftest)."""
     try:
-        client = _attempt_login(BAKED_PERMUTATION, BAKED_STRONG_NAME, timeout=timeout)
+        client = _attempt_login(load_signatures(), timeout=timeout)
     except httpx.HTTPError as e:
         return False, f"injoignable : {e}"
     if client is None:
-        return False, "login refusé (valeurs de build par défaut périmées ?)"
+        return False, "login refusé (signatures GWT périmées ?)"
     client.close()
     return True, "login OK"
 
@@ -252,56 +250,67 @@ def norm(s: str) -> str:
 class RpeClient:
     """Session RPE authentifiée : requêtes getCubeResult arbitraires + rafraîchissement catalogue."""
 
-    def __init__(
-        self,
-        http: httpx.Client,
-        permutation: str = BAKED_PERMUTATION,
-        strong_name: str = BAKED_STRONG_NAME,
-        sid: str | None = None,
-    ):
+    def __init__(self, http: httpx.Client, sigs: Signatures, sid: str | None = None):
         self.http = http
-        self.permutation = permutation
-        self.strong_name = strong_name
+        self.sigs = sigs
         self.sid = sid or self._resolve_sid()
+        self.bundle_nocache = None
         self.catalog = self._load_catalog()
         self.cubeids = self._load_cubeids()
 
     @classmethod
     def connect(cls) -> "RpeClient":
         """Réutilise la session en cache si fraîche, sinon login httpx (un 403 ultérieur relance un login)."""
-        cached = load_cached_session()
-        if cached:
-            jsessionid, sid = cached
-            http = httpx.Client(
-                headers={"User-Agent": UA},
-                cookies={"JSESSIONID": jsessionid, "digdashSessionId": sid or ""},
-                timeout=TIMEOUT,
+        sigs = load_signatures()
+        row = load_signature_row()
+        if row and row.get("jsessionid"):
+            age = (
+                (datetime.now(timezone.utc) - row["validated_at"]).total_seconds() if row.get("validated_at") else None
             )
-            return cls(http, sid=sid)
-        http, permutation, strong_name = login()
-        inst = cls(http, permutation, strong_name)
-        save_session(http.cookies.get("JSESSIONID"), inst.sid)
+            if age is not None and age <= SESSION_TTL_S:
+                http = httpx.Client(
+                    headers={"User-Agent": UA},
+                    cookies={"JSESSIONID": row["jsessionid"], "digdashSessionId": row.get("sid") or ""},
+                    timeout=TIMEOUT,
+                )
+                return cls(http, sigs, sid=row.get("sid"))
+        http, sigs = login(sigs)
+        inst = cls(http, sigs)
+        store_signature(sigs, inst.sid, http.cookies.get("JSESSIONID"), inst.bundle_nocache)
         return inst
 
     def _relogin(self) -> None:
         self.http.close()
-        self.http, self.permutation, self.strong_name = login()
+        self.http, self.sigs = login(self.sigs)
         self.sid = self._resolve_sid()
-        save_session(self.http.cookies.get("JSESSIONID"), self.sid)
+        store_signature(self.sigs, self.sid, self.http.cookies.get("JSESSIONID"), self.bundle_nocache)
 
     def close(self) -> None:
         self.http.close()
 
     def _prep(self, payload: str) -> str:
-        """Substitue le strong-name courant (re-scrapé au besoin) + le sid dans un payload GWT."""
-        return _SID_RE.sub(self.sid or "", payload.replace(BAKED_STRONG_NAME, self.strong_name))
+        """Substitue les signatures GWT courantes (re-scrapées au besoin) + le sid dans un payload GWT."""
+        rendered = render_gwt(
+            payload,
+            strong_name=self.sigs.strong_name,
+            policy_login=self.sigs.policy_login,
+            policy_dash=self.sigs.policy_dash,
+            public_pass=self.sigs.public_pass,
+        )
+        return _SID_RE.sub(self.sid or "", rendered)
 
     def _resolve_sid(self) -> str | None:
         sid = self.http.cookies.get("digdashSessionId")
         if sid:
             return sid
-        body = GWT["getUserSettings"].replace(BAKED_STRONG_NAME, self.strong_name).replace("__RPE_PASS__", PUBLIC_PASS)
-        r = self.http.post(MODULE + "dash", content=body, headers=_gwt_headers(self.permutation), timeout=TIMEOUT)
+        body = render_gwt(
+            GWT["getUserSettings"],
+            strong_name=self.sigs.strong_name,
+            policy_login=self.sigs.policy_login,
+            policy_dash=self.sigs.policy_dash,
+            public_pass=self.sigs.public_pass,
+        )
+        r = self.http.post(MODULE + "dash", content=body, headers=_gwt_headers(self.sigs.permutation), timeout=TIMEOUT)
         m = _SID_RE.search(r.text)
         if not m:
             logger.warning(
@@ -311,45 +320,11 @@ class RpeClient:
         return m.group(0)
 
     def _load_cubeids(self) -> dict:
-        cubeids = {}
-        try:
-            eng = get_engine()
-            with eng.connect() as conn:
-                if eng.dialect.has_table(conn, "rpe_dataset", schema=SCHEMA):
-                    for row in conn.execute(select(rpe_dataset.c.cube_key, rpe_dataset.c.cube_id)):
-                        if row.cube_id:
-                            cubeids[row.cube_key] = row.cube_id
-        except SQLAlchemyError as e:
-            logger.warning("RPE : cubeIds DB indisponibles (%s)", e)
-        return cubeids
+        return catalog_from_toc()[1]
 
     def _load_catalog(self) -> dict:
-        """Catalogue {cube_key: {cubeName, dimensions, measures}} depuis la DB (vide tant que le cron n'a pas tourné)."""
-        catalog: dict = {}
-        try:
-            eng = get_engine()
-            with eng.connect() as conn:
-                if not eng.dialect.has_table(conn, "rpe_dataset", schema=SCHEMA):
-                    return catalog
-                names = {r.cube_key: r.name for r in conn.execute(select(rpe_dataset.c.cube_key, rpe_dataset.c.name))}
-                dims: dict[str, list] = defaultdict(list)
-                for r in conn.execute(select(rpe_dimension)):
-                    dims[r.dataset].append({
-                        "id": r.dim_id,
-                        "name": r.name,
-                        "category": r.category,
-                        "captionDim": r.caption_dim,
-                        "nbMembers": r.n_members,
-                    })
-                meas: dict[str, list] = defaultdict(list)
-                for r in conn.execute(select(rpe_measure)):
-                    meas[r.dataset].append({"id": r.measure_id, "label": r.label})
-        except SQLAlchemyError as e:
-            logger.warning("RPE : catalogue DB indisponible (%s)", e)
-            return catalog
-        for cube_key, name in names.items():
-            catalog[cube_key] = {"cubeName": name, "dimensions": dims.get(name, []), "measures": meas.get(name, [])}
-        return catalog
+        """Catalogue {cube_key: {cubeName, dimensions, measures}} depuis la TOC (vide tant que le cron n'a pas tourné)."""
+        return catalog_from_toc()[0]
 
     def _key(self, dataset: str) -> str:
         if dataset in self.catalog:
@@ -487,12 +462,15 @@ class RpeClient:
 
     def _gwt(self, payload: str) -> str:
         r = self.http.post(
-            MODULE + "dash", content=self._prep(payload), headers=_gwt_headers(self.permutation), timeout=TIMEOUT
+            MODULE + "dash", content=self._prep(payload), headers=_gwt_headers(self.sigs.permutation), timeout=TIMEOUT
         )
         if not _ok(r):  # session/build périmé → re-login (re-scrape éventuel) puis nouvel essai
             self._relogin()
             r = self.http.post(
-                MODULE + "dash", content=self._prep(payload), headers=_gwt_headers(self.permutation), timeout=TIMEOUT
+                MODULE + "dash",
+                content=self._prep(payload),
+                headers=_gwt_headers(self.sigs.permutation),
+                timeout=TIMEOUT,
             )
         return r.text if r.status_code == 200 else ""
 
@@ -534,41 +512,6 @@ class RpeClient:
         logger.info("refresh_catalog : %d cubeIds rafraîchis", len(fresh))
         return fresh, resp
 
-    def mirror(self, dimensions: list | None = None, budget_s: float | None = None) -> tuple[list[dict], list[str]]:
-        """Cache séquentiel des « données faciles » (marginales géo + temps), borné en temps. Renvoie (lignes, échecs)."""
-        # Why: serveur public PARTAGÉ avec les requêtes live et qui SÉRIALISE les appels → séquentiel (paralléliser
-        # ne fait qu'allonger les délais et multiplier les timeouts, cf. skills/rpe/SKILL.md) et borné par budget_s,
-        # bien sous le timeout du cron : le cron FINIT et libère le serveur, quitte à cacher moins. Cube froid
-        # injoignable → échec sans réessai (le serveur ne sait pas le calculer).
-        deadline = time.monotonic() + (MIRROR_BUDGET_S if budget_s is None else budget_s)
-        rows: list[dict] = []
-        failed: list[str] = []
-        stopped = False
-        for key, cat in self.catalog.items():
-            if stopped:
-                break
-            if key not in self.cubeids:
-                continue
-            name = cat["cubeName"]
-            plan = [(None, d) for d in dimensions] if dimensions else mirror_plan(self.dimensions(name))
-            for label, spec in plan:
-                if time.monotonic() >= deadline:
-                    stopped = True
-                    break
-                try:
-                    r = self.query(name, [spec], timeout=MIRROR_TIMEOUT)
-                    if label:  # libellé géo canonique (Région/Département/CLPE), découplé du header serveur
-                        for x in r:
-                            x["dimension"] = label
-                    rows.extend(r)
-                except (httpx.HTTPError, KeyError) as e:
-                    failed.append(f"{name} / {label or spec.get('dim')}")
-                    logger.warning("mirror : échec %s : %s", failed[-1], e)
-        if stopped:
-            logger.warning("mirror : budget temps atteint, arrêt anticipé (serveur libéré pour les requêtes live)")
-        logger.info("mirror : %d lignes, %d échecs", len(rows), len(failed))
-        return rows, failed
-
     def fetch_cube_dm(self, url: str, timeout: int = TIMEOUT) -> str:
         """Télécharge un cube_dm (catalogue d'un cube) ; identifiants publics en query (cookies → 401 sur /ddenterpriseapi)."""
         full = HOST + url + "&user=public&pass=" + quote(PUBLIC_PASS, safe="")
@@ -583,49 +526,39 @@ GEO_LEVELS = {
     "Département": {"dim": "C_TERRITOIRE_ID", "hPos": 0, "lPos": 0},  # ~111
     "CLPE": {"dim": "C_TERRITOIRE_ID", "hPos": -1, "lPos": -1},  # ~363 (territoire feuille)
 }
-# Couverture géo matérialisée chaque nuit par le mirror (configurable).
+# Paliers géographiques dérivés pour la TOC (codes par niveau de C_TERRITOIRE_ID).
 MIRROR_GEO = ["Région", "Département", "CLPE"]
-MIRROR_TIMEOUT = 30  # fail-fast par appel (cube froid > ~20s = injoignable côté serveur) ; pas de réessai
-MIRROR_BUDGET_S = 360  # borne globale du mirror, bien sous le timeout cron (600s) : il s'arrête et persiste ce qu'il a
 
 
-def mirror_plan(dims: list[dict]) -> list[tuple[str | None, dict]]:
-    """Plan de ventilation du mirror : (libellé canonique | None, spec de dimension). Géo nommée, temps brut."""
-    has_terr = any(d["id"] == "C_TERRITOIRE_ID" for d in dims)
-    plan: list[tuple[str | None, dict]] = [(g, GEO_LEVELS[g]) for g in MIRROR_GEO] if has_terr else []
-    # Why: `time` n'est présent que sur le catalogue fraîchement dérivé (refresh) ; le mirror tourne
-    # toujours sur ce catalogue-là, jamais sur celui rechargé de la DB (qui n'a pas la colonne time).
-    plan += [
-        (None, {"dim": d["id"], "hPos": 0, "lPos": 0, "format": {"id": "Mois Annee"}})
-        for d in dims
-        if d.get("time") and d["id"].startswith("D_DATE")
-    ]
-    return plan
-
-
-def build_catalog(client: RpeClient, flows_response: str) -> tuple[dict, int]:
-    """Catalogue {cube_key: {cubeName, dimensions, measures}} httpx + nb de cube_dm en échec (dims via cube_dm, mesures via graphes ; DDAudit exclus)."""
+def build_toc(client: RpeClient, flows_response: str) -> list[dict]:
+    """TOC (un dict par dataset, forme rpe_toc) : dims via cube_dm, mesures + graphes via getFlowsView ; DDAudit exclus."""
+    charts_by_cube: dict[str, list] = defaultdict(list)
     measures_by_cube: dict[str, list] = defaultdict(list)
     seen: dict[str, set] = defaultdict(set)
     for ch in parse_charts(flows_response):
+        charts_by_cube[ch["cube_key"]].append(ch)
         for m in ch["measures_shown"]:
             if m not in seen[ch["cube_key"]]:
                 seen[ch["cube_key"]].add(m)
                 measures_by_cube[ch["cube_key"]].append({"id": m, "label": m})
-    catalog: dict = {}
+    cubeids = {cube.split("_")[0]: cube for cube in CUBE_RE.findall(flows_response)}
+    rows: list[dict] = []
     failed = 0
     for cube_key, url in cube_dm_urls(flows_response).items():
         try:
             parsed = parse_cube_dm(client.fetch_cube_dm(url))
         except httpx.HTTPError as e:  # Why: ne pas logger e (l'URL porte le mot de passe public en clair)
             failed += 1
-            logger.warning("build_catalog : cube_dm %s injoignable (%s)", cube_key, type(e).__name__)
+            logger.warning("build_toc : cube_dm %s injoignable (%s)", cube_key, type(e).__name__)
             continue
         name = parsed["cube_name"]
         if not name or name.startswith("DDAudit"):  # cubes d'audit DigDash internes
             continue
-        catalog[cube_key] = {
-            "cubeName": name,
+        rows.append({
+            "cube_key": cube_key,
+            "cube_id": cubeids.get(cube_key),
+            "name": name,
+            "measures": measures_by_cube.get(cube_key, []),
             "dimensions": [
                 {
                     "id": d["id"],
@@ -637,97 +570,98 @@ def build_catalog(client: RpeClient, flows_response: str) -> tuple[dict, int]:
                 }
                 for d in parsed["dimensions"]
             ],
-            "measures": measures_by_cube.get(cube_key, []),
-        }
-    logger.info("build_catalog : %d datasets (hors DDAudit), %d cube_dm en échec", len(catalog), failed)
-    return catalog, failed
+            "territory_codes": {},
+            "charts": charts_by_cube.get(cube_key, []),
+        })
+    logger.info("build_toc : %d datasets (hors DDAudit), %d cube_dm en échec", len(rows), failed)
+    return rows
 
 
-def store_catalog(fresh_cubeids: dict, catalog: dict) -> int:
-    """Remplacement complet du catalogue (dataset/dimension/measure). Catalogue vide → no-op (cache conservé)."""
-    if not catalog:
-        logger.warning("store_catalog : catalogue vide, cache inchangé")
+def store_toc(rows: list[dict]) -> int:
+    """Remplacement complet de rpe_toc avec refreshed_at=now. TOC vide → no-op (cache conservé)."""
+    if not rows:
+        logger.warning("store_toc : TOC vide, cache inchangé")
         return 0
-    eng = get_engine()
-    with eng.begin() as conn:
-        conn.execute(delete(rpe_dataset))
-        conn.execute(delete(rpe_dimension))
-        conn.execute(delete(rpe_measure))
-        conn.execute(
-            insert(rpe_dataset),
-            [{"cube_key": k, "name": c["cubeName"], "cube_id": fresh_cubeids.get(k)} for k, c in catalog.items()],
-        )
-        dims = [
-            {
-                "dataset": c["cubeName"],
-                "dim_id": d["id"],
-                "name": d["name"],
-                "category": d.get("category"),
-                "caption_dim": d.get("captionDim"),
-                "n_members": d.get("nbMembers"),
-            }
-            for c in catalog.values()
-            for d in c["dimensions"]
-        ]
-        if dims:
-            conn.execute(insert(rpe_dimension), dims)
-        meas = [
-            {"dataset": c["cubeName"], "measure_id": m["id"], "label": m["label"]}
-            for c in catalog.values()
-            for m in c["measures"]
-        ]
-        if meas:
-            conn.execute(insert(rpe_measure), meas)
-    return len(catalog)
-
-
-def update_measure_labels(rows: list[dict]) -> int:
-    """Rafraîchit les libellés de mesures (id→label) à partir des réponses getCubeResult (axis[0])."""
-    pairs = {(r["dataset"], r["measure_id"]): r["measure"] for r in rows if r.get("measure_id")}
-    if not pairs:
-        return 0
-    payload = [{"dataset": d, "measure_id": mid, "label": label} for (d, mid), label in pairs.items()]
-    stmt = pg_insert(rpe_measure).values(payload)
-    stmt = stmt.on_conflict_do_update(index_elements=["dataset", "measure_id"], set_={"label": stmt.excluded.label})
-    with get_engine().begin() as conn:
-        conn.execute(stmt)
-    return len(payload)
-
-
-def store_facts(rows: list[dict]) -> int:
-    """Remplacement complet de `rpe_fact` si le mirror a produit des données (sinon on garde le cache précédent)."""
-    cols = ("dataset", "measure", "measure_id", "period", "dimension", "member_code", "member_label", "value")
-    payload = [{c: r.get(c) for c in cols} for r in rows if "member_code" in r]
-    if not payload:  # mirror vide → ne pas vider le cache
-        return 0
-    with get_engine().begin() as conn:
-        conn.execute(delete(rpe_fact))  # remplacement complet : aucune donnée périmée conservée
-        conn.execute(insert(rpe_fact), payload)
-    return len(payload)
-
-
-def store_charts(records: list[dict], cube_names: dict) -> int:
-    """Remplacement complet de `rpe_chart` (sinon on garde le cache). cube_names : {cube_key: cubeName}."""
-    if not records:  # parse vide → ne pas vider le cache
-        return 0
+    now = datetime.now(timezone.utc)
     payload = [
         {
-            "chart_title": r["chart_title"],
             "cube_key": r["cube_key"],
-            "cube_name": cube_names.get(r["cube_key"]),
-            "measures_shown": r["measures_shown"],
-            "dims_shown": r["dims_shown"],
+            "cube_id": r.get("cube_id"),
+            "name": r["name"],
+            "measures": r.get("measures", []),
+            "dimensions": r.get("dimensions", []),
+            "territory_codes": r.get("territory_codes", {}),
+            "charts": r.get("charts", []),
+            "refreshed_at": now,
         }
-        for r in records
+        for r in rows
     ]
     with get_engine().begin() as conn:
-        conn.execute(delete(rpe_chart))
-        conn.execute(insert(rpe_chart), payload)
+        conn.execute(delete(rpe_toc))
+        conn.execute(insert(rpe_toc), payload)
     return len(payload)
+
+
+def load_toc_rows() -> list[dict]:
+    """Lignes brutes de rpe_toc (vide tant que le cron n'a pas tourné)."""
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            if not eng.dialect.has_table(conn, "rpe_toc", schema=SCHEMA):
+                return []
+            return [dict(r) for r in conn.execute(select(rpe_toc)).mappings()]
+    except SQLAlchemyError as e:
+        logger.warning("RPE : TOC DB indisponible (%s)", e)
+        return []
+
+
+def catalog_from_toc() -> tuple[dict, dict]:
+    """Reconstruit (catalogue {cube_key: {cubeName, dimensions, measures}}, cubeids {cube_key: cube_id}) depuis rpe_toc."""
+    catalog: dict = {}
+    cubeids: dict = {}
+    for r in load_toc_rows():
+        catalog[r["cube_key"]] = {
+            "cubeName": r["name"],
+            "dimensions": r.get("dimensions") or [],
+            "measures": r.get("measures") or [],
+        }
+        if r.get("cube_id"):
+            cubeids[r["cube_key"]] = r["cube_id"]
+    return catalog, cubeids
+
+
+def territory_codes(client: RpeClient, dataset: str) -> dict:
+    """Codes de territoire par palier (Région/Département/CLPE) d'un dataset géo ; un palier en échec → liste vide."""
+    measures = client.measures(dataset)
+    if not measures:
+        return {g: [] for g in MIRROR_GEO}
+    first = measures[0]["id"]
+    out: dict[str, list] = {}
+    for g in MIRROR_GEO:
+        try:
+            rows = client.query(dataset, [GEO_LEVELS[g]], measures=[first])
+            out[g] = [r["member_code"] for r in rows if r.get("member_code")]
+        except (httpx.HTTPError, KeyError) as e:
+            logger.warning("territory_codes : %s / %s en échec (%s)", dataset, g, type(e).__name__)
+            out[g] = []
+    return out
+
+
+def _has_territory(row: dict) -> bool:
+    return any(d.get("id") == "C_TERRITOIRE_ID" for d in row.get("dimensions") or [])
+
+
+def _canary_ok(client: RpeClient) -> bool:
+    """Canari live : un appel GWT léger valide la chaîne signatures/session de bout en bout."""
+    try:
+        return bool(client._gwt(GWT["getUserParams"]))
+    except httpx.HTTPError as e:
+        logger.warning("RPE canary : appel live en échec (%s)", type(e).__name__)
+        return False
 
 
 def refresh() -> dict:
-    """Point d'entrée cron : login → catalogue → cache données faciles → persistance matometa. Alerte en cas d'échec."""
+    """Cron : recouvre+valide les signatures GWT puis reconstruit la TOC dans dashboard_storage. Alerte si échec."""
     ensure_schema()
     try:
         client = RpeClient.connect()
@@ -735,42 +669,25 @@ def refresh() -> dict:
         notify_alert_channel(f"RPE refresh : login impossible ({e})")
         raise
     try:
-        fresh, flows = client.refresh_catalog()
-        catalog, dm_failed = build_catalog(client, flows)
-        client.catalog = catalog  # le mirror ventile sur le catalogue fraîchement dérivé (flag time inclus)
-        cat_n = store_catalog(fresh, catalog)
-        rows, failed = client.mirror()
-        labels = update_measure_labels(rows)
-        n = store_facts(rows)
-        cube_names = {k: c["cubeName"] for k, c in catalog.items()}
-        charts = store_charts(parse_charts(flows), cube_names)
+        if not _canary_ok(client):
+            notify_alert_channel(
+                "RPE refresh : canari live en échec — signatures NON persistées (dernier état conservé)"
+            )
+            return {"ok": False}
+        store_signature(client.sigs, client.sid, client.http.cookies.get("JSESSIONID"), client.bundle_nocache)
+        _fresh, flows = client.refresh_catalog()
+        rows = build_toc(client, flows)
+        client.catalog = {r["cube_key"]: {"cubeName": r["name"], "measures": r.get("measures", [])} for r in rows}
+        client.cubeids = {r["cube_key"]: r["cube_id"] for r in rows if r.get("cube_id")}
+        for r in rows:
+            r["territory_codes"] = territory_codes(client, r["name"]) if _has_territory(r) else {}
+        n = store_toc(rows)
     except (httpx.HTTPError, ValueError, SQLAlchemyError) as e:
-        notify_alert_channel(f"RPE refresh : échec rafraîchissement ({type(e).__name__})")
+        notify_alert_channel(f"RPE refresh : échec rebuild TOC ({type(e).__name__})")
         raise
     finally:
         client.close()
-    if cat_n == 0:  # Why: aucun cube_dm parsé → format probablement changé ; cache catalogue conservé
-        notify_alert_channel("RPE refresh : catalogue vide, cache inchangé")
-    elif dm_failed:  # Why: catalogue partiel stocké → datasets potentiellement manquants, à investiguer
-        notify_alert_channel(f"RPE refresh : catalogue partiel ({dm_failed} cube_dm injoignables)")
-    if n == 0:  # remplacement non effectué → le cache sert des données périmées
-        notify_alert_channel(f"RPE refresh : mirror vide, cache inchangé ({len(failed)} requêtes en échec)")
-    if charts == 0 and flows:  # Why: getFlowsView a répondu mais aucun graphe parsé → format probablement changé
-        notify_alert_channel("RPE refresh : aucun graphe parsé, rpe_chart inchangé")
-    logger.info(
-        "RPE refresh terminé : %d datasets, %d cubeIds, %d libellés, %d faits, %d graphes, %d échecs",
-        cat_n,
-        len(fresh),
-        labels,
-        n,
-        charts,
-        len(failed),
-    )
-    return {
-        "datasets": cat_n,
-        "cubeids": len(fresh),
-        "labels": labels,
-        "facts": n,
-        "charts": charts,
-        "failed": len(failed),
-    }
+    if n == 0:
+        notify_alert_channel("RPE refresh : TOC vide, cache inchangé")
+    logger.info("RPE refresh terminé : signatures OK, %d datasets en TOC", n)
+    return {"ok": True, "datasets": n}
