@@ -4,8 +4,8 @@
   },
   "env": {
     "AUTOMETA_ENV": {
-      "description": "Deployment environment: prod (matometa), staging (autometa-staging), dev (default). Seeds review/one-click apps; prod and staging set it via scalingo env-set",
-      "value": "staging"
+      "description": "Deployment environment (see web/environment.py). Seeds review apps; prod and staging set it via scalingo env-set",
+      "value": "review"
     }
   }
 }

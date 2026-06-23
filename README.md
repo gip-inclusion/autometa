@@ -115,7 +115,7 @@ Toutes les variables sont documentées dans `.env.example`. Voici les groupes pr
 | **S3** | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Non (fichiers locaux) |
 | **Sources de données** | `MATOMO_API_KEY`, `METABASE_*_API_KEY`, `NOTION_TOKEN`, `GRIST_API_KEY` | Selon `config/sources.yaml` |
 | **Claude CLI** | `CLAUDE_CLI`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY` | Quand `AGENT_BACKEND=cli` |
-| **Environnement** | `AUTOMETA_ENV` (`prod` / `staging` sur les serveurs, `dev` par défaut) | Scalingo / PaaS |
+| **Environnement** | `AUTOMETA_ENV` (`prod` / `staging` ; `review` auto sur les review apps ; `dev` par défaut) | Scalingo / PaaS |
 | **OAuth2-Proxy** | `OAUTH2_PROXY_*` | Quand on utilise le buildpack oauth2-proxy |
 
 ## Déploiement

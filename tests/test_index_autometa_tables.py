@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from web.environment import Environment
+
 spec = importlib.util.spec_from_file_location(
     "index_autometa_tables_cron",
     Path(__file__).resolve().parent.parent / "cron" / "index-autometa-tables" / "cron.py",
@@ -69,11 +71,11 @@ def test_main_skips_without_database_url(mocker):
 
 @pytest.mark.parametrize(
     ("env_value", "should_run"),
-    [("prod", True), ("staging", False), ("live", False), ("dev", False)],
+    [(Environment.PROD, True), (Environment.STAGING, False), (Environment.REVIEW, False), (Environment.DEV, False)],
 )
 def test_main_runs_only_on_prod(mocker, env_value, should_run):
     mocker.patch.object(cron.config, "AUTOMETA_TABLES_DATABASE_URL", "postgresql://example")
-    mocker.patch.object(cron.config, "AUTOMETA_ENV", env_value)
+    mocker.patch.object(cron.config, "ENV", env_value)
     engine, _ = make_engine(mocker)
     create_engine = mocker.patch.object(cron, "create_engine", return_value=engine)
 
@@ -84,7 +86,7 @@ def test_main_runs_only_on_prod(mocker, env_value, should_run):
 
 def test_main_executes_all_statements(mocker):
     mocker.patch.object(cron.config, "AUTOMETA_TABLES_DATABASE_URL", "postgresql://example")
-    mocker.patch.object(cron.config, "AUTOMETA_ENV", "prod")
+    mocker.patch.object(cron.config, "ENV", Environment.PROD)
     engine, conn = make_engine(mocker)
     mocker.patch.object(cron, "create_engine", return_value=engine)
 
@@ -95,7 +97,7 @@ def test_main_executes_all_statements(mocker):
 
 def test_main_continues_after_failures_then_raises(mocker):
     mocker.patch.object(cron.config, "AUTOMETA_TABLES_DATABASE_URL", "postgresql://example")
-    mocker.patch.object(cron.config, "AUTOMETA_ENV", "prod")
+    mocker.patch.object(cron.config, "ENV", Environment.PROD)
 
     def execute(clause):
         if '"candidats"' in str(clause) and "CREATE INDEX" in str(clause):
