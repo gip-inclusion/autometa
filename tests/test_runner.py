@@ -510,6 +510,7 @@ def test_run_agent_clears_needs_response_on_error(runner, mocker, fake_redis):
 
 def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
     mock_store = mocker.patch("web.runner.store")
+    mocker.patch("web.runner.schema_ready", return_value=True)
     mock_store.get_running_conversation_ids.return_value = ["c1", "c2"]
 
     async def _run():
@@ -517,6 +518,19 @@ def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
         assert mock_store.add_message.call_count == 2
 
     asyncio.run(_run())
+
+
+def test_startup_skips_recovery_on_unmigrated_db(runner, mocker, fake_redis):
+    """Fresh review-app DB: the schema is created by postdeploy, which Scalingo runs only after the
+    container has booted. Recovery must skip the missing table so boot succeeds instead of crashing."""
+    mock_store = mocker.patch("web.runner.store")
+    mocker.patch("web.runner.schema_ready", return_value=False)
+
+    async def _run():
+        await runner._recover_stuck(fake_redis)
+
+    asyncio.run(_run())
+    mock_store.get_running_conversation_ids.assert_not_called()
 
 
 def test_reconcile_clears_aged_stuck_conversations(mocker, fake_redis):
