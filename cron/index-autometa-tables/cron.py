@@ -108,8 +108,8 @@ def main() -> None:
 
     # Why: prod et staging partagent la même autometa_tables_db ; deux runs concurrents font
     # courir CREATE INDEX IF NOT EXISTS (collision pg_class). Seul prod entretient les index.
-    if config.AUTOMETA_ENV != "prod":
-        logger.info("AUTOMETA_ENV=%s (not prod); skipping to avoid racing prod on the shared DB", config.AUTOMETA_ENV)
+    if not config.ENV.owns_shared_db:
+        logger.info("AUTOMETA_ENV=%s (not prod); skipping to avoid racing prod on the shared DB", config.ENV.value)
         return
 
     # Why: AUTOCOMMIT — chaque statement est indépendant, un échec n'avorte pas les suivants.
