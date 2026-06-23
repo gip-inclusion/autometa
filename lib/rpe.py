@@ -630,21 +630,33 @@ def catalog_from_toc() -> tuple[dict, dict]:
     return catalog, cubeids
 
 
-def territory_codes(client: RpeClient, dataset: str) -> dict:
-    """Codes de territoire par palier (Région/Département/CLPE) d'un dataset géo ; un palier en échec → liste vide."""
+def territory_codes(client: RpeClient, dataset: str, timeout: int = 30) -> dict:
+    """Codes de territoire par palier (Région/Département/CLPE) d'un dataset géo. Région en échec → cube trop lourd, on arrête."""
     measures = client.measures(dataset)
     if not measures:
-        return {g: [] for g in MIRROR_GEO}
+        return {}
     first = measures[0]["id"]
     out: dict[str, list] = {}
-    for g in MIRROR_GEO:
+    for g in MIRROR_GEO:  # Région en premier : sa marginale est la moins chère, son échec = cube injoignable
         try:
-            rows = client.query(dataset, [GEO_LEVELS[g]], measures=[first])
-            out[g] = [r["member_code"] for r in rows if r.get("member_code")]
+            rows = client.query(dataset, [GEO_LEVELS[g]], measures=[first], timeout=timeout)
         except (httpx.HTTPError, KeyError) as e:
             logger.warning("territory_codes : %s / %s en échec (%s)", dataset, g, type(e).__name__)
             out[g] = []
+            if g == MIRROR_GEO[0]:
+                break
+            continue
+        out[g] = [r["member_code"] for r in rows if r.get("member_code")]
     return out
+
+
+def global_territory_codes(client: RpeClient, geo_rows: list[dict], timeout: int = 30) -> dict:
+    """Codes territoire globaux (C_TERRITOIRE_ID est commun à tous les cubes) : dérivés une seule fois du dataset géo le plus léger."""
+    for r in sorted(geo_rows, key=lambda x: sum((d.get("nbMembers") or 0) for d in x.get("dimensions") or [])):
+        codes = territory_codes(client, r["name"], timeout=timeout)
+        if codes.get("Région"):  # un cube léger a répondu → hiérarchie complète, inutile d'interroger les autres
+            return codes
+    return {}
 
 
 def _has_territory(row: dict) -> bool:
@@ -679,8 +691,9 @@ def refresh() -> dict:
         rows = build_toc(client, flows)
         client.catalog = {r["cube_key"]: {"cubeName": r["name"], "measures": r.get("measures", [])} for r in rows}
         client.cubeids = {r["cube_key"]: r["cube_id"] for r in rows if r.get("cube_id")}
+        codes = global_territory_codes(client, [r for r in rows if _has_territory(r)])
         for r in rows:
-            r["territory_codes"] = territory_codes(client, r["name"]) if _has_territory(r) else {}
+            r["territory_codes"] = codes if _has_territory(r) else {}
         n = store_toc(rows)
     except (httpx.HTTPError, ValueError, SQLAlchemyError) as e:
         notify_alert_channel(f"RPE refresh : échec rebuild TOC ({type(e).__name__})")
