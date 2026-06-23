@@ -41,7 +41,7 @@ class CLIBackend(AgentBackend):
         """Permission/tool flags for the CLI (allow-list + always-blocked tools)."""
         args: list[str] = []
         # Why: tout serveur (staging ou prod) tourne sous confinement conteneur — pas d'allowlist d'outils.
-        if config.AUTOMETA_ENV != "dev":
+        if config.ENV.is_server:
             args.append("--dangerously-skip-permissions")
         elif config.ALLOWED_TOOLS:
             args.extend(["--allowedTools", config.ALLOWED_TOOLS])

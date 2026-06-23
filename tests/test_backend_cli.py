@@ -2,6 +2,8 @@
 
 import pytest
 
+from web.environment import Environment
+
 
 def test_build_env_removes_api_key(mocker):
     from web.agents.cli import CLIBackend
@@ -53,7 +55,7 @@ def test_dash_prompt_is_passed_after_double_dash_on_resume(mocker, tmp_path):
     mocker.patch("web.agents.cli.session_sync.upload_session")
     mocker.patch("web.agents.cli.build_system_prompt", return_value="")
     mocker.patch("web.agents.cli.config.ADDITIONAL_DIRS", [])
-    mocker.patch("web.agents.cli.config.AUTOMETA_ENV", "dev")
+    mocker.patch("web.agents.cli.config.ENV", Environment.DEV)
     mocker.patch("web.agents.cli.config.ALLOWED_TOOLS", "")
     mocker.patch("web.agents.cli.config.CLAUDE_CLI", "claude")
     mocker.patch("web.agents.cli.config.BASE_DIR", str(tmp_path))
@@ -72,9 +74,9 @@ def test_dash_prompt_is_passed_after_double_dash_on_resume(mocker, tmp_path):
 
 @pytest.mark.parametrize(
     ("env_value", "expects_skip"),
-    [("prod", True), ("staging", True), ("live", True), ("dev", False)],
+    [(Environment.PROD, True), (Environment.STAGING, True), (Environment.REVIEW, True), (Environment.DEV, False)],
 )
-def test_skip_permissions_only_in_live_env(mocker, tmp_path, env_value, expects_skip):
+def test_skip_permissions_on_servers_only(mocker, tmp_path, env_value, expects_skip):
     import asyncio
 
     from web.agents.cli import CLIBackend
@@ -103,7 +105,7 @@ def test_skip_permissions_only_in_live_env(mocker, tmp_path, env_value, expects_
     mocker.patch("web.agents.cli.session_sync.upload_session")
     mocker.patch("web.agents.cli.build_system_prompt", return_value="")
     mocker.patch("web.agents.cli.config.ADDITIONAL_DIRS", [])
-    mocker.patch("web.agents.cli.config.AUTOMETA_ENV", env_value)
+    mocker.patch("web.agents.cli.config.ENV", env_value)
     mocker.patch("web.agents.cli.config.ALLOWED_TOOLS", "Bash")
     mocker.patch("web.agents.cli.config.CLAUDE_CLI", "claude")
     mocker.patch("web.agents.cli.config.BASE_DIR", str(tmp_path))
@@ -122,13 +124,13 @@ def test_skip_permissions_only_in_live_env(mocker, tmp_path, env_value, expects_
 
 
 # AskUserQuestion never renders in the autometa UI, so app-started agents (CLIBackend)
-# always block it — in live and dev alike, regardless of the skip-permissions gating.
-@pytest.mark.parametrize("env_value", ["live", "dev"])
+# always block it — on servers and dev alike, regardless of the skip-permissions gating.
+@pytest.mark.parametrize("env_value", [Environment.PROD, Environment.DEV])
 def test_app_agents_always_block_askuserquestion(mocker, env_value):
     from web import config
     from web.agents.cli import CLIBackend
 
-    mocker.patch.object(config, "AUTOMETA_ENV", env_value)
+    mocker.patch.object(config, "ENV", env_value)
     mocker.patch.object(config, "ALLOWED_TOOLS", "Read,Bash(python:*)")
     mocker.patch.object(config, "DISALLOWED_TOOLS", "AskUserQuestion")
     args = CLIBackend()._tool_permission_args()

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from web.environment import Environment
+
 # Base directory (Autometa project root)
 BASE_DIR = Path(__file__).parent.parent.resolve()
 
@@ -135,10 +137,9 @@ PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
 PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_URL_PROD", "https://statistiques.inclusion.gouv.fr")
 
 
-# Deployment environment: "prod" (app matometa) or "staging" (app autometa-staging) on Scalingo,
-# "dev" (default) on local machines. Anything other than "dev" is a server (write-guard active,
-# agents run with --dangerously-skip-permissions). Legacy value "live" = server, prod/staging undistinguished.
-AUTOMETA_ENV = os.getenv("AUTOMETA_ENV", "dev")
+# Deployment environment — capabilities (is_server, owns_shared_db) live in web/environment.py.
+# "prod" (matometa), "staging" (autometa-staging), "review" (PR apps); unset ⇒ "dev" (local).
+ENV = Environment.current(os.getenv("AUTOMETA_ENV"))
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
@@ -196,7 +197,7 @@ ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KN
 
 # Sentry
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
-SENTRY_ENVIRONMENT = AUTOMETA_ENV
+SENTRY_ENVIRONMENT = ENV.value
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
 SENTRY_PROFILES_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0"))
 
