@@ -6,7 +6,7 @@ from typing import BinaryIO, Optional
 
 import boto3
 from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from . import config
 
@@ -98,6 +98,21 @@ class S3Store:
                 logger.debug("S3 file not found: %s", k)
                 return None
             logger.error("S3 stream failed for %s: %s", k, e)
+            return None
+
+    def head(self, path: str) -> Optional[dict]:
+        """Object metadata as {"exists": True, "size", "etag"}; {"exists": False} on 404; None when S3 is unreachable."""
+        k = self.key(path)
+        try:
+            response = _client.head_object(Bucket=config.S3_BUCKET, Key=k)
+            return {"exists": True, "size": response["ContentLength"], "etag": response["ETag"].strip('"')}
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                return {"exists": False}
+            logger.error("S3 head failed for %s: %s", k, e)
+            return None
+        except BotoCoreError as e:
+            logger.warning("S3 head unreachable for %s: %s", k, e)
             return None
 
     def exists(self, path: str) -> bool:
