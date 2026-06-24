@@ -1,5 +1,6 @@
 """Sync Claude CLI session files to/from S3 for horizontal scaling."""
 
+import hashlib
 import json
 import logging
 import time
@@ -32,9 +33,27 @@ def get_subagents_dir(session_id: str) -> Path:
     return get_session_dir() / session_id / "subagents"
 
 
+def _local_session_matches(local_path: Path, head: dict) -> bool:
+    if not local_path.exists() or local_path.stat().st_size != head["size"]:
+        return False
+    if "-" in head["etag"]:  # multipart upload: size match is the strongest signal available
+        return True
+    return hashlib.md5(local_path.read_bytes(), usedforsecurity=False).hexdigest() == head["etag"]
+
+
 def download_session(session_id: str) -> bool:
     if not config.S3_BUCKET:
         return False
+
+    local_path = get_session_path(session_id)
+    head = s3.sessions.head(f"{session_id}.jsonl")
+    if head is not None:
+        if not head["exists"]:
+            logger.debug("Session %s absent from S3; skipping download", session_id)
+            return False
+        if _local_session_matches(local_path, head):
+            logger.debug("Session %s already current locally; skipping S3 download", session_id)
+            return True
 
     content = None
     for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
@@ -48,13 +67,12 @@ def download_session(session_id: str) -> bool:
         if content is not None:
             break
         if attempt < _DOWNLOAD_ATTEMPTS:
-            time.sleep(0.3 * attempt)  # 0.3s then 0.6s backoff; a genuine 404 also pays this
+            time.sleep(0.3 * attempt)  # 0.3s then 0.6s backoff between download retries
 
     if content is None:
         logger.warning("Session %s unavailable in S3 after %d attempts", session_id, _DOWNLOAD_ATTEMPTS)
         return False
 
-    local_path = get_session_path(session_id)
     local_path.parent.mkdir(parents=True, exist_ok=True)
     local_path.write_bytes(content)
     logger.info("Downloaded session %s from S3 (%d bytes)", session_id, len(content))
