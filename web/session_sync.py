@@ -34,11 +34,14 @@ def get_subagents_dir(session_id: str) -> Path:
 
 
 def _local_session_matches(local_path: Path, head: dict) -> bool:
-    if not local_path.exists() or local_path.stat().st_size != head["size"]:
+    try:
+        if local_path.stat().st_size != head["size"]:
+            return False
+        if "-" in head["etag"]:  # multipart upload: size match is the strongest signal available
+            return True
+        return hashlib.md5(local_path.read_bytes(), usedforsecurity=False).hexdigest() == head["etag"]
+    except OSError:  # local file vanished/unreadable between HEAD and read; fall back to the GET path
         return False
-    if "-" in head["etag"]:  # multipart upload: size match is the strongest signal available
-        return True
-    return hashlib.md5(local_path.read_bytes(), usedforsecurity=False).hexdigest() == head["etag"]
 
 
 def download_session(session_id: str) -> bool:

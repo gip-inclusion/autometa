@@ -172,6 +172,21 @@ def test_download_session_downloads_when_local_differs(monkeypatch, mocker, tmp_
     assert (tmp_path / "sess-stale.jsonl").read_bytes() == fresh
 
 
+def test_download_session_falls_back_to_get_when_local_read_fails(monkeypatch, mocker, tmp_path):
+    content = b'{"type":"message"}\n'
+    (tmp_path / "sess-racy.jsonl").write_bytes(content)
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(session_sync.s3.sessions, "head", return_value=_head(content))
+    mocker.patch("pathlib.Path.read_bytes", side_effect=OSError("vanished"))
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", return_value=content)
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+
+    assert session_sync.download_session("sess-racy") is True
+    dl.assert_called_once()
+
+
 def test_copy_session_returns_false_without_s3(monkeypatch):
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", None)
     assert session_sync.copy_session("src", "dst") is False
