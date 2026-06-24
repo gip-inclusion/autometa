@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 from typing import AsyncIterator
 
@@ -17,6 +18,21 @@ from .base import AgentBackend, AgentMessage, build_system_prompt
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Le CLI émet les erreurs API Anthropic comme texte assistant « API Error: <status> … » sur stdout.
+# 429 (rate limit) et 5xx (dont 529 overloaded) sont transitoires → on retente.
+_TRANSIENT_API_ERROR_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
+
+API_DOWN_MESSAGE = (
+    "L'API Anthropic est momentanément indisponible. "
+    "Cliquez sur ce lien pour plus d'informations : https://status.claude.com"
+)
+
+
+def transient_api_error(text: str) -> str | None:
+    """Retourne le fragment « API Error: <status> » si le texte signale une erreur API transitoire."""
+    match = _TRANSIENT_API_ERROR_RE.search(text)
+    return match.group(0) if match else None
 
 
 class CLIBackend(AgentBackend):
@@ -73,12 +89,56 @@ class CLIBackend(AgentBackend):
         session_id: str | None = None,
         user_email: str | None = None,
     ) -> AsyncIterator[AgentMessage]:
+        attempts = config.CLI_TRANSIENT_MAX_RETRIES + 1
+        for attempt in range(1, attempts + 1):
+            outcome: dict = {
+                "exit_code": None,
+                "stderr": "",
+                "transient_error": None,
+                "had_real_output": False,
+                "last_events": [],
+                "prompt": "",
+            }
+            async for agent_msg in self._run_attempt(
+                conversation_id, message, history, session_id, user_email, outcome
+            ):
+                yield agent_msg
+
+            if outcome["exit_code"] == 0:
+                return
+
+            if outcome["transient_error"] and not outcome["had_real_output"] and attempt < attempts:
+                logger.warning(
+                    "Transient Anthropic API error (attempt %d/%d), retrying: %s",
+                    attempt,
+                    attempts,
+                    outcome["transient_error"],
+                )
+                # ponytail: on ne retente que si rien d'utile n'a été streamé ; la tentative suivante
+                # recalcule is_resume depuis le fichier de session (pas de collision de session-id).
+                await asyncio.sleep(min(2 ** (attempt - 1), 8))
+                continue
+
+            self._capture_failure(conversation_id, outcome, attempt)
+            yield self._failure_message(outcome)
+            return
+
+    async def _run_attempt(
+        self,
+        conversation_id: str,
+        message: str,
+        history: list[dict],
+        session_id: str | None,
+        user_email: str | None,
+        outcome: dict,
+    ) -> AsyncIterator[AgentMessage]:
         is_resume = session_id is not None and session_sync.get_session_path(session_id).exists()
 
         if is_resume:
             prompt = message
         else:
             prompt = self._build_prompt(message, history)
+        outcome["prompt"] = prompt
 
         cmd = [
             config.CLAUDE_CLI,
@@ -189,6 +249,13 @@ class CLIBackend(AgentBackend):
                             last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
                             if len(last_events) > 10:
                                 last_events.pop(0)
+                            if agent_msg.type == "assistant" and isinstance(agent_msg.content, str):
+                                api_error = transient_api_error(agent_msg.content)
+                                if api_error:
+                                    outcome["transient_error"] = agent_msg.content
+                                    continue
+                            if agent_msg.type in ("assistant", "tool_use", "tool_result"):
+                                outcome["had_real_output"] = True
                             yield agent_msg
                     except json.JSONDecodeError:
                         logger.warning("Non-JSON line: %s", line_str)
@@ -231,36 +298,52 @@ class CLIBackend(AgentBackend):
 
             stderr_str = stderr_bytes.decode("utf-8", errors="replace")
             span.set_attribute("exit_code", process.returncode)
+            outcome["exit_code"] = process.returncode
+            outcome["stderr"] = stderr_str
+            outcome["last_events"] = list(last_events)
 
             if process.returncode != 0:
                 stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("stderr", stderr_tail)
                 span.set_attribute("last_events", last_events)
-
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_extra("conversation_id", conversation_id)
-                    scope.set_extra("exit_code", process.returncode)
-                    scope.set_extra("stderr", stderr_tail)
-                    scope.set_extra("prompt_snippet", prompt[:500])
-                    scope.set_extra("last_events", last_events)
-                    sentry_sdk.capture_message(
-                        f"CLI process error (exit {process.returncode})",
-                        level="error",
-                        scope=scope,
-                    )
                 logger.error(
-                    "CLI process error: conversation=%s exit_code=%s stderr=%s",
+                    "CLI process error: conversation=%s exit_code=%s api_error=%s stderr=%s last_events=%s",
                     conversation_id,
                     process.returncode,
+                    outcome["transient_error"],
                     stderr_tail,
+                    last_events,
                 )
 
-                yield AgentMessage(
-                    type="error",
-                    content=f"Process exited with code {process.returncode}: {stderr_str}",
-                    raw={"stderr": stderr_str, "code": process.returncode},
-                )
+    def _failure_message(self, outcome: dict) -> AgentMessage:
+        if outcome["transient_error"]:
+            return AgentMessage(
+                type="error",
+                content=API_DOWN_MESSAGE,
+                raw={"code": outcome["exit_code"], "transient": True, "api_error": outcome["transient_error"]},
+            )
+        stderr = outcome["stderr"]
+        return AgentMessage(
+            type="error",
+            content=f"Process exited with code {outcome['exit_code']}: {stderr}",
+            raw={"stderr": stderr, "code": outcome["exit_code"]},
+        )
+
+    def _capture_failure(self, conversation_id: str, outcome: dict, attempt: int) -> None:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_extra("conversation_id", conversation_id)
+            scope.set_extra("exit_code", outcome["exit_code"])
+            scope.set_extra("stderr", outcome["stderr"][-2000:])
+            scope.set_extra("attempts", attempt)
+            scope.set_extra("api_error", outcome["transient_error"])
+            scope.set_extra("prompt_snippet", outcome["prompt"][:500])
+            scope.set_extra("last_events", outcome["last_events"])
+            sentry_sdk.capture_message(
+                f"CLI process error (exit {outcome['exit_code']})",
+                level="error",
+                scope=scope,
+            )
 
     @staticmethod
     async def _drain_stderr(stream: asyncio.StreamReader, max_bytes: int = 10 * 1024) -> bytes:

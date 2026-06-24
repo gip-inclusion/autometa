@@ -23,6 +23,9 @@ LLM_BACKEND = os.getenv("LLM_BACKEND", "").strip().lower() or AGENT_BACKEND
 # Claude CLI path (uses system default if not set)
 CLAUDE_CLI = os.getenv("CLAUDE_CLI", "claude")
 
+# Retries quand le CLI échoue sur une erreur transitoire de l'API Anthropic (5xx / overloaded).
+CLI_TRANSIENT_MAX_RETRIES = int(os.getenv("AUTOMETA_CLI_TRANSIENT_MAX_RETRIES", "2"))
+
 # Modèle pour les short prompts (titres, tags) — appelé par web.llm_call.
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5")
 

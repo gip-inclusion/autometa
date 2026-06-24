@@ -1,10 +1,11 @@
 """Tests for web/agents/cli.py — CLI backend event parsing and process lifecycle."""
 
 import asyncio
+import json
 
 import pytest
 
-from web.agents.cli import CLIBackend
+from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, transient_api_error
 
 
 def make_backend():
@@ -223,3 +224,52 @@ def test_send_message_yields_error_on_nonzero_exit(stub_config):
     assert "Process exited with code 3" in messages[-1].content
     assert "boom" in messages[-1].content
     assert messages[-1].raw["code"] == 3
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ('API Error: 500 {"type":"api_error"}', "API Error: 500"),
+        ('API Error: 529 {"type":"overloaded_error"}', "API Error: 529"),
+        ("API Error: 503 Service Unavailable", "API Error: 503"),
+        ("API Error: 429 rate limit", "API Error: 429"),
+        ("API Error: 400 bad request", None),
+        ("Voici la réponse", None),
+    ],
+)
+def test_transient_api_error_detection(text, expected):
+    assert transient_api_error(text) == expected
+
+
+def _emit_assistant(text):
+    return "echo '" + json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}) + "'"
+
+
+def test_send_message_retries_transient_error_then_succeeds(stub_config, mocker):
+    mocker.patch("web.agents.cli.asyncio.sleep", mocker.AsyncMock())
+    stub_config(
+        "n=$(cat attempts 2>/dev/null || echo 0); n=$((n+1)); echo $n > attempts\n"
+        'if [ "$n" -eq 1 ]; then\n'
+        f"  {_emit_assistant('API Error: 500 Internal server error')}\n"
+        "  exit 1\n"
+        "fi\n"
+        f"{_emit_assistant('Bonjour')}\n"
+        'echo \'{"type": "result", "subtype": "success"}\''
+    )
+    messages = collect_messages(make_backend())
+    contents = [str(m.content) for m in messages]
+    assert "Bonjour" in contents
+    assert not any(m.type == "error" for m in messages)
+    assert not any("API Error" in c for c in contents)
+
+
+def test_send_message_exhausts_retries_yields_api_down_message(stub_config, mocker):
+    mocker.patch("web.agents.cli.asyncio.sleep", mocker.AsyncMock())
+    mocker.patch("web.agents.cli.config.CLI_TRANSIENT_MAX_RETRIES", 1)
+    stub_config(f"{_emit_assistant('API Error: 529 Overloaded')}\nexit 1")
+    messages = collect_messages(make_backend())
+    assert messages[-1].type == "error"
+    assert messages[-1].content == API_DOWN_MESSAGE
+    assert "status.claude.com" in messages[-1].content
+    assert messages[-1].raw["transient"] is True
+    assert not any("API Error" in str(m.content) for m in messages)
