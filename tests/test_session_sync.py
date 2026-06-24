@@ -137,12 +137,51 @@ def test_download_session_skips_get_when_local_matches(monkeypatch, mocker, tmp_
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
     monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
     mocker.patch.object(session_sync.s3.sessions, "head", return_value=_head(content))
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
     dl = mocker.patch.object(session_sync.s3.sessions, "download")
     sleep = mocker.patch.object(session_sync.time, "sleep")
 
     assert session_sync.download_session("sess-fresh") is True
     dl.assert_not_called()
     sleep.assert_not_called()
+
+
+def test_download_session_fetches_missing_subagent_on_fast_path(monkeypatch, mocker, tmp_path):
+    content = b'{"type":"message"}\n'
+    (tmp_path / "sess-fast.jsonl").write_bytes(content)
+    subagent = b'{"type":"subagent"}\n'
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(session_sync.s3.sessions, "head", return_value=_head(content))
+    mocker.patch.object(
+        session_sync.s3.sessions,
+        "list_files",
+        return_value=[{"path": "sess-fast/subagents/agent-1.jsonl", "size": len(subagent)}],
+    )
+    dl = mocker.patch.object(session_sync.s3.sessions, "download", return_value=subagent)
+
+    assert session_sync.download_session("sess-fast") is True
+    dl.assert_called_once_with("sess-fast/subagents/agent-1.jsonl")
+    assert (tmp_path / "sess-fast" / "subagents" / "agent-1.jsonl").read_bytes() == subagent
+
+
+def test_download_subagents_skips_already_present_files(monkeypatch, mocker, tmp_path):
+    subagent = b'{"type":"subagent"}\n'
+    local = tmp_path / "sess-x" / "subagents" / "agent-1.jsonl"
+    local.parent.mkdir(parents=True)
+    local.write_bytes(subagent)
+
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(
+        session_sync.s3.sessions,
+        "list_files",
+        return_value=[{"path": "sess-x/subagents/agent-1.jsonl", "size": len(subagent)}],
+    )
+    dl = mocker.patch.object(session_sync.s3.sessions, "download")
+
+    session_sync._download_subagents("sess-x")
+    dl.assert_not_called()
 
 
 def test_download_session_skips_retries_when_absent(monkeypatch, mocker, tmp_path):

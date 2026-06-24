@@ -56,6 +56,7 @@ def download_session(session_id: str) -> bool:
             return False
         if _local_session_matches(local_path, head):
             logger.debug("Session %s already current locally; skipping S3 download", session_id)
+            _download_subagents(session_id)
             return True
 
     content = None
@@ -87,9 +88,11 @@ def download_session(session_id: str) -> bool:
 def _download_subagents(session_id: str):
     for entry in s3.sessions.list_files(f"{session_id}/subagents/"):
         relative = entry["path"][len(f"{session_id}/") :]
+        local_path = get_session_dir() / session_id / relative
+        if local_path.exists() and local_path.stat().st_size == entry["size"]:
+            continue
         content = s3.sessions.download(entry["path"])
         if content is not None:
-            local_path = get_session_dir() / session_id / relative
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(content)
             logger.debug("Downloaded subagent file: %s", relative)
