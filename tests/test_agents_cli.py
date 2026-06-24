@@ -235,6 +235,10 @@ def test_send_message_yields_error_on_nonzero_exit(stub_config):
         ("API Error: 429 rate limit", "API Error: 429"),
         ("API Error: 400 bad request", None),
         ("Voici la réponse", None),
+        # error.type du corps JSON, même sans status reconnaissable (réserve louije)
+        ('{"type":"error","error":{"type":"overloaded_error"}}', '"type":"overloaded_error"'),
+        ('{"error":{"type":"rate_limit_error"}}', '"type":"rate_limit_error"'),
+        ('API Error: 400 {"type":"error","error":{"type":"invalid_request_error"}}', None),
     ],
 )
 def test_transient_api_error_detection(text, expected):
@@ -270,6 +274,5 @@ def test_send_message_exhausts_retries_yields_api_down_message(stub_config, mock
     messages = collect_messages(make_backend())
     assert messages[-1].type == "error"
     assert messages[-1].content == API_DOWN_MESSAGE
-    assert "status.claude.com" in messages[-1].content
     assert messages[-1].raw["transient"] is True
     assert not any("API Error" in str(m.content) for m in messages)

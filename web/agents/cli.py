@@ -19,9 +19,12 @@ from .base import AgentBackend, AgentMessage, build_system_prompt
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# Le CLI émet les erreurs API Anthropic comme texte assistant « API Error: <status> … » sur stdout.
-# 429 (rate limit) et 5xx (dont 529 overloaded) sont transitoires → on retente.
-_TRANSIENT_API_ERROR_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
+# Le CLI émet les erreurs API Anthropic comme texte assistant « API Error: <status> {json} » sur stdout.
+# On retente sur 429 (rate limit) et 5xx (dont 529 overloaded). On matche aussi le `error.type` du corps
+# JSON : redondant avec le status mais aligné sur la taxonomie documentée d'Anthropic, qui peut survivre à
+# un changement de format du status (les deux surfaces restent couplées au texte stdout du CLI).
+_TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
+_TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
 
 API_DOWN_MESSAGE = (
     "L'API Anthropic est momentanément indisponible. "
@@ -30,8 +33,8 @@ API_DOWN_MESSAGE = (
 
 
 def transient_api_error(text: str) -> str | None:
-    """Retourne le fragment « API Error: <status> » si le texte signale une erreur API transitoire."""
-    match = _TRANSIENT_API_ERROR_RE.search(text)
+    """Retourne le fragment d'erreur si le texte signale une erreur API Anthropic transitoire."""
+    match = _TRANSIENT_STATUS_RE.search(text) or _TRANSIENT_TYPE_RE.search(text)
     return match.group(0) if match else None
 
 
