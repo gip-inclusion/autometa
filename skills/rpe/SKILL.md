@@ -124,12 +124,12 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 
 ⚠️ **Le lag de publication varie selon le dataset** (de quelques semaines à plusieurs mois) et bouge dans le temps. Avant de cibler une période, vérifier le dernier mois réellement publié (ventiler par la dim date, prendre le `max`) plutôt que de le supposer.
 
-**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules disponibles : `python -c "from lib.rpe_gwt import SEL; print([v['name'] for v in SEL['ddVars']])"`). Exemple série mensuelle nette :
+**Mensuel vs cumul = choix de la mesure (le « switch » est un toggle d'affichage côté client).** Vérifié sur la capture HAR du dashboard : le navigateur demande les **deux** mesures (« … % » mensuel et « … Cumul 12 mois % ») dans un **seul** `getCubeResult`, et une variable `Switch …` (par-cube, ex. `Switch cumul_12mois`) choisit juste la **colonne affichée** — la réponse serveur contient toujours les deux. Rien à piloter côté serveur : **demander directement la mesure voulue** (mensuel « … % » ou cumul « … Cumul 12 mois % »), ou demander les deux et lire la bonne colonne. Les `ddVars` de notre squelette `sel` ne sont pas ces toggles et n'ont aucun effet sur les valeurs ; `--ddvar` / `ddvars=` est donc à éviter. Exemple série mensuelle :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
   --territory 53:region --month D_DATEFPRIO \
-  --measure "Entrant en formation (switch)" --ddvar Switch=0
+  --measure "Entrant en formation (switch)"
 ```
 
 ⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` ou le champ `measures` de `rpe_toc`. La lib loggue un avertissement dans ce cas.
