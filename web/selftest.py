@@ -418,9 +418,14 @@ def _check_slack() -> tuple[bool, str]:
 
 
 def _check_rpe() -> tuple[bool, str]:
-    from lib.rpe import check_connectivity
+    from lib.rpe import doctor
 
-    return check_connectivity(timeout=SELFTEST_TIMEOUT_SEC)
+    report = doctor(timeout=SELFTEST_TIMEOUT_SEC)
+    checks = report.get("checks", [])
+    if report.get("ok"):
+        return (True, " · ".join(c["check"] for c in checks) + " OK")
+    failed = next((c for c in checks if not c["ok"]), None)
+    return (False, f"{failed['check']}: {failed['reason']}" if failed else "échec")
 
 
 def _check_data_inclusion() -> tuple[bool, str]:

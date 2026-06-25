@@ -63,8 +63,76 @@ def test_doctor_short_circuits_on_tls_failure(mocker):
     mocker.patch.object(rpe, "check_tls", return_value=(False, "chaîne TLS invalide (…)"))
     connect = mocker.patch.object(rpe.RpeClient, "connect")
     result = rpe.doctor()
-    assert result == {"ok": False, "reason": "chaîne TLS invalide (…)"}
+    assert result["ok"] is False
+    assert result["checks"] == [{"check": "tls", "ok": False, "reason": "chaîne TLS invalide (…)"}]
     connect.assert_not_called()  # pas de login tant que la couche TLS est cassée
+
+
+def test_doctor_short_circuits_on_login_failure(mocker):
+    mocker.patch.object(rpe, "check_tls", return_value=(True, "TLS OK"))
+    mocker.patch.object(rpe, "check_connectivity", return_value=(False, "login refusé (signatures GWT périmées ?)"))
+    connect = mocker.patch.object(rpe.RpeClient, "connect")
+    result = rpe.doctor()
+    assert result["ok"] is False
+    assert [c["check"] for c in result["checks"]] == ["tls", "login"]
+    connect.assert_not_called()
+
+
+def test_doctor_reports_empty_flowsview(mocker):
+    mocker.patch.object(rpe, "check_tls", return_value=(True, "TLS OK"))
+    mocker.patch.object(rpe, "check_connectivity", return_value=(True, "login OK"))
+    client = mocker.MagicMock()
+    client.refresh_catalog.return_value = ({}, "flows")
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
+    result = rpe.doctor()
+    assert result["ok"] is False
+    assert [c["check"] for c in result["checks"]] == ["tls", "login", "flowsview"]
+    client.close.assert_called_once()
+
+
+def test_doctor_all_green(mocker):
+    mocker.patch.object(rpe, "check_tls", return_value=(True, "TLS OK"))
+    mocker.patch.object(rpe, "check_connectivity", return_value=(True, "login OK"))
+    client = mocker.MagicMock()
+    client.refresh_catalog.return_value = ({"CK": "CUBEID"}, "flows-response")
+    client.query.return_value = [{"measure_id": "M", "value": 0.4}]
+    mocker.patch.object(rpe.RpeClient, "connect", return_value=client)
+    mocker.patch.object(
+        rpe, "parse_charts", return_value=[{"cube_key": "CK", "measures_shown": ["M"], "dims_shown": []}]
+    )
+    result = rpe.doctor()
+    assert result["ok"] is True
+    assert [c["check"] for c in result["checks"]] == ["tls", "login", "flowsview", "getcuberesult"]
+
+
+def test_probe_getcuberesult_accepts_recognized_values(mocker):
+    client = mocker.MagicMock()
+    client.query.return_value = [{"measure_id": "M", "value": 0.4}, {"measure_id": None, "value": 1.0}]
+    charts = [{"cube_key": "CK", "measures_shown": ["Mlabel"], "dims_shown": []}]
+    ok, reason = rpe._probe_getcuberesult(client, charts, {"CK": "CUBEID"})
+    assert ok is True
+    assert "valeurs reconnues" in reason
+
+
+def test_probe_getcuberesult_rejects_presence_fallback(mocker):
+    client = mocker.MagicMock()
+    client.query.return_value = [{"measure_id": None, "value": 1.0}]  # repli présence = mesure non reconnue
+    charts = [{"cube_key": "CK", "measures_shown": ["Mlabel"], "dims_shown": []}]
+    ok, reason = rpe._probe_getcuberesult(client, charts, {"CK": "CUBEID"})
+    assert ok is False
+    assert "getCubeResult changé" in reason
+
+
+def test_probe_getcuberesult_skips_cubes_without_cubeid(mocker):
+    client = mocker.MagicMock()
+    client.query.return_value = [{"measure_id": "M", "value": 0.4}]
+    charts = [
+        {"cube_key": "NOPE", "measures_shown": ["M"], "dims_shown": []},
+        {"cube_key": "CK", "measures_shown": ["M"], "dims_shown": []},
+    ]
+    ok, _ = rpe._probe_getcuberesult(client, charts, {"CK": "CUBEID"})
+    assert ok is True
+    assert client.query.call_count == 1  # n'interroge que le cube doté d'un cubeId
 
 
 def make_body(dim_axes, lines, headers, measures):
@@ -382,30 +450,6 @@ def test_prep_substitutes_signatures_and_sid(mocker):
 
 def test_no_baked_constants():
     assert not hasattr(rpe, "BAKED_PERMUTATION") and not hasattr(rpe, "BAKED_STRONG_NAME")
-
-
-def test_doctor_reports_stale_reason(mocker):
-    mocker.patch.object(rpe, "load_signature_row", return_value=None)
-    rep = rpe.doctor()
-    assert rep["ok"] is False and "signature" in rep["reason"].lower()
-
-
-def test_doctor_ok_when_canary_passes(mocker):
-    mocker.patch.object(
-        rpe,
-        "load_signature_row",
-        return_value={
-            "permutation": "P",
-            "strong_name": "S",
-            "policy_login": "L",
-            "policy_dash": "D",
-            "validated_at": rpe.datetime.now(rpe.timezone.utc),
-        },
-    )
-    mocker.patch.object(rpe.RpeClient, "connect", return_value=mocker.MagicMock())
-    mocker.patch.object(rpe, "_canary_ok", return_value=True)
-    rep = rpe.doctor()
-    assert rep["ok"] is True
 
 
 def test_refresh_persists_only_on_successful_validation(mocker):

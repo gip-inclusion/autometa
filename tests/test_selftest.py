@@ -12,11 +12,44 @@ from web.selftest import (
     Check,
     _check_claude_code_ping,
     _check_claude_status_page,
+    _check_rpe,
     _fmt,
     _probe,
     _run_all_checks,
     router,
 )
+
+
+def test_check_rpe_summarizes_passing_contract(mocker):
+    mocker.patch(
+        "lib.rpe.doctor",
+        return_value={
+            "ok": True,
+            "checks": [
+                {"check": "tls", "ok": True, "reason": "TLS OK"},
+                {"check": "getcuberesult", "ok": True, "reason": "19 valeurs"},
+            ],
+        },
+    )
+    ok, detail = _check_rpe()
+    assert ok is True
+    assert detail == "tls · getcuberesult OK"
+
+
+def test_check_rpe_surfaces_first_failing_check(mocker):
+    mocker.patch(
+        "lib.rpe.doctor",
+        return_value={
+            "ok": False,
+            "checks": [
+                {"check": "tls", "ok": True, "reason": "TLS OK"},
+                {"check": "login", "ok": False, "reason": "login refusé"},
+            ],
+        },
+    )
+    ok, detail = _check_rpe()
+    assert ok is False
+    assert detail == "login: login refusé"
 
 
 def _selftest_client():

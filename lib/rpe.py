@@ -743,21 +743,57 @@ def refresh() -> dict:
     return {"ok": True, "datasets": n}
 
 
-def doctor() -> dict:
-    """État de santé RPE : chaîne TLS + fraîcheur des signatures + canari live. Réponse déterministe (pas de devinette)."""
-    tls_ok, tls_reason = check_tls()
-    if not tls_ok:
-        return {"ok": False, "reason": tls_reason}
-    row = load_signature_row()
-    if not row or not all(row.get(k) for k in ("permutation", "strong_name", "policy_login", "policy_dash")):
-        return {"ok": False, "reason": "signatures absentes en DB (cron jamais passé ?) — repli ENV utilisé"}
+def _probe_getcuberesult(client: RpeClient, charts: list[dict], cubeids: dict, timeout: int = 30) -> tuple[bool, str]:
+    """Un getCubeResult réel : ventile une mesure de graphe par région et vérifie que le résultat parse en valeurs reconnues."""
+    region = GEO_LEVELS["Région"]
+    tried = 0
+    for ch in charts:
+        key = ch["cube_key"]
+        if key not in cubeids or not ch["measures_shown"]:
+            continue
+        tried += 1
+        if tried > 3:  # quelques cubes suffisent ; certains n'ont pas C_TERRITOIRE_ID, on en essaie un autre
+            break
+        measure = ch["measures_shown"][0]
+        client.catalog = {
+            key: {"cubeName": key, "dimensions": [], "measures": [{"id": m, "label": m} for m in ch["measures_shown"]]}
+        }
+        client.cubeids = cubeids
+        try:
+            rows = client.query(key, [region], [measure], timeout=timeout)
+        except (httpx.HTTPError, KeyError, RpeLoginError) as e:
+            return False, f"getCubeResult en échec ({type(e).__name__}) — format serveur changé ?"
+        recognized = [r for r in rows if r.get("measure_id") and isinstance(r.get("value"), (int, float))]
+        if recognized:
+            return True, f"{len(recognized)} valeurs reconnues (ex. {measure[:40]})"
+    return False, "aucune valeur reconnue sur les cubes testés — format getCubeResult changé ?"
+
+
+def doctor(timeout: int = TIMEOUT) -> dict:
+    """Selftest RPE : détecte une dérive du serveur FT (cert, login GWT, getFlowsView, getCubeResult) exigeant une maj côté code."""
+    checks: list[dict] = []
+
+    def record(name: str, result: tuple[bool, str]) -> bool:
+        ok, reason = result
+        checks.append({"check": name, "ok": ok, "reason": reason})
+        return ok
+
+    if not record("tls", check_tls(timeout=timeout)):
+        return {"ok": False, "checks": checks}
+    if not record("login", check_connectivity(timeout=timeout)):
+        return {"ok": False, "checks": checks}
     try:
         client = RpeClient.connect()
     except RpeLoginError as e:
-        return {"ok": False, "reason": f"login impossible : {e}"}
+        record("flowsview", (False, f"connexion impossible : {e}"))
+        return {"ok": False, "checks": checks}
     try:
-        if not _canary_ok(client):
-            return {"ok": False, "reason": "canari live en échec — signature probablement périmée"}
+        fresh, flows = client.refresh_catalog()
+        flows_ok = record(
+            "flowsview", (bool(fresh), f"{len(fresh)} cubeIds" if fresh else "aucun cubeId — getFlowsView a changé ?")
+        )
+        if flows_ok:
+            record("getcuberesult", _probe_getcuberesult(client, parse_charts(flows), fresh, timeout=timeout))
     finally:
         client.close()
-    return {"ok": True, "reason": "signatures valides", "validated_at": str(row.get("validated_at"))}
+    return {"ok": all(c["ok"] for c in checks), "checks": checks}
