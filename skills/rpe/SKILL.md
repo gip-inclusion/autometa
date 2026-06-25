@@ -98,6 +98,8 @@ c.query("Satisfaction DE", dimensions=["D_DATESATISACCO"],
 
 C'est **le** moyen d'atteindre les cubes lourds (cf. *Limites du serveur public*) : ventiler la géo en bloc les fait timeouter, mais une requête filtrée sur **un** territoire revient en ~0–12 s.
 
+⚠️ « En bloc » vise le grain **fin** (CLPE, ~363 territoires) : c'est lui qui sature. Le grain **région** (`C_TERRITOIRE_ID` à `lPos=1`, ~19 membres) se ventile en **un seul appel quasi instantané**, même sur un cube lourd — inutile de boucler `territory=` région par région si on veut juste le niveau régional (idem `Département`, `lPos=0`).
+
 Pour une ventilation par une **autre** dimension restreinte à un territoire, combiner `--territory` (géo) et `--where` (filtre client sur le reste) reste possible ; `--where` seul (sans `--territory`) convient quand le cube est léger.
 
 **Croisement multi-dimensions filtré sur un territoire, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
@@ -118,6 +120,8 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 ```
 → une ligne par mois pour la Bretagne (code région 53).
 
+⚠️ **Le lag de publication varie selon le dataset** (de quelques semaines à plusieurs mois) et bouge dans le temps. Avant de cibler une période, vérifier le dernier mois réellement publié (ventiler par la dim date, prendre le `max`) plutôt que de le supposer.
+
 **Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules disponibles : `python -c "from lib.rpe_gwt import SEL; print([v['name'] for v in SEL['ddVars']])"`). Exemple série mensuelle nette :
 
 ```bash
@@ -127,6 +131,8 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 ```
 
 ⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` ou le champ `measures` de `rpe_toc`. La lib loggue un avertissement dans ce cas.
+
+**Fiches action — compter les fiches.** Les mesures `N_NBANSWERSET*` renvoient `0.0` via l'API publique (limitation connue, ne pas chercher à les déboguer). Compter plutôt les valeurs distinctes de `C_ANSWERSET_ID`, ventilées par `C_LBLREGION`. ⚠️ La mesure `Réponses` compte les **champs remplis** (~24 par fiche en moyenne), pas les fiches : proxy d'activité de saisie, pas un dénombrement.
 
 ## Trouver le bon indicateur (routage)
 
