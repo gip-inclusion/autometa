@@ -100,6 +100,8 @@ C'est **le** moyen d'atteindre les cubes lourds (cf. *Limites du serveur public*
 
 ⚠️ « En bloc » vise le grain **fin** (CLPE, ~363 territoires) : c'est lui qui sature. Le grain **région** (`C_TERRITOIRE_ID` à `lPos=1`, ~19 membres) se ventile en **un seul appel quasi instantané**, même sur un cube lourd — inutile de boucler `territory=` région par région si on veut juste le niveau régional (idem `Département`, `lPos=0`).
 
+**Tous les CLPE d'une région en un appel.** `territory=("Région", [code])` + `C_TERRITOIRE_ID` à `lPos=-1` remonte directement les CLPE de la région (`member_code = CLPE…`) — inutile de lister les codes CLPE à la main. Le filtre serveur restreint le calcul à la région → rapide même sur un cube lourd.
+
 Pour une ventilation par une **autre** dimension restreinte à un territoire, combiner `--territory` (géo) et `--where` (filtre client sur le reste) reste possible ; `--where` seul (sans `--territory`) convient quand le cube est léger.
 
 **Croisement multi-dimensions filtré sur un territoire, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
@@ -131,6 +133,14 @@ python skills/rpe/scripts/query.py --query "Entrants en formation" \
 ```
 
 ⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` ou le champ `measures` de `rpe_toc`. La lib loggue un avertissement dans ce cas.
+
+⚠️ **Mesures pré-agrégées par géo** (`Région - …`, `Département - …`, ex. `Région - Entrants en formation`) : la géo y est déjà intégrée → les croiser avec une ventilation `C_TERRITOIRE_ID` renvoie le **repli présence 1.0** (mesure non reconnue). Pour ventiler par territoire × mois, prendre la mesure **générique** (ex. `Entrant en formation (switch)`), pas la variante `Région -/Département - …`.
+
+⚠️ **Au grain CLPE, les mesures « (switch cumul 12 mois) » renvoient `NaN`** (non calculées à ce grain) : prendre la variante directe en `%` (ex. `Accès à l'emploi à 6 mois %` plutôt que `… (switch cumul 12 mois) %`).
+
+⚠️ **Les datasets « … Aggrégé … Performance comparée … » ne servent pas aux valeurs brutes** : conçus pour le classement/comparaison entre territoires, ils renvoient **0 ligne** en accès direct. Pour des valeurs au grain CLPE/département, prendre le dataset principal (ex. `Accès et présence en emploi`) avec `territory=` + `C_TERRITOIRE_ID` à `lPos=-1` (CLPE) ou `0` (département).
+
+**Post-traitement.** Le serveur peut insérer une sentinelle `-1.0` (= -100 %, donnée manquante) : filtrer les valeurs négatives avant exploitation.
 
 **Fiches action — compter les fiches.** Les mesures `N_NBANSWERSET*` renvoient `0.0` via l'API publique (limitation connue, ne pas chercher à les déboguer). Compter plutôt les valeurs distinctes de `C_ANSWERSET_ID`, ventilées par `C_LBLREGION`. ⚠️ La mesure `Réponses` compte les **champs remplis** (~24 par fiche en moyenne), pas les fiches : proxy d'activité de saisie, pas un dénombrement.
 
