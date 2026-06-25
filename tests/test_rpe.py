@@ -1,13 +1,70 @@
 """Tests for lib/rpe.py — sel building, response parsing, period resolution, and live RPE access."""
 
 import json
+import ssl
 
 import httpx
 import pytest
+from cryptography import x509
 
 from lib import rpe
 
 DATASET = "Accès et présence en emploi"
+
+
+def test_rpe_ca_file_is_the_sectigo_ev_r36_intermediate():
+    cert = x509.load_pem_x509_certificate(rpe.RPE_CA_FILE.read_bytes())
+    assert "Sectigo Public Server Authentication CA EV R36" in cert.subject.rfc4514_string()
+    assert "R46" in cert.issuer.rfc4514_string()  # signé par la racine déjà présente dans certifi
+
+
+def test_build_ssl_context_trusts_the_embedded_intermediate():
+    ctx = rpe.build_ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+    assert any("EV R36" in str(c["subject"]) for c in ctx.get_ca_certs())
+
+
+def test_http_client_applies_user_agent_and_shared_ssl_context():
+    client = rpe.http_client()
+    assert client.headers["User-Agent"] == rpe.UA
+    assert client.timeout.read == rpe.TIMEOUT
+    client.close()
+
+
+@pytest.mark.parametrize("timeout,cookies", [(5, {"JSESSIONID": "abc"}), (rpe.TIMEOUT, None)])
+def test_http_client_passes_timeout_and_cookies(timeout, cookies):
+    client = rpe.http_client(timeout=timeout, cookies=cookies)
+    assert client.timeout.read == timeout
+    if cookies:
+        assert client.cookies.get("JSESSIONID") == "abc"
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "exc,fragment",
+    [
+        (httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer"), "chaîne TLS invalide"),
+        (httpx.ConnectError("Connection refused"), "connexion impossible"),
+        (httpx.ConnectTimeout("timed out"), "serveur injoignable"),
+    ],
+)
+def test_check_tls_reports_specific_reason_on_failure(mocker, exc, fragment):
+    client = mocker.MagicMock()
+    client.__enter__ = mocker.MagicMock(return_value=client)
+    client.__exit__ = mocker.MagicMock(return_value=False)
+    client.get.side_effect = exc
+    mocker.patch.object(rpe, "http_client", return_value=client)
+    ok, reason = rpe.check_tls()
+    assert ok is False
+    assert fragment in reason
+
+
+def test_doctor_short_circuits_on_tls_failure(mocker):
+    mocker.patch.object(rpe, "check_tls", return_value=(False, "chaîne TLS invalide (…)"))
+    connect = mocker.patch.object(rpe.RpeClient, "connect")
+    result = rpe.doctor()
+    assert result == {"ok": False, "reason": "chaîne TLS invalide (…)"}
+    connect.assert_not_called()  # pas de login tant que la couche TLS est cassée
 
 
 def make_body(dim_axes, lines, headers, measures):

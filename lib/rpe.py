@@ -4,11 +4,14 @@ import copy
 import json
 import logging
 import re
+import ssl
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import quote
 
+import certifi
 import httpx
 from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, String, Table, delete, insert, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -46,6 +49,29 @@ SESSION_TTL_S = 1200  # < 30 min Tomcat idle ; un 403 déclenche de toute façon
 _SID_RE = re.compile(r"4c9184f37cff01[0-9a-f]+")
 CUBE_RE = re.compile(r"[0-9a-f]{32}_[0-9a-f]{32}_[0-9a-f]+_[0-9]{13}")
 _HEX32_RE = re.compile(r"[0-9A-F]{32}")
+
+# Le serveur pilotage-rpe omet l'intermédiaire Sectigo EV R36 de sa poignée TLS (sa racine R46 est dans
+# certifi) : on l'ajoute au bundle, sinon tout appel httpx échoue en CERTIFICATE_VERIFY_FAILED.
+RPE_CA_FILE = Path(__file__).parent / "certs" / "rpe_ca.pem"
+
+
+def build_ssl_context() -> ssl.SSLContext:
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    ctx.load_verify_locations(cafile=str(RPE_CA_FILE))
+    return ctx
+
+
+SSL_CONTEXT = build_ssl_context()
+
+
+def http_client(*, timeout: int | None = None, cookies: dict | None = None) -> httpx.Client:
+    """Client httpx pour le serveur RPE : User-Agent commun + contexte SSL avec l'intermédiaire embarqué."""
+    return httpx.Client(
+        headers={"User-Agent": UA},
+        verify=SSL_CONTEXT,
+        timeout=timeout if timeout is not None else TIMEOUT,
+        cookies=cookies,
+    )
 
 
 class RpeLoginError(RuntimeError):
@@ -159,7 +185,7 @@ def _ok(resp: httpx.Response) -> bool:
 
 
 def _attempt_login(sigs: Signatures, timeout: int = TIMEOUT) -> httpx.Client | None:
-    client = httpx.Client(headers={"User-Agent": UA}, timeout=timeout)
+    client = http_client(timeout=timeout)
     headers = _gwt_headers(sigs.permutation)
 
     def gwt(payload: str) -> httpx.Response:
@@ -182,7 +208,7 @@ def _attempt_login(sigs: Signatures, timeout: int = TIMEOUT) -> httpx.Client | N
 
 def _scrape_builds() -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
-    with httpx.Client(headers={"User-Agent": UA}, timeout=TIMEOUT) as c:
+    with http_client() as c:
         index = c.get(BASE + "/index.html", timeout=TIMEOUT).text
         m = re.search(r"dashboard/(dashboard\.nocache-[0-9]+\.js)", index)
         if not m:
@@ -211,6 +237,21 @@ def login(sigs: Signatures) -> tuple[httpx.Client, Signatures]:
             logger.info("RPE login réussi via build re-scrapé permutation=%s", permutation)
             return client, candidate
     raise RpeLoginError("login impossible — identifiants ou valeurs de build GWT (strong-name/permutation) obsolètes")
+
+
+def check_tls(timeout: int = 10) -> tuple[bool, str]:
+    """Vérifie que la chaîne TLS du serveur RPE est validée par le bundle (certifi + intermédiaire embarqué)."""
+    try:
+        with http_client(timeout=timeout) as c:
+            c.get(BASE + "/index.html")
+    except ssl.SSLError as e:
+        return False, f"chaîne TLS invalide ({e}) — intermédiaire Sectigo périmé ? rafraîchir {RPE_CA_FILE.name}"
+    except httpx.ConnectError as e:
+        reason = "chaîne TLS invalide" if "CERTIFICATE_VERIFY_FAILED" in str(e) else "connexion impossible"
+        return False, f"{reason} ({e}) — vérifier {RPE_CA_FILE.name} (rotation FT ?)"
+    except httpx.HTTPError as e:
+        return False, f"serveur injoignable : {e}"
+    return True, "TLS OK"
 
 
 def check_connectivity(timeout: int = TIMEOUT) -> tuple[bool, str]:
@@ -268,11 +309,7 @@ class RpeClient:
                 (datetime.now(timezone.utc) - row["validated_at"]).total_seconds() if row.get("validated_at") else None
             )
             if age is not None and age <= SESSION_TTL_S:
-                http = httpx.Client(
-                    headers={"User-Agent": UA},
-                    cookies={"JSESSIONID": row["jsessionid"], "digdashSessionId": row.get("sid") or ""},
-                    timeout=TIMEOUT,
-                )
+                http = http_client(cookies={"JSESSIONID": row["jsessionid"], "digdashSessionId": row.get("sid") or ""})
                 return cls(http, sigs, sid=row.get("sid"))
         http, sigs = login(sigs)
         inst = cls(http, sigs)
@@ -707,7 +744,10 @@ def refresh() -> dict:
 
 
 def doctor() -> dict:
-    """État de santé RPE : fraîcheur des signatures + canari live. Réponse déterministe (pas de devinette)."""
+    """État de santé RPE : chaîne TLS + fraîcheur des signatures + canari live. Réponse déterministe (pas de devinette)."""
+    tls_ok, tls_reason = check_tls()
+    if not tls_ok:
+        return {"ok": False, "reason": tls_reason}
     row = load_signature_row()
     if not row or not all(row.get(k) for k in ("permutation", "strong_name", "policy_login", "policy_dash")):
         return {"ok": False, "reason": "signatures absentes en DB (cron jamais passé ?) — repli ENV utilisé"}
