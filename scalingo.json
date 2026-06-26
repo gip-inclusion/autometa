@@ -3,6 +3,11 @@
     "DEPLOYMENT_ENV": {
       "description": "Logical environment label surfaced in Datadog logs (resource.deployment.environment) and Sentry events",
       "value": "staging"
+    },
+    "OAUTH2_PROXY_REDIRECT_URL": {
+      "description": "OAuth callback URL for the review app. %URL% expands to this PR's own domain (autometa-staging-prXXX.osc-fr1.scalingo.io) instead of inheriting staging's, so login redirects back to the review app",
+      "generator": "url",
+      "template": "%URL%/oauth2/callback"
     }
   }
 }
