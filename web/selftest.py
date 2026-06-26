@@ -321,9 +321,17 @@ def _check_claude_code_inventory() -> tuple[bool, str]:
 def _check_s3() -> tuple[bool, str]:
     from . import s3
 
-    if not s3.interactive.exists("apps-list.json"):
-        return (False, "object not found: interactive/apps-list.json")
-    return (True, f"bucket={config.S3_BUCKET} prefix=interactive/")
+    if not config.S3_BUCKET:
+        return (False, "S3_BUCKET not set")
+    key = "selftest/ping.txt"
+    payload = b"ping"
+    if not s3.interactive.upload(key, payload, "text/plain"):
+        return (False, "upload failed")
+    got = s3.interactive.download(key)
+    s3.interactive.delete(key)
+    if got != payload:
+        return (False, "read-back mismatch")
+    return (True, f"bucket={config.S3_BUCKET} write/read/delete OK")
 
 
 def _check_matomo() -> tuple[bool, str]:
@@ -449,7 +457,6 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Claude CLI", _check_claude_cli),
         ("Claude status page", _check_claude_status_page),
         ("Claude Code API ping", _check_claude_code_ping),
-        ("Ressources offline accessibles", _check_claude_code_inventory),
         ("S3", _check_s3),
         ("Matomo", _check_matomo),
     ]
@@ -463,6 +470,8 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Livestorm", _check_livestorm),
         ("Slack", _check_slack),
     ]
+    # Why: full LLM agent run (~40s, gates the whole stream) — keep it last so faster checks render first.
+    specs.append(("Ressources offline accessibles", _check_claude_code_inventory))
     return specs
 
 
