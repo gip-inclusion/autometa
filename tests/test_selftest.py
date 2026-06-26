@@ -83,6 +83,44 @@ def test_inventory_check_runs_last(mocker):
     assert names[-1] == "Ressources offline accessibles"
 
 
+def test_claude_probes_never_overlap(mocker):
+    import threading
+    import time
+
+    from web.selftest import (
+        _check_claude_cli,
+        _check_claude_code_inventory,
+        _check_claude_code_ping,
+    )
+
+    state = {"active": 0, "max": 0}
+    guard = threading.Lock()
+
+    def fake_run(*args, **kwargs):
+        with guard:
+            state["active"] += 1
+            state["max"] = max(state["max"], state["active"])
+        time.sleep(0.05)
+        with guard:
+            state["active"] -= 1
+        return mocker.MagicMock(returncode=0, stdout="2.1.131 (Claude Code)\n", stderr="")
+
+    mocker.patch("web.selftest.subprocess.run", side_effect=fake_run)
+    mocker.patch(
+        "web.selftest._check_specs",
+        return_value=[
+            ("Claude CLI", _check_claude_cli),
+            ("Claude Code API ping", _check_claude_code_ping),
+            ("Ressources offline accessibles", _check_claude_code_inventory),
+        ],
+    )
+
+    resp = _selftest_client().get("/selftest")
+
+    assert resp.status_code == 200
+    assert state["max"] == 1
+
+
 def _selftest_client():
     app = FastAPI()
     app.include_router(router)
