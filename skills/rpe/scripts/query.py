@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from lib.rpe import RpeClient  # noqa: E402
+from lib.rpe import RpeClient, doctor  # noqa: E402
 
 
 def parse_dim(spec: str):
@@ -31,6 +31,36 @@ def parse_ddvar(v: str):
     return int(v) if v.lstrip("-").isdigit() else v
 
 
+TIER_ALIASES = {
+    "region": "Région",
+    "région": "Région",
+    "reg": "Région",
+    "dept": "Département",
+    "dep": "Département",
+    "departement": "Département",
+    "département": "Département",
+    "cle": "CLPE",
+    "clpe": "CLPE",
+}
+
+
+def parse_territory(specs: list):
+    """[CODE:PALIER, …] → (palier canonique, [codes]) pour le filtre géo serveur ; un seul palier à la fois."""
+    if not specs:
+        return None
+    paliers, codes = set(), []
+    for s in specs:
+        code, sep, tier = s.partition(":")
+        palier = TIER_ALIASES.get(tier.lower()) if sep else None
+        if not palier:
+            raise SystemExit(f"--territory attend CODE:PALIER (région|département|cle), ex. 78:dept — reçu {s!r}")
+        paliers.add(palier)
+        codes.append(code)
+    if len(paliers) > 1:
+        raise SystemExit("--territory : un seul palier à la fois")
+    return next(iter(paliers)), codes
+
+
 def apply_where(rows: list, wheres: list) -> list:
     """Filtre côté client : garde les lignes où row[col] == valeur (ET entre clauses)."""
     for clause in wheres:
@@ -41,6 +71,7 @@ def apply_where(rows: list, wheres: list) -> list:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Requêter le tableau de bord RPE (DigDash).")
+    ap.add_argument("--doctor", action="store_true", help="diagnostic santé RPE (fraîcheur signatures + canari live)")
     ap.add_argument("--list", action="store_true", help="lister les datasets")
     ap.add_argument("--measures", metavar="DATASET", help="lister les mesures d'un dataset")
     ap.add_argument("--grep", metavar="TERME", help="filtrer --measures/--dims par sous-chaîne (id ou label)")
@@ -60,13 +91,24 @@ def main() -> None:
         help="variable de bascule name=valeur (ex. Switch=0 pour mensuel vs cumul sur une mesure '(switch)'), répétable",
     )
     ap.add_argument(
+        "--territory",
+        action="append",
+        default=[],
+        metavar="CODE:PALIER",
+        help="filtre géo serveur au bon niveau (ex. 78:dept, 11:region, CLPE78001:cle), répétable. "
+        "Pour les cubes lourds (ventilation géo complète injoignable), préférer ceci au --where.",
+    )
+    ap.add_argument(
         "--where",
         action="append",
         default=[],
-        help="filtre côté client sur une colonne du résultat (ex. Région_code=11), répétable. "
-        "Préférer ceci au filtrage serveur pour la géo (les niveaux hiérarchiques piègent le filtre serveur).",
+        help="filtre côté client sur une colonne du résultat (ex. Région_code=11), répétable.",
     )
     args = ap.parse_args()
+
+    if args.doctor:
+        print(json.dumps(doctor(), ensure_ascii=False, indent=1))
+        return
 
     client = RpeClient.connect()
     try:
@@ -84,7 +126,12 @@ def main() -> None:
                 filters = {}
             ddvars = {k: parse_ddvar(v) for k, _, v in (d.partition("=") for d in args.ddvar)} or None
             rows = client.query(
-                args.query, dimensions=dims, measures=args.measure or None, filters=filters, ddvars=ddvars
+                args.query,
+                dimensions=dims,
+                measures=args.measure or None,
+                filters=filters,
+                territory=parse_territory(args.territory),
+                ddvars=ddvars,
             )
             print(json.dumps(apply_where(rows, args.where), ensure_ascii=False, indent=1))
         else:

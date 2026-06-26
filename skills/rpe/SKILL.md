@@ -37,30 +37,27 @@ Datasets « métier » (les principaux) :
 - **Fiches action** — fiches action des comités territoriaux (CTPE).
 - **Focus RSA (accompagnement rénové des BRSA)** — parcours des bénéficiaires du RSA, territoires pilotes.
 
-Dimensions transverses : géographie (commune/bassin/département/région), temps (mois), et caractéristiques publics (sexe, âge, niveau de formation, BRSA/QPV/BOE, type de parcours…). Catalogue exact dans `matometa.rpe_dataset` / `rpe_dimension` / `rpe_measure`.
+Dimensions transverses : géographie (commune/bassin/département/région), temps (mois), et caractéristiques publics (sexe, âge, niveau de formation, BRSA/QPV/BOE, type de parcours…). Catalogue exact dans `dashboard_storage.rpe_toc` (un dataset par ligne : `name`, `measures`, `dimensions`, `territory_codes`, `charts`).
 
-## Deux chemins : en cache vs à la demande
+## Architecture / fiabilité (à lire avant de débugger)
 
-**En cache (instantané)** — rafraîchi chaque nuit par le cron `refresh-rpe` dans le schéma `matometa`. Contient le catalogue et des **marginales** (`rpe_fact`) : chaque mesure ventilée par **une** dimension.
+La fonctionnalité RPE date de **juin 2026** ; les codes GWT du dépôt sont à jour. **Ne pas** attribuer une panne à un « changement de code récent ».
 
-Schéma (`matometa`) :
+Modèle d'authentification (signatures GWT) : `permutation` + `strong_name` (re-scrapés automatiquement par le cron), deux tokens de service `policy_login`/`policy_dash` (graines d'environnement), le mot de passe public `RPE_PUBLIC_PASS` (environnement), et un `sid` par session. **Aucune valeur fragile n'est en dur dans le code.**
 
-- `rpe_dataset(cube_key, name, cube_id)` — `name` = nom du dataset.
-- `rpe_dimension(dataset, dim_id, name, category, caption_dim, n_members)`.
-- `rpe_measure(dataset, measure_id, label)` — `measure_id` = id **exact** à passer à `query()`.
-- `rpe_fact(id, dataset, measure, measure_id, period, dimension, member_code, member_label, value)`.
+**Où vivent les valeurs fraîches :** `dashboard_storage.rpe_signature` (signature courante validée) et `dashboard_storage.rpe_toc` (catalogue de routage), rafraîchis chaque nuit par le cron `refresh-rpe`. Au runtime, `lib.rpe` lit la DB d'abord, puis l'ENV en repli — jamais de constante de code.
 
-**Toujours interroger la couverture réelle du cache** (la liste évolue avec la config du mirror — ne pas s'en remettre à une doc figée) :
+**Pour vérifier la santé :** `python skills/rpe/scripts/query.py --doctor` → renvoie `ok: true` ou `ok: false` avec la **raison exacte** (signatures absentes, login impossible, canari live périmé). **Ne pas** rétro-ingénierer la couche GWT ni deviner si le mot de passe est périmé — lancer `--doctor`.
 
-```sql
-SELECT dataset, dimension, count(*) AS lignes, count(DISTINCT period) AS periodes,
-       min(period) AS du, max(period) AS au
-FROM matometa.rpe_fact GROUP BY 1, 2 ORDER BY 1, 2;
-```
+**Plus de cache de faits.** Le mirror `rpe_fact` est supprimé : tous les chiffres viennent de requêtes live `territory=`. Les anciennes tables `matometa.rpe_*` sont retirées.
 
-Granularités géo matérialisées (selon `lib.rpe.MIRROR_GEO`, libellé canonique stocké dans `dimension`) : `dimension='Région'` (codes INSEE région, ex. `11`), `dimension='Département'` (ex. `59`), `dimension='CLPE'` (territoire, codes ex. `CLPE74001`). Référence commune↔CLPE↔INSEE : `knowledge/stats/clpe.md` (table `public.ref_clpe_ft`) — ⚠️ format de code CLPE différent côté RPE (`CLPE74001`) vs ref (`CLPE_001`), jointure non triviale. Si la granularité/période voulue n'est **pas** dans la couverture ci-dessus → requête à la demande.
+## Deux chemins : catalogue (TOC) vs requête live
 
-⚠️ Les **libellés de mesure ne sont pas uniques** (plusieurs mesures sources partagent un même `measure`, ex. mensuel vs cumul 12 mois). **Toujours filtrer/désambiguïser par `measure_id`**, pas par `measure`. Pour trouver le bon id : `SELECT measure_id, label FROM matometa.rpe_measure WHERE dataset=:ds AND label ILIKE :q`.
+**Catalogue (`dashboard_storage.rpe_toc`)** — routage instantané : quel cube, quelles mesures (`measure_id` exact), quelles dimensions, quels codes de territoire, quels graphes. Rafraîchi chaque nuit par le cron.
+
+⚠️ Les **libellés de mesure ne sont pas uniques** (plusieurs mesures sources partagent un même libellé, ex. mensuel vs cumul 12 mois). **Toujours désambiguïser par `measure_id`** (le champ `id` dans `measures`), pas par libellé.
+
+Codes de territoire par palier dans `territory_codes` : `Région` (codes INSEE région, ex. `11`), `Département` (ex. `59`), `CLPE` (territoire, ex. `CLPE74001`). Référence commune↔CLPE↔INSEE : `knowledge/stats/clpe.md` (table `public.ref_clpe_ft`) — ⚠️ format de code CLPE différent côté RPE (`CLPE74001`) vs ref (`CLPE_001`), jointure non triviale.
 
 ```python
 from sqlalchemy import text
@@ -68,15 +65,13 @@ from web.db import get_db
 
 with get_db() as s:
     rows = s.execute(text("""
-        SELECT member_label AS region, period, value, measure_id
-        FROM matometa.rpe_fact
-        WHERE dataset = :ds AND dimension = 'Région' AND measure_id = :mid
-        ORDER BY value DESC
-    """), {"ds": "Accès et présence en emploi",
-           "mid": "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %"}).all()
+        SELECT name, measures, dimensions, territory_codes
+        FROM dashboard_storage.rpe_toc
+        WHERE name ILIKE :q
+    """), {"q": "%Accès et présence%"}).all()
 ```
 
-**À la demande (`lib.rpe`)** — pour ce qui n'est pas en cache : un **croisement multi-dimensions** (région × sexe × âge), une **autre période**, un **grain fin** (bassin, commune), une mesure absente du cache.
+**À la demande (`lib.rpe`)** — pour obtenir des **valeurs** : un croisement multi-dimensions (région × sexe × âge), une période donnée, un grain fin (bassin, commune), une mesure ciblée. Tout chiffre passe par une requête live.
 
 ```python
 from lib.rpe import RpeClient
@@ -91,57 +86,90 @@ rows = c.query(
 c.close()
 ```
 
-`measures` : passer le `measure_id` exact, **ou** son libellé / une variante (la résolution est tolérante à la casse, aux apostrophes droites/courbes et aux espaces — match normalisé sur id et label ; un log `mesure résolue X → Y` confirme). Si aucune correspondance unique → valeurs de présence (1.0) + avertissement. Niveau géographique via `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département ; grains fins : explorer).
+`measures` : passer le `measure_id` exact, **ou** son libellé / une variante (la résolution est tolérante à la casse, aux apostrophes droites/courbes et aux espaces — match normalisé sur id et label ; un log `mesure résolue X → Y` confirme). Si aucune correspondance unique → valeurs de présence (1.0) + avertissement. Pour **ventiler** par niveau géo, `lPos` sur `C_TERRITOIRE_ID` (1 = région, 0 = département) ; pour **filtrer** sur un territoire, voir `territory=` plus bas.
 
-⚠️ **Filtrage géographique : filtrer côté client, pas côté serveur.** Le `filters=` serveur ignore le niveau hiérarchique (hardcodé level 0) → un `filters={"C_TERRITOIRE_ID": ["11"]}` renvoie des **valeurs fausses** (il matche un territoire feuille codé 11, pas la région). Méthode fiable : **ventiler par la dimension géo** (`C_TERRITOIRE_ID:1`) **et filtrer les lignes du résultat** par `member_code`/`Région_code`. En CLI, utiliser `--where`.
+**Filtrage géographique : filtre serveur `territory=(palier, codes)` au bon niveau.** La dim géo `C_TERRITOIRE_ID` est hiérarchique ; le serveur l'honore au niveau du palier (**`Région`=1, `Département`=0, `CLPE`=-1**). Passer le palier explicitement via `territory=` (lib) ou `--territory CODE:PALIER` (CLI) — ne **jamais** mettre `C_TERRITOIRE_ID` dans `filters=` (matché au niveau 0 quel que soit le code → **valeurs silencieusement fausses** ; la lib lève une `ValueError`).
 
-**Croisement multi-dimensions + filtre géo, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
+```python
+c.query("Satisfaction DE", dimensions=["D_DATESATISACCO"],
+        measures=["Taux de satisfaction des demandeurs d'emploi pour leur accompagnement %"],
+        territory=("Département", ["78"]))   # série mensuelle des Yvelines
+```
+
+C'est **le** moyen d'atteindre les cubes lourds (cf. *Limites du serveur public*) : ventiler la géo en bloc les fait timeouter, mais une requête filtrée sur **un** territoire revient en ~0–12 s.
+
+⚠️ « En bloc » vise le grain **fin** (CLPE, ~363 territoires) : c'est lui qui sature. Le grain **région** (`C_TERRITOIRE_ID` à `lPos=1`, ~19 membres) se ventile en **un seul appel quasi instantané**, même sur un cube lourd — inutile de boucler `territory=` région par région si on veut juste le niveau régional (idem `Département`, `lPos=0`).
+
+**Tous les CLPE d'une région en un appel.** `territory=("Région", [code])` + `C_TERRITOIRE_ID` à `lPos=-1` remonte directement les CLPE de la région (`member_code = CLPE…`) — inutile de lister les codes CLPE à la main. Le filtre serveur restreint le calcul à la région → rapide même sur un cube lourd.
+
+Pour une ventilation par une **autre** dimension restreinte à un territoire, combiner `--territory` (géo) et `--where` (filtre client sur le reste) reste possible ; `--where` seul (sans `--territory`) convient quand le cube est léger.
+
+**Croisement multi-dimensions filtré sur un territoire, en un seul appel CLI** (le cas « IDF par sexe × âge ») :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Accès et présence en emploi" \
-  --dim C_TERRITOIRE_ID:1 --dim C_LBLSEXE --dim C_LBLCATEGORIEAGE \
-  --measure "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %" \
-  --where "Région_code=11"
+  --territory 11:region --dim C_LBLSEXE --dim C_LBLCATEGORIEAGE \
+  --measure "Accès à l'emploi - Accès à l'emploi à 6 mois (switch cumul 12 mois) %"
 ```
-→ 8 lignes (2 sexes × 4 tranches d'âge) pour l'Île-de-France.
+→ 8 lignes (2 sexes × 4 tranches d'âge) pour l'Île-de-France — le filtre serveur restreint le calcul à la région (rapide même sur un cube lourd).
 
 **Série temporelle (évolution sur les mois)** — utiliser `--month <dim date>` (la dimension de catégorie « 2. Date », ex. `D_DATEFPRIO`, `D_DATETAETPED`). ⚠️ Indispensable : `--month` ventile par mois **et lève le filtre de période** du template (sinon la requête est figée sur le dernier mois → une seule ligne). Trouver la mesure et la dim date avec `--measures DS --grep …` et `--dims DS --grep date` :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
-  --dim C_TERRITOIRE_ID:1 --month D_DATEFPRIO \
-  --measure "Région - Entrants en formation" --where "Région_code=53"
+  --territory 53:region --month D_DATEFPRIO \
+  --measure "Région - Entrants en formation"
 ```
 → une ligne par mois pour la Bretagne (code région 53).
 
-**Mesures « (switch) » — mensuel vs cumul.** Certaines mesures dont l'id contient `(switch)` basculent entre mensuel et cumul 12 mois selon une variable `ddVars` (souvent `Switch`). Par défaut elles renvoient le **cumul**. Pour le **mensuel**, ajouter `--ddvar Switch=0` (inspecter les bascules disponibles : `python -c "from lib.rpe_gwt import SEL; print([v['name'] for v in SEL['ddVars']])"`). Exemple série mensuelle nette :
+⚠️ **Le lag de publication varie selon le dataset** (de quelques semaines à plusieurs mois) et bouge dans le temps. Avant de cibler une période, vérifier le dernier mois réellement publié (ventiler par la dim date, prendre le `max`) plutôt que de le supposer.
+
+**Mensuel vs cumul = choix de la mesure (le « switch » est un toggle d'affichage côté client).** Vérifié sur la capture HAR du dashboard : le navigateur demande les **deux** mesures (« … % » mensuel et « … Cumul 12 mois % ») dans un **seul** `getCubeResult`, et une variable `Switch …` (par-cube, ex. `Switch cumul_12mois`) choisit juste la **colonne affichée** — la réponse serveur contient toujours les deux. Rien à piloter côté serveur : **demander directement la mesure voulue** (mensuel « … % » ou cumul « … Cumul 12 mois % »), ou demander les deux et lire la bonne colonne. Les `ddVars` de notre squelette `sel` ne sont pas ces toggles et n'ont aucun effet sur les valeurs ; `--ddvar` / `ddvars=` est donc à éviter. Exemple série mensuelle :
 
 ```bash
 python skills/rpe/scripts/query.py --query "Entrants en formation" \
-  --dim C_TERRITOIRE_ID:1 --month D_DATEFPRIO \
-  --measure "Entrant en formation (switch)" --ddvar Switch=0 --where "Région_code=53"
+  --territory 53:region --month D_DATEFPRIO \
+  --measure "Entrant en formation (switch)"
 ```
 
-⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` / `rpe_measure`. La lib loggue un avertissement dans ce cas.
+⚠️ **`measure` / `measure_id` à `null` et `value` = 1.0** dans le résultat = l'id de mesure n'a pas été reconnu (repli « présence » du serveur). Reprendre l'id **exact** depuis `--measures … --grep …` ou le champ `measures` de `rpe_toc`. La lib loggue un avertissement dans ce cas.
+
+⚠️ **Mesures pré-agrégées par géo** (`Région - …`, `Département - …`, ex. `Région - Entrants en formation`) : la géo y est déjà intégrée → les croiser avec une ventilation `C_TERRITOIRE_ID` renvoie le **repli présence 1.0** (mesure non reconnue). Pour ventiler par territoire × mois, prendre la mesure **générique** (ex. `Entrant en formation (switch)`), pas la variante `Région -/Département - …`.
+
+⚠️ **Au grain CLPE, les mesures « (switch cumul 12 mois) » renvoient `NaN`** (non calculées à ce grain) : prendre la variante directe en `%` (ex. `Accès à l'emploi à 6 mois %` plutôt que `… (switch cumul 12 mois) %`).
+
+⚠️ **Les datasets « … Aggrégé … Performance comparée … » ne servent pas aux valeurs brutes** : conçus pour le classement/comparaison entre territoires, ils renvoient **0 ligne** en accès direct. Pour des valeurs au grain CLPE/département, prendre le dataset principal (ex. `Accès et présence en emploi`) avec `territory=` + `C_TERRITOIRE_ID` à `lPos=-1` (CLPE) ou `0` (département).
+
+**Post-traitement.** Le serveur peut insérer une sentinelle `-1.0` (= -100 %, donnée manquante) : filtrer les valeurs négatives avant exploitation.
+
+**Fiches action — compter les fiches.** Les mesures `N_NBANSWERSET*` renvoient `0.0` via l'API publique (limitation connue, ne pas chercher à les déboguer). Compter plutôt les valeurs distinctes de `C_ANSWERSET_ID`, ventilées par `C_LBLREGION`. ⚠️ La mesure `Réponses` compte les **champs remplis** (~24 par fiche en moyenne), pas les fiches : proxy d'activité de saisie, pas un dénombrement.
 
 ## Trouver le bon indicateur (routage)
 
-`matometa.rpe_chart` documente chaque graphe du tableau de bord source : `chart_title`, `cube_name`, `measures_shown` (noms des mesures affichées), `dims_shown`. C'est la façon la plus rapide de router une question vers le bon cube/mesure (les graphes ne montrent que le sous-ensemble pertinent des mesures, avec un libellé lisible).
+Le champ `charts` de `dashboard_storage.rpe_toc` documente chaque graphe du tableau de bord source (`chart_title`, `measures_shown`, `dims_shown`). C'est la façon la plus rapide de router une question vers le bon cube/mesure (les graphes ne montrent que le sous-ensemble pertinent des mesures, avec un libellé lisible).
 
 ```sql
-SELECT chart_title, cube_name, measures_shown, dims_shown
-FROM matometa.rpe_chart
-WHERE chart_title ILIKE :q OR array_to_string(measures_shown, ' ') ILIKE :q;
+SELECT name, charts
+FROM dashboard_storage.rpe_toc
+WHERE charts::text ILIKE :q OR measures::text ILIKE :q;
 ```
 
 Puis interroger le cube avec la mesure trouvée — `query()` résout le nom de mesure en identifiant technique.
 
 ## Combien de temps
 
-- En cache : instantané (SQL local).
+- Catalogue (TOC) : instantané (SQL local).
 - À la demande, cube déjà calculé côté serveur : ~30 ms.
-- À la demande, **nouveau** croisement (cache serveur froid) : **1 à 20 s** au premier appel, puis ~30 ms. Pour de gros balayages, rester séquentiel ou ≤4 en parallèle (serveur public).
+- À la demande, **nouveau** croisement (cache serveur froid) : **1 à 20 s** au premier appel, puis ~30 ms.
+
+## Limites du serveur public
+
+Le serveur DigDash de France Travail est **public, partagé avec nos requêtes live, et il sérialise les requêtes concurrentes**. Conséquences vérifiées (juin 2026) — ne pas les redécouvrir :
+
+- **Certains cubes sont trop lourds pour une ventilation géo complète** (Accès et présence, Entrants/Sortants de formation, Délai de pourvoi, Satisfaction, Description publics…) : ventiler **toute** la géo en un appel dépasse la **limite de calcul ~60 s du serveur** (il renvoie 5xx). **Mais ces cubes restent interrogeables à la demande** : une requête filtrée sur **un seul territoire** (`territory=(palier, codes)`, cf. *Deux chemins*) ne calcule que ce territoire et revient en ~0–12 s. « Injoignable en masse » ≠ « injoignable ».
+- **Pas de raccourci « fichier statique » pour les faits.** `getFile` ne sert que le catalogue/structure (`cube_dm`), pas les valeurs de mesures ; celles-ci sont calculées en direct par `getCubeResult`.
+- **Filtre géo serveur** : passer par `territory=(palier, codes)` (niveau honoré : **région 1, département 0, CLPE -1**). Ne pas mettre `C_TERRITOIRE_ID` dans `filters=` (niveau 0 → valeurs fausses). Mono-territoire = rapide même sur un cube lourd ; **en masse sur tous les territoires**, le serveur sérialise/sature → réservé aux requêtes ciblées.
 
 ## Script
 
-`skills/rpe/scripts/query.py` — explorer le catalogue et lancer une requête en CLI (`--list`, `--measures`, `--dims`, `--query`).
+`skills/rpe/scripts/query.py` — explorer le catalogue et lancer une requête en CLI (`--list`, `--measures`, `--dims`, `--query`). Diagnostic de santé : `--doctor`.
