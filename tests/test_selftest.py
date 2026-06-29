@@ -13,6 +13,8 @@ from web.selftest import (
     _check_claude_code_ping,
     _check_claude_status_page,
     _check_rpe,
+    _check_s3,
+    _check_specs,
     _fmt,
     _probe,
     _run_all_checks,
@@ -50,6 +52,73 @@ def test_check_rpe_surfaces_first_failing_check(mocker):
     ok, detail = _check_rpe()
     assert ok is False
     assert detail == "login: login refusé"
+
+
+@pytest.mark.parametrize(
+    ("bucket", "upload", "download", "expect_ok", "detail_substr"),
+    [
+        ("matometa", True, b"ping", True, "write/read/delete OK"),
+        ("", True, b"ping", False, "S3_BUCKET not set"),
+        ("matometa", False, None, False, "upload failed"),
+        ("matometa", True, b"nope", False, "read-back mismatch"),
+    ],
+)
+def test_check_s3_roundtrip(mocker, bucket, upload, download, expect_ok, detail_substr):
+    mocker.patch("web.selftest.config.S3_BUCKET", bucket)
+    interactive = mocker.patch("web.s3.interactive")
+    interactive.upload.return_value = upload
+    interactive.download.return_value = download
+
+    ok, detail = _check_s3()
+
+    assert ok is expect_ok
+    assert detail_substr in detail
+    if expect_ok:
+        interactive.delete.assert_called_once_with("selftest/ping.txt")
+
+
+def test_inventory_check_runs_last(mocker):
+    mocker.patch("web.selftest.list_instances", return_value=["stats"])
+    names = [name for name, _ in _check_specs()]
+    assert names[-1] == "Ressources offline accessibles"
+
+
+def test_claude_probes_never_overlap(mocker):
+    import threading
+    import time
+
+    from web.selftest import (
+        _check_claude_cli,
+        _check_claude_code_inventory,
+        _check_claude_code_ping,
+    )
+
+    state = {"active": 0, "max": 0}
+    guard = threading.Lock()
+
+    def fake_run(*args, **kwargs):
+        with guard:
+            state["active"] += 1
+            state["max"] = max(state["max"], state["active"])
+        time.sleep(0.05)
+        with guard:
+            state["active"] -= 1
+        return mocker.MagicMock(returncode=0, stdout="2.1.131 (Claude Code)\n", stderr="")
+
+    mocker.patch("web.selftest.subprocess.run", side_effect=fake_run)
+    mocker.patch(
+        "web.selftest._check_specs",
+        return_value=[
+            ("Claude CLI", _check_claude_cli),
+            ("Claude Code API ping", _check_claude_code_ping),
+            ("Ressources offline accessibles", _check_claude_code_inventory),
+        ],
+    )
+
+    resp = _selftest_client().get("/selftest")
+
+    assert resp.status_code == 200
+    assert state["max"] == 1
 
 
 def _selftest_client():

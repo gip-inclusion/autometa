@@ -321,9 +321,17 @@ def _check_claude_code_inventory() -> tuple[bool, str]:
 def _check_s3() -> tuple[bool, str]:
     from . import s3
 
-    if not s3.interactive.exists("apps-list.json"):
-        return (False, "object not found: interactive/apps-list.json")
-    return (True, f"bucket={config.S3_BUCKET} prefix=interactive/")
+    if not config.S3_BUCKET:
+        return (False, "S3_BUCKET not set")
+    key = "selftest/ping.txt"
+    payload = b"ping"
+    if not s3.interactive.upload(key, payload, "text/plain"):
+        return (False, "upload failed")
+    got = s3.interactive.download(key)
+    s3.interactive.delete(key)
+    if got != payload:
+        return (False, "read-back mismatch")
+    return (True, f"bucket={config.S3_BUCKET} write/read/delete OK")
 
 
 def _check_matomo() -> tuple[bool, str]:
@@ -439,6 +447,11 @@ def _check_data_inclusion() -> tuple[bool, str]:
     return (False, result.error or "query failed")
 
 
+# Probes that spawn the `claude` CLI. Serialized at run time so the trivial
+# --version check isn't starved by the concurrent heavy agent runs (ping, inventory).
+_CLAUDE_SPAWN_CHECKS = {_check_claude_cli, _check_claude_code_ping, _check_claude_code_inventory}
+
+
 def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     specs: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
         ("PostgreSQL", _check_postgresql),
@@ -449,7 +462,6 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Claude CLI", _check_claude_cli),
         ("Claude status page", _check_claude_status_page),
         ("Claude Code API ping", _check_claude_code_ping),
-        ("Ressources offline accessibles", _check_claude_code_inventory),
         ("S3", _check_s3),
         ("Matomo", _check_matomo),
     ]
@@ -463,6 +475,8 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Livestorm", _check_livestorm),
         ("Slack", _check_slack),
     ]
+    # Why: full LLM agent run (~40s, gates the whole stream) — keep it last so faster checks render first.
+    specs.append(("Ressources offline accessibles", _check_claude_code_inventory))
     return specs
 
 
@@ -474,8 +488,12 @@ async def _run_checks_streaming():
     specs = _check_specs()
     names = [n for n, _ in specs]
     results: list[Check | None] = [None] * len(names)
+    claude_lock = asyncio.Lock()
 
     async def one(i: int, name: str, fn: Callable[[], tuple[bool, str]]) -> tuple[int, Check]:
+        if fn in _CLAUDE_SPAWN_CHECKS:
+            async with claude_lock:
+                return i, await asyncio.to_thread(_probe, name, fn)
         return i, await asyncio.to_thread(_probe, name, fn)
 
     pending = {asyncio.create_task(one(i, name, fn)) for i, (name, fn) in enumerate(specs)}
