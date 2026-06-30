@@ -4,7 +4,7 @@ import json
 from datetime import date
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 import handler
 
@@ -16,11 +16,12 @@ def make_obj(key, etag="etag", size=10):
 class FakeS3:
     """In-memory S3 double covering the calls snapshot() and purge_old_snapshots() make."""
 
-    def __init__(self, source_objects=(), existing=None, fail_copy_keys=(), backup_tree=None):
+    def __init__(self, source_objects=(), existing=None, fail_copy_keys=(), backup_tree=None, copy_error=None):
         self.source_objects = list(source_objects)
         self.existing = dict(existing or {})
         self.fail_copy_keys = set(fail_copy_keys)
         self.backup_tree = dict(backup_tree or {})
+        self.copy_error = copy_error or ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject")
         self.copied = []
         self.put = {}
         self.deleted = []
@@ -45,7 +46,7 @@ class FakeS3:
 
     def copy_object(self, Bucket, Key, CopySource, MetadataDirective):
         if CopySource["Key"] in self.fail_copy_keys:
-            raise ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject")
+            raise self.copy_error
         self.copied.append(Key)
 
     def put_object(self, Bucket, Key, Body, ContentType):
@@ -80,8 +81,17 @@ def test_snapshot_skips_objects_already_present_with_same_etag():
     assert client.copied == ["backup/2026-05-17/b"]
 
 
-def test_snapshot_is_best_effort_and_flags_partial_failure():
-    client = FakeS3([make_obj("a"), make_obj("bad"), make_obj("c")], fail_copy_keys={"bad"})
+@pytest.mark.parametrize(
+    "copy_error",
+    [
+        ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject"),
+        # Why: a transient network error is a BotoCoreError, not a ClientError — it must be
+        # counted as a failed object rather than crash the run before the manifest is written.
+        EndpointConnectionError(endpoint_url="https://s3.fr-par.scw.cloud"),
+    ],
+)
+def test_snapshot_is_best_effort_and_flags_partial_failure(copy_error):
+    client = FakeS3([make_obj("a"), make_obj("bad"), make_obj("c")], fail_copy_keys={"bad"}, copy_error=copy_error)
     result = handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
     assert result["ok"] is False
     assert result["failed"] == 1
