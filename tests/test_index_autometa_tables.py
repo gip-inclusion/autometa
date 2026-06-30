@@ -67,8 +67,24 @@ def test_main_skips_without_database_url(mocker):
     create_engine.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("env_value", "should_run"),
+    [("prod", True), ("staging", False), ("live", False), ("dev", False)],
+)
+def test_main_runs_only_on_prod(mocker, env_value, should_run):
+    mocker.patch.object(cron.config, "AUTOMETA_TABLES_DATABASE_URL", "postgresql://example")
+    mocker.patch.object(cron.config, "AUTOMETA_ENV", env_value)
+    engine, _ = make_engine(mocker)
+    create_engine = mocker.patch.object(cron, "create_engine", return_value=engine)
+
+    cron.main()
+
+    assert create_engine.called is should_run
+
+
 def test_main_executes_all_statements(mocker):
     mocker.patch.object(cron.config, "AUTOMETA_TABLES_DATABASE_URL", "postgresql://example")
+    mocker.patch.object(cron.config, "AUTOMETA_ENV", "prod")
     engine, conn = make_engine(mocker)
     mocker.patch.object(cron, "create_engine", return_value=engine)
 
@@ -79,6 +95,7 @@ def test_main_executes_all_statements(mocker):
 
 def test_main_continues_after_failures_then_raises(mocker):
     mocker.patch.object(cron.config, "AUTOMETA_TABLES_DATABASE_URL", "postgresql://example")
+    mocker.patch.object(cron.config, "AUTOMETA_ENV", "prod")
 
     def execute(clause):
         if '"candidats"' in str(clause) and "CREATE INDEX" in str(clause):

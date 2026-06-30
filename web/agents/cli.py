@@ -59,7 +59,8 @@ class CLIBackend(AgentBackend):
     def _tool_permission_args(self) -> list[str]:
         """Permission/tool flags for the CLI (allow-list + always-blocked tools)."""
         args: list[str] = []
-        if config.AUTOMETA_ENV == "live":
+        # Why: tout serveur (staging ou prod) tourne sous confinement conteneur — pas d'allowlist d'outils.
+        if config.AUTOMETA_ENV != "dev":
             args.append("--dangerously-skip-permissions")
         elif config.ALLOWED_TOOLS:
             args.extend(["--allowedTools", config.ALLOWED_TOOLS])
