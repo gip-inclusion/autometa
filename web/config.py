@@ -184,6 +184,9 @@ GRIST_WEBINAIRES_DOC_ID = os.getenv("GRIST_WEBINAIRES_DOC_ID")
 # Livestorm API
 LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 
+# Tally API (form submissions as a data source)
+TALLY_API_KEY = os.getenv("TALLY_API_KEY")
+
 # GitHub API — cron scripts read public repos; an unscoped token lifts the rate limit (60 → 5000 req/h)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 

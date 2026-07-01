@@ -403,6 +403,22 @@ def _check_livestorm() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
+def _check_tally() -> tuple[bool, str]:
+    api_key = config.TALLY_API_KEY
+    if not api_key:
+        return (False, "TALLY_API_KEY not set")
+    resp = httpx.get(
+        "https://api.tally.so/forms",
+        headers={"Authorization": f"Bearer {api_key}"},
+        params={"limit": 1},
+        timeout=SELFTEST_TIMEOUT_SEC,
+    )
+    if resp.status_code == 200:
+        total = resp.json().get("total")
+        return (True, f"{total} forms" if total is not None else "reachable")
+    return (False, f"HTTP {resp.status_code}")
+
+
 def _check_slack() -> tuple[bool, str]:
     token = config.SLACK_BOT_TOKEN
     if not token:
@@ -461,6 +477,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Notion", _check_notion),
         ("Grist", _check_grist),
         ("Livestorm", _check_livestorm),
+        ("Tally", _check_tally),
         ("Slack", _check_slack),
     ]
     return specs
