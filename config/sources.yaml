@@ -113,6 +113,9 @@ autometa_tables_db:
 livestorm:
   api_key: ${env.LIVESTORM_API_KEY}
 
+tally:
+  api_key: ${env.TALLY_API_KEY}
+
 grist:
   webinaires:
     api_key: ${env.GRIST_API_KEY}
