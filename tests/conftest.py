@@ -93,7 +93,7 @@ def truncate_all_tables():
     with get_db() as session:
         session.execute(
             text("""
-            TRUNCATE TABLE messages, conversation_tags, report_tags,
+            TRUNCATE TABLE conversation_message_embeddings, messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, dashboards, dashboard_tags, dashboard_publications, pinned_items,
                 reports, conversations, tags,
                 matomo_baselines, matomo_dimensions, matomo_segments,

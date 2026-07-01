@@ -2,24 +2,24 @@
 
 from datetime import datetime
 
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    Text,
-    UniqueConstraint,
-    func,
-    text,
-)
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import UserDefinedType
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class Vector(UserDefinedType):
+    cache_ok = True
+
+    def __init__(self, dimensions):
+        self.dimensions = dimensions
+
+    def get_col_spec(self, **kw):
+        return f"vector({self.dimensions})"
 
 
 class Conversation(Base):
@@ -359,4 +359,52 @@ class UsageEvent(Base):
         Index("idx_usage_events_conv_ts", "conversation_id", "timestamp"),
         Index("idx_usage_events_ts", "timestamp"),
         Index("idx_usage_events_kind_ts", "kind", "timestamp"),
+    )
+
+
+class ConversationMessageEmbedding(Base):
+    __tablename__ = "conversation_message_embeddings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    conversation_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    content_length: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_preview: Mapped[str | None] = mapped_column(Text)
+    message_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    embedding_model: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "embedding_model",
+            name="uq_conversation_message_embeddings_message_model",
+        ),
+        Index("idx_conversation_message_embeddings_conversation_id", "conversation_id"),
+        Index("idx_conversation_message_embeddings_user_id", "user_id"),
+        Index("idx_conversation_message_embeddings_model", "embedding_model"),
     )
