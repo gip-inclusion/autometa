@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+if [ "$APP_ROLE" = "prefect-server" ]; then
+    echo "Prefect server app — skip autometa migrations"
+    exit 0
+fi
+
 python -m lib.migrate
 
 # Why: V1 one-shot import — APP.md → dashboards table. Idempotent (upserts).
