@@ -6,6 +6,8 @@ par les utilisateurs professionnels sur l'ensemble des services.
 Un « acte métier » est une action à valeur métier significative : orientation d'un
 bénéficiaire, candidature, mise en relation, distribution d'un outil, etc.
 
+L'acte métier est l'**unité de compte unique** et le **North Star** (étape Impact) du funnel bizdev — voir [glossaire AARRI](../bizdev/glossaire.md). Ce fichier est la source de vérité de la liste des types d'actes.
+
 **Dashboard interactif :** `/interactive/actes-metier/`
 **Conversation source :** `aa66951a` (Page stat V2)
 **Script de génération :** `/app/data/scripts/actes_metier_data_v3.py`

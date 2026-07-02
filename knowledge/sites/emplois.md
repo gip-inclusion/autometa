@@ -3,6 +3,7 @@
 - URL: https://emplois.inclusion.beta.gouv.fr
 - Matomo site ID: 117
 - GitHub: https://github.com/gip-inclusion/les-emplois
+- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
 
 ## Key Concepts: Two Dimensions of the IAE Workflow
 

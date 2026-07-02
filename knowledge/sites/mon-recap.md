@@ -4,6 +4,7 @@
 - Matomo site ID: 217
 - Tag Manager: yes
 - GitHub: https://github.com/gip-inclusion/mon-recap-sites-faciles
+- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype transactionnel/physique : distribution ≠ déploiement).
 
 ## Traffic Baselines (2025)
 

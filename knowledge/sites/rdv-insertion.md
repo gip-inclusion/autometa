@@ -4,6 +4,7 @@
 - Matomo site ID: 214
 - GitHub: https://github.com/gip-inclusion/rdv-insertion
 - Metabase: [RDVI instance](../rdvi/README.md) — business data (invitations, RDVs, departments, organisations)
+- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (acquisition, activation, rétention, pénétration).
 
 ## Traffic Baselines (2025)
 

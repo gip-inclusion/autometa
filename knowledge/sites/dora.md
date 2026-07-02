@@ -4,6 +4,7 @@
 - Matomo site ID: 211
 - Tag Manager: yes (container ID: `1y35glgB`)
 - GitHub: https://github.com/gip-inclusion/dora
+- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (acquisition, activation, rétention, pénétration).
 
 ## Related Knowledge
 

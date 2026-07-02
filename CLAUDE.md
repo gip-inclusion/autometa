@@ -25,6 +25,8 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - **Prescripteurs** — Accompagnent les candidats. Les « prescripteurs habilités » peuvent réaliser des diagnostics et délivrer des pass.
 - **Employeurs** (SIAE) — Structures employant les titulaires de pass. Nécessitent un conventionnement annuel.
 
+**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (RDV-Insertion, Dora, Mon Récap, Les Emplois, Le Marché), la définition **opérationnelle du produit**.
+
 Sources de données :
 
 - **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue. _Nos services, granulaire._
