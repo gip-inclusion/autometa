@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
-"""Pre-tool-use hook: en environnement live, restreint les chemins d'écriture de l'agent."""
+"""Pre-tool-use hook: sur les serveurs, restreint les chemins d'écriture de l'agent."""
 
 import json
 import os
 import sys
+from pathlib import Path
 
+# Why: hook autonome lancé hors package — la racine du dépôt doit être sur sys.path
+# pour partager web/environment.py (stdlib uniquement) avec l'application.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from web.environment import Environment  # noqa: E402
+
+BLOCK_BAD_ENV_MSG = (
+    "Écriture refusée : AUTOMETA_ENV invalide — corriger la variable d'environnement (voir web/environment.py)."
+)
 BLOCK_CODE_MSG = (
     "Écriture refusée : le code de l'application est immuable en prod (baked dans l'image Docker, "
     "toute modification serait perdue au redéploiement). Chemins autorisés : data/, .claude/, /tmp. "
@@ -41,7 +51,11 @@ def slug_exists(slug):
 
 
 def verdict(path, repo_root, env, exists=slug_exists):
-    if env.get("AUTOMETA_ENV", "dev") == "dev":
+    try:
+        environment = Environment.current(env.get("AUTOMETA_ENV"))
+    except ValueError:  # Why: fail-closed — une valeur inconnue ne doit pas désactiver la garde.
+        return BLOCK_BAD_ENV_MSG
+    if not environment.is_server:
         return None
     real = os.path.realpath(path)
     _tmp = os.path.realpath("/tmp")

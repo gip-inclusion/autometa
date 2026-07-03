@@ -13,11 +13,11 @@ _spec = importlib.util.spec_from_file_location("guard_write_paths", _HOOK_PATH)
 guard = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(guard)
 
-LIVE = {"AUTOMETA_ENV": "live"}
+SERVER = {"AUTOMETA_ENV": "prod"}
 ROOT = "/app"
 
 
-def _verdict(path, env=LIVE, exists=lambda slug: True):
+def _verdict(path, env=SERVER, exists=lambda slug: True):
     return guard.verdict(path, ROOT, env, exists=exists)
 
 
@@ -38,7 +38,7 @@ def test_dev_or_unset_allows_everything(env):
         "/app/.claude/plans/foo.md",
     ],
 )
-def test_live_allows_data_claude_tmp(path):
+def test_server_allows_data_claude_tmp(path):
     assert _verdict(path) is None
 
 
@@ -56,7 +56,7 @@ def test_live_allows_data_claude_tmp(path):
         "/home/appsdeck/.bashrc",
     ],
 )
-def test_live_blocks_code_and_outside_paths(path):
+def test_server_blocks_code_and_outside_paths(path):
     assert _verdict(path) == guard.BLOCK_CODE_MSG
 
 
@@ -69,16 +69,16 @@ def test_live_blocks_code_and_outside_paths(path):
         "/app/.claude/hooks/check_python.py",
     ],
 )
-def test_live_blocks_guard_config(path):
+def test_server_blocks_guard_config(path):
     assert _verdict(path) == guard.BLOCK_GUARD_MSG
 
 
-def test_live_blocks_unregistered_slug_dir():
+def test_server_blocks_unregistered_slug_dir():
     v = _verdict("/app/data/interactive/rogue-app/index.html", exists=lambda slug: False)
     assert v == guard.BLOCK_UNREGISTERED_MSG
 
 
-def test_live_allows_registered_slug_dir():
+def test_server_allows_registered_slug_dir():
     seen = []
 
     def exists(slug):
@@ -89,10 +89,15 @@ def test_live_allows_registered_slug_dir():
     assert seen == ["my-tdb"]
 
 
-def test_live_blocks_html_at_interactive_root():
+def test_server_blocks_html_at_interactive_root():
     assert _verdict("/app/data/interactive/page.html") == guard.BLOCK_ROOT_HTML_MSG
     assert _verdict("/app/data/interactive/page.htm") == guard.BLOCK_ROOT_HTML_MSG
     assert _verdict("/app/data/interactive/export.csv") is None
+
+
+@pytest.mark.parametrize("env_value", ["live", "Production", "prd"])
+def test_invalid_env_fails_closed(env_value):
+    assert _verdict("/tmp/x.py", env={"AUTOMETA_ENV": env_value}) == guard.BLOCK_BAD_ENV_MSG
 
 
 def test_slug_exists_fails_open_without_database_url(monkeypatch):
@@ -109,12 +114,14 @@ def test_slug_exists_fails_open_on_connection_error(monkeypatch):
     ("stdin_payload", "env_value", "expected_exit"),
     [
         ('{"tool_input": {"file_path": "/app/web/x.py"}}', "dev", 0),
-        ('{"tool_input": {"file_path": "/app/web/x.py"}}', "live", 2),
         ('{"tool_input": {"file_path": "/app/web/x.py"}}', "staging", 2),
+        ('{"tool_input": {"file_path": "/app/web/x.py"}}', "review", 2),
         ('{"tool_input": {"file_path": "/app/web/x.py"}}', "prod", 2),
-        ('{"tool_input": {"file_path": "/tmp/x.py"}}', "live", 0),
-        ('{"tool_input": {}}', "live", 0),
-        ("not json", "live", 1),
+        ('{"tool_input": {"file_path": "/app/web/x.py"}}', "live", 2),
+        ('{"tool_input": {"file_path": "/tmp/x.py"}}', "live", 2),
+        ('{"tool_input": {"file_path": "/tmp/x.py"}}', "prod", 0),
+        ('{"tool_input": {}}', "prod", 0),
+        ("not json", "prod", 1),
     ],
 )
 def test_main_protocol_exit_codes(stdin_payload, env_value, expected_exit, tmp_path):
