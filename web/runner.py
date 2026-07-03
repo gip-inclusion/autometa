@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
+from sqlalchemy import inspect
 
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker
@@ -23,6 +24,7 @@ from lib.tool_taxonomy import classify_tool
 from . import alerts, complexity, config, session_sync
 from .agents import get_agent
 from .database import store
+from .db import get_engine
 from .helpers import utcnow
 from .otel import SpanStack, extract_trace_context, inject_trace_headers
 from .redis_conn import get_redis
@@ -33,6 +35,13 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 PREFIX = "autometa"
+
+
+def schema_ready() -> bool:
+    """False on a fresh DB whose migrations haven't run yet (first deploy, review apps)."""
+    # Why: Scalingo boots the container before the postdeploy migration runs, so startup
+    # recovery must tolerate a not-yet-created schema instead of crashing the boot.
+    return inspect(get_engine()).has_table("conversations")
 
 
 @dataclass
@@ -246,6 +255,9 @@ class TaskRunner:
         return cleared
 
     async def _recover_stuck(self, r):
+        if not schema_ready():
+            logger.warning("Schema not migrated yet (no conversations table); skipping startup recovery")
+            return
         cleared = await self._reconcile_stuck(r, 0, "*Interrompu (redémarrage serveur).*")
         if cleared:
             logger.info("Cleared %s stuck conversations on startup", cleared)
