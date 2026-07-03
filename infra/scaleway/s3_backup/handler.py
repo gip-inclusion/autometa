@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 import config
 
@@ -58,7 +58,9 @@ def snapshot(client, source: str, target: str, snapshot_date: str) -> dict:
                 MetadataDirective="COPY",
             )
             return "copied", obj["Size"], None
-        except ClientError as exc:
+        # Why: BotoCoreError (read/connection timeout) on one object must count as a failed
+        # object, not crash the whole pass via pool.map and lose the final manifest.
+        except (ClientError, BotoCoreError) as exc:
             return "failed", obj["Size"], f"{key}: {exc}"
 
     counts = {"copied": 0, "skipped": 0, "failed": 0}
