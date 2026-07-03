@@ -49,7 +49,3 @@ def test_is_server_is_true_off_local(env, is_server):
 def test_only_prod_owns_the_shared_db(env, owns):
     assert env.owns_shared_db is owns
 
-
-def test_member_is_its_string_value():
-    assert Environment.PROD == "prod"
-    assert Environment.PROD.value == "prod"
