@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 
 from web.environment import Environment
@@ -49,3 +51,19 @@ def test_is_server_is_true_off_local(env, is_server):
 def test_only_prod_owns_the_shared_db(env, owns):
     assert env.owns_shared_db is owns
 
+
+def test_config_reports_invalid_env_to_sentry(monkeypatch, mocker):
+    monkeypatch.setenv("AUTOMETA_ENV", "live")
+    init = mocker.patch("sentry_sdk.init")
+    capture = mocker.patch("sentry_sdk.capture_exception")
+    mocker.patch("sentry_sdk.flush")
+    from web import config
+
+    try:
+        with pytest.raises(ValueError):
+            importlib.reload(config)
+        init.assert_called_once()
+        capture.assert_called_once()
+    finally:
+        monkeypatch.delenv("AUTOMETA_ENV", raising=False)
+        importlib.reload(config)

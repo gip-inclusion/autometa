@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+import sentry_sdk
 from dotenv import load_dotenv
 
 from web.environment import Environment
@@ -149,7 +150,15 @@ PUBLIC_DASHBOARDS_PROD_URL = os.getenv("PUBLIC_DASHBOARDS_URL_PROD", "https://st
 
 # Deployment environment — capabilities (is_server, owns_shared_db) live in web/environment.py.
 # "prod" (matometa), "staging" (autometa-staging), "review" (PR apps); unset ⇒ "dev" (local).
-ENV = Environment.current(os.getenv("AUTOMETA_ENV"))
+try:
+    ENV = Environment.current(os.getenv("AUTOMETA_ENV"))
+except ValueError as exc:
+    # Why: le crash survient à l'import, avant init_sentry() — sans capture explicite,
+    # une valeur AUTOMETA_ENV invalide tuerait le boot sans rien remonter à Sentry.
+    sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""))
+    sentry_sdk.capture_exception(exc)
+    sentry_sdk.flush()
+    raise
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
