@@ -1,8 +1,8 @@
 {
   "env": {
     "AUTOMETA_ENV": {
-      "description": "Deployment environment: prod (matometa), staging (autometa-staging), dev (default). Seeds review/one-click apps; prod and staging set it via scalingo env-set",
-      "value": "staging"
+      "description": "Deployment environment (see web/environment.py). Seeds review apps; prod and staging set it via scalingo env-set",
+      "value": "review"
     },
     "OAUTH2_PROXY_REDIRECT_URL": {
       "description": "OAuth callback URL for the review app. %URL% expands to this PR's own domain (autometa-staging-prXXX.osc-fr1.scalingo.io) instead of inheriting staging's, so login redirects back to the review app",
