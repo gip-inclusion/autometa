@@ -11,6 +11,9 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import SQLAlchemyError
+
+from lib import failure_detection
 
 from . import config, memory_introspect, sync_to_s3
 from . import s3 as s3_module
@@ -57,6 +60,11 @@ async def lifespan(app: FastAPI):
     # Warmup (cache rebuild) runs in background — app serves requests immediately
     warmup_task = asyncio.create_task(asyncio.to_thread(warmup))
     sync_to_s3.start_sync_watcher()
+
+    try:
+        failure_detection.ensure_schema()
+    except SQLAlchemyError:
+        logger.exception("Échec de l'init du schéma dashboard_storage (recréé paresseusement à la première détection)")
 
     await runner.startup()
     mem_task = asyncio.create_task(_memory_profile_loop()) if config.MEMORY_PROFILE_INTERVAL > 0 else None

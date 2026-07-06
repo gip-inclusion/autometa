@@ -16,12 +16,13 @@ import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 
 from lib.api_signals import parse_api_signals
-from lib.failure_detection import extract_snippet, find_failure_marker
+from lib.failure_detection import extract_snippet, find_failure_marker, record_failure
 from lib.tool_taxonomy import classify_tool
 
-from . import alerts, complexity, config, session_sync
+from . import complexity, config, session_sync
 from .agents import get_agent
 from .database import store
 from .db import get_engine
@@ -568,17 +569,20 @@ def _check_failure(conversation_id: str, text: str):
     snippet = extract_snippet(text, marker)
     conv = store.get_conversation(conversation_id)
     title = conv.title if conv and conv.title else "Sans titre"
-    threading.Thread(target=_send_failure_notification, args=(conversation_id, title, snippet), daemon=True).start()
+    user_id = conv.user_id if conv else None
+    url = f"{config.BASE_URL}/explorations/{conversation_id}"
+    threading.Thread(
+        target=_persist_failure,
+        args=(conversation_id, title, marker, snippet, url, user_id),
+        daemon=True,
+    ).start()
 
 
-def _send_failure_notification(conv_id: str, title: str, snippet: str):
-    url = f"{config.BASE_URL}/explorations/{conv_id}"
-    message = (
-        f":warning: *Erreur détectée dans une conversation*\n\n"
-        f'<{url}|{title}> — "{snippet}"\n\n'
-        f"_Vérifiez que la réponse est correcte._"
-    )
-    alerts.notify_alert_channel(message)
+def _persist_failure(conv_id: str, title: str, marker: str, snippet: str, url: str, user_id: str | None):
+    try:
+        record_failure(conv_id, title, marker, snippet, url, user_id)
+    except SQLAlchemyError:
+        logger.exception("Échec de la journalisation de l'erreur détectée pour %s", conv_id)
 
 
 def history_for_turn(conv_id: str, session_id: str | None, default_history: list[dict]) -> list[dict]:

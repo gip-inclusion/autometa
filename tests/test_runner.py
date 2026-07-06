@@ -12,10 +12,10 @@ from web.database import Message
 from web.runner import (
     RunUsage,
     TaskRunner,
+    _persist_failure,
     _record_span_usage,
     _record_thinking_tail,
     _record_usage,
-    _send_failure_notification,
     _serialize_tool_event,
 )
 
@@ -862,16 +862,22 @@ def test_run_agent_no_budget_when_disabled(mocker, fake_redis):
     asyncio.run(_run())
 
 
-def test_send_failure_notification_delegates_to_alert_helper(mocker):
-    notify = mocker.patch("web.runner.alerts.notify_alert_channel")
+def test_persist_failure_delegates_to_record_failure(mocker):
+    record = mocker.patch("web.runner.record_failure")
 
-    _send_failure_notification("conv-1", "Ma conversation", "boom")
+    _persist_failure("conv-1", "Ma conversation", "désolé", "boom", "http://x/explorations/conv-1", "user-9")
 
-    notify.assert_called_once()
-    message = notify.call_args[0][0]
-    assert "conv-1" in message
-    assert "Ma conversation" in message
-    assert "boom" in message
+    record.assert_called_once_with(
+        "conv-1", "Ma conversation", "désolé", "boom", "http://x/explorations/conv-1", "user-9"
+    )
+
+
+def test_persist_failure_swallows_db_errors(mocker):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    mocker.patch("web.runner.record_failure", side_effect=SQLAlchemyError("down"))
+
+    _persist_failure("conv-1", "Ma conversation", "désolé", "boom", "http://x", None)
 
 
 def test_run_agent_emits_completion_log(runner, mocker, caplog):
