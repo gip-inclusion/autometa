@@ -93,9 +93,10 @@
 
       </ul>
 
-      <!-- Recent conversations -->
-      {% if conversations %}
-      <div class="sidebar-conversations">
+      <!-- Recent conversations — refreshed out-of-band on every htmx navigation -->
+      <div class="sidebar-conversations{% if not conversations %} is-empty{% endif %}" id="sidebar-recents"
+           {% if request.headers.get('HX-Request') %}hx-swap-oob="true"{% endif %}>
+        {% if conversations %}
         <ul class="nav flex-column">
           {% for conv in conversations[:10] %}
           <li class="nav-item">
@@ -113,8 +114,8 @@
            hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
           Voir plus...
         </a>
+        {% endif %}
       </div>
-      {% endif %}
 
       <!-- Aller plus loin — outils techniques, secondaires -->
       <div class="sidebar-tools">
