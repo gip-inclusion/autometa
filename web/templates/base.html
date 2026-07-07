@@ -55,18 +55,26 @@
     <nav class="sidebar-nav" role="navigation" id="nav-primary" aria-label="Navigation principale" tabindex="-1">
       <ul class="nav flex-column">
         <li class="nav-item">
-          <a href="/" class="nav-link {% if section == 'accueil' %}active{% endif %}"
+          <a href="/explorations/new" class="nav-link nav-link-primary {% if section == 'explorations' and not current_conv and is_new %}active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <i class="ri-home-4-line" aria-hidden="true"></i>
-            <span>Accueil</span>
+            <i class="ri-add-line" aria-hidden="true"></i>
+            <span>Nouvelle conversation</span>
           </a>
         </li>
 
         <li class="nav-item">
-          <a href="/conversations" class="nav-link {% if section == 'conversations' %}active{% endif %}"
+          <a href="/conversations" class="nav-link {% if section == 'conversations' and show != 'reports' %}active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-chat-3-line" aria-hidden="true"></i>
             <span>Conversations</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a href="/conversations?show=reports" class="nav-link {% if section == 'conversations' and show == 'reports' %}active{% endif %}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-file-text-line" aria-hidden="true"></i>
+            <span>Rapports</span>
           </a>
         </li>
 
@@ -75,14 +83,6 @@
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-dashboard-line" aria-hidden="true"></i>
             <span>Tableaux de bord</span>
-          </a>
-        </li>
-
-        <li class="nav-item">
-          <a href="/explorations/new" class="nav-link nav-link-primary {% if section == 'explorations' and not current_conv and is_new %}active{% endif %}"
-             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-            <i class="ri-add-line" aria-hidden="true"></i>
-            <span>Nouvelle conversation</span>
           </a>
         </li>
 
@@ -110,6 +110,34 @@
         </a>
       </div>
       {% endif %}
+
+      <!-- Aller plus loin — outils techniques, secondaires -->
+      <div class="sidebar-tools">
+        <span class="sidebar-tools-title">Aller plus loin</span>
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a href="/jobs" class="nav-link {% if section == 'jobs' %}active{% endif %}"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-robot-2-line" aria-hidden="true"></i>
+              <span>Jobs</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/cron" class="nav-link {% if section == 'cron' %}active{% endif %}"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-time-line" aria-hidden="true"></i>
+              <span>Cron</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/tag-manager" class="nav-link {% if section == 'tag-manager' %}active{% endif %}"
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+              <i class="ri-price-tag-3-line" aria-hidden="true"></i>
+              <span>Tag Manager</span>
+            </a>
+          </li>
+        </ul>
+      </div>
     </nav>
   </aside>
 
@@ -136,23 +164,23 @@
       <nav role="navigation">
         <ul class="nav flex-column">
           <li class="nav-item">
-            <a href="/" class="nav-link {% if section == 'accueil' %}active{% endif %}">
-              <i class="ri-home-4-line me-2"></i>Accueil
+            <a href="/explorations/new" class="nav-link {% if section == 'explorations' and not current_conv and is_new %}active{% endif %}">
+              <i class="ri-add-line me-2"></i>Nouvelle conversation
             </a>
           </li>
           <li class="nav-item">
-            <a href="/conversations" class="nav-link {% if section == 'conversations' %}active{% endif %}">
+            <a href="/conversations" class="nav-link {% if section == 'conversations' and show != 'reports' %}active{% endif %}">
               <i class="ri-chat-3-line me-2"></i>Conversations
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/conversations?show=reports" class="nav-link {% if section == 'conversations' and show == 'reports' %}active{% endif %}">
+              <i class="ri-file-text-line me-2"></i>Rapports
             </a>
           </li>
           <li class="nav-item">
             <a href="/dashboards" class="nav-link {% if section == 'dashboards' %}active{% endif %}">
               <i class="ri-dashboard-line me-2"></i>Tableaux de bord
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="/explorations/new" class="nav-link {% if section == 'explorations' and not current_conv and is_new %}active{% endif %}">
-              <i class="ri-add-line me-2"></i>Nouvelle conversation
             </a>
           </li>
         </ul>
@@ -171,6 +199,25 @@
           </li>
         </ul>
         {% endif %}
+        <hr class="my-2">
+        <span class="sidebar-tools-title">Aller plus loin</span>
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a href="/jobs" class="nav-link {% if section == 'jobs' %}active{% endif %}">
+              <i class="ri-robot-2-line me-2"></i>Jobs
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/cron" class="nav-link {% if section == 'cron' %}active{% endif %}">
+              <i class="ri-time-line me-2"></i>Cron
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/tag-manager" class="nav-link {% if section == 'tag-manager' %}active{% endif %}">
+              <i class="ri-price-tag-3-line me-2"></i>Tag Manager
+            </a>
+          </li>
+        </ul>
       </nav>
     </div>
   </div>
@@ -225,13 +272,19 @@
   <script>
   function updateSidebarActive() {
     const path = window.location.pathname;
+    const show = new URLSearchParams(window.location.search).get('show') || '';
     document.querySelectorAll('.sidebar-nav .nav-link, .offcanvas .nav-link').forEach(link => {
       const href = link.getAttribute('href');
-      const isActive = path === href ||
-        (href === '/' && path === '/') ||
-        (href === '/conversations' && path === '/conversations') ||
-        (href === '/explorations/new' && path === '/explorations/new') ||
-        (href.startsWith('/explorations/') && path === href);
+      if (!href) return;
+      const url = new URL(href, window.location.origin);
+      let isActive;
+      if (url.pathname === '/conversations') {
+        // Conversations et Rapports partagent /conversations, on les distingue via ?show=reports
+        const linkReports = url.searchParams.get('show') === 'reports';
+        isActive = path === '/conversations' && (show === 'reports') === linkReports;
+      } else {
+        isActive = path === url.pathname;
+      }
       link.classList.toggle('active', isActive);
     });
   }
