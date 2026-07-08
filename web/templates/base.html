@@ -117,21 +117,24 @@
         <ul class="nav flex-column">
           <li class="nav-item">
             <a href="/jobs" class="nav-link {% if section == 'jobs' %}active{% endif %}"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
+               title="Analyses autonomes longues lancées en arrière-plan (minutes à heures)">
               <i class="ri-robot-2-line" aria-hidden="true"></i>
               <span>Jobs</span>
             </a>
           </li>
           <li class="nav-item">
             <a href="/cron" class="nav-link {% if section == 'cron' %}active{% endif %}"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
+               title="Tâches planifiées récurrentes (rafraîchissement des tableaux de bord, synchronisations)">
               <i class="ri-time-line" aria-hidden="true"></i>
               <span>Cron</span>
             </a>
           </li>
           <li class="nav-item">
             <a href="/tag-manager" class="nav-link {% if section == 'tag-manager' %}active{% endif %}"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
+               title="Gestion des balises Matomo Tag Manager (déclencheurs, tags, déploiements)">
               <i class="ri-price-tag-3-line" aria-hidden="true"></i>
               <span>Tag Manager</span>
             </a>
@@ -203,17 +206,20 @@
         <span class="sidebar-tools-title">Aller plus loin</span>
         <ul class="nav flex-column">
           <li class="nav-item">
-            <a href="/jobs" class="nav-link {% if section == 'jobs' %}active{% endif %}">
+            <a href="/jobs" class="nav-link {% if section == 'jobs' %}active{% endif %}"
+               title="Analyses autonomes longues lancées en arrière-plan (minutes à heures)">
               <i class="ri-robot-2-line me-2"></i>Jobs
             </a>
           </li>
           <li class="nav-item">
-            <a href="/cron" class="nav-link {% if section == 'cron' %}active{% endif %}">
+            <a href="/cron" class="nav-link {% if section == 'cron' %}active{% endif %}"
+               title="Tâches planifiées récurrentes (rafraîchissement des tableaux de bord, synchronisations)">
               <i class="ri-time-line me-2"></i>Cron
             </a>
           </li>
           <li class="nav-item">
-            <a href="/tag-manager" class="nav-link {% if section == 'tag-manager' %}active{% endif %}">
+            <a href="/tag-manager" class="nav-link {% if section == 'tag-manager' %}active{% endif %}"
+               title="Gestion des balises Matomo Tag Manager (déclencheurs, tags, déploiements)">
               <i class="ri-price-tag-3-line me-2"></i>Tag Manager
             </a>
           </li>
