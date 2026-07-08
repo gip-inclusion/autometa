@@ -25,6 +25,7 @@ def test_tools_links_have_hover_definitions(client):
     assert 'title="Analyses autonomes longues lancées en arrière-plan (minutes à heures)"' in html
     assert 'title="Tâches planifiées récurrentes (rafraîchissement des tableaux de bord, synchronisations)"' in html
     assert 'title="Gestion des balises Matomo Tag Manager (déclencheurs, tags, déploiements)"' in html
+    assert 'data-bs-toggle="tooltip"' in html
 
 
 def test_sidebar_drops_accueil_nav_link(client):
