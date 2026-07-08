@@ -2375,12 +2375,12 @@ body.has-sidebar {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--bs-gray-500);
+  color: var(--bs-gray-600);
 }
 
 .sidebar-tools .nav-link {
   font-size: 0.8125rem;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .sidebar-tools .nav-link:hover,

@@ -1,5 +1,7 @@
 """Tests for the refactored primary navigation (sidebar + accueil grid)."""
 
+import pytest
+
 
 def headers(email="alice@example.com"):
     return {"X-Forwarded-Email": email}
@@ -34,15 +36,15 @@ def test_accueil_grid_drops_technical_tools_keeps_rapports(client):
     assert 'href="/dashboards" class="accueil-button"' in html
 
 
-def test_conversations_view_marks_conversations_active_not_reports(client):
-    html = client.get("/conversations?show=convos", headers=headers()).text
+@pytest.mark.parametrize(
+    ("url", "active_href", "inactive_href"),
+    [
+        ("/conversations?show=convos", "/conversations?show=convos", "/conversations?show=reports"),
+        ("/conversations?show=reports", "/conversations?show=reports", "/conversations?show=convos"),
+    ],
+)
+def test_active_tab_matches_current_view(client, url, active_href, inactive_href):
+    html = client.get(url, headers=headers()).text
 
-    assert 'href="/conversations?show=convos" class="nav-link active"' in html
-    assert 'href="/conversations?show=reports" class="nav-link active"' not in html
-
-
-def test_reports_view_marks_reports_active_not_conversations(client):
-    html = client.get("/conversations?show=reports", headers=headers()).text
-
-    assert 'href="/conversations?show=reports" class="nav-link active"' in html
-    assert 'href="/conversations?show=convos" class="nav-link active"' not in html
+    assert f'href="{active_href}" class="nav-link active"' in html
+    assert f'href="{inactive_href}" class="nav-link active"' not in html
