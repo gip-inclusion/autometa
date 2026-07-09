@@ -69,6 +69,7 @@ dev = [
     "bandit>=1.9.4",
     "pip-audit>=2.10.0",
     "fakeredis>=2.34.1",
+    "pytest-cov>=7",
 ]
 
 # =============================================================================
@@ -97,12 +98,15 @@ ignore = [
 "tests/test_uploads.py" = ["E402"]         # env config before imports
 "tests/conftest.py" = ["E402"]             # DATABASE_URL override before imports
 
-# =============================================================================
-# Bandit — SAST
-# =============================================================================
+[tool.coverage.run]
+branch = true
+source = ["web", "lib"]
+
+[tool.coverage.report]
+precision = 2
 
 # =============================================================================
-# Pytest
+# Bandit — SAST
 # =============================================================================
 
 [tool.bandit]
