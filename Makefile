@@ -1,4 +1,4 @@
-.PHONY: dev test lint format security ci migrate check-migrations
+.PHONY: dev test diff-cover lint format security ci migrate check-migrations
 
 dev:
 	uv run --frozen autometa
@@ -23,6 +23,10 @@ security:
 
 test:
 	uv run --frozen pytest tests/ -q --tb=short -m "not integration and not external" \
-		--cov --cov-branch --cov-report=term-missing:skip-covered
+		--cov --cov-branch \
+		--cov-report=term-missing:skip-covered --cov-report=xml
 
-ci: lint security check-migrations test
+diff-cover:
+	uv run --frozen diff-cover coverage.xml --compare-branch=origin/main --config-file pyproject.toml
+
+ci: lint security check-migrations test diff-cover
