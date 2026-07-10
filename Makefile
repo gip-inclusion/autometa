@@ -12,6 +12,7 @@ check-migrations:
 lint:
 	uv run --frozen ruff check
 	uv run --frozen ruff format --check
+	uv run --frozen python scripts/check_test_quality.py tests
 
 format:
 	uv run --frozen ruff check --fix

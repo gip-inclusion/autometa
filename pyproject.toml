@@ -86,7 +86,8 @@ exclude = ["data/", ".venv/", "evals/", "skills/pdf/"]
 
 [tool.ruff.lint]
 preview = true
-select = ["E", "F", "W", "I", "G"]
+# PT0xx/B011 : détecteurs de tests creux/fragiles (voir docs/testing/04-phases.md, phase 3)
+select = ["E", "F", "W", "I", "G", "B011", "PT010", "PT012", "PT015", "PT017", "PT027"]
 ignore = [
     "E501",   # line length — enforce progressively, not retroactively
     "G001",   # logging-string-format — `.format()` is acceptable in this codebase
