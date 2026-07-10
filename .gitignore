@@ -16,6 +16,8 @@ __pycache__
 .venv
 .pytest_cache
 .coverage
+docs/superpowers/
+.superpowers/
 /data/
 !/data/interactive/
 /data-remote/
