@@ -13,6 +13,15 @@
       {
         "matcher": "Bash",
         "hooks": [{"type": "command", "command": "python3 .claude/hooks/check_env_on_tag.py"}]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{"type": "command", "command": "python3 .claude/hooks/ruff_edited.py"}]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "python3 .claude/hooks/stop_lint_gate.py"}]
       }
     ]
   }
