@@ -42,6 +42,8 @@ FROM public.utilisateurs
 GROUP BY type;
 ```
 
+> **Attention — « actif » ≠ « connecté ».** Ci-dessus, `actifs` = ≥1 connexion sur la période. Le [glossaire AARRI](../bizdev/glossaire.md) **déclasse ce proxy** : un utilisateur actif a réalisé **≥1 acte métier** sur le mois. Pour toute analyse de rétention/adoption, compter les actes métiers, pas les connexions.
+
 ### Jointures par type d'utilisateur
 
 | Type | Table à joindre | Clé |

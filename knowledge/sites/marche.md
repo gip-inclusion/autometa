@@ -4,6 +4,7 @@
 - Matomo site ID: 136
 - Tag Manager: yes (both Google Tag Manager and Matomo Tag Manager)
 - GitHub: https://github.com/gip-inclusion/le-marche
+- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
 
 ## Traffic Baselines (2025)
 
