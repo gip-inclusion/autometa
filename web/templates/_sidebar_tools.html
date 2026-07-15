@@ -1,0 +1,17 @@
+{% set tools = [
+  {'href': '/jobs', 'section': 'jobs', 'icon': 'ri-robot-2-line', 'label': 'Jobs', 'tooltip': 'Analyses autonomes longues lancées en arrière-plan (minutes à heures)'},
+  {'href': '/cron', 'section': 'cron', 'icon': 'ri-time-line', 'label': 'Cron', 'tooltip': 'Tâches planifiées récurrentes (rafraîchissement des tableaux de bord, synchronisations)'},
+  {'href': '/tag-manager', 'section': 'tag-manager', 'icon': 'ri-price-tag-3-line', 'label': 'Tag Manager', 'tooltip': 'Gestion des balises Matomo Tag Manager (déclencheurs, tags, déploiements)'},
+] %}
+<span class="sidebar-tools-title">Aller plus loin</span>
+<ul class="nav flex-column">
+  {% for tool in tools %}
+  {% set is_active = section == tool.section %}
+  <li class="nav-item">
+    <a href="{{ tool.href }}" class="nav-link {% if is_active %}active{% endif %}"{% if is_active %} aria-current="page"{% endif %}
+       {% if not mobile %}hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true" {% endif %}data-bs-toggle="tooltip" data-bs-placement="right" title="{{ tool.tooltip }}">
+      <i class="{{ tool.icon }}{% if mobile %} me-2{% endif %}" aria-hidden="true"></i>{% if mobile %}{{ tool.label }}{% else %}<span>{{ tool.label }}</span>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
