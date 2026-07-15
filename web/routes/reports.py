@@ -56,7 +56,8 @@ def rapport_detail(report_id: int, request: Request, user_email: str = Depends(g
         request,
         "rapports.html",
         {
-            "section": "rapports",
+            "section": "conversations",
+            "show": "reports",
             "current_report": current_report,
             "current_report_tags": current_report_tags,
             "report_front_matter": report_front_matter,

@@ -1,10 +1,17 @@
 """Tests for the refactored primary navigation (sidebar + accueil grid)."""
 
+import re
+
 import pytest
 
 
 def headers(email="alice@example.com"):
     return {"X-Forwarded-Email": email}
+
+
+def first_link_tag(html, href):
+    match = re.search(r'<a href="' + re.escape(href) + r'"[^>]*>', html)
+    return match.group(0) if match else ""
 
 
 def test_sidebar_has_reordered_links_and_tools_section(client):
@@ -55,5 +62,21 @@ def test_accueil_grid_drops_technical_tools_keeps_rapports(client):
 def test_active_tab_matches_current_view(client, url, active_href, inactive_href):
     html = client.get(url, headers=headers()).text
 
-    assert f'href="{active_href}" class="nav-link active"' in html
-    assert f'href="{inactive_href}" class="nav-link active"' not in html
+    assert 'aria-current="page"' in first_link_tag(html, active_href)
+    assert 'aria-current="page"' not in first_link_tag(html, inactive_href)
+
+
+def test_report_detail_marks_reports_tab_active(app, client):
+    from web.database import store
+
+    report = store.create_report(
+        title="Test Report",
+        content="# Test",
+        website="test",
+        category="testing",
+        user_id="alice@example.com",
+    )
+    html = client.get(f"/rapports/{report.id}", headers=headers()).text
+
+    assert 'aria-current="page"' in first_link_tag(html, "/conversations?show=reports")
+    assert 'aria-current="page"' not in first_link_tag(html, "/conversations?show=convos")
