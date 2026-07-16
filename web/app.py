@@ -64,7 +64,9 @@ async def lifespan(app: FastAPI):
     try:
         failure_detection.ensure_schema()
     except SQLAlchemyError:
-        logger.exception("Échec de l'init du schéma dashboard_storage (recréé paresseusement à la première détection)")
+        logger.exception(
+            "Échec de l'init du schéma dashboard_storage au démarrage — les détections d'erreur ne seront pas journalisées"
+        )
 
     await runner.startup()
     mem_task = asyncio.create_task(_memory_profile_loop()) if config.MEMORY_PROFILE_INTERVAL > 0 else None

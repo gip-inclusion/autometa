@@ -5,6 +5,7 @@ import json
 
 import fakeredis.aioredis
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from web import complexity
 from web.agents.base import AgentMessage
@@ -872,12 +873,12 @@ def test_persist_failure_delegates_to_record_failure(mocker):
     )
 
 
-def test_persist_failure_swallows_db_errors(mocker):
-    from sqlalchemy.exc import SQLAlchemyError
-
+def test_persist_failure_swallows_db_errors(mocker, caplog):
     mocker.patch("web.runner.record_failure", side_effect=SQLAlchemyError("down"))
 
     _persist_failure("conv-1", "Ma conversation", "désolé", "boom", "http://x", None)
+
+    assert "conv-1" in caplog.text
 
 
 def test_run_agent_emits_completion_log(runner, mocker, caplog):

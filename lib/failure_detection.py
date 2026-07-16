@@ -57,8 +57,9 @@ def ensure_schema() -> None:
     _metadata.create_all(eng)
 
 
-def record_failure(conversation_id, title, marker, snippet, url, user_id=None) -> None:
-    ensure_schema()
+def record_failure(
+    conversation_id: str, title: str, marker: str, snippet: str, url: str, user_id: str | None = None
+) -> None:
     with get_engine().begin() as conn:
         conn.execute(
             insert(conversation_failures).values(

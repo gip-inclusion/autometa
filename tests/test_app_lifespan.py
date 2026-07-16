@@ -30,8 +30,10 @@ def test_lifespan_bootstraps_dashboard_storage_schema(mocker):
     ensure.assert_called_once()
 
 
-def test_lifespan_survives_schema_bootstrap_failure(mocker):
+def test_lifespan_survives_schema_bootstrap_failure(mocker, caplog):
     _mock_lifespan_deps(mocker)
     mocker.patch("web.app.failure_detection.ensure_schema", side_effect=SQLAlchemyError("db down"))
 
     asyncio.run(_drive_lifespan())
+
+    assert "dashboard_storage" in caplog.text
