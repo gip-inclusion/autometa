@@ -88,6 +88,13 @@ def test_featured_row_absent_without_pins(client):
     assert "À la une" not in r.text
 
 
+def test_page_has_create_button_linking_to_new_conversation(client):
+    r = client.get("/dashboards", headers=_h())
+    assert r.status_code == 200
+    assert 'href="/explorations/new"' in r.text
+    assert "Créer un tableau de bord" in r.text
+
+
 def test_featured_only_shown_on_latest(client):
     _make_dashboard("feat-latest-only", author="alice@x")
     store.pin_item("app", "feat-latest-only", "Feat")
