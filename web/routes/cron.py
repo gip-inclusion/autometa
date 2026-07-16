@@ -30,7 +30,7 @@ Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 @router.get("/cron")
 def cron_page(request: Request, user_email: str = Depends(get_current_user)):
     """Cron task dashboard — shows all cron-eligible tasks with status."""
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     tasks = discover_cron_tasks()
     last_runs = get_last_runs(limit_per_app=1)
 

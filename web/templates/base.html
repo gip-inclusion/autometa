@@ -95,7 +95,7 @@
 
       <!-- Recent conversations — refreshed out-of-band on every htmx navigation -->
       <div class="sidebar-conversations{% if not conversations %} is-empty{% endif %}" id="sidebar-recents"
-           {% if request.headers.get('HX-Request') %}hx-swap-oob="true"{% endif %}>
+           {% if is_htmx_request %}hx-swap-oob="true"{% endif %}>
         {% if conversations %}
         <ul class="nav flex-column">
           {% for conv in conversations[:10] %}
@@ -167,6 +167,7 @@
             </a>
           </li>
         </ul>
+        <div id="mobile-recents"{% if is_htmx_request %} hx-swap-oob="true"{% endif %}>
         {% if conversations %}
         <hr class="my-2">
         <ul class="nav flex-column">
@@ -182,6 +183,7 @@
           </li>
         </ul>
         {% endif %}
+        </div>
         <hr class="my-2">
         {% with mobile = true %}{% include "_sidebar_tools.html" %}{% endwith %}
       </nav>

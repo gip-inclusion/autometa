@@ -39,7 +39,7 @@ def humanize_title(title: str) -> str:
     return title.strip()
 
 
-def get_sidebar_data(user_email: str | None):
+def get_sidebar_data(user_email: str | None, request: Request):
     conversations = store.list_conversations(limit=20, user_id=user_email)
 
     # Batch fetch tags for all conversations (1 query instead of 20)
@@ -80,13 +80,14 @@ def get_sidebar_data(user_email: str | None):
         "is_admin": user_email in ADMIN_USERS,
         "user_email": user_email,
         "pinned_conversations": pinned_conversations,
+        "is_htmx_request": request.headers.get("HX-Request") == "true",
     }
 
 
 @router.get("/")
 def index(request: Request, user_email: str = Depends(get_current_user)):
     """Home page — dashboard with navigation, sources, starred items."""
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
 
     # Pinned items (conversations, reports, apps)
     pinned_raw = store.list_pinned_items()
@@ -345,7 +346,7 @@ def conversations(
 
     pinned_ids = store.get_pinned_ids()
 
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
         request,
         "conversations.html",
@@ -382,7 +383,7 @@ def explorations(
 @router.get("/explorations/new")
 def explorations_new(request: Request, user_email: str = Depends(get_current_user)):
     """Start a new conversation - empty chat UI."""
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
         request,
         "explorations.html",
@@ -427,7 +428,7 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
         and store.get_last_message_role(conv_id) == "user"
     )
 
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
         request,
         "explorations.html",
@@ -459,7 +460,7 @@ def connaissances(
             return RedirectResponse(f"/connaissances/{file}", status_code=301)
         return RedirectResponse("/connaissances", status_code=301)
 
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     categories = list_knowledge_files()
     if section_filter:
         categories = {k: v for k, v in categories.items() if k == section_filter or k.startswith(section_filter + "/")}
@@ -492,7 +493,7 @@ def connaissances_file(
     conv: str | None = Query(default=None),
 ):
     """Connaissances section - view a specific knowledge file."""
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
 
     validated_path = validate_knowledge_path(file_path)
     if not validated_path:

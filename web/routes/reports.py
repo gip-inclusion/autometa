@@ -43,7 +43,7 @@ def rapport_txt(report_id: int):
 
 @html_router.get("/rapports/{report_id}")
 def rapport_detail(report_id: int, request: Request, user_email: str = Depends(get_current_user)):
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
 
     current_report = store.get_report(report_id)
     if not current_report:
