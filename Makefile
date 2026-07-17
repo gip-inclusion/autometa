@@ -22,6 +22,7 @@ security:
 	uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt && uv run --frozen pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539
 
 test:
-	uv run --frozen pytest tests/ -q --tb=short -m "not integration"
+	uv run --frozen pytest tests/ -q --tb=short -m "not integration and not external" \
+		--cov --cov-branch --cov-report=term-missing:skip-covered
 
 ci: lint security check-migrations test

@@ -69,6 +69,7 @@ dev = [
     "bandit>=1.9.4",
     "pip-audit>=2.10.0",
     "fakeredis>=2.34.1",
+    "pytest-cov>=7",
 ]
 
 # =============================================================================
@@ -97,18 +98,17 @@ ignore = [
 "tests/test_uploads.py" = ["E402"]         # env config before imports
 "tests/conftest.py" = ["E402"]             # DATABASE_URL override before imports
 
+[tool.coverage.run]
+branch = true
+source = ["web", "lib"]
+
+[tool.coverage.report]
+precision = 2
+fail_under = 74.90
+
 # =============================================================================
 # Bandit — SAST
 # =============================================================================
-
-# =============================================================================
-# Pytest
-# =============================================================================
-
-[tool.pytest.ini_options]
-markers = [
-    "integration: tests that require external services or credentials",
-]
 
 [tool.bandit]
 exclude_dirs = ["tests", "evals", "data", "skills"]

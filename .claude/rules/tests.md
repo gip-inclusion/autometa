@@ -6,6 +6,12 @@ Préférer des **fonctions usine** définies dans le fichier de test (ou localem
 
 Si un comportement mérite un exemple, l’écrire comme test. Les tests sont la documentation vivante.
 
-Tests nécessitant credentials ou réseau : `@pytest.mark.integration` (exclus par `make test`).
+Marqueurs de test — un test non marqué doit tourner sans service ni credentials. Chaque marqueur correspond à une disposition CI :
+
+- `@pytest.mark.integration` : a besoin d'une infra locale que la CI provisionne (Postgres, Redis). Exécuté en CI et exclu de `make test`.
+- `@pytest.mark.external` : tape sur de vrais services externes / credentials (Matomo, Metabase, Notion…). **Nightly uniquement**, exclu de la CI de PR et de `make test`.
+- `@pytest.mark.e2e` : parcours complet en process (runner + Redis + SSE, agent faké).
+
+> Tant que la découpe unit/integration n'est pas câblée, le filtre PR est `-m "not integration and not external"`. `e2e` reste donc exécuté en CI PR — ne pas y placer un test qui ne doit pas y tourner.
 
 Chaque modification de code doit avoir un test correspondant.

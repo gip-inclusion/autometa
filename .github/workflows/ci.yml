@@ -105,8 +105,8 @@ jobs:
       - run: uv sync --group dev --frozen
       - name: Unit tests
         run: >-
-          uv run --with 'pytest-cov>=7' pytest tests/ -q --tb=short -m "not integration"
-          --cov=web --cov=lib --cov-report=term-missing:skip-covered
+          uv run pytest tests/ -q --tb=short -m "not integration and not external"
+          --cov --cov-branch --cov-report=term-missing:skip-covered
 
   migrations:
     name: Migrations
