@@ -86,8 +86,8 @@ exclude = ["data/", ".venv/", "evals/", "skills/pdf/"]
 
 [tool.ruff.lint]
 preview = true
-# PT0xx/B011 : détecteurs de tests creux/fragiles (voir docs/testing/04-phases.md, phase 3)
-select = ["E", "F", "W", "I", "G", "B011", "PT010", "PT012", "PT015", "PT017", "PT027"]
+# Anti-slop : tests creux/fragiles (PT0xx/B011) + assertions tautologiques (PLR0124 self-compare, PLW0129 str)
+select = ["E", "F", "W", "I", "G", "B011", "PT010", "PT012", "PT015", "PT017", "PT027", "PLR0124", "PLW0129"]
 ignore = [
     "E501",   # line length — enforce progressively, not retroactively
     "G001",   # logging-string-format — `.format()` is acceptable in this codebase
@@ -102,7 +102,7 @@ ignore = [
 
 [tool.coverage.run]
 branch = true
-source = ["web", "lib"]
+source = ["web", "lib", "scripts"]
 
 [tool.coverage.report]
 precision = 2

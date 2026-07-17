@@ -43,12 +43,9 @@ def _is_skipped(node):
 
 
 def _is_tautological(node):
+    # str literals et self-comparaisons sont couverts par ruff (PLW0129 / PLR0124) ; ici : assert True, assert 1…
     test = node.test
-    if isinstance(test, ast.Constant) and bool(test.value):
-        return True
-    if isinstance(test, ast.Compare) and len(test.comparators) == 1 and isinstance(test.ops[0], (ast.Eq, ast.Is)):
-        return ast.dump(test.left) == ast.dump(test.comparators[0])
-    return False
+    return isinstance(test, ast.Constant) and bool(test.value) and not isinstance(test.value, str)
 
 
 def check_source(source):
