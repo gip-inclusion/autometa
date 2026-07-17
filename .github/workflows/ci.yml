@@ -24,8 +24,9 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --group dev --frozen
-      - run: uv run ruff check web/ lib/ tests/
-      - run: uv run ruff format --check web/ lib/ tests/
+      - run: uv run ruff check web/ lib/ tests/ scripts/
+      - run: uv run ruff format --check web/ lib/ tests/ scripts/
+      - run: uv run python scripts/check_test_quality.py tests
 
   security:
     name: Security

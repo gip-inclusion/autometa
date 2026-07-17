@@ -5,3 +5,10 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: check-test-quality
+        name: check test quality
+        entry: python scripts/check_test_quality.py
+        language: system
+        files: ^tests/.*\.py$
