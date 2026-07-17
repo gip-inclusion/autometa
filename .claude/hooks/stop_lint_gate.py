@@ -2,17 +2,12 @@
 """Stop hook: empêche l'agent de conclure sur du lint ou des tests creux (phase 4b, sans DB)."""
 
 import json
-import shutil
 import subprocess
 import sys
 
+from hook_env import is_server, ruff_base
+
 SCOPE = ["web/", "lib/", "tests/", "scripts/"]
-
-
-def ruff_base():
-    if shutil.which("ruff"):
-        return ["ruff"]
-    return ["uv", "run", "--frozen", "ruff"]
 
 
 def commands():
@@ -42,7 +37,7 @@ def block_reason(failures):
 
 def main():
     data = json.load(sys.stdin)
-    if data.get("stop_hook_active"):
+    if data.get("stop_hook_active") or is_server():
         return 0
     failures = failing_checks()
     if failures:

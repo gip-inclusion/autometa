@@ -1,12 +1,14 @@
 """Tests for the ruff_edited.py post-tool-use hook (phase 4a)."""
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
-_HOOK_PATH = Path(__file__).parent.parent / ".claude" / "hooks" / "ruff_edited.py"
-_spec = importlib.util.spec_from_file_location("ruff_edited", _HOOK_PATH)
+_HOOKS_DIR = Path(__file__).parent.parent / ".claude" / "hooks"
+sys.path.insert(0, str(_HOOKS_DIR))
+_spec = importlib.util.spec_from_file_location("ruff_edited", _HOOKS_DIR / "ruff_edited.py")
 ruff_edited = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ruff_edited)
 
@@ -58,3 +60,16 @@ def test_run_ruff_reports_format_failure():
     problems = ruff_edited.run_ruff("web/foo.py", run=run)
     assert len(problems) == 1
     assert "reformat" in problems[0]
+
+
+def test_run_ruff_forces_exclude_on_the_edited_path():
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return _Proc(0)
+
+    ruff_edited.run_ruff("skills/pdf/vendored.py", run=run)
+
+    assert len(calls) == 2
+    assert all("--force-exclude" in cmd for cmd in calls)

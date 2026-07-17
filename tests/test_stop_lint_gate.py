@@ -1,10 +1,12 @@
 """Tests for the stop_lint_gate.py stop hook (phase 4b, lint-only)."""
 
 import importlib.util
+import sys
 from pathlib import Path
 
-_HOOK_PATH = Path(__file__).parent.parent / ".claude" / "hooks" / "stop_lint_gate.py"
-_spec = importlib.util.spec_from_file_location("stop_lint_gate", _HOOK_PATH)
+_HOOKS_DIR = Path(__file__).parent.parent / ".claude" / "hooks"
+sys.path.insert(0, str(_HOOKS_DIR))
+_spec = importlib.util.spec_from_file_location("stop_lint_gate", _HOOKS_DIR / "stop_lint_gate.py")
 stop_lint_gate = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(stop_lint_gate)
 

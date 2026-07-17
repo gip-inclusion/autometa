@@ -2,9 +2,10 @@
 """Post-tool-use hook: lance ruff sur le .py édité et renvoie les erreurs à l'agent (phase 4a)."""
 
 import json
-import shutil
 import subprocess
 import sys
+
+from hook_env import is_server, ruff_base
 
 
 def edited_py_path(data):
@@ -14,16 +15,10 @@ def edited_py_path(data):
     return path if path.endswith(".py") else None
 
 
-def ruff_base():
-    if shutil.which("ruff"):
-        return ["ruff"]
-    return ["uv", "run", "--frozen", "ruff"]
-
-
 def run_ruff(path, run=subprocess.run):
     base = ruff_base()
     problems = []
-    for args in (["check", path], ["format", "--check", path]):
+    for args in (["check", "--force-exclude", path], ["format", "--check", "--force-exclude", path]):
         proc = run(base + args, capture_output=True, text=True)
         if proc.returncode != 0:
             problems.append((proc.stdout + proc.stderr).strip())
@@ -33,7 +28,7 @@ def run_ruff(path, run=subprocess.run):
 def main():
     data = json.load(sys.stdin)
     path = edited_py_path(data)
-    if path is None:
+    if path is None or is_server():
         return 0
     problems = run_ruff(path)
     if not problems:
