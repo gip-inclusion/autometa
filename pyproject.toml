@@ -104,6 +104,7 @@ source = ["web", "lib"]
 
 [tool.coverage.report]
 precision = 2
+fail_under = 74.90
 
 # =============================================================================
 # Bandit — SAST

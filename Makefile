@@ -23,6 +23,6 @@ security:
 
 test:
 	uv run --frozen pytest tests/ -q --tb=short -m "not integration and not external" \
-		--cov --cov-branch --cov-fail-under=74.90 --cov-report=term-missing:skip-covered
+		--cov --cov-branch --cov-report=term-missing:skip-covered
 
 ci: lint security check-migrations test

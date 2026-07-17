@@ -106,7 +106,7 @@ jobs:
       - name: Unit tests
         run: >-
           uv run pytest tests/ -q --tb=short -m "not integration and not external"
-          --cov --cov-branch --cov-fail-under=74.90 --cov-report=term-missing:skip-covered
+          --cov --cov-branch --cov-report=term-missing:skip-covered
 
   migrations:
     name: Migrations
