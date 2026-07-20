@@ -49,3 +49,11 @@ matomo:
   inclusion:
     url: https://matomo.inclusion.beta.gouv.fr
     token: ${env.MATOMO_API_KEY}
+
+zendesk:
+  _default: emplois
+
+  emplois:
+    subdomain: ${env.ZENDESK_SUBDOMAIN}
+    email: ${env.ZENDESK_EMAIL}
+    token: ${env.ZENDESK_API_TOKEN}
