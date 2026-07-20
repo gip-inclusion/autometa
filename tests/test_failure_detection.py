@@ -1,7 +1,7 @@
 """Tests for lib/failure_detection.py — persistence into the dashboard_storage schema."""
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, inspect, select
 
 from lib import failure_detection
 from web.db import get_engine
@@ -33,3 +33,11 @@ def test_record_failure_roundtrip():
     finally:
         with get_engine().begin() as conn:
             conn.execute(delete(table).where(table.c.conversation_id == "conv-roundtrip"))
+
+
+@pytest.mark.integration
+def test_conversation_id_is_indexed():
+    failure_detection.ensure_schema()
+    with get_engine().connect() as conn:
+        indexed = inspect(conn).get_indexes("conversation_failures", schema=failure_detection.SCHEMA)
+    assert any(ix["column_names"] == ["conversation_id"] for ix in indexed)

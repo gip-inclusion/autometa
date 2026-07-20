@@ -14,7 +14,7 @@ conversation_failures = Table(
     "conversation_failures",
     _metadata,
     Column("id", Integer, primary_key=True),
-    Column("conversation_id", String, nullable=False),
+    Column("conversation_id", String, nullable=False, index=True),
     Column("user_id", String),
     Column("title", String),
     Column("marker", String),
