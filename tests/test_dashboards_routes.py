@@ -1,4 +1,6 @@
+import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 from sqlalchemy import select
@@ -88,11 +90,22 @@ def test_featured_row_absent_without_pins(client):
     assert "À la une" not in r.text
 
 
-def test_page_has_create_button_linking_to_new_conversation(client):
+def _create_button(html):
+    return re.search(r"<a\b[^>]*>(?:(?!</a>).)*?Créer un tableau de bord", html, re.S).group(0)
+
+
+def test_create_button_links_to_new_conversation_with_prefill(client):
     r = client.get("/dashboards", headers=_h())
     assert r.status_code == 200
-    assert 'href="/explorations/new"' in r.text
-    assert "Créer un tableau de bord" in r.text
+    href = re.search(r'href="([^"]*)"', _create_button(r.text)).group(1)
+    assert urlparse(href).path == "/explorations/new"
+    assert unquote(parse_qs(urlparse(href).query)["prefill"][0]) == "Crée un tableau de bord qui "
+
+
+def test_create_button_is_not_boosted_so_prefill_runs(client):
+    # Le préremplissage est câblé sur DOMContentLoaded, que hx-boost ne déclenche pas.
+    r = client.get("/dashboards", headers=_h())
+    assert "hx-boost" not in _create_button(r.text)
 
 
 def test_featured_only_shown_on_latest(client):

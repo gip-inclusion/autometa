@@ -22,8 +22,8 @@
                    oninput="filterByText(this.value)">
           </div>
         </div>
-        <a href="/explorations/new" class="btn btn-primary"
-           hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+        {# Pas de hx-boost : le préremplissage est câblé sur DOMContentLoaded (explorations.html), qui ne se déclenche pas sur un swap htmx. #}
+        <a href="/explorations/new?prefill=Cr%C3%A9e%20un%20tableau%20de%20bord%20qui%20" class="btn btn-primary">
           <i class="ri-add-line" aria-hidden="true"></i>
           <span>Créer un tableau de bord</span>
         </a>
