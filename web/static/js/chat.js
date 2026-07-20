@@ -41,6 +41,9 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
 
   if (convId) {
     loadConversation(convId);
+    // The activated recents link lives inside the OOB-swapped block and is destroyed on nav;
+    // move focus to the main region so keyboard users don't fall back to the top of the page.
+    if (!isPopState) document.getElementById('main')?.focus({ preventScroll: true });
   } else if (!isPopState) {
     window.scrollTo(0, 0);
     if (path === '/explorations/new') {

@@ -104,7 +104,7 @@ def dashboards_page(
 
         grouped_items = group_items_by_date(items)
 
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
         request,
         "dashboards.html",
@@ -166,7 +166,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"]))
 
     is_pinned = ("app", slug) in store.get_pinned_ids()
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
         request,
         "dashboard_detail.html",

@@ -2305,6 +2305,13 @@ body.has-sidebar {
   border-top: 1px solid rgba(0, 0, 0, 0.1);
 }
 
+/* No recent conversations yet: drop the separator so the empty container is invisible */
+.sidebar-conversations.is-empty {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .nav-link-conversation {
   font-size: 0.85rem;
   color: var(--bs-secondary);

@@ -105,7 +105,7 @@ def _respond(
     site, export, trigger, tags = _resolve(matomo_id, trigger_id)
     tag_types_by_trigger = _tag_types_by_trigger(export)
     stack = "tags" if trigger else "triggers" if site else "sites"
-    sidebar = get_sidebar_data(user_email)
+    sidebar = get_sidebar_data(user_email, request)
 
     return templates.TemplateResponse(
         request,

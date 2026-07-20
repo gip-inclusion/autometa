@@ -127,7 +127,7 @@ def _load_pipelines() -> tuple[list, str | None]:
 
 
 def _render_jobs(request: Request, user_email: str, selected_id: str | None):
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     pipelines, jobs_error = _load_pipelines()
     selected = None
     if pipelines:
@@ -154,7 +154,7 @@ def jobs_pipeline_page(pipeline_id: JobId, request: Request, user_email: str = D
 
 @router.get("/jobs/runs/{run_id}")
 def job_run_page(run_id: JobId, request: Request, user_email: str = Depends(get_current_user)):
-    data = get_sidebar_data(user_email)
+    data = get_sidebar_data(user_email, request)
     # Resolve the parent pipeline so "← Jobs" returns to it with that row selected.
     pipeline_id = None
     try:
