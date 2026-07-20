@@ -13,6 +13,7 @@ from web.database import Message
 from web.runner import (
     RunUsage,
     TaskRunner,
+    _check_failure,
     _persist_failure,
     _record_span_usage,
     _record_thinking_tail,
@@ -871,6 +872,29 @@ def test_persist_failure_delegates_to_record_failure(mocker):
     record.assert_called_once_with(
         "conv-1", "Ma conversation", "désolé", "boom", "http://x/explorations/conv-1", "user-9"
     )
+
+
+def test_check_failure_spawns_persist_thread_with_conversation_context(mocker):
+    conv = mocker.MagicMock(title="Ma conversation", user_id="user-9")
+    mocker.patch("web.runner.store.get_conversation", return_value=conv)
+    thread = mocker.patch("web.runner.threading.Thread")
+
+    _check_failure("conv-1", "Je suis désolé, une erreur.")
+
+    assert thread.call_args.kwargs["target"] is _persist_failure
+    conv_id, title, marker, snippet, url, user_id = thread.call_args.kwargs["args"]
+    assert (conv_id, title, marker, user_id) == ("conv-1", "Ma conversation", "désolé", "user-9")
+    assert "désolé" in snippet.lower()
+    assert url.endswith("/explorations/conv-1")
+    thread.return_value.start.assert_called_once()
+
+
+def test_check_failure_ignores_text_without_marker(mocker):
+    thread = mocker.patch("web.runner.threading.Thread")
+
+    _check_failure("conv-1", "Voici le résultat de votre analyse.")
+
+    thread.assert_not_called()
 
 
 def test_persist_failure_swallows_db_errors(mocker, caplog):
