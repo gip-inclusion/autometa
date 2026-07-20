@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 import pytest
 
@@ -342,7 +344,23 @@ def test_get_zendesk_factory_reads_config(mocker):
     assert isinstance(api, ZendeskAPI)
     assert api.base_url == "https://emplois.zendesk.com/api/v2"
     assert api.instance == "emplois"
-    sources.get_source_config.assert_called_once_with("zendesk")
+    sources.get_source_config.assert_called_once_with("zendesk", None)
+
+
+def test_get_zendesk_factory_honours_explicit_instance(mocker):
+    mocker.patch.object(
+        sources,
+        "get_source_config",
+        return_value={"subdomain": "autre", "email": "bot@x.com", "token": "tk"},
+    )
+    default = mocker.patch.object(sources, "get_default_instance")
+
+    api = sources.get_zendesk("autre")
+
+    assert api.instance == "autre"
+    assert api.base_url == "https://autre.zendesk.com/api/v2"
+    sources.get_source_config.assert_called_once_with("zendesk", "autre")
+    default.assert_not_called()
 
 
 def _search_payload(tickets):
@@ -462,3 +480,73 @@ def test_count_tickets_calls_count_endpoint(api_no_signal, mocker):
     call_url = get.call_args.args[0]
     assert "search/count.json" in call_url
     assert "type:ticket" in get.call_args.kwargs["params"]["query"]
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"sort_by": "created_at"}, {"sort_by": "created_at"}),
+        ({"sort_order": "desc"}, {"sort_order": "desc"}),
+        (
+            {"sort_by": "updated_at", "sort_order": "asc"},
+            {"sort_by": "updated_at", "sort_order": "asc"},
+        ),
+        ({}, {}),
+    ],
+)
+def test_search_tickets_forwards_sort_options(api_no_signal, mocker, kwargs, expected):
+    get = mocker.patch.object(
+        api_no_signal._client,
+        "get",
+        return_value=_mock_response(mocker, json_data=_search_payload([])),
+    )
+
+    api_no_signal.search_tickets("status:open", **kwargs)
+
+    params = get.call_args.kwargs["params"]
+    for key, value in expected.items():
+        assert params[key] == value
+    for absent in {"sort_by", "sort_order"} - expected.keys():
+        assert absent not in params
+
+
+def test_iter_tickets_logs_progress_every_500(api_no_signal, mocker, caplog):
+    mocker.patch.object(api_no_signal, "get_ticket", side_effect=lambda tid: mocker.MagicMock(id=tid))
+
+    with caplog.at_level(logging.INFO, logger="lib.zendesk"):
+        list(api_no_signal.iter_tickets(list(range(1, 1001))))
+
+    progress = [r.getMessage() for r in caplog.records if "tickets traités" in r.getMessage()]
+    assert progress == ["Zendesk: 500/1000 tickets traités", "Zendesk: 1000/1000 tickets traités"]
+
+
+def test_search_tickets_does_not_resend_params_on_next_page(api_no_signal, mocker):
+    """next_page already carries the query string; re-sending params would duplicate it."""
+    page1 = {
+        "results": [{**_search_payload([{"id": 1}])["results"][0]}],
+        "next_page": "https://emplois.zendesk.com/api/v2/search.json?page=2&query=foo+type%3Aticket",
+    }
+    get = mocker.patch.object(
+        api_no_signal._client,
+        "get",
+        side_effect=[
+            _mock_response(mocker, json_data=page1),
+            _mock_response(mocker, json_data=_search_payload([{"id": 2}])),
+        ],
+    )
+
+    api_no_signal.search_tickets("foo", max_results=10)
+
+    first, second = get.call_args_list
+    assert first.kwargs["params"]["query"] == "foo type:ticket"
+    assert not second.kwargs["params"]
+    assert second.args[0].endswith("search.json?page=2&query=foo+type%3Aticket")
+
+
+@pytest.mark.parametrize("payload_subject", [None, ""])
+def test_ticket_subject_missing_becomes_empty_string(api_no_signal, mocker, payload_subject):
+    payload = _ticket_payload(1)
+    payload["ticket"]["subject"] = payload_subject
+    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+
+    assert api_no_signal.get_ticket(1).subject == ""
