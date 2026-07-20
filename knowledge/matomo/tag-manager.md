@@ -446,9 +446,30 @@ container_xg8aydM9.js   → container xg8aydM9, donc site 210 (Dora_Preprod)
 | RDV-Insertion | 214 | DxfPtj4z | 21 | 19 | 5 |
 | Mon Recap | 217 | tBXCnpOZ | 4 | 3 | 1 |
 | Dora preprod | 210 | xg8aydM9 | 36 | 21 | 19 |
+| Accueil Plateforme preprod | 226 | 9eafCVJv | 1 | 1 | 1 |
 
 **Emplois** n'utilise pas MTM au 2026-03-16 : tracking natif dans les templates Django.
 La recette des Emplois (site 220) 
+
+### Accueil Plateforme (site 226) — tracking sans cookie, temporaire
+
+Le site 226 est une iframe. En préprod elle est servie depuis un domaine sans rapport avec
+celui de la page hôte, donc en contexte tiers : les cookies y sont bloqués (Safari par
+défaut, Chrome dans ce contexte). Matomo échouait à écrire `_pk_id` / `_pk_ses` à chaque
+page vue, en regénérant un identifiant visiteur neuf à chaque fois — donc en comptant une
+visite par page vue.
+
+`disableCookies` est activé sur la variable « Matomo Configuration » du container
+`9eafCVJv` pour contourner ça. Matomo n'envoie plus d'identifiant client et laisse le
+serveur rapprocher les hits via `config_id`. Conséquence assumée : pas de reconnaissance
+des visiteurs entre sessions.
+
+**À retirer au passage en production.** La cible est `accueil.plateforme.inclusion.gouv.fr`
+embarquée dans `plateforme.inclusion.gouv.fr` (site 117) : même domaine enregistrable, donc
+contexte first-party et cookies fonctionnels. `disableCookies` deviendra alors une
+dégradation gratuite de la mesure.
+
+`killFrame` doit rester désactivé sur ce container — il ferait sortir la page de son iframe.
 
 ---
 

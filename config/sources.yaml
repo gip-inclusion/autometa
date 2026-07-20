@@ -98,6 +98,10 @@ tag_manager:
       matomo_id: 220
       container_id: ZZ7LPpec
       staging: true
+    - name: Accueil Plateforme preprod
+      matomo_id: 226
+      container_id: 9eafCVJv
+      staging: true
 
 data_inclusion:
   datawarehouse:
