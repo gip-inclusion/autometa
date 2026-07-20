@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 5
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 20
+    groups:
+      boto3:
+        patterns:
+          - "boto3"
+          - "botocore"
+          - "jmespath"
+          - "s3transfer"
+      opentelemetry:
+        patterns:
+          - "opentelemetry*"
+      sentry:
+        patterns:
+          - "sentry-sdk"
