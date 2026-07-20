@@ -12,4 +12,4 @@ Ne jamais modifier les tables directement en SQL. Ne jamais écrire de migration
 
 Ne jamais interpoler de valeurs dans le SQL. Toujours utiliser des paramètres nommés ou l'ORM.
 
-Exception sanctionnée : le schéma **`matometa`** est un bac à sable où les scripts agents écrivent leurs propres données (hors logique applicative). Il est géré **hors Alembic** — tables définies dans un `MetaData(schema="matometa")` local au module et créées via `create_all` (idempotent), pas dans `web/models.py`. `alembic check` ne le voit donc pas, c'est voulu (cf. `lib/rpe.py`).
+Exception sanctionnée : le schéma **`dashboard_storage`** est un bac à sable où les scripts agents écrivent leurs propres données (hors logique applicative). Il est géré **hors Alembic** — tables définies dans un `MetaData(schema="dashboard_storage")` local au module et créées via `create_all` (idempotent), pas dans `web/models.py`. `alembic check` ne le voit donc pas, c'est voulu (cf. `lib/rpe.py`). Ne plus utiliser le schéma `matometa` (déprécié au profit de `dashboard_storage`, plus explicite).

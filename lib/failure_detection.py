@@ -1,10 +1,27 @@
-"""Detect failure markers in assistant messages.
-
-Identifies messages where Autometa likely made an error, correction,
-or omission — based on keyword matching in the assistant's own text.
-"""
+"""Détection lexicale des aveux d'erreur de l'assistant et journalisation en base."""
 
 import re
+from datetime import datetime, timezone
+
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, Text, insert, text
+
+from web.db import get_engine
+
+SCHEMA = "dashboard_storage"
+
+_metadata = MetaData(schema=SCHEMA)
+conversation_failures = Table(
+    "conversation_failures",
+    _metadata,
+    Column("id", Integer, primary_key=True),
+    Column("conversation_id", String, nullable=False, index=True),
+    Column("user_id", String),
+    Column("title", String),
+    Column("marker", String),
+    Column("snippet", Text),
+    Column("url", String),
+    Column("detected_at", DateTime(timezone=True), nullable=False),
+)
 
 # Failure markers grouped by category
 FAILURE_MARKERS = [
@@ -31,6 +48,30 @@ FAILURE_MARKERS = [
     "impossible de",
     "je n'ai pas réussi",
 ]
+
+
+def ensure_schema() -> None:
+    eng = get_engine()
+    with eng.begin() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
+    _metadata.create_all(eng)
+
+
+def record_failure(
+    conversation_id: str, title: str, marker: str, snippet: str, url: str, user_id: str | None = None
+) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            insert(conversation_failures).values(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                title=title,
+                marker=marker,
+                snippet=snippet,
+                url=url,
+                detected_at=datetime.now(timezone.utc),
+            )
+        )
 
 
 def find_failure_marker(text: str) -> str | None:
