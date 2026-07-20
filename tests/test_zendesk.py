@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from lib import sources
+from lib.pii import NIR_PLACEHOLDER
 from lib.zendesk import (
     TicketResult,
     ZendeskAPI,
@@ -539,7 +540,8 @@ def test_search_tickets_does_not_resend_params_on_next_page(api_no_signal, mocke
 
     first, second = get.call_args_list
     assert first.kwargs["params"]["query"] == "foo type:ticket"
-    assert not second.kwargs["params"]
+    # params must be None, not {}: httpx wipes a URL's own query string for either dict or empty dict.
+    assert second.kwargs["params"] is None
     assert second.args[0].endswith("search.json?page=2&query=foo+type%3Aticket")
 
 
@@ -550,3 +552,51 @@ def test_ticket_subject_missing_becomes_empty_string(api_no_signal, mocker, payl
     mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
 
     assert api_no_signal.get_ticket(1).subject == ""
+
+
+# Structurally valid NIR (INSEE key computed, not a real person).
+def _nir(body="185057800608"):
+    body13 = (body + "0")[:13]
+    return f"{body13}{97 - (int(body13) % 97):02d}"
+
+
+def test_comments_are_redacted_by_default(api_no_signal, mocker):
+    payload = {
+        "users": [{"id": 1, "role": "agent"}],
+        "comments": [
+            {
+                "id": 1,
+                "author_id": 1,
+                "plain_body": f"mon NIR {_nir()}",
+                "html_body": f"<p>{_nir()}</p>",
+                "public": True,
+                "created_at": "t",
+            }
+        ],
+    }
+    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+
+    comment = api_no_signal.get_ticket_comments(42)[0]
+
+    assert _nir() not in comment.body
+    assert _nir() not in comment.html_body
+    assert NIR_PLACEHOLDER in comment.body
+
+
+def test_redaction_can_be_disabled_explicitly(mocker):
+    mocker.patch("lib.zendesk.time.sleep")
+    mocker.patch("lib.zendesk.emit_api_signal")
+    api = ZendeskAPI(subdomain="x", email="e", token="t", redact=False)
+    payload = _ticket_payload(1)
+    payload["ticket"]["subject"] = f"dossier {_nir()}"
+    mocker.patch.object(api._client, "get", return_value=_mock_response(mocker, json_data=payload))
+
+    assert _nir() in api.get_ticket(1).subject
+
+
+def test_ticket_subject_is_redacted_by_default(api_no_signal, mocker):
+    payload = _ticket_payload(1)
+    payload["ticket"]["subject"] = f"dossier {_nir()}"
+    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+
+    assert NIR_PLACEHOLDER in api_no_signal.get_ticket(1).subject

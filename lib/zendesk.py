@@ -8,6 +8,7 @@ from typing import Any, Iterator, Optional
 import httpx
 
 from .api_signals import emit_api_signal
+from .pii import redact_nir
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +52,11 @@ class TicketResult:
     error: Optional[str] = None
 
 
-def ticket_from_payload(data: dict) -> ZendeskTicket:
+def ticket_from_payload(data: dict, redact: bool = True) -> ZendeskTicket:
+    subject = data.get("subject") or ""
     return ZendeskTicket(
         id=data["id"],
-        subject=data.get("subject") or "",
+        subject=redact_nir(subject) if redact else subject,
         status=data["status"],
         created_at=data["created_at"],
         updated_at=data["updated_at"],
@@ -94,9 +96,11 @@ class ZendeskAPI:
         email: str,
         token: str,
         instance: str = "emplois",
+        redact: bool = True,
     ) -> None:
         self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
         self.instance = instance
+        self.redact = redact
         self._client = httpx.Client(
             transport=httpx.HTTPTransport(retries=2),
             auth=(f"{email}/token", token),
@@ -114,6 +118,9 @@ class ZendeskAPI:
     def __exit__(self, *args):
         self.close()
 
+    def _clean(self, text: str) -> str:
+        return redact_nir(text) if self.redact else text
+
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
         url = f"{self.base_url}/{path.lstrip('/')}"
         response: Optional[httpx.Response] = None
@@ -121,7 +128,9 @@ class ZendeskAPI:
             elapsed = time.monotonic() - self._last_call
             if elapsed < _MIN_DELAY:
                 time.sleep(_MIN_DELAY - elapsed)
-            response = self._client.get(url, params=params or {})
+            # Why: httpx replaces a URL's own query string when params is passed, even empty —
+            # next_page URLs already carry theirs, so params must stay None there.
+            response = self._client.get(url, params=params)
             self._last_call = time.monotonic()
             if response.status_code != 429:
                 break
@@ -136,7 +145,7 @@ class ZendeskAPI:
         return response.json()
 
     def get_ticket(self, ticket_id: int) -> ZendeskTicket:
-        return ticket_from_payload(self._get(f"tickets/{ticket_id}")["ticket"])
+        return ticket_from_payload(self._get(f"tickets/{ticket_id}")["ticket"], self.redact)
 
     def get_ticket_comments(self, ticket_id: int) -> list[ZendeskComment]:
         """Return all comments for a ticket, oldest first (first page only — see SKILL.md)."""
@@ -151,8 +160,8 @@ class ZendeskAPI:
                 ZendeskComment(
                     id=c["id"],
                     ticket_id=ticket_id,
-                    body=c.get("plain_body") or c.get("body") or "",
-                    html_body=c.get("html_body") or "",
+                    body=self._clean(c.get("plain_body") or c.get("body") or ""),
+                    html_body=self._clean(c.get("html_body") or ""),
                     public=c.get("public", True),
                     author_id=author_id,
                     created_at=c["created_at"],
@@ -219,7 +228,7 @@ class ZendeskAPI:
                     break
                 if t.get("result_type") and t["result_type"] != "ticket":
                     continue
-                results.append(ticket_from_payload(t))
+                results.append(ticket_from_payload(t, self.redact))
             next_page = data.get("next_page")
             if not next_page or len(results) >= max_results:
                 break

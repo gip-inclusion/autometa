@@ -57,6 +57,24 @@ print(f"{n} tickets correspondent, {len(hits)} chargés")
 | `count_tickets(query)` | `int` | Nombre total de tickets correspondants (`/search/count.json`), sans coût pagination |
 | `check_auth()` | `dict` | Vérifie les credentials (`users/me`) |
 
+## Anonymisation des NIR (activée par défaut)
+
+Les tickets de support contiennent parfois des **NIR** (numéros de sécurité sociale) saisis par les usagers — mesuré à ~1,3 % des tickets sur un échantillon de 300.
+
+Le client les **remplace automatiquement** par `[NIR-ANONYMISÉ]` dans les sujets de tickets et les commentaires (`body` et `html_body`). Un NIR n'est donc jamais exposé à l'agent ni restitué à l'utilisateur.
+
+La détection valide la **clé INSEE** (`97 - (13 premiers chiffres mod 97)`), ce qui évite d'effacer des numéros de téléphone, SIRET ou références de commande. Les séparateurs (espaces, points, tirets) sont gérés.
+
+Le code vit dans `lib/pii.py`, indépendant de Zendesk : `redact_nir(texte)` est réutilisable sur n'importe quelle source de texte libre (commentaires Matomo, exports Metabase, contenus de tableaux de bord…).
+
+```python
+load_api()                      # anonymisation active
+load_api().redact               # -> True
+ZendeskAPI(..., redact=False)   # désactivation explicite — à n'utiliser que hors restitution
+```
+
+Ne jamais désactiver l'anonymisation pour produire une réponse, un rapport ou un tableau de bord destiné à un utilisateur.
+
 ## Notes
 
 - Rate limit interne (~700 req/min, plan Suite Professional). Sur 429, le client attend `Retry-After` et réessaie jusqu'à 3 fois avant de lever `ZendeskError(429, ...)`.
@@ -68,6 +86,7 @@ print(f"{n} tickets correspondent, {len(hits)} chargés")
 ## Limitations connues
 
 - **Pagination non implémentée** : `get_ticket_comments` ne lit que la première page de la réponse Zendesk (~100 commentaires max). Les tickets longs (chaînes de support très actives) seront tronqués sans erreur. Si ce cas devient bloquant, ajouter le suivi de `next_page` dans `_get`.
+- **Anonymisation limitée au NIR** : les autres données personnelles (nom, e-mail, téléphone, adresse) ne sont pas masquées et restent visibles dans les commentaires.
 
 ## Quand l'utiliser
 
