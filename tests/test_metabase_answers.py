@@ -30,6 +30,9 @@ requires_credentials = pytest.mark.skipif(
 )
 
 
+pytestmark = pytest.mark.external
+
+
 @dataclass
 class ExpectedAnswer:
     """A known-answer test case."""
@@ -71,7 +74,6 @@ def api():
     return get_metabase(instance="stats")
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize(
     "case",
     KNOWN_ANSWERS,
@@ -97,28 +99,24 @@ def test_known_answers(api, case: ExpectedAnswer):
             assert expected in all_text, f"Expected '{expected}' not found in results for question: {case.question}"
 
 
-@pytest.mark.integration
 def test_card_discovery_search_file_active():
     db = load_cards_db()
     cards = db.search("file active")
     assert len(cards) > 0
 
 
-@pytest.mark.integration
 def test_card_discovery_search_candidatures():
     db = load_cards_db()
     cards = db.search("candidature")
     assert len(cards) > 0
 
 
-@pytest.mark.integration
 def test_card_discovery_search_by_table():
     db = load_cards_db()
     cards = db.by_table("candidatures_echelle_locale")
     assert len(cards) > 0
 
 
-@pytest.mark.integration
 def test_end_to_end_find_and_execute_card(api):
     db = load_cards_db()
 
@@ -132,7 +130,6 @@ def test_end_to_end_find_and_execute_card(api):
     assert len(result.columns) > 0
 
 
-@pytest.mark.integration
 def test_end_to_end_card_sql_is_valid(api):
     """Cards with SQL can be used to understand the query."""
     db = load_cards_db()

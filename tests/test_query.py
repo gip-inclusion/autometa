@@ -227,7 +227,7 @@ def test_reads_conversation_id_from_env(mocker):
     assert result.success is True
 
 
-@pytest.mark.integration
+@pytest.mark.external
 def test_query_integration_metabase_query_executes():
     from lib.query import CallerType, execute_metabase_query
 
@@ -242,7 +242,7 @@ def test_query_integration_metabase_query_executes():
     assert result.data["row_count"] == 1
 
 
-@pytest.mark.integration
+@pytest.mark.external
 def test_query_integration_matomo_query_executes():
     from lib.query import CallerType, execute_matomo_query
 
