@@ -2,8 +2,6 @@
 
 import pytest
 
-pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
-
 SAMPLE_REPORT = """\
 ---
 date: 2026-01-15
@@ -258,6 +256,7 @@ def test_frontmatter_extraction_db_field_used_when_no_frontmatter(mocker):
     assert payload["properties"]["Date de publication"]["date"]["start"] == "2026-06-01"
 
 
+@pytest.mark.integration
 def test_publish_notion_endpoint_returns_503_when_not_configured(mocker, app, client, report):
     mocker.patch("lib.notion.is_configured", return_value=False)
     resp = client.post(
@@ -267,6 +266,7 @@ def test_publish_notion_endpoint_returns_503_when_not_configured(mocker, app, cl
     assert resp.status_code == 503
 
 
+@pytest.mark.integration
 def test_publish_notion_endpoint_returns_404_for_missing_report(mocker, app, client):
     mocker.patch("lib.notion.is_configured", return_value=True)
     resp = client.post(
@@ -276,6 +276,7 @@ def test_publish_notion_endpoint_returns_404_for_missing_report(mocker, app, cli
     assert resp.status_code == 404
 
 
+@pytest.mark.integration
 def test_publish_notion_endpoint_publishes_and_stores_url(mocker, app, client, report):
     mocker.patch("lib.notion.is_configured", return_value=True)
     mock_publish = mocker.patch("lib.notion.publish_report")
@@ -298,6 +299,7 @@ def test_publish_notion_endpoint_publishes_and_stores_url(mocker, app, client, r
     mock_publish.assert_not_called()
 
 
+@pytest.mark.integration
 def test_publish_notion_endpoint_returns_500_on_error(mocker, app, client, report):
     mocker.patch("lib.notion.is_configured", return_value=True)
     mocker.patch("lib.notion.publish_report", side_effect=Exception("timeout"))
@@ -309,6 +311,7 @@ def test_publish_notion_endpoint_returns_500_on_error(mocker, app, client, repor
     assert resp.json()["error"] == "Failed to publish to Notion"
 
 
+@pytest.mark.integration
 def test_notion_button_shows_export_button_when_no_url(app, client, report):
     resp = client.get(
         f"/rapports/{report.id}",
@@ -458,6 +461,7 @@ def test_extract_block_text(block, expected):
     assert notion.extract_block_text(block) == expected
 
 
+@pytest.mark.integration
 def test_notion_button_shows_link_after_publish(mocker, app, client, report):
     mocker.patch("lib.notion.is_configured", return_value=True)
     mock_publish = mocker.patch("lib.notion.publish_report")
