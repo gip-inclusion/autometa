@@ -25,12 +25,7 @@ from lib.query import get_metabase
 from skills.metabase_query.scripts.cards_db import load_cards_db
 
 _HAS_CREDENTIALS = bool(os.environ.get("METABASE_STATS_API_KEY"))
-requires_credentials = pytest.mark.skipif(
-    not _HAS_CREDENTIALS, reason="Integration test requires METABASE_STATS_API_KEY"
-)
-
-
-pytestmark = pytest.mark.external
+requires_credentials = pytest.mark.skipif(not _HAS_CREDENTIALS, reason="External test requires METABASE_STATS_API_KEY")
 
 
 @dataclass
@@ -74,6 +69,8 @@ def api():
     return get_metabase(instance="stats")
 
 
+@pytest.mark.external
+@requires_credentials
 @pytest.mark.parametrize(
     "case",
     KNOWN_ANSWERS,
@@ -99,24 +96,29 @@ def test_known_answers(api, case: ExpectedAnswer):
             assert expected in all_text, f"Expected '{expected}' not found in results for question: {case.question}"
 
 
+@pytest.mark.external
 def test_card_discovery_search_file_active():
     db = load_cards_db()
     cards = db.search("file active")
     assert len(cards) > 0
 
 
+@pytest.mark.external
 def test_card_discovery_search_candidatures():
     db = load_cards_db()
     cards = db.search("candidature")
     assert len(cards) > 0
 
 
+@pytest.mark.external
 def test_card_discovery_search_by_table():
     db = load_cards_db()
     cards = db.by_table("candidatures_echelle_locale")
     assert len(cards) > 0
 
 
+@pytest.mark.external
+@requires_credentials
 def test_end_to_end_find_and_execute_card(api):
     db = load_cards_db()
 
@@ -130,7 +132,8 @@ def test_end_to_end_find_and_execute_card(api):
     assert len(result.columns) > 0
 
 
-def test_end_to_end_card_sql_is_valid(api):
+@pytest.mark.external
+def test_end_to_end_card_sql_is_valid():
     """Cards with SQL can be used to understand the query."""
     db = load_cards_db()
 
