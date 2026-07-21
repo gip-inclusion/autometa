@@ -188,7 +188,7 @@ function startStream(afterMsgId = 0) {
   eventSourceConversationId = currentConversationId;
 
   // Content events — reset retry counter (agent is alive and producing output)
-  ['assistant', 'tool_use', 'tool_result', 'system'].forEach(type => {
+  ['assistant', 'tool_use', 'tool_result', 'system', 'limit'].forEach(type => {
     eventSource.addEventListener(type, (e) => {
       retryCount = 0;
       const data = JSON.parse(e.data);
@@ -679,6 +679,8 @@ async function loadConversation(convId, { autoStream = true } = {}) {
           }
         } else if (msg.type === 'report') {
           appendEvent('report', { content: msg.content });
+        } else if (msg.type === 'limit') {
+          appendEvent('limit', { content: msg.content });
         }
       }
 

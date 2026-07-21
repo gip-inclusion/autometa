@@ -879,6 +879,23 @@ body.has-sidebar {
   color: var(--bs-danger-text-emphasis);
 }
 
+/* Usage-limit notice — amber callout, distinct from agent prose and from errors */
+.event-limit {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  background: var(--bs-warning-bg-subtle);
+  border-color: var(--bs-warning-border-subtle);
+  color: var(--bs-warning-text-emphasis);
+  font-weight: 500;
+}
+
+.event-limit i {
+  font-size: 1.125rem;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
 /* Tool header - label and name on same line */
 .tool-header {
   display: flex;

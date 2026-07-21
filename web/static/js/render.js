@@ -139,6 +139,11 @@ function appendEvent(type, data) {
     // Why: pas de mermaid ici — le contenu est encore partiel pendant le streaming.
     // Les diagrammes sont rendus une fois le bloc complet (fin de stream, chargement d'historique).
     setTimeout(() => renderOptions(block), 0);
+  } else if (type === 'limit') {
+    block.innerHTML =
+      '<i class="ri-time-line" aria-hidden="true"></i><div>' +
+      escapeHtml(data.content || '') +
+      '</div>';
   } else if (type === 'error') {
     block.innerHTML = escapeHtml(data.content || '');
   } else if (type === 'report') {

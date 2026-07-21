@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import signal
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
 
 import sentry_sdk
@@ -13,6 +14,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from web import config, session_sync
+from web.helpers import format_future_date
 
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
@@ -38,8 +40,34 @@ def transient_api_error(text: str) -> str | None:
     return match.group(0) if match else None
 
 
+# Le CLI affiche la limite d'abonnement en clair comme message assistant :
+# « You've hit your limit · resets 5pm (UTC) ». Ce n'est ni un 429 ni un type d'erreur API — on la
+# classe à part pour afficher l'heure de reprise au lieu d'un « Process exited with code 1 ». L'heure
+# est toujours en UTC dans le texte du CLI.
+_USAGE_LIMIT_RE = re.compile(r"hit your limit.*?resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)", re.I | re.S)
+
+
+def usage_limit_reset(text: str, now: datetime | None = None) -> datetime | None:
+    """Si le texte signale une limite d'abonnement atteinte, renvoie l'instant UTC de reprise."""
+    match = _USAGE_LIMIT_RE.search(text)
+    if not match:
+        return None
+    hour = int(match.group(1)) % 12
+    if match.group(3).lower() == "pm":
+        hour += 12
+    now = now or datetime.now(timezone.utc)
+    reset = now.replace(hour=hour, minute=int(match.group(2) or 0), second=0, microsecond=0)
+    if reset < now:
+        reset += timedelta(days=1)
+    return reset
+
+
 class CLIBackend(AgentBackend):
     """Agent backend that spawns the claude CLI."""
+
+    # Nom lisible du modèle servi par ce backend, réutilisable pour l'affichage. Un backend dérivé
+    # sur un autre modèle le surcharge (voir CLIOllamaBackend).
+    model_label: str = "Claude"
 
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
@@ -99,6 +127,7 @@ class CLIBackend(AgentBackend):
                 "exit_code": None,
                 "stderr": "",
                 "transient_error": None,
+                "usage_limit_reset": None,
                 "had_real_output": False,
                 "last_events": [],
                 "prompt": "",
@@ -111,6 +140,8 @@ class CLIBackend(AgentBackend):
             if outcome["exit_code"] == 0:
                 return
 
+            # Why: une limite d'usage n'est pas transitoire (transient_error reste None), donc la
+            # condition ci-dessous l'ignore et on tombe directement sur le message d'échec dédié.
             if outcome["transient_error"] and not outcome["had_real_output"] and attempt < attempts:
                 logger.warning(
                     "Transient Anthropic API error (attempt %d/%d), retrying: %s",
@@ -123,7 +154,8 @@ class CLIBackend(AgentBackend):
                 await asyncio.sleep(min(2 ** (attempt - 1), 8))
                 continue
 
-            self._capture_failure(conversation_id, outcome, attempt)
+            if not outcome["usage_limit_reset"]:
+                self._capture_failure(conversation_id, outcome, attempt)
             yield self._failure_message(outcome)
             return
 
@@ -254,6 +286,9 @@ class CLIBackend(AgentBackend):
                             if len(last_events) > 10:
                                 last_events.pop(0)
                             if agent_msg.type == "assistant" and isinstance(agent_msg.content, str):
+                                if reset := usage_limit_reset(agent_msg.content):
+                                    outcome["usage_limit_reset"] = reset
+                                    continue
                                 api_error = transient_api_error(agent_msg.content)
                                 if api_error:
                                     outcome["transient_error"] = agent_msg.content
@@ -321,6 +356,17 @@ class CLIBackend(AgentBackend):
                 )
 
     def _failure_message(self, outcome: dict) -> AgentMessage:
+        reset = outcome["usage_limit_reset"]
+        if reset:
+            return AgentMessage(
+                type="limit",
+                content=(
+                    f"Vous avez atteint la limite d'utilisation du modèle {self.model_label}. "
+                    f"L'accès sera rétabli {format_future_date(reset)} (heure de Paris). "
+                    "Merci de patienter jusque-là avant de relancer votre demande."
+                ),
+                raw={"reset": reset.isoformat(), "code": outcome["exit_code"]},
+            )
         if outcome["transient_error"]:
             return AgentMessage(
                 type="error",
