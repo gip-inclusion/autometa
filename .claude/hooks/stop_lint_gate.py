@@ -16,6 +16,22 @@ def commands():
         (base + ["check", *SCOPE], "ruff check"),
         (base + ["format", "--check", *SCOPE], "ruff format --check"),
         ([sys.executable, "scripts/check_test_quality.py", "tests"], "détecteur de tests creux"),
+        (
+            [
+                "uv",
+                "run",
+                "--frozen",
+                "pytest",
+                "tests/",
+                "-q",
+                "--no-cov",
+                "-p",
+                "no:cacheprovider",
+                "-m",
+                "not integration and not e2e and not external",
+            ],
+            "suite unit",
+        ),
     ]
 
 
