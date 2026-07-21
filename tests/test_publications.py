@@ -8,6 +8,8 @@ from web.db import get_db
 from web.models import Dashboard, DashboardPublication
 from web.publications import PublicationBlocked
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 def _make_dashboard(slug, *, archived=False, has_api_access=False, has_persistence=False):
     now = datetime.now(timezone.utc)

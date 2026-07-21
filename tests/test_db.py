@@ -2,7 +2,10 @@
 
 import logging
 
+import pytest
 from sqlalchemy import text
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 
 def test_slow_query_listener_logs_above_threshold(mocker, caplog):

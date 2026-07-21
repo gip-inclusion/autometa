@@ -5,6 +5,8 @@ import pytest
 from web.database import store
 from web.deps import templates
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def conv(app):

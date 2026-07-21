@@ -4,6 +4,8 @@ import re
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 def headers(email="alice@example.com"):
     return {"X-Forwarded-Email": email}

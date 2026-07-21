@@ -8,6 +8,8 @@ from sqlalchemy import text
 from skills.metabase_query.scripts.cards_db import TOPICS, Card, CardsDB
 from web.db import get_db
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def db():

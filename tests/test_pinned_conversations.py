@@ -4,6 +4,8 @@ import pytest
 
 from web.database import store
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def conversation(app):

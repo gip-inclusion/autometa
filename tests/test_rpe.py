@@ -9,6 +9,8 @@ from cryptography import x509
 
 from lib import rpe
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 DATASET = "Accès et présence en emploi"
 
 

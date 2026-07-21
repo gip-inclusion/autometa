@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 SAMPLE_REPORT = """\
 ---
 date: 2026-01-15

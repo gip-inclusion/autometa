@@ -1,11 +1,14 @@
 """Tests for ConversationStore list/aggregation queries."""
 
+import pytest
 from sqlalchemy import select
 
 from web.database import store
 from web.db import get_db
 from web.models import Report as ReportModel
 from web.models import Tag as TagModel
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 ALICE = "alice@example.com"
 BOB = "bob@example.com"

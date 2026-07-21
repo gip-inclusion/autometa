@@ -10,6 +10,8 @@ from web.database import store
 from web.db import get_db
 from web.models import CronRun, Dashboard, DashboardPublication
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 ADMIN = ADMIN_USERS[0]
 
 

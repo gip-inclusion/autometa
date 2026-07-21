@@ -43,11 +43,10 @@ def _ensure_test_db():
     conn.close()
 
 
-_ensure_test_db()
+@pytest.fixture(scope="session")
+def _db():
+    _ensure_test_db()
 
-
-@pytest.fixture(scope="session", autouse=True)
-def init_schema():
     from web.schema import init_db
 
     init_db()
@@ -104,7 +103,7 @@ def truncate_all_tables():
 
 
 @pytest.fixture
-def app():
+def app(_db):
     import web.redis_conn
     from web import database
 

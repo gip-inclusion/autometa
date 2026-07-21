@@ -7,6 +7,8 @@ from web.database import store
 from web.db import get_db
 from web.models import Tag
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 ALICE = "alice@example.com"
 BOB = "bob@example.com"
 ADMIN = ADMIN_USERS[0]

@@ -8,6 +8,8 @@ from web import cron
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.mark.parametrize(
     "method,path",

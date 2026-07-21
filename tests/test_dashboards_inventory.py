@@ -8,6 +8,8 @@ from lib.dashboards import create_dashboard, update_dashboard
 from web.database import store
 from web.db import test_transaction as _test_tx
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):

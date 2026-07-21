@@ -1,4 +1,8 @@
+import pytest
+
 from web.database import store
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 
 def make_running_conversation(user_id):
