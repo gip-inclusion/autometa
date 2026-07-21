@@ -1,4 +1,4 @@
-.PHONY: dev test diff-cover lint format security ci migrate check-migrations
+.PHONY: dev test test-cov diff-cover lint format security ci migrate check-migrations
 
 dev:
 	uv run --frozen autometa
@@ -23,11 +23,21 @@ security:
 	uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt && uv run --frozen pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539
 
 test:
-	uv run --frozen pytest tests/ infra/ -q --tb=short -m "not integration and not external" \
-		--cov --cov-branch \
-		--cov-report=term-missing:skip-covered --cov-report=xml
+	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short \
+		-p no:cacheprovider -m "not integration and not e2e and not external"
+
+test-cov:
+	rm -f .coverage .coverage.unit .coverage.integration coverage.xml
+	DATABASE_URL= REDIS_URL= COVERAGE_FILE=.coverage.unit uv run --frozen pytest tests/ infra/ -q \
+		-p no:cacheprovider -m "not integration and not e2e and not external" \
+		--cov --cov-branch --cov-fail-under=0 --cov-report=
+	COVERAGE_FILE=.coverage.integration uv run --frozen pytest tests/ -q -m "integration or e2e" \
+		--cov --cov-branch --cov-fail-under=0 --cov-report=
+	uv run --frozen coverage combine .coverage.unit .coverage.integration
+	uv run --frozen coverage report --fail-under=74.90
+	uv run --frozen coverage xml
 
 diff-cover:
 	uv run --frozen diff-cover coverage.xml --compare-branch=origin/main --config-file pyproject.toml
 
-ci: lint security check-migrations test diff-cover
+ci: lint security check-migrations test-cov diff-cover

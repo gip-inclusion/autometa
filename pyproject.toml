@@ -104,6 +104,7 @@ ignore = [
 
 [tool.coverage.run]
 branch = true
+relative_files = true
 source = ["web", "lib", "scripts"]
 
 [tool.coverage.report]
