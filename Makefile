@@ -1,7 +1,10 @@
-.PHONY: dev test test-cov diff-cover lint format security ci migrate check-migrations
+.PHONY: dev hooks test test-cov diff-cover lint format security ci migrate check-migrations
 
 dev:
 	uv run --frozen autometa
+
+hooks:
+	uv run --frozen pre-commit install --hook-type pre-commit --hook-type pre-push
 
 migrate:
 	uv run --frozen alembic upgrade head
@@ -34,7 +37,7 @@ test-cov:
 	COVERAGE_FILE=.coverage.integration uv run --frozen pytest tests/ -q -m "integration or e2e" \
 		--cov --cov-branch --cov-fail-under=0 --cov-report=
 	uv run --frozen coverage combine .coverage.unit .coverage.integration
-	uv run --frozen coverage report --fail-under=74.90
+	uv run --frozen coverage report
 	uv run --frozen coverage xml
 
 diff-cover:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop hook: empêche l'agent de conclure sur du lint ou des tests creux (phase 4b, sans DB)."""
+"""Stop hook: empêche l'agent de conclure sur du lint ou des tests creux (la suite tourne au pre-push)."""
 
 import json
 import subprocess
@@ -16,22 +16,6 @@ def commands():
         (base + ["check", *SCOPE], "ruff check"),
         (base + ["format", "--check", *SCOPE], "ruff format --check"),
         ([sys.executable, "scripts/check_test_quality.py", "tests"], "détecteur de tests creux"),
-        (
-            [
-                "uv",
-                "run",
-                "--frozen",
-                "pytest",
-                "tests/",
-                "-q",
-                "--no-cov",
-                "-p",
-                "no:cacheprovider",
-                "-m",
-                "not integration and not e2e and not external",
-            ],
-            "suite unit",
-        ),
     ]
 
 

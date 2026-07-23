@@ -12,6 +12,6 @@ Marqueurs de test — un test non marqué doit tourner sans service ni credentia
 - `@pytest.mark.external` : tape sur de vrais services externes / credentials (Matomo, Metabase, Notion…). **Nightly uniquement**, exclu de la CI de PR et de `make test`.
 - `@pytest.mark.e2e` : parcours complet en process (runner + Redis + SSE, agent faké).
 
-> Tant que la découpe unit/integration n'est pas câblée, le filtre PR est `-m "not integration and not external"`. `e2e` reste donc exécuté en CI PR — ne pas y placer un test qui ne doit pas y tourner.
+> La CI de PR découpe en trois jobs : `unit` (`-m "not integration and not e2e and not external"`, sans service), `integration` (`-m "integration or e2e"`, avec Postgres+Redis), puis `coverage` (fusion + plancher). `e2e` tourne donc dans le job `integration`, pas dans le couloir unit. Le hook `pre-push` rejoue le couloir unit hermétique (`make test`) avant tout push ; le hook `Stop` reste sur lint + tests creux uniquement.
 
 Chaque modification de code doit avoir un test correspondant.

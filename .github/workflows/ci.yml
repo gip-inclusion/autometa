@@ -165,10 +165,10 @@ jobs:
         with:
           pattern: coverage-*
           merge-multiple: true
-      - name: Combine + report (plancher 74.90)
+      - name: Combine + report (plancher défini dans pyproject.toml)
         run: |
           uv run coverage combine .coverage.unit .coverage.integration
-          uv run coverage report --fail-under=74.90
+          uv run coverage report
           uv run coverage xml
       - name: Diff coverage gate
         run: uv run diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref || 'main' }} --config-file pyproject.toml

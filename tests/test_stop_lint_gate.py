@@ -28,12 +28,12 @@ def _fake_run(codes):
 
 
 def test_no_failure_when_all_green():
-    run = _fake_run([(0, ""), (0, ""), (0, ""), (0, "")])
+    run = _fake_run([(0, ""), (0, ""), (0, "")])
     assert stop_lint_gate.failing_checks(run=run) == []
 
 
 def test_collects_failing_check_with_label_and_output():
-    run = _fake_run([(1, "F401 unused import"), (0, ""), (0, ""), (0, "")])
+    run = _fake_run([(1, "F401 unused import"), (0, ""), (0, "")])
     failures = stop_lint_gate.failing_checks(run=run)
     assert len(failures) == 1
     label, output = failures[0]
@@ -42,26 +42,15 @@ def test_collects_failing_check_with_label_and_output():
 
 
 def test_collects_failing_detector():
-    run = _fake_run([(0, ""), (0, ""), (1, "test sans vérification"), (0, "")])
+    run = _fake_run([(0, ""), (0, ""), (1, "test sans vérification")])
     failures = stop_lint_gate.failing_checks(run=run)
     assert len(failures) == 1
     assert "vérification" in failures[0][1]
 
 
-def test_commands_includes_unit_suite():
-    labels = [label for _cmd, label in stop_lint_gate.commands()]
-    assert "suite unit" in labels
-    unit_cmd = next(cmd for cmd, label in stop_lint_gate.commands() if label == "suite unit")
-    assert "pytest" in unit_cmd
-    assert "not integration and not e2e and not external" in unit_cmd
-
-
-def test_collects_failing_unit_suite():
-    run = _fake_run([(0, ""), (0, ""), (0, ""), (1, "1 failed in 0.10s")])
-    failures = stop_lint_gate.failing_checks(run=run)
-    assert len(failures) == 1
-    assert "suite unit" in failures[0][0]
-    assert "failed" in failures[0][1]
+def test_commands_are_lint_only_suite_runs_at_pre_push():
+    cmds = [cmd for cmd, _label in stop_lint_gate.commands()]
+    assert not any("pytest" in cmd for cmd in cmds)
 
 
 def test_block_reason_mentions_each_failure():
