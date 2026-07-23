@@ -8,6 +8,11 @@ from web.deps import templates
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 
+@pytest.fixture(autouse=True)
+def _mute_slack(mocker):
+    mocker.patch("web.routes.conversations.notify_alert_channel")
+
+
 @pytest.fixture
 def conv(app):
     c = store.create_conversation(user_id="owner@example.com")

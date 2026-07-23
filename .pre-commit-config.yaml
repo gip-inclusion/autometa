@@ -13,9 +13,9 @@ repos:
         language: system
         files: ^tests/.*\.py$
       - id: unit-suite
-        name: suite unit hermétique (avant push)
+        name: suite unit hermétique (avant commit)
         entry: make test
         language: system
-        stages: [pre-push]
+        stages: [pre-commit]
         pass_filenames: false
         always_run: true

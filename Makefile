@@ -4,7 +4,7 @@ dev:
 	uv run --frozen autometa
 
 hooks:
-	uv run --frozen pre-commit install --hook-type pre-commit --hook-type pre-push
+	uv run --frozen pre-commit install --hook-type pre-commit
 
 migrate:
 	uv run --frozen alembic upgrade head
@@ -26,15 +26,15 @@ security:
 	uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt && uv run --frozen pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539
 
 test:
-	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short \
+	DATABASE_URL= REDIS_URL= SLACK_BOT_TOKEN= SLACK_ALERT_CHANNEL= uv run --frozen pytest tests/ infra/ -q --tb=short \
 		-p no:cacheprovider -m "not integration and not e2e and not external"
 
 test-cov:
 	rm -f .coverage .coverage.unit .coverage.integration coverage.xml
-	DATABASE_URL= REDIS_URL= COVERAGE_FILE=.coverage.unit uv run --frozen pytest tests/ infra/ -q \
+	DATABASE_URL= REDIS_URL= SLACK_BOT_TOKEN= SLACK_ALERT_CHANNEL= COVERAGE_FILE=.coverage.unit uv run --frozen pytest tests/ infra/ -q \
 		-p no:cacheprovider -m "not integration and not e2e and not external" \
 		--cov --cov-branch --cov-fail-under=0 --cov-report=
-	COVERAGE_FILE=.coverage.integration uv run --frozen pytest tests/ -q -m "integration or e2e" \
+	SLACK_BOT_TOKEN= SLACK_ALERT_CHANNEL= COVERAGE_FILE=.coverage.integration uv run --frozen pytest tests/ -q -m "integration or e2e" \
 		--cov --cov-branch --cov-fail-under=0 --cov-report=
 	uv run --frozen coverage combine .coverage.unit .coverage.integration
 	uv run --frozen coverage report
