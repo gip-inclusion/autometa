@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+import time
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -12,6 +13,9 @@ import httpx
 from .api_signals import emit_api_signal
 
 logger = logging.getLogger(__name__)
+
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF_S = 2.0
 
 
 def build_sql_url(base_url: str, database_id: int, sql: str) -> str:
@@ -72,7 +76,10 @@ class MetabaseAPI:
     Client for querying the Metabase API.
 
     Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
-    Retries up to 2 times on transient errors via httpx.HTTPTransport.
+    Retries connection errors via httpx.HTTPTransport, and gateway statuses
+    (502/503/504) or request errors up to MAX_ATTEMPTS with linear backoff —
+    ces échecs sont typiquement transitoires (Metabase saturé à ~06:00 quand
+    tous les crons tapent l'API en même temps).
 
     Worst-case for a fully-failing request: ~3 min (3 attempts x ~60s read
     timeout + backoff). Pass a lower timeout if tighter bounds are needed.
@@ -117,18 +124,42 @@ class MetabaseAPI:
     ) -> Any:
         url = f"{self.url}{endpoint}"
 
-        try:
-            resp = self._session.request(
-                method, url, json=data if data else None, timeout=httpx.Timeout(timeout, connect=10)
-            )
-            resp.raise_for_status()
-            return resp.json()
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                resp = self._session.request(
+                    method, url, json=data if data else None, timeout=httpx.Timeout(timeout, connect=10)
+                )
+                resp.raise_for_status()
+                return resp.json()
 
-        except httpx.HTTPStatusError as e:
-            raise MetabaseError(f"HTTP {e.response.status_code}: {e.response.text}") from e
+            except httpx.HTTPStatusError as e:
+                # 502/503/504 = passerelle surchargée / timeout applicatif amont, transitoire → on retente.
+                if e.response.status_code in (502, 503, 504) and attempt < MAX_ATTEMPTS:
+                    logger.warning(
+                        "Metabase %s %s -> HTTP %s (tentative %d/%d), nouvel essai",
+                        method,
+                        endpoint,
+                        e.response.status_code,
+                        attempt,
+                        MAX_ATTEMPTS,
+                    )
+                    time.sleep(RETRY_BACKOFF_S * attempt)
+                    continue
+                raise MetabaseError(f"HTTP {e.response.status_code}: {e.response.text}") from e
 
-        except httpx.RequestError as e:
-            raise MetabaseError(str(e)) from e
+            except httpx.RequestError as e:
+                if attempt < MAX_ATTEMPTS:
+                    logger.warning(
+                        "Metabase %s %s -> %s (tentative %d/%d), nouvel essai",
+                        method,
+                        endpoint,
+                        e,
+                        attempt,
+                        MAX_ATTEMPTS,
+                    )
+                    time.sleep(RETRY_BACKOFF_S * attempt)
+                    continue
+                raise MetabaseError(str(e)) from e
 
     def _parse_result(self, data: dict) -> QueryResult:
         # Check for query errors (Metabase returns 202 with error in body)

@@ -25,7 +25,19 @@ def main() -> None:
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("404", "NoSuchKey"):
-            raise RuntimeError(f"Snapshot manifest missing: s3://{config.BACKUP_S3_BUCKET}/{manifest_key}") from exc
+            # Le manifeste est écrit en dernier : s'il manque mais que le dossier du jour contient
+            # des objets, le producteur a échoué en cours de route (backup partiel), ce qui appelle
+            # une remédiation différente d'un backup jamais lancé.
+            listing = client.list_objects_v2(Bucket=config.BACKUP_S3_BUCKET, Prefix=f"backup/{today}/", MaxKeys=1)
+            if listing.get("KeyCount", 0) > 0:
+                raise RuntimeError(
+                    f"Snapshot incomplet: données présentes sous s3://{config.BACKUP_S3_BUCKET}/backup/{today}/ "
+                    "mais _MANIFEST.json manquant (le producteur a échoué avant d'écrire le manifeste)."
+                ) from exc
+            raise RuntimeError(
+                f"Aucun snapshot pour {today}: s3://{config.BACKUP_S3_BUCKET}/backup/{today}/ est vide "
+                "(backup non exécuté)."
+            ) from exc
         raise
 
     manifest = json.loads(body)

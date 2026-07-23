@@ -22,6 +22,7 @@ def test_caller_type_enum():
 
     assert CallerType.AGENT.value == "agent"
     assert CallerType.APP.value == "app"
+    assert CallerType.CRON.value == "cron"
 
 
 def test_query_result_dataclass():
