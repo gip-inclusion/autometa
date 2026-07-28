@@ -25,10 +25,17 @@ document.body.addEventListener('htmx:beforeRequest', (e) => {
   }
 });
 
+// Why: htmx émet htmx:afterSettle une fois par élément installé — le swap principal ET chaque
+// bloc out-of-band (les récentes de la sidebar). e.detail.target vaut #main pour tous ; seul
+// e.target désigne l'élément réellement remplacé.
+function isMainSwap(e) {
+  return e.target.id === 'main';
+}
+
 // htmx navigation handler
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
-  if (e.detail.target.id !== 'main') return;
+  if (!isMainSwap(e)) return;
 
   const path = window.location.pathname;
   const convId = parseConversationId(path);
@@ -509,7 +516,9 @@ async function checkAuthStatus() {
 // Check auth status on page load
 document.addEventListener('DOMContentLoaded', checkAuthStatus);
 // Also check after htmx navigations
-document.body.addEventListener('htmx:afterSettle', checkAuthStatus);
+document.body.addEventListener('htmx:afterSettle', (e) => {
+  if (isMainSwap(e)) checkAuthStatus();
+});
 
 // Why: handlers attached here so they survive htmx swaps —
 // explorations.html {% block scripts %} sits inside #main and isn't re-run.
