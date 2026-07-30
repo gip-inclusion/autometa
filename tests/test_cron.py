@@ -560,6 +560,65 @@ def test_run_all_does_not_rediscover_per_task(mocker, s3_cron_env):
     assert find_task.call_count == 0
 
 
+def test_run_all_skips_excluded_tasks(mocker):
+    mocker.patch(
+        "web.cron.discover_cron_tasks",
+        return_value=[
+            {
+                "slug": "regular-task",
+                "enabled": True,
+                "schedule": "daily",
+                "timeout": 60,
+                "cron_path": "/x",
+                "tier": "system",
+            },
+            {
+                "slug": "heavy-task",
+                "enabled": True,
+                "schedule": "daily",
+                "timeout": 60,
+                "cron_path": "/x",
+                "tier": "system",
+            },
+        ],
+    )
+    mocker.patch("web.cron.is_due", return_value=True)
+    execute = mocker.patch(
+        "web.cron.execute_task",
+        return_value={"slug": "regular-task", "status": "success", "duration_ms": 10, "output": ""},
+    )
+
+    results = run_all(exclude_slugs={"heavy-task"})
+
+    assert [result["slug"] for result in results] == ["regular-task"]
+    execute.assert_called_once()
+    assert execute.call_args.args[0]["slug"] == "regular-task"
+
+
+def test_run_all_logs_excluded_tasks_in_dry_run(mocker, caplog):
+    import logging
+
+    mocker.patch(
+        "web.cron.discover_cron_tasks",
+        return_value=[
+            {
+                "slug": "heavy-task",
+                "enabled": True,
+                "schedule": "daily",
+                "timeout": 60,
+                "cron_path": "/x",
+                "tier": "system",
+            }
+        ],
+    )
+
+    with caplog.at_level(logging.INFO, logger="web.cron"):
+        results = run_all(dry_run=True, exclude_slugs={"heavy-task"})
+
+    assert results == []
+    assert "SKIP heavy-task (excluded)" in caplog.text
+
+
 def test_run_s3_executes_script(mocker, s3_cron_env):
     _seed_dashboard("s3-runner")
     app = mock_s3_app("s3-runner", cron_script="print('s3 hello')")
@@ -710,6 +769,30 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     assert getattr(record, "cron.task.name") == "my-task"
     assert getattr(record, "cron.task.status") == "success"
     assert getattr(record, "cron.task.duration") == 1234
+
+
+def test_main_app_scheduled_uses_scheduled_trigger(monkeypatch, mocker, capsys):
+    monkeypatch.setattr("sys.argv", ["cron", "--app", "heavy-task", "--scheduled"])
+    mocker.patch("web.cron.setup_logging")
+    run = mocker.patch(
+        "web.cron.run_cron_task",
+        return_value={"slug": "heavy-task", "status": "success", "duration_ms": 10, "output": ""},
+    )
+
+    cron.main()
+
+    run.assert_called_once_with("heavy-task", trigger="scheduled")
+    assert "Running cron for heavy-task" in capsys.readouterr().out
+
+
+def test_main_passes_excluded_slugs_to_run_all(monkeypatch, mocker):
+    monkeypatch.setattr("sys.argv", ["cron", "--exclude", "heavy-task", "--dry-run"])
+    mocker.patch("web.cron.setup_logging")
+    run = mocker.patch("web.cron.run_all", return_value=[])
+
+    cron.main()
+
+    run.assert_called_once_with(dry_run=True, exclude_slugs={"heavy-task"})
 
 
 def _seed_dashboard_and_publication(

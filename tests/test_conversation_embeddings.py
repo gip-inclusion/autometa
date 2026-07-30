@@ -80,12 +80,6 @@ def test_content_hash_uses_stable_sha256(content, expected_hash):
     assert embeddings.content_hash(content) == expected_hash
 
 
-def test_content_preview_uses_configured_length(monkeypatch):
-    monkeypatch.setattr(embeddings.config, "EMBEDDING_CONTENT_PREVIEW_LENGTH", 4)
-
-    assert embeddings.content_preview("abcdef") == "abcd"
-
-
 def test_to_pgvector_formats_float_values():
     assert embeddings.to_pgvector([1, "2.5", 0]) == "[1.0,2.5,0.0]"
 
@@ -140,6 +134,15 @@ def test_load_candidate_messages_applies_limit_and_time_filter(monkeypatch):
     query, params = connection.executed[0]
     assert "limit :limit" in query
     assert "m.timestamp >= :start_at" in query
+    assert "encode(sha256(convert_to(m.content, 'UTF8')), 'hex') as current_content_hash" in query
+    assert "existing_content_hash is null" in query
+    assert "existing_content_hash <> current_content_hash" in query
+    assert "m.role <> 'assistant' or c.needs_response = 0" not in query
+    assert "c.needs_response = 1" in query
+    assert "m.role = 'assistant'" in query
+    assert "from messages later_m" in query
+    assert "later_m.conversation_id = m.conversation_id" in query
+    assert "later_m.id > m.id" in query
     assert params == {
         "embedding_model": "test-model",
         "limit": 10,
@@ -154,8 +157,14 @@ def test_prepare_messages_skips_rows_with_unchanged_content_hash():
     assert embeddings.prepare_messages([unchanged]) == []
 
 
-def test_prepare_messages_builds_embedding_payload(monkeypatch):
-    monkeypatch.setattr(embeddings.config, "EMBEDDING_CONTENT_PREVIEW_LENGTH", 7)
+def test_prepare_messages_uses_database_content_hash():
+    row = _row(content="Bonjour Autometa")
+    row["current_content_hash"] = "database-hash"
+
+    assert embeddings.prepare_messages([row])[0]["content_hash"] == "database-hash"
+
+
+def test_prepare_messages_builds_embedding_payload():
     timestamp = datetime(2026, 7, 20, 9, 30, tzinfo=ZoneInfo("Europe/Paris"))
     row = _row(
         message_id=42,
@@ -175,7 +184,6 @@ def test_prepare_messages_builds_embedding_payload(monkeypatch):
             "content": "Contenu assez long",
             "content_hash": embeddings.content_hash("Contenu assez long"),
             "content_length": 18,
-            "content_preview": "Contenu",
             "message_timestamp": timestamp,
         }
     ]
@@ -206,12 +214,27 @@ def test_insert_embeddings_executes_idempotent_upsert(monkeypatch):
             "role": "user",
             "content_hash": embeddings.content_hash("Contenu"),
             "content_length": 7,
-            "content_preview": "Contenu",
             "message_timestamp": message["message_timestamp"],
             "embedding_model": "test-model",
             "embedding": "[3.0,4.0]",
         }
     ]
+
+
+def test_insert_embeddings_hides_parameters_when_execute_fails(monkeypatch):
+    class FailingConnection(_FakeConnection):
+        def execute(self, query, params):
+            raise embeddings.SQLAlchemyError("database error containing Contenu")
+
+    monkeypatch.setattr(embeddings.config, "EMBEDDING_MODEL", "test-model")
+    message = embeddings.prepare_messages([_row(message_id=42, content="Contenu sensible")])[0]
+
+    with pytest.raises(RuntimeError) as exc_info:
+        embeddings.insert_embeddings(FailingConnection(), [message], [[3, 4]])
+
+    assert str(exc_info.value) == "Failed to insert 1 conversation message embeddings"
+    assert "Contenu" not in str(exc_info.value)
+    assert exc_info.value.__suppress_context__ is True
 
 
 def test_generate_embeddings_returns_when_no_message_to_embed(monkeypatch, mocker):

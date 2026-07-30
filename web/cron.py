@@ -608,12 +608,18 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
         return []
 
 
-def run_all(dry_run: bool = False) -> list[dict]:
+def run_all(dry_run: bool = False, exclude_slugs: set[str] | None = None) -> list[dict]:
     """Discover and run all enabled cron tasks that are due today."""
     tasks = discover_cron_tasks()
     results = []
+    exclude_slugs = exclude_slugs or set()
 
     for task in tasks:
+        if task["slug"] in exclude_slugs:
+            if dry_run:
+                logger.info("SKIP %s (excluded)", task["slug"])
+            continue
+
         if not task["enabled"]:
             if dry_run:
                 logger.info("SKIP %s (disabled)", task["slug"])
@@ -651,6 +657,8 @@ def main():
     setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     parser = argparse.ArgumentParser(description="Run cron tasks")
     parser.add_argument("--app", help="Run a specific task by slug (ignores schedule)")
+    parser.add_argument("--scheduled", action="store_true", help="Record --app execution as scheduled")
+    parser.add_argument("--exclude", action="append", default=[], help="Exclude a slug when running all tasks")
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
     args = parser.parse_args()
@@ -669,14 +677,14 @@ def main():
 
     if args.app:
         print(f"Running cron for {args.app}...")
-        result = run_cron_task(args.app, trigger="manual")
+        result = run_cron_task(args.app, trigger="scheduled" if args.scheduled else "manual")
         print(f"  Status: {result['status']} ({result['duration_ms']}ms)")
         if result["output"]:
             print(result["output"])
         return
 
     print("Running all cron tasks...")
-    results = run_all(dry_run=args.dry_run)
+    results = run_all(dry_run=args.dry_run, exclude_slugs=set(args.exclude))
     if not args.dry_run:
         ok = sum(1 for r in results if r["status"] == "success")
         fail = len(results) - ok

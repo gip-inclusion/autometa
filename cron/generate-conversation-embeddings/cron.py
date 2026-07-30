@@ -1,4 +1,4 @@
-"""Generate conversation message embeddings for the previous day. Periodic."""
+"""Generate missing or outdated conversation message embeddings. Periodic."""
 
 import logging
 
@@ -9,14 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    if config.ENV.value != "prod":
-        logger.info("AUTOMETA_ENV=%s (not prod); skipping conversation embedding generation", config.ENV.value)
-        return
-
     generate_embeddings(
-        limit=None,
+        limit=config.EMBEDDING_CRON_LIMIT,
         batch_size=config.EMBEDDING_BATCH_SIZE,
-        days_ago=1,
     )
 
 
