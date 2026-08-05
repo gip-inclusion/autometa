@@ -434,7 +434,7 @@ body.has-sidebar {
   border-radius: 0;
   font-size: 1rem;
   resize: none;
-  max-height: 150px;
+  max-height: 320px;
   background: transparent;
 }
 

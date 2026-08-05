@@ -13,7 +13,8 @@ function escapeHtml(text) {
 
 function autoGrow(textarea) {
   textarea.style.height = 'auto';
-  textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+  // Hauteur plafonnée par max-height en CSS (.chat-input) : source unique.
+  textarea.style.height = textarea.scrollHeight + 'px';
 }
 
 function isAtBottom() {
