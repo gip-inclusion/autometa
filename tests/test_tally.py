@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from lib.tally import TallyClient, TallyError, list_workspaces
+from lib.tally import TallyClient, TallyError, workspaces_summary
 
 
 def make_client(mocker, api_key="tly-test"):
@@ -98,21 +98,26 @@ def test_iter_submissions_caps_pages(mocker):
     warn.assert_called_once()
 
 
-def test_list_workspaces_distinct(mocker):
+def test_list_workspaces_calls_endpoint(mocker):
+    client = make_client(mocker)
+    get = mocker.patch.object(client, "_get", return_value={"items": [{"id": "w1", "name": "GPS"}]})
+
+    assert client.list_workspaces() == {"items": [{"id": "w1", "name": "GPS"}]}
+    get.assert_called_once_with("/workspaces")
+
+
+def test_workspaces_summary_keeps_name_and_member_count(mocker):
     client = make_client(mocker)
     mocker.patch.object(
         client,
-        "list_forms",
-        return_value={
-            "items": [
-                {"workspaceId": "w1"},
-                {"workspaceId": "w2"},
-                {"workspaceId": "w1"},
-                {"workspaceId": None},
-            ]
-        },
+        "list_workspaces",
+        return_value={"items": [{"id": "w1", "name": "GPS", "members": [{"id": "u1"}, {"id": "u2"}]}, {"id": "w2"}]},
     )
-    assert list_workspaces(client) == ["w1", "w2"]
+
+    assert workspaces_summary(client) == [
+        {"id": "w1", "name": "GPS", "members": 2},
+        {"id": "w2", "name": None, "members": 0},
+    ]
 
 
 def test_check_tally_not_set(mocker):

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from lib.tally import TallyClient, list_workspaces  # noqa: E402
+from lib.tally import TallyClient, workspaces_summary  # noqa: E402
 
 
 def forms_summary(client: TallyClient, workspace: str | None) -> list[dict]:
@@ -62,7 +62,7 @@ def main() -> None:
     client = TallyClient()
     try:
         if args.workspaces:
-            out: object = list_workspaces(client)
+            out: object = workspaces_summary(client)
         elif args.list:
             out = forms_summary(client, args.workspace)
         elif args.schema:

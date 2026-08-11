@@ -53,6 +53,9 @@ class TallyClient:
         emit_api_signal(source="tally", instance="default", url=f"{BASE_URL}{path}", method=f"GET {path}")
         return data
 
+    def list_workspaces(self) -> dict:
+        return self._get("/workspaces")
+
     def list_forms(self, page: int = 1, limit: int = 50) -> dict:
         return self._get("/forms", params={"page": page, "limit": limit})
 
@@ -105,11 +108,9 @@ class TallyClient:
         logger.warning("Tally: pagination plafonnée à %d pages pour le formulaire %s", max_pages, form_id)
 
 
-def list_workspaces(client: TallyClient) -> list[str]:
-    """Workspaces visibles par la clé, dérivés des formulaires (l'API n'expose pas /workspaces)."""
-    seen: dict[str, None] = {}
-    for form in client.list_forms(limit=500).get("items", []):
-        ws = form.get("workspaceId")
-        if ws:
-            seen.setdefault(ws, None)
-    return list(seen)
+def workspaces_summary(client: TallyClient) -> list[dict]:
+    """Workspaces visibles par la clé, réduits à leur identité et leur taille."""
+    return [
+        {"id": w.get("id"), "name": w.get("name"), "members": len(w.get("members") or [])}
+        for w in client.list_workspaces().get("items", [])
+    ]
