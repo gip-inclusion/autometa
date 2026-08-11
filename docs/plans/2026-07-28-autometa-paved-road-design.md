@@ -34,8 +34,33 @@ Objectif : **99 % d'autonomie**, un humain technique en break-glass pour le cas 
 | Durée | Sans contrainte, le travail se fait en AFK |
 | Filiation | Déclinaison allégée de `akria-pipeline`, doctrine reprise, volume écarté |
 | Trajectoire | Empilement de niveaux, jamais un déploiement en bloc |
-| Outillage | Cibles du `Makefile` existant, aucune nouvelle CLI à installer |
+| Outillage | Cibles du `Makefile` existant, aucune CLI propriétaire du paved road |
+| Périmètre | Le rituel s'applique dès que le diff touche `web/`, `lib/`, `skills/` ou `alembic/` ; neutre ailleurs. Les tableaux de bord sont hors périmètre |
 | spec-kit | Retiré ; la Definition of Done le remplace, la constitution est récupérée puis redistribuée |
+
+### Ce qui déclenche le paved road
+
+Sans déclencheur écrit, deux issues, toutes deux mauvaises : un check exigé sur toutes les PR gèle
+le dépôt — `dependabot.yml` ouvre jusqu'à vingt PR par jour et dix auteurs ont produit 110 commits
+en 90 jours, quasi tous hors paved road, y compris des correctifs de sécurité ; un check jamais
+exigé se contourne en n'écrivant pas `definition-of-done.md`, ce qui rend L0 et L1 facultatifs pour
+qui est pressé.
+
+> **Le check paved road est requis si et seulement si le diff touche `web/`, `lib/`, `skills/` ou
+> `alembic/`.** Sur ce périmètre, l'absence de `definition-of-done.md` est un échec, pas une
+> non-application. Ailleurs — mises à jour de dépendances, `docs/`, `knowledge/` — il est neutre.
+
+La seule échappatoire est un label `break-glass` posé à la main par un humain, et journalisé comme
+tel. Une dispense implicite n'en est pas une : c'est une porte que personne ne regarde.
+
+**Les tableaux de bord ne sont pas dans ce périmètre.** Autometa est un produit qui permet à ses
+utilisateurs de créer des tableaux de bord par le chat et de les pousser en production ; ce parcours
+est celui de l'*usage* du produit, pas de son *développement*. Il ne produit ni branche, ni PR, ni
+diff — le code est écrit directement dans l'instance de production (`.claude/hooks/guard_write_paths.py`
+l'autorise explicitement pour `data/interactive/`, et rien n'y est versionné : `git ls-files data/` ne
+renvoie aucun fichier, les artefacts vivant sur S3). Le paved road ne le couvre pas et n'a pas vocation
+à le couvrir. Il en découle une seule obligation dans l'autre sens, traitée en L6 : le développement de
+l'application ne doit pas casser ces tableaux de bord.
 
 ## Le cœur : la Definition of Done
 
@@ -287,23 +312,53 @@ artefact — un reçu, pas une affirmation.
 Quatre verbes suffisent — démarrer, consulter l'état, lancer les checks, avancer — exposés comme cibles
 du `Makefile` existant, donc invocables par n'importe quel agent, par la CI, ou à la main.
 
-#### Rattachement au code : le SHA, pas la date
+#### Rattachement au code : le contenu prouvé, ni la date ni le commit
 
 Akria compare des dates de fichiers (`smoke-evidence` : les captures doivent être plus récentes que
 `verify-report.yaml`). Insuffisant ici : l'agent dispose de Bash, et `touch` rend n'importe quelle capture
 « fraîche ». Une date de fichier n'est pas une attestation, c'est une affirmation horodatée.
 
-**Chaque attestation enregistre le SHA de HEAD au moment de sa production.** Un check refuse si HEAD a
-bougé depuis. Conséquence assumée : tout nouveau commit invalide les attestations et impose de re-prouver
-— acceptable puisque le travail se fait en AFK. Bénéfice : l'attestation devient vérifiable par quiconque,
-CI comprise, sans faire confiance à l'horloge ni au système de fichiers.
+Le SHA de HEAD ne convient pas davantage, pour une raison mécanique : **l'attestation est committée par
+construction, et ce commit déplace HEAD.** Produite à `HEAD=A`, rangée, la CI lit `B` et une attestation
+qui annonce `A` : elle est fausse à la seconde où on la classe. Re-prouver produit un nouveau commit, donc
+une nouvelle invalidation — la boucle ne termine pas. S'y ajoute le rebase, obligatoire ici (historique
+linéaire sur `main`, 110 commits en 90 jours) : il réécrit tous les SHA d'une branche dont le code n'a pas
+bougé d'une ligne.
+
+**Chaque attestation enregistre les empreintes d'arbre des chemins qu'elle prouve** — `git rev-parse
+HEAD:web`, `HEAD:lib`, `HEAD:alembic`, le dossier du TDB concerné — à l'exclusion du dossier
+d'attestations et du journal. Le check passe si ces arbres sont inchangés ; l'équivalent opérationnel est
+`git diff --quiet <réf attestée> HEAD -- <chemins prouvés>`.
+
+Conséquences : ranger la preuve et rebaser deviennent neutres, une vraie modification du code invalide
+toujours, et l'attestation reste vérifiable par quiconque — CI comprise — sans faire confiance à l'horloge
+ni au système de fichiers. La règle d'exclusion doit être écrite noir sur blanc dans l'implémentation :
+sans elle, on reproduit la boucle.
 
 #### Granularité : une attestation par critère
 
-Chaque `DOD-N` porte la sienne : ce qui a été fait, ce qui a été observé, la preuve jointe, le SHA, et un
-verdict démontré / non démontré. Un critère non démontré ne peut donc pas se noyer dans un rapport global.
-Le récapitulatif en français n'est pas dupliqué ici : il est produit par le release brief (L3) à partir de
-ces attestations.
+Chaque `DOD-N` porte la sienne : la commande lancée, son code de sortie, les empreintes d'arbre des
+chemins prouvés, et un verdict démontré / non démontré. Un critère non démontré ne peut donc pas se noyer
+dans un rapport global. Le récapitulatif en français n'est pas dupliqué ici : il est produit par la
+description de PR à partir de ces attestations.
+
+#### Ce qu'une attestation ne contient jamais
+
+**Le dépôt est public.** Le produit manipule des données sur des demandeurs d'emploi — il embarque
+d'ailleurs un module d'anonymisation dédié (`lib/pii.py`) précisément parce que du texte réel transite.
+Or le design fait committer quatre artefacts nés de l'exécution réelle : DoD, journal, attestations,
+captures. Le raisonnement qui impose de les committer est correct (la CI ne voit pas un fichier ignoré),
+mais il ne dit rien de leur contenu, et aucun des sept niveaux ne le regarde : ils vérifient la fraîcheur
+et le verdict. `gitleaks` cherche des motifs de secrets, pas des noms de personnes, et n'ouvre pas une
+image. Paradoxe propre à ce design : plus il produit de preuves, plus il expose — dans un historique git
+public, qui ne s'efface pas.
+
+> Sous `attestations/`, **uniquement du texte structuré** : commande, code de sortie, empreintes, verdict.
+> Aucune image, aucun binaire, aucune sortie brute de requête.
+
+Un check le refuse, directement bloquant : le faux positif coûte un renommage de chemin, le faux négatif
+est irréversible. Les captures produites en L4 transitent par les artefacts de CI ou un commentaire de PR,
+hors dépôt.
 
 #### États et journal
 
@@ -336,13 +391,39 @@ Ce niveau protège **tout le monde** — paved road ou pas, Claude ou Codex, hum
 direct fermé. Mais l'API ne renvoie **ni `required_status_checks`, ni `required_pull_request_reviews`**.
 
 Conséquence : la CI est complète et rien n'oblige qu'elle soit verte pour merger. Une PR rouge se merge
-aujourd'hui sans obstacle. Le premier geste de L2 n'est donc pas du développement mais deux réglages GitHub,
-à coût nul et à effet immédiat sur tout le dépôt :
+aujourd'hui sans obstacle, et le fait est constaté : le 2026-08-05, la CI est en échec sur `main` pendant
+que `Deploy staging` et `Deploy prod` passent au vert sur le même commit. Le premier geste de L2 n'est donc
+pas du développement mais des réglages GitHub, à effet immédiat sur tout le dépôt. Trois précautions
+conditionnent leur succès, et chacune suffit à tout bloquer si elle est omise.
 
-- **`required_status_checks`** sur les cinq jobs existants — `lint`, `security`, `test`, `migrations`,
-  `docker`.
-- **`required_pull_request_reviews`** avec `require_code_owner_reviews`, sans quoi le `CODEOWNERS`
-  ci-dessous reste décoratif.
+**Les noms des checks sont ceux publiés, pas les identifiants de job.** GitHub matche
+`required_status_checks` sur le nom du check run. `ci.yml` déclare `name: Lint & format`, `Security`,
+`Tests`, `Migrations`, `Docker` — ce sont ces cinq chaînes littérales qu'il faut inscrire. Un contexte
+inconnu reste indéfiniment « Expected — Waiting for status to be reported », et `enforce_admins: true`
+interdit de forcer le passage : toutes les PR seraient bloquées sans message d'erreur. À vérifier sur une
+PR témoin par `gh api repos/:owner/:repo/commits/<sha>/check-runs` avant d'armer. Le head porte en outre
+des checks tiers (`CodeQL`, `GitGuardian`) : les laisser non requis est un choix légitime, il doit être
+écrit. Enfin, un contrôle compare la liste requise aux `name:` de `ci.yml` et échoue en cas de dérive —
+sans lui, renommer un job éteint la protection en silence.
+
+**`main` doit être au vert, et `pip-audit` doit sortir du gate bloquant.** Le job `Security` est en échec
+depuis le 2026-08-05 sur une vulnérabilité annoncée dans une dépendance amont ; `ci.yml` porte déjà deux
+`--ignore-vuln`, l'événement est récurrent et exogène. Le rendre bloquant enferme le dépôt, et le
+déblocage passe par l'édition de `ci.yml`, que `CODEOWNERS` verrouille au même moment. `pip-audit` part
+donc dans un job `Dependencies` nightly non requis ; `bandit` et `gitleaks`, qui portent sur le diff,
+restent dans `Security` et restent bloquants.
+
+**`strict: true`.** Sans ce drapeau, GitHub accepte de merger une PR dont la CI a été verte sur une base
+périmée : chaque PR est individuellement verte, leur combinaison ne l'est pas. Cas concret, le seul mode
+de défaillance qui naisse du fait qu'ils sont deux : deux branches ajoutent chacune une migration enfant
+du même `down_revision`, les deux sont vertes, et `main` se retrouve avec deux heads Alembic. Coût réel :
+un re-run de CI après rebase, ce que le travail en AFK absorbe.
+
+Les deux réglages proprement dits :
+
+- **`required_status_checks`** avec `strict: true` sur les cinq contextes littéraux ci-dessus.
+- **`required_pull_request_reviews`** avec `require_code_owner_reviews` — sans quoi le `CODEOWNERS`
+  ci-dessous reste décoratif. Ce réglage a un prérequis humain qui n'est pas un détail : voir « Qui merge ».
 
 #### pre-push : un service, pas un guardrail
 
@@ -379,11 +460,39 @@ temps. Un parcours joué une fois démontre ; un test entré dans la suite **dé
 l'export trois mois plus tard, `test_dod_1` devient rouge tout seul, sur la PR du coupable.
 
 **Exécution : CI sur chaque PR, plus une passe nightly.** Le test est écrit pour tourner indifféremment
-contre une URL locale ou une URL de review app. Point d'attention : le `up`/`down` des review apps sera
-migré dans la CI — ne pas construire de mécanisme local qui serait jeté.
+contre une URL locale ou une URL de review app, et il tourne **contre les deux** : le local donne un
+verdict rapide et gratuit, la review app démontre l'application telle qu'elle est réellement déployée.
+Point d'attention : le `up`/`down` des review apps sera migré dans la CI — ne pas construire de mécanisme
+local qui serait jeté.
 
-Rien de tel n'existe aujourd'hui dans le dépôt : Playwright est à introduire. C'est le seul vrai chantier
-technique de ce niveau.
+#### Accès aux review apps : un second mode d'entrée, pas une porte ouverte
+
+Toute instance déployée est derrière oauth2-proxy et un login Google : `Procfile` lance l'application
+derrière `start_with_oauth2_proxy.sh`, `.buildpacks` inclut le buildpack betagouv, `OAUTH2_PROXY_PROVIDER`
+vaut `google` et `OAUTH2_PROXY_EMAIL_DOMAINS` restreint à `inclusion.gouv.fr`. L'identité vient
+exclusivement d'un en-tête injecté par le proxy (`web/deps.py`). Le commentaire de `scalingo.json` le dit
+sans ambiguïté pour les review apps : la redirection y est surchargée « so login redirects back to the
+review app ». Un navigateur piloté n'a pas de compte Google.
+
+L'URL n'est pas l'obstacle — le motif `autometa-staging-pr<N>.osc-fr1.scalingo.io` se dérive de
+`github.event.number`. C'est l'authentification.
+
+**Décision : le proxy accepte un second mode d'entrée par secret technique**, connu du seul runner de CI
+et stocké dans les secrets GitHub, activé sur les seules review apps (`AUTOMETA_ENV=review`). Un visiteur
+humain voit toujours l'écran Google ; la review app n'est à aucun moment consultable depuis internet.
+L'option consistant à dispenser certaines routes d'authentification a été écartée : elle rendrait ces
+pages publiques pendant toute la vie de la review app, pour un gain de configuration marginal.
+
+Prérequis à lever avant le milestone : le buildpack betagouv indique que « toute configuration
+supplémentaire d'oauth2-proxy peut se faire par variables d'environnement », donc le mécanisme est
+atteignable ; reste à valider que le fichier de secrets peut être produit au démarrage de l'instance.
+Tant que ce point n'est pas levé, L3 et L4 tournent en local uniquement.
+
+Rien de tel n'existe aujourd'hui dans le dépôt : Playwright est à introduire, avec un job CI dédié
+(Postgres, Redis, stockage objet, application lancée, installation du navigateur) et un marqueur exclu du
+filtre du job `Tests`. C'est le seul vrai chantier technique de ce niveau, et il n'entre pas dans
+`required_status_checks` tant qu'il n'a pas prouvé son absence d'instabilité — le ratchet du design,
+appliqué à son propre outillage.
 
 ### L4 — Smoke
 
@@ -391,9 +500,10 @@ Le pendant exploratoire de L3, et son complément exact : là où l'E2E vérifie
 attrape **ce que personne n'avait pensé à tester** — le bouton présent mais illisible, la page qui rame,
 le PDF techniquement conforme et visuellement raté.
 
-Piloté via MCP, en local puis sur la review app. Non déterministe, non rejouable, dans les Adapters — et
-ici ce n'est pas un défaut : on ne lui demande pas de garantir, on lui demande de regarder. Son adaptabilité
-est précisément ce que la rigidité d'un test ne sait pas faire.
+Piloté via MCP, en local puis sur la review app — par le même second mode d'entrée que L3 (voir ci-dessus),
+donc conditionné au même prérequis. Non déterministe, non rejouable, dans les Adapters — et ici ce n'est
+pas un défaut : on ne lui demande pas de garantir, on lui demande de regarder. Son adaptabilité est
+précisément ce que la rigidité d'un test ne sait pas faire.
 
 | | Public | Produit | Rôle |
 |---|---|---|---|
@@ -428,7 +538,6 @@ neuf lentilles du stage `review` d'Akria et des besoins propres à ce dépôt :
 | `edge-case-hunter` | Null, collections vides, valeurs limites, doublons, concurrence | Akria |
 | `security-auditor` | Autorisation, injections, secrets, PII dans les logs | Akria |
 | `legal-compliance` | RGPD et domaine IAE | Akria, adapté du domaine HSE |
-| `auth-audit` | Route FastAPI sans protection. `.claude/rules/review.md` le liste en critère de rejet sans rien pour le détecter | Équivalent de `decorator-audit` (Nest) |
 | `dod-test-fidelity` | Un test marqué `DOD-N` est bien un parcours réel, pas un test unitaire déguisé | Équivalent de `tag-fidelity` (minter) |
 | `query-cost` | Segments Matomo à 30-180 s, jamais plus de 5 requêtes segmentées en boucle — un agent tombe dedans naturellement | Propre au dépôt |
 | `knowledge-drift` | `knowledge/` diverge du code ; `MAINTENANCE.md` le liste comme tâche trimestrielle jamais faite | Propre au dépôt |
@@ -437,11 +546,38 @@ Deux besoins souvent cités — conformité aux `.claude/rules/` et sûreté des
 ici : ils sont largement automatisables et relèvent donc de L6. Une lentille LLM qui vérifie ce qu'un `grep`
 fait mieux est du gaspillage.
 
+#### L'exception à la mise en réserve : la protection des routes
+
+Une lentille `auth-audit` figurait dans ce catalogue. Elle en sort, et elle ne passe pas par le ratchet.
+
+L'autorisation n'est pas posée une fois pour toutes dans cette application : elle est écrite **route par
+route**, à la main (`web/deps.py` tire l'identité d'un en-tête de proxy, sans dépendance d'authentification
+partagée). Une route neuve naît donc sans protection, et il faut penser à la lui ajouter. Or le paved road
+fait précisément écrire des routes à un agent, pour quelqu'un qui ne lit pas le code : « une page qui liste
+les candidatures par structure » produit une route dans `web/`, qui est au cœur du périmètre. Aucun des
+sept niveaux ne le verrait — L0 exclut les invariants permanents, L2 ne modélise pas la sémantique FastAPI,
+L3 joue le parcours en tant qu'utilisateur autorisé donc il est vert, L5 démarre avec `design-coherence`
+seule.
+
+Le ratchet suppose qu'un premier incident soit rattrapable. Il l'est pour un lint bavard ou un test
+capricieux ; il ne l'est pas pour une exposition de données de demandeurs d'emploi, où le premier
+incident *est* l'incident. Et l'état n'est pas hypothétique : `web/routes/query.py` expose déjà un
+`POST /query` qui exécute du SQL fourni par le client sur trois bases, sans dépendance d'authentification,
+avec pour seul filtre une comparaison d'`Origin` qu'un appel dépourvu de cet en-tête traverse.
+
+**Un check déterministe le remplace, dès le milestone 0** : toute fonction décorée `@router.<verbe>` doit
+porter une dépendance d'authentification ou figurer dans une allowlist committée et couverte par
+`CODEOWNERS`. Les routes actuellement non protégées forment une baseline gelée — le check bloque les
+routes **neuves**, sans casser l'existant, et la baseline se résorbe ensuite. Une soixantaine de lignes,
+aucune dépendance LLM, aucune friction pour qui demande une fonctionnalité. L'état de `POST /query` se
+traite par ailleurs, indépendamment de ce design.
+
 ### L6 — Fitness Functions
 
 Terme de Neal Ford (*Building Evolutionary Architectures*) : une règle exécutable qui mesure qu'un système
-préserve les propriétés voulues à mesure qu'il change. Chaque règle de `.claude/rules/` qui compte
-réellement en devient une. Deux chantiers structurants :
+préserve les propriétés voulues à mesure qu'il change. C'est ici que se matérialise le versant
+« vérificateur » de chaque paire décrite en mécanismes transversaux — l'instruction en prose reste, elle
+n'est simplement plus seule à porter la règle. Deux chantiers structurants :
 
 #### D'abord ce qui est déjà écrit ailleurs
 
@@ -485,15 +621,33 @@ directement `lib.query`, `web.db`, `web.config` : elles dépendent d'internes qu
 stables. Tant que c'est le cas, chaque refactor est un risque et aucun check ne le couvrira entièrement.
 
 D'où le choix : **une façade explicite et versionnée pour les tableaux de bord**, seul point d'entrée
-autorisé, avec un check qui interdit tout autre import depuis `data/interactive/`. On cesse de courir après
-les cassures : on réduit la surface où elles peuvent se produire. La façade devient un contrat, ses tests
-en sont la preuve, et modifier ce contrat devient un acte visible plutôt qu'un effet de bord.
+autorisé. On cesse de courir après les cassures : on réduit la surface où elles peuvent se produire. La
+façade devient un contrat, ses tests en sont la preuve, et modifier ce contrat devient un acte visible
+plutôt qu'un effet de bord.
 
-Trois conséquences à traiter :
+C'est le seul mécanisme du design qui protège quelque chose d'*extérieur* au paved road : les tableaux
+de bord sont hors périmètre (ils naissent de l'usage du produit, pas d'une PR), mais le développement de
+l'application, lui, peut les casser. La façade est donc une contrainte sur `lib/`, pas sur eux.
 
-- Migrer les TDB existants vers la façade.
-- `data/` est aujourd'hui exclu de ruff (`exclude = ["data/", …]`) : le check d'import demande soit de
-  lever l'exclusion pour ce seul contrôle, soit un check maison.
+**Le check ne peut pas vivre dans la CI.** `data/` n'est pas versionné — `git ls-files data/` ne renvoie
+aucun fichier, la négation `!/data/interactive/` du `.gitignore` étant inerte (git ne ré-inclut pas sous
+un répertoire exclu), et les artefacts vivent sur S3 (`web/s3.py`, restaurés par `web/warmup.py`,
+énumérés par `web/cron.py`). Un check branché sur un diff s'exécuterait donc sur un dossier vide et serait
+vert à perpétuité : le défaut même reproché à l'ancre de worktree d'Akria, un guardrail qui s'éteint sans
+bruit. L'exclusion ruff de `data/` est le moindre des deux problèmes.
+
+Le contrôle s'applique aux deux moments où un tableau de bord passe réellement :
+
+- **À l'écriture** — les skills `create_dashboard` et `update_dashboard` sont le passage obligé ; ils
+  refusent un import hors façade.
+- **À l'exécution** — `web/cron.py` refuse de planifier un `cron.py` qui importe hors façade, et alerte
+  sur le canal Slack qui existe déjà. En observation d'abord : bloquer d'emblée casserait des tableaux
+  de bord vivants.
+
+Deux conséquences à traiter :
+
+- Migrer les TDB existants vers la façade — opération sur S3, pas une PR. Compter d'abord combien il y
+  en a réellement en production : le chantier ne s'engage pas sans ce nombre.
 - `.claude/rules/code.md` prescrit actuellement aux apps interactives d'utiliser `lib.query`, `web.db` et
   `web.config` directement. Cette règle est à réécrire en même temps, sinon elle contredit la façade.
 
@@ -510,6 +664,60 @@ reste qu'à vérifier la correspondance, ce que fait la lentille `dod-test-fidel
 SQL interpolé, migrations destructives, dérive `knowledge/` — écrits quand le friction log les réclame.
 
 ## Mécanismes transversaux
+
+### Chaque règle est une paire : une instruction, un vérificateur
+
+La protection des routes (L5) n'est pas un cas particulier, c'est l'instance la plus coûteuse d'un
+pattern général. Toute convention de ce dépôt existe sous deux formes, et il lui faut les deux :
+
+| | Forme | Anneau | Ce qu'elle fait | Ce qu'elle ne fait pas |
+|---|---|---|---|---|
+| **Instruction** | prose dans `.claude/rules/`, un skill, un prompt | Adapters | l'agent produit du code conforme **du premier coup** | obliger — un agent peut l'ignorer, un autre agent ne la lit pas |
+| **Vérificateur** | règle de lint, check AST, test | Guardrails | refuser ce qui n'est pas conforme, **quel que soit l'auteur** | guider — il ne dit qu'après coup, au prix d'un aller-retour |
+
+C'est la distinction paved road / guardrail du design, appliquée au grain de la règle plutôt qu'au grain
+du parcours. Les deux formes ne font pas double emploi : sans instruction, l'agent découvre la règle en
+échouant, ce qui se paie en allers-retours et en tokens sur chaque run ; sans vérificateur, la règle est
+auto-déclarative, et le design pose déjà que c'est nul et non avenu.
+
+> **Une règle qui n'existe qu'en prose n'est pas une règle. Un vérificateur qui ne tourne que dans
+> l'agent n'est pas un guardrail.**
+
+#### Le travail est déjà fait, il est du mauvais côté
+
+Le constat sur ce dépôt n'est pas qu'il manque des vérificateurs, c'est qu'ils sont mal placés.
+`.claude/hooks/check_python.py` en implémente une douzaine — docstrings, commentaires descriptifs, code
+commenté, imports bannis, `os.getenv`, `except` nu, `except Exception` sans `# Why:`, SQL non paramétré,
+instanciation directe de `MatomoAPI`/`MetabaseAPI`, `httpx` sans timeout, nommage de module. Tous
+s'exécutent **à l'écriture, sous Claude Code uniquement**. Ce sont d'excellentes instructions armées et
+de faux guardrails : un autre agent, un humain pressé ou un `git commit` en ligne de commande n'en voient
+rien.
+
+Répartition réelle des conventions du dépôt :
+
+| Où vit la vérification | Exemples | Compte |
+|---|---|---|
+| **Guardrail** — CI, hors agent | f-strings dans les logs (`ruff G`), migration accompagnant un modèle (`alembic check`), secrets en dur (`gitleaks`), test sur le code modifié (`diff-cover` à 90 %) | 4 |
+| **Adapter** — `check_python.py`, Claude Code seul | la douzaine ci-dessus | ~12 |
+| **Rien** | route sans protection (`review.md` la liste pourtant en critère de rejet), plus de cinq requêtes segmentées Matomo, marqueur `integration` | 3 |
+
+#### La règle opératoire
+
+Chaque entrée de `.claude/rules/` déclare où vit sa vérification. Trois réponses admises : une règle de
+lint, un check déterministe nommé, ou *aucune* — et dans ce dernier cas c'est écrit, pas sous-entendu.
+« Vérifié par un hook Claude Code » n'est pas une réponse recevable ; c'est une instruction bien outillée,
+qui reste dans les Adapters.
+
+Le déplacement coûte peu, et c'est mesuré. Gratuits, zéro violation aujourd'hui : `TID252` (imports
+relatifs parents), `S113` (timeout littéral), `E722` (`except` nu). À faire entrer en observation, avec
+leur volume : `S608` (SQL en dur) remonte 18 cas, `BLE001` (`except Exception` aveugle) en remonte 8 —
+ruff ne connaissant pas la convention `# Why:`, une partie sera légitime, ce qui est précisément ce que
+la phase d'observation sert à établir. Une fois une règle passée côté Guardrail, le check correspondant
+sort de `check_python.py` : deux implémentations de la même règle divergent toujours.
+
+Le cas de la protection des routes est le plus cher parce qu'il est dans la troisième ligne du tableau —
+l'instruction existe, aucun vérificateur ne l'accompagne — et parce que son premier incident n'est pas
+rattrapable. C'est ce qui le sort du ratchet, pas sa nature.
 
 ### The ratchet
 
@@ -583,7 +791,7 @@ dispensés, et la dégradation s'y installe exactement parce que personne ne la 
 | `web/`, `lib/` | lint, tests, couverture 90 % du diff, migrations | E2E Playwright, un test par `DOD-N` |
 | `skills/*/SKILL.md` | frontmatter valide, chemins et scripts cités existants | *différé* — evals sur golden set |
 | `knowledge/**.md` | chemins valides, cohérence avec les baselines synchronisées | *différé* — evals sur golden set |
-| `data/interactive/` | imports via la façade uniquement | exécution réelle du `cron.py` |
+| `data/interactive/` | *hors périmètre* — créé par l'usage du produit, jamais par une PR | *hors périmètre* — voir L6 pour la protection dans l'autre sens |
 | `config/sources.yaml` | schéma valide, aucun secret en clair | `/selftest` |
 | `docs/`, `README` | fichiers et chemins cités existants | — |
 | workflows, seuils, hooks | tests du paved road | CODEOWNERS |
@@ -598,9 +806,32 @@ Un **pair citizen developer** approuve et merge : une seconde personne non techn
 et les critères, jamais le code. Elle attrape le cas que les gates ne verront jamais — « ça marche, mais
 ce n'est pas ce qu'il fallait faire ».
 
-Contrainte GitHub à connaître : un auteur ne peut pas approuver sa propre PR. Exiger une approbation
-implique donc structurellement d'être deux. C'est un coût réel sur l'autonomie solo, accepté en échange
-d'un regard métier croisé.
+#### Ce que GitHub permet exactement
+
+La sémantique est plus étroite qu'on ne le suppose, et elle contraint le modèle.
+
+- Il **n'existe pas** de réglage « l'auteur ne peut pas merger sa propre PR ». Aucune option ne le fait.
+- Le seul levier est `required_approving_review_count`. Comme GitHub interdit *nativement* — et sans
+  réglage possible — d'approuver sa propre PR, exiger une approbation implique mécaniquement qu'une
+  seconde personne intervienne. C'est ce qui produit l'effet recherché.
+- Une fois l'approbation obtenue d'un tiers, **l'auteur peut lui-même cliquer sur « Merge »**. Interdire
+  cela n'est pas faisable nativement, et n'a pas de raison de l'être ici : ce qu'on veut est un regard
+  croisé, pas un rituel de délégation.
+- `required_approving_review_count: 0` combiné à `require_code_owner_reviews: true` bloque bien le merge :
+  les deux réglages s'évaluent séparément, mettre le compteur à zéro retire l'exigence générique et non
+  celle des code owners. En revanche une **draft PR ne déclenche pas** la demande d'approbation code owner
+  tant qu'elle n'est pas passée « ready for review » — ce qui contraint le durcissement prévu en L0.
+
+#### Prérequis humain, à traiter avant d'armer le réglage
+
+Le dépôt compte aujourd'hui six collaborateurs, tous techniques, et aucun `CODEOWNERS`. GitHub exige un
+droit `write` explicite pour qu'une approbation compte. Activer `required_pull_request_reviews` avant que
+la paire existe revient donc à exiger une signature que personne n'a le droit de donner : le dépôt
+s'arrête. **« Deux citizen developers avec accès write, et un `CODEOWNERS` écrit » est un livrable nommé
+du milestone 0**, préalable au réglage. L'ordre de repli, si la paire tarde, est de livrer
+`required_status_checks` seul — il n'a aucun prérequis humain et porte l'essentiel du gain.
+
+C'est un coût réel sur l'autonomie solo, accepté en échange d'un regard métier croisé.
 
 ## Dépendances externes : aucune ne porte de guardrail
 
@@ -645,60 +876,87 @@ pas par le calendrier.
 
 ### Milestone 0 — les gains sans dépendance
 
-Deux actions qui n'attendent aucune autre brique et portent le meilleur rapport effort/effet du design.
+Les actions qui n'attendent aucune autre brique et portent le meilleur rapport effort/effet du design.
+**L'ordre compte** : chacune des trois premières conditionne la suivante, et les inverser gèle le dépôt.
 
-- **Rendre la CI obligatoire au merge** : `required_status_checks` sur les cinq jobs,
-  `required_pull_request_reviews` avec `require_code_owner_reviews`, `CODEOWNERS` sur les fichiers de gate.
-  Aujourd'hui une PR rouge se merge sans obstacle.
-- **Activer les quatre règles ruff** (`TID251`, `TID252`, `S113`, per-file-ignores) et mesurer ce qu'elles
-  font remonter sur le code existant.
+1. **Remettre `main` au vert** et sortir `pip-audit` du gate bloquant, vers un job `Dependencies` nightly
+   non requis. Sans cela, rendre la CI obligatoire enferme tout le monde dehors.
+2. **`required_status_checks`** avec `strict: true`, sur les cinq contextes littéraux `Lint & format`,
+   `Security`, `Tests`, `Migrations`, `Docker`, vérifiés sur une PR témoin. Plus le contrôle de dérive
+   entre la liste requise et les `name:` de `ci.yml`. Aujourd'hui une PR rouge se merge sans obstacle.
+3. **Ouvrir le dépôt à deux citizen developers** avec droit `write` explicite, et écrire `CODEOWNERS` sur
+   les fichiers de gate. Alors seulement, `required_pull_request_reviews` avec `require_code_owner_reviews`.
+4. **Activer les règles ruff gratuites** — `TID252`, `S113`, `E722`, mesurées à zéro violation — puis
+   `TID251` configuré. Mettre `S608` et `BLE001` en observation, avec leurs 18 et 8 cas actuels comme
+   baseline. Retirer en même temps de `.claude/hooks/check_python.py` les checks que ruff reprend, sinon
+   deux implémentations de la même règle divergent.
+5. **Poser le check de protection des routes** (voir L5) avec sa baseline gelée : bloquant sur les routes
+   neuves, muet sur l'existant.
+6. **Rendre l'environnement de développement atteignable** : une cible `setup` idempotente et une cible
+   `doctor` dont chaque échec est une phrase française actionnable. Sans elles, le premier run d'une
+   personne non technique tombe en famille B — « arrêt immédiat, panne » — c'est-à-dire en break-glass,
+   alors que le break-glass est censé être l'exception. Aujourd'hui rien n'existe entre le clone et un
+   `.env` de 170 lignes, trois services à lancer et cinq clés d'accès à obtenir.
 
 **Fin :** le dépôt est protégé pour tout le monde, y compris pour le travail qui ne passera jamais par le
-paved road.
+paved road, et une personne non technique peut atteindre l'état où le parcours commence.
 
-### Milestone 1 — L0, Definition of Done
+### Milestone 1 — Instrumentation et friction log
+
+Mesure de durée et de coût par étape, consignation des frictions, mécanisme de ratchet. Remonté en tête
+du plan : le design pose qu'« aucune contrainte n'est ajoutée par anticipation », et construire les
+niveaux coûteux avant de disposer de l'instrument qui les justifie contredit sa propre doctrine. Le coût
+est faible — les données existent déjà en base (`conversations.usage_input_tokens`, `usage_events`,
+`pr_url`) — et ce milestone ne dépend d'aucun autre.
+
+Il fournit aussi la ligne de base sans laquelle « le paved road coûte-t-il moins cher que l'existant ? »
+restera une opinion, et la donnée de promotion du ratchet est prise là où elle se trouve réellement : les
+conclusions des check runs GitHub, la CI ne pouvant pas écrire dans le journal d'une branche.
+
+**Fin :** tout niveau ajouté ensuite l'est avec un chiffre en face.
+
+### Milestone 2 — L0, Definition of Done
 
 Format de `definition-of-done.md` et critères de qualité d'un acceptance criterion observable. Parcours de
 validation en français. Emplacement des artefacts et politique de versionnement.
 **Fin :** une fonctionnalité réelle traverse le parcours de bout en bout avec Definition of Done validée
 et attestations, sans outillage.
 
-### Milestone 2 — L1, Attestation
+### Milestone 3 — L1, Attestation
 
 State journal par branche, commande d'avancement adossée aux codes de sortie, check de fraîcheur des
-attestations. Cibles `Makefile`. Tests du paved road lui-même.
+attestations adossé aux empreintes d'arbre des chemins prouvés. Check de contenu des attestations
+(texte structuré uniquement, dépôt public). Cibles `Makefile`. Tests du paved road lui-même.
 **Fin :** l'avancement est impossible sans exécution réelle ; une evidence périmée bloque.
 
-### Milestone 3 — L2, Quality Gates
+### Milestone 4 — L2, Quality Gates
 
 Les réglages GitHub sont faits au milestone 0. Reste : brancher les checks du paved road (DoD présente,
-attestations valides pour le SHA) sur la CI, poser le `pre-push` rapide, et restituer les échecs en
-français avec leur famille.
+attestations valides pour le contenu prouvé) sur la CI **selon le déclencheur de périmètre**, poser le
+`pre-push` rapide, et restituer les échecs en français avec leur famille.
 **Fin :** aucun rouge ne peut atteindre `main`, quel que soit l'agent ; un échec dit ce qu'il faut faire.
 
-### Milestone 4 — L3, E2E
+### Milestone 5 — L3, E2E
 
-Introduction de Playwright. Génération d'un test par acceptance criterion. Exécution en CI sur chaque PR
-et en nightly, contre une URL locale ou de review app. Attestations rattachées au SHA.
+Introduction de Playwright, dans un job CI dédié. Génération d'un test par acceptance criterion. Exécution
+en CI sur chaque PR et en nightly, contre l'URL locale **et** celle de la review app. Prérequis à lever
+d'abord : le second mode d'entrée par secret sur les review apps.
 **Fin :** « ça marche » cesse d'être une affirmation de l'agent et devient une sortie reproductible, qui
 protège aussi contre les régressions futures.
 
-### Milestone 5 — L4, Smoke
+### Milestone 6 — L4, Smoke
 
-Parcours exploratoire piloté par MCP, en local puis sur la review app. Captures destinées au citizen
-developer.
+Parcours exploratoire piloté par MCP, en local puis sur la review app, par le même second mode d'entrée
+que L3. Captures destinées au citizen developer, transitant hors dépôt.
 **Fin :** ce qu'aucun test n'avait prévu devient visible avant la PR.
-
-### Milestone 6 — Instrumentation et friction log
-
-Mesure de durée et de coût par étape, consignation des frictions, mécanisme de ratchet.
-**Fin :** les niveaux suivants sont pilotés par des incidents constatés, non par des hypothèses.
 
 ### Milestone 7 — L5 puis L6, au fil des frictions
 
-`design-coherence` seule pour ouvrir L5 ; les quatre règles ruff et le check `data/interactive/` pour L6.
-Ensuite, une lentille ou une fitness function à la fois, en `warning` puis en `blocking`, uniquement quand
-le friction log la réclame.
+`design-coherence` seule pour ouvrir L5 ; la façade des tableaux de bord pour L6, ancrée à l'écriture et
+à l'exécution, une fois les TDB comptés. Les règles ruff et le check de protection des routes sont déjà
+posés au milestone 0. Ensuite, une lentille ou une fitness function à la fois, uniquement quand le
+friction log la réclame — et le cliquet vers `blocking` ne concerne que les checks déterministes, une
+lentille LLM restant en `warning` permanent puisqu'elle ne peut pas vivre dans les Guardrails.
 **Fin :** aucune — c'est le régime permanent.
 
 ## Risques
@@ -707,17 +965,23 @@ le friction log la réclame.
 |---|---|---|
 | Acceptance criteria vagues | Toute la chaîne perd son référentiel | Observabilité vérifiée à L0, durcie en fitness function à L5 |
 | Le paved road devient du code non maintenu | Les gates rouillent et deviennent inertes | Testé comme le produit, dans la même CI |
-| Adoption nulle par excès de friction | Aucune garantie effective | Ratchet, démarrage permissif, fast path |
+| Adoption nulle par excès de friction | Aucune garantie effective | Ratchet, démarrage permissif, périmètre de déclenchement étroit, seuil d'alerte chiffré adossé au milestone 1 |
 | Evidence fabriquée par l'agent | Le jugement redevient auto-déclaratif | Fraîcheur vérifiée dès L1, exécution réelle en L3 |
 | Changement d'agent | Perte de l'enforcement | Garantie logée dans les Guardrails, indépendants de l'agent |
 
 ## Questions ouvertes
 
-- Coût réel d'un parcours complet en durée et en tokens : à mesurer au milestone 6, non à estimer.
-- Comportement exact de `required_approving_review_count: 0` combiné à `require_code_owner_reviews: true`
-  sur GitHub : à confirmer à l'implémentation, la sémantique est subtile.
+- Coût réel d'un parcours complet en durée et en tokens : à mesurer au milestone 1, non à estimer.
 - Contenu de la description de PR, maintenant qu'un pair citizen developer en est le lecteur.
-- Ce que devient `/selftest` derrière oauth2-proxy si l'annexe est un jour traitée.
+- Faisabilité exacte du second mode d'entrée sur les review apps : le buildpack expose toute la
+  configuration d'oauth2-proxy par variables d'environnement, reste à valider la production du fichier de
+  secrets au démarrage. Conditionne L3 et L4 contre review app — et lève au passage la question de
+  `/selftest` derrière oauth2-proxy, si l'annexe est un jour traitée.
+
+Deux questions ouvertes ont été refermées. La sémantique de `required_approving_review_count: 0` combiné à
+`require_code_owner_reviews: true` : les deux réglages s'évaluent séparément, la combinaison bloque bien
+le merge, mais une draft PR ne déclenche pas la demande d'approbation code owner — voir « Qui merge ». Et
+le rattachement des attestations, qui ne passe plus par le SHA de HEAD — voir L1.
 
 ## Chantiers différés
 
