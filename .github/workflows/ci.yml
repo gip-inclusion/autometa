@@ -112,7 +112,7 @@ jobs:
       - run: uv sync --group dev --frozen
       - name: Unit tests
         run: >-
-          uv run pytest tests/ -q --tb=short -m "not integration and not external"
+          uv run pytest tests/ infra/ -q --tb=short -m "not integration and not external"
           --cov --cov-branch
           --cov-report=term-missing:skip-covered --cov-report=xml
       - name: Diff coverage gate
