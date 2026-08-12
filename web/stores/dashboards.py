@@ -2,11 +2,11 @@
 
 from sqlalchemy import func, select
 
-from lib.taxonomy import expand_implications, invert_implications, load_implications
 from web.db import get_db
 from web.models import Dashboard as DashboardModel
 from web.models import DashboardTag as DashboardTagModel
 from web.models import Tag as TagModel
+from web.stores.tags import matching_keys
 
 
 def dashboard_to_dict(d, tags: list[str]) -> dict:
@@ -50,22 +50,8 @@ def serialize_dashboards(session, dashboards: list) -> list[dict]:
 
 
 def matching_slugs(session, tag_names: list[str]) -> set[str]:
-    """Slugs portant tous les tags demandés, un tag générique valant pour ses termes précis."""
-    # Why: filtrer sur `solutions-structurees` doit ramener les TDB tagués `siae`, y compris
-    # via une chaîne (siae → solutions-structurees → structures) — d'où la fermeture transitive.
-    reverse = invert_implications(load_implications(session))
-    slugs: set[str] | None = None
-    for name in tag_names:
-        accepted = expand_implications([name], reverse)
-        matched = set(
-            session.scalars(
-                select(DashboardTagModel.dashboard_slug)
-                .join(TagModel, TagModel.id == DashboardTagModel.tag_id)
-                .where(TagModel.name.in_(accepted))
-            )
-        )
-        slugs = matched if slugs is None else slugs & matched
-    return slugs or set()
+    """Slugs portant tous les tags demandés, implications comprises."""
+    return matching_keys(session, DashboardTagModel, DashboardTagModel.dashboard_slug, tag_names)
 
 
 class DashboardsMixin:

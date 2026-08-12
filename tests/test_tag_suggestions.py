@@ -256,6 +256,123 @@ def test_time_budget_stops_early_and_reports_deferred(db, mocker):
     assert result["deferred"] >= 3
 
 
+def _conversation(session, conv_id, messages=("première demande",)):
+    from web.models import Conversation, Message
+
+    now = datetime.now(timezone.utc)
+    session.add(Conversation(id=conv_id, user_id="a@b.c", created_at=now, updated_at=now))
+    session.flush()
+    for content in messages:
+        session.add(Message(conversation_id=conv_id, role="user", content=content, timestamp=now))
+    session.flush()
+
+
+def _report(session, title="Rapport", content="corps du rapport"):
+    from web.models import Report
+
+    now = datetime.now(timezone.utc)
+    report = Report(title=title, content=content, archived=0, created_at=now, updated_at=now)
+    session.add(report)
+    session.flush()
+    return report.id
+
+
+def test_conversation_subjects_uses_the_first_user_message(db):
+    from lib.tag_suggestions import conversation_subjects
+
+    with get_db() as session:
+        _conversation(session, "conv-1", messages=("la première", "la seconde"))
+        subjects = conversation_subjects(session)
+
+    subject = next(s for s in subjects if s.object_id == "conv-1")
+    assert "la première" in subject.body
+    assert "la seconde" not in subject.body
+
+
+def test_conversation_subjects_skips_conversations_without_user_message(db):
+    from lib.tag_suggestions import conversation_subjects
+
+    with get_db() as session:
+        _conversation(session, "conv-muette", messages=())
+        subjects = conversation_subjects(session)
+
+    assert "conv-muette" not in [s.object_id for s in subjects]
+
+
+def test_conversation_subjects_honours_exclusion(db):
+    from lib.tag_suggestions import conversation_subjects
+
+    with get_db() as session:
+        _conversation(session, "conv-a")
+        _conversation(session, "conv-b")
+        subjects = conversation_subjects(session, exclude_ids=frozenset({"conv-a"}))
+
+    ids = [s.object_id for s in subjects]
+    assert "conv-a" not in ids and "conv-b" in ids
+
+
+def test_report_subjects_excludes_by_numeric_id(db):
+    from lib.tag_suggestions import report_subjects
+
+    with get_db() as session:
+        kept = _report(session, title="Gardé")
+        dropped = _report(session, title="Exclu")
+        subjects = report_subjects(session, exclude_ids=frozenset({str(dropped)}))
+
+    ids = [s.object_id for s in subjects]
+    assert str(kept) in ids and str(dropped) not in ids
+
+
+def test_report_subjects_ignores_non_numeric_exclusions(db):
+    from lib.tag_suggestions import report_subjects
+
+    with get_db() as session:
+        kept = _report(session, title="Gardé")
+        subjects = report_subjects(session, exclude_ids=frozenset({"pas-un-entier"}))
+
+    assert str(kept) in [s.object_id for s in subjects]
+
+
+def test_apply_tags_on_a_conversation(db):
+    from lib.tag_suggestions import apply_tags
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage")
+        _conversation(session, "conv-tag")
+
+    assert apply_tags("conversation", "conv-tag", ["territoire"]) is True
+    from web.database import store
+
+    assert [t.name for t in store.get_conversation_tags("conv-tag")] == ["territoire"]
+
+
+def test_apply_tags_on_a_report(db):
+    from lib.tag_suggestions import apply_tags
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage")
+        report_id = _report(session)
+
+    assert apply_tags("report", str(report_id), ["territoire"]) is True
+    from web.database import store
+
+    assert [t.name for t in store.get_report_tags(report_id)] == ["territoire"]
+
+
+@pytest.mark.parametrize(
+    "object_type,object_id",
+    [
+        ("dashboard", "tdb-inexistant"),
+        ("licorne", "peu-importe"),
+        ("report", "pas-un-entier"),
+    ],
+)
+def test_apply_tags_returns_false_on_bad_target(db, object_type, object_id):
+    from lib.tag_suggestions import apply_tags
+
+    assert apply_tags(object_type, object_id, []) is False
+
+
 def test_export_for_job_publishes_subjects_and_taxonomy(db, mocker):
     from lib.tag_suggestions import export_for_job
 

@@ -89,6 +89,51 @@ def test_list_conversations_with_tags_requires_all_tags(client):
     assert results[0][0].report is None
 
 
+def _implication(source, target, facet="audience"):
+    """Crée deux termes et fait impliquer le second par le premier."""
+    from sqlalchemy import select
+
+    from web.db import get_db
+    from web.models import Tag, TagImplication
+
+    with get_db() as session:
+        ids = {}
+        for name in (source, target):
+            tag = session.scalar(select(Tag).where(Tag.name == name))
+            if tag is None:
+                tag = Tag(name=name, type=facet, label=name, active=True)
+                session.add(tag)
+                session.flush()
+            ids[name] = tag.id
+        session.add(TagImplication(tag_id=ids[source], implies_tag_id=ids[target]))
+        session.flush()
+
+
+def test_conversation_filter_expands_implications(client):
+    _implication("siae", "solutions-structurees")
+    precise = make_conv(tags=["siae"])
+
+    results = store.list_conversations_with_tags(tag_names=["solutions-structurees"])
+
+    assert [conv.id for conv, _ in results] == [precise.id]
+
+
+def test_conversation_filter_does_not_expand_in_reverse(client):
+    _implication("siae", "solutions-structurees")
+    make_conv(tags=["solutions-structurees"])
+
+    assert store.list_conversations_with_tags(tag_names=["siae"]) == []
+
+
+def test_report_filter_expands_implications(client):
+    _implication("siae", "solutions-structurees")
+    make_report(title="précis", tags=["siae"])
+
+    results = store.list_reports_with_tags(tag_names=["solutions-structurees"])
+
+    assert [r.title for r, _ in results] == ["précis"]
+
+
 def test_list_reports_with_tags_filters_archived_and_tags(client):
     tagged = make_report(title="actif", tags=["emplois"])
     make_report(title="archivé", tags=["emplois"], archived=True)
