@@ -12,11 +12,15 @@ spec.loader.exec_module(review_app)
 
 
 class FakeResponse:
+    """Réponse factice. `payload=None` modélise un corps vide, sur lequel `.json()` échoue."""
+
     def __init__(self, payload=None, status_code=200):
-        self.payload = payload if payload is not None else {}
+        self.payload = payload
         self.status_code = status_code
 
     def json(self):
+        if self.payload is None:
+            raise json.JSONDecodeError("Expecting value", "", 0)
         return self.payload
 
     def raise_for_status(self):
@@ -31,17 +35,18 @@ class FakeClient:
         self.responses = list(responses)
         self.calls = []
 
-    def get(self, url, **kwargs):
-        self.calls.append(("GET", url, kwargs.get("json")))
+    def record(self, method, url, kwargs):
+        self.calls.append((method, url, kwargs))
         return self.responses.pop(0)
+
+    def get(self, url, **kwargs):
+        return self.record("GET", url, kwargs)
 
     def post(self, url, **kwargs):
-        self.calls.append(("POST", url, kwargs.get("json")))
-        return self.responses.pop(0)
+        return self.record("POST", url, kwargs)
 
     def request(self, method, url, **kwargs):
-        self.calls.append((method, url, kwargs.get("json")))
-        return self.responses.pop(0)
+        return self.record(method, url, kwargs)
 
 
 def listing(*review_apps):
@@ -62,12 +67,57 @@ def test_exchange_token_returns_bearer():
     client = FakeClient([FakeResponse({"token": "jwt-value"})])
 
     assert review_app.exchange_token(client, "tk-us-secret") == "jwt-value"
-    assert client.calls[0][1] == review_app.AUTH_URL
+    method, url, kwargs = client.calls[0]
+    assert (method, url) == ("POST", review_app.AUTH_URL)
+    assert kwargs["auth"] == ("", "tk-us-secret")
+    assert kwargs["timeout"] == review_app.TIMEOUT
+
+
+def read_state(client):
+    return review_app.find_review_app(client, "jwt", "autometa-staging", 42)
+
+
+def deploy_app(client):
+    return review_app.deploy_review_app(client, "jwt", "autometa-staging", 42)
+
+
+def destroy_app(client):
+    return review_app.destroy(client, "jwt", "autometa-staging", 42)
+
+
+@pytest.mark.parametrize(
+    ("operation", "responses"),
+    [
+        (read_state, [FakeResponse(listing())]),
+        (deploy_app, [FakeResponse({})]),
+        (destroy_app, [FakeResponse(listing(review_app_entry())), FakeResponse({})]),
+    ],
+    ids=["read_state", "deploy", "destroy"],
+)
+def test_scalingo_calls_carry_the_bearer_and_a_timeout(operation, responses):
+    client = FakeClient(responses)
+
+    operation(client)
+
+    assert len(client.calls) == len(responses)
+    for _, _, kwargs in client.calls:
+        assert kwargs["headers"] == {"Authorization": "Bearer jwt"}
+        assert kwargs["timeout"] == review_app.TIMEOUT
 
 
 def test_find_review_app_matches_on_pull_request_number():
     payload = listing(review_app_entry(pr_number=7, app_name="autometa-staging-pr7"), review_app_entry(pr_number=42))
     client = FakeClient([FakeResponse(payload)])
+
+    found = review_app.find_review_app(client, "jwt", "autometa-staging", 42)
+
+    assert found["app_name"] == "autometa-staging-pr42"
+
+
+def test_find_review_app_ignores_entries_without_a_pull_request():
+    orphan = review_app_entry(app_name="autometa-staging-orphan")
+    orphan["pull_request"] = None
+    client = FakeClient([FakeResponse(listing(orphan, review_app_entry()))])
 
     found = review_app.find_review_app(client, "jwt", "autometa-staging", 42)
 
@@ -109,10 +159,47 @@ def test_ensure_posts_the_pull_request_id():
 
     review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
-    method, url, body = client.calls[1]
+    method, url, kwargs = client.calls[1]
     assert method == "POST"
     assert url.endswith("/apps/autometa-staging/scm_repo_link/manual_review_app")
-    assert body == {"pull_request_id": 42}
+    assert kwargs["json"] == {"pull_request_id": 42}
+
+
+def test_ensure_uses_the_app_name_returned_by_scalingo():
+    client = FakeClient([FakeResponse(listing()), FakeResponse({"app_name": "autometa-staging-pr42-b7c1"})])
+
+    result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
+
+    assert result["action"] == "created"
+    assert result["app"] == "autometa-staging-pr42-b7c1"
+    assert result["url"] == "https://autometa-staging-pr42-b7c1.osc-fr1.scalingo.io"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, {}, {"id": "ra-1"}, ["autometa-staging-pr42"]],
+    ids=["empty body", "no app_name", "other keys", "not an object"],
+)
+def test_ensure_falls_back_to_the_conventional_name(payload):
+    client = FakeClient([FakeResponse(listing()), FakeResponse(payload)])
+
+    result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
+
+    assert result["app"] == "autometa-staging-pr42"
+    assert result["url"] == "https://autometa-staging-pr42.osc-fr1.scalingo.io"
+
+
+def test_ensure_keeps_the_existing_app_name_over_the_post_response():
+    listed = listing(review_app_entry(git_ref="staleref", app_name="autometa-staging-pr42-old"))
+    client = FakeClient([FakeResponse(listed), FakeResponse({"app_name": "autometa-staging-pr42-new"})])
+
+    result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
+
+    assert result == {
+        "action": "updated",
+        "app": "autometa-staging-pr42-old",
+        "url": "https://autometa-staging-pr42-old.osc-fr1.scalingo.io",
+    }
 
 
 def test_ensure_redeploys_when_deployment_is_missing():
@@ -131,10 +218,10 @@ def test_destroy_removes_the_review_app():
     result = review_app.destroy(client, "jwt", "autometa-staging", 42)
 
     assert result == {"action": "destroyed", "app": "autometa-staging-pr42"}
-    method, url, body = client.calls[1]
+    method, url, kwargs = client.calls[1]
     assert method == "DELETE"
     assert url.endswith("/apps/autometa-staging-pr42")
-    assert body == {"current_name": "autometa-staging-pr42"}
+    assert kwargs["json"] == {"current_name": "autometa-staging-pr42"}
 
 
 def test_destroy_is_a_noop_when_already_gone():
