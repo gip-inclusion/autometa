@@ -30,6 +30,15 @@ def test_notify_alert_channel_silent_without_config(mocker, monkeypatch, token, 
     post.assert_not_called()
 
 
+def test_pytest_harness_leaves_slack_unconfigured(mocker):
+    """Le conftest neutralise Slack : aucune invocation de pytest ne peut poster une vraie alerte."""
+    post = mocker.patch("web.alerts.post_message", return_value=True)
+
+    alerts.notify_alert_channel("hello")
+
+    post.assert_not_called()
+
+
 def test_notify_alert_channel_swallows_slack_errors(mocker, slack_configured, caplog):
     mocker.patch("web.alerts.post_message", side_effect=RuntimeError("boom"))
 
