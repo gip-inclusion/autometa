@@ -53,3 +53,22 @@ def ensure(client, bearer, parent_app, pr_number, sha):
         return {"action": "noop", "app": name, "url": app_url(name)}
     deploy_review_app(client, bearer, parent_app, pr_number)
     return {"action": "updated" if entry else "created", "app": name, "url": app_url(name)}
+
+
+def destroy(client, bearer, parent_app, pr_number):
+    """Supprime la review app de la PR. Une review app déjà absente vaut succès."""
+    entry = find_review_app(client, bearer, parent_app, pr_number)
+    if entry is None:
+        return {"action": "absent", "app": None}
+    name = entry["app_name"]
+    response = client.request(
+        "DELETE",
+        f"{API_URL}/apps/{name}",
+        headers={"Authorization": f"Bearer {bearer}"},
+        json={"current_name": name},
+        timeout=TIMEOUT,
+    )
+    if response.status_code == 404:
+        return {"action": "absent", "app": name}
+    response.raise_for_status()
+    return {"action": "destroyed", "app": name}

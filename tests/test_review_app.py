@@ -121,3 +121,32 @@ def test_ensure_redeploys_when_deployment_is_missing():
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
     assert result["action"] == "updated"
+
+
+def test_destroy_removes_the_review_app():
+    client = FakeClient([FakeResponse(listing(review_app_entry())), FakeResponse()])
+
+    result = review_app.destroy(client, "jwt", "autometa-staging", 42)
+
+    assert result == {"action": "destroyed", "app": "autometa-staging-pr42"}
+    method, url, body = client.calls[1]
+    assert method == "DELETE"
+    assert url.endswith("/apps/autometa-staging-pr42")
+    assert body == {"current_name": "autometa-staging-pr42"}
+
+
+def test_destroy_is_a_noop_when_already_gone():
+    client = FakeClient([FakeResponse(listing())])
+
+    result = review_app.destroy(client, "jwt", "autometa-staging", 42)
+
+    assert result == {"action": "absent", "app": None}
+    assert all(call[0] != "DELETE" for call in client.calls)
+
+
+def test_destroy_tolerates_a_404_from_scalingo():
+    client = FakeClient([FakeResponse(listing(review_app_entry())), FakeResponse(status_code=404)])
+
+    result = review_app.destroy(client, "jwt", "autometa-staging", 42)
+
+    assert result == {"action": "absent", "app": "autometa-staging-pr42"}
