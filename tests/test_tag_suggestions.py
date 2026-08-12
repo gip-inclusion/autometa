@@ -96,21 +96,54 @@ def test_build_prompt_embeds_taxonomy_and_forbids_invention():
     assert "B" in prompt
 
 
-def test_run_writes_suggestions_without_applying(db, mocker):
+def test_run_applies_tags_and_keeps_the_audit_trail(db, mocker):
     with get_db() as session:
         existing = _tag(session, "explo", "usage")
         _tag(session, "territoire", "usage", description="Périmètre géographique")
-        _dashboard(session, slug="sans-appli", tags=[existing])
+        _dashboard(session, slug="avec-appli", tags=[existing])
 
     mocker.patch("web.llm.generate_text", return_value="territoire")
 
     result = run(object_type="dashboard", limit=10, model="test-model")
 
     assert result["processed"] >= 1
-    current, suggested = _stored("sans-appli")[0]
-    assert current == ["explo"]
+    assert _applied_tags("avec-appli") == ["territoire"]
+    current, suggested = _stored("avec-appli")[0]
+    assert current == ["explo"], "la trace garde l'état d'avant l'application"
     assert suggested == ["territoire"]
+
+
+def test_run_with_apply_false_only_records(db, mocker):
+    with get_db() as session:
+        existing = _tag(session, "explo", "usage")
+        _tag(session, "territoire", "usage")
+        _dashboard(session, slug="sans-appli", tags=[existing])
+
+    mocker.patch("web.llm.generate_text", return_value="territoire")
+
+    run(object_type="dashboard", limit=10, model="test-model", apply=False)
+
     assert _applied_tags("sans-appli") == ["explo"]
+    assert _stored("sans-appli")[0][1] == ["territoire"]
+
+
+def test_applying_tags_does_not_bump_updated_at(db, mocker):
+    from sqlalchemy import select as sa_select
+
+    from web.models import Dashboard as DashboardModel
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage")
+        _dashboard(session, slug="pas-de-derive")
+        before = session.scalar(sa_select(DashboardModel.updated_at).where(DashboardModel.slug == "pas-de-derive"))
+
+    mocker.patch("web.llm.generate_text", return_value="territoire")
+    run(object_type="dashboard", limit=10, model="test-model")
+
+    with get_db() as session:
+        after = session.scalar(sa_select(DashboardModel.updated_at).where(DashboardModel.slug == "pas-de-derive"))
+    assert after == before, "le taguage automatique ne doit pas faire passer le TDB pour modifié"
+    assert _applied_tags("pas-de-derive") == ["territoire"]
 
 
 def test_run_drops_hallucinated_tags(db, mocker):
@@ -254,8 +287,9 @@ def test_ingest_job_output_filters_unknown_terms(db):
 
     result = ingest_job_output(artefact)
 
-    assert result == {"ingested": 1, "rejected": 0}
+    assert (result["ingested"], result["rejected"]) == (1, 0)
     assert _stored("ingere")[0][1] == ["territoire"]
+    assert _applied_tags("ingere") == ["territoire"]
 
 
 @pytest.mark.parametrize(
@@ -273,7 +307,7 @@ def test_ingest_job_output_rejects_malformed_rows(db, line):
 
     result = ingest_job_output(f"object_type,object_id,tags\n{line}\n")
 
-    assert result == {"ingested": 0, "rejected": 1}
+    assert (result["ingested"], result["rejected"]) == (0, 1)
 
 
 def test_suggestions_are_upserted_not_duplicated(db, mocker):

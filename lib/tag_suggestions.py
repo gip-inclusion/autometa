@@ -1,4 +1,4 @@
-"""Pass de suggestion de tags — propose, n'applique jamais. Sert aussi d'éval du vocabulaire."""
+"""Passe de taguage automatique : propose, applique, et garde la trace de ce qui a été proposé."""
 
 import csv
 import io
@@ -153,6 +153,29 @@ def suggest_for(subject: Subject, taxonomy: str, valid: set[str], model: str) ->
     return parse_response(response, valid)
 
 
+AUTO_TAGGER = "tagueur-automatique@autometa"
+
+
+def apply_tags(object_type: str, object_id: str, names: list[str]) -> bool:
+    """Pose les tags sur l'objet. Retourne False si l'objet a disparu ou refuse un terme."""
+    from lib.dashboards import DashboardNotFound, UnknownTag, update_dashboard
+    from web.database import store
+
+    try:
+        if object_type == "dashboard":
+            update_dashboard(slug=object_id, updater_email=AUTO_TAGGER, set_tags=names, bump_updated_at=False)
+        elif object_type == "conversation":
+            store.set_conversation_tags(object_id, names, update_timestamp=False)
+        elif object_type == "report":
+            store.set_report_tags(int(object_id), names, update_timestamp=False)
+        else:
+            return False
+    except DashboardNotFound, UnknownTag, ValueError:
+        logger.warning("tag-suggestions: application impossible sur %s/%s", object_type, object_id)
+        return False
+    return True
+
+
 def export_for_job(object_types: tuple[str, ...] = ("dashboard", "report", "conversation"), only_missing: bool = True):
     """Publie les objets à taguer comme jeu de données téléchargeable par un worker autometa-jobs."""
     rows = []
@@ -172,14 +195,14 @@ def export_for_job(object_types: tuple[str, ...] = ("dashboard", "report", "conv
     return {**published, "taxonomy": build_prompt_taxonomy(vocabulary)}
 
 
-def ingest_job_output(csv_text: str, model: str = "autometa-jobs") -> dict:
+def ingest_job_output(csv_text: str, model: str = "autometa-jobs", apply: bool = True) -> dict:
     """Réinjecte l'artefact CSV d'un job (object_type,object_id,tags) après filtrage sur le vocabulaire."""
     ensure_schema()
     with get_db() as session:
         vocabulary = load_vocabulary(session, include_pending=False)
     valid = {term.name for terms in vocabulary.values() for term in terms}
 
-    ingested = rejected = 0
+    ingested = rejected = not_applied = 0
     engine = get_engine()
     for row in csv.DictReader(io.StringIO(csv_text.strip())):
         object_type = (row.get("object_type") or "").strip()
@@ -207,9 +230,13 @@ def ingest_job_output(csv_text: str, model: str = "autometa-jobs") -> dict:
                 )
             )
         ingested += 1
+        if apply and not apply_tags(object_type, object_id, suggested):
+            not_applied += 1
 
-    logger.info("tag-suggestions: ingestion job ingested=%d rejected=%d", ingested, rejected)
-    return {"ingested": ingested, "rejected": rejected}
+    logger.info(
+        "tag-suggestions: ingestion job ingested=%d rejected=%d non_appliques=%d", ingested, rejected, not_applied
+    )
+    return {"ingested": ingested, "rejected": rejected, "not_applied": not_applied}
 
 
 def already_suggested(object_type: str) -> set[str]:
@@ -225,8 +252,9 @@ def run(
     model: str | None = None,
     only_missing: bool = True,
     time_budget_s: float | None = None,
+    apply: bool = True,
 ) -> dict:
-    """Suggère des tags et les écrit dans dashboard_storage.tag_suggestions, sans jamais les appliquer."""
+    """Tague les objets et garde la trace de ce qui a été proposé dans dashboard_storage."""
     if object_type not in COLLECTORS:
         raise ValueError(f"Type inconnu : {object_type}")
 
@@ -249,7 +277,7 @@ def run(
     taxonomy = build_prompt_taxonomy(vocabulary)
     valid = {term.name for terms in vocabulary.values() for term in terms}
 
-    processed = failed = 0
+    processed = failed = not_applied = 0
     remaining = 0
     engine = get_engine()
     for index, subject in enumerate(subjects):
@@ -279,13 +307,16 @@ def run(
                 )
             )
         processed += 1
+        if apply and not apply_tags(subject.object_type, subject.object_id, suggested):
+            not_applied += 1
 
     logger.info(
-        "tag-suggestions: type=%s processed=%d failed=%d deferred=%d model=%s",
+        "tag-suggestions: type=%s processed=%d failed=%d deferred=%d non_appliques=%d model=%s",
         object_type,
         processed,
         failed,
         remaining,
+        not_applied,
         model,
     )
     return {
@@ -293,5 +324,6 @@ def run(
         "processed": processed,
         "failed": failed,
         "deferred": remaining,
+        "not_applied": not_applied,
         "model": model,
     }

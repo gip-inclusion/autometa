@@ -381,6 +381,7 @@ def update_dashboard(
     is_archived: bool | None = None,
     cron_schedule: str | None = None,
     cron_timeout: int | None = None,
+    bump_updated_at: bool = True,
 ) -> DashboardUpdateResult:
     """Met à jour les métadonnées d'un TDB existant. None = no change."""
     if set_tags is not None and (add_tags or remove_tags):
@@ -422,7 +423,9 @@ def update_dashboard(
             fields_changed.append("tags")
             content_changed = True
 
-        if content_changed:
+        # Why: le taguage automatique est une métadonnée — bousculer updated_at ferait passer
+        # tous les TDB publiés pour « modifiés depuis la publication » (badge de dérive).
+        if content_changed and bump_updated_at:
             dashboard.updated_at = datetime.now(timezone.utc)
 
         logger.info(
