@@ -1,0 +1,1 @@
+{% if not group.selected %}<span class="dashboard-tags-value text-muted">—</span>{% else %}<span class="dashboard-tags-value">{{ group.selected[0] }}</span>{% if group.selected | length > 1 %}<span class="dashboard-tags-badge">{{ group.selected | length }}</span>{% endif %}{% endif %}

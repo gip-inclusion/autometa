@@ -1,0 +1,62 @@
+<div id="dashboardTags" class="dashboard-tags">
+  {% for group in tag_groups %}
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle dashboard-tags-btn" type="button"
+            data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+            title="{{ group.label }}{% if group.selected %} : {{ group.selected | join(', ') }}{% endif %}">
+      <span class="dashboard-tags-facet">{{ group.label }}</span>
+      <span id="tagsum-{{ group.name }}" class="dashboard-tags-summary">{% include "_dashboard_tags_summary.html" %}</span>
+    </button>
+    <div class="dropdown-menu dashboard-tags-menu">
+      {% if group.extensible or group.terms | length > 8 %}
+      <div class="dashboard-tags-search">
+        <input type="search" name="label" id="taglabel-{{ group.name }}" class="form-control form-control-sm"
+               placeholder="{% if group.extensible %}Filtrer ou créer…{% else %}Filtrer…{% endif %}"
+               oninput="filterTagOptions(this)" autocomplete="off" maxlength="80">
+      </div>
+      {% endif %}
+
+      <div class="dashboard-tags-options">
+        {% if group.single %}
+        <label class="dropdown-item dashboard-tags-option" data-label="Aucun">
+          <input type="radio" name="facet-{{ group.name }}" {% if not group.selected %}checked{% endif %}
+                 hx-post="/api/dashboards/{{ slug }}/tags"
+                 hx-vals='{"tag": "", "facet": {{ group.name | tojson }}}'
+                 hx-swap="none">
+          <span class="text-muted">Aucun</span>
+        </label>
+        {% endif %}
+        {% for term in group.terms %}
+        <label class="dropdown-item dashboard-tags-option" data-label="{{ term.label }}"
+               title="{{ term.description or term.label }}">
+          <input type="{{ 'radio' if group.single else 'checkbox' }}"
+                 {% if group.single %}name="facet-{{ group.name }}"{% endif %}
+                 {% if term.checked %}checked{% endif %}
+                 hx-post="/api/dashboards/{{ slug }}/tags"
+                 hx-vals='{"tag": {{ term.name | tojson }}}'
+                 hx-swap="none">
+          <span>{{ term.label }}</span>
+          {% if term.pending %}<span class="dashboard-tags-pending" title="Proposé, en attente de validation">proposé</span>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+
+      {% if group.extensible %}
+      <div class="dashboard-tags-create" hidden>
+        <button type="button" class="btn btn-sm btn-outline-primary w-100"
+                hx-post="/api/dashboards/{{ slug }}/tags/new"
+                hx-vals='{"facet": {{ group.name | tojson }}}'
+                hx-include="#taglabel-{{ group.name }}"
+                hx-target="#dashboardTags" hx-swap="outerHTML">
+          Créer «&nbsp;<span data-create-label></span>&nbsp;»
+        </button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if not tag_groups %}
+  <p class="text-muted small mb-0">Aucun vocabulaire synchronisé — voir la synchro Notion des tags.</p>
+  {% endif %}
+</div>

@@ -1649,6 +1649,110 @@ body.has-sidebar {
   cursor: not-allowed;
 }
 
+.dashboard-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.dashboard-tags-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  max-width: 100%;
+}
+
+.dashboard-tags-facet {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.dashboard-tags-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #6c757d;
+  /* Why: min-width:0 est indispensable pour qu'un enfant flex puisse rétrécir sous sa taille de contenu. */
+  min-width: 0;
+}
+
+.dashboard-tags-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 9rem;
+}
+
+.dashboard-tags-badge {
+  flex-shrink: 0;
+  background: #e9ecef;
+  color: #495057;
+  border-radius: 999px;
+  padding: 0 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.dashboard-tags-menu {
+  font-size: 0.8125rem;
+  min-width: 16rem;
+  padding: 0.5rem 0;
+}
+
+.dashboard-tags-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  margin-bottom: 0;
+  padding: 0.3125rem 0.75rem;
+}
+
+.dashboard-tags-search {
+  padding: 0.25rem 0.75rem 0.5rem;
+}
+
+.dashboard-tags-options {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.dashboard-tags-options:empty {
+  display: none;
+}
+
+.dashboard-tags-pending {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: #997404;
+  background: #fff3cd;
+  border-radius: 999px;
+  padding: 0 0.375rem;
+}
+
+.dashboard-tags-create {
+  padding: 0.5rem 0.75rem 0.25rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid #e9ecef;
+}
+
+.filter-sidebar .filter-overflow > summary {
+  font-size: 0.8125rem;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  list-style: none;
+}
+
+.filter-sidebar .filter-overflow > summary::before {
+  content: "+ ";
+}
+
+.filter-sidebar .filter-overflow[open] > summary::before {
+  content: "− ";
+}
+
 .filter-sidebar .filter-checkbox-item.disabled input[type="checkbox"] {
   cursor: not-allowed;
 }

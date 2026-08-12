@@ -1,0 +1,3 @@
+{% for group in tag_groups %}
+<span id="tagsum-{{ group.name }}" class="dashboard-tags-summary" hx-swap-oob="true">{% include "_dashboard_tags_summary.html" %}</span>
+{% endfor %}
