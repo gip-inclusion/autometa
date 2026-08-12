@@ -192,6 +192,22 @@ Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour
 
 **Authentification CI** : secret repo `SCALINGO_SSH_KEY` (clé privée). La clé publique correspondante doit être déclarée sur chaque app via `scalingo --app <name> keys-add`.
 
+### Review apps
+
+Chaque pull request interne non-draft obtient une review app Scalingo, créée par la CI une fois
+lint, tests et migrations au vert, puis détruite à la fermeture de la PR. L'URL apparaît dans
+l'encart de déploiement de la PR.
+
+Une review app est un enfant de `autometa-staging` : elle **hérite de ses variables
+d'environnement**, donc de vraies clés Matomo, Metabase, S3 et du token Anthropic. Sa base de
+données, elle, est vide — Scalingo ne copie jamais le contenu des addons.
+
+C'est la raison pour laquelle les pull requests venant de forks n'en obtiennent pas, et n'en
+obtiendront pas : cf. le bulletin Scalingo SSB-2023-001. Pour prévisualiser une contribution
+externe, pousser la branche dans le dépôt et ouvrir une PR interne.
+
+Conception et décisions : `docs/plans/2026-08-11-review-apps-ci-design.md`.
+
 ## Développement
 
 ```bash
