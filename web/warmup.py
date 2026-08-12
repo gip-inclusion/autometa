@@ -14,7 +14,6 @@ from sqlalchemy.exc import OperationalError
 from . import config
 from .db import get_db
 from .models import MatomoBaseline, MatomoDimension, MatomoEvent, MatomoSegment, MetabaseCard, MetabaseDashboard
-from .schema import seed_tags
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +211,6 @@ def run():
         try:
             with get_db() as session:
                 session.execute(text("SELECT 1"))
-                seed_tags(session)
             break
         except OperationalError:
             if attempt == 2:

@@ -1,4 +1,4 @@
-"""Tests for lib/dashboards (create_dashboard, update_dashboard, normalize_tag_name)."""
+"""Tests for lib/dashboards (create_dashboard, update_dashboard, tags)."""
 
 import os
 import shutil
@@ -12,8 +12,6 @@ from lib.dashboards import (
     adopt_dashboard,
     cleanup_orphan_scaffolds,
     create_dashboard,
-    normalize_tag_name,
-    normalize_tags,
     update_dashboard,
 )
 from web.db import get_db
@@ -35,6 +33,18 @@ def isolated(tmp_path, monkeypatch):
     shutil.rmtree(interactive_dir, ignore_errors=True)
 
 
+def _vocab(*names, facet="theme"):
+    """Insère les termes dans le vocabulaire actif — la création libre de tags n'existe plus."""
+    from web.db import get_db
+    from web.models import Tag
+
+    with get_db() as session:
+        for name in names:
+            if session.scalar(select(Tag).where(Tag.name == name)) is None:
+                session.add(Tag(name=name, type=facet, label=name, active=True))
+        session.flush()
+
+
 def _create(slug, **overrides):
     base = dict(
         slug=slug,
@@ -52,6 +62,7 @@ def _create(slug, **overrides):
 
 
 def test_create_dashboard_happy_path(isolated):
+    _vocab("foo", "bar")
     d = _create("happy", tags=["foo", "bar"], has_cron=True)
     assert d.slug == "happy"
     assert d.has_cron is True
@@ -113,6 +124,7 @@ def test_create_dashboard_returns_detached_orm_with_loaded_attrs(isolated):
 
 
 def test_create_dashboard_normalizes_tags(isolated):
+    _vocab("foo", "bar", "with-spaces")
     _create("norm", tags=["FOO", "  Bar  ", "Foo", "with spaces"])
     with get_db() as session:
         tag_names = sorted(
@@ -152,6 +164,7 @@ def test_update_dashboard_scalar_changes(isolated):
 
 
 def test_update_dashboard_set_tags_replaces(isolated):
+    _vocab("a", "b", "x", "y")
     _create("ut", tags=["a", "b"])
     update_dashboard(slug="ut", updater_email="bob@x", in_conversation_id="c2", set_tags=["x", "y"])
     with get_db() as session:
@@ -166,6 +179,7 @@ def test_update_dashboard_set_tags_replaces(isolated):
 
 
 def test_update_dashboard_add_remove_tags(isolated):
+    _vocab("a", "b", "c")
     _create("ar", tags=["a", "b"])
     update_dashboard(
         slug="ar",
@@ -197,32 +211,42 @@ def test_update_dashboard_set_tags_mutex(isolated):
         )
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("foo", "foo"),
-        ("FOO", "foo"),
-        ("  foo  ", "foo"),
-        ("with space", "with-space"),
-        ("Mixed Case 123", "mixed-case-123"),
-        ("", None),
-        ("   ", None),
-    ],
-)
-def test_normalize_tag_name(raw, expected):
-    assert normalize_tag_name(raw) == expected
-
-
-def test_normalize_tags_dedupes_and_filters_empty():
-    assert normalize_tags(["foo", "FOO", "  foo  ", "", "Bar"]) == ["foo", "bar"]
-
-
 def test_create_dashboard_db_failure_cleans_staging(isolated, mocker):
-    mocker.patch("lib.dashboards._upsert_tag", side_effect=RuntimeError("boom"))
+    mocker.patch("lib.dashboards._resolve_tag", side_effect=RuntimeError("boom"))
+    _vocab("foo")
     with pytest.raises(RuntimeError, match="boom"):
         _create("staged", tags=["foo"])
+
     assert not (isolated / "staged").exists()
     assert [p.name for p in isolated.iterdir() if p.name.startswith(".tmp-")] == []
+
+
+def test_create_dashboard_refuses_tag_outside_vocabulary(isolated):
+    from lib.dashboards import UnknownTag
+
+    with pytest.raises(UnknownTag, match="hors-vocabulaire"):
+        _create("libre", tags=["hors-vocabulaire"])
+
+
+def test_update_dashboard_refuses_tag_outside_vocabulary(isolated):
+    from lib.dashboards import UnknownTag
+
+    _create("gated")
+
+    with pytest.raises(UnknownTag):
+        update_dashboard(slug="gated", updater_email="bob@x", add_tags=["invente"])
+
+
+def test_inactive_tag_cannot_be_assigned(isolated):
+    from lib.dashboards import UnknownTag
+
+    _vocab("desactive")
+    with get_db() as session:
+        session.scalar(select(Tag).where(Tag.name == "desactive")).active = False
+        session.flush()
+
+    with pytest.raises(UnknownTag):
+        _create("essai", tags=["desactive"])
 
 
 def test_create_dashboard_template_copy_failure_no_partial_state(isolated, mocker):
@@ -411,6 +435,7 @@ def test_adopt_registers_existing_folder_without_scaffold(isolated):
     slug_dir.mkdir()
     (slug_dir / "index.html").write_text("<html></html>")
 
+    _vocab("legacy")
     d = _adopt("legacy-app", tags=["legacy"], has_cron=True)
 
     assert d.slug == "legacy-app"

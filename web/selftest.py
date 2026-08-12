@@ -6,6 +6,7 @@ import logging
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable
 
 import httpx
@@ -452,6 +453,28 @@ def _check_rpe() -> tuple[bool, str]:
     return (False, f"{failed['check']}: {failed['reason']}" if failed else "échec")
 
 
+def _check_tag_vocabulary() -> tuple[bool, str]:
+    from lib.tag_sync import sync_state
+
+    state = sync_state()
+    if not state["configured"]:
+        return (False, "NOTION_TAGS_DB not set")
+    if state["status"] == "never":
+        return (False, "jamais synchronisé")
+
+    age_h = None
+    if state["last_synced_at"]:
+        synced = datetime.fromisoformat(state["last_synced_at"])
+        age_h = (datetime.now(timezone.utc) - synced).total_seconds() / 3600
+
+    # Why: le cron est quotidien — au-delà de 48h la synchro est muette depuis trop longtemps.
+    if age_h is None or age_h > 48:
+        return (False, f"dernière synchro il y a {age_h:.0f}h" if age_h else "date de synchro inconnue")
+    if state["status"] != "ok":
+        return (False, f"{state['status']}: {state.get('error') or 'sans détail'}")
+    return (True, f"{state['term_count']} termes, il y a {age_h:.0f}h")
+
+
 def _check_data_inclusion() -> tuple[bool, str]:
     from lib.query import CallerType, execute_data_inclusion_query
 
@@ -487,6 +510,7 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("RPE (France Travail)", _check_rpe),
         ("data·inclusion", _check_data_inclusion),
         ("Notion", _check_notion),
+        ("Vocabulaire de tags", _check_tag_vocabulary),
         ("Grist", _check_grist),
         ("Livestorm", _check_livestorm),
         ("Tally", _check_tally),
