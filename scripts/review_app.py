@@ -1,5 +1,11 @@
 """Réconcilie les review apps Scalingo avec le cycle de vie des pull requests GitHub."""
 
+import argparse
+import json
+import sys
+
+import httpx
+
 AUTH_URL = "https://auth.scalingo.com/v1/tokens/exchange"
 API_URL = "https://api.osc-fr1.scalingo.com/v1"
 TIMEOUT = 30.0
@@ -72,3 +78,28 @@ def destroy(client, bearer, parent_app, pr_number):
         return {"action": "absent", "app": name}
     response.raise_for_status()
     return {"action": "destroyed", "app": name}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Réconcilie une review app Scalingo avec sa pull request.")
+    parser.add_argument("command", choices=["ensure", "destroy"])
+    parser.add_argument("--app", required=True, help="Application parente Scalingo")
+    parser.add_argument("--pr", type=int, required=True, help="Numéro de la pull request")
+    parser.add_argument("--sha", help="head.sha de la PR, requis pour ensure")
+    args = parser.parse_args(argv)
+    if args.command == "ensure" and not args.sha:
+        parser.error("--sha est requis pour ensure")
+
+    api_token = sys.stdin.read().strip()
+    with httpx.Client() as client:
+        bearer = exchange_token(client, api_token)
+        if args.command == "ensure":
+            result = ensure(client, bearer, args.app, args.pr, args.sha)
+        else:
+            result = destroy(client, bearer, args.app, args.pr)
+    print(json.dumps(result))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

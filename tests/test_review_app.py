@@ -1,4 +1,6 @@
 import importlib.util
+import io
+import json
 from pathlib import Path
 
 import httpx
@@ -150,3 +152,50 @@ def test_destroy_tolerates_a_404_from_scalingo():
     result = review_app.destroy(client, "jwt", "autometa-staging", 42)
 
     assert result == {"action": "absent", "app": "autometa-staging-pr42"}
+
+
+class NullClient:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_main_ensure_prints_json_and_never_leaks_the_bearer(mocker, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("tk-us-secret\n"))
+    mocker.patch.object(review_app.httpx, "Client", return_value=NullClient())
+    mocker.patch.object(review_app, "exchange_token", return_value="jwt-bearer")
+    mocker.patch.object(
+        review_app,
+        "ensure",
+        return_value={"action": "created", "app": "autometa-staging-pr42", "url": "https://x"},
+    )
+
+    exit_code = review_app.main(["ensure", "--app", "autometa-staging", "--pr", "42", "--sha", "abc123"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert json.loads(out) == {"action": "created", "app": "autometa-staging-pr42", "url": "https://x"}
+    assert "jwt-bearer" not in out
+    assert "tk-us-secret" not in out
+
+
+def test_main_destroy_does_not_require_a_sha(mocker, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("tk-us-secret\n"))
+    mocker.patch.object(review_app.httpx, "Client", return_value=NullClient())
+    mocker.patch.object(review_app, "exchange_token", return_value="jwt-bearer")
+    destroy = mocker.patch.object(review_app, "destroy", return_value={"action": "absent", "app": None})
+
+    assert review_app.main(["destroy", "--app", "autometa-staging", "--pr", "42"]) == 0
+    destroy.assert_called_once()
+    assert json.loads(capsys.readouterr().out)["action"] == "absent"
+
+
+def test_main_rejects_ensure_without_sha(monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("tk-us-secret\n"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        review_app.main(["ensure", "--app", "autometa-staging", "--pr", "42"])
+
+    assert excinfo.value.code == 2
