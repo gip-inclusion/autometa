@@ -21,7 +21,14 @@ Quatre défaillances se produisent aujourd'hui, et elles se cumulent :
 - **Le déploiement n'est pas vérifié.** `.github/workflows/_deploy.yml` pousse vers Scalingo et s'arrête.
   Aucun contrôle de santé, aucun smoke test, aucun rollback.
 
-Objectif : **99 % d'autonomie**, un humain technique en break-glass pour le cas catastrophique.
+Objectif : **zéro intervention d'un humain technique sur le chemin nominal.** Un chiffre global
+d'« autonomie » n'aurait ni dénominateur ni mécanisme : le parcours sollicite structurellement deux
+personnes non techniques par fonctionnalité — celle qui valide la Definition of Done, celle qui approuve
+la PR — et la règle « en cas de doute, on classe BUSINESS » maximise les remontées par construction.
+
+Ce qui se mesure, et qui est la vraie promesse : **la part des fonctionnalités menées jusqu'à la PR sans
+qu'un contributeur technique ait eu à écrire une ligne.** Le break-glass technique est l'exception, et
+son taux est un indicateur, pas un slogan.
 
 ## Décisions actées
 
@@ -110,10 +117,16 @@ L'exigence d'agnosticité (Claude Code aujourd'hui, potentiellement Codex demain
 │  └───────────────────────────────────────────────────────────┘│
 └───────────────────────────────────────────────────────────────┘
 ┌─ GUARDRAILS ─────────────── hard stops, hors de portée de l'agent ─┐
-│  git hooks (pre-commit, pre-push) · CI GitHub · deploy vérifié     │
+│  branch protection GitHub · jobs CI                                │
 │  → c'est ICI que rien ne peut passer.                              │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+Deux éléments seulement, et c'est délibéré. Les **git hooks n'y sont pas** : `--no-verify` les contourne,
+et `.git/hooks/` est éditable par un agent qui dispose de Bash — c'est exactement l'argument opposé plus
+bas à la falsification par `touch`. Ils rendent un vrai service de feedback précoce, ils appartiennent au
+Core. Le **déploiement vérifié** n'y est pas non plus : il est hors périmètre (voir l'annexe), et le
+figurer comme guardrail reviendrait à compter une garantie qui n'est pas construite.
 
 La distinction paved road / guardrails est celle du platform engineering : le paved road dit *voilà
 comment faire*, le guardrail dit *ceci sera vrai quoi qu'il arrive*. Les deux sont nécessaires et
@@ -155,9 +168,9 @@ les précédents ; le système reste cohérent à n'importe quel étage.
   │ L2  QUALITY GATES                     │   ●●○○○   rien de rouge
   │     pre-push + CI, hors agent         │           n'atteint main
   ├───────────────────────────────────────┤
-  │ L1  ATTESTATION                       │   ●○○○○   plus aucun PASS
-  │     state journal, advance, evidence  │           auto-déclaré
-  │     plus fraîche que le code          │
+  │ L1  ATTESTATION                       │   ●○○○○   plus aucun PASS sans
+  │     state journal, advance, evidence  │           code de sortie 0
+  │     rattachée au contenu prouvé       │
   ├───────────────────────────────────────┤
   │ L0  DEFINITION OF DONE     ← LE CŒUR  │   ○○○○○   le travail devient
   │     definition-of-done.md +           │           jugeable
@@ -207,8 +220,34 @@ DOD-4 — Quand le rapport est vide, alors un message l'indique et
 
 Le contexte n'apparaît que lorsqu'il compte (DOD-3). Gherkin complet a été écarté : quatre critères y
 occupent une page, et la cérémonie fatigue un lecteur non technique qui doit précisément *lire* ce fichier.
-La forme reste assez régulière pour qu'un check puisse refuser le flou et pour que le parcours de smoke (L3)
+La forme reste assez régulière pour qu'un check puisse refuser le flou et pour que le parcours de smoke (L4)
 s'en dérive.
+
+#### Tous les critères ne se démontrent pas de la même façon
+
+L'exemple ci-dessus le montre lui-même : `DOD-1` se joue dans un navigateur, `DOD-2` porte sur le contenu
+d'un fichier produit — Playwright pilote un navigateur, il ne lit pas l'intérieur d'un PDF — et `DOD-3`
+est une mesure de volumétrie, source d'instabilité sur un runner partagé. Or L3 pose « un test par
+`DOD-N` » et L0 pose qu'un critère infaisable est un blocage métier. Sans nuance, le parcours réel
+devient : le citizen developer valide, part, et revient à « `DOD-3` n'est pas démontrable de façon
+déterministe, acceptez-vous de le retirer ? » — une question technique déguisée en question métier,
+précisément ce que le design interdit.
+
+Deux règles en découlent.
+
+**« Observable » ne veut pas dire « Playwright ».** Un critère de contenu de fichier se démontre par une
+assertion sur l'artefact produit, un critère de volumétrie par une mesure en nightly hors du chemin
+bloquant. La matrice de preuve admet ces formes ; L3 fournit la plus courante, pas la seule.
+
+**Au plus cinq critères démontrés par E2E.** Au-delà, la preuve retombe sur une forme déterministe moins
+coûteuse ou sur le smoke. Sans borne, le coût récurrent de L3 est une fonction non contrôlée de la
+verbosité de la demande — le signal « au-delà d'une quinzaine, découpez » ne s'applique qu'au nombre
+total de critères, pas au nombre de tests de navigateur.
+
+**Et si un critère se révèle malgré tout indémontrable**, la remontée au citizen developer a une forme
+obligatoire : au moins deux options, formulées en résultats observables, avec ce qu'il perd dans chaque
+cas. Si l'agent ne sait pas produire deux options ainsi formulées, ce n'est pas un HITL checkpoint, c'est
+un break-glass.
 
 Règles associées :
 
@@ -269,7 +308,7 @@ inversion.
 
 | Mécanisme | Effet |
 |---|---|
-| **Self-grill contre la source de vérité** | Les critères se dérivent des sources sélectionnées par les règles ci-dessous. Ce qu'une lecture peut trancher devient une assertion réfutable, pas une question posée |
+| **Self-grill contre la source de vérité** | Les critères se dérivent des sources sélectionnées par les règles ci-dessus. Ce qu'une lecture peut trancher devient une assertion réfutable, pas une question posée |
 | **Questions ouvertes vides** | Un check refuse de sceller L0 si des ambiguïtés subsistent : le « quoi » se fixe ici et nulle part ailleurs |
 | **`gap-hunter`** | Lentille adversariale : pour chaque comportement décrit, que se passe-t-il si l'entrée est invalide, vide, dupliquée, concurrente, hors limites ? Le silence est un trou |
 | **`reverse-translation` inversée** | Voir ci-dessous |
@@ -288,6 +327,47 @@ peut réfuter.
 
 Ces sept mécanismes s'appliquent **à L0 seulement**. La friction se concentre là où une erreur coûte tout
 l'aval ; le ratchet reste la règle pour les niveaux supérieurs.
+
+#### Budget d'interaction : cinq décisions, pas un questionnaire
+
+Les sept mécanismes convergent tous sur l'unique moment où l'on sollicite le citizen developer, et deux
+d'entre eux fabriquent mécaniquement des questions techniques. `gap-hunter` interroge, pour chaque
+comportement décrit, l'entrée invalide, vide, dupliquée, **concurrente**, hors limites ; le défaut
+BUSINESS impose de remonter en cas de doute. Sur l'exemple de l'export PDF, cela donne « que doit-il se
+passer si deux personnes exportent le même rapport en même temps ? » — une question de concurrence, que
+le design interdit ailleurs en toutes lettres. Le garde-fou prévu (« ce qu'une lecture peut trancher
+devient une assertion réfutable ») ne couvre pas les trous qu'aucune lecture ne tranche, et rien
+n'empêche la session unique de devenir un questionnaire de vingt items — la forme classique de la
+non-adoption.
+
+D'où une contrainte de format sur la restitution :
+
+- **Au plus cinq décisions** soumises au citizen developer, chacune avec un **défaut déjà choisi** et sa
+  conséquence observable en français. Validation par exception : ne rien dire, c'est accepter le défaut.
+- Ce que `gap-hunter` trouve au-delà devient un `DOD-N` **proposé avec sa valeur par défaut**, pas une
+  question posée.
+- Aucune question dont la réponse ne change rien d'observable pour lui ne remonte. Si elle ne modifie
+  aucun critère, elle relève du défaut technique, que l'agent tranche seul.
+
+#### L0 n'est pas un guardrail, et n'en sera jamais un
+
+Il faut le dire explicitement, sous peine d'incohérence : l'élément déclaré irréductible du design est
+porté par l'anneau qui, par définition, ne garantit rien. Les sept mécanismes ci-dessus sont des lentilles
+de sous-agent, donc des Adapters. La garantie de L0 est **humaine** — c'est la validation du citizen
+developer, et rien d'autre.
+
+Ce qu'un exécutable peut vérifier ici est court, et c'est tout ce qu'on lui demande : le fichier existe, le
+format `DOD-N` est respecté, les identifiants sont uniques et jamais réutilisés, le nombre de critères est
+dans les bornes (signal en `warning`), la section des questions ouvertes est présente. En revanche « un
+check refuse de sceller L0 si des ambiguïtés subsistent » ne veut rien dire côté machine : il constate une
+section vide, pas une absence d'ambiguïté, et l'agent vide une section en une ligne.
+
+Un point mérite mieux qu'une convention, parce qu'il est vérifiable pour rien : **l'antériorité**. « Un
+accord écrit avant de coder » n'est prouvé par aucun mécanisme — DoD et code arrivent dans la même PR, et
+l'attestation démontre la correspondance au contenu, jamais l'ordre. Un check l'établit : le premier commit
+de la branche est celui qui ajoute `definition-of-done.md` (`git log --diff-filter=A`). Coût nul, incident
+prévenu — une DoD rédigée après coup pour coller au code déjà produit, c'est-à-dire le retour exact du
+« juge et partie » que L0 est censé supprimer.
 
 #### Dette assumée
 
@@ -308,6 +388,20 @@ structurellement impossible sans coûter de friction.
 
 Le terme est emprunté à SLSA / in-toto : une attestation est une métadonnée *authentifiée* sur un
 artefact — un reçu, pas une affirmation.
+
+**L'emprunt est partiel, et il faut le dire.** Le rattachement au contenu prouvé traite la *péremption*,
+pas la *fabrication* : un fichier écrit à la main porte les bonnes empreintes. Ce que L1 garantit est donc
+plus étroit que ce que le mot suggère — **plus aucun PASS sans code de sortie 0**, l'evidence
+comportementale restant déclarative jusqu'à L3, où elle devient la sortie d'un test rejouable. Le contenu
+d'une attestation se limite en conséquence à ce qu'`advance` produit seul : commande, code de sortie,
+sortie tronquée, empreintes. Le champ narratif « ce qui a été observé » n'y a pas sa place — il appartient
+au friction log.
+
+Deux conséquences dans le plan. La CI qui lit ces attestations (milestone 4) ne leur fait pas confiance :
+elle **rejoue** les checks et compare son propre résultat au verdict journalisé, tout écart devenant un
+échec. Le journal redevient ce qu'il est, un cache et une source de statistiques, et cesse d'être une
+autorité. Et le décalage entre L1 (milestone 3) et L3 (milestone 5) est assumé plutôt que masqué : dans
+cet intervalle, la garantie porte sur l'exécution des commandes, pas sur ce que l'agent en raconte.
 
 Quatre verbes suffisent — démarrer, consulter l'état, lancer les checks, avancer — exposés comme cibles
 du `Makefile` existant, donc invocables par n'importe quel agent, par la CI, ou à la main.
@@ -366,6 +460,15 @@ Trois états, alignés sur les trois temps du parcours : `align`, `build`, `prov
 — la CI porte les guardrails et ne verrait pas un fichier ignoré. Seul `advance` y écrit, et seulement
 d'après des codes de sortie réels.
 
+**Un répertoire, pas un fichier.** Le conflit de rebase n'est pas seulement un désagrément assumé : sur un
+journal mono-fichier append-only, sa résolution est une écriture manuelle par l'agent, hors `advance` et
+sans code de sortie — ce qui casse l'invariant dont L1 tire toute son autorité. Le tableau des familles
+d'échec l'autorise d'ailleurs explicitement, en rangeant « rebase à faire » dans le travail normal. Or le
+rebase est ici obligatoire (historique linéaire sur `main`) et fréquent. Le journal est donc un répertoire
+d'événements — un fichier par événement, nommé par horodatage et empreinte courte, agrégé à la lecture.
+Git ne conflicte jamais sur des fichiers distincts, `advance` reste seul écrivain, et le rebase devient
+inerte sur le journal comme sur les attestations.
+
 #### Échecs : tri par famille, pas compteur
 
 Akria force une pause au troisième échec consécutif. Un compteur brut est un mauvais outil, parce que les
@@ -380,6 +483,30 @@ Akria force une pause au troisième échec consécutif. Un compteur brut est un 
 
 Réessayer sur A est légitime et fréquent ; réessayer sur B, C ou D est une erreur dès la première fois.
 Chaque check déclare donc sa famille, et c'est elle qui commande la suite — pas un seuil.
+
+#### Une borne quand même, sur la famille A
+
+Écarter le compteur d'Akria ne veut pas dire ne rien mettre à la place. La famille A n'a aujourd'hui aucun
+plafond de tentatives, aucun budget mural, aucun budget de tokens — et deux autres décisions l'amplifient :
+le travail se fait en AFK, donc sans garde-fou humain, et une correction qui touche le code invalide les
+preuves qui en dépendent, y compris une passe de smoke qui coûte plusieurs centaines de milliers de tokens.
+Un vendredi soir, cela donne : corriger un test, re-prouver, échouer ailleurs, corriger, re-prouver — et
+une facture le lundi sans que rien n'ait avancé.
+
+Le produit possède déjà le mécanisme qui manque, visiblement construit après un incident : `MAX_TOOL_CALLS`
+et son avertissement intermédiaire, appliqués dans `web/runner.py`, annulent un backend qui s'emballe. Il ne
+protège que les conversations du produit — l'agent du paved road tourne ailleurs.
+
+Le plafond de tentatives par état ne produit donc pas un échec mais une **conversion en HITL checkpoint** :
+le mécanisme existe déjà, et l'asymétrie est respectée puisque l'agent se met en pause sans se débloquer.
+Il entre en observation au milestone 3 — `advance` journalise le compteur sans agir — pour que la valeur du
+plafond soit choisie sur les données du milestone 1 plutôt que devinée aujourd'hui.
+
+Une précision sur le coût des re-preuves, maintenant que l'attestation est rattachée au contenu : un commit
+qui ne touche pas les chemins prouvés n'invalide plus rien. Restent les corrections réelles, qui doivent
+invalider. Pour les preuves déterministes, rejouables et bon marché, la règle s'applique sans réserve ;
+pour la passe de smoke, non déterministe et coûteuse, une seule passe est exigée, sur le dernier état du
+code avant ouverture de la PR.
 
 ### L2 — Quality Gates
 
@@ -425,6 +552,35 @@ Les deux réglages proprement dits :
 - **`required_pull_request_reviews`** avec `require_code_owner_reviews` — sans quoi le `CODEOWNERS`
   ci-dessous reste décoratif. Ce réglage a un prérequis humain qui n'est pas un détail : voir « Qui merge ».
 
+#### Trois angles morts de la CI existante, à traiter au même moment
+
+Rendre la CI obligatoire n'a d'intérêt que si elle regarde ce qu'on croit qu'elle regarde. Trois écarts
+sont mesurés, et se corrigent par de la configuration.
+
+**`skills/` échappe à trois gates déjà payés.** Le lint en CI est restreint à `web/ lib/ tests/ scripts/`
+alors que `make lint` couvre tout le dépôt — le local et la CI divergent ; l'analyse de sécurité exclut
+`skills/` ; et la couverture ne le déclare pas comme source, si bien qu'un diff situé exclusivement dans
+`skills/` ne présente aucune ligne au gate de 90 % et passe. Or il s'y trouve une trentaine de fichiers
+Python, dont ceux qui écrivent en base et sur S3. C'est distinct du chantier différé sur les evals, qui
+porte sur la qualité d'un `SKILL.md` en tant que prompt : ici il s'agit de code exécutable. Trois lignes de
+configuration, avec mesure préalable de ce que ça fait remonter.
+
+**Le job `Migrations` tourne sur une base vide**, donc toute migration dépendante des données y est verte
+par construction. L'incident est déjà dans l'historique du dépôt : une migration a dû se voir ajouter sept
+`UPDATE ... WHERE ... IS NULL` avant ses `alter_column`, avec le commentaire « sinon la migration échoue en
+prod ». C'est le raisonnement qu'un citizen developer ne peut pas faire et que l'autogenerate ne fait pas.
+À distinguer du chantier « migrations destructives » laissé en réserve, qui vise un DDL destructeur : ici
+la migration n'est pas destructive, elle est invalide au contact de données réelles. Traitement : une
+seconde passe contre un dump anonymisé de staging, en observation le temps d'établir le dump ; à défaut, un
+signal sur toute migration posant une contrainte non nulle sans `op.execute` préalable dans le même
+`upgrade()`.
+
+**La CI ne passe pas par le `Makefile`**, elle réécrit chaque commande — et la dérive est déjà là : un CVE
+ignoré d'un côté et pas de l'autre, des périmètres de lint différents. Tant que c'est le cas, « la CI
+relance le même check » est faux, et ce sera vrai aussi des futures cibles `advance` et `checks`, qui sont
+le pivot de l'anneau Core. La CI appelle les cibles du `Makefile`, les chemins et exclusions étant définis
+une seule fois.
+
 #### pre-push : un service, pas un guardrail
 
 Un git hook se contourne avec `--no-verify`. Il ne peut donc pas porter de garantie — et le design pose
@@ -442,8 +598,44 @@ ou de supprimer un test pour se débloquer.
 
 Les fichiers de gate — seuils de couverture, workflows, hooks, configuration du paved road — sont couverts
 par `CODEOWNERS` et exigent une approbation humaine. Mécanisme GitHub natif, aucun code à écrire ni à
-maintenir. Il réintroduit une relecture humaine, mais sur un périmètre minuscule et immuable : c'est
-précisément le break-glass, et il ne se déclenche jamais sur du travail applicatif ordinaire.
+maintenir. Il réintroduit une relecture humaine, mais sur un périmètre choisi pour ne jamais se déclencher
+sur du travail applicatif ordinaire : c'est précisément le break-glass.
+
+**Le bon critère n'est pas la taille du périmètre, c'est la fréquence de déclenchement.** Un `CODEOWNERS`
+qui se réveille tous les jours produit des approbations en série sans lecture, ce qui vaut moins que pas
+de `CODEOWNERS` du tout. Deux corrections en découlent, dans les deux directions.
+
+*Retirer.* Les seuils vivent aujourd'hui dans `pyproject.toml`, c'est-à-dire dans le même fichier que les
+dépendances — que Dependabot modifie quotidiennement, et qui totalise une cinquantaine de commits par an.
+Les extraire vers un fichier dédié est un prérequis à la pose de `CODEOWNERS`, pas un raffinement. À noter
+que GitHub exige une approbation **par règle matchée**, pas une au total : une PR qui bumpe une dépendance
+et ajuste un workflow réveillerait deux fois le break-glass.
+
+*Ajouter.* Le retrait de `.claude/rules/zones-critiques.md` est présenté comme un remplacement ; c'en est
+un pour `data/interactive/` et pour les motifs d'import, pas pour le reste. Restent sans successeur
+`web/db.py`, `web/runner.py`, `web/agents/base.py`, `web/uploads.py` — surface de sécurité nommée —,
+`docker-compose.yml`, `Dockerfile`, `config/sources.yaml`, et les clients d'intégration externe
+(`lib/matomo.py`, `lib/metabase.py`, `web/s3.py`, `web/notion.py`, `web/agents/cli.py`). Le design a raison
+sur le diagnostic — une promesse de relecture que personne n'honore ne vaut rien — mais il retient ailleurs
+le mécanisme qui convient exactement à ce besoin. Ces chemins rejoignent donc `CODEOWNERS` : sept lignes,
+aucun code. Un citizen developer qui demande une fonctionnalité n'y touche pas ; quand il y touche, c'est
+le break-glass revendiqué.
+
+`web/models.py` et `alembic/` en sont volontairement **exclus** : une fonctionnalité applicative ordinaire
+y atterrit trop souvent, et les y mettre reproduirait le défaut de `pyproject.toml`.
+
+#### Deux modes de panne silencieux de CODEOWNERS
+
+Le mécanisme est natif, il n'est pas pour autant sans angle mort, et ses deux défaillances sont muettes.
+
+- Une entrée dont le titulaire n'a pas un droit `write` **explicite** est ignorée sans erreur : le gate
+  n'existe pas, et rien ne le signale.
+- Un ensemble d'owners réduit à une personne rend impossible toute PR de cette personne sur un fichier de
+  gate, puisqu'un auteur ne s'auto-approuve pas et que `enforce_admins` est actif.
+
+D'où : une équipe GitHub avec droit `write` explicite et au moins deux membres, et un appel à
+`GET /repos/:owner/:repo/codeowners/errors` dans la CI, qui échoue si la réponse n'est pas vide. C'est le
+seul moyen d'apprendre qu'un guardrail s'est éteint.
 
 ### L3 — E2E
 
@@ -458,6 +650,19 @@ Deux effets gratuits : la correspondance un-pour-un entre critères et tests —
 chantier de L6 — existe dès ce niveau et devient vérifiable mécaniquement ; et la protection dure dans le
 temps. Un parcours joué une fois démontre ; un test entré dans la suite **défend**. Si quelqu'un casse
 l'export trois mois plus tard, `test_dod_1` devient rouge tout seul, sur la PR du coupable.
+
+**Mais cette promesse est prospective, et son corollaire doit être tiré.** Au jour 1, aucune fonctionnalité
+existante ne porte de `DOD-N` : la suite est vide et ne défend rien. Elle ne deviendra réelle qu'après
+plusieurs fonctionnalités passées par le paved road, et ne couvrira jamais l'existant. Dans l'intervalle,
+ce qui protège est une suite de tests unitaires — aucun parcours de navigateur — un plancher de couverture
+qui ne bouge pas quand un comportement change à couverture constante, et un gate de diff qui ne mesure que
+les lignes modifiées, donc jamais la fonctionnalité victime. Le design fait précisément ce raisonnement
+pour les tableaux de bord ; il vaut aussi pour l'application, où le couplage est plus dense.
+
+D'où **trois à cinq tests de socle écrits avant le premier test `DOD-N`** : connexion, création d'une
+conversation, ouverture d'un rapport, page `/interactive/`, `/selftest`. Le coût marginal est nul —
+l'infrastructure est de toute façon à monter — et c'est ce qui rend la non-régression vraie dès la première
+fonctionnalité au lieu de la dixième.
 
 **Exécution : CI sur chaque PR, plus une passe nightly.** Le test est écrit pour tourner indifféremment
 contre une URL locale ou une URL de review app, et il tourne **contre les deux** : le local donne un
@@ -509,6 +714,12 @@ précisément ce que la rigidité d'un test ne sait pas faire.
 |---|---|---|---|
 | **E2E** (L3) | la machine | un verdict rouge ou vert | bloque, et défend dans la durée |
 | **Smoke** (L4) | le citizen developer | des captures, un parcours réel | montre, et découvre l'imprévu |
+
+C'est le poste de dépense dominant du design — un parcours d'une dizaine d'étapes coûte plusieurs centaines
+de milliers de tokens d'entrée, l'essentiel venant des captures. Deux bornes en découlent, sans rien retirer
+à ce qu'il apporte. Une seule passe par PR, sur le dernier état du code avant ouverture (voir L1). Et un
+déclenchement restreint aux PR qui touchent une interface — templates, statiques, une route : ailleurs, un
+parcours de navigateur ne peut rien révéler que les autres niveaux ne voient déjà.
 
 #### Frontière
 
@@ -582,19 +793,44 @@ n'est simplement plus seule à porter la règle. Deux chantiers structurants :
 #### D'abord ce qui est déjà écrit ailleurs
 
 La configuration ruff active déjà `E`, `F`, `W`, `I`, `G` — l'interdiction des f-strings dans les logs est
-donc **déjà appliquée**. Mais quatre règles rédigées en prose dans `.claude/rules/` correspondent à des
-règles ruff simplement pas activées :
+donc **déjà appliquée**. Mais plusieurs règles rédigées en prose dans `.claude/rules/` — ou implémentées
+dans un hook qui ne tourne que sous Claude Code — correspondent à des règles ruff simplement pas activées :
 
-| Règle en prose | Règle ruff |
-|---|---|
-| Imports relatifs parents interdits | `TID252` |
-| `httpx` exclusivement — jamais `requests`, `urllib`, `unittest`, `psycopg2` | `TID251` |
-| Tout appel HTTP a un timeout explicite | `S113` |
-| `os.getenv` uniquement dans `web/config.py` | `TID251` + `per-file-ignores` |
+| Règle en prose | Règle ruff | Mesuré sur le dépôt |
+|---|---|---|
+| Imports relatifs parents interdits | `TID252` | 0 violation |
+| `except` nu interdit | `E722` | 0 violation |
+| Tout appel HTTP a un timeout explicite | `S113` | 0 violation — mais portée partielle, voir ci-dessous |
+| `httpx` exclusivement ; pytest et non `unittest` | `TID251`, configuré | à mesurer une fois configuré |
+| `os.getenv` uniquement dans `web/config.py` | `TID251` + exemptions | 18 cas, dont 3 légitimes hors tests |
+| SQL non paramétré interdit | `S608` | 18 cas → observation |
+| `except Exception` sans `# Why:` | `BLE001` | 8 cas → observation |
 
-Quatre règles déclaratives devenues bloquantes pour une dizaine de lignes de `pyproject.toml`, dans une CI
-déjà branchée et déjà rendue obligatoire par L2. C'est le meilleur rapport effort/effet du design, et c'est
-par là que L6 commence — en mesurant d'abord ce que ça fait remonter sur le code existant.
+Trois précisions, sans lesquelles l'implémentation part de travers.
+
+**La formulation « jamais `requests`, `urllib`, `unittest`, `psycopg2` » est trop large.** `urllib.parse`
+est importé dans une douzaine de fichiers et `psycopg2` est une dépendance déclarée, utilisée par un hook.
+La règle réelle, lisible dans `.claude/hooks/check_python.py`, ne bannit que `urllib.request` et `urllib3`,
+et autorise `psycopg2` dans `lib/data_inclusion.py`. Ce sont ces motifs-là qu'il faut recopier.
+
+**Les exemptions ne se posent pas au fichier.** Pour `os.environ`, `web/config.py` et les tests s'exemptent
+en bloc ; mais les trois cas légitimes restants — substitution de patterns dans un fichier de configuration,
+passage de l'environnement complet à un sous-processus — s'exemptent **en ligne**, avec justification. Une
+exemption au fichier rendrait `web/cron.py` et `web/agents/cli.py` aveugles à une vraie lecture de
+configuration ajoutée plus tard, précisément là où elle serait la plus délicate.
+
+**`S113` ne couvre pas la règle qu'elle prétend porter.** Elle voit un appel littéral sans timeout, pas un
+client de session construit sans timeout puis réutilisé — vérifié : le motif passe. Or c'est exactement la
+forme du dépôt : cinq modules construisent un client de session sans timeout et repassent `timeout=` à
+chaque appel. Ils sont conformes, mais rien ne l'impose : un appel ajouté demain sur le client existant
+passerait le lint, le pre-commit et la CI. Soit on impose `timeout=` au constructeur dans ces cinq fichiers
+et on bannit le reste, soit on écrit que ce risque demeure — mais on ne présente pas `S113` comme la
+fitness function de cette règle.
+
+Ces règles deviennent bloquantes pour une vingtaine de lignes de configuration, dans une CI déjà branchée
+et rendue obligatoire par L2. C'est le meilleur rapport effort/effet du design — à condition de ne pas
+promettre une découverte : la mesure est déjà faite, et sur les trois premières lignes elle dit « rien ».
+C'est un cliquet sain, pas un audit.
 
 #### Puis la protection des tableaux de bord — par une façade, pas par une mesure
 
@@ -741,9 +977,19 @@ Tout nouveau check entre en observation. Il ne devient bloquant qu'après avoir 
 pas de faux positifs, et ne redescend jamais — même principe que le plancher de couverture déjà gelé dans
 ce dépôt.
 
-**La décision de passage est humaine, prise sur données.** Le journal committé enregistre déjà chaque
-échec de gate avec sa famille : il fournit gratuitement, pour chaque check en observation, le nombre de
-déclenchements et leur nature. Le jugement reste là où il a de la valeur ; il ne s'exerce pas à vide.
+**La décision de passage est humaine, prise sur données.** Le jugement reste là où il a de la valeur ; il
+ne s'exerce pas à vide.
+
+Ces données ne viennent pas du journal, et c'est un point à ne pas confondre : le journal est local à une
+branche et seul `advance` y écrit, alors que les checks appelés à devenir bloquants — ceux de L2 et de L6 —
+tournent en CI, qui n'a pas le droit d'écrire dans le dépôt. Le comptage des faux positifs d'un check en
+observation s'y trouverait donc absent. Il se prend là où il existe déjà : les conclusions et annotations
+des check runs GitHub, interrogeables sans écrire une ligne de code. Le critère de promotion devient « N
+exécutions consécutives sans annotation de ce check sur des PR finalement mergées » — mesurable
+rétroactivement, et indépendant de ce que l'agent déclare.
+
+Le journal garde son rôle propre : les familles d'échec du parcours, côté agent, qui alimentent le
+milestone 1.
 
 Conséquence directe : **on ne décide pas aujourd'hui du niveau de contrainte final, on décide de la
 trajectoire.** Aucune contrainte n'est ajoutée par anticipation ; un check n'existe que parce qu'un
@@ -806,6 +1052,20 @@ Un **pair citizen developer** approuve et merge : une seconde personne non techn
 et les critères, jamais le code. Elle attrape le cas que les gates ne verront jamais — « ça marche, mais
 ce n'est pas ce qu'il fallait faire ».
 
+Encore faut-il qu'elle ait de quoi regarder. Une PR présente par défaut un diff qu'elle ne sait pas lire
+et des fichiers d'attestation au format machine : rien ne distinguerait alors une approbation instruite
+d'un réflexe. **La description de PR est donc générée** à partir des attestations — une ligne par `DOD-N`
+avec son verdict en français, le lien vers sa preuve, et ce qui n'a pas été démontré. S'y ajoutent les
+signaux qu'une personne non technique peut interroger sans lire le code, au premier rang desquels les
+suppressions de tests et les modifications d'assertions existantes : la famille D interdit de désarmer un
+test pour se débloquer, mais rien aujourd'hui ne le détecte — modifier une valeur attendue passe le
+contrôle de qualité des tests et ne bouge pas la couverture. Ce compte ne bloque pas, il rend visible, et
+c'est ce qui donne un contenu à l'approbation.
+
+Comme pour la dette assumée de L0, le durcissement a son déclencheur écrit : **la première fois qu'une PR
+approuvée s'avère ne pas faire ce que demandait la DoD**, l'approbation exige de cocher une case par
+`DOD-N` plutôt qu'un bouton global.
+
 #### Ce que GitHub permet exactement
 
 La sémantique est plus étroite qu'on ne le suppose, et elle contraint le modèle.
@@ -849,15 +1109,38 @@ rouge sur tout run réel.
 
 ## Ce que le paved road retire de l'existant
 
-- **`.claude/rules/zones-critiques.md`** : supprimé ou vidé de sa promesse de relecture humaine, remplacé
-  en L6 par la façade des tableaux de bord et les règles ruff. Conserver un document qui annonce une
-  relecture que personne n'assurera est un risque en soi.
-- **spec-kit** : les neuf commandes `/speckit.*`, `.specify/` et `specs/` sont retirés. La constitution est
-  dépouillée de ses invariants — permanents en guardrails, spécifiques en acceptance criteria — avant
-  suppression. Deux parcours de spécification concurrents feraient deux sources de vérité.
+- **`.claude/rules/zones-critiques.md`** : supprimé ou vidé de sa promesse de relecture humaine. Ses zones
+  se répartissent entre `CODEOWNERS` (L2), la façade des tableaux de bord et les règles ruff (L6) —
+  répartition à faire ligne à ligne, sans quoi la suppression est une régression déguisée en remplacement.
+  Conserver un document qui annonce une relecture que personne n'assurera est un risque en soi.
+- **spec-kit** : les neuf commandes `/speckit.*`, `.specify/` et `specs/` sont retirés. Deux parcours de
+  spécification concurrents feraient deux sources de vérité. La constitution est dépouillée de ses
+  invariants avant suppression — mais l'inventaire doit être fait **ligne à ligne et acté par écrit**,
+  parce que certains n'entrent dans aucune des deux cases de la règle de partage : un « modèle de menaces »
+  obligatoire par spécification, une revue de sécurité pour tout changement touchant l'authentification ou
+  l'accès aux données, ne sont ni des invariants qu'un `grep` vérifie, ni des contraintes propres à une
+  demande. Sans arbitrage explicite, la clause de sauvegarde est sincère et vide. Version minimale
+  compatible avec la doctrine anti-friction : une question unique dans le gabarit de DoD — « cette demande
+  touche-t-elle des données de candidats, une route, un upload, une nouvelle source ? » — dont un « oui »
+  active la lentille `security-auditor` **pour cette PR seulement**. Friction nulle sur les demandes
+  ordinaires.
+- **`CONTRIBUTING.md`** : intégralement construit sur spec-kit, donc orphelin le jour du retrait — et
+  c'est la seule porte d'entrée écrite du dépôt. Réécrit en même temps, pas après.
+- **`.github/pull_request_template.md`** : checklist d'auteur technique, dont deux items (« le changement
+  est minimal et cohérent », « ça ne réinvente pas la roue ») sont la mission de `design-coherence`
+  transformée en case à cocher pour quelqu'un qui ne lit pas le code. Remplacé par la description générée
+  décrite en « Qui merge ». C'est le même motif que le retrait de spec-kit : deux récits concurrents de ce
+  qui a été prouvé.
 - **Toute instruction auto-déclarative** (« l'agent DOIT signaler que… ») : convertie en check ou supprimée.
 - **`.claude/MAINTENANCE.md`** : les tâches récurrentes sans date de dernière exécution ne sont pas suivies.
   À rattacher au friction log ou à supprimer.
+
+Un retrait dans l'autre sens, qui n'est pas une suppression mais une **levée ciblée** : `.claude/rules/code.md`
+interdit à l'agent de commiter et de pousser (« seul l'utilisateur pousse »). Le paved road suppose
+exactement le contraire — un journal committé par `advance`, un travail en AFK, un parcours qui s'achève à
+l'ouverture de la PR. Sans levée explicite, le citizen developer revient devant une branche locale non
+poussée et une console qui lui demande une commande git. La levée est bornée à la branche du paved road,
+jamais à `main`, dont la protection porte déjà la garantie.
 
 ## Ce qu'on ne fait pas
 
@@ -934,6 +1217,13 @@ attestations adossé aux empreintes d'arbre des chemins prouvés. Check de conte
 Les réglages GitHub sont faits au milestone 0. Reste : brancher les checks du paved road (DoD présente,
 attestations valides pour le contenu prouvé) sur la CI **selon le déclencheur de périmètre**, poser le
 `pre-push` rapide, et restituer les échecs en français avec leur famille.
+
+La restitution ne suffit pas côté ligne de commande : la surface où le citizen developer voit un refus est
+la boîte de merge GitHub — cinq noms de checks en anglais, une croix rouge, et en cliquant la sortie brute
+d'un linter ou d'un outil de couverture. D'où **un check requis supplémentaire, nommé en français** (« Ce
+qui devait marcher »), dont le résumé affiche le tableau des `DOD-N` avec démontré / non démontré et la
+famille de l'échec. C'est le seul qu'il consulte ; les cinq autres peuvent rester techniques. Coût : un job
+qui lit le journal déjà committé.
 **Fin :** aucun rouge ne peut atteindre `main`, quel que soit l'agent ; un échec dit ce qu'il faut faire.
 
 ### Milestone 5 — L3, E2E
@@ -963,7 +1253,7 @@ lentille LLM restant en `warning` permanent puisqu'elle ne peut pas vivre dans l
 
 | Risque | Conséquence | Traitement |
 |---|---|---|
-| Acceptance criteria vagues | Toute la chaîne perd son référentiel | Observabilité vérifiée à L0, durcie en fitness function à L5 |
+| Acceptance criteria vagues | Toute la chaîne perd son référentiel | Observabilité vérifiée à L0, durcie en fitness function à L6 |
 | Le paved road devient du code non maintenu | Les gates rouillent et deviennent inertes | Testé comme le produit, dans la même CI |
 | Adoption nulle par excès de friction | Aucune garantie effective | Ratchet, démarrage permissif, périmètre de déclenchement étroit, seuil d'alerte chiffré adossé au milestone 1 |
 | Evidence fabriquée par l'agent | Le jugement redevient auto-déclaratif | Fraîcheur vérifiée dès L1, exécution réelle en L3 |
