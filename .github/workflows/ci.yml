@@ -205,7 +205,7 @@ jobs:
           result=$(printf '%s' "$SCALINGO_TOKEN" \
             | uv run python scripts/review_app.py ensure --app autometa-staging --pr "$PR" --sha "$HEAD_SHA")
           echo "$result"
-          url=$(echo "$result" | jq -er '.url // empty')
+          url=$(echo "$result" | jq -er '.url | select(. != null and . != "")')
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub deployment
