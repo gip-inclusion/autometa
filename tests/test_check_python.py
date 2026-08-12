@@ -31,6 +31,19 @@ def test_hook_scripts_exempt_from_import_env_sql_checks(path, expect_violations)
     assert bool(violations) == expect_violations
 
 
+@pytest.mark.parametrize(
+    ("path", "expect_violations"),
+    [
+        ("tests/conftest.py", False),
+        ("tests/test_foo.py", True),
+        ("lib/foo.py", True),
+    ],
+)
+def test_conftest_may_force_env_before_config_loads(path, expect_violations):
+    code = "os." + 'environ["SLACK_BOT_TOKEN"] = ""\n'
+    assert bool(check_python.check(code, path)) == expect_violations
+
+
 def test_hook_scripts_still_checked_for_comments():
     code = "# ------------------------\nx = 1\n"
     assert check_python.check(code, ".claude/hooks/guard_write_paths.py")
