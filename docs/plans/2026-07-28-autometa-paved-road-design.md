@@ -3,7 +3,8 @@
 Un *paved road* pour citizen developers : un chemin guidé qui rend le bon choix facile, doublé de
 guardrails qui s'appliquent quel que soit le chemin emprunté.
 
-Statut : design validé, plan de mise en œuvre à exécuter. Date : 2026-07-28.
+Statut : design révisé après revue contradictoire, plan de mise en œuvre à exécuter.
+Date : 2026-07-28, révisé le 2026-08-11. Revue : `docs/plans/2026-08-11-paved-road-review.md`.
 
 ## Le problème
 
@@ -35,7 +36,7 @@ son taux est un indicateur, pas un slogan.
 | Sujet | Décision |
 |---|---|
 | Public | Citizen developers, fonctionnalités applicatives complètes |
-| Autonomie | 99 %, break-glass réservé au cas grave |
+| Autonomie | Zéro intervention d'un humain technique sur le chemin nominal ; break-glass réservé au cas grave |
 | Autorité | Attestations, fitness functions, adversarial review, tests-contrat — les quatre |
 | Prod | Le paved road s'arrête à la PR ; un pair citizen developer merge ; Naël promeut par tag |
 | Durée | Sans contrainte, le travail se fait en AFK |
@@ -255,9 +256,9 @@ Règles associées :
   et le référencement dans les attestations.
 - **Fichier committé**, attaché à la PR. Chez Akria les artefacts de run sont gitignorés — cohérent
   puisque l'enforcement y vit dans les hooks locaux ; ici il vit dans la CI, qui ne voit pas un fichier ignoré.
-- **Pas de borne dure sur le nombre**, mais un signal en `warning` : un ou deux critères pour une
+- **Pas de borne dure sur le nombre total**, mais un signal en `warning` : un ou deux critères pour une
   fonctionnalité applicative laisse soupçonner du vague, au-delà d'une quinzaine la demande devrait être
-  découpée.
+  découpée. La seule borne dure porte sur les critères *démontrés par E2E* — cinq au plus, voir ci-dessus.
 - **Immuable après validation.** Un critère qui se révèle infaisable est un blocage métier : retour au
   citizen developer, jamais une réécriture silencieuse. Toute modification crée une révision datée et
   motivée, et redemande validation. Transposition du *scope reduction = hold* d'Akria — c'est ce qui
@@ -309,7 +310,7 @@ inversion.
 | Mécanisme | Effet |
 |---|---|
 | **Self-grill contre la source de vérité** | Les critères se dérivent des sources sélectionnées par les règles ci-dessus. Ce qu'une lecture peut trancher devient une assertion réfutable, pas une question posée |
-| **Questions ouvertes vides** | Un check refuse de sceller L0 si des ambiguïtés subsistent : le « quoi » se fixe ici et nulle part ailleurs |
+| **Questions ouvertes vides** | Le « quoi » se fixe ici et nulle part ailleurs : toute ambiguïté restante est portée dans une section dédiée, et sa présence est ce qu'un check sait constater — pas son contenu (voir « L0 n'est pas un guardrail ») |
 | **`gap-hunter`** | Lentille adversariale : pour chaque comportement décrit, que se passe-t-il si l'entrée est invalide, vide, dupliquée, concurrente, hors limites ? Le silence est un trou |
 | **`reverse-translation` inversée** | Voir ci-dessous |
 | **Défaut BUSINESS** | Un défaut technique, l'agent le corrige seul ; une ambiguïté de périmètre ou des critères vagues remontent au citizen developer. **En cas de doute sur la catégorie, on classe BUSINESS** — demander vaut mieux que réécrire silencieusement le contrat |
@@ -392,10 +393,7 @@ artefact — un reçu, pas une affirmation.
 **L'emprunt est partiel, et il faut le dire.** Le rattachement au contenu prouvé traite la *péremption*,
 pas la *fabrication* : un fichier écrit à la main porte les bonnes empreintes. Ce que L1 garantit est donc
 plus étroit que ce que le mot suggère — **plus aucun PASS sans code de sortie 0**, l'evidence
-comportementale restant déclarative jusqu'à L3, où elle devient la sortie d'un test rejouable. Le contenu
-d'une attestation se limite en conséquence à ce qu'`advance` produit seul : commande, code de sortie,
-sortie tronquée, empreintes. Le champ narratif « ce qui a été observé » n'y a pas sa place — il appartient
-au friction log.
+comportementale restant déclarative jusqu'à L3, où elle devient la sortie d'un test rejouable.
 
 Deux conséquences dans le plan. La CI qui lit ces attestations (milestone 4) ne leur fait pas confiance :
 elle **rejoue** les checks et compare son propre résultat au verdict journalisé, tout écart devenant un
@@ -447,12 +445,13 @@ et le verdict. `gitleaks` cherche des motifs de secrets, pas des noms de personn
 image. Paradoxe propre à ce design : plus il produit de preuves, plus il expose — dans un historique git
 public, qui ne s'efface pas.
 
-> Sous `attestations/`, **uniquement du texte structuré** : commande, code de sortie, empreintes, verdict.
-> Aucune image, aucun binaire, aucune sortie brute de requête.
+> Sous `attestations/`, **uniquement ce qu'`advance` produit seul** : commande, code de sortie, sortie
+> tronquée, empreintes, verdict. Aucune image, aucun binaire, aucune sortie brute de requête.
 
 Un check le refuse, directement bloquant : le faux positif coûte un renommage de chemin, le faux négatif
 est irréversible. Les captures produites en L4 transitent par les artefacts de CI ou un commentaire de PR,
-hors dépôt.
+hors dépôt. Le champ narratif « ce qui a été observé » disparaît de l'attestation — il appartient au
+friction log, qui n'a ni la même autorité ni la même durée de vie.
 
 #### États et journal
 
@@ -476,7 +475,7 @@ Akria force une pause au troisième échec consécutif. Un compteur brut est un 
 
 | Famille | Causes | Réponse |
 |---|---|---|
-| **A. Réparable** | test rouge, lint, couverture sous le seuil, attestation invalidée par un commit, rebase à faire | L'agent réessaie — c'est le travail normal |
+| **A. Réparable** | test rouge, lint, couverture sous le seuil, attestation invalidée par une modification du code, rebase à faire | L'agent réessaie — c'est le travail normal, dans la limite du plafond ci-dessous |
 | **B. Environnement** | Postgres ou Redis absent, Matomo ou Metabase indisponible, réseau | Arrêt immédiat, signalé comme panne. Réessayer brûle du temps sans rien corriger |
 | **C. Question métier** | critère ambigu, critère infaisable découvert tard, périmètre flou | Retour au citizen developer — HITL checkpoint |
 | **D. Interdit** | tentative d'abaisser un seuil, migration destructive, suppression de test | Break-glass |
@@ -753,9 +752,10 @@ neuf lentilles du stage `review` d'Akria et des besoins propres à ce dépôt :
 | `query-cost` | Segments Matomo à 30-180 s, jamais plus de 5 requêtes segmentées en boucle — un agent tombe dedans naturellement | Propre au dépôt |
 | `knowledge-drift` | `knowledge/` diverge du code ; `MAINTENANCE.md` le liste comme tâche trimestrielle jamais faite | Propre au dépôt |
 
-Deux besoins souvent cités — conformité aux `.claude/rules/` et sûreté des migrations — n'apparaissent pas
-ici : ils sont largement automatisables et relèvent donc de L6. Une lentille LLM qui vérifie ce qu'un `grep`
-fait mieux est du gaspillage.
+Deux besoins souvent cités n'apparaissent pas ici, parce qu'ils sont largement automatisables : la
+conformité aux `.claude/rules/` relève de L6, la sûreté des migrations de L2 — validation contre des
+données réelles, pas jugement d'un modèle. Une lentille LLM qui vérifie ce qu'un `grep` fait mieux est du
+gaspillage.
 
 #### L'exception à la mise en réserve : la protection des routes
 
@@ -887,8 +887,11 @@ Deux conséquences à traiter :
 - `.claude/rules/code.md` prescrit actuellement aux apps interactives d'utiliser `lib.query`, `web.db` et
   `web.config` directement. Cette règle est à réécrire en même temps, sinon elle contredit la façade.
 
-C'est ce qui remplace réellement `zones-critiques.md` : non pas une liste de fichiers assortie d'une
-promesse de relecture que personne n'honorera, mais une frontière que le code ne peut pas franchir.
+C'est le successeur de `zones-critiques.md` **pour les tableaux de bord** : non pas une liste de fichiers
+assortie d'une promesse de relecture que personne n'honorera, mais une frontière que le code ne peut pas
+franchir. Les autres zones du fichier supprimé se répartissent entre `CODEOWNERS` (L2) et les règles ruff
+ci-dessus — la répartition doit être faite ligne à ligne, faute de quoi la suppression est une régression
+déguisée en remplacement.
 
 #### Le pont critère → test est déjà acquis
 
@@ -897,7 +900,8 @@ reste qu'à vérifier la correspondance, ce que fait la lentille `dod-test-fidel
 
 #### En réserve
 
-SQL interpolé, migrations destructives, dérive `knowledge/` — écrits quand le friction log les réclame.
+Migrations destructives et dérive `knowledge/` — écrits quand le friction log les réclame. Le SQL
+interpolé sort de cette liste : `S608` le couvre, en observation dès le milestone 0.
 
 ## Mécanismes transversaux
 
@@ -944,12 +948,11 @@ lint, un check déterministe nommé, ou *aucune* — et dans ce dernier cas c'es
 « Vérifié par un hook Claude Code » n'est pas une réponse recevable ; c'est une instruction bien outillée,
 qui reste dans les Adapters.
 
-Le déplacement coûte peu, et c'est mesuré. Gratuits, zéro violation aujourd'hui : `TID252` (imports
-relatifs parents), `S113` (timeout littéral), `E722` (`except` nu). À faire entrer en observation, avec
-leur volume : `S608` (SQL en dur) remonte 18 cas, `BLE001` (`except Exception` aveugle) en remonte 8 —
-ruff ne connaissant pas la convention `# Why:`, une partie sera légitime, ce qui est précisément ce que
-la phase d'observation sert à établir. Une fois une règle passée côté Guardrail, le check correspondant
-sort de `check_python.py` : deux implémentations de la même règle divergent toujours.
+Le déplacement coûte peu, et il est chiffré en L6, règle par règle. Deux principes en découlent, qui ne
+dépendent pas de ces chiffres. Une règle passée côté Guardrail **sort de `check_python.py`** : deux
+implémentations de la même règle divergent toujours, et elles divergent déjà. Et une règle dont le
+vérificateur remonte des cas légitimes entre en observation plutôt que d'être écartée — c'est à cela que
+sert la phase d'observation du ratchet.
 
 Le cas de la protection des routes est le plus cher parce qu'il est dans la troisième ligne du tableau —
 l'instruction existe, aucun vérificateur ne l'accompagne — et parce que son premier incident n'est pas
@@ -1015,7 +1018,7 @@ disponible. Ici la distinction est structurante :
 | Nature | Exemple | Qui peut lever |
 |---|---|---|
 | **HITL checkpoint** | « un pass IAE vaut-il 2 ans ou 24 mois glissants ? » | le citizen developer, en français |
-| **Break-glass escalation** | l'agent ne peut pas garantir sans décision d'ingénierie | personne dans la boucle — c'est le 1 % |
+| **Break-glass escalation** | l'agent ne peut pas garantir sans décision d'ingénierie | personne dans la boucle — c'est l'exception mesurée |
 
 Poser une question technique à une personne non technique produit soit un blocage définitif, soit une
 validation à l'aveugle. Les deux sont pires que l'arrêt annoncé.
@@ -1032,15 +1035,21 @@ Python.
 Le découpage « fast path / full path » a été écarté pour cette raison : il crée une catégorie de fichiers
 dispensés, et la dégradation s'y installe exactement parce que personne ne la regarde.
 
+À ne pas confondre avec le déclencheur de périmètre : celui-ci dit **quand** une PR entre dans le paved
+road, la matrice dit **comment** chaque fichier s'y prouve une fois qu'elle y est. Une PR qui touche
+`web/` et met à jour `docs/` au passage relève des deux lignes ; une PR qui ne touche que `docs/` n'entre
+pas dans le parcours.
+
 | Artefact modifié | Preuve déterministe | Preuve comportementale |
 |---|---|---|
-| `web/`, `lib/` | lint, tests, couverture 90 % du diff, migrations | E2E Playwright, un test par `DOD-N` |
+| `web/`, `lib/` | lint, tests, couverture 90 % du diff | E2E Playwright, un test par `DOD-N`, cinq au plus |
+| `alembic/` | `alembic check`, migration jouée sur données réelles | — |
 | `skills/*/SKILL.md` | frontmatter valide, chemins et scripts cités existants | *différé* — evals sur golden set |
 | `knowledge/**.md` | chemins valides, cohérence avec les baselines synchronisées | *différé* — evals sur golden set |
 | `data/interactive/` | *hors périmètre* — créé par l'usage du produit, jamais par une PR | *hors périmètre* — voir L6 pour la protection dans l'autre sens |
 | `config/sources.yaml` | schéma valide, aucun secret en clair | `/selftest` |
 | `docs/`, `README` | fichiers et chemins cités existants | — |
-| workflows, seuils, hooks | tests du paved road | CODEOWNERS |
+| workflows, seuils, hooks | tests du paved road, `codeowners/errors` vide | approbation humaine (`CODEOWNERS`) |
 
 Deux lignes portent la mention *différé* : voir « Chantiers différés ». D'ici là, skills et knowledge ne
 sont couverts que par leur preuve déterministe — couverture partielle, assumée et écrite plutôt que
