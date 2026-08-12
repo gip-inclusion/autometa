@@ -45,7 +45,10 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          for id in $(gh api "repos/$REPO/deployments?environment=review-app-pr-$PR" --jq '.[].id'); do
+          ids=$(gh api --paginate \
+            "repos/$REPO/deployments?environment=review-app-pr-$PR" \
+            --jq '.[].id')
+          for id in $ids; do
             jq -n '{state: "inactive", description: "Review app détruite"}' \
               | gh api "repos/$REPO/deployments/$id/statuses" --input - > /dev/null
           done
