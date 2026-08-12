@@ -6,13 +6,12 @@ from web.alerts import notify_alert_channel
 
 logging.basicConfig(level=logging.INFO)
 
-# Why: 1500s sous le timeout de 1800s — la marge laisse la derniere ecriture se terminer.
-BUDGET_S = 1500
-
-# Why: par ordre de valeur, avec un plafond par passe. Chaque passe ignore les objets déjà
-# suggérés : le corpus est parcouru par tranches d'une nuit sur l'autre au lieu de dépasser le
-# timeout d'un coup. Le plafond borne aussi la collecte elle-même, qui précède la boucle budgétée.
-BATCH = (("dashboard", 200), ("report", 200), ("conversation", 300))
+# Why: filet de rattrapage, pas un backfill. Le chemin normal est le taguage à la création
+# (agent pour les TDB et rapports, thread Haiku pour les conversations) ; ce cron ne ramasse que
+# ce qui est passé au travers — création sans tags, appel LLM en échec. Le rattrapage du corpus
+# existant se fait par un run autometa-jobs (lib.tag_suggestions.export_for_job / ingest_job_output).
+BUDGET_S = 600
+BATCH = (("dashboard", 50), ("report", 50), ("conversation", 50))
 
 started = time.monotonic()
 summary = []
@@ -34,6 +33,6 @@ for object_type, batch_size in BATCH:
         )
 
 if error:
-    notify_alert_channel(f":warning: Suggestions de tags — {error}")
+    notify_alert_channel(f":warning: Rattrapage des suggestions de tags — {error}")
 elif summary:
-    notify_alert_channel("Suggestions de tags :\n" + "\n".join(summary))
+    notify_alert_channel("Rattrapage des suggestions de tags :\n" + "\n".join(summary))

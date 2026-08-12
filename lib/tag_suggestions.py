@@ -1,5 +1,7 @@
 """Pass de suggestion de tags — propose, n'applique jamais. Sert aussi d'éval du vocabulaire."""
 
+import csv
+import io
 import logging
 import time
 from dataclasses import dataclass
@@ -13,6 +15,7 @@ from web.db import get_db, get_engine
 from web.llm_errors import LLMError
 from web.models import Conversation, Dashboard, Message, Report
 
+from . import job_inputs
 from .taxonomy import build_prompt_taxonomy, load_vocabulary, normalize_tags
 
 logger = logging.getLogger(__name__)
@@ -148,6 +151,65 @@ def suggest_for(subject: Subject, taxonomy: str, valid: set[str], model: str) ->
         logger.warning("tag-suggestions: échec LLM sur %s/%s", subject.object_type, subject.object_id)
         return None
     return parse_response(response, valid)
+
+
+def export_for_job(object_types: tuple[str, ...] = ("dashboard", "report", "conversation"), only_missing: bool = True):
+    """Publie les objets à taguer comme jeu de données téléchargeable par un worker autometa-jobs."""
+    rows = []
+    for object_type in object_types:
+        if object_type not in COLLECTORS:
+            raise ValueError(f"Type inconnu : {object_type}")
+        done = already_suggested(object_type) if only_missing else frozenset()
+        with get_db() as session:
+            for subject in COLLECTORS[object_type](session, None, done):
+                rows.append([subject.object_type, subject.object_id, subject.title, subject.body])
+
+    published = job_inputs.publish_dataset(
+        "tag-suggestions-input", ["object_type", "object_id", "title", "body"], rows, fmt="sqlite"
+    )
+    with get_db() as session:
+        vocabulary = load_vocabulary(session, include_pending=False)
+    return {**published, "taxonomy": build_prompt_taxonomy(vocabulary)}
+
+
+def ingest_job_output(csv_text: str, model: str = "autometa-jobs") -> dict:
+    """Réinjecte l'artefact CSV d'un job (object_type,object_id,tags) après filtrage sur le vocabulaire."""
+    ensure_schema()
+    with get_db() as session:
+        vocabulary = load_vocabulary(session, include_pending=False)
+    valid = {term.name for terms in vocabulary.values() for term in terms}
+
+    ingested = rejected = 0
+    engine = get_engine()
+    for row in csv.DictReader(io.StringIO(csv_text.strip())):
+        object_type = (row.get("object_type") or "").strip()
+        object_id = (row.get("object_id") or "").strip()
+        if object_type not in COLLECTORS or not object_id:
+            rejected += 1
+            continue
+        # Why: un worker peut inventer des termes comme n'importe quel modèle — on refiltre à l'entrée.
+        suggested = parse_response((row.get("tags") or "").replace(";", ","), valid)
+        payload = {
+            "object_type": object_type,
+            "object_id": object_id,
+            "title": (row.get("title") or "")[:500],
+            "current_tags": [],
+            "suggested_tags": suggested,
+            "model": model,
+            "suggested_at": datetime.now(timezone.utc),
+        }
+        statement = pg_insert(tag_suggestions).values(**payload)
+        with engine.begin() as conn:
+            conn.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["object_type", "object_id"],
+                    set_={k: statement.excluded[k] for k in payload if k not in ("object_type", "object_id")},
+                )
+            )
+        ingested += 1
+
+    logger.info("tag-suggestions: ingestion job ingested=%d rejected=%d", ingested, rejected)
+    return {"ingested": ingested, "rejected": rejected}
 
 
 def already_suggested(object_type: str) -> set[str]:

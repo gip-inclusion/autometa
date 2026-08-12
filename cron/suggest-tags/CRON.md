@@ -1,9 +1,11 @@
 ---
-title: Suggérer des tags pour les objets non tagués
+title: Rattraper les objets restés sans suggestion de tags
 schedule: weekly
-timeout: 1800
+timeout: 900
 ---
 
-Propose des tags à partir du vocabulaire synchronisé et écrit le résultat dans `dashboard_storage.tag_suggestions`. **N'applique rien** : les suggestions sont relues avant d'être posées. Le même jeu sert d'évaluation du vocabulaire (termes jamais choisis, termes confondus) et de corpus d'exemples pour le tagueur automatique. Voir `lib.tag_suggestions.run`.
+Filet de rattrapage, **pas** un backfill. Le taguage normal se fait à la création : l'agent pose les tags des tableaux de bord et des rapports via les skills, et les conversations sont taguées par un appel court au modèle dès le premier message. Ce cron ne ramasse que ce qui est passé au travers — création sans tags, appel LLM en échec et jamais réessayé — par petits lots et sur un budget de temps.
 
-Le corpus est parcouru **par tranches** : chaque passe ignore les objets déjà suggérés et s'arrête sur un budget de temps, les objets restants étant repris à la passe suivante. Les tableaux de bord passent en premier, puis les rapports, puis les conversations — de loin les plus nombreuses. Les termes encore « proposés » (créés depuis l'application, pas encore promus dans Notion) sont exclus du vocabulaire soumis au modèle.
+Il écrit dans `dashboard_storage.tag_suggestions` et **n'applique rien** : les suggestions sont relues avant d'être posées. Les termes encore « proposés » (créés depuis l'application, pas encore promus dans Notion) sont exclus du vocabulaire soumis au modèle.
+
+Le rattrapage du corpus existant relève d'un run **autometa-jobs**, pas de ce cron : `lib.tag_suggestions.export_for_job` publie les objets à taguer comme jeu de données présigné, et `lib.tag_suggestions.ingest_job_output` réinjecte l'artefact CSV du worker après filtrage sur le vocabulaire.

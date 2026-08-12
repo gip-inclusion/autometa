@@ -223,6 +223,59 @@ def test_time_budget_stops_early_and_reports_deferred(db, mocker):
     assert result["deferred"] >= 3
 
 
+def test_export_for_job_publishes_subjects_and_taxonomy(db, mocker):
+    from lib.tag_suggestions import export_for_job
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage", description="Périmètre géographique")
+        _dashboard(session, slug="a-exporter")
+
+    published = mocker.patch(
+        "lib.job_inputs.publish_dataset",
+        return_value={"url": "https://s3/x.sqlite", "row_count": 1, "format": "sqlite"},
+    )
+
+    result = export_for_job(object_types=("dashboard",))
+
+    assert result["url"] == "https://s3/x.sqlite"
+    assert "Périmètre géographique" in result["taxonomy"]
+    rows = published.call_args[0][2]
+    assert ["dashboard", "a-exporter"] == rows[0][:2]
+
+
+def test_ingest_job_output_filters_unknown_terms(db):
+    from lib.tag_suggestions import ingest_job_output
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage")
+        _dashboard(session, slug="ingere")
+
+    artefact = "object_type,object_id,tags\ndashboard,ingere,territoire;invente\n"
+
+    result = ingest_job_output(artefact)
+
+    assert result == {"ingested": 1, "rejected": 0}
+    assert _stored("ingere")[0][1] == ["territoire"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "licorne,x,territoire",
+        "dashboard,,territoire",
+    ],
+)
+def test_ingest_job_output_rejects_malformed_rows(db, line):
+    from lib.tag_suggestions import ingest_job_output
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage")
+
+    result = ingest_job_output(f"object_type,object_id,tags\n{line}\n")
+
+    assert result == {"ingested": 0, "rejected": 1}
+
+
 def test_suggestions_are_upserted_not_duplicated(db, mocker):
     with get_db() as session:
         _tag(session, "territoire", "usage")
