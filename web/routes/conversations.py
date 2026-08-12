@@ -10,11 +10,14 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from lib.tag_suggestions import Subject, build_prompt, parse_response
+from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web import config, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.database import store
+from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
 from web.runner import runner
@@ -60,127 +63,26 @@ def generate_conversation_title(user_message: str, conv_id: str) -> None:
 
 
 def generate_conversation_tags(user_message: str, conv_id: str) -> None:
-    """Auto-tag a conversation (async, in background).
-
-    Uses the configured LLM backend to analyze the first user message and
-    assign relevant tags from the predefined taxonomy.
-    Runs in a background thread.
-    """
-    # Tag taxonomy (must match database _seed_tags)
-    TAG_TAXONOMY = """
-## Produits (choisir 1 seul, obligatoire)
-- emplois: Les Emplois de l'inclusion
-- dora: Dora (annuaire de services)
-- marche: Le Marché de l'inclusion
-- communaute: La Communauté de l'inclusion
-- pilotage: Pilotage de l'inclusion
-- plateforme: inclusion.gouv.fr (site vitrine)
-- rdv-insertion: RDV-Insertion
-- mon-recap: Mon Récap
-- multi: Multi-produits (concerne plusieurs produits)
-
-## Thèmes - Acteurs (0 à 2)
-- candidats: Candidats / demandeurs d'emploi
-- prescripteurs: Prescripteurs
-- employeurs: Employeurs / SIAE
-- structures: Structures / SIAE (angle organisation)
-- acheteurs: Acheteurs (Marché)
-- fournisseurs: Fournisseurs (Marché)
-
-## Thèmes - Concepts métier (0 à 2)
-- iae: IAE en général
-- orientation: Orientation
-- depot-de-besoin: Dépôt de besoin (Marché)
-- demande-de-devis: Demande de devis (Marché)
-- commandes: Commandes (Mon Récap)
-
-## Thèmes - Métriques (0 à 2)
-- trafic: Analyse de trafic
-- conversions: Conversions / funnel
-- retention: Rétention / fidélisation
-- geographique: Analyse géographique
-
-## Type de demande (choisir 1 seul, obligatoire)
-- extraction: Extraction de données brutes
-- analyse: Analyse / rapport
-- appli: Application interactive
-- meta: Question sur Autometa lui-même
-"""
-
-    VALID_TAGS = {
-        "emplois",
-        "dora",
-        "marche",
-        "communaute",
-        "pilotage",
-        "plateforme",
-        "rdv-insertion",
-        "mon-recap",
-        "multi",
-        "matomo",
-        "stats",
-        "datalake",
-        "candidats",
-        "prescripteurs",
-        "employeurs",
-        "structures",
-        "acheteurs",
-        "fournisseurs",
-        "iae",
-        "orientation",
-        "depot-de-besoin",
-        "demande-de-devis",
-        "commandes",
-        "trafic",
-        "conversions",
-        "retention",
-        "geographique",
-        "extraction",
-        "analyse",
-        "appli",
-        "meta",
-    }
-
-    prompt = f"""Analyse cette demande utilisateur et attribue des tags parmi la taxonomie suivante.
-
-{TAG_TAXONOMY}
-
-Règles:
-- OBLIGATOIRE: exactement 1 tag produit
-- OBLIGATOIRE: exactement 1 tag type_demande
-- OPTIONNEL: 0 à 2 tags thème (acteurs, concepts, métriques)
-- Si la demande mentionne plusieurs produits, utilise "multi"
-- Si c'est une question sur l'outil Autometa, utilise "meta"
-
-Demande: {user_message[:1000]}
-
-Réponds UNIQUEMENT avec les noms des tags séparés par des virgules, rien d'autre.
-Exemple: emplois, candidats, trafic, analyse"""
-
-    def _parse_tags(response: str) -> list[str]:
-        # Handle potential explanation text - take just the tag line
-        if "\n" in response:
-            for line in response.split("\n"):
-                if "," in line and not line.startswith("#"):
-                    response = line
-                    break
-
-        tag_names = []
-        for part in response.replace("\n", ",").split(","):
-            tag = part.strip().lower().strip(".-*")
-            if tag in VALID_TAGS:
-                tag_names.append(tag)
-        return tag_names
+    """Auto-tag a conversation in a background thread, depuis le vocabulaire synchronise."""
 
     def _generate():
         try:
+            with get_db() as session:
+                vocabulary = load_vocabulary(session, include_pending=False)
+            if not vocabulary:
+                logger.warning("Auto-tag ignore pour %s : vocabulaire vide", conv_id)
+                return
+
+            valid = {term.name for terms in vocabulary.values() for term in terms}
+            subject = Subject("conversation", conv_id, "", f"Demande : {user_message[:1500]}", [])
+            prompt = build_prompt(build_prompt_taxonomy(vocabulary), subject)
             model = config.OLLAMA_TAG_MODEL if config.LLM_BACKEND in ("ollama", "cli-ollama") else config.LLM_MODEL
-            response = llm.generate_text(prompt, model=model, max_tokens=100)
-            tag_names = _parse_tags(response)
+            response = llm.generate_text(prompt, model=model, max_tokens=120)
+            tag_names = parse_response(response, valid)
             if tag_names:
                 store.set_conversation_tags(conv_id, tag_names)
                 logger.info("Auto-tagged conversation %s: %s", conv_id, tag_names)
-        # Why: runs in a background daemon thread for tag generation, must not crash.
+        # Why: tourne dans un thread daemon de fond, il ne doit jamais faire tomber le process.
         except Exception as exc:
             logger.warning("Failed to generate tags: %s", exc)
 
