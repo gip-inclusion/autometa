@@ -4,11 +4,13 @@ Assistant analytics pour l'Inclusion (Matomo + Metabase → analyses en françai
 
 ```bash
 make dev       # Serveur local (lance autometa)
-make test      # Tests (hors intégration)
+make test      # Suite unit hermétique (aucun service requis)
+make test-cov  # unit + integration + couverture fusionnée (Postgres + Redis requis)
+make hooks     # Installe le hook git pre-commit (lint + suite unit)
 make lint      # ruff check + format check
 make format    # Auto-format
 make migrate   # Migrations Alembic
-make ci        # lint + security + test
+make ci        # lint + security + migrations + test-cov + diff-cover
 ```
 
 Architecture et flux de données : `.claude/ARCHITECTURE.md`.

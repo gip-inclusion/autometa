@@ -233,12 +233,17 @@ Conception et décisions : `docs/plans/2026-08-11-review-apps-ci-design.md`.
 
 ```bash
 make dev        # Serveur local (lance autometa)
-make test       # Tests unitaires
+make test       # Suite unit hermétique (aucun service requis)
+make test-cov   # unit + integration + couverture fusionnée (Postgres + Redis requis)
+make hooks      # Installe le hook git pre-commit (lint + suite unit)
 make lint       # Vérification ruff
 make format     # Auto-format
 make migrate    # Appliquer les migrations Alembic
-make ci         # lint + security + test
+make ci         # lint + security + migrations + test-cov + diff-cover
 ```
+
+Les tests se répartissent en trois couloirs (cf. `.claude/rules/tests.md`) : non marqué = unit hermétique,
+`integration`/`e2e` = besoin de Postgres + Redis, `external` = vrais services externes, lancé à la main uniquement.
 
 ### Commandes installées
 
