@@ -14,7 +14,7 @@ def make_obj(key, etag="etag", size=10):
 
 
 class FakeS3:
-    """In-memory S3 double covering the calls snapshot() and purge_old_snapshots() make."""
+    """In-memory S3 double. Exposes no head_object: a resumed pass must diff by listing, not per-object probes."""
 
     def __init__(self, source_objects=(), existing=None, fail_copy_keys=(), backup_tree=None, copy_error=None):
         self.source_objects = list(source_objects)
@@ -23,6 +23,7 @@ class FakeS3:
         self.backup_tree = dict(backup_tree or {})
         self.copy_error = copy_error or ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject")
         self.copied = []
+        self.listings = []
         self.put = {}
         self.deleted = []
 
@@ -31,18 +32,20 @@ class FakeS3:
         return self
 
     def paginate(self, Bucket, Prefix=None, Delimiter=None):
+        self.listings.append((Bucket, Prefix))
         if Delimiter == "/":
             common = [{"Prefix": p} for p in sorted(self.backup_tree) if p.startswith(Prefix or "")]
             yield {"CommonPrefixes": common}
         elif Prefix in self.backup_tree:
             yield {"Contents": self.backup_tree[Prefix]}
+        elif Prefix:
+            yield {
+                "Contents": [
+                    make_obj(key, etag=etag) for key, etag in sorted(self.existing.items()) if key.startswith(Prefix)
+                ]
+            }
         else:
             yield {"Contents": self.source_objects}
-
-    def head_object(self, Bucket, Key):
-        if Key in self.existing:
-            return {"ETag": self.existing[Key]}
-        raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
 
     def copy_object(self, Bucket, Key, CopySource, MetadataDirective):
         if CopySource["Key"] in self.fail_copy_keys:
@@ -79,6 +82,21 @@ def test_snapshot_skips_objects_already_present_with_same_etag():
     assert result["copied"] == 1
     assert result["skipped"] == 1
     assert client.copied == ["backup/2026-05-17/b"]
+
+
+def test_snapshot_recopies_an_object_whose_etag_changed_since_the_interrupted_pass():
+    client = FakeS3([make_obj("a", etag="fresh")], existing={"backup/2026-05-17/a": "stale"})
+    result = handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
+    assert result["copied"] == 1
+    assert client.copied == ["backup/2026-05-17/a"]
+
+
+def test_snapshot_lists_each_side_once_whatever_the_object_count():
+    # Why: the resume check costs two listings, not one HEAD per object — that is the point of this pass.
+    client = FakeS3([make_obj(key) for key in "abcdefgh"])
+    handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
+    assert len(client.listings) == 2
+    assert client.listings[1] == ("matometa-backup", "backup/2026-05-17/")
 
 
 @pytest.mark.parametrize(

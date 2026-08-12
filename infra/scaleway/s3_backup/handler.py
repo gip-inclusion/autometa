@@ -29,13 +29,14 @@ def build_client():
     )
 
 
-def _existing_etag(client, bucket: str, key: str) -> str | None:
-    try:
-        return client.head_object(Bucket=bucket, Key=key)["ETag"]
-    except ClientError as exc:
-        if exc.response["Error"]["Code"] in ("404", "NoSuchKey"):
-            return None
-        raise
+def inventory(client, bucket: str, prefix: str = "") -> dict[str, str]:
+    """Key relative to prefix → ETag, for every object under prefix."""
+    paginator = client.get_paginator("list_objects_v2")
+    return {
+        obj["Key"][len(prefix) :]: obj["ETag"]
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix)
+        for obj in page.get("Contents", [])
+    }
 
 
 def snapshot(client, source: str, target: str, snapshot_date: str) -> dict:
@@ -43,13 +44,16 @@ def snapshot(client, source: str, target: str, snapshot_date: str) -> dict:
     start = time.monotonic()
     paginator = client.get_paginator("list_objects_v2")
     objects = [obj for page in paginator.paginate(Bucket=source) for obj in page.get("Contents", [])]
+    # Why: one listing of the day's prefix replaces a HEAD per object — a resumed pass after the
+    # platform reaps an instance mid-copy then costs O(pages) requests instead of O(objects).
+    already_copied = inventory(client, target, prefix)
 
     def copy_one(obj: dict) -> tuple[str, int, str | None]:
         key = obj["Key"]
         dest_key = f"{prefix}{key}"
         try:
             # Why: re-runs after partial failure skip already-copied objects (ETag match = identical bytes).
-            if _existing_etag(client, target, dest_key) == obj["ETag"]:
+            if already_copied.get(key) == obj["ETag"]:
                 return "skipped", obj["Size"], None
             client.copy_object(
                 Bucket=target,
