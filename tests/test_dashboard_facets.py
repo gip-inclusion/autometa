@@ -141,6 +141,19 @@ def test_facet_filters_hide_facets_without_used_terms(db):
     assert [f["name"] for f in facet_filters([])] == ["usage"]
 
 
+def test_term_order_does_not_change_when_a_term_is_selected(db):
+    with get_db() as session:
+        for i, count in enumerate((5, 3, 1)):
+            tag = _tag(session, f"terme-{i}", "usage", f"Terme {i}")
+            for n in range(count):
+                _dashboard(session, f"d{i}-{n}", [tag])
+
+    before = [t["name"] for t in facet_filters([])[0]["terms"]]
+    after = [t["name"] for t in facet_filters(["terme-2"])[0]["terms"]]
+
+    assert before == after, "cocher une case ne doit pas réordonner la liste"
+
+
 def test_selected_term_stays_visible_despite_cap(db):
     with get_db() as session:
         rare = _tag(session, "rare", "usage", "Rare")

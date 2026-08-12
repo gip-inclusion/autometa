@@ -53,13 +53,17 @@ def facet_filters(active_tags: list[str]) -> list[dict]:
         terms = used.get(facet.name)
         if not terms:
             continue
-        # Why: un terme sélectionné doit rester visible même hors du top N, sinon on ne peut plus le décocher.
-        terms = sorted(terms, key=lambda t: (t["name"] not in active_tags, -t["count"], t["label"]))
+        # Why: l'ordre ne dépend que des compteurs (stables, calculés hors filtre) — cocher une
+        # case ne doit jamais déplacer les autres sous le curseur.
+        ranked = sorted(terms, key=lambda t: (-t["count"], t["label"]))
+        head, tail = ranked[:FACET_TERM_CAP], ranked[FACET_TERM_CAP:]
+        # Why: un terme sélectionné hors du top N doit rester visible, sinon on ne peut plus le décocher.
+        selected_tail = [t for t in tail if t["name"] in active_tags]
         filters.append({
             "name": facet.name,
             "label": facet.label,
-            "terms": terms[:FACET_TERM_CAP],
-            "overflow": terms[FACET_TERM_CAP:],
+            "terms": sorted(head + selected_tail, key=lambda t: (-t["count"], t["label"])),
+            "overflow": [t for t in tail if t["name"] not in active_tags],
         })
     return filters
 
