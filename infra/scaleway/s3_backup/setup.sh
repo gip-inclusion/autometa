@@ -12,7 +12,12 @@ NAMESPACE_NAME="${NAMESPACE_NAME:-nova}"
 FUNCTION_NAME="${FUNCTION_NAME:-s3-backup}"
 SOURCE_BUCKET="${SOURCE_BUCKET:-matometa}"
 BACKUP_BUCKET="${BACKUP_BUCKET:-matometa-backup}"
-SCHEDULE="${SCHEDULE:-0 3 * * *}"
+# Why: the platform reaps an arbitrary instance ~370s into a pass, so a single nightly run loses the
+# snapshot most nights. Passes resume from the destination listing, so retrying through the hour converges.
+SCHEDULE="${SCHEDULE:-*/10 3 * * *}"
+# Why: must stay under the trigger interval — a longer pass would still be running when the next fires,
+# and two concurrent passes copy the same objects twice.
+TIMEOUT="${TIMEOUT:-540s}"
 
 cd "$(dirname "$0")"
 
@@ -46,7 +51,7 @@ scw function function update "$FN_ID" \
   region="$REGION" \
   handler=handler.handle \
   memory-limit=512 \
-  timeout=900s \
+  timeout="$TIMEOUT" \
   privacy=private \
   environment-variables.SOURCE_BUCKET="$SOURCE_BUCKET" \
   environment-variables.BACKUP_BUCKET="$BACKUP_BUCKET" \
