@@ -1,0 +1,51 @@
+name: Review app teardown
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  teardown:
+    name: Destroy review app
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: review-app
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: review-app-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      - run: uv sync --group dev --frozen
+
+      - name: Destroy review app
+        env:
+          SCALINGO_TOKEN: ${{ secrets.SCALINGO_REVIEW_APP_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          printf '%s' "$SCALINGO_TOKEN" \
+            | uv run python scripts/review_app.py destroy --app autometa-staging --pr "$PR"
+
+      - name: Mark GitHub deployments inactive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          for id in $(gh api "repos/$REPO/deployments?environment=review-app-pr-$PR" --jq '.[].id'); do
+            jq -n '{state: "inactive", description: "Review app détruite"}' \
+              | gh api "repos/$REPO/deployments/$id/statuses" --input - > /dev/null
+          done
