@@ -854,6 +854,20 @@ Si le second commit produit une erreur HTTP 409 ou 422 sur `manual_review_app`, 
 
 Expected: le nom de l'app est `autometa-staging-pr<N>` et son URL `https://autometa-staging-pr<N>.osc-fr1.scalingo.io`. Si le motif diffère, corriger `ensure` pour utiliser le nom renvoyé par l'API après création plutôt que la convention, et ajouter le test.
 
+- [ ] **Step 5 bis: Vérifier la forme de `last_deployment.git_ref`**
+
+```bash
+scalingo --app autometa-staging review-apps
+```
+
+Expected: `git_ref` porte le SHA de tête **complet, sur 40 caractères**, comparable tel quel au
+`head.sha` de la PR. C'est l'hypothèse dont l'échec est silencieux : un SHA abrégé, un nom de branche
+ou une référence rendrait l'égalité de `ensure` toujours fausse, chaque exécution POSTerait
+`manual_review_app`, et on obtiendrait un build Scalingo par passage de la CI, indéfiniment, sans
+qu'aucun job ne rougisse. Signal d'échec : un flux d'`"action": "updated"` sur des commits inchangés,
+là où le re-run du Step 4 doit donner `"noop"`. Correctif le cas échéant : comparer sur le préfixe
+effectivement renvoyé, ou lire le SHA du déploiement plutôt que le `git_ref`, avec le test associé.
+
 - [ ] **Step 6: Vérifier la destruction**
 
 Fermer la PR sans fusionner, puis :

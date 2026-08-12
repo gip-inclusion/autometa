@@ -195,7 +195,7 @@ Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour
 ### Review apps
 
 Chaque pull request interne non-draft obtient une review app Scalingo, créée par la CI une fois
-lint, tests et migrations au vert, puis détruite à la fermeture de la PR. L'URL apparaît dans
+lint, sécurité, tests et migrations au vert, puis détruite à la fermeture de la PR. L'URL apparaît dans
 l'encart de déploiement de la PR.
 
 Une review app est un enfant de `autometa-staging` : elle **hérite de ses variables

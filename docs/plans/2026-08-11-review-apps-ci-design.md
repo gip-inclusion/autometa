@@ -103,6 +103,14 @@ on rattrape. La même logique absorbe une review app supprimée à la main ou un
 review app redéploie au lieu de renvoyer un conflit. Si c'est un conflit, la branche « obsolète »
 bascule sur `manual_deploy` de la branche de la PR. L'architecture ne change pas.
 
+**Troisième hypothèse non vérifiée, à mettre sur la liste de la validation de bout en bout** : que
+`last_deployment.git_ref` porte bien le SHA de tête complet, sur 40 caractères. Contrairement aux deux
+autres, son échec est silencieux : si Scalingo y stocke un SHA abrégé, un nom de branche ou une
+référence, l'égalité de la comparaison n'est jamais vraie, chaque exécution POSTe
+`manual_review_app`, et on obtient un build Scalingo par passage de la CI pendant que tout reste
+vert. Le signal d'échec est donc un flux d'`"action": "updated"` sur des commits inchangés — un
+`noop` doit apparaître dès qu'on relance la CI sans nouveau commit.
+
 La destruction est idempotente : review app absente vaut succès. Une PR fermée deux fois, ou déjà
 nettoyée par Scalingo — cas nominal, puisque `delete_on_close_enabled` est actif — ne doit pas faire
 échouer la CI.
@@ -113,7 +121,10 @@ nettoyée par Scalingo — cas nominal, puisque `delete_on_close_enabled` est ac
 
 Deux sous-commandes, `ensure` et `destroy`. `httpx` avec timeout explicite, conformément aux règles
 du dépôt. Authentification : échange du token contre un bearer court sur
-`auth.scalingo.com/v1/tokens/exchange`, bearer masqué par `::add-mask::` et jamais logué.
+`auth.scalingo.com/v1/tokens/exchange`. Le bearer ne quitte jamais le processus — il n'est ni écrit
+sur la sortie standard ni exporté vers le workflow, ce qu'un test vérifie
+(`test_main_ensure_prints_json_and_never_leaks_the_bearer`). Garantie plus forte qu'un masquage par
+`::add-mask::`, qui ne fait que caviarder après coup ce qui a déjà été écrit.
 
 La logique vit en Python plutôt qu'en bash dans le YAML parce que la réconciliation est exactement
 la partie qui mérite des tests, et que `.claude/rules/tests.md` impose un test par modification.
@@ -136,7 +147,8 @@ pourrait réécrire `scripts/review_app.py` pour exfiltrer le token.
 
 ### `.github/workflows/review-app-teardown.yml`
 
-Déclenché sur `pull_request: types: [closed]`. Aucun checkout du code de la PR.
+Déclenché sur `pull_request: types: [closed]`. Checkout de `base.ref` — il en faut un pour exécuter
+le script — mais jamais du head de la PR.
 
 ### `tests/test_review_app.py`
 
@@ -156,12 +168,24 @@ des applications hors production.
 |---|---|
 | Forks exclus | `if: head.repo.full_name == github.repository`, et `automatic_creation_from_forks_allowed: false` côté Scalingo |
 | `pull_request_target` | proscrit — c'est le vecteur d'exposition des secrets aux forks |
-| Code non relu | checkout sur `base.sha`, jamais sur le head de la PR |
+| Code non relu | checkout sur `base.sha` (teardown : `base.ref`), jamais sur le head de la PR — défense en profondeur, pas frontière : cf. ci-dessous |
 | Rayon d'explosion du token | compte `reviewapp.autometa`, collaborateur de `autometa-staging` et de rien d'autre — vérifié |
 | Stockage du secret | `SCALINGO_REVIEW_APP_TOKEN` dans l'Environment GitHub `review-app` |
-| Permissions du job | `contents: read` + `deployments: write`. Le job de teardown ne fait aucun checkout |
-| Courses concurrentes | `concurrency: review-app-pr-<N>`, pour qu'un teardown ne croise pas un déploiement |
+| Permissions du job | `contents: read`, `deployments: write`, `pull-requests: read` pour relire l'état vivant de la PR |
+| Courses concurrentes | `concurrency: review-app-pr-<N>`, pour qu'un teardown ne croise pas un déploiement. Le groupe n'est rejoint qu'une fois le job prêt : le job relit donc l'état vivant de la PR et ne crée rien si elle n'est plus ouverte |
 | Actions tierces | épinglées par SHA, comme le reste du dépôt |
+
+Ce que le checkout sur `base.sha` ne protège pas : sur un événement `pull_request`, GitHub exécute la
+**définition du workflow telle qu'elle est dans la PR**. Une PR interne peut supprimer la ligne
+`ref:`, ou ajouter une étape qui affiche le secret, sans toucher une ligne de
+`scripts/review_app.py`. Le checkout sur la base est une défense en profondeur contre une
+modification accidentelle ou distraite du script, pas une frontière de sécurité.
+
+La frontière réelle tient en trois choses : l'exclusion des forks, le droit de push sur
+`gip-inclusion/autometa`, et les règles de protection portées par l'Environment `review-app`.
+Autrement dit, **quiconque a le droit de pousser sur le dépôt peut obtenir ce token**. C'est une
+posture défendable — le token ne voit que `autometa-staging`, et le rayon d'explosion est celui d'un
+environnement hors production — mais elle doit être écrite plutôt que sous-entendue.
 
 Les tokens API Scalingo sont liés à un compte utilisateur et n'ont **aucun scope** : un token vaut
 exactement les droits de son porteur. L'isolation ne peut donc se faire que par le périmètre du
