@@ -60,7 +60,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_conversation_message_embeddings_model")
     op.execute("DROP INDEX IF EXISTS idx_conversation_message_embeddings_user_id")
-    op.execute(
-        "DROP INDEX IF EXISTS idx_conversation_message_embeddings_conversation_id"
-    )
+    op.execute("DROP INDEX IF EXISTS idx_conversation_message_embeddings_conversation_id")
     op.execute("DROP TABLE IF EXISTS conversation_message_embeddings")
