@@ -1,7 +1,7 @@
 # Review apps pilotées par la CI — design
 
-Date : 2026-08-11
-Statut : validé, prêt pour le plan d'implémentation
+Date : 2026-08-11 (mis à jour 2026-08-12 avec les vérifications sur l'infrastructure)
+Statut : validé, prérequis d'infrastructure en place, prêt pour le plan d'implémentation
 
 ## Problème
 
@@ -16,19 +16,36 @@ identifiants de production.
 
 ## État constaté
 
-Relevé sur l'infrastructure au 2026-08-11 :
-
 | Élément | Valeur |
 |---|---|
 | Dépôt | `gip-inclusion/autometa`, **public** |
 | App parente des review apps | `autometa-staging` (projet `service-prod/autometa`) |
 | Owner des apps | `service.prod@inclusion.gouv.fr` |
-| Lien SCM | établi sur `gip-inclusion/autometa`, linker `autometa-ops` |
-| Auto-deploy / auto review apps | désactivés |
+| Lien SCM | établi le 2026-06-23, linker `autometa-ops`, branche `main` |
 | Review apps existantes | aucune |
-| Compte de service existant | `autometa-ops`, collaborateur de `autometa-staging` **et** de `matometa` |
 | CI actuelle | `ci.yml` : lint, security, test, migrations, docker — ne déploie rien |
 | Déploiements | `_deploy.yml` (push git SSH), appelé par `deploy-staging.yml` et `deploy-prod.yml` |
+| `matometa` | **aucun lien SCM** — la production se déploie uniquement par push SSH |
+
+Réglages du lien SCM, tous déjà dans l'état voulu :
+
+| Réglage | Valeur |
+|---|---|
+| `auto_deploy_enabled` | `false` |
+| `deploy_review_apps_enabled` | `false` |
+| `automatic_creation_from_forks_allowed` | `false` |
+| `delete_on_close_enabled` | `true` |
+| `hours_before_delete_on_close` | `0` |
+| `delete_stale_enabled` | `false` |
+
+Ces valeurs constituent l'invariant sur lequel repose le design : Scalingo ne crée aucune review app
+de lui-même, et n'en crée en particulier jamais depuis un fork. Aucune commande n'est nécessaire
+pour les poser, mais toute bascule depuis le dashboard invaliderait l'hypothèse d'autorité unique.
+
+`delete_on_close_enabled: true` signifie que Scalingo détruit déjà les review apps à la fermeture des
+PR, sans délai. Le workflow de teardown ne porte donc pas la destruction elle-même : il porte le
+déterminisme (ne pas dépendre d'un réglage tiers), la visibilité dans la CI, et le passage du
+déploiement GitHub à `inactive`, que Scalingo ne fera jamais.
 
 ## Décisions
 
@@ -40,7 +57,7 @@ Relevé sur l'infrastructure au 2026-08-11 :
 | Conditionnement | déploiement seulement si lint + security + test + migrations passent |
 | Destruction | à toute fermeture de PR, merge ou abandon, sans délai |
 | Restitution | GitHub Deployments API |
-| Identité | nouveau compte Scalingo `autometa-review`, collaborateur de `autometa-staging` uniquement |
+| Identité | compte Scalingo dédié `reviewapp.autometa@inclusion.gouv.fr` |
 
 ## Architecture
 
@@ -87,7 +104,8 @@ review app redéploie au lieu de renvoyer un conflit. Si c'est un conflit, la br
 bascule sur `manual_deploy` de la branche de la PR. L'architecture ne change pas.
 
 La destruction est idempotente : review app absente vaut succès. Une PR fermée deux fois, ou déjà
-nettoyée par Scalingo, ne doit pas faire échouer la CI.
+nettoyée par Scalingo — cas nominal, puisque `delete_on_close_enabled` est actif — ne doit pas faire
+échouer la CI.
 
 ## Découpage
 
@@ -112,6 +130,10 @@ l'absence de fork et à l'absence de draft.
 `needs` porte sur `lint`, `security`, `test` et `migrations`, pas sur `docker` : Scalingo déploie
 par buildpacks, l'image Docker ne conditionne pas le bon fonctionnement de la review app.
 
+Le checkout se fait sur `github.event.pull_request.base.sha`, **pas** sur le head. Le job n'a besoin
+que du numéro de PR pour appeler l'API, jamais du code de la PR. Sans cette précaution, une PR
+pourrait réécrire `scripts/review_app.py` pour exfiltrer le token.
+
 ### `.github/workflows/review-app-teardown.yml`
 
 Déclenché sur `pull_request: types: [closed]`. Aucun checkout du code de la PR.
@@ -132,23 +154,39 @@ des applications hors production.
 
 | Contrôle | Mise en œuvre |
 |---|---|
-| Forks exclus | `if: head.repo.full_name == github.repository`, **et** `--no-allow-review-apps-from-forks` côté Scalingo |
+| Forks exclus | `if: head.repo.full_name == github.repository`, et `automatic_creation_from_forks_allowed: false` côté Scalingo |
 | `pull_request_target` | proscrit — c'est le vecteur d'exposition des secrets aux forks |
-| Rayon d'explosion du token | compte `autometa-review`, collaborateur de `autometa-staging` et de rien d'autre |
-| Stockage du secret | GitHub Environment `review-app`, distinct de `staging` et `production` |
+| Code non relu | checkout sur `base.sha`, jamais sur le head de la PR |
+| Rayon d'explosion du token | compte `reviewapp.autometa`, collaborateur de `autometa-staging` et de rien d'autre — vérifié |
+| Stockage du secret | `SCALINGO_REVIEW_APP_TOKEN` dans l'Environment GitHub `review-app` |
 | Permissions du job | `contents: read` + `deployments: write`. Le job de teardown ne fait aucun checkout |
 | Courses concurrentes | `concurrency: review-app-pr-<N>`, pour qu'un teardown ne croise pas un déploiement |
 | Actions tierces | épinglées par SHA, comme le reste du dépôt |
 
 Les tokens API Scalingo sont liés à un compte utilisateur et n'ont **aucun scope** : un token vaut
 exactement les droits de son porteur. L'isolation ne peut donc se faire que par le périmètre du
-compte, ce qui est le pattern « service account » documenté par Scalingo. `autometa-ops` étant
-collaborateur de `matometa`, son token donnerait à la CI un accès complet à la production — d'où le
-compte dédié.
+compte, ce qui est le pattern « service account » documenté par Scalingo.
 
-Une review app hérite des variables de `autometa-staging`, donc de vraies clés Matomo, Metabase, S3
-et du token Anthropic. C'est la raison de fond pour laquelle elle reste réservée aux PR internes.
-À documenter dans le README.
+Le secret s'appelle `SCALINGO_REVIEW_APP_TOKEN` et non `SCALINGO_API_TOKEN` délibérément. Un secret
+`SCALINGO_API_TOKEN` orphelin existe au niveau dépôt ; un nom distinct garantit qu'un job ayant omis
+sa clé `environment:` échoue bruyamment sur un secret vide, au lieu de récupérer silencieusement un
+credential dont on ignore le porteur.
+
+### Constats connexes, hors périmètre
+
+- `SCALINGO_API_TOKEN` et `DEPLOY_SSH_KEY` sont des secrets de niveau dépôt qu'aucun workflow
+  n'utilise. Porteur inconnu. À auditer et probablement à révoquer.
+- `SCALINGO_SSH_KEY`, qui déploie la production, est également de niveau dépôt : lisible par
+  n'importe quel job de n'importe quelle branche interne. Les Environments `staging` et `production`
+  existent mais n'ont ni secret, ni règle de protection, ni politique de branche — la clé
+  `environment:` de `_deploy.yml` n'a donc aujourd'hui aucun effet de cloisonnement.
+
+## Dépendance à documenter
+
+L'autorisation GitHub est portée par le lien SCM de l'application, pas par le compte qui l'utilise :
+n'importe quel collaborateur emprunte les identifiants du lien. Toute la chaîne repose donc sur
+l'autorisation OAuth d'`autometa-ops`. S'il quitte le dépôt ou révoque cette autorisation, les
+review apps cassent — pour tout le monde, quel que soit le compte appelant.
 
 ## Restitution
 
@@ -156,14 +194,35 @@ Un déploiement GitHub `review-app-pr-<N>` avec `environment_url`, passé à `in
 Encart natif dans la PR, historique conservé, pas de commentaire dans la conversation. Trois appels
 `gh api` dans le workflow.
 
+## Vérifications effectuées (2026-08-12)
+
+| Vérification | Résultat |
+|---|---|
+| Échange token → bearer sur `auth.scalingo.com` | fonctionne |
+| Compte porteur du token | `reviewapp.autometa@inclusion.gouv.fr` |
+| Applications visibles par ce token | `autometa-staging` seule — isolation effective |
+| Lecture `scm_repo_link` et `review_apps` | 200 |
+| Écriture `manual_review_app` par un collaborateur non-linker | **autorisée** — l'appel n'a échoué que sur une PR fictive, en 400 côté GitHub et non en 403 côté Scalingo |
+
+Cette dernière ligne clôt la question laissée ouverte à la conception : le compte dédié n'a besoin
+d'aucune intégration GitHub propre.
+
 ## Mise en place hors code
 
-1. Créer le compte Scalingo `autometa-review`, l'inviter uniquement sur `autometa-staging`.
-2. Vérifier qu'un collaborateur non-linker peut déclencher une review app manuelle — le linker
-   actuel est `autometa-ops`. Sinon, relier le SCM depuis le nouveau compte.
-3. Générer son token API, le déposer dans l'Environment GitHub `review-app`.
-4. Poser les réglages défensifs sur le lien SCM :
-   `scalingo --app autometa-staging integration-link-update --no-deploy-review-apps --no-allow-review-apps-from-forks`
+Fait :
+
+1. Alias `reviewapp.autometa@inclusion.gouv.fr`, redirigé vers `ops.autometa@`, lui-même redistribué
+   à trois personnes.
+2. Compte Scalingo créé, invitation sur `autometa-staging` acceptée, rôle collaborateur non limité.
+3. Token API généré depuis ce compte.
+4. Environment GitHub `review-app` créé, secret `SCALINGO_REVIEW_APP_TOKEN` déposé.
+
+Reste :
+
+5. Régénérer le token et remplacer le secret une fois la chaîne validée de bout en bout : le token
+   initial a transité en clair hors d'un canal sécurisé.
+6. Facultatif : renommer le username Scalingo en `autometa-reviewapp` pour suivre la convention
+   `autometa-<rôle>`. Sans effet — les droits sont attachés au `user_id`.
 
 ## Validation
 
@@ -175,6 +234,7 @@ destruction, et vérifier que l'encart de déploiement suit.
 - Ramasse-miettes des review apps dont la PR reste ouverte mais dormante.
 - Review apps pour les contributions externes.
 - Environnement dégradé sans clés d'API.
+- Cloisonnement des secrets existants (`SCALINGO_SSH_KEY`) dans leurs Environments.
 
 ## Relecture humaine
 
