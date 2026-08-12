@@ -18,6 +18,8 @@ SCHEDULE="${SCHEDULE:-*/10 3 * * *}"
 # Why: must stay under the trigger interval — a longer pass would still be running when the next fires,
 # and two concurrent passes copy the same objects twice.
 TIMEOUT="${TIMEOUT:-540s}"
+# How far back the mirror can be rewound: the lifetime of superseded versions and delete markers.
+RETENTION_DAYS="${RETENTION_DAYS:-30}"
 
 cd "$(dirname "$0")"
 
@@ -28,6 +30,11 @@ mkdir build
 python3 -m pip install --quiet --no-compile --target build --requirement requirements.txt
 cp handler.py config.py requirements.txt build/
 (cd build && zip -q -r ../s3_backup.zip .)
+
+echo "→ Provisioning $BACKUP_BUCKET (versioning + $RETENTION_DAYS-day version history)"
+# Why: versioning must be on before the first pass — the handler refuses to mirror without it, and an
+# overwrite on an unversioned target would destroy the previous copy.
+BACKUP_BUCKET="$BACKUP_BUCKET" RETENTION_DAYS="$RETENTION_DAYS" PYTHONPATH=build python3 provision.py
 
 echo "→ Ensuring namespace '$NAMESPACE_NAME'"
 NS_ID=$(scw function namespace list region="$REGION" -o json | jq -r ".[] | select(.name==\"$NAMESPACE_NAME\") | .id" | head -n1)
