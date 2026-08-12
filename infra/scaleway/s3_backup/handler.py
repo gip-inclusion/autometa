@@ -1,10 +1,10 @@
-"""Scaleway Function: daily snapshot of SOURCE_BUCKET → BACKUP_BUCKET/backup/YYYY-MM-DD/."""
+"""Scaleway Function: mirror SOURCE_BUCKET into BACKUP_BUCKET/mirror/ — history comes from bucket versioning."""
 
 import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import boto3
 from botocore.config import Config
@@ -15,7 +15,7 @@ import config
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-MANIFEST_FILENAME = "_MANIFEST.json"
+MIRROR_PREFIX = "mirror/"
 
 
 def build_client():
@@ -29,110 +29,91 @@ def build_client():
     )
 
 
-def inventory(client, bucket: str, prefix: str = "") -> dict[str, str]:
-    """Key relative to prefix → ETag, for every object under prefix."""
+def inventory(client, bucket: str, prefix: str = "") -> dict[str, tuple[str, int]]:
+    """Key relative to prefix → (ETag, size), for every object under prefix."""
     paginator = client.get_paginator("list_objects_v2")
     return {
-        obj["Key"][len(prefix) :]: obj["ETag"]
+        obj["Key"][len(prefix) :]: (obj["ETag"], obj["Size"])
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix)
         for obj in page.get("Contents", [])
     }
 
 
-def snapshot(client, source: str, target: str, snapshot_date: str) -> dict:
-    prefix = f"backup/{snapshot_date}/"
-    start = time.monotonic()
-    paginator = client.get_paginator("list_objects_v2")
-    objects = [obj for page in paginator.paginate(Bucket=source) for obj in page.get("Contents", [])]
-    # Why: one listing of the day's prefix replaces a HEAD per object — a resumed pass after the
-    # platform reaps an instance mid-copy then costs O(pages) requests instead of O(objects).
-    already_copied = inventory(client, target, prefix)
+def require_versioning(client, bucket: str) -> None:
+    """Refuse a target that keeps no history: there, mirroring an overwrite or a deletion is irreversible."""
+    status = client.get_bucket_versioning(Bucket=bucket).get("Status")
+    if status != "Enabled":
+        raise RuntimeError(f"{bucket} versioning is {status or 'disabled'} — refusing to mirror into it")
 
-    def copy_one(obj: dict) -> tuple[str, int, str | None]:
-        key = obj["Key"]
-        dest_key = f"{prefix}{key}"
+
+def mirror(client, source: str, target: str, run_date: str) -> dict:
+    start = time.monotonic()
+    require_versioning(client, target)
+    # Why: two listings replace a per-object HEAD probe — a pass costs O(pages), not O(objects).
+    src = inventory(client, source)
+    mirrored = inventory(client, target, MIRROR_PREFIX)
+    stale = [key for key, (etag, _) in src.items() if mirrored.get(key, (None, 0))[0] != etag]
+    removed = [key for key in mirrored if key not in src]
+
+    def copy_one(key: str) -> str | None:
         try:
-            # Why: re-runs after partial failure skip already-copied objects (ETag match = identical bytes).
-            if already_copied.get(key) == obj["ETag"]:
-                return "skipped", obj["Size"], None
             client.copy_object(
                 Bucket=target,
-                Key=dest_key,
+                Key=MIRROR_PREFIX + key,
                 CopySource={"Bucket": source, "Key": key},
                 MetadataDirective="COPY",
             )
-            return "copied", obj["Size"], None
-        # Why: BotoCoreError (read/connection timeout) on one object must count as a failed
-        # object, not crash the whole pass via pool.map and lose the final manifest.
+        # Why: BotoCoreError (read/connection timeout) on one object must count as a failed object,
+        # not crash the whole pass via pool.map and lose the final manifest.
         except (ClientError, BotoCoreError) as exc:
-            return "failed", obj["Size"], f"{key}: {exc}"
+            return f"copy {key}: {exc}"
+        return None
 
-    counts = {"copied": 0, "skipped": 0, "failed": 0}
-    total_bytes = 0
-    errors = []
+    def delete_one(key: str) -> str | None:
+        try:
+            # Why: naming no version leaves a delete marker, so the mirror keeps the removed object's history.
+            client.delete_object(Bucket=target, Key=MIRROR_PREFIX + key)
+        except (ClientError, BotoCoreError) as exc:
+            return f"delete {key}: {exc}"
+        return None
+
     # Parallel server-side copies — the bottleneck is API round-trips, not bandwidth.
     with ThreadPoolExecutor(max_workers=16) as pool:
-        for status, size, error in pool.map(copy_one, objects):
-            counts[status] += 1
-            if error:
-                errors.append(error)
-            else:
-                total_bytes += size
+        errors = [error for error in pool.map(copy_one, stale) if error]
+        errors += [error for error in pool.map(delete_one, removed) if error]
+
     manifest = {
-        "snapshot": snapshot_date,
+        "run": run_date,
         "source": source,
-        "target": f"{target}/{prefix}",
-        "copied": counts["copied"],
-        "skipped": counts["skipped"],
-        "failed": counts["failed"],
-        "objects": len(objects),
-        "bytes": total_bytes,
+        "target": f"{target}/{MIRROR_PREFIX}",
+        "objects": len(src),
+        "bytes": sum(size for _, size in src.values()),
+        "copied": len(stale) - sum(1 for error in errors if error.startswith("copy ")),
+        "unchanged": len(src) - len(stale),
+        # Why: a multipart ETag is not a plain MD5, so a copy's ETag never equals it and the object
+        # re-copies on every pass. Surfaced here so that churn is visible instead of silent.
+        "multipart": sum(1 for etag, _ in src.values() if "-" in etag.strip('"')),
+        "deleted": len(removed) - sum(1 for error in errors if error.startswith("delete ")),
+        "failed": len(errors),
         "duration_s": round(time.monotonic() - start, 2),
-        "ok": counts["failed"] == 0,
+        "ok": not errors,
     }
     if errors:
         manifest["errors"] = errors[:20]
-    # Why: manifest written last — its presence atteste que la copie est complète (check Sentry s'y fie).
+    # Why: manifest written last — its presence atteste que la passe est complète (le cron de contrôle s'y fie).
     client.put_object(
         Bucket=target,
-        Key=f"{prefix}{MANIFEST_FILENAME}",
+        Key=f"manifests/{run_date}.json",
         Body=json.dumps(manifest).encode(),
         ContentType="application/json",
     )
     return manifest
 
 
-def purge_old_snapshots(client, bucket: str, retention_days: int, today: date) -> int:
-    cutoff = today - timedelta(days=retention_days)
-    paginator = client.get_paginator("list_objects_v2")
-    deleted = 0
-    for page in paginator.paginate(Bucket=bucket, Prefix="backup/", Delimiter="/"):
-        for common in page.get("CommonPrefixes", []) or []:
-            sub = common["Prefix"]
-            try:
-                day = datetime.strptime(sub.split("/")[1], "%Y-%m-%d").date()
-            except (IndexError, ValueError):  # Scaleway runtime is Python 3.13; bare-tuple except (PEP 758) needs 3.14+
-                continue
-            if day >= cutoff:
-                continue
-            for inner in paginator.paginate(Bucket=bucket, Prefix=sub):
-                batch = [{"Key": o["Key"]} for o in inner.get("Contents", [])]
-                if not batch:
-                    continue
-                client.delete_objects(Bucket=bucket, Delete={"Objects": batch, "Quiet": True})
-                deleted += len(batch)
-    return deleted
-
-
 def handle(event, context):
-    today = datetime.now(timezone.utc).date()
-    client = build_client()
-    result = snapshot(client, config.SOURCE_BUCKET, config.BACKUP_BUCKET, today.isoformat())
-    logger.info("snapshot done: %s", result)
+    today = datetime.now(timezone.utc).date().isoformat()
+    result = mirror(build_client(), config.SOURCE_BUCKET, config.BACKUP_BUCKET, today)
+    logger.info("mirror pass done: %s", result)
     if not result["ok"]:
-        raise RuntimeError(f"snapshot incomplete: {result['failed']} object(s) failed")
-    if config.RETENTION_DAYS > 0:
-        purged = purge_old_snapshots(client, config.BACKUP_BUCKET, config.RETENTION_DAYS, today)
-        logger.info("purged %d objects older than %d days", purged, config.RETENTION_DAYS)
-        result["purged"] = purged
+        raise RuntimeError(f"mirror pass incomplete: {result['failed']} object(s) failed")
     return result
