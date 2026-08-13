@@ -93,7 +93,10 @@ L'état voulu est décrit, pas les transitions. Le job compare le SHA déployé 
 
 Un seul endpoint sert la création et la mise à jour. L'état constaté vient de
 `GET /v1/apps/autometa-staging/scm_repo_link/review_apps`, qui fournit le nom de l'app et son
-dernier déploiement : le nom n'est jamais déduit d'une convention.
+dernier déploiement. Le nom vient toujours de l'API quand elle le donne : la review app listée
+d'abord, sinon le corps de la réponse au `POST` de création. La convention `autometa-staging-pr<N>`
+ne sert que de repli, si aucune des deux sources ne porte de nom — la forme exacte du corps de
+réponse du `POST` restant à observer.
 
 La convergence est la propriété qui compte. Scalingo redéploie déjà les review apps sur push via son
 webhook ; si le webhook a fait le travail, on constate le bon SHA et on ne fait rien, s'il l'a raté
@@ -142,8 +145,9 @@ l'absence de fork et à l'absence de draft.
 par buildpacks, l'image Docker ne conditionne pas le bon fonctionnement de la review app.
 
 Le checkout se fait sur `github.event.pull_request.base.sha`, **pas** sur le head. Le job n'a besoin
-que du numéro de PR pour appeler l'API, jamais du code de la PR. Sans cette précaution, une PR
-pourrait réécrire `scripts/review_app.py` pour exfiltrer le token.
+que du numéro de PR pour appeler l'API, jamais du code de la PR. C'est de la défense en profondeur
+contre une modification accidentelle de `scripts/review_app.py`, pas une frontière de sécurité :
+voir la section Sécurité, qui explique pourquoi.
 
 ### `.github/workflows/review-app-teardown.yml`
 
