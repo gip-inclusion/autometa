@@ -202,9 +202,17 @@ def test_ensure_keeps_the_existing_app_name_over_the_post_response():
     }
 
 
-def test_ensure_redeploys_when_deployment_is_missing():
+@pytest.mark.parametrize(
+    "deployment",
+    [
+        None,
+        {"id": "d-1", "status": "build-error", "git_ref": "abc123"},
+        {"id": "d-1", "status": "hook-error", "git_ref": "abc123"},
+    ],
+)
+def test_ensure_redeploys_unless_the_sha_is_successfully_deployed(deployment):
     entry = review_app_entry()
-    entry["last_deployment"] = None
+    entry["last_deployment"] = deployment
     client = FakeClient([FakeResponse(listing(entry)), FakeResponse()])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")

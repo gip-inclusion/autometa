@@ -53,8 +53,11 @@ def deploy_review_app(client, bearer, parent_app, pr_number):
 
 
 def deployed_ref(entry):
+    """Le SHA effectivement en ligne : un déploiement échoué ne compte pas comme déployé."""
     deployment = entry.get("last_deployment")
-    return deployment["git_ref"] if deployment else None
+    if not deployment or deployment.get("status") != "success":
+        return None
+    return deployment["git_ref"]
 
 
 def app_name_in(payload):
