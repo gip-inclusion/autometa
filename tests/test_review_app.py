@@ -53,6 +53,11 @@ def listing(*review_apps):
     return {"review_apps": list(review_apps)}
 
 
+def created(app_name="autometa-staging-pr42"):
+    """Corps du POST manual_review_app : la review app est imbriquée sous `review_app`."""
+    return {"review_app": review_app_entry(app_name=app_name)}
+
+
 def review_app_entry(pr_number=42, git_ref="abc123", app_name="autometa-staging-pr42"):
     return {
         "id": "ra-1",
@@ -89,7 +94,7 @@ def destroy_app(client):
     ("operation", "responses"),
     [
         (read_state, [FakeResponse(listing())]),
-        (deploy_app, [FakeResponse({})]),
+        (deploy_app, [FakeResponse(created())]),
         (destroy_app, [FakeResponse(listing(review_app_entry())), FakeResponse({})]),
     ],
     ids=["read_state", "deploy", "destroy"],
@@ -143,7 +148,7 @@ def test_app_url_uses_scalingo_domain():
     ],
 )
 def test_ensure_reconciles_against_head_sha(payload, expected_action, expected_posts):
-    client = FakeClient([FakeResponse(payload)] + [FakeResponse()] * expected_posts)
+    client = FakeClient([FakeResponse(payload)] + [FakeResponse(created())] * expected_posts)
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
@@ -155,7 +160,7 @@ def test_ensure_reconciles_against_head_sha(payload, expected_action, expected_p
 
 
 def test_ensure_posts_the_pull_request_id():
-    client = FakeClient([FakeResponse(listing()), FakeResponse()])
+    client = FakeClient([FakeResponse(listing()), FakeResponse(created())])
 
     review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
@@ -166,7 +171,7 @@ def test_ensure_posts_the_pull_request_id():
 
 
 def test_ensure_uses_the_app_name_returned_by_scalingo():
-    client = FakeClient([FakeResponse(listing()), FakeResponse({"app_name": "autometa-staging-pr42-b7c1"})])
+    client = FakeClient([FakeResponse(listing()), FakeResponse(created("autometa-staging-pr42-b7c1"))])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
@@ -175,23 +180,9 @@ def test_ensure_uses_the_app_name_returned_by_scalingo():
     assert result["url"] == "https://autometa-staging-pr42-b7c1.osc-fr1.scalingo.io"
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [None, {}, {"id": "ra-1"}, ["autometa-staging-pr42"]],
-    ids=["empty body", "no app_name", "other keys", "not an object"],
-)
-def test_ensure_falls_back_to_the_conventional_name(payload):
-    client = FakeClient([FakeResponse(listing()), FakeResponse(payload)])
-
-    result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
-
-    assert result["app"] == "autometa-staging-pr42"
-    assert result["url"] == "https://autometa-staging-pr42.osc-fr1.scalingo.io"
-
-
 def test_ensure_keeps_the_existing_app_name_over_the_post_response():
     listed = listing(review_app_entry(git_ref="staleref", app_name="autometa-staging-pr42-old"))
-    client = FakeClient([FakeResponse(listed), FakeResponse({"app_name": "autometa-staging-pr42-new"})])
+    client = FakeClient([FakeResponse(listed), FakeResponse(created("autometa-staging-pr42-new"))])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
@@ -213,7 +204,7 @@ def test_ensure_keeps_the_existing_app_name_over_the_post_response():
 def test_ensure_redeploys_unless_the_sha_is_successfully_deployed(deployment):
     entry = review_app_entry()
     entry["last_deployment"] = deployment
-    client = FakeClient([FakeResponse(listing(entry)), FakeResponse()])
+    client = FakeClient([FakeResponse(listing(entry)), FakeResponse(created())])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 

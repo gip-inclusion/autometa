@@ -38,7 +38,7 @@ def app_url(app_name):
 
 
 def deploy_review_app(client, bearer, parent_app, pr_number):
-    """Déclenche la création ou le redéploiement, et renvoie le corps de réponse de Scalingo."""
+    """Déclenche la création, et renvoie la review app décrite par Scalingo."""
     response = client.post(
         f"{API_URL}/apps/{parent_app}/scm_repo_link/manual_review_app",
         headers={"Authorization": f"Bearer {bearer}"},
@@ -46,10 +46,7 @@ def deploy_review_app(client, bearer, parent_app, pr_number):
         timeout=TIMEOUT,
     )
     response.raise_for_status()
-    try:
-        return response.json()
-    except ValueError:
-        return {}
+    return response.json()["review_app"]
 
 
 def deployed_ref(entry):
@@ -60,18 +57,13 @@ def deployed_ref(entry):
     return deployment["git_ref"]
 
 
-def app_name_in(payload):
-    """Le nom d'app porté par une réponse Scalingo, dont la forme exacte n'est pas garantie."""
-    return payload.get("app_name") if isinstance(payload, dict) else None
-
-
 def ensure(client, bearer, parent_app, pr_number, sha):
     """Amène la review app de la PR à l'état voulu, quel que soit l'état constaté."""
     entry = find_review_app(client, bearer, parent_app, pr_number)
     if entry and deployed_ref(entry) == sha:
         return {"action": "noop", "app": entry["app_name"], "url": app_url(entry["app_name"])}
     created = deploy_review_app(client, bearer, parent_app, pr_number)
-    name = app_name_in(entry) or app_name_in(created) or f"{parent_app}-pr{pr_number}"
+    name = entry["app_name"] if entry else created["app_name"]
     return {"action": "updated" if entry else "created", "app": name, "url": app_url(name)}
 
 
