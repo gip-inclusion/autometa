@@ -206,9 +206,9 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          state=$(gh api "repos/$REPO/pulls/$PR" --jq .state)
-          if [ "$state" != "open" ]; then
-            echo "PR #$PR est '$state' : le teardown a déjà pu passer, on ne crée rien."
+          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.state) \(.draft)"')
+          if [ "$pr" != "open false" ]; then
+            echo "PR #$PR est '$pr' : le teardown a déjà pu passer, on ne crée rien."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
