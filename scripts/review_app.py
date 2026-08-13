@@ -82,7 +82,7 @@ def destroy(client, bearer, parent_app, pr_number):
         "DELETE",
         f"{API_URL}/apps/{name}",
         headers={"Authorization": f"Bearer {bearer}"},
-        json={"current_name": name},
+        params={"current_name": name},
         timeout=TIMEOUT,
     )
     if response.status_code == 404:

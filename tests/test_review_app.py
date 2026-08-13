@@ -221,7 +221,7 @@ def test_destroy_removes_the_review_app():
     method, url, kwargs = client.calls[1]
     assert method == "DELETE"
     assert url.endswith("/apps/autometa-staging-pr42")
-    assert kwargs["json"] == {"current_name": "autometa-staging-pr42"}
+    assert kwargs["params"] == {"current_name": "autometa-staging-pr42"}
 
 
 def test_destroy_is_a_noop_when_already_gone():
