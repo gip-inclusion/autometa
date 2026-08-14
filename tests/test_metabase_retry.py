@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from lib.metabase import MAX_ATTEMPTS, MetabaseError
+from lib.metabase import MAX_ATTEMPTS, RETRY_DEADLINE_S, MetabaseError
 from lib.sources import get_metabase
 
 OK_BODY = {"data": {"cols": [{"name": "n"}], "rows": [[1]]}}
@@ -41,6 +41,20 @@ def test_exhausts_retries_on_persistent_504(mocker):
         api.execute_sql("SELECT 1")
     assert api._session.request.call_count == MAX_ATTEMPTS
     assert sleep.call_count == MAX_ATTEMPTS - 1
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected_attempts"),
+    [(60, MAX_ATTEMPTS), (int(RETRY_DEADLINE_S), 1)],
+)
+def test_does_not_start_an_attempt_that_would_blow_the_deadline(mocker, timeout, expected_attempts):
+    # Why: un cron a 300s de budget ; retenter au-delà le fait tuer en plein vol et l'erreur
+    # d'origine (le 504) est remplacée par un timeout bien moins diagnosticable.
+    api = make_api(mocker)
+    api._session.request = mocker.Mock(return_value=response(504, text="Application Timeout"))
+    with pytest.raises(MetabaseError, match="HTTP 504"):
+        api.execute_sql("SELECT 1", timeout=timeout)
+    assert api._session.request.call_count == expected_attempts
 
 
 @pytest.mark.parametrize("status", [400, 404, 500])

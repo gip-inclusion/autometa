@@ -15,6 +15,9 @@ from .api_signals import emit_api_signal
 logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
+# Why: les crons ont un budget de 300s (`dashboards.cron_timeout`). On plafonne les retries à la
+# moitié pour laisser au script de quoi finir, indépendamment du `timeout` passé par l'appelant.
+RETRY_DEADLINE_S = 150.0
 RETRY_BACKOFF_S = 2.0
 
 
@@ -77,12 +80,12 @@ class MetabaseAPI:
 
     Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
     Retries connection errors via httpx.HTTPTransport, and gateway statuses
-    (502/503/504) or request errors up to MAX_ATTEMPTS with linear backoff —
-    ces échecs sont typiquement transitoires (Metabase saturé à ~06:00 quand
-    tous les crons tapent l'API en même temps).
+    (502/503/504) or request errors with linear backoff — ces échecs sont
+    typiquement transitoires (Metabase saturé à ~06:00 quand tous les crons
+    tapent l'API en même temps).
 
-    Worst-case for a fully-failing request: ~3 min (3 attempts x ~60s read
-    timeout + backoff). Pass a lower timeout if tighter bounds are needed.
+    Une tentative n'est lancée que si elle tient dans RETRY_DEADLINE_S : le
+    coût total est donc borné quel que soit le `timeout` de l'appelant.
     """
 
     def __init__(
@@ -124,6 +127,8 @@ class MetabaseAPI:
     ) -> Any:
         url = f"{self.url}{endpoint}"
 
+        give_up_at = time.monotonic() + RETRY_DEADLINE_S
+
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 resp = self._session.request(
@@ -132,33 +137,29 @@ class MetabaseAPI:
                 resp.raise_for_status()
                 return resp.json()
 
-            except httpx.HTTPStatusError as e:
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 # 502/503/504 = passerelle surchargée / timeout applicatif amont, transitoire → on retente.
-                if e.response.status_code in (502, 503, 504) and attempt < MAX_ATTEMPTS:
+                status = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
+                backoff = RETRY_BACKOFF_S * attempt
+                # On ne démarre une tentative que si elle tient dans le budget : sinon le cron se fait
+                # tuer en plein retry et l'erreur d'origine (le 504) est perdue au profit d'un timeout.
+                if (
+                    (status is None or status in (502, 503, 504))
+                    and attempt < MAX_ATTEMPTS
+                    and time.monotonic() + backoff + timeout <= give_up_at
+                ):
                     logger.warning(
-                        "Metabase %s %s -> HTTP %s (tentative %d/%d), nouvel essai",
+                        "Metabase %s %s -> %s (tentative %d), nouvel essai dans %.0fs",
                         method,
                         endpoint,
-                        e.response.status_code,
+                        status or e,
                         attempt,
-                        MAX_ATTEMPTS,
+                        backoff,
                     )
-                    time.sleep(RETRY_BACKOFF_S * attempt)
+                    time.sleep(backoff)
                     continue
-                raise MetabaseError(f"HTTP {e.response.status_code}: {e.response.text}") from e
-
-            except httpx.RequestError as e:
-                if attempt < MAX_ATTEMPTS:
-                    logger.warning(
-                        "Metabase %s %s -> %s (tentative %d/%d), nouvel essai",
-                        method,
-                        endpoint,
-                        e,
-                        attempt,
-                        MAX_ATTEMPTS,
-                    )
-                    time.sleep(RETRY_BACKOFF_S * attempt)
-                    continue
+                if status is not None:
+                    raise MetabaseError(f"HTTP {status}: {e.response.text}") from e
                 raise MetabaseError(str(e)) from e
 
     def _parse_result(self, data: dict) -> QueryResult:
