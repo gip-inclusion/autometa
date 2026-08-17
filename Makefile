@@ -31,3 +31,8 @@ diff-cover:
 	uv run --frozen diff-cover coverage.xml --compare-branch=origin/main --config-file pyproject.toml
 
 ci: lint security check-migrations test diff-cover
+
+.PHONY: paved-road-baseline
+
+paved-road-baseline:
+	uv run --frozen python scripts/paved_road_baseline.py --days $(or $(DAYS),90)
