@@ -8,16 +8,18 @@ permissions:
   contents: read
 
 jobs:
-  teardown:
-    name: Destroy review app
+  stop:
+    name: Stop review app
+    # Scalingo ne réagit pas au passage en draft, et un collaborateur ne peut pas supprimer une
+    # review app (401) : on l'éteint. Elle sera détruite à la fermeture, ou par delete_stale.
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.action == 'converted_to_draft'
+      && github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment: review-app
     permissions:
       contents: read
-      deployments: write
     concurrency:
       group: review-app-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -33,14 +35,30 @@ jobs:
 
       - run: uv sync --group dev --frozen
 
-      - name: Destroy review app
+      - name: Scale the review app down to zero
         env:
           SCALINGO_TOKEN: ${{ secrets.SCALINGO_REVIEW_APP_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           printf '%s' "$SCALINGO_TOKEN" \
-            | uv run python scripts/review_app.py destroy --app autometa-staging --pr "$PR"
+            | uv run python scripts/review_app.py stop --app autometa-staging --pr "$PR"
 
+  deactivate:
+    name: Deactivate GitHub deployments
+    # La destruction elle-même est faite par Scalingo (delete_on_close_enabled, sans délai). Il ne
+    # reste qu'à éteindre l'encart de la PR, que Scalingo ne touchera jamais.
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: review-app-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
       - name: Mark GitHub deployments inactive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
