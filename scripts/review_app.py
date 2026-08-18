@@ -15,6 +15,10 @@ CREATE_TIMEOUT = 300.0
 # Why: l'addon PostgreSQL met une soixantaine de secondes à passer "running"
 ADDONS_TIMEOUT = 300.0
 ADDONS_POLL_SECONDS = 10.0
+# Why: build mesuré à ~2 min, plus la marge d'une file d'attente Scalingo
+DEPLOYMENT_TIMEOUT = 900.0
+DEPLOYMENT_POLL_SECONDS = 15.0
+PENDING_STATUSES = frozenset({"queued", "building", "pushing", "starting"})
 
 
 def headers(bearer):
@@ -81,7 +85,7 @@ def wait_for_addons(client, bearer, app_name, timeout=ADDONS_TIMEOUT):
 
 
 def deploy(client, bearer, app_name, branch):
-    """Déploie une branche sur une review app existante."""
+    """Lance le déploiement d'une branche sur une review app existante."""
     response = client.post(
         f"{API_URL}/apps/{app_name}/scm_repo_link/manual_deploy",
         headers=headers(bearer),
@@ -89,6 +93,27 @@ def deploy(client, bearer, app_name, branch):
         timeout=TIMEOUT,
     )
     response.raise_for_status()
+    return response.json()["deployment"]["id"]
+
+
+def wait_for_deployment(client, bearer, app_name, deployment_id, timeout=DEPLOYMENT_TIMEOUT):
+    """Attend la fin du build : sans ça, un hook-error passerait pour un déploiement réussi."""
+    deadline = time.monotonic() + timeout
+    while True:
+        response = client.get(
+            f"{API_URL}/apps/{app_name}/deployments/{deployment_id}",
+            headers=headers(bearer),
+            timeout=TIMEOUT,
+        )
+        response.raise_for_status()
+        status = response.json()["deployment"]["status"]
+        if status not in PENDING_STATUSES:
+            if status != "success":
+                raise RuntimeError(f"déploiement de {app_name} terminé en {status}")
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"déploiement de {app_name} toujours en {status} après {timeout} s")
+        time.sleep(DEPLOYMENT_POLL_SECONDS)
 
 
 def deployed_ref(entry):
@@ -115,7 +140,8 @@ def ensure(client, bearer, parent_app, pr_number, sha):
         action = "created"
 
     name = entry["app_name"]
-    deploy(client, bearer, name, entry["pull_request"]["branch_name"])
+    deployment_id = deploy(client, bearer, name, entry["pull_request"]["branch_name"])
+    wait_for_deployment(client, bearer, name, deployment_id)
     return {"action": action, "app": name, "url": app_url(name)}
 
 

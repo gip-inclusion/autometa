@@ -113,6 +113,12 @@ le corps de la réponse au `POST` de création, sous `review_app.app_name`.
 Un déploiement qui n'est pas en `success` ne compte pas comme déployé : une app morte en
 `hook-error` sur le bon SHA doit être redéployée, pas déclarée à jour.
 
+`ensure` attend la fin du build avant de rendre la main. L'API répond en moins d'une seconde avec un
+déploiement `queued`, alors que le build dure environ deux minutes : sans cette attente, la CI
+publierait un déploiement GitHub `success` pointant vers une URL qui ne répond pas encore, et un
+`hook-error` — le mode d'échec le plus courant sur une app neuve — passerait entièrement inaperçu.
+Le coût est de deux à trois minutes de runner par déploiement, gratuites sur un dépôt public.
+
 La convergence est la propriété qui compte. `deploy_review_apps_enabled` est à `false`, donc rien ne
 redéploie de lui-même et c'est toujours la CI qui agit. En contrepartie, la même logique absorbe sans
 rien savoir une review app détruite par `delete_stale_enabled`, supprimée à la main, ou une CI

@@ -219,8 +219,9 @@ donnée n'est copiée. Concrètement : ni tableau de bord, ni catalogue Matomo o
 relire une modification d'interface ou d'API c'est sans importance, pour relire un changement qui
 touche les tableaux de bord, il n'y aura rien à voir.
 
-L'URL apparaît dans la PR dès que le déploiement est lancé, pas quand il est terminé : comptez
-deux à trois minutes de plus avant qu'elle réponde.
+Le job attend la fin du build avant de publier l'URL, donc elle répond dès qu'elle apparaît dans
+la PR — au prix de deux à trois minutes de CI en plus. En contrepartie, une review app qui ne
+démarre pas fait échouer la CI au lieu d'afficher une coche verte sur un lien mort.
 
 C'est la raison pour laquelle les pull requests venant de forks n'en obtiennent pas, et n'en
 obtiendront pas : cf. le bulletin Scalingo SSB-2023-001. Pour prévisualiser une contribution

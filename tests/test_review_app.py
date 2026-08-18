@@ -76,8 +76,8 @@ def addons(*statuses):
     return {"addons": [{"id": f"ad-{i}", "status": s} for i, s in enumerate(statuses)]}
 
 
-def deployment():
-    return {"deployment": {"id": "dep-1", "status": "queued", "git_ref": "abc123"}}
+def deployment(status="queued"):
+    return {"deployment": {"id": "dep-1", "status": status, "git_ref": "abc123"}}
 
 
 def creation_flow(*, entry_listing, app_name="autometa-staging-pr42"):
@@ -88,6 +88,7 @@ def creation_flow(*, entry_listing, app_name="autometa-staging-pr42"):
         FakeResponse(created(app_name)),
         FakeResponse(addons("running", "running")),
         FakeResponse(deployment()),
+        FakeResponse(deployment("success")),
     ]
 
 
@@ -117,6 +118,10 @@ def deploy_app(client):
     return review_app.deploy(client, "jwt", "autometa-staging-pr42", "feature")
 
 
+def follow_deployment(client):
+    return review_app.wait_for_deployment(client, "jwt", "autometa-staging-pr42", "dep-1")
+
+
 def stop_app(client):
     return review_app.stop(client, "jwt", "autometa-staging", 42)
 
@@ -128,9 +133,10 @@ def stop_app(client):
         (read_link, [FakeResponse(link())]),
         (create_app, [FakeResponse(created())]),
         (deploy_app, [FakeResponse(deployment())]),
+        (follow_deployment, [FakeResponse(deployment("success"))]),
         (stop_app, [FakeResponse(listing(review_app_entry())), FakeResponse({})]),
     ],
-    ids=["read_state", "read_link", "create", "deploy", "stop"],
+    ids=["read_state", "read_link", "create", "deploy", "follow", "stop"],
 )
 def test_scalingo_calls_carry_the_bearer_and_a_timeout(operation, responses):
     client = FakeClient(responses)
@@ -208,6 +214,7 @@ def test_ensure_creates_then_waits_for_addons_then_deploys():
         ("POST", "/apps/autometa-staging/scm_repo_link/manual_review_app"),
         ("GET", "/apps/autometa-staging-pr42/addons"),
         ("POST", "/apps/autometa-staging-pr42/scm_repo_link/manual_deploy"),
+        ("GET", "/apps/autometa-staging-pr42/deployments/dep-1"),
     ]
 
 
@@ -233,6 +240,7 @@ def test_ensure_redeploys_an_existing_app_without_creating_it_again():
         FakeResponse(link()),
         FakeResponse(listing(review_app_entry(git_ref="staleref"))),
         FakeResponse(deployment()),
+        FakeResponse(deployment("success")),
     ])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
@@ -242,6 +250,7 @@ def test_ensure_redeploys_an_existing_app_without_creating_it_again():
         ("GET", "/apps/autometa-staging/scm_repo_link"),
         ("GET", "/apps/autometa-staging/scm_repo_link/review_apps"),
         ("POST", "/apps/autometa-staging-pr42/scm_repo_link/manual_deploy"),
+        ("GET", "/apps/autometa-staging-pr42/deployments/dep-1"),
     ]
 
 
@@ -266,7 +275,12 @@ def test_ensure_does_nothing_when_the_head_sha_is_already_deployed():
 def test_ensure_redeploys_unless_the_sha_is_successfully_deployed(deployment_state):
     entry = review_app_entry()
     entry["last_deployment"] = deployment_state
-    client = FakeClient([FakeResponse(link()), FakeResponse(listing(entry)), FakeResponse(deployment())])
+    client = FakeClient([
+        FakeResponse(link()),
+        FakeResponse(listing(entry)),
+        FakeResponse(deployment()),
+        FakeResponse(deployment("success")),
+    ])
 
     assert review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")["action"] == "updated"
 
@@ -297,6 +311,43 @@ def test_ensure_propagates_a_refused_deployment():
 
     with pytest.raises(httpx.HTTPError):
         review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
+
+
+@pytest.mark.parametrize("status", ["hook-error", "build-error", "crashed-error", "aborted"])
+def test_ensure_fails_when_the_build_does_not_succeed(status):
+    """Sans cette attente, un hook-error publierait un déploiement GitHub vert sur une URL morte."""
+    client = FakeClient([
+        FakeResponse(link()),
+        FakeResponse(listing(review_app_entry(git_ref="stale"))),
+        FakeResponse(deployment()),
+        FakeResponse(deployment(status)),
+    ])
+
+    with pytest.raises(RuntimeError, match=status):
+        review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
+
+
+def test_wait_for_deployment_polls_until_the_build_leaves_the_pending_statuses(mocker):
+    sleep = mocker.patch.object(review_app.time, "sleep")
+    client = FakeClient([
+        FakeResponse(deployment("building")),
+        FakeResponse(deployment("starting")),
+        FakeResponse(deployment("success")),
+    ])
+
+    review_app.wait_for_deployment(client, "jwt", "autometa-staging-pr42", "dep-1")
+
+    assert len(client.calls) == 3
+    assert sleep.call_count == 2
+
+
+def test_wait_for_deployment_gives_up_loudly(mocker):
+    mocker.patch.object(review_app.time, "sleep")
+    mocker.patch.object(review_app.time, "monotonic", side_effect=[0.0, 10_000.0])
+    client = FakeClient([FakeResponse(deployment("building"))])
+
+    with pytest.raises(RuntimeError, match="building"):
+        review_app.wait_for_deployment(client, "jwt", "autometa-staging-pr42", "dep-1")
 
 
 def test_wait_for_addons_polls_until_every_addon_is_running(mocker):
