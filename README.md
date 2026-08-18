@@ -195,12 +195,32 @@ Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour
 ### Review apps
 
 Chaque pull request interne non-draft obtient une review app Scalingo, créée par la CI une fois
-lint, sécurité, tests et migrations au vert, puis détruite à la fermeture de la PR. L'URL apparaît dans
-l'encart de déploiement de la PR.
+lint, sécurité, tests et migrations au vert. L'URL apparaît dans l'encart de déploiement de la PR.
+
+| Événement | Ce qui se passe |
+|---|---|
+| PR ouverte non-draft, ou passée en « ready » | la CI crée la review app, attend ses addons, puis la déploie |
+| Nouveau commit | la CI redéploie, sans rien demander à personne |
+| PR repassée en draft | la CI éteint l'app (`web` à zéro conteneur). L'addon PostgreSQL, lui, continue de tourner |
+| 72 h sans déploiement | Scalingo détruit l'app et son addon. Le push suivant la recrée |
+| PR fermée ou fusionnée | Scalingo détruit l'app sans délai. La CI éteint l'encart de la PR |
+
+La CI **ne peut pas supprimer** une review app : le compte qu'elle utilise est collaborateur de
+`autometa-staging`, et Scalingo réserve la suppression au propriétaire. Les trois destructions
+ci-dessus viennent donc toutes de Scalingo lui-même, via `delete_on_close_enabled` et
+`delete_stale_enabled`. Si l'un de ces deux réglages est désactivé depuis le dashboard, des review
+apps resteraient en vie sans que rien ne les rattrape : la CI vérifie le premier à chaque exécution
+et échoue s'il a bougé.
 
 Une review app est un enfant de `autometa-staging` : elle **hérite de ses variables
-d'environnement**, donc de vraies clés Matomo, Metabase, S3 et du token Anthropic. Sa base de
-données, elle, est vide — Scalingo ne copie jamais le contenu des addons.
+d'environnement**, donc de vraies clés Matomo, Metabase, S3 et du token Anthropic. Elle reçoit en
+revanche ses **propres addons**, vides — les migrations sont jouées au postdeploy, mais aucune
+donnée n'est copiée. Concrètement : ni tableau de bord, ni catalogue Matomo ou Metabase. Pour
+relire une modification d'interface ou d'API c'est sans importance, pour relire un changement qui
+touche les tableaux de bord, il n'y aura rien à voir.
+
+L'URL apparaît dans la PR dès que le déploiement est lancé, pas quand il est terminé : comptez
+deux à trois minutes de plus avant qu'elle réponde.
 
 C'est la raison pour laquelle les pull requests venant de forks n'en obtiennent pas, et n'en
 obtiendront pas : cf. le bulletin Scalingo SSB-2023-001. Pour prévisualiser une contribution

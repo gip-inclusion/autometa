@@ -36,7 +36,8 @@ Réglages du lien SCM, tous déjà dans l'état voulu :
 | `automatic_creation_from_forks_allowed` | `false` |
 | `delete_on_close_enabled` | `true` |
 | `hours_before_delete_on_close` | `0` |
-| `delete_stale_enabled` | `false` |
+| `delete_stale_enabled` | `true` |
+| `hours_before_delete_stale` | `72` |
 
 Ces valeurs constituent l'invariant sur lequel repose le design : Scalingo ne crée aucune review app
 de lui-même, et n'en crée en particulier jamais depuis un fork. Aucune commande n'est nécessaire
@@ -55,7 +56,8 @@ déploiement GitHub à `inactive`, que Scalingo ne fera jamais.
 | PR de forks | jamais de review app |
 | Périmètre | toutes les PR internes non-draft |
 | Conditionnement | déploiement seulement si lint + security + test + migrations passent |
-| Destruction | à toute fermeture de PR, merge ou abandon, sans délai |
+| Destruction | jamais par la CI : Scalingo détruit à la fermeture et après 72 h sans déploiement |
+| Passage en draft | la CI éteint l'app (`web` à zéro), Scalingo ne réagissant pas à cet événement |
 | Restitution | GitHub Deployments API |
 | Identité | compte Scalingo dédié `reviewapp.autometa@inclusion.gouv.fr` |
 
@@ -65,13 +67,16 @@ déploiement GitHub à `inactive`, que Scalingo ne fera jamais.
 PR ouverte / push / draft→ready          PR fermée (merge ou abandon)
         │                                        │
    ci.yml (existant)                    review-app-teardown.yml
-   lint ─ security ─ test ─ migrations           │
-        └──> job review-app  [needs: tous]       │
+   lint ─ security ─ test ─ migrations      closed ──> job deactivate
+        └──> job review-app  [needs: tous]  draft  ──> job stop
                     │                            │
-        scripts/review_app.py ensure    scripts/review_app.py destroy
-                    │                            │
-              API Scalingo                 API Scalingo
+        scripts/review_app.py ensure     scripts/review_app.py stop
+                    │                     (sur draft seulement)
+              API Scalingo
 ```
+
+À la fermeture, Scalingo détruit l'app de lui-même : il ne reste qu'à éteindre l'encart de la PR,
+sans checkout, sans Python et sans token Scalingo.
 
 Deux workflows, parce que `closed` et `opened|synchronize|reopened|ready_for_review` appellent des
 travaux disjoints : relancer les tests à la fermeture d'une PR n'a pas de sens.
@@ -87,42 +92,50 @@ L'état voulu est décrit, pas les transitions. Le job compare le SHA déployé 
 
 | État constaté | Action |
 |---|---|
-| Aucune review app pour la PR | `POST /v1/apps/autometa-staging/scm_repo_link/manual_review_app` |
-| Existe, SHA déployé == `head.sha` | aucune |
-| Existe, SHA déployé ≠ `head.sha` | `POST .../manual_review_app` |
+| Aucune review app pour la PR | créer, attendre les addons, puis déployer |
+| Existe, dernier déploiement en `success` sur `head.sha` | aucune |
+| Existe, tout autre cas | déployer |
 
-Un seul endpoint sert la création et la mise à jour. L'état constaté vient de
-`GET /v1/apps/autometa-staging/scm_repo_link/review_apps`, qui fournit le nom de l'app et son
-dernier déploiement. Le nom vient toujours de l'API quand elle le donne : la review app listée
-d'abord, sinon le corps de la réponse au `POST` de création. La convention `autometa-staging-pr<N>`
-ne sert que de repli, si aucune des deux sources ne porte de nom — la forme exacte du corps de
-réponse du `POST` restant à observer.
+Deux endpoints, pas un seul. `POST /v1/apps/autometa-staging/scm_repo_link/manual_review_app` crée
+l'app et provisionne ses addons, **sans jamais la déployer** : elle reste en `status: "new"`. Le
+déploiement vient de `POST /v1/apps/{review_app}/scm_repo_link/manual_deploy`, avec la branche de la
+PR. Un second `manual_review_app` sur une review app existante renvoie un `HTTP 500 — name has
+already been taken`, il ne sert donc jamais à mettre à jour.
 
-La convergence est la propriété qui compte. Scalingo redéploie déjà les review apps sur push via son
-webhook ; si le webhook a fait le travail, on constate le bon SHA et on ne fait rien, s'il l'a raté
-on rattrape. La même logique absorbe une review app supprimée à la main ou une CI relancée.
+Entre les deux, il faut attendre que les addons passent `running` : l'addon PostgreSQL met une
+soixantaine de secondes, et `DATABASE_URL` n'existe qu'à ce moment-là. Déployer avant, c'est un
+postdeploy qui meurt sur une URL de base vide.
 
-**À vérifier en premier à l'implémentation** : que `POST manual_review_app` sur une PR ayant déjà une
-review app redéploie au lieu de renvoyer un conflit. Si c'est un conflit, la branche « obsolète »
-bascule sur `manual_deploy` de la branche de la PR. L'architecture ne change pas.
+L'état constaté vient de `GET /v1/apps/autometa-staging/scm_repo_link/review_apps`, qui fournit le
+nom de l'app et son dernier déploiement. Le nom vient de l'API : la review app listée d'abord, sinon
+le corps de la réponse au `POST` de création, sous `review_app.app_name`.
 
-**Troisième hypothèse non vérifiée, à mettre sur la liste de la validation de bout en bout** : que
-`last_deployment.git_ref` porte bien le SHA de tête complet, sur 40 caractères. Contrairement aux deux
-autres, son échec est silencieux : si Scalingo y stocke un SHA abrégé, un nom de branche ou une
-référence, l'égalité de la comparaison n'est jamais vraie, chaque exécution POSTe
-`manual_review_app`, et on obtient un build Scalingo par passage de la CI pendant que tout reste
-vert. Le signal d'échec est donc un flux d'`"action": "updated"` sur des commits inchangés — un
-`noop` doit apparaître dès qu'on relance la CI sans nouveau commit.
+Un déploiement qui n'est pas en `success` ne compte pas comme déployé : une app morte en
+`hook-error` sur le bon SHA doit être redéployée, pas déclarée à jour.
 
-La destruction est idempotente : review app absente vaut succès. Une PR fermée deux fois, ou déjà
-nettoyée par Scalingo — cas nominal, puisque `delete_on_close_enabled` est actif — ne doit pas faire
-échouer la CI.
+La convergence est la propriété qui compte. `deploy_review_apps_enabled` est à `false`, donc rien ne
+redéploie de lui-même et c'est toujours la CI qui agit. En contrepartie, la même logique absorbe sans
+rien savoir une review app détruite par `delete_stale_enabled`, supprimée à la main, ou une CI
+relancée : elle constate, et elle ramène à l'état voulu.
+
+La CI ne détruit jamais. Le compte qu'elle utilise est collaborateur de `autometa-staging`, et
+Scalingo réserve la suppression au propriétaire — un `DELETE` répond `401`. Trois mécanismes s'en
+chargent à sa place, tous côté Scalingo :
+
+- `delete_on_close_enabled` à la fermeture de la PR, sans délai ;
+- `delete_stale_enabled` après 72 h sans déploiement, le compteur repartant à chaque déploiement ;
+- rien au passage en draft, où Scalingo ne réagit pas : la CI éteint alors l'app avec
+  `POST /v1/apps/{review_app}/scale` et `web` à zéro, ce qu'un collaborateur a le droit de faire.
+
+Ces deux réglages portent donc à eux seuls la garantie que rien ne fuit. `ensure` lit le lien SCM à
+chaque exécution et échoue si `delete_on_close_enabled` est repassé à `false`, pour qu'une bascule
+depuis le dashboard se voie en rouge au lieu de passer inaperçue.
 
 ## Découpage
 
 ### `scripts/review_app.py`
 
-Deux sous-commandes, `ensure` et `destroy`. `httpx` avec timeout explicite, conformément aux règles
+Deux sous-commandes, `ensure` et `stop`. `httpx` avec timeout explicite, conformément aux règles
 du dépôt. Authentification : échange du token contre un bearer court sur
 `auth.scalingo.com/v1/tokens/exchange`. Le bearer ne quitte jamais le processus — il n'est ni écrit
 sur la sortie standard ni exporté vers le workflow, ce qu'un test vérifie
@@ -151,14 +164,29 @@ voir la section Sécurité, qui explique pourquoi.
 
 ### `.github/workflows/review-app-teardown.yml`
 
-Déclenché sur `pull_request: types: [closed]`. Checkout de `base.ref` — il en faut un pour exécuter
-le script — mais jamais du head de la PR.
+Déclenché sur `pull_request: types: [closed, converted_to_draft]`, avec un job par événement parce
+qu'ils n'ont presque rien en commun.
+
+Le job `stop` ne tourne qu'au passage en draft. Il éteint la review app, donc il a besoin du script,
+donc d'un checkout de `base.ref` — la branche de destination, jamais le head de la PR, qui peut
+d'ailleurs avoir déjà disparu.
+
+Le job `deactivate` ne tourne qu'à la fermeture. Scalingo ayant déjà détruit l'app, il ne fait plus
+que passer les déploiements GitHub à `inactive` : ni checkout, ni Python, ni accès au secret
+Scalingo. C'est du `gh api`, préinstallé sur le runner.
 
 ### `tests/test_review_app.py`
 
-`parametrize` sur les trois états de réconciliation, en vérifiant les appels HTTP émis. Plus la
-destruction idempotente et l'absence du bearer dans les logs. Mocks via `mocker` (pytest-mock).
-Aucun marqueur : le test tourne sans service ni credentials.
+`parametrize` sur les états de réconciliation, en vérifiant la séquence exacte des appels HTTP
+émis — c'est elle qui porte le sens, puisque créer et déployer sont deux appels distincts. Plus
+l'extinction, l'attente des addons, et l'absence du bearer dans les logs.
+
+Les chemins d'échec sont testés autant que les chemins nominaux : un `FakeClient` qui fait toujours
+réussir encode les hypothèses au lieu de les éprouver, et c'est ce qui avait laissé passer le `500`
+de `manual_review_app`. Le double factice sait donc renvoyer `500` et `401`.
+
+Doubles écrits à la main pour la couche HTTP (`FakeClient`, `FakeResponse`), `mocker` (pytest-mock)
+pour le reste. Aucun marqueur : le test tourne sans service ni credentials.
 
 ## Sécurité
 
@@ -234,6 +262,37 @@ Encart natif dans la PR, historique conservé, pas de commentaire dans la conver
 
 Cette dernière ligne clôt la question laissée ouverte à la conception : le compte dédié n'a besoin
 d'aucune intégration GitHub propre.
+
+## Sondage de bout en bout (2026-08-18)
+
+Deux pull requests jetables (#195, #196), créées, déployées, passées en draft, éteintes et fermées,
+avec le token de `reviewapp.autometa`. Tout ce qui suit est mesuré, pas supposé.
+
+| Appel | Résultat |
+|---|---|
+| `POST manual_review_app` | `200` en 17 s. Crée l'app et provisionne ses addons, **sans la déployer** : `status: "new"`, zéro déploiement |
+| Provisionnement de l'addon PostgreSQL | ~63 s. `DATABASE_URL` n'apparaît qu'une fois l'addon `running` |
+| `POST {review_app}/scm_repo_link/manual_deploy` | `200`. Build ~2 min, postdeploy compris |
+| `POST manual_review_app` une seconde fois | `500 — create app: * name → has already been taken` |
+| Passage de la PR en draft | aucune réaction de Scalingo, la review app reste debout et saine |
+| `POST {review_app}/scale` avec `web: 0` | `202` |
+| `DELETE {review_app}` | `401` |
+| Fermeture de la PR | app détruite en moins de 20 s |
+| `delete_stale`, testé à 1 h | destruction automatique confirmée, addon compris |
+
+Trois précisions qui ne se devinent pas :
+
+- `stale_deletion_date` **se réinitialise à chaque déploiement** : le seuil compte les heures sans
+  déploiement, pas depuis la création.
+- La péremption n'est pas ponctuelle. Scalingo balaie périodiquement : échéance à 10:37 UTC,
+  destruction effective vers 11:00. Sans conséquence à 72 h, ça en aurait eu à un seuil court.
+- Le compte `reviewapp.autometa` est collaborateur, comme les six autres comptes humains ;
+  `service.prod@inclusion.gouv.fr` est le seul propriétaire. Aucun token provisionnable ne pourra
+  donc supprimer une review app.
+
+Les trois hypothèses restées ouvertes sont tranchées : `last_deployment.git_ref` **est** le SHA
+complet sur 40 caractères, le nom suit bien `autometa-staging-pr<N>`, et `manual_review_app` ne
+redéploie pas.
 
 ## Mise en place hors code
 
