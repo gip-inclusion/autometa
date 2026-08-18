@@ -1,3 +1,7 @@
+import gzip
+
+import pytest
+
 from web import s3
 
 
@@ -73,3 +77,92 @@ def test_publications_store_uses_same_client_as_interactive():
 
     # Same module-level boto client; we share credentials and bucket.
     assert s3.publications.__class__ is s3.interactive.__class__
+
+
+def _fake_object(mocker, body: bytes, **extra):
+    stream = mocker.MagicMock()
+    stream.read.return_value = body
+    return {"Body": stream, **extra}
+
+
+def _only_source(keys: list[str]):
+    def fake_list(bucket, prefix):
+        return keys if prefix == "publications/x/" else []
+
+    return fake_list
+
+
+def test_sync_prefix_gzips_compressible_assets(mocker):
+    payload = b'{"rows": [' + b'{"a": 1},' * 500 + b'{"a": 1}]}'
+    mocker.patch.object(s3, "list_prefix", side_effect=_only_source(["publications/x/data.json"]))
+    mocker.patch.object(
+        s3._client, "get_object", return_value=_fake_object(mocker, payload, ContentType="application/json")
+    )
+    put = mocker.patch.object(s3._client, "put_object")
+    copy = mocker.patch.object(s3._client, "copy_object")
+
+    assert s3.sync_prefix("publications/x/", "dst-bucket", "dashboards/x/") == 1
+
+    copy.assert_not_called()
+    kwargs = put.call_args.kwargs
+    assert kwargs["Bucket"] == "dst-bucket"
+    assert kwargs["Key"] == "dashboards/x/data.json"
+    assert kwargs["ContentEncoding"] == "gzip"
+    assert kwargs["ContentType"] == "application/json"
+    assert gzip.decompress(kwargs["Body"]) == payload
+    assert len(kwargs["Body"]) < len(payload)
+
+
+@pytest.mark.parametrize("name", ["logo.png", "font.woff2", "photo.jpg", "archive.zip"])
+def test_sync_prefix_leaves_binary_assets_uncompressed(mocker, name):
+    mocker.patch.object(s3, "list_prefix", side_effect=_only_source([f"publications/x/{name}"]))
+    get = mocker.patch.object(s3._client, "get_object")
+    put = mocker.patch.object(s3._client, "put_object")
+    copy = mocker.patch.object(s3._client, "copy_object")
+
+    assert s3.sync_prefix("publications/x/", "dst-bucket", "dashboards/x/") == 1
+
+    copy.assert_called_once()
+    put.assert_not_called()
+    get.assert_not_called()
+
+
+def test_sync_prefix_skips_compression_when_it_does_not_pay(mocker):
+    mocker.patch.object(s3, "list_prefix", side_effect=_only_source(["publications/x/tiny.json"]))
+    mocker.patch.object(
+        s3._client, "get_object", return_value=_fake_object(mocker, b"{}", ContentType="application/json")
+    )
+    put = mocker.patch.object(s3._client, "put_object")
+    copy = mocker.patch.object(s3._client, "copy_object")
+
+    assert s3.sync_prefix("publications/x/", "dst-bucket", "dashboards/x/") == 1
+
+    put.assert_not_called()
+    copy.assert_called_once()
+
+
+def test_sync_prefix_never_double_encodes(mocker):
+    mocker.patch.object(s3, "list_prefix", side_effect=_only_source(["publications/x/data.json"]))
+    mocker.patch.object(
+        s3._client,
+        "get_object",
+        return_value=_fake_object(mocker, b"x" * 5000, ContentType="application/json", ContentEncoding="gzip"),
+    )
+    put = mocker.patch.object(s3._client, "put_object")
+    copy = mocker.patch.object(s3._client, "copy_object")
+
+    assert s3.sync_prefix("publications/x/", "dst-bucket", "dashboards/x/") == 1
+
+    put.assert_not_called()
+    copy.assert_called_once()
+
+
+def test_copy_prefix_never_compresses(mocker):
+    mocker.patch.object(s3, "list_prefix", return_value=["interactive/x/data.json"])
+    get = mocker.patch.object(s3._client, "get_object")
+    copy = mocker.patch.object(s3._client, "copy_object")
+
+    s3.copy_prefix("interactive/x/", s3.config.S3_BUCKET, "publications/x/abc123/")
+
+    copy.assert_called_once()
+    get.assert_not_called()
