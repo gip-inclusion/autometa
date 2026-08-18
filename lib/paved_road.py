@@ -185,9 +185,16 @@ def git_output(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
+def file_at(sha: str, path: str) -> str:
+    """Contenu d'un fichier à une révision, vide s'il n'existe pas encore."""
+    return subprocess.run(["git", "show", f"{sha}:{path}"], capture_output=True, text=True, check=False).stdout
+
+
 def coverage_floors_at(sha: str) -> tuple[float | None, float | None]:
-    """Les deux planchers `fail_under` déclarés dans pyproject.toml à une révision donnée."""
-    tools = tomllib.loads(git_output("show", f"{sha}:pyproject.toml")).get("tool", {})
+    """Les deux planchers `fail_under` à une révision — gates.toml depuis le milestone 0, pyproject.toml avant."""
+    tools = {}
+    for path in ("pyproject.toml", "gates.toml"):
+        tools |= tomllib.loads(file_at(sha, path)).get("tool", {})
     return (
         tools.get("coverage", {}).get("report", {}).get("fail_under"),
         tools.get("diff_cover", {}).get("fail_under"),
@@ -197,8 +204,9 @@ def coverage_floors_at(sha: str) -> tuple[float | None, float | None]:
 def coverage_floor_drift(since: datetime) -> list[dict]:
     """Changements des planchers de couverture (globale et diff) sur la fenêtre, valeur d'entrée incluse."""
     day = since.date().isoformat()
-    commits = git_output("log", "-1", f"--until={day}", "--format=%H %aI", "--", "pyproject.toml").splitlines()
-    commits += git_output("log", "--reverse", f"--since={day}", "--format=%H %aI", "--", "pyproject.toml").splitlines()
+    paths = ["--", "pyproject.toml", "gates.toml"]
+    commits = git_output("log", "-1", f"--until={day}", "--format=%H %aI", *paths).splitlines()
+    commits += git_output("log", "--reverse", f"--since={day}", "--format=%H %aI", *paths).splitlines()
 
     drift = []
     previous = None
