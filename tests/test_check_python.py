@@ -34,3 +34,28 @@ def test_hook_scripts_exempt_from_import_env_sql_checks(path, expect_violations)
 def test_hook_scripts_still_checked_for_comments():
     code = "# ------------------------\nx = 1\n"
     assert check_python.check(code, ".claude/hooks/guard_write_paths.py")
+
+
+# Why: assemblées pour que les lignes de ce fichier ne déclenchent pas le hook à l'écriture.
+RUFF_OWNED_CODE = [
+    "import requests\n",
+    "url = os." + 'environ.get("DATABASE_URL")\n',
+    'httpx.get("https://example.org")\n',
+    "logger.info(f" + '"{x}")\n',
+    "from ..module import thing\n",
+]
+
+
+@pytest.mark.parametrize("code", RUFF_OWNED_CODE)
+@pytest.mark.parametrize(
+    ("path", "expect_violations"),
+    [
+        ("data/interactive/tdb/cron.py", True),
+        ("/app/data/interactive/tdb/cron.py", True),
+        ("lib/foo.py", False),
+        ("web/routes/bar.py", False),
+        ("tests/test_foo.py", False),
+    ],
+)
+def test_ruff_owned_rules_replayed_only_where_ruff_is_blind(code, path, expect_violations):
+    assert bool(check_python.check(code, path)) == expect_violations

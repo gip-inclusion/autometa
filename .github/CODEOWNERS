@@ -1,0 +1,40 @@
+# Fichiers dont la modification exige une approbation humaine.
+#
+# Le critère d'inscription n'est pas l'importance du fichier, c'est la fréquence à
+# laquelle du travail ordinaire le touche : un CODEOWNERS qui se réveille tous les
+# jours produit des approbations en série sans lecture.
+#
+# `web/models.py` et `alembic/` sont volontairement absents — une fonctionnalité
+# applicative ordinaire y atterrit trop souvent.
+#
+# Ce fichier ne bloque rien tant que `require_code_owner_reviews` n'est pas activé
+# sur la protection de `main`. Une entrée dont le titulaire n'a pas un droit `write`
+# explicite est ignorée par GitHub sans erreur : le job `Security` interroge
+# `/codeowners/errors` pour que cette extinction ne soit pas silencieuse.
+#
+# Titulaires nommés faute d'équipe GitHub sur ce dépôt. À remplacer par une équipe
+# dotée d'un droit `write` explicite et d'au moins deux membres — un auteur ne
+# s'auto-approuve pas, et un titulaire unique rendrait ses propres PR immergeables.
+
+# --- Les gates eux-mêmes : sans eux, l'agent se débloque en abaissant un seuil ---
+
+/gates.toml                 @cdarnispro @francoisfreitag @louije
+/.github/workflows/         @cdarnispro @francoisfreitag @louije
+/.github/CODEOWNERS         @cdarnispro @francoisfreitag @louije
+/.claude/hooks/             @cdarnispro @francoisfreitag @louije
+/.claude/settings.json      @cdarnispro @francoisfreitag @louije
+
+# --- Zones critiques sans successeur après le retrait de zones-critiques.md ---
+
+/web/db.py                  @cdarnispro @francoisfreitag @louije
+/web/runner.py              @cdarnispro @francoisfreitag @louije
+/web/uploads.py             @cdarnispro @francoisfreitag @louije
+/web/s3.py                  @cdarnispro @francoisfreitag @louije
+/web/notion.py              @cdarnispro @francoisfreitag @louije
+/web/agents/base.py         @cdarnispro @francoisfreitag @louije
+/web/agents/cli.py          @cdarnispro @francoisfreitag @louije
+/lib/matomo.py              @cdarnispro @francoisfreitag @louije
+/lib/metabase.py            @cdarnispro @francoisfreitag @louije
+/config/sources.yaml        @cdarnispro @francoisfreitag @louije
+/docker-compose.yml         @cdarnispro @francoisfreitag @louije
+/Dockerfile                 @cdarnispro @francoisfreitag @louije

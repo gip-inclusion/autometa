@@ -1,0 +1,62 @@
+# Seuils de qualité de la CI.
+#
+# Séparé de `pyproject.toml` pour deux raisons : ce fichier est couvert par
+# CODEOWNERS et abaisser un seuil doit rester un acte visible, alors que
+# `pyproject.toml` porte aussi les dépendances et change plusieurs fois par jour.
+#
+# Référencé par `--cov-config` (coverage) et `--config-file` (diff-cover).
+
+[tool.coverage.run]
+branch = true
+source = ["web", "lib", "scripts"]
+
+[tool.coverage.report]
+precision = 2
+fail_under = 74.90
+
+[tool.diff_cover]
+fail_under = 90
+
+# Routes FastAPI sans dépendance d'authentification, gelées au 2026-08-17.
+# `scripts/check_route_auth.py` refuse toute route neuve absente de cette liste, et refuse
+# aussi une entrée devenue inutile — la baseline se résorbe, elle ne s'étend pas.
+# `web/routes/query.py:query` exécute du SQL fourni par le client : traité à part.
+[tool.route_auth]
+allowlist = [
+    "web/app.py:serve_interactive",
+    "web/routes/auth.py:status",
+    "web/routes/conversations.py:get_conversation_tags",
+    "web/routes/conversations.py:get_file",
+    "web/routes/conversations.py:get_file_content_endpoint",
+    "web/routes/conversations.py:list_files",
+    "web/routes/cron.py:run_task",
+    "web/routes/cron.py:task_logs",
+    "web/routes/cron.py:toggle_task",
+    "web/routes/cron.py:view_script",
+    "web/routes/html.py:explorations",
+    "web/routes/html.py:rechercher_redirect",
+    "web/routes/jobs.py:cancel_run",
+    "web/routes/jobs.py:create_pipeline",
+    "web/routes/jobs.py:run_events",
+    "web/routes/jobs.py:run_output",
+    "web/routes/jobs.py:run_status",
+    "web/routes/jobs.py:trigger_run",
+    "web/routes/knowledge.py:abandon_knowledge_changes",
+    "web/routes/knowledge.py:commit_knowledge_changes",
+    "web/routes/knowledge.py:get_knowledge_file",
+    "web/routes/knowledge.py:get_staged_files",
+    "web/routes/knowledge.py:list_knowledge",
+    "web/routes/knowledge.py:preview_staged_file",
+    "web/routes/query.py:query",
+    "web/routes/reports.py:archive_report",
+    "web/routes/reports.py:delete_report",
+    "web/routes/reports.py:get_report",
+    "web/routes/reports.py:get_report_tags",
+    "web/routes/reports.py:list_reports",
+    "web/routes/reports.py:list_tags",
+    "web/routes/reports.py:publish_to_notion",
+    "web/routes/reports.py:rapport_txt",
+    "web/routes/reports.py:rapports_list",
+    "web/routes/reports.py:set_report_tags",
+    "web/selftest.py:selftest",
+]

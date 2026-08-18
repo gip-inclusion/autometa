@@ -24,7 +24,7 @@ import pytest
 from lib.query import get_metabase
 from skills.metabase_query.scripts.cards_db import load_cards_db
 
-_HAS_CREDENTIALS = bool(os.environ.get("METABASE_STATS_API_KEY"))
+_HAS_CREDENTIALS = bool(os.environ.get("METABASE_STATS_API_KEY"))  # noqa: TID251
 requires_credentials = pytest.mark.skipif(
     not _HAS_CREDENTIALS, reason="Integration test requires METABASE_STATS_API_KEY"
 )

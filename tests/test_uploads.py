@@ -15,7 +15,7 @@ import pytest
 
 # Set up test environment BEFORE any imports
 _tmp_dir = tempfile.mkdtemp()
-os.environ["DATA_DIR"] = _tmp_dir
+os.environ["DATA_DIR"] = _tmp_dir  # noqa: TID251
 
 # Now we can safely import
 from web import config

@@ -27,6 +27,10 @@ jobs:
       - run: uv run ruff check web/ lib/ tests/ scripts/
       - run: uv run ruff format --check web/ lib/ tests/ scripts/
       - run: uv run python scripts/check_test_quality.py tests
+      # Observation avant cliquet — baseline au 2026-08-17 : S608 22 cas, BLE001 11 cas.
+      # BLE001 ignore la convention `# Why:` de .claude/rules/code.md : une part est légitime.
+      - name: Règles en observation
+        run: uv run ruff check --select S608,BLE001 --statistics --exit-zero
 
   security:
     name: Security
@@ -43,10 +47,8 @@ jobs:
       - name: Bandit (SAST)
         run: uv run bandit -r web/ lib/ -c pyproject.toml --severity-level medium --confidence-level high -q
 
-      - name: pip-audit
-        run: |
-          uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt
-          uv run pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
+      - name: Protection des routes
+        run: uv run python scripts/check_route_auth.py
 
       - name: Gitleaks
         env:
@@ -68,6 +70,24 @@ jobs:
           else
             ./gitleaks detect --source . -v
           fi
+
+      - name: CODEOWNERS actif
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          errors=$(gh api "repos/${{ github.repository }}/codeowners/errors?ref=$REF" --jq '.errors | length')
+          if [ "$errors" != "0" ]; then
+            gh api "repos/${{ github.repository }}/codeowners/errors?ref=$REF" \
+              --jq '.errors[] | "ligne \(.line) : \(.message)"'
+            echo "::error::$errors entrée(s) de CODEOWNERS sont inertes — GitHub les ignore sans erreur."
+            exit 1
+          fi
+
+      - name: Dérive des checks requis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python scripts/check_required_checks.py
 
   test:
     name: Tests
@@ -113,10 +133,10 @@ jobs:
       - name: Unit tests
         run: >-
           uv run pytest tests/ infra/ -q --tb=short -m "not integration and not external"
-          --cov --cov-branch
+          --cov --cov-branch --cov-config=gates.toml
           --cov-report=term-missing:skip-covered --cov-report=xml
       - name: Diff coverage gate
-        run: uv run diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref || 'main' }} --config-file pyproject.toml
+        run: uv run diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref || 'main' }} --config-file gates.toml
 
   migrations:
     name: Migrations

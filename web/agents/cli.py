@@ -45,7 +45,9 @@ class CLIBackend(AgentBackend):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
 
     def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
-        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        # Why: transmission de l'environnement complet au sous-processus, pas une lecture
+        # de configuration — seul ANTHROPIC_API_KEY est retiré.
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}  # noqa: TID251
         if conversation_id:
             env["AUTOMETA_CONVERSATION_ID"] = conversation_id
         if user_email:

@@ -1,0 +1,25 @@
+name: Dependencies
+
+# pip-audit scanne l'arbre de dépendances, pas le diff : il devient rouge sur une
+# publication de CVE amont, à un moment que personne ne choisit. Ce workflow est
+# volontairement séparé de `ci.yml` et hors `required_status_checks`.
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+      - run: uv sync --group dev --frozen
+      - run: make deps-audit

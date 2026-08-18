@@ -4,6 +4,13 @@ import importlib
 import os
 from urllib.parse import urlparse, urlunparse
 
+from dotenv import load_dotenv
+
+# Avant toute lecture de DATABASE_URL, sinon un poste sans variable exportée se connecte
+# au socket local au lieu de la base de docker-compose. Les variables déjà exportées (CI)
+# l'emportent sur .env.
+load_dotenv()
+
 # Force a dedicated test database BEFORE any app code loads config.
 # If DATABASE_URL already ends with _test (CI), keep it. Otherwise append _test.
 _original_url = os.environ.get("DATABASE_URL", "")
@@ -17,13 +24,6 @@ os.environ.setdefault("PUBLIC_DASHBOARDS_BUCKET_STAGING", "test-staging-bucket")
 os.environ.setdefault("PUBLIC_DASHBOARDS_BUCKET_PROD", "test-prod-bucket")
 
 import pytest
-
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
 
 
 # Create the test database if it doesn't exist (uses the original URL to connect)
