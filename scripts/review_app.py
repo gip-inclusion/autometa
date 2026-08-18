@@ -3,12 +3,22 @@
 import argparse
 import json
 import sys
+import time
 
 import httpx
 
 AUTH_URL = "https://auth.scalingo.com/v1/tokens/exchange"
 API_URL = "https://api.osc-fr1.scalingo.com/v1"
 TIMEOUT = 30.0
+# Why: la création provisionne les addons avant de répondre — mesurée à 17 s, elle déborde TIMEOUT
+CREATE_TIMEOUT = 300.0
+# Why: l'addon PostgreSQL met une soixantaine de secondes à passer "running"
+ADDONS_TIMEOUT = 300.0
+ADDONS_POLL_SECONDS = 10.0
+
+
+def headers(bearer):
+    return {"Authorization": f"Bearer {bearer}"}
 
 
 def exchange_token(client, api_token):
@@ -18,11 +28,18 @@ def exchange_token(client, api_token):
     return response.json()["token"]
 
 
+def scm_repo_link(client, bearer, parent_app):
+    """La configuration du lien SCM de l'app parente."""
+    response = client.get(f"{API_URL}/apps/{parent_app}/scm_repo_link", headers=headers(bearer), timeout=TIMEOUT)
+    response.raise_for_status()
+    return response.json()["scm_repo_link"]
+
+
 def find_review_app(client, bearer, parent_app, pr_number):
     """La review app rattachée à cette PR, ou None."""
     response = client.get(
         f"{API_URL}/apps/{parent_app}/scm_repo_link/review_apps",
-        headers={"Authorization": f"Bearer {bearer}"},
+        headers=headers(bearer),
         timeout=TIMEOUT,
     )
     response.raise_for_status()
@@ -37,16 +54,41 @@ def app_url(app_name):
     return f"https://{app_name}.osc-fr1.scalingo.io"
 
 
-def deploy_review_app(client, bearer, parent_app, pr_number):
-    """Déclenche la création, et renvoie la review app décrite par Scalingo."""
+def create_review_app(client, bearer, parent_app, pr_number):
+    """Crée la review app et provisionne ses addons. Ne la déploie pas."""
     response = client.post(
         f"{API_URL}/apps/{parent_app}/scm_repo_link/manual_review_app",
-        headers={"Authorization": f"Bearer {bearer}"},
+        headers=headers(bearer),
         json={"pull_request_id": pr_number},
-        timeout=TIMEOUT,
+        timeout=CREATE_TIMEOUT,
     )
     response.raise_for_status()
     return response.json()["review_app"]
+
+
+def wait_for_addons(client, bearer, app_name, timeout=ADDONS_TIMEOUT):
+    """Attend que les addons soient provisionnés : DATABASE_URL n'existe qu'à ce moment-là."""
+    deadline = time.monotonic() + timeout
+    while True:
+        response = client.get(f"{API_URL}/apps/{app_name}/addons", headers=headers(bearer), timeout=TIMEOUT)
+        response.raise_for_status()
+        addons = response.json()["addons"]
+        if addons and all(addon["status"] == "running" for addon in addons):
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"addons de {app_name} toujours pas prêts après {timeout} s")
+        time.sleep(ADDONS_POLL_SECONDS)
+
+
+def deploy(client, bearer, app_name, branch):
+    """Déploie une branche sur une review app existante."""
+    response = client.post(
+        f"{API_URL}/apps/{app_name}/scm_repo_link/manual_deploy",
+        headers=headers(bearer),
+        json={"branch": branch},
+        timeout=TIMEOUT,
+    )
+    response.raise_for_status()
 
 
 def deployed_ref(entry):
@@ -59,36 +101,45 @@ def deployed_ref(entry):
 
 def ensure(client, bearer, parent_app, pr_number, sha):
     """Amène la review app de la PR à l'état voulu, quel que soit l'état constaté."""
+    if not scm_repo_link(client, bearer, parent_app)["delete_on_close_enabled"]:
+        raise RuntimeError("delete_on_close_enabled est désactivé : rien ne détruirait plus les review apps")
+
     entry = find_review_app(client, bearer, parent_app, pr_number)
     if entry and deployed_ref(entry) == sha:
         return {"action": "noop", "app": entry["app_name"], "url": app_url(entry["app_name"])}
-    created = deploy_review_app(client, bearer, parent_app, pr_number)
-    name = entry["app_name"] if entry else created["app_name"]
-    return {"action": "updated" if entry else "created", "app": name, "url": app_url(name)}
+
+    action = "updated"
+    if entry is None:
+        entry = create_review_app(client, bearer, parent_app, pr_number)
+        wait_for_addons(client, bearer, entry["app_name"])
+        action = "created"
+
+    name = entry["app_name"]
+    deploy(client, bearer, name, entry["pull_request"]["branch_name"])
+    return {"action": action, "app": name, "url": app_url(name)}
 
 
-def destroy(client, bearer, parent_app, pr_number):
-    """Supprime la review app de la PR. Une review app déjà absente vaut succès."""
+def stop(client, bearer, parent_app, pr_number):
+    """Éteint la review app de la PR : un collaborateur peut scaler à zéro, pas supprimer."""
     entry = find_review_app(client, bearer, parent_app, pr_number)
     if entry is None:
         return {"action": "absent", "app": None}
     name = entry["app_name"]
-    response = client.request(
-        "DELETE",
-        f"{API_URL}/apps/{name}",
-        headers={"Authorization": f"Bearer {bearer}"},
-        params={"current_name": name},
+    response = client.post(
+        f"{API_URL}/apps/{name}/scale",
+        headers=headers(bearer),
+        json={"containers": [{"name": "web", "amount": 0}]},
         timeout=TIMEOUT,
     )
     if response.status_code == 404:
         return {"action": "absent", "app": name}
     response.raise_for_status()
-    return {"action": "destroyed", "app": name}
+    return {"action": "stopped", "app": name}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Réconcilie une review app Scalingo avec sa pull request.")
-    parser.add_argument("command", choices=["ensure", "destroy"])
+    parser.add_argument("command", choices=["ensure", "stop"])
     parser.add_argument("--app", required=True, help="Application parente Scalingo")
     parser.add_argument("--pr", type=int, required=True, help="Numéro de la pull request")
     parser.add_argument("--sha", help="head.sha de la PR, requis pour ensure")
@@ -102,7 +153,7 @@ def main(argv=None):
         if args.command == "ensure":
             result = ensure(client, bearer, args.app, args.pr, args.sha)
         else:
-            result = destroy(client, bearer, args.app, args.pr)
+            result = stop(client, bearer, args.app, args.pr)
     print(json.dumps(result))
     return 0
 
