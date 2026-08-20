@@ -1,0 +1,74 @@
+name: Review app teardown
+
+on:
+  pull_request:
+    types: [closed, converted_to_draft]
+
+permissions:
+  contents: read
+
+jobs:
+  stop:
+    name: Stop review app
+    # Scalingo ne réagit pas au passage en draft, et un collaborateur ne peut pas supprimer une
+    # review app (401) : on l'éteint. Elle sera détruite à la fermeture, ou par delete_stale.
+    if: >-
+      github.event.action == 'converted_to_draft'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    environment: review-app
+    permissions:
+      contents: read
+    concurrency:
+      group: review-app-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      - run: uv sync --group dev --frozen
+
+      - name: Scale the review app down to zero
+        env:
+          SCALINGO_TOKEN: ${{ secrets.SCALINGO_REVIEW_APP_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          printf '%s' "$SCALINGO_TOKEN" \
+            | uv run python scripts/review_app.py stop --app autometa-staging --pr "$PR"
+
+  deactivate:
+    name: Deactivate GitHub deployments
+    # La destruction elle-même est faite par Scalingo (delete_on_close_enabled, sans délai). Il ne
+    # reste qu'à éteindre l'encart de la PR, que Scalingo ne touchera jamais.
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: review-app-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Mark GitHub deployments inactive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          ids=$(gh api --paginate \
+            "repos/$REPO/deployments?environment=review-app-pr-$PR" \
+            --jq '.[].id')
+          for id in $ids; do
+            jq -n '{state: "inactive", description: "Review app détruite"}' \
+              | gh api "repos/$REPO/deployments/$id/statuses" --input - > /dev/null
+          done

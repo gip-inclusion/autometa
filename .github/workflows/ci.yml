@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   schedule:
@@ -166,3 +167,69 @@ jobs:
 
       - name: Build
         run: docker build . --tag autometa:ci
+
+  review-app:
+    name: Review app
+    needs: [lint, security, test, migrations]
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && !github.event.pull_request.draft
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    environment: review-app
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: read
+    concurrency:
+      group: review-app-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      - run: uv sync --group dev --frozen
+
+      - name: Reconcile review app
+        id: reconcile
+        env:
+          SCALINGO_TOKEN: ${{ secrets.SCALINGO_REVIEW_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.state) \(.draft)"')
+          if [ "$pr" != "open false" ]; then
+            echo "PR #$PR est '$pr' : le teardown a déjà pu passer, on ne crée rien."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          result=$(printf '%s' "$SCALINGO_TOKEN" \
+            | uv run python scripts/review_app.py ensure --app autometa-staging --pr "$PR" --sha "$HEAD_SHA")
+          echo "$result"
+          url=$(echo "$result" | jq -er '.url | select(. != null and . != "")')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub deployment
+        if: steps.reconcile.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          URL: ${{ steps.reconcile.outputs.url }}
+        run: |
+          deployment_id=$(jq -n --arg ref "$HEAD_SHA" --arg env "review-app-pr-$PR" \
+            '{ref: $ref, environment: $env, auto_merge: false, required_contexts: [],
+              transient_environment: true, description: "Scalingo review app"}' \
+            | gh api "repos/$REPO/deployments" --input - --jq .id)
+          jq -n --arg url "$URL" '{state: "success", environment_url: $url, description: "Review app déployée"}' \
+            | gh api "repos/$REPO/deployments/$deployment_id/statuses" --input - > /dev/null
