@@ -33,6 +33,8 @@ from web.cron import (
 from web.database import get_db
 from web.models import Dashboard, DashboardPublication
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def interactive_dir(tmp_path, monkeypatch):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop hook: empêche l'agent de conclure sur du lint ou des tests creux (phase 4b, sans DB)."""
+"""Stop hook: empêche l'agent de conclure sur du lint ou des tests creux (la suite tourne au pre-commit)."""
 
 import json
 import subprocess

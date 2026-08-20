@@ -8,6 +8,8 @@ from web import publications
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 def _make_dashboard(slug):
     now = datetime.now(timezone.utc)

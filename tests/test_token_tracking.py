@@ -7,6 +7,8 @@ from web.agents.base import AgentMessage
 from web.agents.cli import CLIBackend
 from web.database import Conversation, ConversationStore, get_db
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.mark.parametrize(
     "field,default",

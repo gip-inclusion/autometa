@@ -4,6 +4,8 @@ import pytest
 
 from web.database import store
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 def headers(email="alice@example.com", **extra):
     return {"X-Forwarded-Email": email, **extra}

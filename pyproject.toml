@@ -73,6 +73,7 @@ dev = [
     "fakeredis>=2.34.1",
     "pytest-cov>=7",
     "diff-cover>=9",
+    "pre-commit>=4.6.1",
 ]
 
 # =============================================================================
@@ -104,6 +105,7 @@ ignore = [
 
 [tool.coverage.run]
 branch = true
+relative_files = true
 source = ["web", "lib", "scripts"]
 
 [tool.coverage.report]

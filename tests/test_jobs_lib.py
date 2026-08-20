@@ -16,6 +16,11 @@ def _autometa_jobs_config(mocker):
     mocker.patch("lib.jobs.config.AUTOMETA_JOBS_DEFINITION_ID", "jobdef-123")
 
 
+@pytest.fixture(autouse=True)
+def _mute_slack(mocker):
+    mocker.patch("lib.jobs.notify_alert_channel")
+
+
 def _fake_response(payload, status=200):
     return httpx.Response(status, json=payload, request=httpx.Request("GET", "https://orch.example"))
 

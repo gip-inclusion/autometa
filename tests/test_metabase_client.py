@@ -2,7 +2,7 @@
 Tests for the Metabase API client.
 
 Unit tests run without credentials.
-Integration tests require credentials: pytest tests/test_metabase_client.py -v -m integration
+External tests require credentials: pytest tests/test_metabase_client.py -v -m external
 """
 
 import base64
@@ -49,9 +49,6 @@ def test_build_sql_url_special_characters_in_sql():
     assert decoded["dataset_query"]["native"]["query"] == sql
 
 
-# All tests below are integration tests
-pytestmark = pytest.mark.integration
-
 # Known collection IDs
 COLLECTION_452 = 452
 COLLECTION_453 = 453
@@ -65,6 +62,7 @@ def api():
     return get_metabase(instance="stats")
 
 
+@pytest.mark.external
 def test_connection_get_current_user(api):
     """Verify API key works and returns user info."""
     user = api.get_current_user()
@@ -73,6 +71,7 @@ def test_connection_get_current_user(api):
     assert "email" in user or "common_name" in user
 
 
+@pytest.mark.external
 def test_execute_sql_simple_query(api):
     result = api.execute_sql("SELECT 1 as test")
     assert isinstance(result, QueryResult)
@@ -81,6 +80,7 @@ def test_execute_sql_simple_query(api):
     assert result.rows[0][0] == 1
 
 
+@pytest.mark.external
 def test_execute_sql_multiple_columns(api):
     result = api.execute_sql("SELECT 1 as a, 2 as b, 'hello' as c")
     assert result.row_count == 1
@@ -88,6 +88,7 @@ def test_execute_sql_multiple_columns(api):
     assert result.rows[0] == [1, 2, "hello"]
 
 
+@pytest.mark.external
 def test_execute_sql_result_to_dicts(api):
     """Test to_dicts conversion."""
     result = api.execute_sql("SELECT 1 as id, 'test' as name")
@@ -96,6 +97,7 @@ def test_execute_sql_result_to_dicts(api):
     assert dicts[0] == {"id": 1, "name": "test"}
 
 
+@pytest.mark.external
 def test_execute_sql_result_to_markdown(api):
     """Test markdown output."""
     result = api.execute_sql("SELECT 1 as id, 'test' as name")
@@ -104,24 +106,28 @@ def test_execute_sql_result_to_markdown(api):
     assert "| 1 | test |" in md
 
 
+@pytest.mark.external
 def test_execute_sql_invalid_sql_raises_error(api):
     """Invalid SQL should raise MetabaseError."""
     with pytest.raises(MetabaseError):
         api.execute_sql("SELECT * FROM nonexistent_table_xyz")
 
 
+@pytest.mark.external
 def test_execute_card_known_card(api):
     result = api.execute_card(KNOWN_CARD_ID)
     assert isinstance(result, QueryResult)
     assert result.row_count >= 0
 
 
+@pytest.mark.external
 def test_execute_card_nonexistent_card(api):
     """Nonexistent card should raise error."""
     with pytest.raises(MetabaseError):
         api.execute_card(999999999)
 
 
+@pytest.mark.external
 def test_get_card_known_card(api):
     card = api.get_card(KNOWN_CARD_ID)
     assert "id" in card
@@ -130,12 +136,14 @@ def test_get_card_known_card(api):
     assert "dataset_query" in card
 
 
+@pytest.mark.external
 def test_get_card_nonexistent_card(api):
     """Nonexistent card should raise error."""
     with pytest.raises(MetabaseError):
         api.get_card(999999999)
 
 
+@pytest.mark.external
 def test_list_cards_in_collection(api):
     cards = api.list_cards(COLLECTION_453)
     assert isinstance(cards, list)
@@ -147,6 +155,7 @@ def test_list_cards_in_collection(api):
         assert "name" in card
 
 
+@pytest.mark.external
 def test_search_cards(api):
     cards = api.search_cards("candidature")
     assert isinstance(cards, list)
@@ -154,12 +163,14 @@ def test_search_cards(api):
     assert len(cards) > 0
 
 
+@pytest.mark.external
 def test_search_cards_no_results(api):
     cards = api.search_cards("xyznonexistent123456")
     assert isinstance(cards, list)
     assert len(cards) == 0
 
 
+@pytest.mark.external
 def test_get_card_sql(api):
     sql = api.get_card_sql(KNOWN_CARD_ID)
     # Should return non-empty SQL
@@ -168,12 +179,14 @@ def test_get_card_sql(api):
     # (empty string is valid for cards that fail extraction)
 
 
+@pytest.mark.external
 def test_dashboards_list_dashboards(api):
     dashboards = api.list_dashboards(COLLECTION_452)
     assert isinstance(dashboards, list)
     # May or may not have dashboards
 
 
+@pytest.mark.external
 def test_dashboards_get_dashboard(api):
     # First find a dashboard
     dashboards = api.list_dashboards(COLLECTION_452)

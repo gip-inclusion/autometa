@@ -3,6 +3,8 @@
 import httpx
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 BAD_IDS = ["not-a-uuid", "..etc", "x" * 40, "short"]
 GOOD_ID = "11111111-1111-1111-1111-111111111111"
 

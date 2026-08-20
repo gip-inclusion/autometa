@@ -20,6 +20,8 @@ from web.db import get_db
 from web.db import test_transaction as _test_tx
 from web.models import Dashboard, DashboardTag, Tag
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):

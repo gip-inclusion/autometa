@@ -48,6 +48,12 @@ def test_collects_failing_detector():
     assert "vérification" in failures[0][1]
 
 
+def test_commands_are_lint_only_suite_runs_at_pre_commit():
+    """Le hook Stop tourne à chaque tour de l'agent : la suite reste au pre-commit, pas ici."""
+    cmds = [" ".join(cmd) for cmd, _label in stop_lint_gate.commands()]
+    assert not any("pytest" in cmd or "make test" in cmd for cmd in cmds)
+
+
 def test_block_reason_mentions_each_failure():
     reason = stop_lint_gate.block_reason([("ruff check", "F401 boom"), ("détecteur", "creux")])
     assert "ruff check" in reason

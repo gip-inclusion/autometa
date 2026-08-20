@@ -5,6 +5,8 @@ import pytest
 from web.config import ADMIN_USERS
 from web.database import store
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 ALICE = "alice@example.com"
 BOB = "bob@example.com"
 ADMIN = ADMIN_USERS[0]

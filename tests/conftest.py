@@ -11,6 +11,11 @@ if _original_url and not urlparse(_original_url).path.endswith("_test"):
     parsed = urlparse(_original_url)
     os.environ["DATABASE_URL"] = urlunparse(parsed._replace(path=parsed.path + "_test"))
 
+# Why: un test qui oublie de mocker notify_alert_channel posterait dans le vrai canal d'alerte.
+# Neutralise pour toute invocation de pytest (CI, IDE, ad-hoc), pas seulement les cibles Makefile.
+os.environ["SLACK_BOT_TOKEN"] = ""
+os.environ["SLACK_ALERT_CHANNEL"] = ""
+
 os.environ.setdefault("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "0.05")
 os.environ.setdefault("S3_BUCKET", "test-bucket")
 os.environ.setdefault("PUBLIC_DASHBOARDS_BUCKET_STAGING", "test-staging-bucket")
@@ -43,11 +48,10 @@ def _ensure_test_db():
     conn.close()
 
 
-_ensure_test_db()
+@pytest.fixture(scope="session")
+def _db():
+    _ensure_test_db()
 
-
-@pytest.fixture(scope="session", autouse=True)
-def init_schema():
     from web.schema import init_db
 
     init_db()
@@ -104,7 +108,7 @@ def truncate_all_tables():
 
 
 @pytest.fixture
-def app():
+def app(_db):
     import web.redis_conn
     from web import database
 

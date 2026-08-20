@@ -16,6 +16,8 @@ from web.models import Conversation as ConvModel
 from web.models import Dashboard
 from web.models import UsageEvent as UsageEventModel
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 def test_build_update_clause_builds_valid_clause_single_column():
     clause, values = build_update_clause({"title": "test"}, VALID_CONVERSATION_COLUMNS)

@@ -6,6 +6,8 @@ or to branch their own conversation.
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def conversation_with_messages(app):

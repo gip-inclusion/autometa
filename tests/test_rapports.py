@@ -5,6 +5,8 @@ Tests the /rapports/ endpoints including the .txt export feature.
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def report(app):

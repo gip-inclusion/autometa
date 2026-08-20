@@ -34,6 +34,8 @@ from web.uploads import (
     upload_file,
 )
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 # Configure for testing
 config.DATA_DIR = Path(_tmp_dir)
 config.UPLOADS_DIR = Path(_tmp_dir) / "uploads"

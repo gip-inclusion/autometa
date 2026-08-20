@@ -144,6 +144,7 @@ def make_body(dim_axes, lines, headers, measures):
 
 
 @pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_signature_roundtrip():
     rpe.ensure_schema()
     rpe.store_signature(rpe.Signatures("P", "S", "L", "D", "PASS"), sid="SID", jsessionid="J", bundle_nocache="n.js")
@@ -581,7 +582,7 @@ def test_refresh_alerts_on_empty_toc(mocker):
     alert.assert_called_once()  # TOC vide → alerte cache inchangé
 
 
-@pytest.mark.integration
+@pytest.mark.external
 def test_live_login_query():
     client = rpe.RpeClient.connect()
     try:
@@ -598,7 +599,7 @@ def test_live_login_query():
         client.close()
 
 
-@pytest.mark.integration
+@pytest.mark.external
 def test_live_refresh_catalog_returns_cubeids():
     client = rpe.RpeClient.connect()
     try:
@@ -674,6 +675,8 @@ def test_build_toc_skips_unreachable_cube_dm(mocker):
     assert {r["cube_key"] for r in rows} == {"CK1"}  # le cube en échec est absent
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_store_toc_full_replace_and_empty_guard():
     from sqlalchemy import text
 
@@ -730,7 +733,8 @@ def test_query_uses_shared_sel_and_blank_frame(mocker):
     assert captured["frameId"] == "" and captured["pageId"] == ""
 
 
-@pytest.mark.integration
+@pytest.mark.external
+@pytest.mark.usefixtures("_db")
 def test_live_toc_populated():
     from sqlalchemy import text
 

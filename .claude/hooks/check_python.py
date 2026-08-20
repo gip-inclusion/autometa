@@ -121,7 +121,8 @@ def check_imports(lines, path):
 
 
 def check_env_vars(lines, path):
-    if path.endswith("config.py"):
+    # Why: tests/conftest.py doit forcer l'environnement (base _test, Slack neutralisé) avant que web.config le lise.
+    if path.endswith("config.py") or path.endswith("tests/conftest.py"):
         return []
     violations = []
     for line in lines:

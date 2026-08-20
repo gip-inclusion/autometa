@@ -4,6 +4,8 @@ import pytest
 
 from lib.query import QueryResult
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 SITES = [
     {"name": "Emplois", "matomo_id": 117, "container_id": "TlN6Ou1K"},
     {"name": "Marché", "matomo_id": 136, "container_id": "RBvmJtrU"},
