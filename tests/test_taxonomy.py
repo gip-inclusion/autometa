@@ -97,6 +97,8 @@ def test_build_prompt_taxonomy_skips_empty_facets():
     assert "Fonctionnalité" not in build_prompt_taxonomy({"usage": [Term("meta", "Méta", "usage")]})
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_load_vocabulary_groups_by_facet_and_hides_inactive(db):
     with get_db() as session:
         _tag(session, "t-usagers", "facet-a", label="Usagers")
@@ -109,6 +111,8 @@ def test_load_vocabulary_groups_by_facet_and_hides_inactive(db):
     assert [t.name for t in vocabulary["facet-b"]] == ["t-territoire"]
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_load_vocabulary_can_include_inactive(db):
     with get_db() as session:
         _tag(session, "t-retire", "facet-a", active=False)
@@ -118,6 +122,8 @@ def test_load_vocabulary_can_include_inactive(db):
     assert [t.name for t in vocabulary["facet-a"]] == ["t-retire"]
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_load_implications_maps_names(db):
     with get_db() as session:
         siae = _tag(session, "siae", "audience")

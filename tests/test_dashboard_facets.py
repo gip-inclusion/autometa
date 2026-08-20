@@ -11,6 +11,8 @@ from web.db import test_transaction as _test_tx
 from web.models import Dashboard, DashboardTag, Tag, TagImplication
 from web.routes.dashboards import FACET_TERM_CAP, facet_filters
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def db():

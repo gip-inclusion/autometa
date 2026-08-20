@@ -10,6 +10,8 @@ from web.db import test_transaction as _test_tx
 from web.models import Conversation, Tag
 from web.routes.conversations import generate_conversation_tags
 
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
 
 @pytest.fixture
 def db():

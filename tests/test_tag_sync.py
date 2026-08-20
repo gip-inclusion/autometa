@@ -85,6 +85,8 @@ def test_fetch_terms_rejects_duplicate_slugs(mocker, notion_configured):
     assert any("doublon" in r for r in rejected)
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_sync_creates_terms(db, mocker, notion_configured):
     _mock_pages(mocker, [_page("p1", "usagers", "theme", label="Usagers", description="Personnes accompagnées")])
 
@@ -101,6 +103,8 @@ def test_sync_creates_terms(db, mocker, notion_configured):
         )
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_rename_keyed_on_page_id_preserves_assignments(db, mocker, notion_configured):
     _mock_pages(mocker, [_page("p1", "candidats", "theme", label="Candidats")])
     sync_tags()
@@ -121,6 +125,8 @@ def test_rename_keyed_on_page_id_preserves_assignments(db, mocker, notion_config
         assert session.scalar(select(DashboardTag.tag_id).where(DashboardTag.dashboard_slug == "tdb")) == tag_id
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_missing_row_with_assignments_is_deactivated_not_deleted(db, mocker, notion_configured):
     _mock_pages(mocker, [_page(f"p{i}", f"terme-{i}") for i in range(5)])
     sync_tags()
@@ -139,6 +145,8 @@ def test_missing_row_with_assignments_is_deactivated_not_deleted(db, mocker, not
         assert session.scalar(select(Tag).where(Tag.name == "terme-0")).active is False
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_missing_row_without_assignments_is_deleted(db, mocker, notion_configured):
     _mock_pages(mocker, [_page(f"p{i}", f"terme-{i}") for i in range(5)])
     sync_tags()
@@ -151,6 +159,8 @@ def test_missing_row_without_assignments_is_deleted(db, mocker, notion_configure
         assert session.scalar(select(Tag).where(Tag.name == "terme-0")) is None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_empty_fetch_is_refused_and_changes_nothing(db, mocker, notion_configured):
     _mock_pages(mocker, [_page("p1", "usagers")])
     sync_tags()
@@ -164,6 +174,8 @@ def test_empty_fetch_is_refused_and_changes_nothing(db, mocker, notion_configure
         assert session.scalar(select(Tag).where(Tag.name == "usagers")) is not None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_shrunk_fetch_is_refused(db, mocker, notion_configured):
     _mock_pages(mocker, [_page(f"p{i}", f"terme-{i}") for i in range(10)])
     sync_tags()
@@ -177,6 +189,8 @@ def test_shrunk_fetch_is_refused(db, mocker, notion_configured):
         assert session.scalar(select(Tag).where(Tag.name == "terme-9")) is not None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_implications_are_applied(db, mocker, notion_configured):
     _mock_pages(
         mocker,
@@ -193,6 +207,8 @@ def test_implications_are_applied(db, mocker, notion_configured):
         assert load_implications(session) == {"siae": {"solutions-structurees"}}
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_dry_run_reports_without_writing(db, mocker, notion_configured):
     _mock_pages(mocker, [_page("p1", "usagers")])
 
@@ -204,6 +220,8 @@ def test_dry_run_reports_without_writing(db, mocker, notion_configured):
         assert session.scalar(select(Tag).where(Tag.name == "usagers")) is None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_dry_run_preserves_rows_written_before_it(db, mocker, notion_configured):
     with get_db() as session:
         session.add(Tag(name="ecrit-avant", type="theme", label="Avant", active=True))
@@ -216,6 +234,8 @@ def test_dry_run_preserves_rows_written_before_it(db, mocker, notion_configured)
         assert session.scalar(select(Tag).where(Tag.name == "ecrit-avant")) is not None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_dry_run_records_no_sync_state_when_refused(db, mocker, notion_configured):
     _mock_pages(mocker, [_page("p1", "usagers")])
     sync_tags()
@@ -227,6 +247,8 @@ def test_dry_run_records_no_sync_state_when_refused(db, mocker, notion_configure
     assert sync_state()["last_synced_at"] == before["last_synced_at"]
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_dry_run_reports_implication_count(db, mocker, notion_configured):
     _mock_pages(
         mocker,
@@ -236,6 +258,8 @@ def test_dry_run_reports_implication_count(db, mocker, notion_configured):
     assert sync_tags(dry_run=True).implications == 1
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_name_fallback_never_steals_another_pages_row(db, mocker, notion_configured):
     _mock_pages(mocker, [_page("p1", "partage", "theme"), _page("p2", "autre", "theme")])
     sync_tags()
@@ -254,6 +278,8 @@ def test_name_fallback_never_steals_another_pages_row(db, mocker, notion_configu
         assert session.get(Tag, owned_id).notion_page_id == "p1"
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_pending_terms_lists_proposals_with_usage_counts(db):
     from datetime import datetime, timezone
 
@@ -273,6 +299,8 @@ def test_pending_terms_lists_proposals_with_usage_counts(db):
     assert pending_terms() == [{"name": "regies", "facet": "audience", "label": "Régies", "usages": 1}]
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_pending_terms_ignores_deactivated_proposals(db):
     from lib.tag_sync import pending_terms
 
@@ -283,6 +311,8 @@ def test_pending_terms_ignores_deactivated_proposals(db):
     assert pending_terms() == []
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_purge_legacy_tags_reports_before_deleting(db, mocker, notion_configured):
     from lib.tag_sync import purge_legacy_tags
 
@@ -299,6 +329,8 @@ def test_purge_legacy_tags_reports_before_deleting(db, mocker, notion_configured
         assert session.scalar(select(Tag).where(Tag.name == "herite")) is not None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_purge_legacy_tags_spares_pending_proposals(db, mocker, notion_configured):
     from lib.tag_sync import purge_legacy_tags
 
@@ -316,6 +348,8 @@ def test_purge_legacy_tags_spares_pending_proposals(db, mocker, notion_configure
         assert session.scalar(select(Tag).where(Tag.name == "propose")) is not None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_purge_legacy_tags_spares_notion_managed_terms(db, mocker, notion_configured):
     from lib.tag_sync import purge_legacy_tags
 
@@ -332,6 +366,8 @@ def test_purge_legacy_tags_spares_notion_managed_terms(db, mocker, notion_config
         assert session.scalar(select(Tag).where(Tag.name == "synchro")) is not None
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_sync_without_config_returns_error(db, mocker):
     mocker.patch("web.config.NOTION_TAGS_DB", None)
 

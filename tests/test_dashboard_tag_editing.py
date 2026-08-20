@@ -64,6 +64,8 @@ def test_apply_toggle(current, toggled, expected):
     assert apply_toggle(current, toggled, FACET_OF) == expected
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_toggle_endpoint_adds_tag(db, app, client):
     with get_db() as session:
         _tag(session, "siae", "audience")
@@ -75,6 +77,8 @@ def test_toggle_endpoint_adds_tag(db, app, client):
     assert _tags_of() == {"siae"}
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_toggle_endpoint_removes_existing_tag(db, app, client):
     with get_db() as session:
         siae = _tag(session, "siae", "audience")
@@ -85,6 +89,8 @@ def test_toggle_endpoint_removes_existing_tag(db, app, client):
     assert _tags_of() == set()
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_single_cardinality_facet_replaces(db, app, client):
     with get_db() as session:
         territoire = _tag(session, "territoire", "usage")
@@ -96,6 +102,8 @@ def test_single_cardinality_facet_replaces(db, app, client):
     assert _tags_of() == {"explo"}
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_toggle_rejects_unknown_tag(db, app, client):
     with get_db() as session:
         _dashboard(session)
@@ -106,6 +114,8 @@ def test_toggle_rejects_unknown_tag(db, app, client):
     assert _tags_of() == set()
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_toggle_rejects_inactive_tag(db, app, client):
     with get_db() as session:
         tag = _tag(session, "retire", "audience")
@@ -118,6 +128,8 @@ def test_toggle_rejects_inactive_tag(db, app, client):
     assert resp.status_code == 400
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_toggle_returns_404_for_unknown_dashboard(db, app, client):
     with get_db() as session:
         _tag(session, "siae", "audience")
@@ -127,6 +139,8 @@ def test_toggle_returns_404_for_unknown_dashboard(db, app, client):
     assert resp.status_code == 404
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_toggle_response_returns_oob_summary(db, app, client):
     with get_db() as session:
         _tag(session, "siae", "audience", label="SIAE")
@@ -139,6 +153,8 @@ def test_toggle_response_returns_oob_summary(db, app, client):
     assert "SIAE" in resp.text
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_clearing_a_single_value_facet(db, app, client):
     with get_db() as session:
         territoire = _tag(session, "territoire", "usage")
@@ -150,6 +166,8 @@ def test_clearing_a_single_value_facet(db, app, client):
     assert _tags_of() == set()
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_clearing_a_facet_leaves_other_facets_intact(db, app, client):
     with get_db() as session:
         territoire = _tag(session, "territoire", "usage")
@@ -161,6 +179,8 @@ def test_clearing_a_facet_leaves_other_facets_intact(db, app, client):
     assert _tags_of() == {"siae"}
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_summary_shows_first_label_and_a_count_badge_when_multiple(db, app, client):
     with get_db() as session:
         acheteurs = _tag(session, "acheteurs", "theme", label="Acheteurs")
@@ -174,6 +194,8 @@ def test_summary_shows_first_label_and_a_count_badge_when_multiple(db, app, clie
     assert "Acheteurs, Commandes" in resp.text
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_summary_omits_badge_for_a_single_selection(db, app, client):
     with get_db() as session:
         acheteurs = _tag(session, "acheteurs", "theme", label="Acheteurs")
@@ -184,6 +206,8 @@ def test_summary_omits_badge_for_a_single_selection(db, app, client):
     assert "dashboard-tags-badge" not in resp.text
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_create_tag_proposes_it_as_pending_and_applies_it(db, app, client):
     with get_db() as session:
         _dashboard(session)
@@ -200,6 +224,8 @@ def test_create_tag_proposes_it_as_pending_and_applies_it(db, app, client):
 
 
 @pytest.mark.parametrize("facet", ["usage", "mesure", "source"])
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_create_tag_refused_on_closed_facets(db, app, client, facet):
     with get_db() as session:
         _dashboard(session)
@@ -210,6 +236,8 @@ def test_create_tag_refused_on_closed_facets(db, app, client, facet):
     assert _tags_of() == set()
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_create_tag_reuses_an_existing_term_instead_of_duplicating(db, app, client):
     with get_db() as session:
         _tag(session, "siae", "audience", label="SIAE")
@@ -222,6 +250,8 @@ def test_create_tag_reuses_an_existing_term_instead_of_duplicating(db, app, clie
         assert session.scalar(select(Tag).where(Tag.name == "siae")).pending is False
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_extensible_facet_offers_a_single_search_and_create_field(db, app, client):
     with get_db() as session:
         _tag(session, "siae", "audience", label="SIAE")
@@ -234,6 +264,8 @@ def test_extensible_facet_offers_a_single_search_and_create_field(db, app, clien
     assert "dashboard-tags-create" in html
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_create_button_includes_an_element_that_actually_exists(db, app, client):
     """Why: htmx ne chaîne pas les sélecteurs étendus — un hx-include invalide poste sans libellé."""
     import re
@@ -250,6 +282,8 @@ def test_create_button_includes_an_element_that_actually_exists(db, app, client)
         assert f'id="{target[1:]}"' in html
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_create_tag_rejects_empty_label(db, app, client):
     with get_db() as session:
         _dashboard(session)
@@ -259,6 +293,8 @@ def test_create_tag_rejects_empty_label(db, app, client):
     assert resp.status_code == 400
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_pending_terms_are_excluded_from_the_tagger_vocabulary(db):
     from lib.taxonomy import load_vocabulary
 
@@ -275,6 +311,8 @@ def test_pending_terms_are_excluded_from_the_tagger_vocabulary(db):
     assert "propose" in [t.name for t in shown["theme"]]
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_sync_promotion_clears_pending(db, mocker):
     from lib.tag_sync import sync_tags
 
@@ -307,6 +345,8 @@ def test_sync_promotion_clears_pending(db, mocker):
         assert session.scalar(select(Tag).where(Tag.name == "regies-de-quartier")).pending is False
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_edit_page_renders_facets_with_terms_and_every_extensible_one(db, app, client):
     with get_db() as session:
         siae = _tag(session, "siae", "audience", label="SIAE")
@@ -323,6 +363,8 @@ def test_edit_page_renders_facets_with_terms_and_every_extensible_one(db, app, c
         assert f'id="tagsum-{facet}"' not in resp.text
 
 
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_edit_page_renders_tag_editor(db, app, client):
     with get_db() as session:
         siae = _tag(session, "siae", "audience", label="SIAE")
