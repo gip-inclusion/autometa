@@ -3376,7 +3376,9 @@ body.has-sidebar {
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 0.875rem;
+  font-weight: 500;
   line-height: 1.25;
+  text-wrap: balance;
 }
 
 .accueil-favorite-remove {
