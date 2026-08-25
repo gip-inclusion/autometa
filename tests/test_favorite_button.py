@@ -58,6 +58,13 @@ def _window_around(html, needle):
     return html[index - 300 : index + 300]
 
 
+def _mock_publish_s3(mocker):
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.s3.delete_prefix", return_value=1)
+    mocker.patch("web.publications.s3.interactive.exists", return_value=True)
+
+
 @pytest.mark.parametrize(
     "path",
     ["/conversations?show=convos", "/conversations?show=reports", "/dashboards"],
@@ -152,3 +159,36 @@ def test_the_star_in_a_list_keeps_the_hover_revealed_style(client):
     window = _window_around(client.get("/conversations?show=convos", headers=_h()).text, f'data-item-id="{conv_id}"')
 
     assert "conv-item-action-btn" in window
+
+
+def test_the_pinned_list_on_the_home_page_offers_a_favorite_star(client):
+    conv_id = _make_conversation()
+    store.pin_conversation(conv_id, "Épinglé")
+
+    window = _window_around(client.get("/", headers=_h()).text, f'data-item-id="{conv_id}"')
+
+    assert "toggleFavorite(this)" in window
+
+
+def test_the_published_view_offers_one_favorite_star_per_dashboard(client, mocker):
+    _mock_publish_s3(mocker)
+    slug = _make_dashboard()
+    client.post(f"/api/dashboards/{slug}/publish", json={"environment": "staging"}, headers=_h(ADMIN))
+    client.post(f"/api/dashboards/{slug}/publish", json={"environment": "production"}, headers=_h(ADMIN))
+
+    html = client.get("/dashboards?view=published", headers=_h()).text
+
+    window = _window_around(html, f'data-item-id="{slug}"')
+    assert "toggleFavorite(this)" in window
+    assert html.count(f'data-item-id="{slug}"') == 1
+
+
+def test_the_featured_cards_have_no_favorite_star(client):
+    slug = _make_dashboard()
+    store.pin_item("app", slug, "À la une")
+
+    html = client.get("/dashboards", headers=_h()).text
+
+    start = html.index('dashboards-featured">')
+    end = html.index('id="dashboardsList"', start)
+    assert "toggleFavorite(this)" not in html[start:end]

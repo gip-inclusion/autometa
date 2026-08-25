@@ -81,6 +81,7 @@
                   {% if item.user_id %}
                   <span class="conv-item-author">{{ item.user_id.split('@')[0] }}</span>
                   {% endif %}
+                  {% with item_type = item.item_type, item_id = item.item_id %}{% include "_favorite_button.html" %}{% endwith %}
                   {% if is_admin %}
                   <button class="conv-item-pin-btn" title="Désépingler"
                           onclick="event.preventDefault(); event.stopPropagation(); unpinFromAccueil('{{ item.pin_url }}', this)">
