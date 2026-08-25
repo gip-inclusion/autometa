@@ -3333,6 +3333,88 @@ body.has-sidebar {
   font-size: 0.75rem;
 }
 
+.accueil-favorites {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.accueil-favorite {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 7.5rem;
+  padding: 1rem 0.75rem;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  background: white;
+  color: #212529;
+  text-decoration: none;
+  text-align: center;
+  cursor: grab;
+  transition: all 0.15s;
+}
+
+.accueil-favorite:hover {
+  border-color: var(--bs-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  color: var(--bs-primary);
+}
+
+.accueil-favorite i {
+  font-size: 1.5rem;
+  color: var(--bs-primary);
+}
+
+/* Hauteur de tuile fixe : au-delà de deux lignes le titre est coupé, sinon la grille se désaligne. */
+.accueil-favorite-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
+}
+
+.accueil-favorite-remove {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  padding: 0.25rem;
+  border: 0;
+  background: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.accueil-favorite:hover .accueil-favorite-remove {
+  opacity: 1;
+}
+
+.accueil-favorite-remove i {
+  font-size: 0.875rem;
+  color: var(--bs-warning);
+}
+
+.accueil-favorite.dragging {
+  opacity: 0.4;
+}
+
+.accueil-favorites-empty {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px dashed #dee2e6;
+  border-radius: 0.5rem;
+  color: #6c757d;
+  text-align: center;
+}
+
+.favorite-btn.is-favorite i {
+  color: var(--bs-warning);
+}
+
 /* Sources de données — groups in auto-fit columns */
 .accueil-sources {
   display: grid;

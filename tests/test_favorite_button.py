@@ -109,6 +109,15 @@ def test_the_star_is_empty_for_an_item_i_have_not_favorited(client):
     assert "ri-star-line" in _window_around(html, f'data-item-id="{conv_id}"')
 
 
+def test_the_star_announces_its_state_to_assistive_tech(client):
+    conv_id = _make_conversation()
+    store.add_favorite("alice@x", "conversation", conv_id)
+
+    html = client.get("/conversations?show=convos", headers=_h()).text
+
+    assert 'aria-pressed="true"' in _window_around(html, f'data-item-id="{conv_id}"')
+
+
 @pytest.mark.parametrize("email,pin_expected", [("alice@x", False), (ADMIN, True)])
 def test_the_star_is_offered_to_everyone_but_the_pin_is_admin_only(client, email, pin_expected):
     _make_conversation()
