@@ -946,3 +946,41 @@ function removeFavoriteTile(btn) {
       if (response.ok) tile.remove();
     });
 }
+
+function initFavoritesDnd() {
+  const grid = document.getElementById('favoritesGrid');
+  if (!grid || grid.dataset.dndReady) return;
+  grid.dataset.dndReady = '1';
+  let dragged = null;
+
+  grid.addEventListener('dragstart', event => {
+    dragged = event.target.closest('.accueil-favorite');
+    if (dragged) dragged.classList.add('dragging');
+  });
+
+  grid.addEventListener('dragover', event => {
+    event.preventDefault();
+    const target = event.target.closest('.accueil-favorite');
+    if (!dragged || !target || target === dragged) return;
+    const draggedComesFirst = target.compareDocumentPosition(dragged) & Node.DOCUMENT_POSITION_PRECEDING;
+    grid.insertBefore(dragged, draggedComesFirst ? target.nextSibling : target);
+  });
+
+  grid.addEventListener('dragend', () => {
+    if (!dragged) return;
+    dragged.classList.remove('dragging');
+    dragged = null;
+    const items = [...grid.querySelectorAll('.accueil-favorite')].map(tile => ({
+      item_type: tile.dataset.itemType,
+      item_id: tile.dataset.itemId,
+    }));
+    fetch('/api/favorites/order', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({items}),
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initFavoritesDnd);
+document.body.addEventListener('htmx:afterSettle', initFavoritesDnd);
