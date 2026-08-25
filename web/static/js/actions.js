@@ -926,3 +926,23 @@ document.body.addEventListener('htmx:afterSettle', () => {
     if (warning) warning.style.display = 'none';
   }
 });
+
+function toggleFavorite(btn) {
+  const {itemType, itemId} = btn.dataset;
+  const isFavorite = btn.classList.contains('is-favorite');
+  fetch(`/api/favorites/${itemType}/${itemId}`, {method: isFavorite ? 'DELETE' : 'POST'})
+    .then(response => {
+      if (!response.ok) return;
+      btn.classList.toggle('is-favorite', !isFavorite);
+      btn.title = isFavorite ? 'Ajouter aux favoris' : 'Retirer des favoris';
+      btn.querySelector('i').className = isFavorite ? 'ri-star-line' : 'ri-star-fill';
+    });
+}
+
+function removeFavoriteTile(btn) {
+  const tile = btn.closest('.accueil-favorite');
+  fetch(`/api/favorites/${tile.dataset.itemType}/${tile.dataset.itemId}`, {method: 'DELETE'})
+    .then(response => {
+      if (response.ok) tile.remove();
+    });
+}

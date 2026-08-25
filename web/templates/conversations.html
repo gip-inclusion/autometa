@@ -209,6 +209,7 @@
                       {{ conv.user_id.split('@')[0] }}
                     </span>
                     {% endif %}
+                    {% with item_type = 'conversation', item_id = conv.id %}{% include "_favorite_button.html" %}{% endwith %}
                     {% if is_admin %}
                     {% if ('conversation', conv.id) in pinned_ids %}
                     <button class="conv-item-pin-btn" title="Désépingler"
@@ -269,6 +270,7 @@
                       <i class="ri-chat-3-line"></i> Conversation
                     </button>
                     {% endif %}
+                    {% with item_type = 'report', item_id = report.id %}{% include "_favorite_button.html" %}{% endwith %}
                     {% if is_admin %}
                     {% if ('report', report.id|string) in pinned_ids %}
                     <button class="conv-item-pin-btn" title="Désépingler"

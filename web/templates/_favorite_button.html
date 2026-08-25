@@ -1,0 +1,8 @@
+{% set is_favorite = (item_type, item_id|string) in favorite_ids %}
+<button type="button"
+        class="conv-item-action-btn favorite-btn{% if is_favorite %} is-favorite{% endif %}"
+        title="{% if is_favorite %}Retirer des favoris{% else %}Ajouter aux favoris{% endif %}"
+        data-item-type="{{ item_type }}" data-item-id="{{ item_id }}"
+        onclick="event.preventDefault(); event.stopPropagation(); toggleFavorite(this)">
+  <i class="{% if is_favorite %}ri-star-fill{% else %}ri-star-line{% endif %}" aria-hidden="true"></i>
+</button>

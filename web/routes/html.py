@@ -80,6 +80,7 @@ def get_sidebar_data(user_email: str | None, request: Request):
         "user_email": user_email,
         "pinned_conversations": pinned_conversations,
         "is_htmx_request": request.headers.get("HX-Request") == "true",
+        "favorite_ids": store.get_favorite_ids(user_email) if user_email else set(),
     }
 
 
