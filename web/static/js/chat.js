@@ -95,21 +95,7 @@ async function initKnowledge() {
     const rawContent = rawContentScript.textContent;
     markdownContent.innerHTML = marked.parse(rawContent);
 
-    // Render mermaid diagrams if present
-    if (typeof mermaid !== 'undefined') {
-      const mermaidBlocks = markdownContent.querySelectorAll('pre code.language-mermaid');
-      for (const block of mermaidBlocks) {
-        const container = document.createElement('div');
-        container.className = 'mermaid';
-        container.textContent = block.textContent;
-        block.parentElement.replaceWith(container);
-      }
-      try {
-        await mermaid.run();
-      } catch (e) {
-        console.warn('Mermaid rendering failed:', e);
-      }
-    }
+    await renderMermaid(markdownContent);
   }
 }
 

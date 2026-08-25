@@ -136,11 +136,9 @@ function appendEvent(type, data) {
     }
     // Track for footnotes
     lastAssistantBlock = block;
-    // Render mermaid diagrams and options after adding to DOM
-    setTimeout(() => {
-      renderMermaid(block);
-      renderOptions(block);
-    }, 0);
+    // Why: pas de mermaid ici — le contenu est encore partiel pendant le streaming.
+    // Les diagrammes sont rendus une fois le bloc complet (fin de stream, chargement d'historique).
+    setTimeout(() => renderOptions(block), 0);
   } else if (type === 'error') {
     block.innerHTML = escapeHtml(data.content || '');
   } else if (type === 'report') {
@@ -276,30 +274,20 @@ function formatAssistantContent(content) {
 async function renderMermaid(element) {
   if (typeof mermaid === 'undefined') return;
 
-  // Find code blocks with mermaid language
-  const codeBlocks = element.querySelectorAll('pre code.language-mermaid');
-
-  for (const block of codeBlocks) {
-    const code = block.textContent;
+  const nodes = [];
+  for (const block of element.querySelectorAll('pre code.language-mermaid')) {
     const container = document.createElement('div');
     container.className = 'mermaid';
+    container.textContent = block.textContent;
+    block.parentElement.replaceWith(container);
+    nodes.push(container);
+  }
+  if (!nodes.length) return;
 
-    try {
-      const { svg } = await mermaid.render('mermaid-' + Date.now(), code);
-      // Use DOMParser to validate SVG output from mermaid
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(svg, 'image/svg+xml');
-      const svgEl = doc.querySelector('svg');
-      if (svgEl && !doc.querySelector('parsererror')) {
-        container.appendChild(document.importNode(svgEl, true));
-      } else {
-        container.textContent = 'Mermaid render error';
-      }
-      block.parentElement.replaceWith(container);
-    } catch (err) {
-      console.error('Mermaid rendering failed:', err);
-      // Keep original code block if rendering fails
-    }
+  try {
+    await mermaid.run({ nodes });
+  } catch (err) {
+    console.error('Mermaid rendering failed:', err);
   }
 }
 
