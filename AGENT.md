@@ -131,8 +131,8 @@ Comparer deux mois | Comparer le trafic de décembre 2025 avec novembre 2025
 - Utiliser `xychart-beta`, `sankey-beta`, `flowchart`, `treemap-beta`, `quadrantChart`
 - Pas de pie charts — utiliser des barres
 - Quoter tous les labels : `"Label text"`
-- Ne pas utiliser d'accents dans les labels d'axes
-- Pas de `<br/>`, pas de slashes, pas d'ASCII art, pas de HTML inline
+- `sankey-beta` : ASCII strict, tout caractère non-ASCII casse le parsing — accents libres partout ailleurs
+- `<br/>` autorisé dans les labels ; pas de slashes, pas d'ASCII art, pas d'autre HTML inline
 - Couleurs DSFR : `#006ADC` (bleu), `#000638` (marine), `#ADB6FF` (pervenche), `#E57200` (orange), `#FFA347` (orange clair)
 
 ## Rapports
