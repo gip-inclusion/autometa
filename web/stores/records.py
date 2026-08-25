@@ -84,6 +84,18 @@ class PinnedItem:
 
 
 @dataclass
+class Favorite:
+    """A user's personal favorite (conversation, report, or app)."""
+
+    id: Optional[int] = None
+    user_id: str = ""
+    item_type: str = ""
+    item_id: str = ""
+    position: int = 0
+    created_at: Optional[datetime] = None
+
+
+@dataclass
 class UploadedFile:
     """A file uploaded to a conversation."""
 
