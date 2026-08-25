@@ -71,8 +71,10 @@ def test_favorites_are_scoped_to_their_user():
 @pytest.mark.parametrize("item_type,item_id", [("conversation", "c1"), ("report", "7"), ("app", "tdb-1")])
 def test_remove_favorite_is_idempotent(item_type, item_id):
     store.add_favorite("a@x", item_type, item_id)
-    assert store.remove_favorite("a@x", item_type, item_id) is True
-    assert store.remove_favorite("a@x", item_type, item_id) is False
+
+    store.remove_favorite("a@x", item_type, item_id)
+    store.remove_favorite("a@x", item_type, item_id)
+
     assert store.list_favorites("a@x") == []
 
 

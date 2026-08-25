@@ -9,7 +9,7 @@ from web.stores.records import Favorite
 
 
 class FavoritesMixin:
-    def add_favorite(self, user_id: str, item_type: str, item_id: str) -> bool:
+    def add_favorite(self, user_id: str, item_type: str, item_id: str) -> None:
         with get_db() as session:
             existing = session.scalars(
                 select(FavoriteModel).where(
@@ -19,7 +19,7 @@ class FavoritesMixin:
                 )
             ).first()
             if existing:
-                return True
+                return
             last = session.scalar(select(func.max(FavoriteModel.position)).where(FavoriteModel.user_id == user_id))
             session.add(
                 FavoriteModel(
@@ -30,9 +30,8 @@ class FavoritesMixin:
                     created_at=utcnow(),
                 )
             )
-            return True
 
-    def remove_favorite(self, user_id: str, item_type: str, item_id: str) -> bool:
+    def remove_favorite(self, user_id: str, item_type: str, item_id: str) -> None:
         with get_db() as session:
             existing = session.scalars(
                 select(FavoriteModel).where(
@@ -41,10 +40,8 @@ class FavoritesMixin:
                     FavoriteModel.item_id == str(item_id),
                 )
             ).first()
-            if not existing:
-                return False
-            session.delete(existing)
-            return True
+            if existing:
+                session.delete(existing)
 
     def list_favorites(self, user_id: str) -> list[Favorite]:
         with get_db() as session:
@@ -82,7 +79,7 @@ class FavoritesMixin:
             )
             return result.rowcount
 
-    def reorder_favorites(self, user_id: str, items: list[tuple[str, str]]) -> bool:
+    def reorder_favorites(self, user_id: str, items: list[tuple[str, str]]) -> None:
         with get_db() as session:
             rows = {
                 (m.item_type, m.item_id): m
@@ -93,4 +90,3 @@ class FavoritesMixin:
             remaining = sorted(rows.values(), key=lambda m: m.position)
             for position, model in enumerate(ordered + remaining):
                 model.position = position
-            return True
