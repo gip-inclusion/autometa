@@ -96,23 +96,34 @@
       </div>
       {% endif %}
 
-      <!-- Sources de données -->
+      <!-- Favoris -->
       <div class="accueil-section">
-        <h3 class="accueil-grid-title">Sources de données</h3>
-        <div class="accueil-sources">
-          {% for group_name, items in knowledge_sections.items() %}
-          <div class="accueil-source-group">
-            <div class="accueil-source-group-title">{{ group_name }}</div>
-            {% for section in items %}
-            <a href="{{ section.url }}" class="accueil-source-link"
-               hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
-              <i class="{{ section.icon }}"></i>
-              <span>{{ section.name }}{% if section.count %} <span class="accueil-source-count">({{ section.count }})</span>{% endif %}</span>
-            </a>
-            {% endfor %}
-          </div>
+        <h3 class="accueil-grid-title">
+          <i class="ri-star-line me-1"></i>Favoris
+        </h3>
+        {% if favorites %}
+        <div class="accueil-favorites" id="favoritesGrid">
+          {% for item in favorites %}
+          <a href="{{ item.url }}" class="accueil-favorite"
+             draggable="true"
+             data-item-type="{{ item.item_type }}" data-item-id="{{ item.item_id }}"
+             title="{{ item.title }}"
+             {% if item.is_external %}target="_blank" rel="noopener"{% else %}hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"{% endif %}>
+            <i class="{{ item.icon }}"></i>
+            <span class="accueil-favorite-title">{{ item.title }}</span>
+            <button type="button" class="accueil-favorite-remove" title="Retirer des favoris"
+                    onclick="event.preventDefault(); event.stopPropagation(); removeFavoriteTile(this)">
+              <i class="ri-star-fill"></i>
+            </button>
+          </a>
           {% endfor %}
         </div>
+        {% else %}
+        <p class="accueil-favorites-empty">
+          Aucun favori — ajoutez-en avec l'étoile depuis les conversations, les rapports
+          ou les tableaux de bord.
+        </p>
+        {% endif %}
       </div>
     </div>
   </div>
