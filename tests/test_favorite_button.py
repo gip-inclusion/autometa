@@ -126,3 +126,29 @@ def test_the_star_is_offered_to_everyone_but_the_pin_is_admin_only(client, email
 
     assert "toggleFavorite(this)" in html
     assert ("togglePin('/api/conversations/" in html) == pin_expected
+
+
+def test_the_star_in_a_conversation_header_uses_the_header_button_style(client):
+    conv_id = _make_conversation()
+
+    window = _window_around(client.get(f"/explorations/{conv_id}", headers=_h()).text, f'data-item-id="{conv_id}"')
+
+    assert "conv-action-btn" in window
+    assert "conv-item-action-btn" not in window
+
+
+def test_the_star_on_a_dashboard_page_uses_the_page_button_style(client):
+    slug = _make_dashboard()
+
+    window = _window_around(client.get(f"/dashboards/{slug}/edit", headers=_h()).text, f'data-item-id="{slug}"')
+
+    assert "btn-outline-secondary" in window
+    assert "conv-item-action-btn" not in window
+
+
+def test_the_star_in_a_list_keeps_the_hover_revealed_style(client):
+    conv_id = _make_conversation()
+
+    window = _window_around(client.get("/conversations?show=convos", headers=_h()).text, f'data-item-id="{conv_id}"')
+
+    assert "conv-item-action-btn" in window

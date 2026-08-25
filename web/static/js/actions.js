@@ -934,7 +934,10 @@ function toggleFavorite(btn) {
     .then(response => {
       if (!response.ok) return;
       btn.classList.toggle('is-favorite', !isFavorite);
-      btn.title = isFavorite ? 'Ajouter aux favoris' : 'Retirer des favoris';
+      const label = isFavorite ? 'Ajouter aux favoris' : 'Retirer des favoris';
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('aria-pressed', String(!isFavorite));
       btn.querySelector('i').className = isFavorite ? 'ri-star-line' : 'ri-star-fill';
     });
 }

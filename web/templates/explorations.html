@@ -44,7 +44,7 @@
               <button type="button" class="conv-action-btn" id="pinConvBtn"><i class="ri-pushpin-line"></i> Épingler</button>
                 {% endif %}
               {% endif %}
-              {% with item_type = 'conversation', item_id = current_conv.id %}{% include "_favorite_button.html" %}{% endwith %}
+              {% with item_type = 'conversation', item_id = current_conv.id, btn_class = 'conv-action-btn' %}{% include "_favorite_button.html" %}{% endwith %}
             {% elif is_new %}
               Nouvelle conversation
             {% endif %}

@@ -50,7 +50,7 @@
             <button type="button" class="btn btn-outline-secondary" data-action="pin"><i class="ri-pushpin-line me-1"></i> Mettre à la une</button>
             {% endif %}
           {% endif %}
-          {% with item_type = 'app', item_id = dashboard.slug %}{% include "_favorite_button.html" %}{% endwith %}
+          {% with item_type = 'app', item_id = dashboard.slug, btn_class = 'btn btn-outline-secondary' %}{% include "_favorite_button.html" %}{% endwith %}
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 {% set is_favorite = (item_type, item_id|string) in favorite_ids %}
 {% set favorite_label = 'Retirer des favoris' if is_favorite else 'Ajouter aux favoris' %}
 <button type="button"
-        class="conv-item-action-btn favorite-btn{% if is_favorite %} is-favorite{% endif %}"
+        class="{{ btn_class|default('conv-item-action-btn') }} favorite-btn{% if is_favorite %} is-favorite{% endif %}"
         title="{{ favorite_label }}"
         aria-label="{{ favorite_label }}"
         aria-pressed="{{ 'true' if is_favorite else 'false' }}"
