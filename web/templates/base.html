@@ -47,6 +47,7 @@
   {% set active_convos = section == 'conversations' and show != 'reports' %}
   {% set active_reports = section == 'conversations' and show == 'reports' %}
   {% set active_dashboards = section == 'dashboards' %}
+  {% set active_knowledge = section == 'connaissances' %}
 
   <!-- Fixed sidebar (desktop) -->
   <aside class="app-sidebar" id="sidebar">
@@ -88,6 +89,14 @@
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-dashboard-line" aria-hidden="true"></i>
             <span>Tableaux de bord</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a href="/connaissances" class="nav-link {% if active_knowledge %}active{% endif %}"{% if active_knowledge %} aria-current="page"{% endif %}
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-book-open-line" aria-hidden="true"></i>
+            <span>Connaissances</span>
           </a>
         </li>
 
@@ -164,6 +173,11 @@
           <li class="nav-item">
             <a href="/dashboards" class="nav-link {% if active_dashboards %}active{% endif %}"{% if active_dashboards %} aria-current="page"{% endif %}>
               <i class="ri-dashboard-line me-2"></i>Tableaux de bord
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/connaissances" class="nav-link {% if active_knowledge %}active{% endif %}"{% if active_knowledge %} aria-current="page"{% endif %}>
+              <i class="ri-book-open-line me-2"></i>Connaissances
             </a>
           </li>
         </ul>

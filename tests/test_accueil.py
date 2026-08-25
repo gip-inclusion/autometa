@@ -146,3 +146,17 @@ def test_a_pinned_conversation_without_title_falls_back_to_its_label(client):
     html = client.get("/", headers=_h()).text
 
     assert "Label admin" in html
+
+
+def test_navigation_links_to_the_knowledge_pages(client):
+    html = client.get("/", headers=_h()).text
+
+    assert html.count('href="/connaissances"') == 2
+    assert "Connaissances" in html
+
+
+def test_the_knowledge_link_is_marked_active_on_the_knowledge_page(client):
+    html = client.get("/connaissances", headers=_h()).text
+
+    index = html.index('href="/connaissances"')
+    assert 'aria-current="page"' in html[index : index + 200]
