@@ -1,6 +1,6 @@
 """Per-user favorites (conversations, reports, apps)."""
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from web.db import get_db
 from web.helpers import utcnow
@@ -71,6 +71,16 @@ class FavoritesMixin:
                 select(FavoriteModel.item_type, FavoriteModel.item_id).where(FavoriteModel.user_id == user_id)
             ).all()
             return {(r[0], r[1]) for r in rows}
+
+    def remove_favorites_for_item(self, item_type: str, item_id: str) -> int:
+        with get_db() as session:
+            result = session.execute(
+                delete(FavoriteModel).where(
+                    FavoriteModel.item_type == item_type,
+                    FavoriteModel.item_id == str(item_id),
+                )
+            )
+            return result.rowcount
 
     def reorder_favorites(self, user_id: str, items: list[tuple[str, str]]) -> bool:
         with get_db() as session:

@@ -134,4 +134,5 @@ class ReportsMixin:
             if not r:
                 return False
             session.delete(r)
-            return True
+        self.remove_favorites_for_item("report", str(report_id))
+        return True

@@ -109,3 +109,51 @@ def test_reorder_favorites_matches_integer_item_ids():
         ("report", "7"),
         ("conversation", "c1"),
     ]
+
+
+def test_deleting_a_conversation_removes_it_from_everyones_favorites():
+    conv = store.create_conversation(user_id="carol@x")
+    store.add_favorite("a@x", "conversation", conv.id)
+    store.add_favorite("b@x", "conversation", conv.id)
+
+    store.delete_conversation(conv.id)
+
+    assert store.list_favorites("a@x") == []
+    assert store.list_favorites("b@x") == []
+
+
+def test_deleting_a_report_removes_it_from_everyones_favorites():
+    report_id = store.create_report(title="Mon rapport", content="contenu", user_id="carol@x").id
+    store.add_favorite("a@x", "report", str(report_id))
+    store.add_favorite("b@x", "report", str(report_id))
+
+    store.delete_report(report_id)
+
+    assert store.list_favorites("a@x") == []
+    assert store.list_favorites("b@x") == []
+
+
+def test_deleting_a_conversation_also_removes_favorites_of_its_reports():
+    conv = store.create_conversation(user_id="carol@x")
+    report = store.create_report(
+        title="Rapport de conversation", content="contenu", source_conversation_id=conv.id, user_id="carol@x"
+    )
+    with get_db() as session:
+        session.execute(
+            text("UPDATE reports SET conversation_id = :conv_id WHERE id = :report_id"),
+            {"conv_id": conv.id, "report_id": report.id},
+        )
+    store.add_favorite("a@x", "report", str(report.id))
+
+    store.delete_conversation(conv.id)
+
+    assert store.list_favorites("a@x") == []
+
+
+def test_archiving_a_report_keeps_it_in_favorites():
+    report_id = store.create_report(title="Mon rapport", content="contenu", user_id="carol@x").id
+    store.add_favorite("a@x", "report", str(report_id))
+
+    store.archive_report(report_id)
+
+    assert [f.item_id for f in store.list_favorites("a@x")] == [str(report_id)]

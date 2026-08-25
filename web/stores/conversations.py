@@ -447,10 +447,14 @@ class ConversationsMixin:
             if not c:
                 return False
             reports = session.scalars(select(ReportModel).where(ReportModel.conversation_id == conv_id)).all()
+            report_ids = [r.id for r in reports]
             for r in reports:
                 session.delete(r)
             session.delete(c)
-            return True
+        for report_id in report_ids:
+            self.remove_favorites_for_item("report", str(report_id))
+        self.remove_favorites_for_item("conversation", conv_id)
+        return True
 
     def add_message(
         self,
