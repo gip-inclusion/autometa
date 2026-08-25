@@ -91,10 +91,17 @@ PIN_URLS = {
 }
 
 
-def resolve_item(item_type: str, item_id: str, apps_by_slug: dict, label: str | None = None) -> dict | None:
+def resolve_item(
+    item_type: str,
+    item_id: str,
+    apps_by_slug: dict,
+    conversations_by_id: dict,
+    reports_by_id: dict,
+    label: str | None = None,
+) -> dict | None:
     """Resolve a pinned or favorited reference to what a template needs, or None if it's gone."""
     if item_type == "conversation":
-        conv = store.get_conversation(item_id, include_messages=False)
+        conv = conversations_by_id.get(item_id)
         if not conv:
             return None
         return {
@@ -108,7 +115,7 @@ def resolve_item(item_type: str, item_id: str, apps_by_slug: dict, label: str | 
     if item_type == "report":
         if not item_id.isdigit():
             return None
-        report = store.get_report(int(item_id))
+        report = reports_by_id.get(int(item_id))
         if not report:
             return None
         return {
@@ -139,9 +146,17 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
 
     apps_by_slug = {a["slug"]: a for a in store.list_dashboards()}
 
+    pins = store.list_pinned_items()
+    favs = store.list_favorites(user_email)
+
+    conv_ids = [ref.item_id for ref in pins + favs if ref.item_type == "conversation"]
+    report_ids = [int(ref.item_id) for ref in pins + favs if ref.item_type == "report" and ref.item_id.isdigit()]
+    conversations_by_id = store.get_conversations_by_ids(conv_ids)
+    reports_by_id = store.get_reports_by_ids(report_ids)
+
     pinned = []
-    for p in store.list_pinned_items():
-        resolved = resolve_item(p.item_type, p.item_id, apps_by_slug, p.label)
+    for p in pins:
+        resolved = resolve_item(p.item_type, p.item_id, apps_by_slug, conversations_by_id, reports_by_id, p.label)
         if not resolved:
             continue
         p.url = resolved["url"]
@@ -154,8 +169,8 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
         pinned.append(p)
 
     favorites = []
-    for f in store.list_favorites(user_email):
-        resolved = resolve_item(f.item_type, f.item_id, apps_by_slug)
+    for f in favs:
+        resolved = resolve_item(f.item_type, f.item_id, apps_by_slug, conversations_by_id, reports_by_id)
         if not resolved:
             continue
         favorites.append({

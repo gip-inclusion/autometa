@@ -117,6 +117,28 @@ class ConversationsMixin:
                 updated_at=c.updated_at,
             )
 
+    def get_conversations_by_ids(self, conv_ids: list[str]) -> dict[str, Conversation]:
+        if not conv_ids:
+            return {}
+        with get_db() as session:
+            models = session.scalars(select(ConvModel).where(ConvModel.id.in_(conv_ids))).all()
+            return {
+                c.id: Conversation(
+                    id=c.id,
+                    user_id=c.user_id,
+                    title=c.title,
+                    session_id=c.session_id,
+                    conv_type=c.conv_type or "exploration",
+                    file_path=c.file_path,
+                    status=c.status or "active",
+                    pr_url=c.pr_url,
+                    forked_from=c.forked_from,
+                    created_at=c.created_at,
+                    updated_at=c.updated_at,
+                )
+                for c in models
+            }
+
     def fork_conversation(self, source_conv_id: str, new_user_id: str) -> Optional[Conversation]:
         """Deep copy a conversation for a new user."""
         source = self.get_conversation(source_conv_id, include_messages=True)

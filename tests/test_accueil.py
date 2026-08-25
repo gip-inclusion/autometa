@@ -160,3 +160,35 @@ def test_the_knowledge_link_is_marked_active_on_the_knowledge_page(client):
 
     index = html.index('href="/connaissances"')
     assert 'aria-current="page"' in html[index : index + 200]
+
+
+def _count_queries(fn):
+    from sqlalchemy import event
+
+    from web.db import get_engine
+
+    engine = get_engine()
+    count = 0
+
+    def before(*args, **kwargs):
+        nonlocal count
+        count += 1
+
+    event.listen(engine, "before_cursor_execute", before)
+    try:
+        fn()
+    finally:
+        event.remove(engine, "before_cursor_execute", before)
+    return count
+
+
+def test_the_home_page_query_count_does_not_grow_with_favorites(client):
+    conv_id = _make_conversation()
+    store.add_favorite("alice@x", "conversation", conv_id)
+    one = _count_queries(lambda: client.get("/", headers=_h()))
+
+    for _ in range(5):
+        store.add_favorite("alice@x", "conversation", _make_conversation())
+    six = _count_queries(lambda: client.get("/", headers=_h()))
+
+    assert six == one
