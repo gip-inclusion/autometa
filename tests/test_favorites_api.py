@@ -71,14 +71,22 @@ def test_a_user_cannot_see_or_touch_another_users_favorites(client):
     assert store.get_favorite_ids("bob@x") == set()
 
 
-def test_pinning_does_not_create_a_favorite_and_the_reverse(client):
+def test_pinning_does_not_create_a_favorite(client):
     conv_id = _make_conversation()
 
     client.post(f"/api/conversations/{conv_id}/pin", headers=_h(ADMIN), json={})
+
+    assert store.get_pinned_ids() == {("conversation", conv_id)}
     assert store.get_favorite_ids(ADMIN) == set()
 
+
+def test_favoriting_does_not_create_a_pin(client):
+    conv_id = _make_conversation()
+
     client.post(f"/api/favorites/conversation/{conv_id}", headers=_h(ADMIN))
-    assert store.get_pinned_ids() == {("conversation", conv_id)}
+
+    assert store.get_favorite_ids(ADMIN) == {("conversation", conv_id)}
+    assert store.get_pinned_ids() == set()
 
 
 def test_favoriting_the_same_item_twice_stays_ok(client):

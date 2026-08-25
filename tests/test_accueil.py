@@ -114,7 +114,7 @@ def test_home_shows_pinned_above_favorites(client):
 
     html = client.get("/", headers=_h()).text
 
-    assert html.index("Épinglés") < html.index("Favoris")
+    assert html.index("</i>Épinglés") < html.index("</i>Favoris")
 
 
 def test_favorite_tiles_carry_the_full_title_for_hover(client):
