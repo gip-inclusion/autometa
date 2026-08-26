@@ -1,7 +1,9 @@
 """S3 storage with prefixed store instances."""
 
+import gzip
 import logging
 import mimetypes
+from pathlib import PurePosixPath
 from typing import BinaryIO, Optional
 
 import boto3
@@ -188,6 +190,32 @@ def list_prefix(bucket: str, prefix: str) -> list[str]:
     return keys
 
 
+COMPRESSIBLE_EXTS = frozenset({".css", ".csv", ".html", ".js", ".json", ".map", ".mjs", ".svg", ".txt", ".xml"})
+
+
+def _copy_gzipped(src_key: str, dst_bucket: str, dst_key: str) -> bool:
+    """Copy src_key gzipped; False when the source is already encoded, compression does not pay, or S3 fails."""
+    try:
+        obj = _client.get_object(Bucket=config.S3_BUCKET, Key=src_key)
+        if obj.get("ContentEncoding"):
+            return False
+        body = obj["Body"].read()
+        packed = gzip.compress(body, mtime=0)
+        if len(packed) >= len(body):
+            return False
+        _client.put_object(
+            Bucket=dst_bucket,
+            Key=dst_key,
+            Body=packed,
+            ContentType=obj.get("ContentType") or mimetypes.guess_type(dst_key)[0] or "application/octet-stream",
+            ContentEncoding="gzip",
+        )
+        return True
+    except ClientError as exc:
+        logger.debug("gzip copy failed for %s, falling back to plain copy: %s", src_key, exc)
+        return False
+
+
 def copy_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
     """Copy every object under src_prefix (in S3_BUCKET) to dst_bucket/dst_prefix. Returns count."""
     return _copy_keys(list_prefix(config.S3_BUCKET, src_prefix), src_prefix, dst_bucket, dst_prefix)
@@ -204,7 +232,7 @@ def delete_prefix(bucket: str, prefix: str) -> int:
 def sync_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
     """Copy src_prefix onto dst_bucket/dst_prefix, then prune destination orphans (copy before delete)."""
     src_keys = list_prefix(config.S3_BUCKET, src_prefix)
-    copied = _copy_keys(src_keys, src_prefix, dst_bucket, dst_prefix)
+    copied = _copy_keys(src_keys, src_prefix, dst_bucket, dst_prefix, compress=True)
     src_rel = {key[len(src_prefix) :] for key in src_keys}
     for dst_key in list_prefix(dst_bucket, dst_prefix):
         if dst_key[len(dst_prefix) :] not in src_rel:
@@ -212,10 +240,17 @@ def sync_prefix(src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
     return copied
 
 
-def _copy_keys(src_keys: list[str], src_prefix: str, dst_bucket: str, dst_prefix: str) -> int:
+def _copy_keys(src_keys: list[str], src_prefix: str, dst_bucket: str, dst_prefix: str, compress: bool = False) -> int:
     count = 0
     for src_key in src_keys:
         dst_key = f"{dst_prefix}{src_key[len(src_prefix) :]}"
+        if (
+            compress
+            and PurePosixPath(src_key).suffix.lower() in COMPRESSIBLE_EXTS
+            and _copy_gzipped(src_key, dst_bucket, dst_key)
+        ):
+            count += 1
+            continue
         try:
             _client.copy_object(
                 Bucket=dst_bucket,
