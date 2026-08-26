@@ -131,8 +131,9 @@ def connector_inventory(source: str) -> Inventory:
     rows = list_inventory(source)
     groups: dict[str, list] = {}
     for row in rows:
+        # Why: un identifiant Notion n'apprend rien à un lecteur — mieux vaut dire que le titre manque.
         groups.setdefault(row.item_type, []).append({
-            "name": row.label or row.external_id,
+            "name": row.label or "sans titre",
             "description": None,
             "url": row.url,
         })

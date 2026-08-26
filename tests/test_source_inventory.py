@@ -101,8 +101,22 @@ def test_a_source_never_refreshed_has_no_date():
     assert source_inventory.last_success("notion") is None
 
 
-def test_notion_collects_roots_but_not_nested_pages(mocker):
-    """DOD-5 : seules les racines — une page rangée dans une base n'est pas un point d'entrée."""
+def test_notion_asks_the_server_for_databases_only(mocker):
+    """DOD-5 : sans filtre serveur, la recherche pagine tout l'espace de travail (11 756 objets mesurés)."""
+    request = mocker.patch.object(
+        source_inventory,
+        "notion_request",
+        return_value={"has_more": False, "results": []},
+    )
+
+    source_inventory.fetch_notion_roots()
+
+    payload = request.call_args.args[2]
+    assert payload["filter"] == {"property": "object", "value": "database"}
+
+
+def test_notion_collects_databases_wherever_they_live(mocker):
+    """Une base rangée dans une page reste un point d'entrée interrogeable ; son contenu, non."""
     mocker.patch.object(
         source_inventory,
         "notion_request",
@@ -111,25 +125,44 @@ def test_notion_collects_roots_but_not_nested_pages(mocker):
             "results": [
                 {
                     "object": "database",
-                    "id": "db-1",
+                    "id": "db-racine",
                     "parent": {"type": "workspace"},
-                    "url": "https://notion.so/db-1",
+                    "url": "https://notion.so/db-racine",
                     "title": [{"plain_text": "Suivi"}],
                 },
                 {
-                    "object": "page",
-                    "id": "page-nested",
-                    "parent": {"type": "database_id", "database_id": "db-1"},
-                    "url": "https://notion.so/page-nested",
+                    "object": "database",
+                    "id": "db-imbriquee",
+                    "parent": {"type": "page_id", "page_id": "page-1"},
+                    "url": "https://notion.so/db-imbriquee",
+                    "title": [{"plain_text": "Vocabulaire"}],
                 },
             ],
         },
     )
 
-    roots = source_inventory.fetch_notion_roots()
+    bases = source_inventory.fetch_notion_roots()
 
-    assert [r.external_id for r in roots] == ["db-1"]
-    assert roots[0].label == "Suivi"
+    assert [(b.external_id, b.label) for b in bases] == [
+        ("db-racine", "Suivi"),
+        ("db-imbriquee", "Vocabulaire"),
+    ]
+    assert {b.item_type for b in bases} == {"database"}
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"object": "database", "id": "db", "parent": {}, "title": []},
+        {"object": "database", "id": "db", "parent": {}, "title": [{"plain_text": "   "}]},
+        # Le schéma d'une base vit dans `properties` : y chercher un titre ne rend jamais rien.
+        {"object": "database", "id": "db", "parent": {}, "properties": {"Nom": {"type": "title", "title": {}}}},
+    ],
+    ids=["titre vide", "titre blanc", "schema seul"],
+)
+def test_an_untitled_database_has_no_label(result):
+    """22 des 123 bases de l'espace de travail n'ont aucun titre — la page le dit, elle n'affiche pas un UUID."""
+    assert source_inventory.notion_title(result) is None
 
 
 def test_tally_collects_workspaces_only(mocker):
