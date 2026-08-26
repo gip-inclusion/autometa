@@ -62,27 +62,15 @@
   </div>
 
 <script>
-// Mermaid progressive enhancement (code blocks → diagrams)
-function renderMermaidDiagrams() {
-  if (typeof mermaid === 'undefined') return;
-  const blocks = document.querySelectorAll('#reportBody pre code.language-mermaid');
-  for (const block of blocks) {
-    if (block.dataset.mermaidRendered) continue;
-    block.dataset.mermaidRendered = 'true';
-    const code = block.textContent;
-    const container = document.createElement('div');
-    container.className = 'mermaid';
-    const preElement = block.parentElement;
-    try {
-      mermaid.render('mermaid-' + Date.now() + '-' + Math.random().toString(36).slice(2), code)
-        .then(({ svg }) => { container.innerHTML = svg; preElement.replaceWith(container); })
-        .catch(() => {});
-    } catch (err) {}
-  }
+// Why: ce script vit dans le bloc content, donc avant le chargement de render.js —
+// à la toute première exécution renderMermaid n'existe pas encore, DOMContentLoaded prend le relais.
+function renderReportMermaid() {
+  const body = document.getElementById('reportBody');
+  if (body && typeof renderMermaid === 'function') renderMermaid(body);
 }
-document.addEventListener('DOMContentLoaded', renderMermaidDiagrams);
-document.body.addEventListener('htmx:afterSettle', renderMermaidDiagrams);
-renderMermaidDiagrams();
+document.addEventListener('DOMContentLoaded', renderReportMermaid);
+document.body.addEventListener('htmx:afterSettle', renderReportMermaid);
+renderReportMermaid();
 
 // "Exporter dans Notion" button (event delegation — survives HTMX swaps)
 document.addEventListener('click', async (e) => {
