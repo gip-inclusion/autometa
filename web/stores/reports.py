@@ -70,6 +70,13 @@ class ReportsMixin:
             result.content = content
             return result
 
+    def get_reports_by_ids(self, report_ids: list[int]) -> dict[int, Report]:
+        if not report_ids:
+            return {}
+        with get_db() as session:
+            models = session.scalars(select(ReportModel).where(ReportModel.id.in_(report_ids))).all()
+            return {r.id: model_to_report(r) for r in models}
+
     def list_reports(
         self,
         website: Optional[str] = None,
@@ -127,4 +134,5 @@ class ReportsMixin:
             if not r:
                 return False
             session.delete(r)
-            return True
+        self.remove_favorites_for_item("report", str(report_id))
+        return True

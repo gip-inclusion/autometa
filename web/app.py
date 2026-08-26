@@ -161,6 +161,7 @@ from .routes import (  # noqa: E402
     conversations,
     cron,
     dashboards,
+    favorites,
     html,
     jobs,
     knowledge,
@@ -177,6 +178,7 @@ app.include_router(auth.router)
 app.include_router(knowledge.router)
 app.include_router(reports.api_router)
 app.include_router(conversations.router)
+app.include_router(favorites.router)
 app.include_router(tag_manager.router)
 # Template-serving routers last (they have catch-all-ish paths)
 app.include_router(reports.html_router)

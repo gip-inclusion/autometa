@@ -254,6 +254,22 @@ class PinnedItem(Base):
     __table_args__ = (UniqueConstraint("item_type", "item_id"),)
 
 
+class UserFavorite(Base):
+    __tablename__ = "user_favorites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    item_type: Mapped[str] = mapped_column(Text, nullable=False)
+    item_id: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "item_type", "item_id"),
+        Index("idx_user_favorites_user", "user_id", "position"),
+    )
+
+
 class MatomoBaseline(Base):
     __tablename__ = "matomo_baselines"
 

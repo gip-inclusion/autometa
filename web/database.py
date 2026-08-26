@@ -3,12 +3,14 @@
 from web.db import get_db
 from web.stores.conversations import ConversationsMixin
 from web.stores.dashboards import DashboardsMixin
+from web.stores.favorites import FavoritesMixin
 from web.stores.files import FilesMixin
 from web.stores.pins import PinsMixin
 from web.stores.records import (
     VALID_CONVERSATION_COLUMNS,
     VALID_REPORT_COLUMNS,
     Conversation,
+    Favorite,
     Message,
     PinnedItem,
     Report,
@@ -24,6 +26,7 @@ __all__ = [
     "VALID_REPORT_COLUMNS",
     "Conversation",
     "ConversationStore",
+    "Favorite",
     "LazyConversationStore",
     "Message",
     "PinnedItem",
@@ -36,7 +39,9 @@ __all__ = [
 ]
 
 
-class ConversationStore(ConversationsMixin, PinsMixin, ReportsMixin, DashboardsMixin, TagsMixin, FilesMixin):
+class ConversationStore(
+    ConversationsMixin, PinsMixin, FavoritesMixin, ReportsMixin, DashboardsMixin, TagsMixin, FilesMixin
+):
     """PostgreSQL-backed conversation and report store."""
 
 

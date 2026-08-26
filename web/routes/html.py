@@ -15,7 +15,6 @@ from web.deps import get_current_user, templates
 from web.helpers import (
     format_relative_date,
     list_knowledge_files,
-    list_knowledge_sections,
     list_staged_files,
     validate_conv_id,
     validate_knowledge_path,
@@ -81,56 +80,107 @@ def get_sidebar_data(user_email: str | None, request: Request):
         "user_email": user_email,
         "pinned_conversations": pinned_conversations,
         "is_htmx_request": request.headers.get("HX-Request") == "true",
+        "favorite_ids": store.get_favorite_ids(user_email) if user_email else set(),
+    }
+
+
+PIN_URLS = {
+    "conversation": "/api/conversations/{item_id}/pin",
+    "report": "/api/reports/{item_id}/pin",
+    "app": "/api/apps/{item_id}/pin",
+}
+
+
+def resolve_item(
+    item_type: str,
+    item_id: str,
+    apps_by_slug: dict,
+    conversations_by_id: dict,
+    reports_by_id: dict,
+    label: str | None = None,
+) -> dict | None:
+    """Resolve a pinned or favorited reference to what a template needs, or None if it's gone."""
+    if item_type == "conversation":
+        conv = conversations_by_id.get(item_id)
+        if not conv:
+            return None
+        return {
+            "url": f"/explorations/{item_id}",
+            "title": humanize_title(conv.title) if conv.title else label,
+            "icon": "ri-chat-3-fill",
+            "updated_at": conv.updated_at,
+            "user_id": conv.user_id,
+            "is_external": False,
+        }
+    if item_type == "report":
+        if not item_id.isdigit():
+            return None
+        report = reports_by_id.get(int(item_id))
+        if not report:
+            return None
+        return {
+            "url": f"/rapports/{item_id}",
+            "title": label or report.title,
+            "icon": "ri-file-text-line",
+            "updated_at": report.updated_at,
+            "user_id": report.user_id,
+            "is_external": False,
+        }
+    app = apps_by_slug.get(item_id)
+    if not app:
+        return None
+    return {
+        "url": app["url"],
+        "title": label or app["title"],
+        "icon": "ri-window-fill",
+        "updated_at": app.get("updated"),
+        "user_id": ", ".join(app.get("authors", [])) or None,
+        "is_external": True,
     }
 
 
 @router.get("/")
 def index(request: Request, user_email: str = Depends(get_current_user)):
-    """Home page — dashboard with navigation, sources, starred items."""
+    """Home page — navigation, admin pins, and the user's own favorites."""
     data = get_sidebar_data(user_email, request)
 
-    # Pinned items (conversations, reports, apps)
-    pinned_raw = store.list_pinned_items()
-    apps_by_slug = (
-        {a["slug"]: a for a in store.list_dashboards()} if any(p.item_type == "app" for p in pinned_raw) else {}
-    )
+    apps_by_slug = {a["slug"]: a for a in store.list_dashboards()}
+
+    pins = store.list_pinned_items()
+    favs = store.list_favorites(user_email)
+
+    conv_ids = [ref.item_id for ref in pins + favs if ref.item_type == "conversation"]
+    report_ids = [int(ref.item_id) for ref in pins + favs if ref.item_type == "report" and ref.item_id.isdigit()]
+    conversations_by_id = store.get_conversations_by_ids(conv_ids)
+    reports_by_id = store.get_reports_by_ids(report_ids)
+
     pinned = []
-    for p in pinned_raw:
-        if p.item_type == "conversation":
-            conv = store.get_conversation(p.item_id, include_messages=False)
-            if not conv:
-                continue
-            p.url = f"/explorations/{p.item_id}"
-            p.pin_url = f"/api/conversations/{p.item_id}/pin"
-            p.title = humanize_title(conv.title) if conv.title else p.label
-            p.icon = "ri-chat-3-fill"
-            p.formatted_date = format_relative_date(conv.updated_at)
-            p.user_id = conv.user_id
-        elif p.item_type == "report":
-            report = store.get_report(int(p.item_id))
-            if not report:
-                continue
-            p.url = f"/rapports/{p.item_id}"
-            p.pin_url = f"/api/reports/{p.item_id}/pin"
-            p.title = p.label or report.title
-            p.icon = "ri-file-text-line"
-            p.formatted_date = format_relative_date(report.updated_at)
-            p.user_id = report.user_id
-        elif p.item_type == "app":
-            app = apps_by_slug.get(p.item_id)
-            if not app:
-                continue
-            p.url = app["url"]
-            p.pin_url = f"/api/apps/{p.item_id}/pin"
-            p.title = p.label or app["title"]
-            p.icon = "ri-window-fill"
-            p.formatted_date = format_relative_date(app.get("updated")) if app.get("updated") else ""
-            p.user_id = ", ".join(app.get("authors", [])) or None
-            p.is_external = True
+    for p in pins:
+        resolved = resolve_item(p.item_type, p.item_id, apps_by_slug, conversations_by_id, reports_by_id, p.label)
+        if not resolved:
+            continue
+        p.url = resolved["url"]
+        p.title = resolved["title"]
+        p.icon = resolved["icon"]
+        p.formatted_date = format_relative_date(resolved["updated_at"]) if resolved["updated_at"] else ""
+        p.user_id = resolved["user_id"]
+        p.is_external = resolved["is_external"]
+        p.pin_url = PIN_URLS[p.item_type].format(item_id=p.item_id)
         pinned.append(p)
 
-    # Knowledge sections (top-level folders only)
-    knowledge_sections = list_knowledge_sections()
+    favorites = []
+    for f in favs:
+        resolved = resolve_item(f.item_type, f.item_id, apps_by_slug, conversations_by_id, reports_by_id)
+        if not resolved:
+            continue
+        favorites.append({
+            "item_type": f.item_type,
+            "item_id": f.item_id,
+            "url": resolved["url"],
+            "title": resolved["title"] or "Sans titre",
+            "icon": resolved["icon"],
+            "is_external": resolved["is_external"],
+        })
 
     return templates.TemplateResponse(
         request,
@@ -139,7 +189,7 @@ def index(request: Request, user_email: str = Depends(get_current_user)):
             "section": "accueil",
             "current_conv": None,
             "pinned": pinned,
-            "knowledge_sections": knowledge_sections,
+            "favorites": favorites,
             **data,
         },
     )

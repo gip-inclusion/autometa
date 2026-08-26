@@ -99,6 +99,7 @@ def truncate_all_tables():
             text("""
             TRUNCATE TABLE conversation_message_embeddings, messages, conversation_tags, report_tags,
                 uploaded_files, cron_runs, dashboards, dashboard_tags, dashboard_publications, pinned_items,
+                user_favorites,
                 reports, conversations, tags,
                 matomo_baselines, matomo_dimensions, matomo_segments,
                 matomo_events, metabase_cards, metabase_dashboards

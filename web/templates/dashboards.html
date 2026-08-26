@@ -95,6 +95,7 @@
                   <a href="/dashboards/{{ g.slug }}/edit" class="conv-item-action-btn">
                     <i class="ri-settings-3-line"></i> Configurer
                   </a>
+                  {% with item_type = 'app', item_id = g.slug %}{% include "_favorite_button.html" %}{% endwith %}
                 </div>
                 {% for p in g.publications %}
                 <div class="pub-row">
@@ -169,6 +170,7 @@
                           <a href="/dashboards/{{ d.slug }}/edit" class="conv-item-action-btn">
                             <i class="ri-settings-3-line"></i> Configurer
                           </a>
+                          {% with item_type = 'app', item_id = d.slug %}{% include "_favorite_button.html" %}{% endwith %}
                         </span>
                         <span class="dashboard-col dashboard-col-cron">
                           {% if d.has_cron %}
