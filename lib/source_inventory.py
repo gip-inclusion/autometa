@@ -31,25 +31,24 @@ class InventoryItem:
 
 
 def fetch_notion_roots() -> list[InventoryItem]:
-    """Pages et bases partagées avec l'intégration — ce qu'elle voit, pas tout l'espace de travail."""
+    """Les bases partagées avec l'intégration : les points d'entrée interrogeables, pas leur contenu."""
+    # Why: le filtre `object=database` est appliqué par le serveur. Sans lui, la recherche pagine tout
+    # l'espace de travail — mesuré à 11 756 objets en 145 s pour n'en garder que 123. Les pages ne sont
+    # pas inventoriées : à deux exceptions près elles sont du contenu de base, et ne s'interrogent pas.
     items: list[InventoryItem] = []
     cursor = None
     while True:
-        payload: dict = {"page_size": NOTION_PAGE_SIZE}
+        payload: dict = {"page_size": NOTION_PAGE_SIZE, "filter": {"property": "object", "value": "database"}}
         if cursor:
             payload["start_cursor"] = cursor
         data = notion_request("POST", "search", payload)
         for result in data.get("results", []):
-            parent = result.get("parent", {})
-            # Why: seules les racines nous intéressent — une page rangée dans une autre n'est pas un point d'entrée.
-            if parent.get("type") not in ("workspace", "page_id"):
-                continue
             items.append(
                 InventoryItem(
-                    item_type=result.get("object", "page"),
+                    item_type="database",
                     external_id=result["id"],
                     label=notion_title(result),
-                    parent_external_id=parent.get("page_id"),
+                    parent_external_id=result.get("parent", {}).get("page_id"),
                     url=result.get("url"),
                 )
             )
@@ -59,12 +58,9 @@ def fetch_notion_roots() -> list[InventoryItem]:
 
 
 def notion_title(result: dict) -> str | None:
-    if result.get("title"):
-        return extract_text_from_rich_text(result["title"])
-    for prop in (result.get("properties") or {}).values():
-        if prop.get("type") == "title":
-            return extract_text_from_rich_text(prop.get("title", []))
-    return None
+    # Why: `properties` décrit le schéma d'une base, pas ses valeurs — y chercher un titre ne rend
+    # jamais rien. Une base peut légitimement n'avoir aucun titre (bases en ligne, 22 sur 123 ici).
+    return extract_text_from_rich_text(result.get("title") or []).strip() or None
 
 
 def fetch_tally_workspaces() -> list[InventoryItem]:
