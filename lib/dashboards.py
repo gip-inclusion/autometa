@@ -55,7 +55,7 @@ def _normalize_timeout(cron_timeout: int | None) -> int | None:
     return cron_timeout
 
 
-class UnknownTag(Exception):
+class UnknownTag(ValueError):
     """Raised when a tag name is not in the synced vocabulary."""
 
 
@@ -319,7 +319,7 @@ def _resolve_tag(session: Session, name: str) -> Tag:
     """Résout un tag du vocabulaire actif. Why: plus de création libre — Notion fait foi."""
     tag = session.scalar(select(Tag).where(Tag.name == name, Tag.active))
     if tag is None:
-        raise UnknownTag(name)
+        raise UnknownTag(f"tag hors vocabulaire : {name}")
     return tag
 
 

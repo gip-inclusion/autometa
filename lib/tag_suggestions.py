@@ -158,7 +158,7 @@ AUTO_TAGGER = "tagueur-automatique@autometa"
 
 def apply_tags(object_type: str, object_id: str, names: list[str]) -> bool:
     """Pose les tags sur l'objet. Retourne False si l'objet a disparu ou refuse un terme."""
-    from lib.dashboards import DashboardNotFound, UnknownTag, update_dashboard
+    from lib.dashboards import DashboardNotFound, update_dashboard
     from web.database import store
 
     try:
@@ -170,7 +170,8 @@ def apply_tags(object_type: str, object_id: str, names: list[str]) -> bool:
             store.set_report_tags(int(object_id), names, update_timestamp=False)
         else:
             return False
-    except DashboardNotFound, UnknownTag, ValueError:
+    # Why: UnknownTag hérite de ValueError — un terme hors vocabulaire est une entrée invalide.
+    except DashboardNotFound, ValueError:
         logger.warning("tag-suggestions: application impossible sur %s/%s", object_type, object_id)
         return False
     return True

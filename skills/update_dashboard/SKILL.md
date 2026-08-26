@@ -31,8 +31,8 @@ Ne jamais inventer ou deviner un slug.
 .venv/bin/python skills/update_dashboard/scripts/update_dashboard.py \
     --slug mon-tdb \
     --title "Nouveau titre" \
-    --add-tags trafic,emplois \
-    --remove-tags ancien-tag \
+    --add-tags prescription,emplois \
+    --remove-tags marche \
     --has-api-access true
 ```
 
@@ -60,7 +60,7 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | `--description` | Nouvelle description (une ligne) |
 | `--website` | Nouveau site associé |
 | `--category` | Nouvelle catégorie |
-| `--add-tags TAG1,TAG2` | Tags à ajouter |
+| `--add-tags TAG1,TAG2` | Tags à ajouter (vocabulaire fermé, cf. § Tags) |
 | `--remove-tags TAG1,TAG2` | Tags à retirer |
 | `--set-tags TAG1,TAG2` | Remplace tout l'ensemble (mutuellement exclusif avec `--add-tags`/`--remove-tags`) |
 | `--has-cron true\|false` | Met à jour le flag |
@@ -89,3 +89,16 @@ L'`originating_user_email` (= premier auteur du TDB) est lu en DB par la fonctio
 - `0` — succès, JSON sur stdout.
 - `1` — slug inconnu, mutex `--set-tags` ⇄ `--add-tags`/`--remove-tags`, ou autre erreur métier.
 - `2` — variables d'env manquantes (bug d'intégration).
+
+## Tags
+
+Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
+
+```bash
+.venv/bin/python -c "
+from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
+from web.db import get_db
+with get_db() as session:
+    print(build_prompt_taxonomy(load_vocabulary(session)))
+"
+```
