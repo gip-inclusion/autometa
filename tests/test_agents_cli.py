@@ -315,6 +315,10 @@ def test_usage_limit_reset_rolls_to_next_day_when_time_already_passed():
         "API Error: 429 rate limit",
         "resets 5pm (UTC)",  # without the "hit your limit" marker
         "You've hit your limit · resets 5pm (Europe/Paris)",  # non-UTC, not our format
+        # Why: un message classé « limite » est retiré du flux — l'agent qui cite la phrase doit
+        # rester du texte normal, sinon sa réponse disparaît et une fausse alerte part sur Slack.
+        "Le log dit : You've hit your limit · resets 5pm (UTC). Je réessaie plus tard.",
+        "You've hit your limit · resets 5pm (UTC) — voici ce que ça veut dire pour nous.",
     ],
 )
 def test_usage_limit_reset_returns_none_for_non_limit(text):

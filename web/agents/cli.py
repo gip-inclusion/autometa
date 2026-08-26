@@ -44,12 +44,18 @@ def transient_api_error(text: str) -> str | None:
 # « You've hit your limit · resets 5pm (UTC) ». Ce n'est ni un 429 ni un type d'erreur API — on la
 # classe à part pour afficher l'heure de reprise au lieu d'un « Process exited with code 1 ». L'heure
 # est toujours en UTC dans le texte du CLI.
-_USAGE_LIMIT_RE = re.compile(r"hit your limit.*?resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)", re.I | re.S)
+# Why: motif ancré aux deux bouts — le message classé « limite » est retiré du flux, donc un message
+# qui ne fait que *citer* la phrase (l'agent qui relit un log, ou qui parle de cette fonctionnalité)
+# doit rester du texte normal. Un préfixe court est toléré, du texte après ne l'est pas.
+_USAGE_LIMIT_RE = re.compile(
+    r"\A.{0,40}?hit your limit\b.*?resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)[\s.!·]*\Z",
+    re.I | re.S,
+)
 
 
 def usage_limit_reset(text: str, now: datetime | None = None) -> datetime | None:
     """Si le texte signale une limite d'abonnement atteinte, renvoie l'instant UTC de reprise."""
-    match = _USAGE_LIMIT_RE.search(text)
+    match = _USAGE_LIMIT_RE.search(text.strip())
     if not match:
         return None
     hour = int(match.group(1)) % 12
