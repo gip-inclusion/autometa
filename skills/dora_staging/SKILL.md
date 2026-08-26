@@ -9,7 +9,7 @@ Base PostgreSQL de l'environnement **staging de Dora**. Sert à **tester les mig
 
 ## Trois règles non négociables
 
-1. **Lecture seule absolue.** Autometa n'écrit **jamais** sur cette base, sous aucun prétexte, même si l'utilisateur le demande explicitement. Pas d'`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `ALTER`, `DROP`, `GRANT`, ni de fonction à effet de bord. Si on vous le demande, refuser et expliquer que la base est en lecture seule côté Autometa ; renvoyer l'utilisateur vers les migrations du dépôt `gip-inclusion/dora`.
+1. **Lecture seule absolue.** Autometa n'écrit **jamais** sur cette base, sous aucun prétexte, même si l'utilisateur le demande explicitement. C'est PostgreSQL qui l'impose, pas une règle de prompt. Pas d'`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `ALTER`, `DROP`, `GRANT`, ni de fonction à effet de bord. Si on vous le demande, refuser et expliquer que la base est en lecture seule côté Autometa ; renvoyer l'utilisateur vers les migrations du dépôt `gip-inclusion/dora`.
 2. **Données jamais mélangées.** Ce sont des données de préprod, fausses ou périmées. Ne jamais les joindre, agréger, comparer côte à côte ou consolider avec Metabase, `autometa_tables_db`, `data_inclusion`, Matomo ou RPE. Ne jamais les recopier dans `dashboard_storage`, dans un tableau de bord, dans un rapport d'analyse, dans `knowledge/`, ni dans un dataset publié.
 3. **Usage strictement technique.** Toute question métier ou de pilotage relève d'`autometa_tables_db` ou de Metabase.
 
@@ -29,7 +29,7 @@ else:
     print(result.error)
 ```
 
-Une seule requête par appel : pas de `;` intermédiaire, pas de commentaire avant le premier mot-clé. Toute requête qui ne commence pas par `SELECT`/`WITH`/`TABLE`/`VALUES`/`EXPLAIN`/`SHOW` est rejetée avant d'atteindre la base, et la connexion PostgreSQL est elle-même ouverte en `default_transaction_read_only`.
+Une seule requête par appel. La connexion est ouverte en `default_transaction_read_only` et le rôle PostgreSQL n'a aucun droit d'écriture : toute tentative d'écriture est refusée par le serveur, et rien n'est jamais commité côté Autometa.
 
 ## Explorer le schéma
 
