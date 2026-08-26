@@ -34,7 +34,9 @@ cp handler.py config.py requirements.txt build/
 echo "→ Provisioning $BACKUP_BUCKET (versioning + $RETENTION_DAYS-day version history)"
 # Why: versioning must be on before the first pass — the handler refuses to mirror without it, and an
 # overwrite on an unversioned target would destroy the previous copy.
-BACKUP_BUCKET="$BACKUP_BUCKET" RETENTION_DAYS="$RETENTION_DAYS" PYTHONPATH=build python3 provision.py
+BACKUP_BUCKET="$BACKUP_BUCKET" RETENTION_DAYS="$RETENTION_DAYS" \
+  S3_ACCESS_KEY="$S3_ACCESS_KEY" S3_SECRET_KEY="$S3_SECRET_KEY" \
+  PYTHONPATH=build python3 provision.py
 
 echo "→ Ensuring namespace '$NAMESPACE_NAME'"
 NS_ID=$(scw function namespace list region="$REGION" -o json | jq -r ".[] | select(.name==\"$NAMESPACE_NAME\") | .id" | head -n1)
