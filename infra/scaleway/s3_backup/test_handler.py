@@ -1,102 +1,147 @@
 """Tests for the s3_backup Scaleway Function handler."""
 
 import json
-from datetime import date
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 
 import handler
 
-
-def make_obj(key, etag="etag", size=10):
-    return {"Key": key, "ETag": etag, "Size": size}
+SOURCE = "matometa"
+TARGET = "matometa-backup"
 
 
 class FakeS3:
-    """In-memory S3 double. Exposes no head_object: a resumed pass must diff by listing, not per-object probes."""
+    """In-memory S3 double. Exposes no head_object: a pass must diff by listing, not per-object probes."""
 
-    def __init__(self, source_objects=(), existing=None, fail_copy_keys=(), backup_tree=None, copy_error=None):
-        self.source_objects = list(source_objects)
-        self.existing = dict(existing or {})
+    def __init__(
+        self,
+        source,
+        mirrored=(),
+        other_target=(),
+        fail_copy_keys=(),
+        fail_delete_keys=(),
+        copy_error=None,
+        versioning="Enabled",
+    ):
+        self.objects = {
+            SOURCE: {key: (etag, 10) for key, etag in dict(source).items()},
+            TARGET: {f"mirror/{key}": (etag, 10) for key, etag in dict(mirrored).items()}
+            | {key: (etag, 10) for key, etag in dict(other_target).items()},
+        }
         self.fail_copy_keys = set(fail_copy_keys)
-        self.backup_tree = dict(backup_tree or {})
+        self.fail_delete_keys = set(fail_delete_keys)
         self.copy_error = copy_error or ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject")
+        self.versioning = versioning
         self.copied = []
-        self.listings = []
-        self.put = {}
         self.deleted = []
+        self.put = {}
+
+    def get_bucket_versioning(self, Bucket):
+        return {"Status": self.versioning} if self.versioning else {}
 
     def get_paginator(self, name):
         assert name == "list_objects_v2"
         return self
 
-    def paginate(self, Bucket, Prefix=None, Delimiter=None):
-        self.listings.append((Bucket, Prefix))
-        if Delimiter == "/":
-            common = [{"Prefix": p} for p in sorted(self.backup_tree) if p.startswith(Prefix or "")]
-            yield {"CommonPrefixes": common}
-        elif Prefix in self.backup_tree:
-            yield {"Contents": self.backup_tree[Prefix]}
-        elif Prefix:
-            yield {
-                "Contents": [
-                    make_obj(key, etag=etag) for key, etag in sorted(self.existing.items()) if key.startswith(Prefix)
-                ]
-            }
-        else:
-            yield {"Contents": self.source_objects}
+    def paginate(self, Bucket, Prefix=""):
+        contents = [
+            {"Key": key, "ETag": etag, "Size": size}
+            for key, (etag, size) in sorted(self.objects[Bucket].items())
+            if key.startswith(Prefix)
+        ]
+        yield {"Contents": contents[:1]}
+        yield {"Contents": contents[1:]}
 
     def copy_object(self, Bucket, Key, CopySource, MetadataDirective):
         if CopySource["Key"] in self.fail_copy_keys:
             raise self.copy_error
+        self.objects[Bucket][Key] = self.objects[CopySource["Bucket"]][CopySource["Key"]]
         self.copied.append(Key)
+
+    def delete_object(self, Bucket, Key, **kwargs):
+        if Key in self.fail_delete_keys:
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "DeleteObject")
+        self.deleted.append((Key, kwargs))
+        self.objects[Bucket].pop(Key, None)
 
     def put_object(self, Bucket, Key, Body, ContentType):
         self.put[Key] = Body
 
-    def delete_objects(self, Bucket, Delete):
-        self.deleted.extend(o["Key"] for o in Delete["Objects"])
 
-
-def test_snapshot_copies_all_objects():
-    client = FakeS3([make_obj("a"), make_obj("b"), make_obj("c")])
-    result = handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
+def test_mirror_copies_objects_absent_from_the_mirror():
+    client = FakeS3({"a": "1", "b": "2"}, mirrored={"a": "1"})
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
     assert result["ok"] is True
-    assert result["copied"] == 3
-    assert result["objects"] == 3
-    assert sorted(client.copied) == [
-        "backup/2026-05-17/a",
-        "backup/2026-05-17/b",
-        "backup/2026-05-17/c",
-    ]
-    assert json.loads(client.put["backup/2026-05-17/_MANIFEST.json"])["ok"] is True
+    assert result["copied"] == 1
+    assert result["unchanged"] == 1
+    assert result["objects"] == 2
+    assert client.copied == ["mirror/b"]
 
 
-def test_snapshot_skips_objects_already_present_with_same_etag():
+@pytest.mark.parametrize(
+    ("mirrored_etag", "expected_copies"),
+    [("1", []), ("stale", ["mirror/a"])],
+)
+def test_mirror_recopies_an_object_only_when_its_etag_differs(mirrored_etag, expected_copies):
+    client = FakeS3({"a": "1"}, mirrored={"a": mirrored_etag})
+    handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    assert client.copied == expected_copies
+
+
+def test_mirror_deletes_keys_dropped_from_the_source_without_naming_a_version():
+    client = FakeS3({"a": "1"}, mirrored={"a": "1", "gone": "9"})
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    assert result["deleted"] == 1
+    # Why: a version-unaware delete leaves a delete marker, so the backup keeps the removed object's history.
+    assert client.deleted == [("mirror/gone", {})]
+
+
+def test_mirror_leaves_everything_outside_the_mirror_prefix_alone():
+    # Why: legacy dated snapshots and the manifests live in the same bucket. If the pass ever compared
+    # them against the source they would all be deleted, and the manifest would still report success.
     client = FakeS3(
-        [make_obj("a", etag="x"), make_obj("b", etag="y")],
-        existing={"backup/2026-05-17/a": "x"},
+        {"a": "1"},
+        mirrored={"a": "1"},
+        other_target={"backup/2026-05-01/a": "old", "manifests/2026-08-11.json": "m"},
     )
-    result = handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
-    assert result["copied"] == 1
-    assert result["skipped"] == 1
-    assert client.copied == ["backup/2026-05-17/b"]
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    assert client.deleted == []
+    assert result["objects"] == 1
+    assert set(client.objects[TARGET]) >= {"backup/2026-05-01/a", "manifests/2026-08-11.json"}
 
 
-def test_snapshot_recopies_an_object_whose_etag_changed_since_the_interrupted_pass():
-    client = FakeS3([make_obj("a", etag="fresh")], existing={"backup/2026-05-17/a": "stale"})
-    result = handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
-    assert result["copied"] == 1
-    assert client.copied == ["backup/2026-05-17/a"]
+@pytest.mark.parametrize(
+    ("versioning", "expected"),
+    [(None, "disabled"), ("Suspended", "Suspended")],
+)
+def test_mirror_refuses_to_run_when_the_target_keeps_no_history(versioning, expected):
+    # Why: without versioning, mirroring a deletion destroys the only copy and the manifest would
+    # still say ok — the backup would silently stop being a backup.
+    client = FakeS3({"a": "1"}, mirrored={"gone": "9"}, versioning=versioning)
+    with pytest.raises(RuntimeError, match=expected):
+        handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    assert client.copied == []
+    assert client.deleted == []
+    assert client.put == {}
 
 
-def test_snapshot_lists_each_side_once_whatever_the_object_count():
-    # Why: the resume check costs two listings, not one HEAD per object — that is the point of this pass.
-    client = FakeS3([make_obj(key) for key in "abcdefgh"])
-    handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
-    assert len(client.listings) == 2
-    assert client.listings[1] == ("matometa-backup", "backup/2026-05-17/")
+def test_mirror_writes_a_dated_manifest_outside_the_mirror_prefix():
+    client = FakeS3({"a": "1"})
+    handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    manifest = json.loads(client.put["manifests/2026-08-12.json"])
+    assert manifest["ok"] is True
+    assert manifest["objects"] == 1
+    assert manifest["bytes"] == 10
+    assert manifest["target"] == f"{TARGET}/mirror/"
+
+
+def test_mirror_counts_objects_whose_etag_cannot_confirm_a_copy():
+    # Why: a multipart ETag is not a plain MD5, so the copy's ETag never matches and the object is
+    # re-copied every pass. Counted in the manifest so that churn is visible instead of silent.
+    client = FakeS3({"single": "1", "multi": "abc-3"})
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    assert result["multipart"] == 1
 
 
 @pytest.mark.parametrize(
@@ -104,51 +149,62 @@ def test_snapshot_lists_each_side_once_whatever_the_object_count():
     [
         ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject"),
         # Why: a transient network error is a BotoCoreError, not a ClientError — it must be
-        # counted as a failed object rather than crash the run before the manifest is written.
+        # counted as a failed object rather than crash the pass before the manifest is written.
         EndpointConnectionError(endpoint_url="https://s3.fr-par.scw.cloud"),
     ],
 )
-def test_snapshot_is_best_effort_and_flags_partial_failure(copy_error):
-    client = FakeS3([make_obj("a"), make_obj("bad"), make_obj("c")], fail_copy_keys={"bad"}, copy_error=copy_error)
-    result = handler.snapshot(client, "matometa", "matometa-backup", "2026-05-17")
+def test_mirror_is_best_effort_and_flags_partial_failure(copy_error):
+    client = FakeS3({"a": "1", "bad": "2", "c": "3"}, fail_copy_keys={"bad"}, copy_error=copy_error)
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
     assert result["ok"] is False
     assert result["failed"] == 1
     assert result["copied"] == 2
-    assert sorted(client.copied) == ["backup/2026-05-17/a", "backup/2026-05-17/c"]
-    manifest = json.loads(client.put["backup/2026-05-17/_MANIFEST.json"])
+    manifest = json.loads(client.put["manifests/2026-08-12.json"])
     assert manifest["ok"] is False
     assert any("bad" in error for error in manifest["errors"])
 
 
-def test_purge_deletes_only_snapshots_older_than_retention():
-    client = FakeS3(
-        backup_tree={
-            "backup/2026-05-01/": [{"Key": "backup/2026-05-01/a"}, {"Key": "backup/2026-05-01/b"}],
-            "backup/2026-05-15/": [{"Key": "backup/2026-05-15/a"}],
-        }
-    )
-    deleted = handler.purge_old_snapshots(client, "matometa-backup", retention_days=10, today=date(2026, 5, 17))
-    assert deleted == 2
-    assert sorted(client.deleted) == ["backup/2026-05-01/a", "backup/2026-05-01/b"]
+def test_mirror_counts_a_failed_deletion_without_counting_it_as_deleted():
+    client = FakeS3({"a": "1"}, mirrored={"a": "1", "gone": "9", "also-gone": "8"}, fail_delete_keys={"mirror/gone"})
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+    assert result["ok"] is False
+    assert result["failed"] == 1
+    assert result["deleted"] == 1
+    assert result["copied"] == 0
+    assert any("delete gone" in error for error in json.loads(client.put["manifests/2026-08-12.json"])["errors"])
 
 
-def test_purge_skips_prefixes_with_invalid_date():
-    client = FakeS3(
-        backup_tree={
-            "backup/notadate/": [{"Key": "backup/notadate/x"}],
-            "backup/2026-05-01/": [{"Key": "backup/2026-05-01/a"}],
-        }
-    )
-    deleted = handler.purge_old_snapshots(client, "matometa-backup", retention_days=10, today=date(2026, 5, 17))
-    assert deleted == 1
-    assert client.deleted == ["backup/2026-05-01/a"]
+@pytest.mark.parametrize(
+    "source",
+    [{}, {f"kept-{i}": "1" for i in range(50)}],
+    ids=["source-illisible", "source-a-moitie-illisible"],
+)
+def test_mirror_copies_but_refuses_to_prune_when_the_source_lost_too_much(source):
+    mirrored = {f"kept-{i}": "1" for i in range(50)} | {f"gone-{i}": "9" for i in range(150)}
+    client = FakeS3(source, mirrored=mirrored)
+
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+
+    assert client.deleted == []
+    assert result["deleted"] == 0
+    assert result["ok"] is False
+    assert any("prune refused" in error for error in result["errors"])
 
 
-def test_handle_raises_when_snapshot_incomplete(mocker):
-    client = FakeS3([make_obj("a"), make_obj("bad")], fail_copy_keys={"bad"})
+def test_mirror_still_prunes_ordinary_churn():
+    mirrored = {f"kept-{i}": "1" for i in range(50)} | {"gone": "9"}
+    client = FakeS3({f"kept-{i}": "1" for i in range(50)}, mirrored=mirrored)
+
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+
+    assert result["deleted"] == 1
+    assert result["ok"] is True
+
+
+def test_handle_raises_when_the_pass_is_incomplete(mocker):
+    client = FakeS3({"a": "1", "bad": "2"}, fail_copy_keys={"bad"})
     mocker.patch.object(handler, "build_client", return_value=client)
-    mocker.patch.object(handler.config, "SOURCE_BUCKET", "matometa")
-    mocker.patch.object(handler.config, "BACKUP_BUCKET", "matometa-backup")
-    mocker.patch.object(handler.config, "RETENTION_DAYS", 0)
+    mocker.patch.object(handler.config, "SOURCE_BUCKET", SOURCE)
+    mocker.patch.object(handler.config, "BACKUP_BUCKET", TARGET)
     with pytest.raises(RuntimeError, match="incomplete"):
         handler.handle({}, None)

@@ -1,4 +1,4 @@
-"""Check that today's S3 snapshot manifest exists in the backup bucket. Periodic — Sentry alerts via cron monitor on failure."""
+"""Check that today's S3 mirror manifest exists in the backup bucket. Periodic — Sentry alerts via cron monitor on failure."""
 
 import datetime
 import json
@@ -19,22 +19,21 @@ def main() -> None:
 
     client = s3_module.make_client()
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    manifest_key = f"backup/{today}/_MANIFEST.json"
+    manifest_key = f"manifests/{today}.json"
     try:
         body = client.get_object(Bucket=config.BACKUP_S3_BUCKET, Key=manifest_key)["Body"].read()
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("404", "NoSuchKey"):
-            raise RuntimeError(f"Snapshot manifest missing: s3://{config.BACKUP_S3_BUCKET}/{manifest_key}") from exc
+            raise RuntimeError(f"Mirror manifest missing: s3://{config.BACKUP_S3_BUCKET}/{manifest_key}") from exc
         raise
 
     manifest = json.loads(body)
     if not manifest.get("ok"):
-        raise RuntimeError(f"Snapshot manifest reports failure: {manifest}")
+        raise RuntimeError(f"Mirror manifest reports failure: {manifest}")
     logger.info(
-        "S3 snapshot OK: s3://%s/%s (%d objects, %d bytes)",
-        config.BACKUP_S3_BUCKET,
-        manifest.get("target", manifest_key),
+        "S3 mirror OK: s3://%s (%d objects, %d bytes)",
+        manifest.get("target", f"{config.BACKUP_S3_BUCKET}/{manifest_key}"),
         manifest.get("objects", 0),
         manifest.get("bytes", 0),
     )
