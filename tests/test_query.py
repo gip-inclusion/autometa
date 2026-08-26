@@ -376,7 +376,7 @@ def test_execute_dashboard_storage_query_calls_client(mocker):
 
     mocker.patch("web.config.DASHBOARD_STORAGE_DB_URL", "postgresql://u:p@db/app")
     client = mocker.patch(
-        "lib.query._ds_execute_sql",
+        "lib.query._pg_execute_sql",
         return_value=mocker.MagicMock(columns=["x"], rows=[[1]], row_count=1),
     )
 
@@ -384,19 +384,45 @@ def test_execute_dashboard_storage_query_calls_client(mocker):
 
     assert result.success is True
     assert result.data == {"columns": ["x"], "rows": [[1]], "row_count": 1}
+    assert client.call_args.kwargs["source"] == "dashboard_storage"
+    assert client.call_args.kwargs["write"] is True
     assert client.call_args.kwargs["params"] == {"x": 1}
     assert client.call_args.kwargs["timeout"] == 60
 
 
-def test_execute_dashboard_storage_query_fails_without_dsn(mocker):
+def test_execute_dora_staging_query_calls_client_read_only(mocker):
     from lib import query as q
 
-    mocker.patch("web.config.DASHBOARD_STORAGE_DB_URL", None)
+    mocker.patch("web.config.DORA_STAGING_DB_URL", "postgresql://u:p@db/dora_staging")
+    client = mocker.patch(
+        "lib.query._pg_execute_sql",
+        return_value=mocker.MagicMock(columns=["n"], rows=[[3]], row_count=1),
+    )
 
-    result = q.execute_dashboard_storage_query(sql="SELECT 1", caller=q.CallerType.AGENT)
+    result = q.execute_dora_staging_query(sql="SELECT count(*) AS n FROM t", caller=q.CallerType.AGENT)
+
+    assert result.success is True
+    assert result.data == {"columns": ["n"], "rows": [[3]], "row_count": 1}
+    assert client.call_args.kwargs["source"] == "dora_staging"
+    assert "write" not in client.call_args.kwargs
+
+
+@pytest.mark.parametrize(
+    ("setting", "helper"),
+    [
+        ("DASHBOARD_STORAGE_DB_URL", "execute_dashboard_storage_query"),
+        ("DORA_STAGING_DB_URL", "execute_dora_staging_query"),
+    ],
+)
+def test_query_fails_without_dsn(mocker, setting, helper):
+    from lib import query as q
+
+    mocker.patch(f"web.config.{setting}", None)
+
+    result = getattr(q, helper)(sql="SELECT 1", caller=q.CallerType.AGENT)
 
     assert result.success is False
-    assert "DASHBOARD_STORAGE_DB_URL" in result.error
+    assert setting in result.error
 
 
 @pytest.mark.parametrize("source", ["dashboard_storage", "matometa_db"])
