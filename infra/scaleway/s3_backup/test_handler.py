@@ -174,6 +174,33 @@ def test_mirror_counts_a_failed_deletion_without_counting_it_as_deleted():
     assert any("delete gone" in error for error in json.loads(client.put["manifests/2026-08-12.json"])["errors"])
 
 
+@pytest.mark.parametrize(
+    "source",
+    [{}, {f"kept-{i}": "1" for i in range(50)}],
+    ids=["source-illisible", "source-a-moitie-illisible"],
+)
+def test_mirror_copies_but_refuses_to_prune_when_the_source_lost_too_much(source):
+    mirrored = {f"kept-{i}": "1" for i in range(50)} | {f"gone-{i}": "9" for i in range(150)}
+    client = FakeS3(source, mirrored=mirrored)
+
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+
+    assert client.deleted == []
+    assert result["deleted"] == 0
+    assert result["ok"] is False
+    assert any("prune refused" in error for error in result["errors"])
+
+
+def test_mirror_still_prunes_ordinary_churn():
+    mirrored = {f"kept-{i}": "1" for i in range(50)} | {"gone": "9"}
+    client = FakeS3({f"kept-{i}": "1" for i in range(50)}, mirrored=mirrored)
+
+    result = handler.mirror(client, SOURCE, TARGET, "2026-08-12")
+
+    assert result["deleted"] == 1
+    assert result["ok"] is True
+
+
 def test_handle_raises_when_the_pass_is_incomplete(mocker):
     client = FakeS3({"a": "1", "bad": "2"}, fail_copy_keys={"bad"})
     mocker.patch.object(handler, "build_client", return_value=client)

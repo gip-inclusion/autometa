@@ -54,6 +54,14 @@ def mirror(client, source: str, target: str, run_date: str) -> dict:
     mirrored = inventory(client, target, MIRROR_PREFIX)
     stale = [key for key, (etag, _) in src.items() if mirrored.get(key, (None, 0))[0] != etag]
     removed = [key for key in mirrored if key not in src]
+    # Why: une source illisible (mauvais bucket, clé re-scopée, listing tronqué) ne se distingue pas
+    # d'une source vidée — et refléter ces « disparitions » poserait un delete marker sur tout le miroir.
+    # Au-delà du seuil on copie quand même mais on ne supprime rien : un miroir qui garde trop se
+    # rattrape, un miroir vidé ne se récupère que version par version.
+    refused = []
+    if len(removed) > max(100, 0.05 * len(mirrored)):
+        refused = [f"prune refused: {len(removed)}/{len(mirrored)} mirrored keys missing from {source}"]
+        removed = []
 
     def copy_one(key: str) -> str | None:
         try:
@@ -79,7 +87,7 @@ def mirror(client, source: str, target: str, run_date: str) -> dict:
 
     # Parallel server-side copies — the bottleneck is API round-trips, not bandwidth.
     with ThreadPoolExecutor(max_workers=16) as pool:
-        errors = [error for error in pool.map(copy_one, stale) if error]
+        errors = refused + [error for error in pool.map(copy_one, stale) if error]
         errors += [error for error in pool.map(delete_one, removed) if error]
 
     manifest = {

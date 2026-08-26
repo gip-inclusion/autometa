@@ -4,6 +4,8 @@
 
 Le manifest du jour (`manifests/{date}.json`) atteste qu'un passage est allé au bout : `ok: true`, le nombre d'objets et la taille attendus. C'est le point de départ de toute restauration — vérifier d'abord *quel* jour est fiable.
 
+Une passe ne supprime jamais en masse : si plus de 5 % des clés du miroir (et au moins 100) ont disparu de la source, elle copie mais refuse de propager les suppressions, et rend un manifest `ok: false`. Un miroir qui garde trop se rattrape ; un miroir vidé se récupère version par version. Après une suppression massive légitime à la source, le miroir garde les clés en trop jusqu'à ce que quelqu'un tranche.
+
 Identifiants et endpoint : ceux de la function (`config.py`, variables `S3_*` du service Scaleway) — les mêmes que ceux du miroir, avec accès lecture sur `matometa` et écriture sur `matometa-backup`.
 
 ## Granularité réelle
