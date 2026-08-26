@@ -3,6 +3,8 @@
 import base64
 import json
 import logging
+import random
+import time
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -12,6 +14,12 @@ import httpx
 from .api_signals import emit_api_signal
 
 logger = logging.getLogger(__name__)
+
+MAX_ATTEMPTS = 3
+# Why: les crons ont un budget de 300s (`dashboards.cron_timeout`). On plafonne les retries à la
+# moitié pour laisser au script de quoi finir, indépendamment du `timeout` passé par l'appelant.
+RETRY_DEADLINE_S = 150.0
+RETRY_BACKOFF_S = 2.0
 
 
 def build_sql_url(base_url: str, database_id: int, sql: str) -> str:
@@ -72,10 +80,13 @@ class MetabaseAPI:
     Client for querying the Metabase API.
 
     Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
-    Retries up to 2 times on transient errors via httpx.HTTPTransport.
+    Retries connection errors via httpx.HTTPTransport, and gateway statuses
+    (502/503/504) or request errors with jittered linear backoff — ces échecs sont
+    typiquement transitoires (Metabase saturé à ~06:00 quand tous les crons
+    tapent l'API en même temps).
 
-    Worst-case for a fully-failing request: ~3 min (3 attempts x ~60s read
-    timeout + backoff). Pass a lower timeout if tighter bounds are needed.
+    Une tentative n'est lancée que si elle tient dans RETRY_DEADLINE_S : le
+    coût total est donc borné quel que soit le `timeout` de l'appelant.
     """
 
     def __init__(
@@ -117,18 +128,42 @@ class MetabaseAPI:
     ) -> Any:
         url = f"{self.url}{endpoint}"
 
-        try:
-            resp = self._session.request(
-                method, url, json=data if data else None, timeout=httpx.Timeout(timeout, connect=10)
-            )
-            resp.raise_for_status()
-            return resp.json()
+        give_up_at = time.monotonic() + RETRY_DEADLINE_S
 
-        except httpx.HTTPStatusError as e:
-            raise MetabaseError(f"HTTP {e.response.status_code}: {e.response.text}") from e
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                resp = self._session.request(
+                    method, url, json=data if data else None, timeout=httpx.Timeout(timeout, connect=10)
+                )
+                resp.raise_for_status()
+                return resp.json()
 
-        except httpx.RequestError as e:
-            raise MetabaseError(str(e)) from e
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                # 502/503/504 = passerelle surchargée / timeout applicatif amont, transitoire → on retente.
+                status = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
+                # Why: sans jitter, tous les crons de 06:00 qui prennent le même 504 retentent
+                # à la même seconde et reforment la vague qui a saturé Metabase.
+                backoff = RETRY_BACKOFF_S * attempt * random.uniform(0.5, 1.5)  # noqa: S311 — pas de la crypto
+                # On ne démarre une tentative que si elle tient dans le budget : sinon le cron se fait
+                # tuer en plein retry et l'erreur d'origine (le 504) est perdue au profit d'un timeout.
+                if (
+                    (status is None or status in (502, 503, 504))
+                    and attempt < MAX_ATTEMPTS
+                    and time.monotonic() + backoff + timeout <= give_up_at
+                ):
+                    logger.warning(
+                        "Metabase %s %s -> %s (tentative %d), nouvel essai dans %.0fs",
+                        method,
+                        endpoint,
+                        status or e,
+                        attempt,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    continue
+                if status is not None:
+                    raise MetabaseError(f"HTTP {status}: {e.response.text}") from e
+                raise MetabaseError(str(e)) from e
 
     def _parse_result(self, data: dict) -> QueryResult:
         # Check for query errors (Metabase returns 202 with error in body)

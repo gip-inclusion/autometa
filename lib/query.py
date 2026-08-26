@@ -49,6 +49,7 @@ class CallerType(str, Enum):
 
     AGENT = "agent"
     APP = "app"
+    CRON = "cron"
 
 
 @dataclass
