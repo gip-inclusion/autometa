@@ -10,12 +10,10 @@ from typing import Any, Callable, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
-from .autometa_tables_db import execute_sql as _atdb_execute_sql
-from .dashboard_storage import execute_sql as _ds_execute_sql
 from .data_inclusion import execute_sql as _di_execute_sql
-from .dora_staging import execute_sql as _dora_staging_execute_sql
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
+from .pg import execute_sql as _pg_execute_sql
 from .sources import get_matomo, get_metabase
 
 __all__ = ["MatomoAPI", "MatomoError", "MetabaseAPI", "MetabaseError", "get_matomo", "get_metabase"]
@@ -214,9 +212,10 @@ def execute_autometa_tables_query(
 
     def _do():
         return _wrap_columns_rows(
-            _atdb_execute_sql(
+            _pg_execute_sql(
                 database_url=config.AUTOMETA_TABLES_DATABASE_URL,
                 sql=sql,
+                source="autometa_tables_db",
                 timeout=timeout,
             )
         )
@@ -230,7 +229,7 @@ def execute_dora_staging_query(
     caller: CallerType,
     timeout: int = 60,
 ) -> QueryResult:
-    """Execute a read-only SQL query on the Dora staging database. Returns QueryResult, never raises."""
+    """Execute a SQL query on the Dora staging database (read-only). Returns QueryResult, never raises."""
     from web import config
 
     attrs = {
@@ -244,9 +243,11 @@ def execute_dora_staging_query(
         if not config.DORA_STAGING_DB_URL:
             raise ValueError("DORA_STAGING_DB_URL is not configured")
         return _wrap_columns_rows(
-            _dora_staging_execute_sql(
+            _pg_execute_sql(
                 database_url=config.DORA_STAGING_DB_URL,
                 sql=sql,
+                source="dora_staging",
+                instance="staging",
                 timeout=timeout,
             )
         )
@@ -275,10 +276,12 @@ def execute_dashboard_storage_query(
         if not config.DASHBOARD_STORAGE_DB_URL:
             raise ValueError("DASHBOARD_STORAGE_DB_URL is not configured")
         return _wrap_columns_rows(
-            _ds_execute_sql(
+            _pg_execute_sql(
                 database_url=config.DASHBOARD_STORAGE_DB_URL,
                 sql=sql,
+                source="dashboard_storage",
                 params=params,
+                write=True,
                 timeout=timeout,
             )
         )
