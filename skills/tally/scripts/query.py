@@ -59,8 +59,7 @@ def main() -> None:
     ap.add_argument("--max-pages", type=int, default=20, help="plafond de pages de réponses")
     args = ap.parse_args()
 
-    client = TallyClient()
-    try:
+    with TallyClient() as client:
         if args.workspaces:
             out: object = workspaces_summary(client)
         elif args.list:
@@ -73,8 +72,6 @@ def main() -> None:
             ap.print_help()
             return
         print(json.dumps(out, ensure_ascii=False, indent=1))
-    finally:
-        client.close()
 
 
 if __name__ == "__main__":

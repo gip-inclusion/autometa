@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from lib.tally import TallyClient, TallyError, workspaces_summary
+from web.selftest import _check_tally
 
 
 def make_client(mocker, api_key="tly-test"):
@@ -122,8 +123,6 @@ def test_workspaces_summary_keeps_name_and_member_count(mocker):
 
 def test_check_tally_not_set(mocker):
     mocker.patch("web.selftest.config.TALLY_API_KEY", None)
-    from web.selftest import _check_tally
-
     ok, msg = _check_tally()
     assert ok is False and "not set" in msg
 
@@ -133,7 +132,22 @@ def test_check_tally_reachable(mocker):
     resp = mocker.MagicMock(status_code=200)
     resp.json.return_value = {"total": 3}
     mocker.patch("web.selftest.httpx.get", return_value=resp)
-    from web.selftest import _check_tally
-
     ok, msg = _check_tally()
     assert ok is True and "3 forms" in msg
+
+
+def test_check_tally_http_error(mocker):
+    mocker.patch("web.selftest.config.TALLY_API_KEY", "tly-x")
+    mocker.patch("web.selftest.httpx.get", return_value=mocker.MagicMock(status_code=503))
+
+    ok, msg = _check_tally()
+    assert ok is False and msg == "HTTP 503"
+
+
+def test_client_context_manager_closes_session(mocker):
+    client = make_client(mocker)
+    mocker.patch.object(client._session, "close")
+
+    with client as entered:
+        assert entered is client
+    client._session.close.assert_called_once()
