@@ -3,14 +3,14 @@
 {% block title_suffix %} – Connaissances{% endblock %}
 
 {% block content %}
-<section class="section-content" id="section-connaissances">
+<section class="section-content" id="section-knowledge">
   <!-- Sticky section header -->
   <div class="section-header">
     <div class="container">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div class="d-flex align-items-center gap-3">
           {% if current_file %}
-          <a href="/connaissances" class="btn btn-link p-0 me-2" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+          <a href="/knowledge" class="btn btn-link p-0 me-2" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-arrow-left-line ri-xl"></i>
           </a>
           {% endif %}
@@ -103,7 +103,7 @@
         {% for file in files %}
         <div class="col-12 col-md-6 col-lg-4">
           <div class="card knowledge-card h-100">
-            <a href="/connaissances?file={{ file.path }}" class="card-body text-decoration-none"
+            <a href="/knowledge/{{ file.path }}" class="card-body text-decoration-none"
                hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
               <h5 class="card-title mb-2">{{ file.name }}</h5>
               <p class="card-text text-muted small mb-0">
@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           });
           if (resp.ok) {
             alert('Modifications validées !');
-            window.location.href = '/connaissances';
+            window.location.href = '/knowledge';
           } else {
             const err = await resp.json();
             alert('Erreur: ' + err.error);
@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             method: 'POST',
           });
           if (resp.ok) {
-            window.location.href = '/connaissances';
+            window.location.href = '/knowledge';
           }
         });
       }

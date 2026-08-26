@@ -23,45 +23,12 @@ Dora has two knowledge files:
 
 La recherche de services Dora (`/recherche?...`) utilise l'API data·inclusion (`/search/services`) comme backend. Les résultats viennent du datawarehouse data·inclusion (tables `public_marts`). Si un service saisi dans Dora ne remonte pas dans la recherche, utiliser la skill `data_inclusion` pour investiguer le pipeline (staging → intermediate → marts).
 
-## Traffic Baselines (2025)
+## Références de trafic
 
-Data retrieved 2026-03-29 via Matomo API.
-
-### Monthly Visitor Stats
-
-| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|-----------|--------------------|-----------------:|
-| 2025-01 |          49,670 |    64,116 |              1,602 |            2,068 |
-| 2025-02 |          45,831 |    59,731 |              1,637 |            2,133 |
-| 2025-03 |          47,908 |    62,420 |              1,545 |            2,014 |
-| 2025-04 |          44,072 |    57,145 |              1,469 |            1,905 |
-| 2025-05 |          40,444 |    52,260 |              1,305 |            1,686 |
-| 2025-06 |          43,818 |    56,985 |              1,461 |            1,900 |
-| 2025-07 |          44,098 |    57,855 |              1,423 |            1,866 |
-| 2025-08 |          35,553 |    45,990 |              1,147 |            1,484 |
-| 2025-09 |          49,803 |    64,609 |              1,660 |            2,154 |
-| 2025-10 |          53,612 |    71,551 |              1,729 |            2,308 |
-| 2025-11 |          52,793 |    68,265 |              1,760 |            2,276 |
-| 2025-12 |          49,673 |    64,412 |              1,602 |            2,078 |
-
-**Typical range:** 1,147-1,760 unique visitors/day, 1,484-2,308 visits/day.
-
-### Engagement Metrics
-
-| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
-|---------|-------------|---------------|------------------|
-| 2025-01 |         25% |           4.6 |           4m 32s |
-| 2025-02 |         24% |           4.8 |           4m 32s |
-| 2025-03 |         24% |             5 |           4m 27s |
-| 2025-04 |         24% |           5.6 |           4m 45s |
-| 2025-05 |         22% |           5.3 |           4m 18s |
-| 2025-06 |         22% |           5.6 |           4m 33s |
-| 2025-07 |         22% |           5.5 |           4m 32s |
-| 2025-08 |         22% |           5.1 |           4m 25s |
-| 2025-09 |         21% |           5.3 |           4m 20s |
-| 2025-10 |         22% |           5.1 |           4m 33s |
-| 2025-11 |         21% |           4.8 |           4m 09s |
-| 2025-12 |         21% |           4.9 |           4m 11s |
+Les chiffres de trafic de ce site — visites, visiteurs, rebond, durée, répartition par type
+d'utilisateur — sont synchronisés chaque nuit dans la base applicative
+(`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
+ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
 ## Custom Dimensions
 
