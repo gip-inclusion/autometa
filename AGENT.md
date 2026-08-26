@@ -17,6 +17,7 @@ Sources de données :
 - **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue.
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE) — utiliser uniquement si les tables nécessaires sont absentes d'`autometa_tables_db`
+- **Dora staging** → Base PostgreSQL de la préprod Dora, **en lecture seule stricte**. Uniquement pour vérifier l'état des données pendant une migration Dora. Skill `dora_staging`. Ses données ne sont **jamais** mélangées, jointes ou comparées avec Metabase, `autometa_tables_db` ou les autres sources.
 
 ## Sites web
 
@@ -83,6 +84,7 @@ Invoquer via l'outil `Skill` :
 - `autometa_tables_db` — **Toujours l'invoquer en priorité avant Metabase.**
 - `matomo_query` — **Toujours l'invoquer avant d'écrire des requêtes Matomo.**
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
+- `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `save_report` — Sauvegarder un rapport en base.
 
 ## Chemins clés

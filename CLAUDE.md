@@ -36,6 +36,7 @@ Sources de données :
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
 - **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH)
+- **Dora staging** → Base PostgreSQL de la préprod Dora, **en lecture seule stricte**. Uniquement pour vérifier l'état des données pendant une migration Dora. Skill `dora_staging`. Ses données ne sont **jamais** mélangées, jointes ou comparées avec Metabase, `autometa_tables_db` ou les autres sources.
 
 ## Tableaux de bord interactifs
 

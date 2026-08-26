@@ -13,6 +13,7 @@ from opentelemetry.trace import Span, Status, StatusCode
 from .autometa_tables_db import execute_sql as _atdb_execute_sql
 from .dashboard_storage import execute_sql as _ds_execute_sql
 from .data_inclusion import execute_sql as _di_execute_sql
+from .dora_staging import execute_sql as _dora_staging_execute_sql
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .sources import get_matomo, get_metabase
@@ -222,6 +223,36 @@ def execute_autometa_tables_query(
 
     # Why: psycopg2 can raise a wide variety of errors; caller checks result.success.
     return _run_traced_query("autometa_tables.query", attrs, _do)
+
+
+def execute_dora_staging_query(
+    sql: str,
+    caller: CallerType,
+    timeout: int = 60,
+) -> QueryResult:
+    """Execute a read-only SQL query on the Dora staging database. Returns QueryResult, never raises."""
+    from web import config
+
+    attrs = {
+        "db.system": "postgresql",
+        "db.name": "dora_staging",
+        "caller": caller.value,
+        "db.statement.hash": _sql_hash(sql),
+    }
+
+    def _do():
+        if not config.DORA_STAGING_DB_URL:
+            raise ValueError("DORA_STAGING_DB_URL is not configured")
+        return _wrap_columns_rows(
+            _dora_staging_execute_sql(
+                database_url=config.DORA_STAGING_DB_URL,
+                sql=sql,
+                timeout=timeout,
+            )
+        )
+
+    # Why: psycopg2 can raise a wide variety of errors; caller checks result.success.
+    return _run_traced_query("dora_staging.query", attrs, _do)
 
 
 def execute_dashboard_storage_query(

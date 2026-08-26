@@ -114,6 +114,10 @@ data_inclusion:
 autometa_tables_db:
   database_url: ${env.AUTOMETA_TABLES_DATABASE_URL}
 
+# Lecture seule stricte — jamais d'écriture, jamais mélangée aux autres sources
+dora_staging:
+  database_url: ${env.DORA_STAGING_DB_URL}
+
 zendesk:
   _default: emplois
 

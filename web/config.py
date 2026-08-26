@@ -230,6 +230,10 @@ DATA_INCLUSION_SSH_KEY_PASSPHRASE = os.getenv("DATA_INCLUSION_SSH_KEY_PASSPHRASE
 # autometa_tables_db — tables Metabase centralisées (connexion directe Scalingo)
 AUTOMETA_TABLES_DATABASE_URL = os.getenv("AUTOMETA_TABLES_DATABASE_URL", "")
 
+# Base Dora staging — lecture seule stricte (test des migrations de données Dora).
+# Jamais d'écriture, et ses données ne sont jamais mélangées aux autres sources.
+DORA_STAGING_DB_URL = (os.getenv("DORA_STAGING_DB_URL") or "").replace("postgres://", "postgresql://")
+
 # DSN du rôle restreint au schéma dashboard_storage de la DB applicative (persistance des TDB)
 DASHBOARD_STORAGE_DB_URL = (os.getenv("DASHBOARD_STORAGE_DB_URL") or "").replace("postgres://", "postgresql://")
 
