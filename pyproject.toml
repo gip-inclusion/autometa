@@ -50,6 +50,7 @@ generate-conversation-embeddings = "web.conversation_embeddings.generate_convers
 sync-sites = "skills.sync_sites.scripts.sync_sites:main"
 sync-inventory = "skills.sync_metabase.scripts.sync_inventory:main"
 sync-webinaires = "lib.webinaires:main"
+sync-connectors = "lib.source_inventory:main"
 slack-feedback = "web.slack_feedback:main"
 
 [tool.uv]

@@ -459,3 +459,36 @@ class ConversationMessageEmbedding(Base):
         Index("idx_conversation_message_embeddings_user_id", "user_id"),
         Index("idx_conversation_message_embeddings_model", "embedding_model"),
     )
+
+
+class SourceInventoryItem(Base):
+    """Sommaire du contenu d'une source : ce qu'elle contient, pas les données elles-mêmes."""
+
+    __tablename__ = "source_inventory_items"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    item_type: Mapped[str] = mapped_column(Text, nullable=False)
+    external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str | None] = mapped_column(Text)
+    parent_external_id: Mapped[str | None] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(Text)
+    extra: Mapped[dict | None] = mapped_column(JSONB)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("source", "item_type", "external_id", name="uq_source_inventory_items_identity"),
+        Index("idx_source_inventory_items_source_type", "source", "item_type"),
+    )
+
+
+class SourceInventoryRun(Base):
+    """Dernier rafraîchissement par source — la date affichée doit être celle d'un succès, pas d'une tentative."""
+
+    __tablename__ = "source_inventory_runs"
+
+    source: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))

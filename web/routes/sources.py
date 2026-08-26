@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 import markdown
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse
 from redis.exceptions import RedisError
@@ -17,6 +17,7 @@ from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
 from web.redis_conn import get_redis
 from web.source_checks import redact
+from web.source_inventories import inventory_for
 from web.sources_registry import GROUPS, Source, find_source, grouped_sources
 
 from .html import get_sidebar_data
@@ -133,7 +134,12 @@ async def source_access(slug: Slug, request: Request, user_email: str = Depends(
 
 
 @router.get("/sources/{slug}")
-def source_detail(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+def source_detail(
+    slug: Slug,
+    request: Request,
+    user_email: str = Depends(get_current_user),
+    q: str = Query(default="", max_length=100),
+):
     source = find_source(slug)
     if not source:
         return templates.TemplateResponse(
@@ -157,6 +163,8 @@ def source_detail(slug: Slug, request: Request, user_email: str = Depends(get_cu
             "doc_html": doc_html,
             "doc_rel": source.doc,
             "inventory": inventory_state(source),
+            "contents": inventory_for(slug, q),
+            "search": q,
             **get_sidebar_data(user_email, request),
         },
     )
