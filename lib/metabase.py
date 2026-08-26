@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+import random
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -80,7 +81,7 @@ class MetabaseAPI:
 
     Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
     Retries connection errors via httpx.HTTPTransport, and gateway statuses
-    (502/503/504) or request errors with linear backoff — ces échecs sont
+    (502/503/504) or request errors with jittered linear backoff — ces échecs sont
     typiquement transitoires (Metabase saturé à ~06:00 quand tous les crons
     tapent l'API en même temps).
 
@@ -140,7 +141,9 @@ class MetabaseAPI:
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 # 502/503/504 = passerelle surchargée / timeout applicatif amont, transitoire → on retente.
                 status = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
-                backoff = RETRY_BACKOFF_S * attempt
+                # Why: sans jitter, tous les crons de 06:00 qui prennent le même 504 retentent
+                # à la même seconde et reforment la vague qui a saturé Metabase.
+                backoff = RETRY_BACKOFF_S * attempt * random.uniform(0.5, 1.5)  # noqa: S311 — pas de la crypto
                 # On ne démarre une tentative que si elle tient dans le budget : sinon le cron se fait
                 # tuer en plein retry et l'erreur d'origine (le 504) est perdue au profit d'un timeout.
                 if (

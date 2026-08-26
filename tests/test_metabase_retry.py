@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from lib.metabase import MAX_ATTEMPTS, RETRY_DEADLINE_S, MetabaseError
+from lib.metabase import MAX_ATTEMPTS, RETRY_BACKOFF_S, RETRY_DEADLINE_S, MetabaseError
 from lib.sources import get_metabase
 
 OK_BODY = {"data": {"cols": [{"name": "n"}], "rows": [[1]]}}
@@ -55,6 +55,20 @@ def test_does_not_start_an_attempt_that_would_blow_the_deadline(mocker, timeout,
     with pytest.raises(MetabaseError, match="HTTP 504"):
         api.execute_sql("SELECT 1", timeout=timeout)
     assert api._session.request.call_count == expected_attempts
+
+
+def test_backoff_is_jittered_so_simultaneous_crons_do_not_retry_in_lockstep(mocker):
+    api = make_api(mocker)
+    sleep = mocker.patch("lib.metabase.time.sleep")
+    mocker.patch("lib.metabase.random.uniform", return_value=1.5)
+    api._session.request = mocker.Mock(return_value=response(504, text="Application Timeout"))
+
+    with pytest.raises(MetabaseError, match="HTTP 504"):
+        api.execute_sql("SELECT 1")
+
+    assert [call.args[0] for call in sleep.call_args_list] == [
+        RETRY_BACKOFF_S * attempt * 1.5 for attempt in range(1, MAX_ATTEMPTS)
+    ]
 
 
 @pytest.mark.parametrize("status", [400, 404, 500])
