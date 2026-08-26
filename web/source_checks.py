@@ -18,6 +18,7 @@ from lib.sources import get_source_config, list_instances, load_config
 
 from . import config, s3
 from .db import get_db
+from .helpers import list_knowledge_files
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,14 @@ def redact(detail: str) -> str:
     for secret in known_secrets():
         out = out.replace(secret, "***")
     return out
+
+
+def check_knowledge_base() -> tuple[bool, str]:
+    sections = list_knowledge_files()
+    count = sum(len(files) for files in sections.values())
+    if not count:
+        return (False, "aucune fiche lisible")
+    return (True, f"{count} fiches dans {len(sections)} sections")
 
 
 def check_app_db() -> tuple[bool, str]:

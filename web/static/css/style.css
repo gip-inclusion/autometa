@@ -2246,7 +2246,6 @@ body.has-sidebar {
   border-radius: var(--bs-border-radius);
   padding: 0;
   margin-bottom: 1rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 145, 0.1);
 }
 
 .knowledge-header {
@@ -4333,10 +4332,6 @@ body.no-sidebar .section-header .container-fluid {
 
 .source-doc {
   border-top: 1px solid #e5e7eb;
-}
-
-.source-doc .markdown-body {
-  padding-inline: 0;
 }
 
 /* Inventaire d'une source */
