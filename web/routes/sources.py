@@ -18,7 +18,7 @@ from web.helpers import format_relative_date
 from web.redis_conn import get_redis
 from web.source_checks import redact
 from web.source_inventories import inventory_for
-from web.sources_registry import GROUPS, Source, find_source, grouped_sources
+from web.sources_registry import GROUPS, Source, find_source, grouped_sources, source_href
 
 from .html import get_sidebar_data
 
@@ -116,6 +116,7 @@ def sources_page(request: Request, user_email: str = Depends(get_current_user)):
             "groups": groups,
             "group_order": GROUPS,
             "inventories": {s.slug: inventory_state(s) for sources in groups.values() for s in sources},
+            "hrefs": {s.slug: source_href(s) for sources in groups.values() for s in sources},
             **get_sidebar_data(user_email, request),
         },
     )

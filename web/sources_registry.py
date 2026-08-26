@@ -19,7 +19,7 @@ WEB = "Analytiques web"
 CONNECTEURS = "Connecteurs"
 INTERNE = "Interne"
 
-GROUPS = [METIER, WEB, CONNECTEURS, INTERNE]
+GROUPS = [INTERNE, METIER, WEB, CONNECTEURS]
 
 METABASE_DOCS = {
     "stats": "skills/metabase_query/SKILL.md",
@@ -47,6 +47,7 @@ class Source:
     configured: Callable[[], bool]
     icon: str = "ri-database-2-line"
     skill: str | None = None
+    href: str | None = None
     doc: str | None = None
     inventory: Callable[[], datetime | None] | None = None
 
@@ -244,6 +245,16 @@ def all_sources() -> list[Source]:
             configured=lambda: bool(config.DASHBOARD_STORAGE_DB_URL),
         ),
         Source(
+            slug="knowledge",
+            name="Connaissances",
+            group=INTERNE,
+            blurb="Le contexte métier écrit par l'équipe et lu par l'agent : glossaire bizdev, fiches par site, pièges.",
+            icon="ri-book-open-line",
+            href="/knowledge",
+            check=source_checks.check_knowledge_base,
+            configured=lambda: True,
+        ),
+        Source(
             slug="s3",
             name="S3",
             group=INTERNE,
@@ -259,6 +270,10 @@ def check_source(source: Source) -> tuple[bool, str]:
     if not source.configured():
         return (False, "non configuré dans cet environnement")
     return source.check()
+
+
+def source_href(source: Source) -> str:
+    return source.href or f"/sources/{source.slug}"
 
 
 def find_source(slug: str) -> Source | None:

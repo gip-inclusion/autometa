@@ -101,53 +101,38 @@ def test_a_source_never_refreshed_has_no_date():
     assert source_inventory.last_success("notion") is None
 
 
-def test_notion_asks_the_server_for_databases_only(mocker):
-    """DOD-5 : sans filtre serveur, la recherche pagine tout l'espace de travail (11 756 objets mesurés)."""
-    request = mocker.patch.object(
-        source_inventory,
-        "notion_request",
-        return_value={"has_more": False, "results": []},
-    )
+SEARCH_RESULTS = [
+    {"object": "database", "id": "db-racine", "parent": {"type": "workspace"}, "title": [{"plain_text": "Suivi"}]},
+    {
+        "object": "page",
+        "id": "page-partagee",
+        "parent": {"type": "page_id", "page_id": "page-invisible"},
+        "properties": {"Nom": {"type": "title", "title": [{"plain_text": "Contexte RDV"}]}},
+    },
+    {
+        "object": "page",
+        "id": "page-heritee",
+        "parent": {"type": "database_id", "database_id": "db-racine"},
+        "properties": {"Nom": {"type": "title", "title": [{"plain_text": "Une ligne"}]}},
+    },
+]
 
-    source_inventory.fetch_notion_roots()
 
-    payload = request.call_args.args[2]
-    assert payload["filter"] == {"property": "object", "value": "database"}
+def test_notion_keeps_only_the_points_where_access_starts(mocker):
+    """DOD-5 : l'accès est hérité — une page sous une base déjà visible n'est pas un point de partage."""
+    mocker.patch.object(source_inventory, "notion_request", return_value={"has_more": False, "results": SEARCH_RESULTS})
+
+    roots = source_inventory.fetch_notion_roots()
+
+    assert sorted(r.external_id for r in roots) == ["db-racine", "page-partagee"]
 
 
-def test_notion_collects_databases_wherever_they_live(mocker):
-    """Une base rangée dans une page reste un point d'entrée interrogeable ; son contenu, non."""
-    mocker.patch.object(
-        source_inventory,
-        "notion_request",
-        return_value={
-            "has_more": False,
-            "results": [
-                {
-                    "object": "database",
-                    "id": "db-racine",
-                    "parent": {"type": "workspace"},
-                    "url": "https://notion.so/db-racine",
-                    "title": [{"plain_text": "Suivi"}],
-                },
-                {
-                    "object": "database",
-                    "id": "db-imbriquee",
-                    "parent": {"type": "page_id", "page_id": "page-1"},
-                    "url": "https://notion.so/db-imbriquee",
-                    "title": [{"plain_text": "Vocabulaire"}],
-                },
-            ],
-        },
-    )
+def test_notion_reads_titles_of_both_pages_and_databases(mocker):
+    mocker.patch.object(source_inventory, "notion_request", return_value={"has_more": False, "results": SEARCH_RESULTS})
 
-    bases = source_inventory.fetch_notion_roots()
+    labels = {r.external_id: r.label for r in source_inventory.fetch_notion_roots()}
 
-    assert [(b.external_id, b.label) for b in bases] == [
-        ("db-racine", "Suivi"),
-        ("db-imbriquee", "Vocabulaire"),
-    ]
-    assert {b.item_type for b in bases} == {"database"}
+    assert labels == {"db-racine": "Suivi", "page-partagee": "Contexte RDV"}
 
 
 @pytest.mark.parametrize(
@@ -155,13 +140,12 @@ def test_notion_collects_databases_wherever_they_live(mocker):
     [
         {"object": "database", "id": "db", "parent": {}, "title": []},
         {"object": "database", "id": "db", "parent": {}, "title": [{"plain_text": "   "}]},
-        # Le schéma d'une base vit dans `properties` : y chercher un titre ne rend jamais rien.
+        # Sur une base, `properties` décrit le schéma : `title` y est un dict, pas du texte.
         {"object": "database", "id": "db", "parent": {}, "properties": {"Nom": {"type": "title", "title": {}}}},
     ],
     ids=["titre vide", "titre blanc", "schema seul"],
 )
-def test_an_untitled_database_has_no_label(result):
-    """22 des 123 bases de l'espace de travail n'ont aucun titre — la page le dit, elle n'affiche pas un UUID."""
+def test_an_untitled_object_has_no_label(result):
     assert source_inventory.notion_title(result) is None
 
 

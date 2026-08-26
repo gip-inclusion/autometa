@@ -67,7 +67,7 @@
         {% else %}
         {% if contents.note %}<p class="source-contents-note">{{ contents.note }}</p>{% endif %}
         {% for group in contents.groups %}
-        <details class="source-contents-group"{% if search or contents.groups|length == 1 %} open{% endif %}>
+        <details class="source-contents-group"{% if search or group['items']|length <= 30 %} open{% endif %}>
           <summary>{{ group.label }} <span class="source-contents-count">{{ group['items']|length }}</span></summary>
           {% if contents.kind == 'catalog' %}
           <ul class="source-table-list">
