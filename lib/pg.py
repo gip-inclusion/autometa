@@ -25,10 +25,9 @@ class QueryResult:
         return "\n".join(lines)
 
 
-def build_engine(database_url: str, timeout: int):
+def build_engine(database_url: str, timeout: int, read_only: bool = False):
     """Engine NullPool avec statement_timeout — connexions ponctuelles des clients SQL."""
-    return create_engine(
-        database_url,
-        poolclass=NullPool,
-        connect_args={"options": f"-c statement_timeout={timeout * 1000}"},
-    )
+    options = f"-c statement_timeout={timeout * 1000}"
+    if read_only:
+        options += " -c default_transaction_read_only=on"
+    return create_engine(database_url, poolclass=NullPool, connect_args={"options": options})
