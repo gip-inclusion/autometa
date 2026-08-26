@@ -7,6 +7,7 @@ from typing import Callable
 
 from sqlalchemy import func, select
 
+from lib.source_inventory import last_success as last_inventory_success
 from lib.sources import list_instances, load_config
 
 from . import config, source_checks
@@ -166,6 +167,7 @@ def all_sources() -> list[Source]:
             skill="notion",
             check=source_checks.check_notion,
             configured=lambda: bool(config.NOTION_TOKEN),
+            inventory=partial(last_inventory_success, "notion"),
         ),
         Source(
             slug="tally",
@@ -176,6 +178,7 @@ def all_sources() -> list[Source]:
             skill="tally",
             check=source_checks.check_tally,
             configured=lambda: bool(config.TALLY_API_KEY),
+            inventory=partial(last_inventory_success, "tally"),
         ),
         Source(
             slug="grist",
