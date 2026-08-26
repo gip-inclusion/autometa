@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Sources{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-sources">
+  <div class="section-header">
+    <div class="container">
+      <p class="text-muted mb-1 small">Les données auxquelles Autometa a accès, leur état et leur fraîcheur</p>
+      <h1 class="mb-0"><i class="ri-database-2-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Sources de données</h1>
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container" style="padding: 1.5rem 0;">
+      {% for group in group_order %}
+      {% if groups[group] %}
+      <div class="source-group">
+        <h2 class="source-group-title">{{ group }}</h2>
+        <div class="source-grid">
+          {% for source in groups[group] %}
+          {% set inventory = inventories[source.slug] %}
+          <a class="source-card" href="/sources/{{ source.slug }}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <div class="source-card-head">
+              <i class="{{ source.icon }}" aria-hidden="true"></i>
+              <span class="source-card-name">{{ source.name }}</span>
+            </div>
+            <p class="source-card-blurb">{{ source.blurb }}</p>
+            <div class="source-card-signals">
+              {% with slug = source.slug %}{% include "_source_access_slot.html" %}{% endwith %}
+              {% if inventory.realtime %}
+              <span class="source-signal source-signal-live" title="Interrogée directement, sans copie intermédiaire">
+                <i class="ri-flashlight-line" aria-hidden="true"></i> Temps réel
+              </span>
+              {% else %}
+              <span class="source-signal source-signal-sync"{% if inventory.title %} title="{{ inventory.title }}"{% endif %}>
+                <i class="ri-refresh-line" aria-hidden="true"></i> Inventaire : {{ inventory.label }}
+              </span>
+              {% endif %}
+            </div>
+            {% if source.skill %}
+            <div class="source-card-skill"><code>{{ source.skill }}</code></div>
+            {% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

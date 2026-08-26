@@ -167,6 +167,7 @@ from .routes import (  # noqa: E402
     knowledge,
     query,
     reports,
+    sources,
     tag_manager,
 )
 from .selftest import router as selftest_router  # noqa: E402
@@ -184,6 +185,7 @@ app.include_router(tag_manager.router)
 app.include_router(reports.html_router)
 app.include_router(cron.router)
 app.include_router(dashboards.router)
+app.include_router(sources.router)
 app.include_router(jobs.router)
 app.include_router(html.router)
 

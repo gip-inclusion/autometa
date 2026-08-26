@@ -1,0 +1,13 @@
+{% if access.state == 'ok' %}
+<span class="source-signal source-signal-ok" title="{{ access.detail }}">
+  <i class="ri-checkbox-blank-circle-fill" aria-hidden="true"></i> Joignable
+</span>
+{% elif access.state == 'unconfigured' %}
+<span class="source-signal source-signal-off" title="{{ access.detail }}">
+  <i class="ri-checkbox-blank-circle-line" aria-hidden="true"></i> Non configuré ici
+</span>
+{% else %}
+<span class="source-signal source-signal-ko" title="{{ access.detail }}">
+  <i class="ri-close-circle-fill" aria-hidden="true"></i> Injoignable
+</span>
+{% endif %}

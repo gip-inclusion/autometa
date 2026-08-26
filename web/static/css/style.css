@@ -2508,6 +2508,7 @@ body.has-sidebar {
 
 .sidebar-tools .nav-link {
   font-size: 0.8125rem;
+  padding-block: 0.25rem;
   opacity: 0.8;
 }
 
@@ -4121,4 +4122,123 @@ body.no-sidebar .section-header .container-fluid { max-width: 100%; }
 
 .modal-backdrop.show {
   opacity: 0.5;
+}
+
+/* ==========================================================================
+   Sources de données
+   ========================================================================== */
+
+.source-group {
+  margin-bottom: 2.5rem;
+}
+
+.source-group-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6c757d;
+  margin-bottom: 0.75rem;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.source-card:hover {
+  border-color: #006ADC;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  color: inherit;
+}
+
+.source-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.source-card-head i {
+  color: #006ADC;
+  font-size: 1.15rem;
+}
+
+.source-card-name {
+  overflow-wrap: anywhere;
+}
+
+.source-card-blurb {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #6c757d;
+  line-height: 1.4;
+}
+
+.source-card-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.source-card-skill {
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+.source-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  background: #f1f3f5;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.source-signal i {
+  font-size: 0.7rem;
+}
+
+.source-signal-ok { background: #e6f4ea; color: #1e7e34; }
+.source-signal-ko { background: #fdecea; color: #b02a37; }
+.source-signal-off { background: #f1f3f5; color: #868e96; }
+.source-signal-pending { background: #f1f3f5; color: #868e96; }
+.source-signal-live { background: #e7f1ff; color: #0b5ed7; }
+.source-signal-sync { background: #fff4e5; color: #9a5b00; }
+.source-signal-skill code { color: inherit; }
+
+.source-detail-head {
+  margin-bottom: 1.5rem;
+}
+
+.source-doc-origin {
+  font-size: 0.78rem;
+  color: #6c757d;
+  margin-bottom: 0.25rem;
+}
+
+.source-doc {
+  border-top: 1px solid #e5e7eb;
+}
+
+.source-doc .markdown-body {
+  padding-inline: 0;
 }

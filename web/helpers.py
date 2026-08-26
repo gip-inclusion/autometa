@@ -145,10 +145,11 @@ def list_knowledge_files() -> dict[str, list[dict]]:
     sections = {}
 
     for f in sorted(KNOWLEDGE_ROOT.rglob("*.md")):
-        if any(part.startswith(".") for part in f.parts):
+        rel_path = f.relative_to(KNOWLEDGE_ROOT)
+        # Why: tester le chemin absolu masquait tout le dossier quand le dépôt vit sous un répertoire caché (worktree).
+        if any(part.startswith(".") for part in rel_path.parts):
             continue
 
-        rel_path = f.relative_to(KNOWLEDGE_ROOT)
         # Section is the parent directory path (e.g., "stats", "stats/cards")
         # Use "." for root-level files
         section = str(rel_path.parent) if rel_path.parent != Path(".") else "."

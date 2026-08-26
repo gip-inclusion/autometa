@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - {{ source.name if source else 'Source inconnue' }}{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-sources">
+  <div class="section-header">
+    <div class="container">
+      <a href="/sources" class="text-muted small text-decoration-none"
+         hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+        <i class="ri-arrow-left-line" aria-hidden="true"></i> Sources de données
+      </a>
+      {% if source %}
+      <h1 class="mb-0 mt-1"><i class="{{ source.icon }} ri-2x text-primary me-2" style="vertical-align: middle;"></i>{{ source.name }}</h1>
+      {% else %}
+      <h1 class="mb-0 mt-1">Source inconnue</h1>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container" style="padding: 1.5rem 0;">
+      {% if error %}
+      <p class="text-muted">{{ error }}</p>
+      {% else %}
+      <div class="source-detail-head">
+        <p class="source-card-blurb">{{ source.blurb }}</p>
+        <div class="source-card-signals">
+          {% with slug = source.slug %}{% include "_source_access_slot.html" %}{% endwith %}
+          {% if inventory.realtime %}
+          <span class="source-signal source-signal-live" title="Interrogée directement, sans copie intermédiaire">
+            <i class="ri-flashlight-line" aria-hidden="true"></i> Temps réel
+          </span>
+          {% else %}
+          <span class="source-signal source-signal-sync"{% if inventory.title %} title="{{ inventory.title }}"{% endif %}>
+            <i class="ri-refresh-line" aria-hidden="true"></i> Inventaire : {{ inventory.label }}
+          </span>
+          {% endif %}
+          {% if source.skill %}
+          <span class="source-signal source-signal-skill">
+            <i class="ri-terminal-box-line" aria-hidden="true"></i> skill <code>{{ source.skill }}</code>
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if doc_html %}
+      <p class="source-doc-origin">
+        Documentation lue par l'agent —
+        {% if doc_rel.startswith('knowledge/') %}
+        <a href="/{{ doc_rel }}" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"><code>{{ doc_rel }}</code></a>
+        {% else %}
+        <code>{{ doc_rel }}</code>
+        {% endif %}
+      </p>
+      <div class="knowledge-content source-doc">
+        <article class="markdown-body">{{ doc_html|safe }}</article>
+      </div>
+      {% else %}
+      <p class="text-muted">Cette source n'a pas encore de documentation dédiée.</p>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -7,15 +7,15 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import partial
 from typing import Callable
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from lib.sources import list_instances
-
 from . import config
+from .sources_registry import all_sources, check_source
 
 logger = logging.getLogger(__name__)
 
@@ -128,16 +128,6 @@ def _render_snapshot(names: list[str], results: list[Check | None]) -> str:
         lines.append(_fmt(c) if c is not None else _fmt_pending(name))
     lines.append("")
     return "\n".join(lines)
-
-
-def _check_postgresql() -> tuple[bool, str]:
-    from sqlalchemy import text
-
-    from .db import get_db
-
-    with get_db() as session:
-        ok = session.scalar(text("SELECT 1"))
-    return (ok == 1, "")
 
 
 def _check_admin_users() -> tuple[bool, str]:
@@ -319,140 +309,6 @@ def _check_claude_code_inventory() -> tuple[bool, str]:
     return (True, f"{len(rows)} ressources\n{table}")
 
 
-def _check_s3() -> tuple[bool, str]:
-    from . import s3
-
-    if not config.S3_BUCKET:
-        return (False, "S3_BUCKET not set")
-    key = "selftest/ping.txt"
-    payload = b"ping"
-    if not s3.interactive.upload(key, payload, "text/plain"):
-        return (False, "upload failed")
-    got = s3.interactive.download(key)
-    s3.interactive.delete(key)
-    if got != payload:
-        return (False, "read-back mismatch")
-    return (True, f"bucket={config.S3_BUCKET} write/read/delete OK")
-
-
-def _check_matomo() -> tuple[bool, str]:
-    from lib.query import get_matomo
-
-    api = get_matomo("inclusion")
-    resp = httpx.get(
-        f"https://{api.url}/index.php",
-        params={
-            "module": "API",
-            "method": "API.getMatomoVersion",
-            "format": "json",
-            "token_auth": api.token,
-        },
-        timeout=SELFTEST_TIMEOUT_SEC,
-    )
-    resp.raise_for_status()
-    version = resp.json().get("value", "?")[:40]
-    return (True, f"v{version}")
-
-
-def _check_metabase_instance(instance: str) -> tuple[bool, str]:
-    from lib.sources import get_source_config
-
-    cfg = get_source_config("metabase", instance)
-    url = cfg["url"].rstrip("/") + "/api/health"
-    resp = httpx.get(url, timeout=SELFTEST_TIMEOUT_SEC)
-    if resp.status_code == 200:
-        return (True, "healthy")
-    return (False, f"HTTP {resp.status_code}")
-
-
-def _check_notion() -> tuple[bool, str]:
-    token = config.NOTION_TOKEN
-    if not token:
-        return (False, "NOTION_TOKEN not set")
-    resp = httpx.get(
-        "https://api.notion.com/v1/users/me",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Notion-Version": "2022-06-28",
-        },
-        timeout=SELFTEST_TIMEOUT_SEC,
-    )
-    if resp.status_code == 200:
-        return (True, f"bot: {resp.json().get('name', 'ok')}")
-    return (False, f"HTTP {resp.status_code}")
-
-
-def _check_grist() -> tuple[bool, str]:
-    api_key = config.GRIST_API_KEY
-    doc_id = config.GRIST_WEBINAIRES_DOC_ID
-    if not api_key or not doc_id:
-        return (False, "GRIST_API_KEY or DOC_ID not set")
-    resp = httpx.get(
-        f"https://grist.numerique.gouv.fr/api/docs/{doc_id}/tables",
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=SELFTEST_TIMEOUT_SEC,
-    )
-    if resp.status_code == 200:
-        n = len(resp.json().get("tables", []))
-        return (True, f"{n} tables")
-    return (False, f"HTTP {resp.status_code}")
-
-
-def _check_livestorm() -> tuple[bool, str]:
-    api_key = config.LIVESTORM_API_KEY
-    if not api_key:
-        return (False, "LIVESTORM_API_KEY not set")
-    resp = httpx.get(
-        "https://api.livestorm.co/v1/ping",
-        headers={"Authorization": api_key},
-        timeout=SELFTEST_TIMEOUT_SEC,
-    )
-    if resp.status_code == 200:
-        return (True, "reachable")
-    return (False, f"HTTP {resp.status_code}")
-
-
-def _check_tally() -> tuple[bool, str]:
-    api_key = config.TALLY_API_KEY
-    if not api_key:
-        return (False, "TALLY_API_KEY not set")
-    resp = httpx.get(
-        "https://api.tally.so/forms",
-        headers={"Authorization": f"Bearer {api_key}"},
-        params={"limit": 1},
-        timeout=SELFTEST_TIMEOUT_SEC,
-    )
-    if resp.status_code == 200:
-        total = resp.json().get("total")
-        return (True, f"{total} forms" if total is not None else "reachable")
-    return (False, f"HTTP {resp.status_code}")
-
-
-def _check_slack() -> tuple[bool, str]:
-    token = config.SLACK_BOT_TOKEN
-    if not token:
-        return (False, "SLACK_BOT_TOKEN not set")
-    resp = httpx.head(
-        "https://slack.com/api/auth.test",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=SELFTEST_TIMEOUT_SEC,
-    )
-    if resp.status_code == 200:
-        return (True, "API reachable")
-    return (False, f"HTTP {resp.status_code}")
-
-
-def _check_rpe() -> tuple[bool, str]:
-    from lib.rpe import doctor
-
-    report = doctor(timeout=SELFTEST_TIMEOUT_SEC)
-    checks = report.get("checks", [])
-    if report.get("ok"):
-        return (True, " · ".join(c["check"] for c in checks) + " OK")
-    failed = next((c for c in checks if not c["ok"]), None)
-    return (False, f"{failed['check']}: {failed['reason']}" if failed else "échec")
-
-
 def _check_tag_vocabulary() -> tuple[bool, str]:
     from lib.tag_sync import sync_state
 
@@ -475,17 +331,6 @@ def _check_tag_vocabulary() -> tuple[bool, str]:
     return (True, f"{state['term_count']} termes, il y a {age_h:.0f}h")
 
 
-def _check_data_inclusion() -> tuple[bool, str]:
-    from lib.query import CallerType, execute_data_inclusion_query
-
-    if not config.DATA_INCLUSION_DATABASE_URL:
-        return (False, "DATA_INCLUSION_DATABASE_URL not set")
-    result = execute_data_inclusion_query("SELECT 1", caller=CallerType.APP)
-    if result.success:
-        return (True, f"connected ({result.execution_time_ms}ms)")
-    return (False, result.error or "query failed")
-
-
 # Probes that spawn the `claude` CLI. Serialized at run time so the trivial
 # --version check isn't starved by the concurrent heavy agent runs (ping, inventory).
 _CLAUDE_SPAWN_CHECKS = {_check_claude_cli, _check_claude_code_ping, _check_claude_code_inventory}
@@ -493,7 +338,6 @@ _CLAUDE_SPAWN_CHECKS = {_check_claude_cli, _check_claude_code_ping, _check_claud
 
 def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
     specs: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
-        ("PostgreSQL", _check_postgresql),
         ("Admin users", _check_admin_users),
         ("Redis", _check_redis),
         ("Task Runner", _check_task_runner),
@@ -501,21 +345,9 @@ def _check_specs() -> list[tuple[str, Callable[[], tuple[bool, str]]]]:
         ("Claude CLI", _check_claude_cli),
         ("Claude status page", _check_claude_status_page),
         ("Claude Code API ping", _check_claude_code_ping),
-        ("S3", _check_s3),
-        ("Matomo", _check_matomo),
-    ]
-    for inst in list_instances("metabase"):
-        specs.append((f"Metabase ({inst})", lambda i=inst: _check_metabase_instance(i)))
-    specs += [
-        ("RPE (France Travail)", _check_rpe),
-        ("data·inclusion", _check_data_inclusion),
-        ("Notion", _check_notion),
         ("Vocabulaire de tags", _check_tag_vocabulary),
-        ("Grist", _check_grist),
-        ("Livestorm", _check_livestorm),
-        ("Tally", _check_tally),
-        ("Slack", _check_slack),
     ]
+    specs += [(source.name, partial(check_source, source)) for source in all_sources()]
     # Why: full LLM agent run (~40s, gates the whole stream) — keep it last so faster checks render first.
     specs.append(("Ressources offline accessibles", _check_claude_code_inventory))
     return specs
