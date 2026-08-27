@@ -55,7 +55,7 @@ def make_report(title, content="---\ndate: 2026-01-01\n---\n\n# Titre\n\nDu **ma
     )
 
 
-def test_rapport_markdown_is_served_as_a_download(app, client, report):
+def test_dod_1_le_rapport_se_telecharge_au_lieu_de_s_afficher(app, client, report):
     """DOD-1 — un clic télécharge un fichier au lieu d'afficher le texte dans un onglet."""
     response = client.get(
         f"/rapports/{report.id}.md",
@@ -66,27 +66,34 @@ def test_rapport_markdown_is_served_as_a_download(app, client, report):
     assert response.headers["content-disposition"].startswith("attachment;")
 
 
+def nom_du_fichier_telecharge(client, title):
+    report = make_report(title)
+    response = client.get(f"/rapports/{report.id}.md", headers={"X-Forwarded-Email": "test@example.com"})
+    return response.headers["content-disposition"], report.id
+
+
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
         ("Bilan mensuel des candidatures", "bilan-mensuel-des-candidatures.md"),
         ("Rapport « été 2026 » — pass IAE", "rapport-ete-2026-pass-iae.md"),
-        ("", "rapport-{id}.md"),
-        ("« — »", "rapport-{id}.md"),
     ],
 )
-def test_rapport_markdown_filename(app, client, title, expected):
-    """DOD-2 et DOD-4 — nom tiré du titre, replié sur le numéro quand le titre ne donne rien."""
-    report = make_report(title)
+def test_dod_2_le_nom_du_fichier_reprend_le_titre_du_rapport(app, client, title, expected):
+    disposition, _ = nom_du_fichier_telecharge(client, title)
 
-    response = client.get(
-        f"/rapports/{report.id}.md",
-        headers={"X-Forwarded-Email": "test@example.com"},
-    )
-    assert response.headers["content-disposition"] == f'attachment; filename="{expected.format(id=report.id)}"'
+    assert disposition == f'attachment; filename="{expected}"'
 
 
-def test_rapport_markdown_keeps_the_report_text_untouched(app, client):
+@pytest.mark.parametrize("title", ["", "« — »"])
+def test_dod_4_un_titre_sans_nom_lisible_se_replie_sur_le_numero(app, client, title):
+    """Titre vide ou fait de seuls caractères spéciaux : le nom retombe sur le numéro du rapport."""
+    disposition, report_id = nom_du_fichier_telecharge(client, title)
+
+    assert disposition == f'attachment; filename="rapport-{report_id}.md"'
+
+
+def test_dod_3_le_fichier_contient_le_texte_tel_qu_il_a_ete_ecrit(app, client):
     """DOD-3 — le fichier contient le texte du rapport tel qu'il a été écrit, en-tête comprise."""
     content = "---\ndate: 2026-01-01\n---\n\n# Résumé\n\nAccents : é, è, ê, à, ç, ù."
     report = make_report("Rapport avec accents", content=content)
@@ -107,7 +114,7 @@ def test_rapport_markdown_nonexistent_report_returns_404(app, client):
     assert response.status_code == 404
 
 
-def test_rapport_txt_redirects_to_markdown(app, client, report):
+def test_dod_5_les_liens_deja_partages_menent_toujours_au_rapport(app, client, report):
     """DOD-5 — les liens déjà partagés vers la « version exportable » mènent toujours au rapport."""
     response = client.get(
         f"/rapports/{report.id}.txt",
