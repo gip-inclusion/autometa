@@ -4,25 +4,86 @@
       {
         "matcher": "Edit|Write",
         "hooks": [
-          {"type": "command", "command": "python3 .claude/hooks/guard_write_paths.py"},
-          {"type": "command", "command": "python3 .claude/hooks/check_python.py"}
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/guard_write_paths.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/check_python.py"
+          }
         ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "python3 .claude/hooks/check_env_on_tag.py"}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/check_env_on_tag.py"
+          }
+        ]
       },
       {
         "matcher": "Edit|Write",
-        "hooks": [{"type": "command", "command": "python3 .claude/hooks/ruff_edited.py"}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/ruff_edited.py"
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "hooks": [{"type": "command", "command": "python3 .claude/hooks/stop_lint_gate.py"}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/stop_lint_gate.py"
+          }
+        ]
       }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Edit(/.claude/settings*)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(/.claude/rules/**)",
+      "Edit(/.claude/agents/**)",
+      "Edit(/.github/**)",
+      "Edit(/.githooks/**)",
+      "Edit(/gates.toml)",
+      "Edit(/Makefile)",
+      "Edit(/scripts/check_*.py)",
+      "Edit(/scripts/paved_road_cli.py)",
+      "Edit(/lib/attestation.py)",
+      "Edit(/plugins/paved-road/**)",
+      "Edit(/paved-road/*/attestations/**)",
+      "Edit(/paved-road/*/journal/**)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git commit * --no-verify*)",
+      "Bash(git commit -n *)",
+      "Bash(git -c core.hooksPath=*)",
+      "Bash(gh * --add-label*)",
+      "Bash(gh * --label*)"
+    ],
+    "allow": [
+      "Bash(make *)",
+      "Bash(uv run --frozen pytest*)",
+      "Bash(uv run --frozen ruff*)",
+      "Bash(uv run --frozen python scripts/*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git switch*)",
+      "Bash(git rev-parse*)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr view*)"
     ]
   }
 }

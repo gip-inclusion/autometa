@@ -71,3 +71,26 @@ allowlist = [
     "web/routes/reports.py:set_report_tags",
     "web/selftest.py:selftest",
 ]
+
+# Chemins de l'outillage : ce que l'agent ne doit pas modifier avec ses propres outils.
+# `permissions.deny` (couche 1) et `CODEOWNERS` (couche 4) recopient cette liste — elle est ici
+# pour qu'un seul endroit fasse foi, et pour qu'un ajout se voie dans une PR que les owners lisent.
+# `pyproject.toml` en est volontairement absent : une fonctionnalité peut ajouter une dépendance.
+# Il est couvert par CODEOWNERS seulement.
+[tool.protected_paths]
+outillage = [
+    ".claude/settings*",
+    ".claude/hooks/**",
+    ".claude/rules/**",
+    ".claude/agents/**",
+    ".github/**",
+    ".githooks/**",
+    "gates.toml",
+    "Makefile",
+    "scripts/check_*.py",
+    "scripts/paved_road_cli.py",
+    "lib/attestation.py",
+    "plugins/paved-road/**",
+]
+# Écrits par `advance`, un processus enfant : la couche 1 les protège, pas le bac à sable.
+artefacts = ["paved-road/*/attestations/**", "paved-road/*/journal/**"]
