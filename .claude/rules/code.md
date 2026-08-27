@@ -1,3 +1,5 @@
+> **Vérifié par** — ruff, `.claude/hooks/check_python.py`, `scripts/check_http_timeouts.py` — au fil de l'écriture, puis `make lint` et la CI.
+
 Imports : tout regrouper en tête de module (stdlib, puis tiers, puis paquet local), dans l'ordre attendu par le linter. Ne pas utiliser d'imports différés dans des fonctions ou des blocs `if` sauf cas documenté où c'est indispensable (dépendance circulaire qu'on ne peut pas résoudre autrement, coût de chargement prohibitive pour un module optionnel rarement utilisé, etc.). Les agents ne doivent pas introduire d'imports lazy « par habitude ». **Imports relatifs parents interdits** : ne jamais utiliser `from .. import` ou `from ..module import`. Utiliser des imports absolus (`from web.config import ...`, `from lib.query import ...`). Les imports relatifs au même niveau (`from .module import`) sont acceptés.
 
 Noms de modules : ne jamais nommer un fichier Python en commençant par `_` (sauf `__init__.py`). Ne jamais nommer un module comme un module de la stdlib (`logging`, `json`, `os`, etc.). Les modules n'ont pas de raison d'être « privés » — contrôler l'API publique via `__all__` ou les imports dans `__init__.py`.

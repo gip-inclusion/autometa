@@ -1,3 +1,5 @@
+> **Vérifié par** — `.github/CODEOWNERS`, une fois `require_code_owner_review` coché. Le message « zone critique » demandé à l'agent : **personne**.
+
 Zones critiques — toute modification de ces fichiers ou modules nécessite une relecture humaine.
 
 Si tu touches à l'un de ces sujets, tu DOIS le signaler explicitement dans ta réponse avec la mention : « Ce changement touche une zone critique et nécessite une relecture humaine. »

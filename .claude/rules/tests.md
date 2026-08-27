@@ -1,3 +1,5 @@
+> **Vérifié par** — `scripts/check_test_quality.py`, ruff (PT0xx), `diff-cover` — `make lint` et la CI.
+
 pytest uniquement : pas de `unittest` (ni `TestCase`, ni imports depuis le package `unittest`). Pour les mocks, utiliser le fixture **`mocker`** de **pytest-mock** (`mocker.patch`, `mocker.MagicMock`, etc.), pas `unittest.mock`.
 
 `@pytest.mark.parametrize` dès qu’un même comportement est vérifié avec des entrées différentes. Ne pas dupliquer des fonctions de test pour varier les entrées.

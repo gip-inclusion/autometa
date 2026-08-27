@@ -1,3 +1,11 @@
+---
+paths:
+  - .github/**
+  - paved-road/**
+---
+
+> **Vérifié par** — **personne** — c'est une grille de lecture pour un relecteur humain.
+
 Critères de rejet en revue de code. Si l'un de ces points est violé, la PR ne passe pas.
 
 Intégrité : SQL non paramétré, colonnes dynamiques non validées, modification de schéma sans migration Alembic correspondante, modification d'une migration Alembic existante (au lieu d'en ajouter une nouvelle).

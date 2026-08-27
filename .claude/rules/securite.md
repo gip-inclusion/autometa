@@ -1,3 +1,13 @@
+---
+paths:
+  - web/**
+  - lib/**
+  - alembic/**
+  - paved-road/**
+---
+
+> **Vérifié par** — bandit, gitleaks, `scripts/check_route_auth.py`, `verify_content` — job Security de la CI.
+
 Invariants de sécurité — vrais pour toute demande, donc jamais recopiés dans une Definition of Done.
 
 **Le dépôt est public** et le produit manipule des données sur des demandeurs d'emploi. Aucune donnée

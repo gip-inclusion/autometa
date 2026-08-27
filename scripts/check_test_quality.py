@@ -1,7 +1,9 @@
 """Rejette les tests creux : sans vérification ou avec assertion tautologique."""
 
+import argparse
 import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,6 +70,59 @@ def check_source(source):
     return violations
 
 
+def _porte_une_raison(node):
+    """`reason=` sur le marqueur, le mécanisme natif de pytest, vaut explication."""
+    return any(
+        kw.arg == "reason" and isinstance(kw.value, ast.Constant) and kw.value.value
+        for deco in node.decorator_list
+        for n in ast.walk(deco)
+        if isinstance(n, ast.Call)
+        for kw in n.keywords
+    )
+
+
+def skips_sans_raison(source):
+    """Un `skip`/`xfail` ajouté sans dire pourquoi éteint un test que personne ne rallumera."""
+    lignes = source.split("\n")
+    violations = []
+    for node in ast.walk(ast.parse(source)):
+        if not _is_test(node) or not _is_skipped(node) or _porte_une_raison(node):
+            continue
+        debut = min([deco.lineno for deco in node.decorator_list] or [node.lineno]) - 1
+        voisinage = "\n".join(lignes[max(0, debut - 2) : node.lineno])
+        if "# Why:" not in voisinage:
+            violations.append((
+                node.lineno,
+                f"`{node.name}` est désactivé sans `reason=` ni `# Why:` — dire ce qu'on attend pour le rallumer",
+            ))
+    return violations
+
+
+def assertions_affaiblies(source, source_base):
+    """Compte les assertions par test : en perdre sur un test préexistant, c'est le désarmer."""
+
+    def par_test(texte):
+        return {
+            node.name: sum(1 for n in ast.walk(node) if isinstance(n, ast.Assert | ast.Raise))
+            + sum(1 for call in _calls(node) if (_call_name(call) or "").startswith("assert"))
+            for node in ast.walk(ast.parse(texte))
+            if _is_test(node)
+        }
+
+    avant, apres = par_test(source_base), par_test(source)
+    return [
+        (0, f"`{nom}` passe de {avant[nom]} à {apres[nom]} assertion(s) : reprendre, ou demander un break-glass")
+        for nom in avant
+        if nom in apres and apres[nom] < avant[nom]
+    ]
+
+
+def version_sur_la_base(path, base):
+    """Le fichier tel qu'il est sur la base de comparaison, ou None s'il y est absent."""
+    done = subprocess.run(["git", "show", f"{base}:{path}"], capture_output=True, text=True, check=False)
+    return done.stdout if done.returncode == 0 else None
+
+
 def check_dod_budget(source):
     """Au-delà de cinq critères démontrés par navigateur, la preuve doit retomber sur une forme moins coûteuse."""
     dod_tests = sorted(
@@ -89,13 +144,20 @@ def _iter_test_files(paths):
             yield path
 
 
-def main(paths):
+def main(paths, base=None):
     failed = False
+    # Why: un fichier absent de la base est normal (test neuf) ; une base illisible ne l'est pas,
+    # et laisserait le check passer sans rien comparer. On distingue les deux une fois pour toutes.
+    if base and subprocess.run(["git", "rev-parse", "--verify", base], capture_output=True, check=False).returncode:
+        print(f"Base « {base} » illisible : les assertions affaiblies ne sont pas comparées.", file=sys.stderr)
+        base = None
     for path in _iter_test_files(paths):
         source = path.read_text()
-        violations = check_source(source)
+        violations = check_source(source) + skips_sans_raison(source)
         if BROWSER_TESTS in path.parents:
             violations += check_dod_budget(source)
+        if base and (avant := version_sur_la_base(path, base)):
+            violations += assertions_affaiblies(source, avant)
         for lineno, reason in violations:
             print(f"{path}:{lineno}: {reason}")
             failed = True
@@ -103,4 +165,8 @@ def main(paths):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:] or ["tests"]))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="*", default=["tests"])
+    parser.add_argument("--base", help="référence git : compare les assertions des tests préexistants")
+    arguments = parser.parse_args()
+    sys.exit(main(arguments.paths or ["tests"], arguments.base))

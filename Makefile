@@ -44,7 +44,7 @@ check-migrations:
 lint:
 	uv run --frozen ruff check
 	uv run --frozen ruff format --check
-	uv run --frozen python scripts/check_test_quality.py tests browser
+	uv run --frozen python scripts/check_test_quality.py tests browser --base origin/$(BASE)
 	uv run --frozen python scripts/check_http_timeouts.py
 	uv run --frozen ruff check --select S608,BLE001 --statistics --exit-zero
 

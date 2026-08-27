@@ -25,11 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # `check_test_quality --base` lit la version d'avant de chaque fichier de test :
+          # un checkout superficiel la lui cacherait, et le check passerait sans rien comparer.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
       - run: uv sync --group dev --frozen
-      - run: make lint
+      # BASE sert à `check_test_quality --base` : comparer les assertions d'un test préexistant
+      # exige de savoir contre quoi. En local, la valeur par défaut `main` fait l'affaire.
+      - run: make lint BASE=${{ github.base_ref || 'main' }}
 
   security:
     name: Security

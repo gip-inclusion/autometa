@@ -1,3 +1,12 @@
+---
+paths:
+  - lib/**
+  - skills/**
+  - web/**
+---
+
+> **Vérifié par** — `.claude/hooks/check_python.py`, `scripts/check_http_timeouts.py`. La limite « plus de cinq requêtes segmentées » : **personne**.
+
 Ne pas instancier `MatomoAPI` ou `MetabaseAPI` directement. Passer par `lib.query.execute_matomo_query` / `execute_metabase_query` (logging, timeouts, signaux d'observabilité inclus).
 
 Segments Matomo : lents (30-180s par mois). Ne jamais boucler sur plus de 5 requêtes segmentées séquentielles. Privilégier les date ranges sans segment.

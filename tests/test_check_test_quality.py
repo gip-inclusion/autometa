@@ -157,3 +157,53 @@ def test_dod_budget_only_applies_to_browser_tests(tmp_path, capsys):
 
     assert main([str(tmp_path)]) == 0
     assert capsys.readouterr().out == ""
+
+
+AVANT = """
+def test_calcule_la_remise():
+    assert remise(100) == 10
+    assert remise(0) == 0
+"""
+
+APRES_AFFAIBLI = """
+def test_calcule_la_remise():
+    assert remise(100) == 10
+"""
+
+
+def test_une_assertion_retiree_d_un_test_preexistant_est_refusee():
+    """Retirer une assertion d'un test qu'on n'a pas écrit, c'est le désarmer pour rester vert."""
+    violations = _module.assertions_affaiblies(APRES_AFFAIBLI, AVANT)
+
+    assert len(violations) == 1
+    assert "passe de 2 à 1 assertion" in violations[0][1]
+
+
+@pytest.mark.parametrize(
+    ("apres", "avant"),
+    [
+        (AVANT, AVANT),
+        (AVANT.replace("== 0", "== 0\n    assert remise(50) == 5"), AVANT),
+        (AVANT, "def test_autre_chose():\n    assert True\n"),
+    ],
+    ids=["inchangé", "assertion ajoutée", "test neuf"],
+)
+def test_assertions_affaiblies_ne_signale_rien_quand_rien_ne_s_affaiblit(apres, avant):
+    assert _module.assertions_affaiblies(apres, avant) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "refuse"),
+    [
+        ("import pytest\n\n\n@pytest.mark.skip\ndef test_x():\n    assert True\n", True),
+        ('import pytest\n\n\n@pytest.mark.skip(reason="API tierce en panne")\ndef test_x():\n    assert True\n', False),
+        (
+            "import pytest\n\n\n# Why: dépend d'un service qu'on retire\n@pytest.mark.xfail\ndef test_x():\n    assert True\n",
+            False,
+        ),
+        ("def test_x():\n    assert True\n", False),
+    ],
+    ids=["skip nu", "reason=", "# Why:", "pas de skip"],
+)
+def test_skips_sans_raison(source, refuse):
+    assert bool(_module.skips_sans_raison(source)) is refuse
