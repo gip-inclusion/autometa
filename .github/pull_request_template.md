@@ -1,32 +1,42 @@
-[Lien vers le ticket Notion associé]()
+## Ce que je voulais
 
-## Pourquoi ?
+<!-- Une phrase, dans les mots du demandeur. Pas de vocabulaire technique. -->
 
-> _Expliquer pourquoi on fait ça._
+## Ce qui devait marcher
 
-## Comment ? <!-- optionnel -->
+<!--
+Une ligne par critère de la definition of done, avec son verdict et le lien vers la preuve.
+Le tableau est produit par le parcours ; ne pas le remplir à la main.
 
-> _Si la solution est pas évidente, expliquer les choix._
+| Critère | Ce qui devait marcher | Verdict | Preuve |
+|---|---|---|---|
+| DOD-1 | … | démontré | `paved-road/<slug>/attestations/DOD-1.md` |
+-->
 
-### Check-list : la forme
+## Ce qui n'a pas été démontré
 
-* [ ] Le titre de la PR, sa description et les spécifications sont **en français**.
-* [ ] Mes commits suivent les [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) : `<type>(<scope optionnel>): <description>`
-  * Types courants : `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, etc.
-  * Scopes possibles (à adapter) : `web`, `lib`, `skills`, `knowledge`, `config`, `scripts`, `tests`, `ci`
-* [ ] Ma branche respecte la convention de nommage `<auteur>/<type>/<feature>`
-* [ ] Les messages de commit sont en anglais
+<!-- Les critères sans preuve, et pourquoi. « Rien » est une réponse valable — l'écrire. -->
 
-### Check-list : le fond
+## Pour juger sans lire le code
 
-* [ ] Je me suis relu ; je suis raisonnablement confiant⋅e que le changement est minimal et cohérent.
-* [ ] J'ai vérifié que ça ne réinvente pas la roue ou que c'est pas à côté de la plaque.
-* [ ] Une fois la PR validée, j'ai bien pensé à copier les variables d'environnement de staging vers la prod.
+- **Review app** : <!-- URL de l'encart de déploiement, une fois la CI verte. Base vide : pour une
+  fonctionnalité de données, il n'y aura rien à cliquer, le dire ici. -->
+- **Captures du smoke** : <!-- si une interface est touchée -->
+- **Relecture `design-coherence`** : <!-- ce que la lentille a signalé, et ce qui a été corrigé -->
+- **Premier commit du contrat** : <!-- date --> · **premier commit de code** : <!-- date -->
 
-###  Comment tester que ça marche ?
+> Règle de lecture pour le pair : du code daté **avant** le contrat, on ne signe pas — on va
+> d'abord chercher un avis technique.
 
-> _Commandes, profil d’environnement (`.env`), parcours manuel, URL locale ou jetable. Si la CI suffit, l’indiquer._
+## Ce que cette PR change dans l'outillage
 
-###  Captures d’écran <!-- optionnel -->
+<!--
+Rien, la plupart du temps — écrire « rien ».
+Sinon : ce que la machinerie fait de différent, en français, et tout garde-fou affaibli
+(seuil abaissé, test supprimé, assertion changée, route sans authentification).
+Une PR qui touche une zone critique ou l'outillage demande aussi le consentement d'un owner.
+-->
 
-<!-- UI, Metabase, Matomo, ou sorties pertinentes. -->
+---
+
+<sub>Parcours et attendus : `CONTRIBUTING.md`. Conception : `docs/plans/2026-08-22-paved-road-workflow.md`.</sub>
