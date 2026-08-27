@@ -26,9 +26,11 @@ Les sept niveaux sont en place. L0 (l'accord écrit) se tient **à la main** —
 L1 (les attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le
 parcours sans code de sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent ;
 L3 démontre les critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via
-`scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `paved-road:design-coherence`, consultative ; L6 pose la
+`scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `paved-road:design-coherence`, bloquante en
+session ; L6 pose la
 façade des tableaux de bord et les règles devenues exécutables. Détail :
-`docs/paved-road/l2-quality-gates.md`, `l3-e2e.md`, `l5-design-coherence.md`, `l6-fitness-functions.md`.
+`docs/paved-road/l2-quality-gates.md`, `l3-e2e.md`, `l4-smoke.md`, `l5-design-coherence.md`,
+`l6-fitness-functions.md`.
 
 1. **Écrire la Definition of Done avant de coder.** Un fichier
    `paved-road/<nom-de-branche>/definition-of-done.md` qui dit, en français, ce qui devra marcher à
