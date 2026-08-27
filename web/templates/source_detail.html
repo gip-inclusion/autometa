@@ -75,6 +75,7 @@
             <li>
               <details>
                 <summary><code>{{ table.name }}</code>
+                  <span class="source-contents-count">{{ table.columns|length }} col.</span>
                   {% if table.description %}<span class="source-table-desc">{{ table.description }}</span>{% endif %}
                 </summary>
                 <div class="table-responsive">

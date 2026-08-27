@@ -38,6 +38,12 @@ def notion_parent_id(result: dict) -> str | None:
 
 def is_share_root(result: dict, accessible: set[str]) -> bool:
     """Vrai quand l'accès commence ici : le parent n'est pas lui-même une page ou une base visible."""
+    # Why: un objet rangé dans un bloc hérite de l'accès de la page qui porte ce bloc. Le bloc n'apparaît
+    # pas dans la recherche, d'où l'exclusion explicite : sur 25 cas remontés jusqu'à leur page, 17
+    # héritaient d'une page déjà visible, 0 étaient de vrais points de partage, 8 avaient une chaîne
+    # coupée (404). Les garder gonflait l'inventaire de 14 à 112 entrées.
+    if result.get("parent", {}).get("type") == "block_id":
+        return False
     return notion_parent_id(result) not in accessible
 
 
