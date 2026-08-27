@@ -2,9 +2,11 @@ Critères de rejet en revue de code. Si l'un de ces points est violé, la PR ne 
 
 Intégrité : SQL non paramétré, colonnes dynamiques non validées, modification de schéma sans migration Alembic correspondante, modification d'une migration Alembic existante (au lieu d'en ajouter une nouvelle).
 
-Sécurité : secrets en dur, `.env` commité, endpoint non authentifié, path traversal possible.
+Sécurité : secrets en dur, `.env` commité, endpoint non authentifié, path traversal possible, donnée personnelle ou extrait de conversation réelle committé (le dépôt est public).
 
 Qualité : code commenté, commentaires descriptifs ou délimiteurs, docstrings verbeuses, duplication non factorisée, tests dupliqués au lieu de `parametrize`, imports ou variables inutilisés, code inatteignable.
+
+Portée : PR portant plus d'un changement logique — découper en PR incrémentales, fusionnables indépendamment.
 
 Cohérence : pattern divergent sans justification, helper pour un seul usage, abstraction prématurée, gestion d'erreur pour cas impossible.
 

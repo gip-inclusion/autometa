@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import unicodedata
 
 import httpx
 import markdown as md
@@ -35,10 +36,27 @@ def rapports_list(report_id: int | None = Query(default=None, alias="id")):
 
 @html_router.get("/rapports/{report_id}.txt")
 def rapport_txt(report_id: int):
+    """Ancienne « version exportable » — les liens déjà partagés doivent continuer de mener au rapport."""
+    return RedirectResponse(f"/rapports/{report_id}.md", status_code=301)
+
+
+def download_filename(report: Report) -> str:
+    """Nom du fichier téléchargé, tiré du titre et replié sur le numéro quand le titre ne donne rien."""
+    ascii_title = unicodedata.normalize("NFKD", report.title or "").encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_title.lower()).strip("-")
+    return f"{slug}.md" if slug else f"rapport-{report.id}.md"
+
+
+@html_router.get("/rapports/{report_id}.md")
+def rapport_markdown(report_id: int, user_email: str = Depends(get_current_user)):
     report = store.get_report(report_id)
     if not report:
         return JSONResponse({"error": "Report not found"}, status_code=404)
-    return PlainTextResponse(report.content, media_type="text/plain; charset=utf-8")
+    return PlainTextResponse(
+        report.content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{download_filename(report)}"'},
+    )
 
 
 @html_router.get("/rapports/{report_id}")

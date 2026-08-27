@@ -23,7 +23,8 @@ par personne.
 | V. Lisibilité inter-équipes, français, glossaire | Format de la DoD (`docs/paved-road/l0-definition-of-done.md`), règle R3 |
 | Section obligatoire « Modèle de menaces » | Dissoute : les menaces récurrentes sont des guardrails, `.claude/rules/zones-critiques.md` impose une relecture humaine sur les surfaces sensibles |
 | Section obligatoire « Mesure d'impact » | Dissoute : une section remplie à chaque spec par obligation formelle n'a jamais été relue |
-| Workflow : revue obligatoire, lint et tests avant merge | `required_status_checks`, `CODEOWNERS` (milestone 0) |
+| Workflow : lint et tests avant merge | `required_status_checks` du ruleset — sept contextes, en place |
+| Workflow : revue obligatoire sur les zones sensibles | `CODEOWNERS`. **Le fichier existe, mais `require_code_owner_review` reste à `false` : tant que la case n'est pas cochée, cette ligne ne garantit rien.** |
 | Workflow : une PR = un changement logique | `.claude/rules/review.md` |
 | Gouvernance : amendements, versionnement, conformité | Dissoute avec la constitution |
 
