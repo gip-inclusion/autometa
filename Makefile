@@ -1,7 +1,12 @@
-.PHONY: dev hooks test test-cov diff-cover lint format security ci migrate check-migrations
+.PHONY: dev claude hooks test test-cov diff-cover lint format security ci migrate check-migrations
 
 dev:
 	uv run --frozen autometa
+
+# Le parcours paved road vit dans un plugin du dépôt : la commande `/paved-road:paved-road` et ses
+# sous-agents ne sont chargés que par cette cible, jamais par un `claude` lancé à la main.
+claude:
+	claude --plugin-dir plugins/paved-road
 
 hooks:
 	uv run --frozen pre-commit install --hook-type pre-commit
