@@ -11,6 +11,7 @@ from lib.query import (
     execute_autometa_tables_query,
     execute_dashboard_storage_query,
     execute_data_inclusion_query,
+    execute_dora_staging_query,
     get_matomo,
 )
 from lib.rpe import doctor
@@ -87,6 +88,13 @@ def check_autometa_tables() -> tuple[bool, str]:
     result = execute_autometa_tables_query("SELECT 1", caller=CallerType.APP)
     if result.success:
         return (True, f"connectée ({result.execution_time_ms} ms)")
+    return (False, result.error or "requête en échec")
+
+
+def check_dora_staging() -> tuple[bool, str]:
+    result = execute_dora_staging_query("SELECT 1", caller=CallerType.APP)
+    if result.success:
+        return (True, f"connectée en lecture seule ({result.execution_time_ms} ms)")
     return (False, result.error or "requête en échec")
 
 

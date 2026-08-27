@@ -246,14 +246,18 @@ def all_sources() -> list[Source]:
             configured=lambda: bool(config.DASHBOARD_STORAGE_DB_URL),
         ),
         Source(
-            slug="knowledge",
-            name="Connaissances",
+            slug="dora-staging",
+            name="Dora staging",
             group=INTERNE,
-            blurb="Le contexte métier écrit par l'équipe et lu par l'agent : glossaire bizdev, fiches par site, pièges.",
-            icon="ri-book-open-line",
-            href="/knowledge",
-            check=source_checks.check_knowledge_base,
-            configured=lambda: True,
+            blurb=(
+                "Base de la préprod Dora, en lecture seule stricte — vérifier l'état des données pendant "
+                "une migration. Ses données ne sont jamais croisées avec celles des autres sources."
+            ),
+            icon="ri-flask-line",
+            skill="dora_staging",
+            doc="skills/dora_staging/SKILL.md",
+            check=source_checks.check_dora_staging,
+            configured=lambda: bool(config.DORA_STAGING_DB_URL),
         ),
         Source(
             slug="s3",
@@ -263,6 +267,16 @@ def all_sources() -> list[Source]:
             icon="ri-hard-drive-2-line",
             check=source_checks.check_s3,
             configured=lambda: bool(config.S3_BUCKET),
+        ),
+        Source(
+            slug="knowledge",
+            name="Connaissances",
+            group=INTERNE,
+            blurb="Le contexte métier écrit par l'équipe et lu par l'agent : glossaire bizdev, fiches par site, pièges.",
+            icon="ri-book-open-line",
+            href="/knowledge",
+            check=source_checks.check_knowledge_base,
+            configured=lambda: True,
         ),
     ]
 
