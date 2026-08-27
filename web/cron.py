@@ -435,7 +435,9 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     start_time = time.monotonic()
 
     env = {
-        **os.environ,
+        # Why: transmission de l'environnement complet au sous-processus, pas une lecture
+        # de configuration.
+        **os.environ,  # noqa: TID251
         "PYTHONPATH": str(config.BASE_DIR),
     }
 

@@ -9,7 +9,10 @@ resolution-markers = [
 ]
 
 [manifest]
-constraints = [{ name = "urllib3", specifier = ">=2.7.0" }]
+constraints = [
+    { name = "cryptography", specifier = ">=50.0.0" },
+    { name = "urllib3", specifier = ">=2.7.0" },
+]
 
 [[package]]
 name = "alembic"

@@ -125,7 +125,7 @@ def test_slug_exists_fails_open_on_connection_error(monkeypatch):
     ],
 )
 def test_main_protocol_exit_codes(stdin_payload, env_value, expected_exit, tmp_path):
-    env = dict(os.environ, AUTOMETA_ENV=env_value)
+    env = dict(os.environ, AUTOMETA_ENV=env_value)  # noqa: TID251
     env.pop("DATABASE_URL", None)
     result = subprocess.run(
         [sys.executable, str(_HOOK_PATH)],

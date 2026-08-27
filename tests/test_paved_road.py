@@ -246,16 +246,23 @@ def test_git_output_runs_git_in_the_repository():
 
 
 @pytest.mark.parametrize(
-    "content, expected",
+    "files, expected",
     [
-        (PYPROJECT_74, (74.90, 90)),
-        ("[tool.ruff]\nline-length = 120\n", (None, None)),
+        ({"pyproject.toml": PYPROJECT_74}, (74.90, 90)),
+        ({"gates.toml": PYPROJECT_74}, (74.90, 90)),
+        ({"pyproject.toml": PYPROJECT_70, "gates.toml": PYPROJECT_74}, (74.90, 90)),
+        ({"pyproject.toml": "[tool.ruff]\nline-length = 120\n"}, (None, None)),
+        ({}, (None, None)),
     ],
 )
-def test_coverage_floors_at(mocker, content, expected):
-    mocker.patch.object(paved_road, "git_output", return_value=content)
+def test_coverage_floors_at_reads_gates_then_pyproject(mocker, files, expected):
+    mocker.patch.object(paved_road, "file_at", side_effect=lambda sha, path: files.get(path, ""))
 
     assert paved_road.coverage_floors_at("deadbeef") == expected
+
+
+def test_file_at_returns_empty_for_a_missing_file():
+    assert paved_road.file_at("HEAD", "fichier-qui-n-existe-pas.toml") == ""
 
 
 def test_coverage_floor_drift_reports_only_changes(mocker):
@@ -265,12 +272,10 @@ def test_coverage_floor_drift_reports_only_changes(mocker):
         "bbbbbbbb 2026-06-01T10:00:00+02:00\ncccccccc 2026-07-01T10:00:00+02:00\n",
     ]
 
-    def git_output(*args):
-        if args[0] == "show":
-            return contents[args[1].split(":")[0]]
-        return logs.pop(0)
-
-    mocker.patch.object(paved_road, "git_output", side_effect=git_output)
+    mocker.patch.object(paved_road, "git_output", side_effect=lambda *args: logs.pop(0))
+    mocker.patch.object(
+        paved_road, "file_at", side_effect=lambda sha, path: contents[sha] if path == "pyproject.toml" else ""
+    )
 
     drift = paved_road.coverage_floor_drift(SINCE)
 
