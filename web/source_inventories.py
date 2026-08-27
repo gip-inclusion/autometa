@@ -9,7 +9,7 @@ from lib.query import CallerType, execute_autometa_tables_query
 from lib.source_inventory import list_inventory
 
 from .db import get_db
-from .models import MatomoDimension, MatomoEvent, MatomoSegment, MetabaseCard, MetabaseDashboard
+from .models import MatomoDimension, MatomoEvent, MatomoSegment
 
 logger = logging.getLogger(__name__)
 
@@ -56,37 +56,6 @@ def autometa_tables_catalog(search: str = "") -> Inventory:
         total=len(tables),
         note="Catalogue lu en direct dans documentation.doc_autometa_tables." if not needle else None,
     )
-
-
-def metabase_inventory(instance: str) -> Inventory:
-    """Cartes et tableaux de bord déjà synchronisés chaque nuit : aucune collecte ajoutée ici."""
-    # Why: les dictionnaires sont construits dans la session — hors d'elle, les lignes ORM sont détachées.
-    with get_db() as session:
-        dashboards = [
-            {"name": d.name, "description": d.description}
-            for d in session.scalars(
-                select(MetabaseDashboard).where(MetabaseDashboard.instance == instance).order_by(MetabaseDashboard.name)
-            )
-        ]
-        card_counts = session.execute(
-            select(MetabaseCard.topic, func.count())
-            .where(MetabaseCard.instance == instance)
-            .group_by(MetabaseCard.topic)
-            .order_by(func.count().desc())
-        ).all()
-        total = session.scalar(select(func.count()).select_from(MetabaseCard).where(MetabaseCard.instance == instance))
-
-    groups = []
-    if dashboards:
-        groups.append({"label": "Tableaux de bord", "items": dashboards})
-    if card_counts:
-        groups.append({
-            "label": "Cartes par thème",
-            "items": [
-                {"name": topic or "sans thème", "description": f"{count} cartes"} for topic, count in card_counts
-            ],
-        })
-    return Inventory(kind="listing", groups=groups, total=total or 0)
 
 
 def matomo_inventory() -> Inventory:
@@ -145,8 +114,6 @@ def inventory_for(slug: str, search: str = "") -> Inventory | None:
         return autometa_tables_catalog(search)
     if slug == "matomo":
         return matomo_inventory()
-    if slug.startswith("metabase-"):
-        return metabase_inventory(slug.removeprefix("metabase-").replace("-", "_"))
     if slug in ("notion", "tally"):
         return connector_inventory(slug)
     return None

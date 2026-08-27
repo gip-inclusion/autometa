@@ -79,29 +79,27 @@ def test_catalog_reports_an_unreachable_source_without_raising(mocker):
     assert inventory.groups == []
 
 
-@pytest.mark.parametrize("slug", ["s3", "slack", "rpe", "inexistante"])
+@pytest.mark.parametrize("slug", ["s3", "slack", "rpe", "metabase-stats", "inexistante"])
 def test_sources_without_an_inventory_return_none(slug):
     assert inventory_for(slug) is None
 
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("_db")
-@pytest.mark.parametrize("slug", ["metabase-stats", "matomo", "notion"])
+@pytest.mark.parametrize("slug", ["matomo", "notion"])
 def test_db_backed_inventories_are_readable_outside_the_session(slug):
     """Ces panneaux lisent des lignes ORM : les valeurs doivent être extraites dans la session, sinon 500."""
     from sqlalchemy import delete
 
     from lib.source_inventory import InventoryItem, replace_inventory
     from web.db import get_db
-    from web.models import MatomoDimension, MetabaseCard, SourceInventoryItem, SourceInventoryRun
+    from web.models import MatomoDimension, SourceInventoryItem, SourceInventoryRun
 
     with get_db() as session:
         # Why: la fixture `_db` ne vide pas les tables entre deux paramètres — sans quoi, doublon en insertion.
-        session.execute(delete(MetabaseCard))
         session.execute(delete(MatomoDimension))
         session.execute(delete(SourceInventoryItem))
         session.execute(delete(SourceInventoryRun))
-        session.add(MetabaseCard(id=1, instance="stats", name="Une carte", topic="candidatures"))
         session.add(MatomoDimension(site_id=117, dimension_id=1, name="UserKind", scope="visit"))
     replace_inventory("notion", [InventoryItem(item_type="database", external_id="db-1", label="Suivi")])
 
