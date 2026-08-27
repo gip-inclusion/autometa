@@ -109,6 +109,10 @@
         </div>
       </div>
 
+      <div class="mt-4">
+        {% include "_dashboard_tags.html" %}
+      </div>
+
       <div class="mt-5" id="publier-block" data-slug="{{ dashboard.slug }}">
         {% if dashboard_drifted %}
         <p class="small text-warning mb-2">
@@ -245,6 +249,29 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Why: filtrage purement visuel d'une liste déjà rendue — aucune requête, la sélection reste intacte.
+// Le même champ sert à créer : le bouton n'apparaît que si la saisie ne correspond à aucun terme.
+function filterTagOptions(input) {
+  const typed = input.value.trim();
+  const needle = typed.toLowerCase();
+  const menu = input.closest('.dropdown-menu');
+  let exact = false;
+
+  menu.querySelectorAll('.dashboard-tags-option').forEach((option) => {
+    const label = (option.dataset.label || '').toLowerCase();
+    if (label === needle) exact = true;
+    option.style.display = !needle || label.includes(needle) ? '' : 'none';
+  });
+
+  const create = menu.querySelector('.dashboard-tags-create');
+  if (!create) return;
+  create.hidden = !typed || exact;
+  const slot = create.querySelector('[data-create-label]');
+  if (slot) slot.textContent = typed;
+}
+</script>
+
 <script>
   (function () {
     const root = document.getElementById('section-dashboard-detail');

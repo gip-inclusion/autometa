@@ -126,7 +126,9 @@ if __name__ == "__main__":
     parser.add_argument("--website", "-w", help="Website (emplois, dora, etc.)")
     parser.add_argument("--category", "-c", help="Query category")
     parser.add_argument("--query", "-q", help="Original user query")
-    parser.add_argument("--tags", help="Comma-separated tags (e.g. 'emplois,candidats,analyse')")
+    parser.add_argument(
+        "--tags", help="Comma-separated tags, all from the synced vocabulary (e.g. 'explo,emplois,trafic')"
+    )
     parser.add_argument("--report-id", "-r", type=int, help="Report ID to update (for updates)")
     parser.add_argument("--conversation-id", help="Source conversation ID to link report to")
     parser.add_argument("--list", "-l", action="store_true", help="List recent reports")

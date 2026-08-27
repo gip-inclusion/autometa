@@ -109,8 +109,41 @@ class Tag(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     type: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    # Why: clé de synchro Notion — un renommage de slug reste un UPDATE, les assignations survivent.
+    notion_page_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # Why: terme proposé depuis l'app — utilisable tout de suite, mais hors prompt du tagueur
+    # tant qu'un humain ne l'a pas promu dans Notion.
+    pending: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
-    __table_args__ = (Index("idx_tags_type", "type"),)
+    __table_args__ = (
+        Index("idx_tags_type", "type"),
+        Index("idx_tags_pending", "pending", postgresql_where=text("pending")),
+    )
+
+
+class TagImplication(Base):
+    """Un tag en implique un autre : poser `siae` vaut aussi `solutions-structurees`."""
+
+    __tablename__ = "tag_implications"
+
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    implies_tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+    __table_args__ = (Index("idx_tag_implications_tag", "tag_id"),)
+
+
+class TagSyncState(Base):
+    """Ligne unique : état de la dernière synchro du vocabulaire depuis Notion."""
+
+    __tablename__ = "tag_sync_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    term_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
 
 class ConversationTag(Base):

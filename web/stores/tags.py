@@ -4,6 +4,7 @@ from typing import Optional
 
 from sqlalchemy import and_, case, distinct, func, or_, select
 
+from lib.taxonomy import expand_implications, invert_implications, load_implications
 from web.db import get_db
 from web.helpers import utcnow
 from web.models import Conversation as ConvModel
@@ -12,6 +13,24 @@ from web.models import Report as ReportModel
 from web.models import ReportTag as ReportTagModel
 from web.models import Tag as TagModel
 from web.stores.records import Conversation, Report, Tag, conv_with_report_row, model_to_report, model_to_tag
+
+
+def matching_keys(session, link_model, key_column, tag_names: list[str]) -> set:
+    """Clés portant tous les tags demandés, un terme générique valant pour ses termes précis."""
+    # Why: filtrer sur `solutions-structurees` doit ramener ce qui est tagué `siae`, y compris via
+    # une chaîne — d'où la fermeture transitive sur le graphe inversé des implications.
+    reverse = invert_implications(load_implications(session))
+    keys: set | None = None
+    for name in tag_names:
+        matched = set(
+            session.scalars(
+                select(key_column)
+                .join(TagModel, TagModel.id == link_model.tag_id)
+                .where(TagModel.name.in_(expand_implications([name], reverse)))
+            )
+        )
+        keys = matched if keys is None else keys & matched
+    return keys or set()
 
 
 class TagsMixin:
@@ -197,13 +216,9 @@ class TagsMixin:
                 stmt = stmt.where(ConvModel.user_id == user_id)
 
             if tag_names:
-                for tag_name in tag_names:
-                    stmt = stmt.where(
-                        select(ConvTagModel.conversation_id)
-                        .join(TagModel, ConvTagModel.tag_id == TagModel.id)
-                        .where(ConvTagModel.conversation_id == ConvModel.id, TagModel.name == tag_name)
-                        .exists()
-                    )
+                stmt = stmt.where(
+                    ConvModel.id.in_(matching_keys(session, ConvTagModel, ConvTagModel.conversation_id, tag_names))
+                )
 
             stmt = stmt.order_by(ConvModel.updated_at.desc()).limit(limit)
             convs = session.scalars(stmt).all()
@@ -226,13 +241,9 @@ class TagsMixin:
                 stmt = stmt.where(or_(ReportModel.archived == 0, ReportModel.archived.is_(None)))
 
             if tag_names:
-                for tag_name in tag_names:
-                    stmt = stmt.where(
-                        select(ReportTagModel.report_id)
-                        .join(TagModel, ReportTagModel.tag_id == TagModel.id)
-                        .where(ReportTagModel.report_id == ReportModel.id, TagModel.name == tag_name)
-                        .exists()
-                    )
+                stmt = stmt.where(
+                    ReportModel.id.in_(matching_keys(session, ReportTagModel, ReportTagModel.report_id, tag_names))
+                )
 
             stmt = stmt.order_by(ReportModel.updated_at.desc()).limit(limit)
             reports = session.scalars(stmt).all()

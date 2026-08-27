@@ -12,6 +12,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from lib.taxonomy import normalize_tags
 from web import config
 from web.cron import SCHEDULE_PRESETS, is_valid_schedule
 from web.db import get_db
@@ -54,14 +55,8 @@ def _normalize_timeout(cron_timeout: int | None) -> int | None:
     return cron_timeout
 
 
-def normalize_tag_name(raw: str) -> str | None:
-    """Lowercase + kebab-case + strip. Retourne None si vide."""
-    name = raw.strip().lower().replace(" ", "-")
-    return name or None
-
-
-def normalize_tags(raw_tags: list[str]) -> list[str]:
-    return list(dict.fromkeys(t for t in (normalize_tag_name(r) for r in raw_tags) if t is not None))
+class UnknownTag(ValueError):
+    """Raised when a tag name is not in the synced vocabulary."""
 
 
 class DashboardNotFound(Exception):
@@ -142,7 +137,7 @@ def _insert_dashboard(
     session.flush()
 
     for tag_name in normalize_tags(tags):
-        tag = _upsert_tag(session, tag_name)
+        tag = _resolve_tag(session, tag_name)
         session.add(DashboardTag(dashboard_slug=slug, tag_id=tag.id))
     session.flush()
     return dashboard
@@ -320,13 +315,11 @@ def run_periodic_cleanup(dry_run: bool = True) -> dict:
     return result
 
 
-def _upsert_tag(session: Session, name: str) -> Tag:
-    tag = session.scalar(select(Tag).where(Tag.name == name))
-    if tag is not None:
-        return tag
-    tag = Tag(name=name, type="dashboard", label=name)
-    session.add(tag)
-    session.flush()
+def _resolve_tag(session: Session, name: str) -> Tag:
+    """Résout un tag du vocabulaire actif. Why: plus de création libre — Notion fait foi."""
+    tag = session.scalar(select(Tag).where(Tag.name == name, Tag.active))
+    if tag is None:
+        raise UnknownTag(f"tag hors vocabulaire : {name}")
     return tag
 
 
@@ -364,7 +357,7 @@ def _apply_tag_updates(
         )
 
     for name in target - current_names:
-        tag = _upsert_tag(session, name)
+        tag = _resolve_tag(session, name)
         session.add(DashboardTag(dashboard_slug=slug, tag_id=tag.id))
 
     return True
@@ -388,6 +381,7 @@ def update_dashboard(
     is_archived: bool | None = None,
     cron_schedule: str | None = None,
     cron_timeout: int | None = None,
+    bump_updated_at: bool = True,
 ) -> DashboardUpdateResult:
     """Met à jour les métadonnées d'un TDB existant. None = no change."""
     if set_tags is not None and (add_tags or remove_tags):
@@ -429,7 +423,9 @@ def update_dashboard(
             fields_changed.append("tags")
             content_changed = True
 
-        if content_changed:
+        # Why: le taguage automatique est une métadonnée — bousculer updated_at ferait passer
+        # tous les TDB publiés pour « modifiés depuis la publication » (badge de dérive).
+        if content_changed and bump_updated_at:
             dashboard.updated_at = datetime.now(timezone.utc)
 
         logger.info(

@@ -34,14 +34,14 @@ Report content...
     --title "Monthly traffic analysis" \
     --website emplois \
     --category "Traffic analysis" \
-    --tags "emplois,trafic,analyse"
+    --tags "explo,emplois,trafic"
 
 # Append to conversation (ALWAYS include --tags)
 .venv/bin/python skills/save_report/scripts/save_report.py \
     --file /tmp/report.md \
     --conversation-id "uuid-here" \
     --title "Follow-up analysis" \
-    --tags "emplois,candidats,analyse"
+    --tags "explo,emplois,prescripteurs"
 
 # Update existing report
 .venv/bin/python skills/save_report/scripts/save_report.py \
@@ -61,30 +61,23 @@ Report content...
 | `--website` | `-w` | Website: emplois, dora, etc. |
 | `--category` | `-c` | Query category |
 | `--query` | `-q` | Original user query |
-| `--tags` | | **REQUIRED** Comma-separated tags (see Valid Tags below) |
+| `--tags` | | **REQUIRED** Comma-separated tags, all from the synced vocabulary (see § Tags) |
 | `--report-id` | `-r` | Report ID to update |
 | `--conversation-id` | | Conversation ID to append to |
 | `--list` | `-l` | List recent reports |
 
-## Valid Tags (REQUIRED)
+## Tags (REQUIRED)
 
-**You MUST provide tags when saving reports.** Choose from:
+Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
-### Products (pick one)
-`emplois`, `dora`, `marche`, `communaute`, `pilotage`, `plateforme`, `rdv-insertion`, `mon-recap`, `multi`
-
-### Themes (pick relevant ones)
-- **Acteurs:** `candidats`, `prescripteurs`, `employeurs`, `structures`, `acheteurs`, `fournisseurs`
-- **Concepts:** `iae`, `orientation`, `depot-de-besoin`, `demande-de-devis`, `commandes`
-- **Metriques:** `trafic`, `conversions`, `retention`, `geographique`
-
-### Type (pick one)
-`extraction`, `analyse`, `appli`, `meta`
-
-### Sources (if relevant)
-`matomo`, `stats`, `datalake`
-
-**Example:** `--tags "emplois,candidats,iae,analyse,stats"`
+```bash
+.venv/bin/python -c "
+from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
+from web.db import get_db
+with get_db() as session:
+    print(build_prompt_taxonomy(load_vocabulary(session)))
+"
+```
 
 ## Alternative: Python API
 

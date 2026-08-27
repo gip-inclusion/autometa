@@ -1,5 +1,6 @@
 """Dashboard management screen routes."""
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
+from lib.taxonomy import FACETS_BY_NAME, apply_toggle, load_vocabulary, normalize_tag_name, ordered_facets
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.cron import cadence, get_last_runs, next_cron_run
@@ -15,7 +17,7 @@ from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import format_future_date, format_relative_date
-from web.models import DashboardPublication
+from web.models import DashboardPublication, Tag
 from web.publications import (
     BLOCKED_CODES,
     ENVIRONMENTS,
@@ -30,12 +32,40 @@ from web.publications import (
 
 from .html import get_sidebar_data, group_items_by_date
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 VIEWS = ("latest", "mine", "archived", "published")
 
 Slug = Annotated[str, PathParam(pattern=r"^[a-z0-9_-]+$", max_length=100)]
 PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
+
+
+FACET_TERM_CAP = 6
+
+
+def facet_filters(active_tags: list[str]) -> list[dict]:
+    """Facettes affichables : celles portant au moins un terme utilisé, dans l'ordre TDB."""
+    used = store.get_used_dashboard_tags_by_type()
+    filters = []
+    for facet in ordered_facets("dashboard"):
+        terms = used.get(facet.name)
+        if not terms:
+            continue
+        # Why: l'ordre ne dépend que des compteurs (stables, calculés hors filtre) — cocher une
+        # case ne doit jamais déplacer les autres sous le curseur.
+        ranked = sorted(terms, key=lambda t: (-t["count"], t["label"]))
+        head, tail = ranked[:FACET_TERM_CAP], ranked[FACET_TERM_CAP:]
+        # Why: un terme sélectionné hors du top N doit rester visible, sinon on ne peut plus le décocher.
+        selected_tail = [t for t in tail if t["name"] in active_tags]
+        filters.append({
+            "name": facet.name,
+            "label": facet.label,
+            "terms": sorted(head + selected_tail, key=lambda t: (-t["count"], t["label"])),
+            "overflow": [t for t in tail if t["name"] not in active_tags],
+        })
+    return filters
 
 
 def build_published_groups() -> list[dict]:
@@ -68,6 +98,7 @@ def dashboards_page(
     user_email: str = Depends(get_current_user),
     view: str = Query(default="latest"),
     q: str = Query(default=""),
+    tag: list[str] = Query(default=[]),
 ):
     if view not in VIEWS:
         view = "latest"
@@ -75,18 +106,26 @@ def dashboards_page(
     grouped_items = None
     pinned_cards = []
     published_groups = None
+    active_tags = [t for t in tag if t]
 
     if view == "published":
         published_groups = build_published_groups()
+        if q:
+            needle = q.lower()
+            published_groups = [g for g in published_groups if needle in g["title"].lower()]
     else:
-        active = store.list_dashboards()
+        active = store.list_dashboards(tag_names=active_tags)
 
         if view == "archived":
-            items = store.list_archived_dashboards()
+            items = store.list_archived_dashboards(tag_names=active_tags)
         elif view == "mine":
             items = [d for d in active if d["first_author_email"] == user_email]
         else:
             items = active
+
+        if q:
+            needle = q.lower()
+            items = [d for d in items if needle in f"{d['title']} {d['description']} {' '.join(d['tags'])}".lower()]
 
         if view == "latest":
             active_by_slug = {d["slug"]: d for d in active}
@@ -116,6 +155,8 @@ def dashboards_page(
             "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
             "published_groups": published_groups,
+            "facets": facet_filters(active_tags),
+            "active_tags": active_tags,
             **data,
         },
     )
@@ -184,6 +225,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "next_run_label": next_run_label,
             "is_pinned": is_pinned,
             "is_admin": user_email in ADMIN_USERS,
+            **tag_editor_context(slug, dashboard["tags"]),
             **data,
         },
     )
@@ -214,6 +256,97 @@ async def toggle_api_access(slug: Slug, request: Request, user_email: str = Depe
     except DashboardNotFound:
         return JSONResponse({"error": "Dashboard not found"}, status_code=404)
     return {"slug": slug, "has_api_access": enabled}
+
+
+def tag_editor_context(slug: str, dashboard_tags: list[str]) -> dict:
+    """Vocabulaire actif groupé par facette, avec l'état coché du TDB."""
+    with get_db() as session:
+        vocabulary = load_vocabulary(session)
+    groups = []
+    for facet in ordered_facets("dashboard"):
+        terms = vocabulary.get(facet.name, [])
+        # Why: une facette extensible reste offerte même vide, sinon on ne peut jamais y créer le premier terme.
+        if not terms and not facet.user_extensible:
+            continue
+        groups.append({
+            "name": facet.name,
+            "label": facet.label,
+            "single": facet.max_terms == 1,
+            "extensible": facet.user_extensible,
+            "selected": [t.label for t in terms if t.name in dashboard_tags],
+            "terms": [
+                {
+                    "name": t.name,
+                    "label": t.label,
+                    "description": t.description,
+                    "pending": t.pending,
+                    "checked": t.name in dashboard_tags,
+                }
+                for t in terms
+            ],
+        })
+    return {"slug": slug, "tag_groups": groups, "dashboard_tags": dashboard_tags}
+
+
+@router.post("/api/dashboards/{slug}/tags")
+async def toggle_dashboard_tag(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    form = await request.form()
+    name = (form.get("tag") or "").strip()
+    facet = (form.get("facet") or "").strip()
+    dashboard = store.get_dashboard(slug)
+    if dashboard is None:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+
+    with get_db() as session:
+        facet_of = dict(session.execute(select(Tag.name, Tag.type).where(Tag.active)).all())
+
+    current = list(dashboard["tags"])
+    if not name and facet:
+        target = [t for t in current if facet_of.get(t) != facet]
+    elif name in facet_of:
+        target = apply_toggle(current, name, facet_of)
+    else:
+        return JSONResponse({"error": f"Unknown or inactive tag: {name}"}, status_code=400)
+
+    update_dashboard(slug=slug, updater_email=user_email, set_tags=target)
+
+    return templates.TemplateResponse(request, "_dashboard_tags_oob.html", tag_editor_context(slug, target))
+
+
+@router.post("/api/dashboards/{slug}/tags/new")
+async def create_dashboard_tag(slug: Slug, request: Request, user_email: str = Depends(get_current_user)):
+    form = await request.form()
+    facet = (form.get("facet") or "").strip()
+    label = (form.get("label") or "").strip()[:80]
+    dashboard = store.get_dashboard(slug)
+    if dashboard is None:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+
+    definition = FACETS_BY_NAME.get(facet)
+    if definition is None or not definition.user_extensible:
+        return JSONResponse({"error": f"Facette non extensible : {facet}"}, status_code=400)
+
+    name = normalize_tag_name(label)
+    if not name:
+        return JSONResponse({"error": "Libellé vide"}, status_code=400)
+
+    with get_db() as session:
+        existing = session.scalar(select(Tag).where(Tag.name == name))
+        if existing is None:
+            session.add(Tag(name=name, type=facet, label=label, active=True, pending=True))
+            session.flush()
+            logger.info("tag proposé par %s : %s (%s)", user_email, name, facet)
+        elif not existing.active:
+            return JSONResponse({"error": f"Terme désactivé : {name}"}, status_code=400)
+        facet_of = dict(session.execute(select(Tag.name, Tag.type).where(Tag.active)).all())
+
+    target = apply_toggle(list(dashboard["tags"]), name, facet_of) if name not in dashboard["tags"] else None
+    if target is not None:
+        update_dashboard(slug=slug, updater_email=user_email, set_tags=target)
+
+    return templates.TemplateResponse(
+        request, "_dashboard_tags.html", tag_editor_context(slug, target or list(dashboard["tags"]))
+    )
 
 
 @router.post("/api/dashboards/{slug}/rename")

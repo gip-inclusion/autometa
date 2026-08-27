@@ -389,3 +389,50 @@ def test_selftest_accept_html(mocker):
     text = resp.text
     assert "fetch" in text and "text/plain" in text
     assert "split" in text and "pre" in text
+
+
+def _sync_state(**overrides):
+    from datetime import datetime, timedelta, timezone
+
+    base = {
+        "configured": True,
+        "last_synced_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+        "status": "ok",
+        "error": None,
+        "term_count": 67,
+    }
+    return {**base, **overrides}
+
+
+@pytest.mark.parametrize(
+    "state,expect_ok,detail_substr",
+    [
+        (_sync_state(), True, "67 termes"),
+        (_sync_state(configured=False), False, "NOTION_TAGS_DB"),
+        ({"configured": True, "last_synced_at": None, "status": "never"}, False, "jamais"),
+        (_sync_state(status="refused", error="fetch vide"), False, "fetch vide"),
+    ],
+)
+def test_check_tag_vocabulary(mocker, state, expect_ok, detail_substr):
+    from web.selftest import _check_tag_vocabulary
+
+    mocker.patch("lib.tag_sync.sync_state", return_value=state)
+
+    ok, detail = _check_tag_vocabulary()
+
+    assert ok is expect_ok
+    assert detail_substr in detail
+
+
+def test_check_tag_vocabulary_flags_stale_sync(mocker):
+    from datetime import datetime, timedelta, timezone
+
+    from web.selftest import _check_tag_vocabulary
+
+    stale = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+    mocker.patch("lib.tag_sync.sync_state", return_value=_sync_state(last_synced_at=stale))
+
+    ok, detail = _check_tag_vocabulary()
+
+    assert ok is False
+    assert "72h" in detail

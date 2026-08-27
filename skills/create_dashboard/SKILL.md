@@ -28,7 +28,7 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
     --description "Description courte (une ligne)" \
     --website emplois \
     --category "Analyse de trafic" \
-    --tags trafic,candidats \
+    --tags explo,prescription,emplois,trafic \
     --has-cron
 ```
 
@@ -53,7 +53,7 @@ Sortie sur stdout (JSON) :
 | `--description` | yes | Description courte (une ligne, va dans le frontmatter) |
 | `--website` | | Site associé (`emplois`, `dora`, `marche`, etc.) |
 | `--category` | | Catégorie libre |
-| `--tags` | | Tags CSV (`trafic,candidats,analyse`) |
+| `--tags` | | Tags CSV, tous pris dans le vocabulaire synchronisé (cf. § Tags) |
 | `--has-cron` | | Inclure `cron.py` du template + flag DB à `true` |
 | `--has-api-access` | | Flag DB à `true` (TDB qui appelle `/api/query` en live, **non publiable**) |
 | `--has-persistence` | | Flag DB à `true` (TDB qui écrit dans le datalake, **non publiable**) |
@@ -98,3 +98,15 @@ _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
 </script>
 ```
 
+## Tags
+
+Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
+
+```bash
+.venv/bin/python -c "
+from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
+from web.db import get_db
+with get_db() as session:
+    print(build_prompt_taxonomy(load_vocabulary(session)))
+"
+```

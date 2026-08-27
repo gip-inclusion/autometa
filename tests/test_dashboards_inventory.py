@@ -3,6 +3,7 @@
 import shutil
 
 import pytest
+from sqlalchemy import select
 
 from lib.dashboards import create_dashboard, update_dashboard
 from web.database import store
@@ -21,6 +22,18 @@ def isolated(tmp_path, monkeypatch):
     with _test_tx():
         yield interactive_dir
     shutil.rmtree(interactive_dir, ignore_errors=True)
+
+
+def _vocab(*names, facet="theme"):
+    """Insère les termes dans le vocabulaire actif — la création libre de tags n'existe plus."""
+    from web.db import get_db
+    from web.models import Tag
+
+    with get_db() as session:
+        for name in names:
+            if session.scalar(select(Tag).where(Tag.name == name)) is None:
+                session.add(Tag(name=name, type=facet, label=name, active=True))
+        session.flush()
 
 
 def _create(slug, **overrides):
@@ -44,6 +57,7 @@ def test_list_dashboards_empty(isolated):
 
 
 def test_list_dashboards_returns_legacy_shape(isolated):
+    _vocab("a", "b")
     _create("foo", tags=["a", "b"])
     apps = store.list_dashboards()
     assert len(apps) == 1
@@ -78,6 +92,7 @@ def test_list_dashboards_orders_by_updated_desc(isolated):
 
 
 def test_list_dashboards_no_n_plus_1_on_tags(isolated):
+    _vocab("a", "b", "c", "d")
     _create("x", tags=["a", "b", "c"])
     _create("y", tags=["b", "d"])
     apps = {a["slug"]: a for a in store.list_dashboards()}

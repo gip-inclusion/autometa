@@ -121,6 +121,8 @@ def extract_page_properties(page: dict) -> dict:
         elif ptype == "date":
             d = val.get("date")
             props[name] = d["start"] if d else None
+        elif ptype == "checkbox":
+            props[name] = bool(val.get("checkbox"))
         elif ptype == "relation":
             props[name] = [r["id"] for r in val.get("relation", [])]
         elif ptype == "people":

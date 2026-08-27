@@ -62,7 +62,6 @@ def test_run_emits_completion_log(mocker, caplog, tmp_path):
     mocker.patch("web.warmup.CACHE_DIR", tmp_path / "cache")
     mocker.patch("web.warmup.config.INTERACTIVE_DIR", tmp_path / "interactive")
     mocker.patch("web.warmup.get_db")
-    mocker.patch("web.warmup.seed_tags")
     mocker.patch("web.warmup.warmup_matomo_baselines")
     mocker.patch("web.warmup.warmup_metabase_cards")
     mocker.patch("web.warmup.restore_interactive_from_s3")

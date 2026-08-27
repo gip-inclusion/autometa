@@ -55,6 +55,41 @@
             </button>
           </div>
         </div>
+
+        {% if view != 'published' %}
+          {% for facet in facets %}
+          <div class="filter-section">
+            <div class="filter-section-title">{{ facet.label }}</div>
+            {% for term in facet.terms %}
+            <label class="filter-checkbox-item" data-tag="{{ term.name }}">
+              <input type="checkbox" {% if term.name in active_tags %}checked{% endif %}
+                     onchange="toggleTag('{{ term.name }}')">
+              <span class="filter-label">{{ term.label }}</span>
+              <span class="filter-count">{{ term.count }}</span>
+            </label>
+            {% endfor %}
+            {% if facet.overflow %}
+            <details class="filter-overflow">
+              <summary>{{ facet.overflow|length }} de plus</summary>
+              {% for term in facet.overflow %}
+              <label class="filter-checkbox-item" data-tag="{{ term.name }}">
+                <input type="checkbox" {% if term.name in active_tags %}checked{% endif %}
+                       onchange="toggleTag('{{ term.name }}')">
+                <span class="filter-label">{{ term.label }}</span>
+                <span class="filter-count">{{ term.count }}</span>
+              </label>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </div>
+          {% endfor %}
+
+          {% if active_tags %}
+          <button class="filter-reset mt-3" onclick="clearTags()">
+            <i class="ri-close-line"></i> Effacer les filtres
+          </button>
+          {% endif %}
+        {% endif %}
       </aside>
 
       <div class="conversation-list-wrapper">
@@ -87,8 +122,7 @@
           <div class="conv-group">
             <div class="conv-group-items">
               {% for g in published_groups %}
-              <div class="conv-list-item pub-group filterable-card"
-                   data-search="{{ (g.title ~ ' ' ~ (g.publications | map(attribute='environment') | join(' ')))|lower }}">
+              <div class="conv-list-item pub-group">
                 <div class="pub-group-head">
                   <i class="ri-dashboard-line conv-item-icon"></i>
                   <a href="/dashboards/{{ g.slug }}/edit" class="pub-group-title">{{ g.title }}</a>
@@ -154,8 +188,7 @@
               <div class="conv-group-header">{{ group_name }}</div>
               <div class="conv-group-items">
                 {% for d in group_items %}
-                <div class="conv-list-item filterable-card"
-                     data-search="{{ (d.title ~ ' ' ~ d.description ~ ' ' ~ d.first_author_email ~ ' ' ~ d.tags|join(' '))|lower }}">
+                <div class="conv-list-item">
                   <div class="conv-item-main">
                     <div class="conv-item-icon-wrapper">
                       <i class="ri-dashboard-line conv-item-icon"></i>
@@ -203,37 +236,44 @@
 </section>
 
 <script>
-function setView(view) {
-  const url = new URL(window.location.href);
-  url.searchParams.set('view', view);
+// Why: filtres et recherche sont résolus côté serveur — un masquage client par-dessus
+// un résultat déjà filtré produirait des listes vides inexplicables.
+function reload(url) {
   history.pushState({}, '', url.toString());
   htmx.ajax('GET', url.toString(), {target: '#dashboardsContent', select: '#dashboardsContent', swap: 'outerHTML'});
 }
 
-function filterByText(query) {
-  const search = query.toLowerCase().trim();
-  document.querySelectorAll('#dashboardsList .conv-group').forEach(group => {
-    let visible = 0;
-    group.querySelectorAll('.filterable-card').forEach(card => {
-      const matches = !search || (card.dataset.search || '').includes(search);
-      card.style.display = matches ? '' : 'none';
-      if (matches) visible += 1;
-    });
-    group.style.display = visible ? '' : 'none';
-  });
+function setView(view) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', view);
+  reload(url);
 }
 
-document.body.addEventListener('htmx:afterSettle', () => {
-  const input = document.getElementById('dashboardsSearchInput');
-  if (input && document.getElementById('section-dashboards') && input.value) {
-    filterByText(input.value);
-  }
-});
+function toggleTag(name) {
+  const url = new URL(window.location.href);
+  const current = url.searchParams.getAll('tag');
+  url.searchParams.delete('tag');
+  const next = current.includes(name) ? current.filter(t => t !== name) : [...current, name];
+  next.forEach(t => url.searchParams.append('tag', t));
+  reload(url);
+}
 
-document.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('dashboardsSearchInput');
-  if (input && input.value) filterByText(input.value);
-});
+function clearTags() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('tag');
+  reload(url);
+}
+
+let searchTimer;
+function filterByText(query) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    const url = new URL(window.location.href);
+    if (query.trim()) url.searchParams.set('q', query.trim());
+    else url.searchParams.delete('q');
+    reload(url);
+  }, 300);
+}
 
 document.body.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action="copy-url"]');

@@ -1,11 +1,12 @@
 """Dashboard read access."""
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from web.db import get_db
 from web.models import Dashboard as DashboardModel
 from web.models import DashboardTag as DashboardTagModel
 from web.models import Tag as TagModel
+from web.stores.tags import matching_keys
 
 
 def dashboard_to_dict(d, tags: list[str]) -> dict:
@@ -48,19 +49,47 @@ def serialize_dashboards(session, dashboards: list) -> list[dict]:
     return [dashboard_to_dict(d, tags_by_slug.get(d.slug, [])) for d in dashboards]
 
 
+def matching_slugs(session, tag_names: list[str]) -> set[str]:
+    """Slugs portant tous les tags demandés, implications comprises."""
+    return matching_keys(session, DashboardTagModel, DashboardTagModel.dashboard_slug, tag_names)
+
+
 class DashboardsMixin:
-    def list_dashboards(self, include_archived: bool = False) -> list[dict]:
+    def list_dashboards(self, include_archived: bool = False, tag_names: list[str] | None = None) -> list[dict]:
         """Dashboards from the DB, sorted by `updated_at` desc. Active only unless include_archived."""
         with get_db() as session:
             stmt = select(DashboardModel).order_by(DashboardModel.updated_at.desc())
             if not include_archived:
                 stmt = stmt.where(~DashboardModel.is_archived)
+            if tag_names:
+                stmt = stmt.where(DashboardModel.slug.in_(matching_slugs(session, tag_names)))
             return serialize_dashboards(session, list(session.scalars(stmt).all()))
 
-    def list_archived_dashboards(self) -> list[dict]:
+    def get_used_dashboard_tags_by_type(self, include_archived: bool = False) -> dict[str, list[dict]]:
+        """Tags réellement portés par des TDB, groupés par facette, avec compteurs."""
+        with get_db() as session:
+            stmt = (
+                select(TagModel, func.count(DashboardModel.slug))
+                .join(DashboardTagModel, DashboardTagModel.tag_id == TagModel.id)
+                .join(DashboardModel, DashboardModel.slug == DashboardTagModel.dashboard_slug)
+                .where(TagModel.active)
+                .group_by(TagModel.id)
+                .order_by(TagModel.label)
+            )
+            if not include_archived:
+                stmt = stmt.where(~DashboardModel.is_archived)
+
+            by_facet: dict[str, list[dict]] = {}
+            for tag, count in session.execute(stmt).all():
+                by_facet.setdefault(tag.type, []).append({"name": tag.name, "label": tag.label, "count": count})
+            return by_facet
+
+    def list_archived_dashboards(self, tag_names: list[str] | None = None) -> list[dict]:
         """Archived dashboards only, sorted by `updated_at` desc."""
         with get_db() as session:
             stmt = select(DashboardModel).where(DashboardModel.is_archived).order_by(DashboardModel.updated_at.desc())
+            if tag_names:
+                stmt = stmt.where(DashboardModel.slug.in_(matching_slugs(session, tag_names)))
             return serialize_dashboards(session, list(session.scalars(stmt).all()))
 
     def get_dashboard(self, slug: str) -> dict | None:

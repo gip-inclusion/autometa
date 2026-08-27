@@ -417,7 +417,8 @@ def test_extract_page_properties_maps_types():
             "Empty": {"type": "select", "select": None},
             "Rel": {"type": "relation", "relation": [{"id": "r1"}]},
             "Score": {"type": "formula", "formula": {"type": "number", "number": 42}},
-            "Other": {"type": "checkbox", "checkbox": True},
+            "Done": {"type": "checkbox", "checkbox": True},
+            "Other": {"type": "rollup", "rollup": {"type": "number", "number": 1}},
         }
     }
     assert notion.extract_page_properties(page) == {
@@ -429,6 +430,7 @@ def test_extract_page_properties_maps_types():
         "Empty": None,
         "Rel": ["r1"],
         "Score": 42,
+        "Done": True,
         "Other": None,
     }
 
@@ -477,3 +479,22 @@ def test_notion_button_shows_link_after_publish(mocker, app, client, report):
     assert resp.status_code == 200
     assert "Lien Notion".encode() in resp.content
     assert b"https://notion.so/Page-123" in resp.content
+
+
+@pytest.mark.parametrize(
+    "ptype,payload,expected",
+    [
+        ("checkbox", {"checkbox": True}, True),
+        ("checkbox", {"checkbox": False}, False),
+        ("checkbox", {}, False),
+        ("select", {"select": {"name": "usage"}}, "usage"),
+        ("select", {"select": None}, None),
+        ("relation", {"relation": [{"id": "abc"}, {"id": "def"}]}, ["abc", "def"]),
+    ],
+)
+def test_extract_page_properties_by_type(ptype, payload, expected):
+    from lib.notion import extract_page_properties
+
+    page = {"properties": {"Prop": {"type": ptype, **payload}}}
+
+    assert extract_page_properties(page)["Prop"] == expected
