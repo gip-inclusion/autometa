@@ -1,17 +1,17 @@
-# L5 — Adversarial Review : `design-coherence`
+# L5 — Adversarial Review : `paved-road:design-coherence`
 
 Origine et justifications : `docs/plans/2026-07-28-autometa-paved-road-design.md`, section « L5 —
 Adversarial Review ».
 
 ## Une seule lentille, et pourquoi
 
-`design-coherence` pose la seule question qu'aucun autre niveau ne pose : le code fait-il ce que la
+`paved-road:design-coherence` pose la seule question qu'aucun autre niveau ne pose : le code fait-il ce que la
 definition of done dit, ni plus ni moins ? `ruff`, `bandit`, `gitleaks`, le gate de couverture et les
 tests Playwright constatent la forme ; aucun ne connaît l'intention. Sans L0 elle n'aurait d'ailleurs
 aucun référentiel et se réduirait à du commentaire de style — c'est pourquoi elle démarre ici et pas
 plus tôt.
 
-Elle est lancée **dans le flot, par un sous-agent** (`.claude/agents/design-coherence.md`), et
+Elle est lancée **dans le flot, par un sous-agent** (`plugins/paved-road/agents/design-coherence.md`), et
 appartient aux Adapters : elle améliore le résultat, elle ne garantit rien.
 
 ## Warning permanent

@@ -26,7 +26,7 @@ Les sept niveaux sont en place. L0 (l'accord écrit) se tient **à la main** —
 L1 (les attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le
 parcours sans code de sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent ;
 L3 démontre les critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via
-`scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `design-coherence`, consultative ; L6 pose la
+`scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `paved-road:design-coherence`, consultative ; L6 pose la
 façade des tableaux de bord et les règles devenues exécutables. Détail :
 `docs/paved-road/l2-quality-gates.md`, `l3-e2e.md`, `l5-design-coherence.md`, `l6-fitness-functions.md`.
 
@@ -42,7 +42,7 @@ façade des tableaux de bord et les règles devenues exécutables. Détail :
    `make paved-road-advance DOD=DOD-1 CMD='…'` range l'attestation correspondante — la commande, son
    code de sortie, les empreintes du contenu prouvé, le verdict. Format et règles :
    `docs/paved-road/l1-attestation.md`.
-5. **Relire le diff avec la lentille `design-coherence`** — le code fait-il ce que la DoD dit, ni plus
+5. **Relire le diff avec la lentille `paved-road:design-coherence`** — le code fait-il ce que la DoD dit, ni plus
    ni moins ? Ses bloqueurs arrêtent le travail : chacun se corrige, ou se justifie par écrit sous le
    bloqueur, avant d'aller plus loin. Détails : `docs/paved-road/l5-design-coherence.md`.
 6. **Passer au smoke** si la fonctionnalité touche une interface — un template, un fichier statique,
