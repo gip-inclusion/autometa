@@ -1,6 +1,6 @@
 # L5 — Adversarial Review : `paved-road:design-coherence`
 
-Origine et justifications : `docs/plans/2026-07-28-autometa-paved-road-design.md`, section « L5 —
+Origine et justifications : `docs/plans/2026-08-22-paved-road-workflow.md`, section « L5 —
 Adversarial Review ».
 
 ## Une seule lentille, et pourquoi

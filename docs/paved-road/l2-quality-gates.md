@@ -3,7 +3,7 @@
 Ce niveau protège **tout le monde** — paved road ou pas, Claude ou Codex, humain ou cron. Il ne dit
 pas comment bien travailler ; il dit ce qui sera vrai quoi qu'il arrive.
 
-Origine et justifications : `docs/plans/2026-07-28-autometa-paved-road-design.md`, section « L2 —
+Origine et justifications : `docs/plans/2026-08-22-paved-road-workflow.md`, section « L2 —
 Quality Gates ».
 
 ## Ce que L2 garantit, et ce qu'il ne garantit pas

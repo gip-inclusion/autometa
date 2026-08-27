@@ -1,6 +1,6 @@
 # L6 — Fitness Functions
 
-Origine et justifications : `docs/plans/2026-07-28-autometa-paved-road-design.md`, section « L6 —
+Origine et justifications : `docs/plans/2026-08-22-paved-road-workflow.md`, section « L6 —
 Fitness Functions ».
 
 Une fitness function est une règle exécutable qui mesure qu'un système préserve les propriétés

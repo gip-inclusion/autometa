@@ -33,7 +33,9 @@
 /lib/attestation.py         @louije @Annaelle24 @cdarnispro
 /plugins/paved-road/        @louije @Annaelle24 @cdarnispro
 
-# --- Zones critiques sans successeur après le retrait de zones-critiques.md ---
+# --- Zones critiques : la liste que `.claude/rules/zones-critiques.md` demande à l'agent de
+# signaler, ici rendue contraignante. Les deux fichiers coexistent et divergent d'une entrée ou
+# deux : la rule s'adresse à l'agent, celle-ci à GitHub. ---
 
 /web/db.py                  @louije @Annaelle24 @cdarnispro
 /web/runner.py              @louije @Annaelle24 @cdarnispro

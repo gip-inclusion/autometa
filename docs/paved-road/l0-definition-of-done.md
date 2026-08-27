@@ -3,7 +3,7 @@
 Ce document fixe le format de `definition-of-done.md`, les règles qui le gouvernent et le parcours
 de validation. Il ne décrit aucun outillage : à ce stade, L0 se tient à la main.
 
-Origine et justifications : `docs/plans/2026-07-28-autometa-paved-road-design.md`, section « L0 —
+Origine et justifications : `docs/plans/2026-08-22-paved-road-workflow.md`, section « L0 —
 Definition of Done ».
 
 ## Ce que L0 garantit, et ce qu'il ne garantit pas

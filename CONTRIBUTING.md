@@ -20,9 +20,12 @@ claude
 ## Développer une fonctionnalité
 
 Le projet suit le **paved road** : un parcours unique, qui ajoute une contrainte à la fois. Sa
-conception et sa justification sont dans `docs/plans/2026-07-28-autometa-paved-road-design.md`.
+conception et sa justification sont dans `docs/plans/2026-08-22-paved-road-workflow.md`.
 
-Les sept niveaux sont en place. L0 (l'accord écrit) se tient **à la main** — aucune commande à lancer ;
+Les sept niveaux sont en place, à un réglage près : « Ce qui devait marcher » n'entrera dans les
+checks requis qu'une fois publié une première fois sur `main`, et `require_code_owner_review`
+qu'une fois `CODEOWNERS` fusionné — les cocher d'avance rendrait toute PR infusionnable.
+L0 (l'accord écrit) se tient **à la main** — aucune commande à lancer ;
 L1 (les attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le
 parcours sans code de sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent ;
 L3 démontre les critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via

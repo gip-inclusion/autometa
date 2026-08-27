@@ -4,7 +4,7 @@ Ce document fixe ce qu'est une attestation, ce qui la périme, et les quatre com
 Il ne décrit pas l'implémentation : `lib/attestation.py` et `scripts/paved_road_cli.py` en sont la
 référence.
 
-Origine et justifications : `docs/plans/2026-07-28-autometa-paved-road-design.md`, section « L1 —
+Origine et justifications : `docs/plans/2026-08-22-paved-road-workflow.md`, section « L1 —
 Attestation ».
 
 ## Ce que L1 garantit, et ce qu'il ne garantit pas
