@@ -129,7 +129,9 @@ class GristClient:
             raise ValueError("GRIST_API_KEY not set")
         if not self.doc_id:
             raise ValueError("GRIST_WEBINAIRES_DOC_ID not set")
-        self._session = httpx.Client(headers={"Authorization": f"Bearer {self.api_key}"})
+        self._session = httpx.Client(
+            headers={"Authorization": f"Bearer {self.api_key}"}, timeout=httpx.Timeout(30, connect=10)
+        )
         self.request_count = 0
 
     def get_records(self, table_id: str) -> list[dict]:

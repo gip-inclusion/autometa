@@ -12,6 +12,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from lib import dashboard_api
 from lib.taxonomy import normalize_tags
 from web import config
 from web.cron import SCHEDULE_PRESETS, is_valid_schedule
@@ -69,6 +70,26 @@ class DashboardUpdateResult:
     originating_user_email: str
     updater_email: str
     fields_changed: list[str]
+
+
+def check_facade_compliance(slug: str) -> None:
+    """Refuse un TDB dont un fichier Python importe autre chose que la façade."""
+    slug_dir = config.INTERACTIVE_DIR / slug
+    problems = []
+    for path in sorted(slug_dir.rglob("*.py")):
+        name = path.relative_to(slug_dir)
+        try:
+            violations = dashboard_api.facade_violations(path.read_text(errors="replace"))
+        except SyntaxError as exc:
+            raise ValueError(f"{name} n'est pas un fichier Python valide : {exc}") from exc
+        if violations:
+            problems.append(f"{name} importe {', '.join(violations)}")
+    if problems:
+        raise ValueError(
+            "Imports hors de la façade des tableaux de bord :\n  "
+            + "\n  ".join(problems)
+            + f"\nSeul `{dashboard_api.FACADE}` est autorisé — voir docs/interactive-dashboards.md."
+        )
 
 
 def detect_api_flags(slug_dir: Path, metadata: dict) -> tuple[bool, bool]:
@@ -239,6 +260,7 @@ def adopt_dashboard(
 
     if not (config.INTERACTIVE_DIR / slug).is_dir():
         raise ValueError(f"No existing folder to adopt: {config.INTERACTIVE_DIR / slug}")
+    check_facade_compliance(slug)
 
     with get_db() as session:
         if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
@@ -388,6 +410,9 @@ def update_dashboard(
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
     cron_schedule = _normalize_schedule(cron_schedule)
     cron_timeout = _normalize_timeout(cron_timeout)
+    # Why: archiver un TDB hérité ne doit pas exiger de le migrer vers la façade d'abord.
+    if is_archived is not True:
+        check_facade_compliance(slug)
 
     fields_changed: list[str] = []
 

@@ -25,6 +25,14 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 
 Ne jamais inventer ou deviner un slug.
 
+
+## Façade obligatoire
+
+Un TDB n'importe qu'un seul module du dépôt : `lib.dashboard_api`. `lib.query`, `web.db` et
+`web.config` sont internes et n'ont jamais promis d'être stables. Le skill **refuse** un dossier dont
+un `.py` importe hors de la façade — migrer les imports avant de relancer. Détail des fonctions
+disponibles : `docs/interactive-dashboards.md` § La façade `lib.dashboard_api`.
+
 ## Usage
 
 ```bash
@@ -87,7 +95,7 @@ L'`originating_user_email` (= premier auteur du TDB) est lu en DB par la fonctio
 ## Codes de retour
 
 - `0` — succès, JSON sur stdout.
-- `1` — slug inconnu, mutex `--set-tags` ⇄ `--add-tags`/`--remove-tags`, ou autre erreur métier.
+- `1` — slug inconnu, mutex `--set-tags` ⇄ `--add-tags`/`--remove-tags`, import hors façade, ou autre erreur métier.
 - `2` — variables d'env manquantes (bug d'intégration).
 
 ## Tags

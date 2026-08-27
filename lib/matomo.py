@@ -94,7 +94,7 @@ class MatomoAPI:
         self.caller = caller
 
         transport = httpx.HTTPTransport(retries=2)
-        self._session = httpx.Client(transport=transport)
+        self._session = httpx.Client(transport=transport, timeout=httpx.Timeout(180, connect=10))
 
     def close(self) -> None:
         self._session.close()

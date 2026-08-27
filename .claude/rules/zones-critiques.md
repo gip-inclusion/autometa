@@ -22,6 +22,7 @@ Les clients d'API et modules qui interagissent avec des systèmes extérieurs so
 - `lib/metabase.py` — Client Metabase (HTTP, retry, parsing de résultats SQL)
 - `lib/sources.py` — Résolution des credentials et URLs des sources
 - `lib/api_signals.py` — Émission des signaux d'observabilité
+- `lib/dashboard_api.py` — Façade des tableaux de bord. Contrat public et versionné : les TDB de production en dépendent et vivent hors du dépôt, aucun diff ne les voit. Retirer ou changer la signature d'une fonction casse des tableaux de bord vivants — l'élargir est sans risque.
 - `web/s3.py` — Client S3 (stockage fichiers, sync)
 - `web/notion.py` — Client Notion (publication rapports)
 - `web/agents/cli.py` — Spawn et parsing du subprocess Claude CLI

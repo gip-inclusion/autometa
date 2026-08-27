@@ -96,10 +96,8 @@ select = [
     "E", "F", "W", "I", "G", "B011", "PT010", "PT012", "PT015", "PT017", "PT027", "PLR0124", "PLW0129",
     # Règles de .claude/rules/code.md rendues exécutables — mesurées à 0 violation
     "E722",   # except nu
-    # S113 ne voit qu'un appel littéral, pas un httpx.Client() construit sans timeout puis
-    # réutilisé — la forme de lib/matomo.py, lib/metabase.py, lib/rpe.py, lib/zendesk.py et
-    # lib/webinaires.py. Ces modules restent conformes en repassant timeout= à chaque appel,
-    # mais rien ne l'impose : ce risque n'est pas couvert.
+    # S113 ne voit qu'un appel littéral ; un httpx.Client() construit sans timeout puis réutilisé
+    # lui échappe. Ce second cas est couvert par scripts/check_http_timeouts.py, lancé par make lint.
     "S113",   # appel HTTP sans timeout littéral
     "TID251", # imports et APIs bannis, configurés ci-dessous
     "TID252", # imports relatifs parents

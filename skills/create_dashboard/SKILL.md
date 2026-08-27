@@ -20,6 +20,14 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
 4. **Slug envisagé déjà pris en DB** : le skill échouera avec `Slug already exists`. Pivoter vers `update_dashboard` après confirmation.
 5. **Dossier existant mais non enregistré** (app legacy) : utiliser `--adopt` pour créer la ligne DB sans toucher aux fichiers.
 
+
+## Façade obligatoire
+
+Un TDB n'importe qu'un seul module du dépôt : `lib.dashboard_api`. `lib.query`, `web.db` et
+`web.config` sont internes et n'ont jamais promis d'être stables. Le skill **refuse** un dossier dont
+un `.py` importe hors de la façade — migrer les imports avant de relancer. Détail des fonctions
+disponibles : `docs/interactive-dashboards.md` § La façade `lib.dashboard_api`.
+
 ## Usage
 ```bash
 .venv/bin/python skills/create_dashboard/scripts/create_dashboard.py \

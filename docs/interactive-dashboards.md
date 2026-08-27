@@ -84,7 +84,7 @@ Le template fournit :
 - `index.html` — page minimale à enrichir, mention `generated-at` à compléter sur le pied de page
 - `style.css` — police Marianne, palette DSFR, styles de base
 - `app.js` — chargement de `data.json` et affichage de la date de fraîcheur
-- `cron.py` — stub à remplir avec les appels `lib.query`
+- `cron.py` — stub à remplir avec les appels de `lib.dashboard_api`
 
 Ensuite : écrire la logique dans `app.js`, remplir (si besoin) `cron.py`.
 
@@ -148,13 +148,29 @@ data/interactive/mon-dashboard/
 └── data.json    ← écrit par cron.py
 ```
 
-Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il peut importer `lib.query` pour appeler Matomo / Metabase. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
+Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il importe `lib.dashboard_api` — et rien d'autre du dépôt — pour interroger Matomo, Metabase, data·inclusion, autometa_tables_db et `dashboard_storage`. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
 
 **Un `cron.py` ne tourne que si le TDB est enregistré** avec `has_cron` : le système de cron découvre les tâches via la table `dashboards`, pas en scannant les dossiers. Un dossier non enregistré n'est jamais exécuté.
 
 **Le cron ne voit que son propre dossier.** En production il tourne isolé dans un répertoire temporaire ; les autres dashboards n'existent pas à côté de lui. Un chemin `../autre-dashboard/…` ou `/app/data/interactive/autre/…` ne résout rien. Si le cron a besoin de données produites par un autre dashboard, il les régénère depuis la source primaire (Matomo, Metabase, GitHub…) plutôt que de lire son `data.json`. Régénérer les mêmes données dans deux dashboards est acceptable ; les coupler via un fichier ne l'est pas.
 
 En production, `data.json` est synchronisé vers S3 — les fichiers écrits par `cron.py` survivent aux redéploiements.
+
+#### La façade `lib.dashboard_api`
+
+Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout le reste — `lib.query`,
+`web.db`, `web.config` — est interne et n'a jamais promis d'être stable ; un dashboard qui s'y branche
+casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
+
+La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables` et
+`query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
+
+L'import hors façade est refusé par `create_dashboard` / `update_dashboard`, et le runner cron le
+signale sur le canal Slack d'alerte — en observation d'abord, sans refuser la planification.
+
+Si un besoin n'est pas couvert, élargir la façade (avec son test) plutôt que la contourner : c'est
+là tout l'intérêt, un changement de contrat devient un acte visible.
 
 #### Convention `data.json`
 
@@ -293,9 +309,9 @@ Le rôle PostgreSQL `dashboard_storage` n'a **aucun droit** sur le schéma `publ
 **1. Créer la table** (côté agent, script Python — jamais depuis le frontend) :
 
 ```python
-from lib.query import CallerType, execute_dashboard_storage_query
+from lib.dashboard_api import query_storage
 
-execute_dashboard_storage_query(
+query_storage(
     sql="""
         CREATE TABLE IF NOT EXISTS dashboard_storage.myapp_tracking (
             id SERIAL PRIMARY KEY,
@@ -306,7 +322,6 @@ execute_dashboard_storage_query(
             updated_at TIMESTAMP DEFAULT NOW()
         )
     """,
-    caller=CallerType.AGENT,
 )
 ```
 

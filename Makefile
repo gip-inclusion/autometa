@@ -1,10 +1,6 @@
-<<<<<<< HEAD
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
-        test-integration-cov coverage-report diff-cover lint format security ci \
-=======
-.PHONY: setup doctor dev hooks install-hooks test test-cov test-unit-cov test-integration-cov \
-        coverage-report e2e diff-cover lint format security ci \
->>>>>>> e958956 (feat(paved-road): browser journeys, in their own workflow and outside the required checks)
+        test-integration-cov coverage-report e2e diff-cover lint format security ci \
+        migrate check-migrations paved-road paved-road-baseline
         migrate check-migrations paved-road paved-road-baseline
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
@@ -50,6 +46,7 @@ lint:
 	uv run --frozen ruff check
 	uv run --frozen ruff format --check
 	uv run --frozen python scripts/check_test_quality.py tests browser
+	uv run --frozen python scripts/check_http_timeouts.py
 	uv run --frozen ruff check --select S608,BLE001 --statistics --exit-zero
 
 format:

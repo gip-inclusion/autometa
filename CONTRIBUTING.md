@@ -22,11 +22,13 @@ claude
 Le projet suit le **paved road** : un parcours unique, qui ajoute une contrainte à la fois. Sa
 conception et sa justification sont dans `docs/plans/2026-07-28-autometa-paved-road-design.md`.
 
-Les niveaux L0 à L4 sont en place. L0 (l'accord écrit) se tient **à la main** ; L1 (les attestations)
-s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le parcours sans code de
-sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent ; L3 démontre les
-critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via `scripts/smoke.py` et le
-skill `smoke`. Détail : `docs/paved-road/l2-quality-gates.md` et `docs/paved-road/l3-e2e.md`.
+Les sept niveaux sont en place. L0 (l'accord écrit) se tient **à la main** — aucune commande à lancer ;
+L1 (les attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le
+parcours sans code de sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent ;
+L3 démontre les critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via
+`scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `design-coherence`, consultative ; L6 pose la
+façade des tableaux de bord et les règles devenues exécutables. Détail :
+`docs/paved-road/l2-quality-gates.md`, `l3-e2e.md`, `l5-design-coherence.md`, `l6-fitness-functions.md`.
 
 1. **Écrire la Definition of Done avant de coder.** Un fichier
    `paved-road/<nom-de-branche>/definition-of-done.md` qui dit, en français, ce qui devra marcher à
@@ -40,10 +42,15 @@ skill `smoke`. Détail : `docs/paved-road/l2-quality-gates.md` et `docs/paved-ro
    `make paved-road-advance DOD=DOD-1 CMD='…'` range l'attestation correspondante — la commande, son
    code de sortie, les empreintes du contenu prouvé, le verdict. Format et règles :
    `docs/paved-road/l1-attestation.md`.
-5. **Passer au smoke** si la fonctionnalité touche une interface — un template, un fichier statique,
+5. **Relire le diff avec la lentille `design-coherence`** — le code fait-il ce que la DoD dit, ni plus
+   ni moins ? Ses bloqueurs arrêtent le travail : chacun se corrige, ou se justifie par écrit sous le
+   bloqueur, avant d'aller plus loin. Détails : `docs/paved-road/l5-design-coherence.md`.
+6. **Passer au smoke** si la fonctionnalité touche une interface — un template, un fichier statique,
    une route. Une seule passe, sur le dernier état du code : le skill `smoke` la déroule, et
    `scripts/smoke.py plan` tranche seul si elle est nécessaire. Les captures restent hors du dépôt.
-6. **Ouvrir la PR** avec la DoD, le journal et les attestations dedans.
+   Le smoke vient après la lentille : `plan` refuse une seconde passe sur la même empreinte
+   d'interface, donc toute correction postérieure rouvrirait une passe.
+7. **Ouvrir la PR** avec la DoD, le journal et les attestations dedans.
 
 `make paved-road-status` dit à tout moment l'état atteint et quels critères restent à démontrer.
 Aucune image et aucun binaire sous `attestations/` : le dépôt est public, et un check le refuse.
@@ -75,3 +82,7 @@ observables.
 Les invariants permanents — SQL paramétré, timeouts, migrations, sécurité — ne se recopient pas dans
 chaque Definition of Done. Ils vivent dans `.claude/rules/`, dans `gates.toml` et dans la CI, et
 protègent aussi le travail qui ne passe pas par le paved road.
+
+Un cas mérite d'être connu avant de refactorer : les tableaux de bord interactifs vivent sur S3,
+hors du dépôt, et n'importent que la façade `lib.dashboard_api`. Élargir cette façade est sans
+risque ; en changer une signature casse des tableaux de bord qu'aucun diff ne montre.
