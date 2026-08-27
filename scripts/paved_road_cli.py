@@ -75,7 +75,7 @@ def check(repo: Path, name: str, which: str | None) -> int:
     if which == "attestations":
         return report(attestation.verify_attestations(repo, name), "Chaque critère porte une attestation à jour.")
     if which == "content":
-        return report(attestation.verify_content(repo), "Rien d'autre que des attestations sous attestations/.")
+        return report(attestation.verify_content(repo), "Rien d'autre que du markdown sous paved-road/.")
     state = attestation.current_state(attestation.events(repo, name))
     failed = 0
     for item in attestation.CHECKS[state]:
