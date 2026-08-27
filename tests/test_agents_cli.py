@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, transient_api_error
+from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, transient_api_error, usage_limit_reset
 
 
 def make_backend():
@@ -276,3 +276,103 @@ def test_send_message_exhausts_retries_yields_api_down_message(stub_config, mock
     assert messages[-1].content == API_DOWN_MESSAGE
     assert messages[-1].raw["transient"] is True
     assert not any("API Error" in str(m.content) for m in messages)
+
+
+@pytest.mark.parametrize(
+    "text, hour, minute",
+    [
+        ("You've hit your limit · resets 5pm (UTC)", 17, 0),
+        ("You've hit your limit · resets 9am (UTC)", 9, 0),
+        ("You've hit your limit · resets 4:20pm (UTC)", 16, 20),
+        ("You've hit your limit · resets 4:50pm (UTC)", 16, 50),
+        ("You've hit your limit · resets 1am (UTC)", 1, 0),
+        ("You've hit your limit · resets 12am (UTC)", 0, 0),
+        ("You've hit your limit · resets 12pm (UTC)", 12, 0),
+    ],
+)
+def test_usage_limit_reset_parses_real_strings(text, hour, minute):
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 7, 20, 0, 0, tzinfo=timezone.utc)
+    reset = usage_limit_reset(text, now=now)
+    assert reset is not None
+    assert (reset.hour, reset.minute) == (hour, minute)
+    assert reset >= now
+
+
+def test_usage_limit_reset_rolls_to_next_day_when_time_already_passed():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 7, 20, 18, 0, tzinfo=timezone.utc)
+    reset = usage_limit_reset("hit your limit · resets 9am (UTC)", now=now)
+    assert reset.day == 21 and reset.hour == 9
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Voici votre réponse habituelle.",
+        "API Error: 429 rate limit",
+        "resets 5pm (UTC)",  # without the "hit your limit" marker
+        "You've hit your limit · resets 5pm (Europe/Paris)",  # non-UTC, not our format
+        # Why: un message classé « limite » est retiré du flux — l'agent qui cite la phrase doit
+        # rester du texte normal, sinon sa réponse disparaît et une fausse alerte part sur Slack.
+        "Le log dit : You've hit your limit · resets 5pm (UTC). Je réessaie plus tard.",
+        "You've hit your limit · resets 5pm (UTC) — voici ce que ça veut dire pour nous.",
+    ],
+)
+def test_usage_limit_reset_returns_none_for_non_limit(text):
+    assert usage_limit_reset(text) is None
+
+
+def test_send_message_yields_french_limit_message(stub_config):
+    stub_config(f"{_emit_assistant('hit your limit · resets 5pm (UTC)')}\nexit 1")
+    messages = collect_messages(make_backend())
+    last = messages[-1]
+    assert last.type == "limit"
+    assert "limite d'utilisation du modèle Claude" in last.content
+    assert "heure de Paris" in last.content
+    assert last.raw["reset"].endswith("+00:00")
+    # The raw English prose must never reach the user.
+    assert not any("hit your limit" in str(m.content) for m in messages)
+    assert not any("exited with code" in str(m.content) for m in messages)
+
+
+def test_send_message_limit_does_not_capture_to_sentry(stub_config, mocker):
+    capture = mocker.patch("web.agents.cli.sentry_sdk.capture_message")
+    stub_config(f"{_emit_assistant('hit your limit · resets 9am (UTC)')}\nexit 1")
+    messages = collect_messages(make_backend())
+    assert messages[-1].type == "limit"
+    capture.assert_not_called()
+
+
+def test_last_events_ring_buffer_caps_at_ten(stub_config, mocker):
+    backend = make_backend()
+    spy = mocker.spy(backend, "_capture_failure")
+    body = "\n".join(_emit_assistant(f"chunk {i}") for i in range(12)) + "\nexit 1"
+    stub_config(body)
+    collect_messages(backend)
+    outcome = spy.call_args.args[1]
+    assert len(outcome["last_events"]) == 10
+
+
+def test_limit_message_uses_the_backend_model_label(stub_config):
+    class OtherModelBackend(CLIBackend):
+        model_label = "Gemini"
+
+    stub_config(f"{_emit_assistant('hit your limit · resets 5pm (UTC)')}\nexit 1")
+    messages = collect_messages(OtherModelBackend())
+    assert messages[-1].type == "limit"
+    assert "du modèle Gemini" in messages[-1].content
+
+
+def test_ollama_backend_limit_message_uses_its_own_model_label(stub_config, mocker):
+    # Why: si la limite se déclenchait sur Ollama, le message doit nommer son modèle, jamais « Claude ».
+    from web.agents.cli_ollama import CLIOllamaBackend
+
+    mocker.patch("web.agents.cli_ollama.config.OLLAMA_MODEL", "llama3")
+    stub_config(f"{_emit_assistant('hit your limit · resets 5pm (UTC)')}\nexit 1")
+    messages = collect_messages(CLIOllamaBackend())
+    assert messages[-1].type == "limit"
+    assert "du modèle llama3" in messages[-1].content
+    assert "Claude" not in messages[-1].content

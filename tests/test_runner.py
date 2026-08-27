@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 
 import fakeredis.aioredis
 import pytest
@@ -1010,3 +1011,63 @@ def test_maybe_alert_complexity_swallows_errors(runner, mocker):
     asyncio.run(runner._maybe_alert_complexity("c1"))
 
     mock_store.add_message.assert_not_called()
+
+
+def test_alert_usage_limit_once_fires_a_single_slack_message(runner, mocker):
+    notify = mocker.patch("web.runner.notify_alert_channel")
+    reset = "2026-07-20T17:00:00+00:00"
+
+    async def _run():
+        await runner._alert_usage_limit_once(reset)
+        await runner._alert_usage_limit_once(reset)  # same window → eaten
+        await runner._alert_usage_limit_once("2026-07-21T09:00:00+00:00")  # new window → alerts
+
+    asyncio.run(_run())
+    assert notify.call_count == 2
+    assert "heure de Paris" in notify.call_args_list[0].args[0]
+
+
+def test_alert_usage_limit_once_ignores_missing_reset(runner, mocker):
+    notify = mocker.patch("web.runner.notify_alert_channel")
+
+    asyncio.run(runner._alert_usage_limit_once(None))
+
+    notify.assert_not_called()
+
+
+def test_alert_usage_limit_survives_slack_failure(runner, mocker, caplog):
+    mocker.patch("web.runner.notify_alert_channel", side_effect=RuntimeError("slack down"))
+
+    with caplog.at_level(logging.ERROR, logger="web.runner"):
+        asyncio.run(runner._alert_usage_limit_once("2026-07-20T17:00:00+00:00"))
+
+    # Best-effort: the failure is swallowed (no raise) but logged so it isn't silent.
+    assert any("usage-limit Slack alert failed" in r.message for r in caplog.records)
+
+
+def test_run_agent_limit_event_stores_verbatim_and_alerts(runner, mocker, fake_redis):
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.add_message.return_value = mocker.MagicMock(id=1)
+    alert = mocker.patch.object(runner, "_alert_usage_limit_once", mocker.AsyncMock())
+
+    events = [
+        AgentMessage(
+            type="limit",
+            content="Vous avez atteint la limite d'utilisation du modèle Claude.",
+            raw={"reset": "2026-07-20T17:00:00+00:00"},
+        )
+    ]
+
+    async def mock_stream(*args, **kwargs):
+        for e in events:
+            yield e
+
+    runner.backend.send_message = mock_stream
+
+    asyncio.run(runner._run_agent("c1", "prompt", [], None, None))
+
+    stored = [c.args for c in mock_store.add_message.call_args_list if c.args[1] == "limit"]
+    assert stored == [("c1", "limit", "Vous avez atteint la limite d'utilisation du modèle Claude.")]
+    # Not stored as a generic assistant/error message — it renders as its own callout.
+    assert not any(a[1] == "assistant" for a in mock_store.add_message.call_args_list)
+    alert.assert_awaited_once_with("2026-07-20T17:00:00+00:00")

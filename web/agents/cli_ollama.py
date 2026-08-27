@@ -8,6 +8,10 @@ from .cli import CLIBackend
 class CLIOllamaBackend(CLIBackend):
     """CLIBackend that routes through Ollama instead of Anthropic."""
 
+    @property
+    def model_label(self) -> str:
+        return config.OLLAMA_MODEL
+
     def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
         env = super()._build_env(conversation_id=conversation_id, user_email=user_email)
         # Translate our OLLAMA_* config into the ANTHROPIC_* env vars

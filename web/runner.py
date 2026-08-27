@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import sentry_sdk
 from opentelemetry import trace
@@ -24,9 +25,10 @@ from lib.tool_taxonomy import classify_tool
 
 from . import complexity, config, session_sync
 from .agents import get_agent
+from .alerts import notify_alert_channel
 from .database import store
 from .db import get_engine
-from .helpers import utcnow
+from .helpers import format_future_date, utcnow
 from .otel import SpanStack, extract_trace_context, inject_trace_headers
 from .redis_conn import get_redis
 from .request_context import reset_conversation_id, set_conversation_id
@@ -212,6 +214,25 @@ class TaskRunner:
                 # and the periodic sweep both rely on it refreshing the worker/running keys.
                 logger.exception("heartbeat loop iteration failed")
             await asyncio.sleep(10)
+
+    async def _alert_usage_limit_once(self, reset_iso: str | None):
+        # Why: une limite d'usage frappe plusieurs conversations d'affilée — une seule alerte Slack
+        # par fenêtre de reprise (clé Redis NX), les suivantes sont avalées.
+        if not reset_iso:
+            return
+        try:
+            r = await get_redis()
+            first = await r.set(f"{PREFIX}:limit-alert:{reset_iso}", "1", nx=True, ex=6 * 3600)
+            if not first:
+                return
+            resume = format_future_date(datetime.fromisoformat(reset_iso))
+            await asyncio.to_thread(
+                notify_alert_channel,
+                f":warning: Limite d'utilisation du modèle atteinte. Accès rétabli {resume} (heure de Paris).",
+            )
+        except Exception:
+            # Why: alerte best-effort — une panne Redis/Slack ne doit pas casser la boucle consumer.
+            logger.exception("usage-limit Slack alert failed")
 
     async def _maybe_alert_complexity(self, conv_id: str):
         # Why: best-effort suggestion — a failure here must never turn a successful turn into an error.
@@ -415,6 +436,12 @@ class TaskRunner:
                             await self.notify(conversation_id)
                         if event.raw.get("type") == "result" and event.raw.get("usage"):
                             _record_thinking_tail(conversation_id, event.raw["usage"], run_usage)
+
+                    elif event.type == "limit":
+                        store.add_message(conversation_id, "limit", str(event.content))
+                        await self.notify(conversation_id)
+                        await self._alert_usage_limit_once(event.raw.get("reset"))
+                        agent_status = "error"
 
                     elif event.type == "error":
                         store.add_message(
