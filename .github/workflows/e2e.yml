@@ -1,0 +1,98 @@
+name: E2E
+
+# Parcours de navigateur (L3 du paved road). Séparé de `ci.yml` pour la même raison que
+# `dependencies.yml` : ce job n'entre pas dans `required_status_checks` tant qu'il n'a pas
+# prouvé son absence d'instabilité, et `scripts/check_required_checks.py` exige que tout job
+# déclaré dans `ci.yml` y soit inscrit.
+
+on:
+  pull_request:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Parcours de navigateur
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_USER: autometa
+          POSTGRES_PASSWORD: autometa
+          POSTGRES_DB: autometa_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 3
+    env:
+      DATABASE_URL: postgresql://autometa:autometa@localhost:5432/autometa_e2e
+      REDIS_URL: redis://localhost:6379/0
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: autometa
+      S3_ACCESS_KEY: autometa
+      S3_SECRET_KEY: autometa
+      S3_REGION: fr-par
+      E2E_BASE_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      - name: Install pgvector in PostgreSQL service
+        run: |
+          docker exec -u root "${{ job.services.postgres.id }}" apt-get update
+          docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
+
+      # `services:` ne sait pas passer d'arguments à l'image ; MinIO exige `server /data`.
+      - name: Stockage objet
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=autometa -e MINIO_ROOT_PASSWORD=autometa \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done
+          docker run --rm --network host -e MC_HOST_local=http://autometa:autometa@localhost:9000 \
+            minio/mc:RELEASE.2025-08-13T08-35-41Z mb --ignore-existing local/autometa
+
+      - run: uv sync --group dev --frozen
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run alembic upgrade head
+
+      - name: Lancer l'application
+        run: |
+          uv run uvicorn web.app:app --host 127.0.0.1 --port 8000 > /tmp/autometa.log 2>&1 &
+          timeout 60 sh -c 'until curl -sf -o /dev/null "$E2E_BASE_URL/"; do sleep 1; done'
+
+      - name: Parcours
+        run: uv run pytest browser -q --tb=short -m browser --tracing retain-on-failure
+
+      - name: Traces et journaux
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-traces
+          path: |
+            test-results/
+            /tmp/autometa.log
+          retention-days: 7

@@ -8,6 +8,7 @@ make doctor    # Diagnostic — une phrase actionnable par panne
 make dev       # Serveur local (lance autometa)
 make test      # Suite unit hermétique (aucun service requis)
 make test-cov  # unit + integration + couverture fusionnée (Postgres + Redis requis)
+make e2e       # Parcours de navigateur Playwright (exige une application servie)
 make hooks     # Installe le hook git pre-commit (lint + suite unit)
 make lint      # ruff check + format check
 make format    # Auto-format

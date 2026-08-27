@@ -9,8 +9,10 @@ _spec = importlib.util.spec_from_file_location(
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 check_source = _module.check_source
+check_dod_budget = _module.check_dod_budget
 main = _module.main
 iter_test_files = _module._iter_test_files
+MAX_DOD_CRITERIA = _module.MAX_DOD_CRITERIA
 
 
 def messages(source):
@@ -39,6 +41,7 @@ def test_flags_test_without_verification(source):
         "def test_ok():\n    mock.assert_called_once_with(1)\n",
         "def test_ok():\n    obj.assertEqual(a, b)\n",
         "def test_ok():\n    pytest.fail('nope')\n",
+        "def test_ok():\n    expect(page).to_have_url('/x')\n",
     ],
 )
 def test_accepts_real_verification(source):
@@ -131,3 +134,26 @@ def test_main_reports_hollow_test_and_returns_one(tmp_path, capsys):
     assert exit_code == 1
     assert "test_bad.py" in out
     assert "sans vérification" in out
+
+
+def dod_module(count):
+    return "".join(f"def test_dod_{n}():\n    assert compute() == {n}\n\n" for n in range(1, count + 1))
+
+
+@pytest.mark.parametrize("count", [0, 1, MAX_DOD_CRITERIA])
+def test_dod_budget_accepts_up_to_the_bound(count):
+    assert check_dod_budget(dod_module(count)) == []
+
+
+def test_dod_budget_flags_every_criterion_beyond_the_bound():
+    violations = check_dod_budget(dod_module(MAX_DOD_CRITERIA + 2))
+
+    assert len(violations) == 2
+    assert all("parcours de navigateur" in reason for _, reason in violations)
+
+
+def test_dod_budget_only_applies_to_browser_tests(tmp_path, capsys):
+    (tmp_path / "test_dods.py").write_text(dod_module(MAX_DOD_CRITERIA + 1))
+
+    assert main([str(tmp_path)]) == 0
+    assert capsys.readouterr().out == ""

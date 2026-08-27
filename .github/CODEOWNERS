@@ -26,6 +26,12 @@
 /.github/CODEOWNERS         @louije @Annaelle24 @cdarnispro
 /.claude/hooks/             @louije @Annaelle24 @cdarnispro
 /.claude/settings.json      @louije @Annaelle24 @cdarnispro
+/Makefile                   @louije @Annaelle24 @cdarnispro
+/pyproject.toml             @louije @Annaelle24 @cdarnispro
+/.githooks/                 @louije @Annaelle24 @cdarnispro
+/scripts/                   @louije @Annaelle24 @cdarnispro
+/lib/attestation.py         @louije @Annaelle24 @cdarnispro
+/plugins/paved-road/        @louije @Annaelle24 @cdarnispro
 
 # --- Zones critiques sans successeur après le retrait de zones-critiques.md ---
 

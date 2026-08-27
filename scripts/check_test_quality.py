@@ -1,10 +1,16 @@
 """Rejette les tests creux : sans vérification ou avec assertion tautologique."""
 
 import ast
+import re
 import sys
 from pathlib import Path
 
 SKIP_NAMES = {"skip", "skipif", "xfail"}
+
+BROWSER_TESTS = Path("browser")
+DOD_TEST = re.compile(r"test_dod_\d+")
+# Sans borne, le coût récurrent de L3 suit la verbosité de la demande — voir docs/paved-road/l3-e2e.md.
+MAX_DOD_CRITERIA = 5
 
 
 def _is_test(node):
@@ -27,8 +33,9 @@ def _calls(node):
 def _has_verification(node):
     if any(isinstance(n, ast.Assert) for n in ast.walk(node)):
         return True
+    # `expect` : les assertions Playwright ne passent pas par `assert`.
     return any(
-        name == "raises" or name == "fail" or name.startswith("assert") for name in map(_call_name, _calls(node))
+        name in {"raises", "fail", "expect"} or name.startswith("assert") for name in map(_call_name, _calls(node))
     )
 
 
@@ -61,6 +68,18 @@ def check_source(source):
     return violations
 
 
+def check_dod_budget(source):
+    """Au-delà de cinq critères démontrés par navigateur, la preuve doit retomber sur une forme moins coûteuse."""
+    dod_tests = sorted(
+        (n for n in ast.walk(ast.parse(source)) if _is_test(n) and DOD_TEST.fullmatch(n.name)),
+        key=lambda node: node.lineno,
+    )
+    return [
+        (node.lineno, f"plus de {MAX_DOD_CRITERIA} critères démontrés par un parcours de navigateur")
+        for node in dod_tests[MAX_DOD_CRITERIA:]
+    ]
+
+
 def _iter_test_files(paths):
     for raw in paths:
         path = Path(raw)
@@ -73,7 +92,11 @@ def _iter_test_files(paths):
 def main(paths):
     failed = False
     for path in _iter_test_files(paths):
-        for lineno, reason in check_source(path.read_text()):
+        source = path.read_text()
+        violations = check_source(source)
+        if BROWSER_TESTS in path.parents:
+            violations += check_dod_budget(source)
+        for lineno, reason in violations:
             print(f"{path}:{lineno}: {reason}")
             failed = True
     return 1 if failed else 0

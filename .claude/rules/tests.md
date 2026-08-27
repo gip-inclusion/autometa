@@ -11,7 +11,11 @@ Marqueurs de test — un test non marqué doit tourner sans service ni credentia
 - `@pytest.mark.integration` : a besoin d'une infra locale que la CI provisionne (Postgres, Redis). Exécuté en CI et exclu de `make test`.
 - `@pytest.mark.external` : tape sur de vrais services externes / credentials (Matomo, Metabase, Notion…). **Aucune CI ne l'exécute aujourd'hui** — à lancer à la main (`pytest -m external`, credentials requis). Le workflow nightly qui les portera arrive en phase 8 de la stratégie de tests.
 - `@pytest.mark.e2e` : parcours complet en process (runner + Redis + SSE, agent faké).
+- `@pytest.mark.browser` : parcours de navigateur Playwright (`browser/`), contre une application servie — locale ou review app. Job CI dédié, hors `required_status_checks`. Voir `docs/paved-road/l3-e2e.md`.
 
+> Le job E2E (`browser/`) est un workflow séparé, hors `required_status_checks` : il ne bloque
+> pas tant qu'il n'a pas prouvé sa stabilité. Le couloir unit l'exclut par `not browser`.
+>
 > La CI de PR découpe en trois jobs : `unit` (`-m "not integration and not e2e and not external"`, sans service), `integration` (`-m "integration or e2e"`, avec Postgres+Redis), puis `coverage` (fusion + plancher). `e2e` tourne donc dans le job `integration`, pas dans le couloir unit. Le hook `pre-commit` rejoue le couloir unit hermétique (`make test`) avant tout commit ; le hook `Stop` reste sur lint + tests creux uniquement.
 
 Chaque modification de code doit avoir un test correspondant.

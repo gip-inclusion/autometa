@@ -75,6 +75,7 @@ dev = [
     "pytest-cov>=7",
     "diff-cover>=9",
     "pre-commit>=4.6.1",
+    "pytest-playwright>=0.7.1",
 ]
 
 # =============================================================================
@@ -126,6 +127,7 @@ ignore = [
 "tests/test_knowledge_sync.py" = ["E402"]  # sys.path setup before imports
 "tests/test_uploads.py" = ["E402"]         # env config before imports
 "tests/conftest.py" = ["E402", "TID251"]   # DATABASE_URL override before imports ; crée la base de test
+"browser/conftest.py" = ["TID251"]         # cible et identifiants du runner, hors configuration applicative
 "web/config.py" = ["TID251"]               # le module de configuration lui-même
 # Hooks et déployables séparés : processus hors application, sans accès à web.config
 ".claude/hooks/*.py" = ["TID251"]

@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report diff-cover lint format security ci \
+=======
+.PHONY: setup doctor dev hooks install-hooks test test-cov test-unit-cov test-integration-cov \
+        coverage-report e2e diff-cover lint format security ci \
+>>>>>>> e958956 (feat(paved-road): browser journeys, in their own workflow and outside the required checks)
         migrate check-migrations paved-road paved-road-baseline
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
@@ -44,7 +49,7 @@ check-migrations:
 lint:
 	uv run --frozen ruff check
 	uv run --frozen ruff format --check
-	uv run --frozen python scripts/check_test_quality.py tests
+	uv run --frozen python scripts/check_test_quality.py tests browser
 	uv run --frozen ruff check --select S608,BLE001 --statistics --exit-zero
 
 format:
@@ -60,18 +65,18 @@ security:
 
 test:
 	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short \
-		-p no:cacheprovider -m "not integration and not e2e and not external"
+		-p no:cacheprovider -m "not integration and not e2e and not external and not browser"
 
 # Les seuils vivent dans gates.toml, couvert par CODEOWNERS : abaisser un plancher reste un acte visible.
 # Un couloir par cible, pour que la CI appelle ces cibles au lieu de réécrire les commandes :
 # sans cela, « la CI relance le même check » est faux et la dérive s'installe sans qu'on la voie.
 test-unit-cov:
 	DATABASE_URL= REDIS_URL= COVERAGE_FILE=.coverage.unit uv run --frozen pytest tests/ infra/ -q \
-		-p no:cacheprovider -m "not integration and not e2e and not external" \
+		-p no:cacheprovider -m "not integration and not e2e and not external and not browser" \
 		--cov --cov-branch --cov-config=gates.toml --cov-fail-under=0 --cov-report=
 
 test-integration-cov:
-	COVERAGE_FILE=.coverage.integration uv run --frozen pytest tests/ -q -m "integration or e2e" \
+	COVERAGE_FILE=.coverage.integration uv run --frozen pytest tests/ -q -m "(integration or e2e) and not browser" \
 		--cov --cov-branch --cov-config=gates.toml --cov-fail-under=0 --cov-report=
 
 coverage-report:
@@ -84,6 +89,12 @@ test-cov:
 	@$(MAKE) --no-print-directory test-unit-cov
 	@$(MAKE) --no-print-directory test-integration-cov
 	@$(MAKE) --no-print-directory coverage-report
+
+# Parcours de navigateur — exige une application servie (`make dev` dans un autre terminal),
+# ou E2E_BASE_URL pointant sur une review app.
+e2e:
+	uv run --frozen playwright install chromium
+	uv run --frozen pytest browser -q -m browser
 
 diff-cover:
 	uv run --frozen diff-cover coverage.xml --compare-branch=origin/$(BASE) --config-file gates.toml
