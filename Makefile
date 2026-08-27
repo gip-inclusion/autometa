@@ -74,3 +74,19 @@ ci: lint security check-migrations test-cov diff-cover
 
 paved-road-baseline:
 	uv run --frozen python scripts/paved_road_baseline.py --days $(or $(DAYS),90)
+
+.PHONY: paved-road-start paved-road-status paved-road-checks paved-road-advance
+
+PAVED_ROAD := uv run --frozen python scripts/paved_road_cli.py $(if $(FEATURE),--feature $(FEATURE))
+
+paved-road-start:
+	@$(PAVED_ROAD) start
+
+paved-road-status:
+	@$(PAVED_ROAD) status
+
+paved-road-checks:
+	@$(PAVED_ROAD) check $(CHECK)
+
+paved-road-advance:
+	@$(PAVED_ROAD) advance $(if $(DOD),--dod $(DOD) --command "$(CMD)") $(if $(PATHS),--paths $(PATHS))
