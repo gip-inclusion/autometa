@@ -11,11 +11,19 @@ branch = true
 # Sans ce drapeau, `coverage combine` ne rapproche pas les mesures des deux couloirs de la CI,
 # qui tournent dans des jobs distincts : les chemins absolus ne coïncident pas.
 relative_files = true
-source = ["web", "lib", "scripts"]
+# `skills/pdf/` est un skill Anthropic vendored, déjà exclu du lint pour la même raison.
+omit = ["skills/pdf/*"]
+source = ["web", "lib", "scripts", "skills"]
 
 [tool.coverage.report]
 precision = 2
-fail_under = 74.90
+# Sans ce drapeau, coverage.py ne descend pas dans un répertoire dépourvu de `__init__.py` :
+# `skills/` était déclaré en source sans qu'aucun de ses sous-répertoires ne soit mesuré.
+include_namespace_packages = true
+# Le plancher a baissé le 2026-08-18 parce que le périmètre a grandi, pas parce que
+# l'exigence a baissé : `skills/` apporte 1262 instructions jamais exécutées, et la mesure
+# passe de 76.96 % à 71.66 % sans qu'une ligne de code ait changé.
+fail_under = 71.00
 
 [tool.diff_cover]
 fail_under = 90

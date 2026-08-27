@@ -15,6 +15,10 @@ concurrency:
 permissions:
   contents: read
 
+# Les jobs appellent les cibles du `Makefile` plutôt que de réécrire les commandes : sans cela,
+# « la CI relance le même check » est faux, et la dérive s'installe sans que personne la voie —
+# un CVE ignoré d'un côté et pas de l'autre, un périmètre de lint différent.
+
 jobs:
   lint:
     name: Lint & format
@@ -25,13 +29,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --group dev --frozen
-      - run: uv run ruff check web/ lib/ tests/ scripts/
-      - run: uv run ruff format --check web/ lib/ tests/ scripts/
-      - run: uv run python scripts/check_test_quality.py tests
-      # Observation avant cliquet — baseline au 2026-08-17 : S608 22 cas, BLE001 11 cas.
-      # BLE001 ignore la convention `# Why:` de .claude/rules/code.md : une part est légitime.
-      - name: Règles en observation
-        run: uv run ruff check --select S608,BLE001 --statistics --exit-zero
+      - run: make lint
 
   security:
     name: Security
@@ -45,11 +43,10 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev --frozen
 
-      - name: Bandit (SAST)
-        run: uv run bandit -r web/ lib/ -c pyproject.toml --severity-level medium --confidence-level high -q
-
-      - name: Protection des routes
-        run: uv run python scripts/check_route_auth.py
+      - name: Bandit, protection des routes, dérive des checks requis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make security
 
       # Why: pip-audit scanne l'arbre de dépendances, pas le diff — il rougit sur une publication
       # de CVE amont, à un moment que personne ne choisit. Mesuré : 11 des 12 échecs du job Security
@@ -113,10 +110,7 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev --frozen
       - name: Unit tests (no services)
-        run: >-
-          uv run pytest tests/ infra/ -q --tb=short -p no:cacheprovider
-          -m "not integration and not e2e and not external"
-          --cov --cov-branch --cov-fail-under=0 --cov-report=
+        run: make test-unit-cov
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-unit
@@ -167,10 +161,7 @@ jobs:
           docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
       - run: uv sync --group dev --frozen
       - name: Integration tests
-        run: >-
-          uv run pytest tests/ -q --tb=short
-          -m "integration or e2e"
-          --cov --cov-branch --cov-fail-under=0 --cov-report=
+        run: make test-integration-cov
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-integration
@@ -194,11 +185,10 @@ jobs:
         with:
           pattern: coverage-*
           merge-multiple: true
-      - name: Combine + report (plancher défini dans pyproject.toml)
-        run: |
-          uv run coverage combine .coverage.unit .coverage.integration
-          uv run coverage report
-          uv run coverage xml
+      - name: Combine + report (plancher défini dans gates.toml)
+        run: make coverage-report
+      - name: Diff coverage gate
+        run: make diff-cover BASE=${{ github.base_ref || 'main' }}
 
   migrations:
     name: Migrations
@@ -230,9 +220,65 @@ jobs:
           docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
       - run: uv sync --group dev --frozen
       - name: Apply migrations on a fresh DB (catches broken chain)
-        run: uv run --frozen alembic upgrade head
-      - name: Check models match migrations (catches missing migration)
-        run: uv run --frozen alembic check
+        run: make migrate
+      - name: Check models match migrations, and backfills before NOT NULL
+        run: make check-migrations
+
+  paved-road:
+    name: Ce qui devait marcher
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_USER: autometa
+          POSTGRES_PASSWORD: autometa
+          POSTGRES_DB: autometa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 3
+    env:
+      DATABASE_URL: postgresql://autometa:autometa@localhost:5432/autometa_test
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+      - name: Install pgvector in PostgreSQL service
+        run: |
+          docker exec -u root "${{ job.services.postgres.id }}" apt-get update
+          docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
+      - run: uv sync --group dev --frozen
+
+      # Ce check est le seul que le citizen developer consulte : sa sortie va dans le résumé
+      # du job, en français, plutôt que dans les journaux bruts d'un linter.
+      - name: Ce qui devait marcher
+        # Why: `shell: bash` ajoute `-o pipefail` — sans lui, le step rend le code de sortie de
+        # `tee` et non celui du script, donc le check serait vert même sur un critère non démontré.
+        shell: bash
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          arguments=""
+          for label in $LABELS; do arguments="$arguments --label $label"; done
+          uv run --frozen python scripts/check_paved_road.py \
+            --base "origin/${{ github.base_ref || 'main' }}" $arguments | tee "$GITHUB_STEP_SUMMARY"
 
   docker:
     name: Docker

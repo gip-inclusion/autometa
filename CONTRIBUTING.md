@@ -22,8 +22,10 @@ claude
 Le projet suit le **paved road** : un parcours unique, qui ajoute une contrainte à la fois. Sa
 conception et sa justification sont dans `docs/plans/2026-07-28-autometa-paved-road-design.md`.
 
-Les niveaux L0 et L1 sont en place. L0 se tient à la main ; L1 s'outille par quatre cibles du
-`Makefile`, qui refusent de faire progresser le parcours sans code de sortie 0.
+Les niveaux L0, L1 et L2 sont en place. L0 (l'accord écrit) se tient **à la main** ; L1 (les
+attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le parcours
+sans code de sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent.
+Détail : `docs/paved-road/l2-quality-gates.md`.
 
 1. **Écrire la Definition of Done avant de coder.** Un fichier
    `paved-road/<nom-de-branche>/definition-of-done.md` qui dit, en français, ce qui devra marcher à
@@ -41,6 +43,24 @@ Les niveaux L0 et L1 sont en place. L0 se tient à la main ; L1 s'outille par qu
 
 `make paved-road-status` dit à tout moment l'état atteint et quels critères restent à démontrer.
 Aucune image et aucun binaire sous `attestations/` : le dépôt est public, et un check le refuse.
+
+## Ce que la CI exige, et quand
+
+Le check **« Ce qui devait marcher »** est requis **si et seulement si** votre diff touche `web/`,
+`lib/`, `skills/` ou `alembic/`. Sur ce périmètre, l'absence de Definition of Done est un échec.
+Ailleurs — dépendances, `docs/`, `knowledge/` — il est neutre et ne demande rien.
+
+La CI **rejoue** les commandes de vos attestations et compare son résultat au verdict que vous y avez
+écrit : un écart est un échec. Une attestation devient aussi caduque quand le code qu'elle prouve
+change. Chaque échec restitué porte sa famille — A réparable, B panne d'environnement, C question
+métier, D interdit — parce que la réponse n'est pas la même.
+
+Pour lever le check sur une PR qui n'a pas à passer par le parcours, un humain pose le label
+`break-glass` : la dispense est alors journalisée dans le résumé du check.
+
+Vérifier avant de pousser : `make paved-road`, ou `make ci` pour l'ensemble des gates. `make setup`
+installe un hook `pre-push` qui lance lint et tests unitaires — un service, pas une garantie :
+`--no-verify` le contourne. Pour l'installer seul : `make install-hooks`.
 
 Une DoD validée ne se réécrit pas. Un critère qui se révèle infaisable est un blocage métier : il
 remonte à la personne qui a formulé la demande, avec au moins deux options formulées en résultats

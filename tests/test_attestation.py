@@ -315,11 +315,11 @@ def test_an_attestation_without_a_matching_criterion_is_reported(journey):
 @pytest.mark.parametrize(
     ("filename", "content", "expected"),
     [
-        ("capture.png", b"\x89PNG\r\n\x1a\n", "seul le markdown"),
+        ("capture.png", b"\x89PNG\r\n\x1a\n", "seul du markdown"),
         ("DOD-1.md", b"\xff\xfe\x00binaire", "contenu binaire"),
         ("DOD-1.md", "![capture](../captures/ecran.png)".encode(), "image ou contenu encodé"),
         ("DOD-1.md", b"data:image/png;base64,iVBORw0KGgo=", "image ou contenu encodé"),
-        ("DOD-1.md", b"x" * (attestation.MAX_ATTESTATION_BYTES + 1), "sortie brute"),
+        ("DOD-1.md", b"x" * (attestation.MAX_ATTESTATION_BYTES + 1), "il ne stocke pas"),
     ],
 )
 def test_the_public_repository_refuses_anything_advance_did_not_produce(journey, filename, content, expected):
@@ -587,3 +587,25 @@ def test_git_env_strips_only_the_git_variables(monkeypatch):
 
     assert "GIT_DIR" not in env
     assert env["PATH"] == "/usr/bin"
+
+
+@pytest.mark.parametrize(
+    ("chemin", "refuse"),
+    [
+        ("attestations/DOD-1.md", False),
+        ("retro.md", False),
+        ("relectures/design-coherence.md", False),
+        ("retro.pdf", True),
+        ("relectures/capture.png", True),
+        ("journal/export.csv", True),
+    ],
+)
+def test_verify_content_couvre_tout_le_parcours_pas_seulement_les_attestations(journey, chemin, refuse):
+    """La rétro et les relectures citent l'usage réel, sur un dépôt public."""
+    cible = attestation.feature_dir(journey, FEATURE) / chemin
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text("texte")
+
+    problems = attestation.verify_content(journey)
+
+    assert any(chemin in problem for problem in problems) is refuse

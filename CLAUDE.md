@@ -12,7 +12,8 @@ make hooks     # Installe le hook git pre-commit (lint + suite unit)
 make lint      # ruff check + format check
 make format    # Auto-format
 make migrate   # Migrations Alembic
-make ci        # lint + security + migrations + test-cov + diff-cover
+make paved-road # « Ce qui devait marcher » — DoD et attestations, rejouées
+make ci        # lint + security + migrations + test-cov + diff-cover + paved road
 ```
 
 Architecture et flux de données : `.claude/ARCHITECTURE.md`.

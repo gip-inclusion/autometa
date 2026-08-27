@@ -138,7 +138,9 @@ ignore = [
 # =============================================================================
 
 [tool.bandit]
-exclude_dirs = ["tests", "evals", "data", "skills"]
+# `skills/` en a été retiré le 2026-08-18 : ce sont des scripts exécutables qui écrivent
+# en base et sur S3, mesurés à 0 issue medium/high avant l'inclusion.
+exclude_dirs = ["tests", "evals", "data"]
 skips = [
     "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]

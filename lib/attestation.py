@@ -313,19 +313,26 @@ def verify_attestations(repo: Path, name: str, paths: Iterable[str] | None = Non
 
 
 def verify_content(repo: Path) -> list[str]:
-    """Le dépôt est public : sous attestations/, rien d'autre que ce qu'advance produit seul."""
+    """Le dépôt est public : sous `paved-road/`, rien d'autre que du texte écrit pour être lu.
+
+    Why: le périmètre couvre tout `paved-road/<slug>/**` depuis le 27/08, pas seulement
+    `attestations/`. La rétro et les rapports de relecture sont exigés dès le palier 1, et ils
+    citent l'usage réel — donc potentiellement des données de personnes, sur un dépôt public.
+    """
     problems = []
-    for path in sorted((repo / ARTIFACTS_ROOT).glob("*/attestations/*")):
+    for path in sorted(p for p in (repo / ARTIFACTS_ROOT).glob("*/**/*") if p.is_file()):
         shown = path.relative_to(repo).as_posix()
         if path.suffix != ".md":
-            problems.append(f"{shown} — seul le markdown produit par `advance` est admis ici.")
+            problems.append(f"{shown} — seul du markdown est admis sous `paved-road/`.")
         elif path.stat().st_size > MAX_ATTESTATION_BYTES:
-            problems.append(f"{shown} — {path.stat().st_size} octets : une attestation ne porte pas de sortie brute.")
+            problems.append(
+                f"{shown} — {path.stat().st_size} octets : un artefact de parcours se lit, il ne stocke pas."
+            )
         else:
             try:
                 text = path.read_text()
             except UnicodeDecodeError:
-                problems.append(f"{shown} — contenu binaire : aucune image, aucun binaire sous attestations/.")
+                problems.append(f"{shown} — contenu binaire : aucune image, aucun binaire sous `paved-road/`.")
                 continue
             if FORBIDDEN_CONTENT.search(text):
                 problems.append(f"{shown} — image ou contenu encodé : il appartient aux artefacts de CI, pas au dépôt.")
