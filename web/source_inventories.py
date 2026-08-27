@@ -14,9 +14,9 @@ from .models import MatomoDimension, MatomoEvent, MatomoSegment, MetabaseCard, M
 logger = logging.getLogger(__name__)
 
 CATALOG_SQL = """
-    SELECT table_name, table_description, column_name, column_type, column_description
+    SELECT table_id, table_name, table_description, column_name, column_type, column_description
     FROM documentation.doc_autometa_tables
-    ORDER BY table_name, column_name
+    ORDER BY table_name, table_id, column_name
 """
 
 
@@ -33,21 +33,23 @@ class Inventory:
 
 def autometa_tables_catalog(search: str = "") -> Inventory:
     """Tables et colonnes lues à l'exécution : rien n'est écrit en dur, le catalogue fait foi."""
-    # Why: `doc_autometa_tables` ne porte pas de colonne de schéma — les noms de tables y sont bruts.
-    # Les regrouper par schéma supposerait une information que le catalogue n'a pas.
+    # Why: l'identité d'une table est `table_id`, pas son nom — 71 tables documentées ne portent que
+    # 34 noms distincts (`users_user` en désigne quatre). Grouper par nom fusionnerait leurs colonnes.
+    # Le catalogue ne porte pas de schéma, et le déduire des jeux de colonnes n'en résout que 26 sur 71.
     result = execute_autometa_tables_query(CATALOG_SQL, caller=CallerType.APP)
     if not result.success:
         return Inventory(kind="catalog", groups=[], total=0, error=result.error or "catalogue illisible")
 
     needle = search.strip().lower()
-    tables: dict[str, dict] = {}
-    for table, table_desc, column, column_type, column_desc in result.data["rows"]:
+    tables: dict[int, dict] = {}
+    for table_id, table, table_desc, column, column_type, column_desc in result.data["rows"]:
         if needle and needle not in f"{table} {column}".lower():
             continue
-        entry = tables.setdefault(table, {"name": table, "description": table_desc, "columns": []})
+        entry = tables.setdefault(table_id, {"id": table_id, "name": table, "description": table_desc, "columns": []})
         entry["columns"].append({"name": column, "type": column_type, "description": column_desc})
 
-    groups = [{"label": "Tables", "items": [tables[name] for name in sorted(tables)]}] if tables else []
+    ordered = sorted(tables.values(), key=lambda t: (t["name"], t["id"]))
+    groups = [{"label": "Tables", "items": ordered}] if ordered else []
     return Inventory(
         kind="catalog",
         groups=groups,

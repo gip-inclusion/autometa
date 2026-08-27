@@ -178,7 +178,7 @@ def catalog_stub(mocker, rows):
 
 def test_the_catalog_panel_renders_tables_and_columns(client, mocker):
     """DOD-7 : le dictionnaire de données devient consultable sans écrire de SQL."""
-    catalog_stub(mocker, [["candidatures", "Les candidatures", "id", "text", "Identifiant"]])
+    catalog_stub(mocker, [[50, "candidatures", "Les candidatures", "id", "text", "Identifiant"]])
 
     body = client.get("/sources/autometa-tables-db").text
 
@@ -188,7 +188,7 @@ def test_the_catalog_panel_renders_tables_and_columns(client, mocker):
 
 
 def test_the_catalog_panel_accepts_a_filter(client, mocker):
-    catalog_stub(mocker, [["candidatures", None, "id", "text", None]])
+    catalog_stub(mocker, [[50, "candidatures", None, "id", "text", None]])
 
     assert "Aucune table ne correspond" in client.get("/sources/autometa-tables-db?q=introuvable").text
 

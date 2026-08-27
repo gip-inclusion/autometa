@@ -155,6 +155,7 @@ def all_sources() -> list[Source]:
             blurb="Conteneurs, déclencheurs et balises de suivi des sites.",
             icon="ri-price-tag-3-line",
             skill="tag_manager",
+            href="/tag-manager",
             check=source_checks.check_matomo,
             configured=partial(yaml_configured, "matomo", "inclusion", "token"),
         ),

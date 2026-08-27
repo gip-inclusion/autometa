@@ -7,9 +7,11 @@ from web import source_inventories
 from web.source_inventories import autometa_tables_catalog, inventory_for
 
 CATALOG_ROWS = [
-    ["candidatures", "Les candidatures", "id", "text", "Identifiant"],
-    ["candidatures", "Les candidatures", "created_at", "text", "Date ISO"],
-    ["table_arrivee_apres_coup", "Inconnue du code", "col", "int", None],
+    [50, "candidatures", "Les candidatures", "id", "text", "Identifiant"],
+    [50, "candidatures", "Les candidatures", "created_at", "text", "Date ISO"],
+    # Même nom, autre table : `users_user` en désigne quatre dans le vrai catalogue.
+    [2367, "candidatures", "Une homonyme", "autre_col", "int", None],
+    [999, "table_arrivee_apres_coup", "Inconnue du code", "col", "int", None],
 ]
 
 
@@ -27,11 +29,21 @@ def test_catalog_lists_tables_with_their_columns(mocker):
 
     inventory = autometa_tables_catalog()
 
-    assert inventory.total == 2
+    assert inventory.total == 3
     table = inventory.groups[0]["items"][0]
     assert table["name"] == "candidatures"
     assert table["description"] == "Les candidatures"
     assert [c["name"] for c in table["columns"]] == ["id", "created_at"]
+
+
+def test_two_tables_sharing_a_name_stay_distinct(mocker):
+    """L'identité est table_id : 71 tables documentées ne portent que 34 noms."""
+    mocker.patch.object(source_inventories, "execute_autometa_tables_query", return_value=catalog_result(CATALOG_ROWS))
+
+    homonymes = [t for t in autometa_tables_catalog().groups[0]["items"] if t["name"] == "candidatures"]
+
+    assert [t["id"] for t in homonymes] == [50, 2367]
+    assert [len(t["columns"]) for t in homonymes] == [2, 1]
 
 
 def test_catalog_shows_a_table_the_code_has_never_heard_of(mocker):
@@ -44,7 +56,7 @@ def test_catalog_shows_a_table_the_code_has_never_heard_of(mocker):
 
 @pytest.mark.parametrize(
     "search,expected",
-    [("candidat", ["candidatures"]), ("created_at", ["candidatures"]), ("introuvable", [])],
+    [("candidat", ["candidatures", "candidatures"]), ("created_at", ["candidatures"]), ("introuvable", [])],
 )
 def test_catalog_filters_by_table_or_column(mocker, search, expected):
     mocker.patch.object(source_inventories, "execute_autometa_tables_query", return_value=catalog_result(CATALOG_ROWS))
