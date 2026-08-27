@@ -11,6 +11,5 @@ def init_db():
 
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
 
     init_tables()
