@@ -2,7 +2,7 @@
 title: Générer les embeddings des conversations
 schedule: daily
 timeout: 600
-cron: false
+batch: xl
 ---
 
 Génère les embeddings des messages de conversation (`user`, `assistant`, `report`).
@@ -18,6 +18,9 @@ plusieurs nuits.
 Si le job échoue, rien n'est marqué comme terminé. Les mêmes messages seront
 repris au prochain run.
 
-Ce job a sa propre ligne dans `cron.json` et tourne en conteneur `XL`.
+Le chargement du modèle coûte environ 1 Go, ce qui ne tient pas dans le conteneur du lot
+ordinaire. D'où `batch: xl` : la tâche est exécutée par la ligne `python -m web.cron --batch xl`
+de `cron.json`, qui demande un conteneur `XL`. Son échec reste ainsi isolé des autres tâches
+de la nuit.
 
 Pour l'éteindre, ajouter `cron: false` dans ce front-matter.
