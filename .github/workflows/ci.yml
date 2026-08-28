@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches: [main]
   schedule:
@@ -225,11 +225,13 @@ jobs:
   review-app:
     name: Review app
     needs: [lint, security, unit, integration, migrations]
+    # Le label review-app est l'interrupteur : sans lui, pas de review app, même sur une PR verte.
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
       && github.event.pull_request.user.login != 'dependabot[bot]'
+      && contains(github.event.pull_request.labels.*.name, 'review-app')
     runs-on: ubuntu-latest
     environment: review-app
     permissions:
@@ -260,9 +262,10 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.state) \(.draft)"')
-          if [ "$pr" != "open false" ]; then
-            echo "PR #$PR est '$pr' : le teardown a déjà pu passer, on ne crée rien."
+          pr=$(gh api "repos/$REPO/pulls/$PR" \
+            --jq '"\(.state) \(.draft) \(any(.labels[]; .name == "review-app"))"')
+          if [ "$pr" != "open false true" ]; then
+            echo "PR #$PR est '$pr' (état, draft, label) : le teardown a déjà pu passer, on ne crée rien."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

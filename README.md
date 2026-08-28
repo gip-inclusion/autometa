@@ -194,14 +194,15 @@ Les deux délèguent la mécanique au workflow réutilisable `_deploy.yml`. Pour
 
 ### Review apps
 
-Chaque pull request interne non-draft obtient une review app Scalingo, créée par la CI une fois
-lint, sécurité, tests et migrations au vert. L'URL apparaît dans l'encart de déploiement de la PR.
+Une pull request interne non-draft **portant le label `review-app`** obtient une review app
+Scalingo, créée par la CI une fois lint, sécurité, tests et migrations au vert. Sans le label, rien
+n'est créé. L'URL apparaît dans l'encart de déploiement de la PR.
 
 | Événement | Ce qui se passe |
 |---|---|
-| PR ouverte non-draft, ou passée en « ready » | la CI crée la review app, attend ses addons, puis la déploie |
-| Nouveau commit | la CI redéploie, sans rien demander à personne |
-| PR repassée en draft | la CI éteint l'app (`web` à zéro conteneur). L'addon PostgreSQL, lui, continue de tourner |
+| Label `review-app` posé sur une PR ouverte non-draft | la CI crée la review app, attend ses addons, puis la déploie |
+| Nouveau commit sur une PR labellisée | la CI redéploie, sans rien demander à personne |
+| Label `review-app` retiré, ou PR repassée en draft | la CI éteint l'app (`web` à zéro conteneur). L'addon PostgreSQL, lui, continue de tourner |
 | 72 h sans déploiement | Scalingo détruit l'app et son addon. Le push suivant la recrée |
 | PR fermée ou fusionnée | Scalingo détruit l'app sans délai. La CI éteint l'encart de la PR |
 
