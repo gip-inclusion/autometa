@@ -2,7 +2,7 @@ name: Review app teardown
 
 on:
   pull_request:
-    types: [closed, converted_to_draft]
+    types: [closed, converted_to_draft, unlabeled]
 
 permissions:
   contents: read
@@ -10,10 +10,12 @@ permissions:
 jobs:
   stop:
     name: Stop review app
-    # Scalingo ne réagit pas au passage en draft, et un collaborateur ne peut pas supprimer une
-    # review app (401) : on l'éteint. Elle sera détruite à la fermeture, ou par delete_stale.
+    # Scalingo ne réagit ni au passage en draft ni au retrait du label, et un collaborateur ne peut
+    # pas supprimer une review app (401) : on l'éteint. Elle sera détruite à la fermeture, ou par
+    # delete_stale.
     if: >-
-      github.event.action == 'converted_to_draft'
+      (github.event.action == 'converted_to_draft'
+        || (github.event.action == 'unlabeled' && github.event.label.name == 'review-app'))
       && github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
