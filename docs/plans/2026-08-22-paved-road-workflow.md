@@ -604,3 +604,102 @@ annonce l'inverse de ce qu'il fait. Correctif : `load_dotenv(Path(__file__).pare
 
 Sur `main` le problème est masqué — `make test` force `DATABASE_URL=` et python-dotenv ne remplace
 pas une variable définie — mais un `pytest` lancé hors cible Makefile le rouvre.
+
+## 16. Durcissement et retrait de la CI, le 30 août
+
+Ce document fige un état daté. Cette section s'y ajoute, elle ne le réécrit pas : les sections 1 à
+15 restent la trace de ce qui était vrai le 27 août, y compris ce qui a été démonté depuis.
+
+### La décision structurante : la CI ne vérifie plus aucun artefact du parcours
+
+Le job **« Ce qui devait marcher »**, `scripts/check_paved_road.py` et ses 20 tests, la cible
+`make paved-road` et le label `break-glass` sont supprimés. Position tranchée, et il n'y a pas
+d'aménagement intermédiaire : la CI porte des tests, de la sécurité, des audits, des builds
+d'image et des déploiements. Elle ne relit pas des documents produits par le workflow de
+développement — ce qu'elle y mesurerait, c'est ce que ce workflow a bien voulu écrire.
+
+Ce qu'on perd, et c'est accepté : plus rien du côté GitHub ne constate qu'une PR touchant `web/` a
+un contrat démontré. La garantie devient locale, et elle repose sur trois choses : la liste
+d'interdits de `.claude/settings.json`, qui protège les attestations et le journal en écriture ;
+`advance`, seule voie pour passer d'un état au suivant ; et la relecture du pair.
+
+Le mécanisme de non-rejeu (`NOT_REPLAYABLE`, verdict `démontré (E2E)` / `démontré (nightly)`,
+champ `not_replayable`) part avec le rejeu — il n'existait que pour lui. Avec lui part un
+contournement : le mot `browser` posé n'importe où dans une commande dispensait du rejeu.
+
+Le label `break-glass` disparaît aussi, ainsi que les deux règles `deny`
+`Bash(gh * --add-label*)` et `Bash(gh * --label*)` qui empêchaient l'agent de se le poser.
+**Portée réelle de ce retrait, relevée en revue** : ces deux règles bloquaient `--label` sur *toute*
+commande `gh`, pas seulement le `break-glass`. `gh pr create --label …` est désormais
+auto-approuvé. Aucun workflow du dépôt n'est piloté par un label aujourd'hui, donc l'effet est nul ;
+il cesserait de l'être le jour où une automatisation le serait.
+
+**Ce que la suppression emporte et qui n'était pas visé** : `check_paved_road.py` exigeait qu'une PR
+touchant `web/`, `lib/`, `skills/` ou `alembic/` **ait un parcours**. Plus rien ne le remarque —
+`verify_dod` et `verify_attestations` ne s'exécutent que si quelqu'un les invoque. Le déclencheur
+de périmètre redevient une règle de revue.
+
+### Ce que `lib/attestation.py` gagne en échange
+
+| Ajout | Ce qu'il ferme |
+|---|---|
+| **le rouge avant le vert** (`advance --red`, `record_red`, `red_before_green`) | un test écrit après le code, jamais vu échouer. Le rouge exige un code de sortie non nul, mais pas un arbre propre — on écrit le test, on le voit échouer, on écrit le code, et on commit les deux ensemble ; le vert est refusé sans rouge journalisé, et refusé si le rouge et le vert portent la même empreinte de périmètre |
+| **antériorité du contrat** (`dod_antedates_code`) | un contrat écrit après coup pour décrire ce qui a été fait. Fenêtre délimitée par la merge-base avec `--base` ; contournable par réécriture d'historique, donc un signal fort, pas une garantie |
+| **immuabilité du contrat validé** (`frozen_criteria`) | rétrécir la cible jusqu'à ce que le vert soit atteignable. Toute ligne changée exige une `Révision AAAA-MM-JJ` sous son critère, un critère disparu est refusé |
+| **validation non vide** (`VALIDATION`) | une section « Validation » réduite à son titre. Prérequis du point précédent : sans elle, aucun commit de référence |
+| **périmètre de preuve verrouillé** (retrait de `--paths` et de `PATHS`) | `PATHS=tests` rangeait une attestation qui n'engageait que `tests/` — tout `web/` restait réécrivable sans périmer une preuve. C'était le contournement le plus large du dispositif |
+| **refus de commande resserrés** | `make test` et `make help` démontraient n'importe quel critère (le contrôle de nommage ne s'applique qu'à ce qui lance pytest) ; `uv run --frozen python -c "pass"` était une preuve admise ; `pytest tests/ --junitxml=/tmp/dod-1.xml` satisfaisait le lien commande-critère en lançant la suite entière. Le lien se fait désormais par la valeur d'un `-k` ou un identifiant `::test_dod_n`, et les refus sont **rejoués à la vérification**, pas seulement à l'écriture |
+
+Ce que le rouge démontre reste modeste, et il faut le dire : que le test cité a échoué sur un état
+du code et qu'il passe sur un autre. Pas que c'est *ce* changement qui l'a fait passer — un octet
+committé entre les deux suffit à faire diverger les empreintes. Ce qui est fermé, c'est le cas
+courant et le plus dommageable.
+
+### Le cliquet : que la dette cesse de monter
+
+- `N999` et `ERA001` activées, mesurées à 0 violation (un faux positif annoté dans `alembic/`).
+- `S608` (22) et `BLE001` (11) **gelées** dans `gates.toml`, comptées par fichier et par règle,
+  au lieu du `ruff check --exit-zero` qui affichait un compte sans jamais rien bloquer.
+  `scripts/check_lint_baseline.py` refuse une hausse **et** une entrée devenue trop haute.
+- Les conventions de `.claude/rules/` — 145 violations sur 287 fichiers — gelées de la même façon.
+  Elles n'étaient vérifiées que par un hook de session Claude Code, alors que trois règles le
+  citent comme leur vérificateur : le design lui-même déclare cela irrecevable. Elles passent
+  maintenant par `make lint`, pour l'agent comme pour l'humain.
+- Le front reçoit son premier linter : `biome.json`, `make lint-js`, un job CI « Lint front
+  (Biome) ». Le formateur a été passé sur les 6 fichiers de `web/static`, et les règles à dette
+  ancienne non corrigeable sans risque visuel (`noDescendingSpecificity`, `noImportantStyles`) sont
+  désactivées avec leur raison. `noUnusedVariables` l'est aussi : les fonctions du chat sont
+  appelées depuis des attributs `onclick` de templates Jinja, que Biome ne lit pas.
+
+### Un point du chantier laissé ouvert
+
+Le JavaScript n'entre pas dans `gates.toml` pour `diff-cover`. Ce n'est pas un oubli : diff-cover
+lit `coverage.xml`, et il n'existe aucune suite de tests front qui pourrait le produire. L'y
+déclarer ferait croire à une couverture mesurée. Son seul filet est `make lint-js`.
+
+### Ce que quatre revues adversariales ont trouvé, et ce qui a été corrigé
+
+Le lot a été relu sur quatre axes indépendants — correction, sécurité, architecture, véracité des
+documents — avant d'être proposé au commit. Les constats confirmés par exécution :
+
+| Ce qui était faux | Correctif |
+|---|---|
+| `record_red` n'exigeait qu'un code de sortie non nul. Or `pytest -k inexistant` sort en 5 et un fichier absent en 4 : on obtenait un rouge valide **avant d'avoir écrit le moindre test**. Le contrôle-phare du lot était vide | `PYTEST_FAILED` : sur une commande pytest, le rouge doit montrer qu'un test a réellement échoué |
+| Le verrouillage du périmètre n'était fermé qu'à l'écriture. Retirer une ligne du tableau d'empreintes rendait tout `web/` réécrivable sans périmer la preuve | `verify_attestations` compare l'ensemble des empreintes à `proven_paths` et refuse une attestation partielle |
+| `selections` acceptait tout token contenant `::`, et ne lisait pas le sens du sélecteur : `-k "not dod_1"`, `--deselect …::test_dod_1`, `-k dod_11` pour DOD-1, `--junitxml=/tmp/a::dod_1.xml` passaient | `designates` exige une frontière de chiffre et refuse un `not` ; les `::` ne comptent que sur un argument positionnel ; `--deselect`, `-c`, `-p`, `--rootdir`, `--import-mode`, `--ignore` sont refusés |
+| `runs_a_versioned_file` ne testait que « ne commence pas par `-` » : `uv run --frozen python /tmp/evil.py` était accepté et s'exécutait. Le message promettait un fichier versionné | Refus de tout argument hors du dépôt, et vérification que le fichier passé à `python` est suivi par git |
+| `dod_antedates_code` accusait à tort quand le contrat était committé **avant** le point de fork — branche partant d'une autre branche, ou rebase | Un ajout antérieur à la fenêtre reçoit un rang négatif : il précède tout le code de la branche |
+| `verify_attestations` levait un traceback sur une commande mal quotée | `command_refusals` rend un refus lisible au lieu de propager `ValueError` |
+| Une commande `alembic -x db_url=postgresql://u:mdp@h/db` était acceptée, et son DSN recopié en clair dans l'attestation et le journal, sur un dépôt public | Refus de toute commande portant des identifiants dans une URL |
+| `measure` ignorait le code de retour de ruff : une panne se présentait en `JSONDecodeError`, en perdant le message. `relative_to` levait sous un chemin symlinké. Le rapport donnait un compte sans dire quelle convention | Code de retour vérifié, chemins résolus, violations réelles affichées sous le compte |
+| `verify_content` — la garde anti-PII sur un dépôt public, famille D — n'avait plus aucun déclencheur automatique après le retrait de la CI | Branché sur `make lint` |
+| Six tests étaient creux, dont deux qui asserteraient encore vrai si `record_red` calculait l'empreinte au mauvais moment | Réécrits pour mordre |
+
+Un constat n'a **pas** donné lieu à correctif, et c'est délibéré : `check_paved_road.py` était le
+seul endroit qui **ré-exécutait** la commande d'une attestation. Sans lui, une attestation
+entièrement écrite à la main, avec un code de sortie 0 et les bonnes empreintes, passe tous les
+contrôles. Un rejeu local ne prouverait rien de plus, puisque c'est le même agent qui écrit la
+preuve et qui la rejouerait. Les documents ont donc été corrigés pour le dire, plutôt que le code
+pour le masquer : `prove.md` annonce désormais que les refus ferment la preuve vide et la preuve
+hors dépôt, qu'ils ne sont pas une frontière de sécurité, et que ce qui tient réellement est
+l'empreinte qui périme, plus la relecture du pair.

@@ -5,7 +5,7 @@ paths:
   - web/**
 ---
 
-> **Vérifié par** — `.claude/hooks/check_python.py`, `scripts/check_http_timeouts.py`. La limite « plus de cinq requêtes segmentées » : **personne**.
+> **Vérifié par** — `.claude/hooks/check_python.py` pour l'instanciation directe de `MatomoAPI` / `MetabaseAPI` ; ruff `S113` et `scripts/check_http_timeouts.py` pour les timeouts. La limite « plus de cinq requêtes segmentées » : **personne**.
 
 Ne pas instancier `MatomoAPI` ou `MetabaseAPI` directement. Passer par `lib.query.execute_matomo_query` / `execute_metabase_query` (logging, timeouts, signaux d'observabilité inclus).
 

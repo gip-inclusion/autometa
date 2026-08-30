@@ -1,4 +1,4 @@
-> **Vérifié par** — `scripts/check_test_quality.py`, ruff (PT0xx), `diff-cover` — `make lint` et la CI.
+> **Vérifié par** — `scripts/check_test_quality.py` et ruff (PT0xx) dans `make lint` ; `diff-cover` dans `make diff-cover`, donc dans la CI seulement. La suppression d'un test n'est vue par **personne**.
 
 pytest uniquement : pas de `unittest` (ni `TestCase`, ni imports depuis le package `unittest`). Pour les mocks, utiliser le fixture **`mocker`** de **pytest-mock** (`mocker.patch`, `mocker.MagicMock`, etc.), pas `unittest.mock`.
 

@@ -39,8 +39,9 @@ paved-road/<slug>/
 `docs/paved-road/` porte la spécification du parcours ; `paved-road/` porte les artefacts produits
 par un parcours réel. Les deux ne se mélangent pas.
 
-Le fichier est **committé et attaché à la PR**. L'enforcement vit ici dans la CI, qui ne voit pas un
-fichier gitignoré. Le répertoire est conservé après le merge : il est la trace de ce qui avait été
+Le fichier est **committé et attaché à la PR** : c'est ce qui le rend lisible par le pair, seul
+lecteur qui reste depuis que la CI ne lit plus les artefacts du parcours. Le répertoire est
+conservé après le merge : il est la trace de ce qui avait été
 convenu, et les attestations s'y rattachent.
 
 ## Format
@@ -163,7 +164,7 @@ avec ce que le citizen developer perd dans chaque cas.**
 >   changement : vous saurez tout de suite s'il casse, jamais s'il devient lent.
 
 Si l'agent ne sait pas produire deux options ainsi formulées, ce n'est pas un point de décision
-métier, c'est un break-glass : le travail s'arrête et la question remonte comme une panne.
+métier, c'est un interdit de famille D : le travail s'arrête et la question remonte à un humain.
 
 ## Règle de partage avec les guardrails
 
@@ -239,8 +240,10 @@ dans la même PR, et l'attestation démontre la correspondance au contenu, jamai
 règle, rien ne distingue un contrat convenu d'avance d'une DoD rédigée après coup pour coller au
 code déjà produit — c'est-à-dire le retour exact du « juge et partie » que L0 supprime.
 
-La règle est vérifiable pour un coût nul (`git log --diff-filter=A`). Le contrôle exécutable est du
-ressort du milestone 3 ; la règle, elle, s'applique dès maintenant.
+La règle est vérifiée depuis le 2026-08-30 par `dod_antedates_code` (`lib/attestation.py`), appelé
+par `verify_dod` : `advance` refuse l'état `align` si un commit touchant `web/`, `lib/`, `skills/`
+ou `alembic/` précède celui qui ajoute la definition of done. Le contrôle lit l'ordre des commits,
+donc une réécriture d'historique l'efface : c'est un signal fort, pas une garantie.
 
 ## Dette assumée
 

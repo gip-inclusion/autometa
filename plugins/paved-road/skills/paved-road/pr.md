@@ -12,7 +12,7 @@ de la lentille, la rétro. Puis `make paved-road-status` pour confirmer qu'aucun
 
 - **Ce que je voulais** — une phrase, dans les mots du demandeur ;
 - **Ce qui devait marcher** — le tableau des critères, verdict et lien vers la preuve. Reprends la
-  sortie de `make paved-road` plutôt que de le composer à la main ;
+  sortie de `make paved-road-status` plutôt que de le composer à la main ;
 - **Ce qui n'a pas été démontré** — et pourquoi. « Rien » est une réponse valable, écris-la ;
 - **Pour juger sans lire le code** — l'URL de la review app, les captures du smoke, ce que la
   lentille a signalé et ce que tu as corrigé, la date du premier commit du contrat et celle du
@@ -31,9 +31,8 @@ critères, la review app, les captures. Pas le diff.
 
 ## Ce que tu ne fais pas
 
-**Tu ne poses aucun label**, et surtout pas `break-glass` : il lève le seul contrôle qui vérifie
-tes preuves. Si tu penses qu'il en faut un, demande-le, explique pourquoi, laisse un humain le
-poser.
+**Tu ne poses aucun label.** Si tu penses qu'il en faut un, demande-le, explique pourquoi, laisse
+un humain le poser.
 
 **Tu ne pousses plus après l'approbation** sans le dire. Un push après le « oui » du pair rouvre la
 question qu'il venait de trancher.
@@ -51,6 +50,6 @@ question qu'il venait de trancher.
 
 ## Si `main` bouge avant la fusion
 
-Le dépôt exige une branche à jour. Rebase, puis regarde le contrôle « Ce qui devait marcher » : si
-les empreintes ont bougé, les preuves sont périmées et il faut les refaire (`prove.md`). Annonce-le
-plutôt que de laisser le pair découvrir un rouge après son approbation.
+Le dépôt exige une branche à jour. Rebase, puis relance `make paved-road-checks CHECK=attestations` :
+si les empreintes ont bougé, les preuves sont périmées et il faut les refaire (`prove.md`). Aucune
+CI ne te le dira — annonce-le plutôt que de laisser le pair le découvrir après son approbation.

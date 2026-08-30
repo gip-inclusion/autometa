@@ -5,7 +5,7 @@ paths:
   - alembic/**
 ---
 
-> **Vérifié par** — `.claude/hooks/check_python.py`, `alembic check`, `scripts/check_migration_backfill.py`, ruff S608 (en observation).
+> **Vérifié par** — `.claude/hooks/check_python.py`, `alembic check`, `scripts/check_migration_backfill.py`, ruff S608 (dette gelée dans `gates.toml`, bloquante sur toute hausse).
 
 ORM : utiliser SQLAlchemy 2.0 (style `select()`, `session.scalars()`) pour toutes les requêtes. Les modèles sont dans `web/models.py` — c'est la source de vérité pour le schéma. Ne jamais écrire de raw SQL sauf quand c'est clairement plus concis (agrégations complexes, TRUNCATE, full-text search). Le raw SQL doit utiliser `text()` avec des paramètres nommés (`:param`), jamais `%s`.
 

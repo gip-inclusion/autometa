@@ -42,9 +42,10 @@ socle couvre à la place `/dashboards`, la page d'où l'on y accède, qui s'affi
 ## Hors de `required_status_checks`
 
 Le job `E2E` ne bloque pas la fusion tant qu'il n'a pas prouvé son absence d'instabilité — le
-cliquet du design appliqué à son propre outillage. Il vit dans son propre workflow, comme
-`dependencies.yml` et pour la même raison : `scripts/check_required_checks.py` exige que tout job
-déclaré dans `ci.yml` soit inscrit dans les checks requis.
+cliquet du design appliqué à son propre outillage. Il vit dans son propre workflow parce que
+`scripts/check_required_checks.py` signale tout job de `ci.yml` non inscrit dans les checks requis.
+Ce signal n'est pas bloquant, par conception : un check neuf ne peut pas être inscrit avant d'avoir
+été publié une première fois.
 
 ## Accès aux review apps
 

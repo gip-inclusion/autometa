@@ -12,8 +12,14 @@ n'est simplement plus seule à porter la règle.
 
 **Règles de prose devenues règles ruff** (milestone 0) : `TID252` (imports relatifs parents),
 `E722` (`except` nu), `S113` (appel HTTP sans timeout), `TID251` (imports et APIs bannis, dont
-`os.getenv` / `os.environ` hors `web/config.py`). `S608` (SQL interpolé) et `BLE001` (`except
-Exception`) restent **en observation** — comptés par `make lint`, sans bloquer.
+`os.getenv` / `os.environ` hors `web/config.py`), et depuis le 2026-08-30 `N999` (nom de module) et
+`ERA001` (code commenté), toutes deux mesurées à 0 violation avant activation.
+
+**Dettes gelées** (2026-08-30) : `S608` (SQL interpolé, 22 occurrences) et `BLE001` (`except
+Exception`, 11) ne sont plus « en observation » — `scripts/check_lint_baseline.py` gèle leur compte
+par fichier dans `gates.toml` et **fait échouer `make lint`** sur toute hausse, comme sur une entrée
+devenue trop haute : la baseline se résorbe, elle ne s'étend pas. Le même mécanisme gèle les 145
+violations des conventions de `.claude/rules/`, que seul un hook de session vérifiait jusque-là.
 
 Les exemptions `os.environ` se posent **en ligne**, avec un `# Why:`, jamais au fichier : une
 exemption au fichier rendrait `web/cron.py` et `web/agents/cli.py` aveugles à une vraie lecture de

@@ -17,10 +17,10 @@ le contourne, c'est un service de confort qui évite un aller-retour de CI.
 
 ## Les checks requis
 
-Cinq portent sur le code, en anglais, et s'adressent à qui sait les lire. Le sixième s'appelle
-**« Ce qui devait marcher »** et n'a qu'un lecteur : la personne non technique qui regarde la boîte
-de merge. Son résumé affiche le tableau des `DOD-N` avec démontré / non démontré, et la famille de
-l'échec en français. C'est le seul qu'elle consulte ; les cinq autres peuvent rester techniques.
+Ils portent sur le code, en anglais, et s'adressent à qui sait les lire. Il n'y en a plus aucun qui
+s'adresse à la personne non technique : le job « Ce qui devait marcher » a été supprimé le
+2026-08-30, pour la raison exposée plus bas. Ce qu'elle lit désormais, c'est la description de PR,
+que `pr.md` compose à partir du contrat et des attestations.
 
 `CodeQL` et `GitGuardian` tournent sur le dépôt et **ne sont pas requis** : ils appartiennent à des
 tiers, leur disponibilité ne nous appartient pas, et un check requis indisponible bloque tout.
@@ -37,41 +37,40 @@ couverture, donc il avertit. La raison est structurelle — un check neuf ne peu
 d'avoir été publié une première fois, sinon il reste en « Expected » sur toutes les PR. Un renommage
 reste attrapé : il produit les deux écarts à la fois, dont le bloquant.
 
-**État au 2026-08-18** : les cinq checks techniques sont requis. « Ce qui devait marcher » ne l'est pas
-encore — il n'existera sur GitHub qu'après le merge de ce lot, et devra être ajouté à ce moment-là.
+**État au 2026-08-30** : les checks techniques sont requis. « Lint front (Biome) » ne l'est pas
+encore — un check neuf n'existe sur GitHub qu'après avoir été publié une première fois, et devra
+être ajouté à ce moment-là.
 
 `strict: true` est armé. Sans ce drapeau, GitHub accepte de merger une PR dont la CI a été verte sur
 une base périmée : deux branches ajoutent chacune une migration enfant du même `down_revision`, les
 deux sont vertes, et `main` se retrouve avec deux heads Alembic.
 
-## Le déclencheur de périmètre
+## La CI ne lit aucun artefact du parcours
 
-> Le check paved road est requis **si et seulement si** le diff touche `web/`, `lib/`, `skills/` ou
-> `alembic/`. Sur ce périmètre, l'absence de `definition-of-done.md` est un échec, pas une
-> non-application. Ailleurs — dépendances, `docs/`, `knowledge/` — il est neutre.
+Ce document a longtemps décrit un job « Ce qui devait marcher » qui rejouait les commandes des
+attestations et comparait son code de sortie au verdict journalisé. **Ce job n'existe plus depuis
+le 2026-08-30, et c'est un choix, pas un oubli.**
 
-Sans déclencheur écrit, deux issues, toutes deux mauvaises : un check exigé sur toutes les PR gèle le
-dépôt, puisque Dependabot en ouvre jusqu'à vingt par jour ; un check jamais exigé se contourne en
-n'écrivant pas de Definition of Done.
+La CI porte des tests, de la sécurité, des audits, des builds d'image et des déploiements. Elle ne
+relit pas des documents produits par le workflow de développement : ce qu'elle y mesurerait, c'est
+ce que ce workflow a bien voulu écrire. La supprimer vaut mieux que l'aménager.
 
-La seule échappatoire est un label `break-glass`, posé à la main par un humain. Le check le journalise
-comme tel dans son résumé, avec la liste des fichiers couverts par la dispense : une dispense implicite
-n'en est pas une, c'est une porte que personne ne regarde.
+Ce qui reste, et qui tient la preuve :
 
-## La CI rejoue, elle ne fait pas confiance
+- une attestation est refusée dès que le contenu qu'elle prouve a changé — la comparaison porte sur
+  les empreintes d'arbre des chemins prouvés, ce qui rend le rebase inerte et une vraie
+  modification du code invalidante ;
+- `advance` est la seule voie pour passer d'un état au suivant, et il n'avance que sur des codes de
+  sortie réels ;
+- la liste d'interdits de `.claude/settings.json` refuse à l'agent l'écriture des attestations et
+  du journal par ses outils d'édition. Ce que cela ne ferme pas, et il faut le dire : rien
+  n'empêche un `sed -i`, un `tee` ou un script d'y écrire — il n'y a pas de bac à sable, la couche
+  2 du design n'est pas construite ;
+- le pair lit le contrat, le journal et les attestations dans la PR.
 
-Pour chaque `DOD-N`, la CI relance la commande enregistrée dans l'attestation et compare son propre
-code de sortie au verdict journalisé. **Tout écart est un échec.** Le journal redevient ce qu'il est —
-un cache et une source de statistiques — et cesse d'être une autorité.
-
-Le rejeu exécute donc une commande lue dans un fichier de la PR. Ce n'est pas une surface nouvelle :
-le job `Tests` exécute déjà le code de la PR, le workflow se déclenche sur `pull_request` et non
-`pull_request_target`, ses permissions sont limitées à `contents: read`, et GitHub n'expose pas les
-secrets du dépôt aux PR issues d'un fork.
-
-Une attestation est aussi refusée quand le contenu qu'elle prouve a changé depuis : la comparaison
-porte sur les empreintes d'arbre des chemins prouvés, ce qui rend le rebase inerte et une vraie
-modification du code invalidante.
+Ce qu'on perd, et qui est assumé : rien du côté GitHub ne constate qu'une PR touchant `web/` a un
+contrat démontré. La garantie est locale, et le déclencheur de périmètre — `web/`, `lib/`,
+`skills/`, `alembic/` — reste une règle de revue, plus un check.
 
 ## Les familles d'échec
 
@@ -80,10 +79,15 @@ Chaque échec restitué porte donc sa famille.
 
 | Famille | Ce que c'est | Réponse |
 |---|---|---|
-| **A** | test rouge, preuve périmée, rejeu divergent | l'agent reprend — c'est le travail normal |
+| **A** | test rouge, preuve périmée, rouge manquant avant un vert, **et aussi la definition of done absente ou mal formée** | l'agent reprend — c'est le travail normal |
 | **B** | Postgres, Redis ou le réseau injoignable | arrêt immédiat : réessayer brûle du temps sans rien corriger |
-| **C** | Definition of Done absente ou mal formée | retour au citizen developer |
-| **D** | contenu interdit sous `attestations/` — le dépôt est public | break-glass |
+| **C** | critère ambigu ou infaisable | retour au citizen developer |
+| **D** | contenu interdit sous `paved-road/` — le dépôt est public | arrêt : la décision remonte à un humain |
+
+Écart à connaître entre ce tableau et le code : la famille est déclarée **par check**, pas par
+cause (`lib/attestation.py`, `CHECKS`). Seul `doctor` porte B, seul `content` porte D, et **aucun
+check n'émet C** — une definition of done absente est restituée en A. Une panne réseau pendant
+`make security` sera donc annoncée « réparable », à tort.
 
 ## Les trois angles morts traités au même moment
 

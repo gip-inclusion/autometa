@@ -7,7 +7,19 @@ Le demandeur verra le résultat dans la description de PR : démontré, non dém
 
 ## Dans l'ordre
 
-Pour chaque critère :
+Chaque critère se prouve en deux temps, et le second refuse de partir sans le premier.
+
+**Le rouge**, une fois le test écrit, avant que le code existe. Rien n'a besoin d'être committé :
+
+```
+make paved-road-advance DOD=DOD-1 RED=1 CMD='uv run --frozen pytest tests/test_rapports.py -k dod_1'
+```
+
+La commande doit sortir en code non nul. Si elle sort en 0, `advance` refuse : un test qui passe
+avant que le code existe ne démontre rien. Le rouge journalise l'empreinte du périmètre prouvé au
+moment où il tourne — c'est elle qui servira à constater qu'il s'est passé quelque chose ensuite.
+
+**Le vert**, une fois le code écrit et committé :
 
 ```
 make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_rapports.py -k dod_1'
@@ -15,25 +27,58 @@ make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_rapport
 
 `advance` exécute la commande, écrit `paved-road/<slug>/attestations/DOD-1.md` — la commande, son
 code de sortie, la sortie tronquée, les empreintes d'arbre de `web`, `lib`, `scripts`, `skills`,
-`alembic`, `tests`, et le verdict. Il refuse si un chemin prouvé a des modifications non
-committées : on ne prouve que du code enregistré.
+`alembic`, `tests`, et le verdict.
+
+Il refuse le vert dans deux cas : aucun rouge n'a été journalisé pour ce critère, ou le rouge et le
+vert portent sur la même empreinte de périmètre — rien n'a été implémenté entre les deux, donc le
+cycle n'a pas eu lieu.
+
+Le vert exige un arbre propre sur les chemins prouvés : il inscrit une empreinte, et elle ne
+décrirait pas un travail non committé. Le rouge, lui, tourne sur l'arbre de travail — c'est bien
+le moment où le test existe et où le code n'existe pas encore. L'empreinte qu'il journalise est
+celle du HEAD, donc du code d'avant, ce qui suffit à la distinguer de celle du vert.
 
 ## Quelle preuve pour quel critère
 
-| Le critère parle de… | Preuve admise | Rejouée en CI ? |
-|---|---|---|
-| un comportement du code (`web/`, `lib/`) | un test unitaire ciblé : `uv run --frozen pytest tests/… -k dod_N` | oui |
-| un parcours dans le navigateur | un `test_dod_N` sous `browser/`, joué par le workflow E2E. Verdict `démontré (E2E)`, **non rejoué** par le contrôle requis — il échouerait faute de navigateur et d'application servie | non |
-| une migration | `alembic check`, plus la migration jouée sur une base fraîche | oui |
-| un `SKILL.md`, un fichier `knowledge/` | frontmatter valide, chemins cités existants. La preuve comportementale viendra avec les evals | oui |
-| un chiffre : volumétrie, durée | une mesure en nightly, hors chemin bloquant. Verdict `démontré (nightly)`, non rejoué. **Le contrat doit l'annoncer d'avance** | non |
+| Le critère parle de… | Preuve admise |
+|---|---|
+| un comportement du code (`web/`, `lib/`) | un test unitaire ciblé : `uv run --frozen pytest tests/… -k dod_N` |
+| un parcours dans le navigateur | un `test_dod_N` sous `browser/`, joué par le workflow E2E |
+| une migration | `alembic check`, plus la migration jouée sur une base fraîche |
+| un chiffre : volumétrie, durée | un test qui mesure et assère un seuil, comme les autres |
+
+Rien ne rejoue ces preuves ailleurs : la CI ne lit aucun artefact du parcours. Le verdict que vous
+lisez est celui de la commande qui a tourné ici, sur l'empreinte de code inscrite dans
+l'attestation. Une preuve périmée se voit à cette empreinte, pas à un rejeu.
+
+Un `SKILL.md` ou un fichier de `knowledge/` n'a pas de vérificateur : aucun script ne sait dire si
+son contenu fait ce qu'il annonce. Un critère qui porte dessus ne se démontre pas par ce mécanisme
+— dites-le au demandeur plutôt que de ranger une preuve creuse.
 
 ## Ce qu'une commande de preuve ne peut pas être
 
-- `true`, `echo`, ou toute commande décorative ;
-- `pytest --version`, `pytest --collect-only`, `--co` : collecter n'est pas exécuter ;
-- un test sans rapport avec le critère. La commande doit **exécuter** au moins un test dont
-  l'identifiant contient `dod_N`.
+La liste des commandes admises est fermée : `uv run --frozen pytest`, `uv run --frozen alembic`,
+`uv run --frozen python <fichier>`. Tout le reste est refusé avant même d'être exécuté.
+
+- `true`, `echo`, `make` — y compris `make test` : une cible de Makefile démontrait n'importe quel
+  critère, puisque le lien commande-critère ne s'applique qu'à ce qui lance pytest ;
+- `python -c`, `python -m`, `python --version`, le REPL nu : une preuve exécute un fichier
+  versionné, que la relecture peut lire ;
+- `pytest --collect-only`, `--co` : collecter n'est pas exécuter ;
+- un `pytest` qui sort en 0 sans qu'un seul test ait tourné — un `-k` qui ne désigne rien ;
+- un test sans rapport avec le critère. Le lien se fait par la **valeur d'un `-k`** ou par un
+  identifiant `…::test_dod_n_…`, pas par le mot `dod_n` posé ailleurs sur la ligne :
+  `pytest tests/ --junitxml=/tmp/dod-1.xml` lançait la suite entière et satisfaisait le contrôle.
+
+Ces refus s'appliquent à l'écriture de l'attestation **et** à sa relecture, ce qui rattrape une
+attestation ancienne dont la commande ne serait plus recevable.
+
+Ce qu'ils ne font pas, et il faut le savoir : **rien ne rejoue la commande à la relecture**. Une
+attestation entièrement écrite à la main, avec un code de sortie 0 et les bonnes empreintes, passe
+tous les contrôles. Ces refus ferment la preuve *vide* et la preuve *hors dépôt* ; ils ne sont pas
+une frontière de sécurité, et ils ne peuvent pas l'être — c'est le même agent qui écrit la preuve
+et qui la relit. Ce qui tient réellement : l'empreinte périme l'attestation dès que le code change,
+et le pair lit le contrat et les preuves dans la PR.
 
 Ces règles ferment la preuve vide. Elles ne jugent pas si le corps du test démontre vraiment le
 bon comportement — aucun programme ne sait le faire. C'est au pair de lire les critères, et à la
@@ -55,6 +100,6 @@ Passe à `pr.md`.
 ## Si une preuve devient périmée
 
 Elle le devient dès qu'un des chemins empreintés change — y compris quand `main` avance sous toi
-et que tu rebases. Le contrôle « Ce qui devait marcher » vire au rouge et le dit : c'est une panne
-réparable, tu reprends les preuves concernées. Si l'interface a changé, le smoke est à refaire
+et que tu rebases. `make paved-road-checks CHECK=attestations` le dit, et `advance` refuse de
+passer à l'état suivant : c'est une panne réparable, tu reprends les preuves concernées. Si l'interface a changé, le smoke est à refaire
 aussi, et il demande une présence humaine : préviens le demandeur au lieu de le découvrir avec lui.

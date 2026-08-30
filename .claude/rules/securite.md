@@ -6,7 +6,7 @@ paths:
   - paved-road/**
 ---
 
-> **Vérifié par** — bandit, gitleaks, `scripts/check_route_auth.py`, `verify_content` — job Security de la CI.
+> **Vérifié par** — bandit, gitleaks, `scripts/check_route_auth.py` (job Security) ; `verify_content` (`make lint`, job Lint & format).
 
 Invariants de sécurité — vrais pour toute demande, donc jamais recopiés dans une Definition of Done.
 
@@ -23,7 +23,8 @@ L'injection de prompt est un vecteur d'attaque, pas une curiosité.
 dans des variables d'environnement lues par `web/config.py`, jamais dans le code ni dans un fichier
 committé.
 
-**Les dépendances sont épinglées** (`uv.lock`) et auditées par le job nightly `Dependencies`. Le
+**Les dépendances sont épinglées** (`uv.lock`) et auditées par `pip-audit` dans `make security`,
+donc dans le job Security de chaque PR — il n'existe pas de job nightly `Dependencies`. Le
 vendoring manuel demande une justification écrite.
 
 **Moindre privilège sur les routes** : une route FastAPI naît sans protection, l'autorisation s'écrit

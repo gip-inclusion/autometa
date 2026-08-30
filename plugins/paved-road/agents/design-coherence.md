@@ -67,4 +67,6 @@ corrigé, ou justifié par écrit sous le bloqueur. Tu es un sous-agent distinct
 pas ton rapport, il y répond. Une relance ne fait pas disparaître un bloqueur qu'il n'a pas adressé.
 
 Ton verdict ne devient jamais un check qui se rejoue en intégration continue : un jugement de
-modèle rejoué clignote. Ce que la CI vérifie, c'est que ton rapport existe et qu'il est à jour.
+modèle rejoué clignote. La CI ne vérifie pas non plus que ton rapport existe — elle ne lit aucun
+artefact du parcours. Ce qui le fait exister, c'est que l'agent ne passe pas l'étape sans l'avoir
+traité, et que le pair le lit.

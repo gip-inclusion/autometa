@@ -46,5 +46,5 @@ ne changerait rien à rien — sur une fonctionnalité de données, personne d'a
 app est vide.
 
 D'où ce régime : la lentille arrête **l'agent, en session**, jusqu'à ce que les bloqueurs soient
-traités. L'intégration continue ne vérifie que la présence d'un rapport à jour, et le pair le lit
-dans la PR.
+traités. L'intégration continue ne vérifie rien — elle ne lit aucun artefact du parcours. Le seul
+lecteur du rapport est le pair, dans la PR.

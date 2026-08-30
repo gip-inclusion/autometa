@@ -22,12 +22,14 @@ claude
 Le projet suit le **paved road** : un parcours unique, qui ajoute une contrainte à la fois. Sa
 conception et sa justification sont dans `docs/plans/2026-08-22-paved-road-workflow.md`.
 
-Les sept niveaux sont en place, à un réglage près : « Ce qui devait marcher » n'entrera dans les
-checks requis qu'une fois publié une première fois sur `main`, et `require_code_owner_review`
-qu'une fois `CODEOWNERS` fusionné — les cocher d'avance rendrait toute PR infusionnable.
+Les sept niveaux sont en place, à deux réglages près : `require_code_owner_review` n'entrera dans
+les règles qu'une fois `CODEOWNERS` fusionné, et « Lint front (Biome) » qu'une fois publié une
+première fois sur `main` — les cocher d'avance rendrait toute PR infusionnable.
 L0 (l'accord écrit) se tient **à la main** — aucune commande à lancer ;
 L1 (les attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le
-parcours sans code de sortie 0 ; L2 est armé, c'est-à-dire que la CI refuse le merge quand ils manquent ;
+parcours sans code de sortie 0 ; L2 est armé sur les gates techniques — lint, sécurité, tests,
+couverture, migrations — que la CI refuse de laisser passer, mais **pas** sur les artefacts du
+parcours, qu'elle ne lit plus ;
 L3 démontre les critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via
 `scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `paved-road:design-coherence`, bloquante en
 session ; L6 pose la
@@ -44,8 +46,12 @@ façade des tableaux de bord et les règles devenues exécutables. Détail :
    seule chose qui distingue un accord convenu d'avance d'une DoD écrite après coup pour coller au
    code produit.
 4. **Coder**, puis démontrer chaque critère par une commande réelle :
-   `make paved-road-advance DOD=DOD-1 CMD='…'` range l'attestation correspondante — la commande, son
-   code de sortie, les empreintes du contenu prouvé, le verdict. Format et règles :
+   `make paved-road-advance DOD=DOD-1 RED=1 CMD='…'` journalise d'abord le rouge — le test écrit,
+   et vu échouer faute d'implémentation ; rien n'a besoin d'être committé à ce stade. Une fois le
+   test et le code écrits et committés,
+   `make paved-road-advance DOD=DOD-1 CMD='…'` range l'attestation — la commande, son code de
+   sortie, les empreintes du contenu prouvé, le verdict. Sans rouge préalable, ou si le rouge et le
+   vert portent sur le même code, le vert est refusé. Format et règles :
    `docs/paved-road/l1-attestation.md`.
 5. **Relire le diff avec la lentille `paved-road:design-coherence`** — le code fait-il ce que la DoD dit, ni plus
    ni moins ? Ses bloqueurs arrêtent le travail : chacun se corrige, ou se justifie par écrit sous le
@@ -60,23 +66,26 @@ façade des tableaux de bord et les règles devenues exécutables. Détail :
 `make paved-road-status` dit à tout moment l'état atteint et quels critères restent à démontrer.
 Aucune image et aucun binaire sous `attestations/` : le dépôt est public, et un check le refuse.
 
-## Ce que la CI exige, et quand
+## Ce que la CI exige, et ce qu'elle ne regarde pas
 
-Le check **« Ce qui devait marcher »** est requis **si et seulement si** votre diff touche `web/`,
-`lib/`, `skills/` ou `alembic/`. Sur ce périmètre, l'absence de Definition of Done est un échec.
-Ailleurs — dépendances, `docs/`, `knowledge/` — il est neutre et ne demande rien.
+La CI porte des tests, de la sécurité, des migrations, de la couverture, un build d'image et un
+déploiement. Elle ne lit **aucun** artefact du parcours : ni la Definition of Done, ni le journal,
+ni les attestations. Ces documents sont produits par le workflow de développement, et une CI qui
+les relit ne mesure que ce que ce workflow a bien voulu écrire. C'est un choix, pas un oubli.
 
-La CI **rejoue** les commandes de vos attestations et compare son résultat au verdict que vous y avez
-écrit : un écart est un échec. Une attestation devient aussi caduque quand le code qu'elle prouve
-change. Chaque échec restitué porte sa famille — A réparable, B panne d'environnement, C question
-métier, D interdit — parce que la réponse n'est pas la même.
+La garantie que vos preuves tiennent est donc **locale**, et repose sur trois choses : la liste
+d'interdits de `.claude/settings.json`, qui refuse à l'agent d'écrire les attestations et le
+journal avec ses outils d'édition — sans bac à sable, un `sed -i` y arriverait quand même ;
+`make paved-road-advance`, seule voie pour passer un état, et qui refuse un vert sans rouge
+préalable ni empreinte à jour ; et la relecture du pair, qui voit les artefacts dans la PR.
 
-Pour lever le check sur une PR qui n'a pas à passer par le parcours, un humain pose le label
-`break-glass` : la dispense est alors journalisée dans le résumé du check.
+Une attestation devient caduque quand le code qu'elle prouve change : `make paved-road-checks
+CHECK=attestations` le dit. Chaque échec porte sa famille — A réparable, B panne d'environnement,
+C question métier, D interdit — parce que la réponse n'est pas la même.
 
-Vérifier avant de pousser : `make paved-road`, ou `make ci` pour l'ensemble des gates. `make setup`
-installe un hook `pre-push` qui lance lint et tests unitaires — un service, pas une garantie :
-`--no-verify` le contourne. Pour l'installer seul : `make install-hooks`.
+Vérifier avant de pousser : `make paved-road-checks`, ou `make ci` pour l'ensemble des gates.
+`make setup` installe un hook `pre-push` qui lance lint et tests unitaires — un service, pas une
+garantie : `--no-verify` le contourne. Pour l'installer seul : `make install-hooks`.
 
 Une DoD validée ne se réécrit pas. Un critère qui se révèle infaisable est un blocage métier : il
 remonte à la personne qui a formulé la demande, avec au moins deux options formulées en résultats

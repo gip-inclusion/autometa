@@ -18,9 +18,10 @@ empreintes. Ce que L1 garantit est donc plus étroit que ce que le mot « attest
 l'evidence comportementale reste déclarative jusqu'à L3, où elle devient la sortie d'un test
 rejouable.
 
-La CI ne fait pas confiance à ces attestations : le job « Ce qui devait marcher » **rejoue** les
-checks et compare son résultat au verdict journalisé. Le journal est un cache et une source de
-statistiques, jamais une autorité.
+Rien ne rejoue ces attestations : la CI ne lit aucun artefact du parcours, et ce choix est motivé
+plus bas. Ce qui les tient, c'est que l'empreinte du contenu prouvé les périme dès que le code
+change, et que seul `advance` y écrit. Le journal reste un cache et une source de statistiques,
+jamais une autorité.
 
 ## Quatre commandes, trois états
 
@@ -32,20 +33,22 @@ la CI. `FEATURE=<slug>` surcharge le répertoire d'artefacts, déduit sinon de l
 | `make paved-road-start` | Ouvre `paved-road/<slug>/` et le gabarit de definition of done |
 | `make paved-road-status` | État atteint, verdict de chaque critère, compteur d'échecs réparables |
 | `make paved-road-checks` | Lance les checks de l'état courant, sans rien journaliser |
-| `make paved-road-advance` | Prouve un critère, ou fait progresser l'état |
+| `make paved-road-advance` | Journalise un rouge, prouve un critère, ou fait progresser l'état |
 
 Les états sont les trois temps du parcours : `align`, `build`, `prove`. `advance` lance les checks
 de l'état courant et ne progresse que s'ils sortent tous en 0.
 
-Pour démontrer un critère :
+Pour démontrer un critère, le rouge d'abord, le vert ensuite :
 
 ```
-make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_rapports.py -k "…" -q'
+make paved-road-advance DOD=DOD-1 RED=1 CMD='uv run --frozen pytest tests/test_rapports.py -k dod_1'
+make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_rapports.py -k dod_1'
 ```
 
-`PATHS="web lib data/interactive/mon-tdb"` fixe les chemins prouvés — par défaut `web`, `lib`,
-`scripts`, `alembic` et `tests`. Un chemin peut être un répertoire comme un fichier : plus il est
-large, plus une modification sans rapport périme la preuve et impose de la rejouer.
+Le périmètre prouvé n'est pas paramétrable, et ce n'est pas une commodité perdue : `PATHS=tests`
+rangeait une attestation qui n'engageait que `tests/`, si bien que tout `web/` pouvait être réécrit
+sans périmer une seule preuve. Toute attestation porte désormais l'empreinte de `web`, `lib`,
+`scripts`, `skills`, `alembic` et `tests` — de ceux, parmi eux, qui existent au HEAD.
 
 ## Rattachement au code : le contenu prouvé, ni la date ni le commit
 
@@ -98,7 +101,10 @@ Sur un journal mono-fichier, résoudre un conflit de rebase serait une écriture
 l'agent, hors `advance` et sans code de sortie : exactement l'invariant dont L1 tire son autorité.
 Avec un répertoire, git ne conflicte jamais sur des fichiers distincts et le rebase devient inerte.
 
-**Seul `advance` y écrit**, et seulement d'après des codes de sortie réels.
+**Seul `advance` y écrit** par construction, et seulement d'après des codes de sortie réels. La
+liste d'interdits refuse à l'agent d'y écrire avec ses outils d'édition ; elle ne l'empêche pas d'y
+écrire par un `sed -i` ou un script, faute de bac à sable. C'est une contrainte de conception, pas
+une barrière.
 
 ## Échecs : tri par famille, pas compteur
 
@@ -106,10 +112,14 @@ Chaque check déclare la famille de son échec, et c'est elle qui commande la su
 
 | Famille | Causes | Réponse |
 |---|---|---|
-| **A. Réparable** | test rouge, lint, couverture, attestation invalidée, rebase à faire | L'agent réessaie — travail normal |
-| **B. Environnement** | Postgres ou Redis absent, Matomo ou Metabase indisponible, réseau | Arrêt immédiat, signalé comme panne |
+| **A. Réparable** | test rouge, lint, attestation invalidée, rebase à faire, rouge manquant, definition of done mal formée | L'agent réessaie — travail normal |
+| **B. Environnement** | environnement de développement injoignable, constaté par `doctor` | Arrêt immédiat, signalé comme panne |
 | **C. Question métier** | critère ambigu, infaisable, périmètre flou | Retour au citizen developer |
-| **D. Interdit** | abaisser un seuil, migration destructive, suppression de test, contenu proscrit sous `attestations/` | Break-glass |
+| **D. Interdit** | contenu proscrit sous `paved-road/` sur un dépôt public | Arrêt : la décision remonte à un humain |
+
+La famille est déclarée **par check**, pas par cause : `CHECKS` en fixe une par entrée. Aucun check
+n'émet C aujourd'hui — la famille existe pour l'arrêt manuel de l'agent, pas pour un code de
+sortie. Et un échec de `make security` dû au réseau sera restitué en A, à tort.
 
 Réessayer sur A est légitime et fréquent ; réessayer sur B, C ou D est une erreur dès la première
 fois.
@@ -121,24 +131,47 @@ agir**. La valeur du plafond sera choisie sur les données du milestone 1, pas d
 sera actif, il produira une **conversion en HITL checkpoint**, pas un échec : l'agent se met en
 pause, il ne se débloque jamais lui-même.
 
-## Dette assumée
+## Le rouge avant le vert
 
-L'antériorité de la DoD (« le premier commit de la branche est celui qui l'ajoute ») reste une
-règle de revue, non un check. Sur une pile de branches, la base de comparaison n'est pas
-déterminable de façon fiable, et un contrôle qui crie à tort sur le cas nominal cesse d'être lu.
+`prove` refuse une attestation verte dont le rouge n'a pas été journalisé, et refuse aussi un vert
+joué sur la même empreinte de périmètre que son rouge — rien n'ayant changé entre les deux, le
+cycle n'a pas eu lieu. `advance --red` enregistre ce rouge : il exige un code de sortie non nul et
+une commande aussi recevable que celle d'un vert, mais **pas** un arbre propre — c'est bien le
+moment où le test existe et où le code n'existe pas encore. L'empreinte journalisée est celle du
+HEAD, donc du code d'avant. Le vert, lui, exige un arbre propre : il inscrit une empreinte, et
+elle ne décrirait pas un travail non committé.
 
-## Les preuves qui ne se rejouent pas
+Ce que cela démontre est modeste et il faut le dire : que le test cité a échoué sur un état du
+code, et qu'il passe sur un autre. Cela ne dit pas que c'est *ce* changement qui l'a fait passer.
+Un agent déterminé peut committer un octet entre les deux. Ce qui est fermé, c'est le cas courant
+et le plus dommageable : écrire le test après le code, et ne l'avoir jamais vu échouer.
 
-Deux formes échappent au rejeu, parce que le job requis n'a ni navigateur, ni application servie,
-ni les accès du nightly :
+## L'antériorité de la DoD
 
-- une preuve jouée dans le navigateur (`pytest browser/…`, ou `-m browser`) porte le verdict
-  **`démontré (E2E)`** ;
-- une mesure faite en nightly (`--nightly`) porte **`démontré (nightly)`**.
+`verify_dod` refuse un parcours dont un commit touchant `web/`, `lib/`, `skills/` ou `alembic/`
+précède celui qui ajoute la definition of done. La fenêtre est celle de la branche, délimitée par
+la merge-base avec `--base` (`origin/main` par défaut) ; quand cette base n'est pas résolvable, le
+contrôle ne s'exerce pas, faute de savoir où commence le parcours.
 
-Le verdict porte la mention, et `check_paved_road.py` la lit pour passer son tour. Sans cela, une
-PR deviendrait infusionnable dès que le check est requis : la commande échouerait dans le job, non
-parce que la preuve est fausse, mais parce que le job ne sait pas la rejouer.
+Le contrôle lit l'ordre des commits : une réécriture d'historique l'efface. C'est un signal fort,
+pas une garantie, et il ne faut pas le présenter autrement.
 
-Le contrat doit annoncer cette forme **d'avance**. Une preuve non rejouable décidée après coup est
-une preuve qu'on a renoncé à vérifier.
+## L'immuabilité d'un contrat validé
+
+Une fois la ligne « Validé par <qui> le <AAAA-MM-JJ> » committée, toute ligne de « Ce qui devra
+marcher » qui change exige une ligne `Révision AAAA-MM-JJ` sous le critère concerné, et un critère
+qui disparaît est refusé. C'est la règle qui empêche de rétrécir la cible jusqu'à ce que le vert
+soit atteignable.
+
+## Rien ne rejoue les preuves
+
+La CI ne lit aucun artefact du parcours. Le verdict d'une attestation est celui de la commande qui
+a tourné localement, sur l'empreinte de code qui y est inscrite.
+
+C'est un choix, pas un oubli : la CI porte des tests, de la sécurité, des audits, des builds et des
+déploiements ; elle ne relit pas des documents produits par le workflow de développement. Ce qui
+tient la preuve, c'est que l'empreinte périme l'attestation dès que le code change, que la liste
+d'interdits protège les attestations et le journal en écriture, et que le pair les lit dans la PR.
+
+Ce qu'on perd, et qui est assumé : rien du côté GitHub ne constatera qu'une PR touchant `web/` a un
+contrat démontré. La garantie est locale.

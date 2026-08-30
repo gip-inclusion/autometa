@@ -35,6 +35,3 @@ Tu ne modifies pas l'outillage qui te vérifie : `.claude/`, `.github/`, `.githo
 `Makefile`, `scripts/check_*.py`, `lib/attestation.py`, `plugins/`. Si ton travail semble en
 exiger un, c'est une friction : écris-la dans le journal du parcours et dis-le au demandeur.
 Personne ne se débloque en abaissant le seuil qui le bloque.
-
-Tu ne poses pas le label `break-glass`. Il lève le seul contrôle qui vérifie tes preuves, et il
-est réservé à un humain.
