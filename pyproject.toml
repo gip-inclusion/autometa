@@ -101,6 +101,9 @@ select = [
     "S113",   # appel HTTP sans timeout littéral
     "TID251", # imports et APIs bannis, configurés ci-dessous
     "TID252", # imports relatifs parents
+    # Activées le 2026-08-30, mesurées à 0 violation (ERA001 : une seule, un faux positif annoté)
+    "N999",   # nom de module invalide
+    "ERA001", # code commenté — la version d'avant vit dans git, pas dans le fichier
 ]
 ignore = [
     "E501",   # line length — enforce progressively, not retroactively

@@ -45,7 +45,7 @@ def test_declared_check_names_reads_the_real_workflow():
         "Migrations",
         "Docker",
         "Review app",
-        "Ce qui devait marcher",
+        "Lint front (Biome)",
     }
 
 

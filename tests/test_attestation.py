@@ -11,7 +11,13 @@ from lib.pii import NIR_PLACEHOLDER
 
 def make_repo(root: Path) -> Path:
     """Dépôt git jetable portant `web/`, `lib/` et `docs/`, avec un commit initial."""
-    for path, content in (("web/app.py", "x = 1\n"), ("lib/util.py", "y = 2\n"), ("docs/note.md", "note\n")):
+    files = (
+        ("web/app.py", "x = 1\n"),
+        ("lib/util.py", "y = 2\n"),
+        ("docs/note.md", "note\n"),
+        ("outils/preuve.py", "import sys\n\nprint(f'preuve de {sys.argv[1]}')\nsys.exit(int(sys.argv[2]))\n"),
+    )
+    for path, content in files:
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
@@ -112,9 +118,8 @@ Validé par test@example.invalid le 2026-08-18.
 
 
 def prove_command(dod, ok=True):
-    """Une commande de preuve admise, qui sélectionne le test nommé d'après le critère."""
-    code = "print('bonjour')" if ok else "raise SystemExit(1)"
-    return f'uv run --frozen python -c "{code}  # test_{dod.lower().replace("-", "_")}"'
+    """Une commande de preuve admise : un fichier versionné du dépôt, pas du code écrit sur la ligne."""
+    return f"uv run --frozen python outils/preuve.py {dod} {0 if ok else 1}"
 
 
 PROUVE_1 = prove_command("DOD-1")
@@ -260,9 +265,9 @@ def test_the_repairable_counter_is_recorded_without_ever_blocking(journey, mocke
 
 
 def test_proving_a_criterion_records_the_command_its_exit_code_and_the_content(journey):
-    entry = attestation.prove(journey, FEATURE, "DOD-1", PROUVE_1)
+    entry = prove_cycle(journey, "DOD-1")[0]
 
-    assert (entry.exit_code, entry.proven, entry.output) == (0, True, "bonjour")
+    assert (entry.exit_code, entry.proven, entry.output) == (0, True, "preuve de DOD-1")
     assert entry.trees == attestation.fingerprints(journey, ["web", "lib"])
     filed = attestation.parse_attestation((attestation.attestations_dir(journey, FEATURE) / "DOD-1.md").read_text())
     assert filed == entry
@@ -283,8 +288,7 @@ def test_proving_uncommitted_code_is_refused_because_the_fingerprint_would_not_d
 
 
 def test_changing_web_invalidates_the_attestation_that_proved_web(journey):
-    attestation.prove(journey, FEATURE, "DOD-1", PROUVE_1)
-    attestation.prove(journey, FEATURE, "DOD-2", PROUVE_2)
+    prove_cycle(journey, "DOD-1", "DOD-2")
 
     (journey / "web" / "app.py").write_text("x = 99\n")
     commit(journey, "change web")
@@ -299,14 +303,13 @@ def test_changing_web_invalidates_the_attestation_that_proved_web(journey):
     [("DOD-1", "DOD-2 — non démontré : aucune attestation."), ("DOD-2", "DOD-1 — non démontré : aucune attestation.")],
 )
 def test_a_criterion_without_attestation_cannot_hide_in_a_global_report(journey, dod, expected):
-    attestation.prove(journey, FEATURE, dod, prove_command(dod))
+    prove_cycle(journey, dod)
 
     assert attestation.verify_attestations(journey, FEATURE) == [expected]
 
 
 def test_an_attestation_without_a_matching_criterion_is_reported(journey):
-    attestation.prove(journey, FEATURE, "DOD-1", PROUVE_1)
-    attestation.prove(journey, FEATURE, "DOD-2", PROUVE_2)
+    prove_cycle(journey, "DOD-1", "DOD-2")
     (attestation.attestations_dir(journey, FEATURE) / "DOD-9.md").write_text("# DOD-9\n\n**Verdict** — démontré.\n")
 
     assert attestation.verify_attestations(journey, FEATURE) == ["DOD-9 — attestation sans critère correspondant."]
@@ -333,7 +336,7 @@ def test_the_public_repository_refuses_anything_advance_did_not_produce(journey,
 
 
 def test_a_plain_attestation_passes_the_content_check(journey):
-    attestation.prove(journey, FEATURE, "DOD-1", PROUVE_1)
+    prove_cycle(journey, "DOD-1")
 
     assert attestation.verify_content(journey) == []
 
@@ -383,7 +386,7 @@ def test_start_never_overwrites_a_validated_definition_of_done(cli, journey):
 
 
 def test_status_names_every_criterion_and_its_verdict(cli, journey, capsys):
-    attestation.prove(journey, FEATURE, "DOD-1", PROUVE_1)
+    prove_cycle(journey, "DOD-1")
 
     assert cli.main(["--feature", FEATURE, "status"]) == 0
 
@@ -435,8 +438,7 @@ def test_a_missing_definition_of_done_is_the_first_thing_reported(journey):
 
 
 def test_an_attestation_proving_no_content_is_refused(journey):
-    attestation.prove(journey, FEATURE, "DOD-1", PROUVE_1)
-    attestation.prove(journey, FEATURE, "DOD-2", PROUVE_2)
+    prove_cycle(journey, "DOD-1", "DOD-2")
     target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
     target.write_text(attestation.TREE_ROW.sub("", target.read_text()))
 
@@ -464,6 +466,9 @@ def test_checks_report_every_check_of_the_current_state(cli, journey, mocker, ca
 
 
 def test_advance_through_the_cli_files_the_attestation_and_moves_the_state(cli, journey, mocker, capsys):
+    assert cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--red", "--command", PROUVE_1_ECHOUE]) == 0
+    implement(journey)
+
     assert cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--command", PROUVE_1]) == 0
     assert "DOD-1 — démontré" in capsys.readouterr().out
 
@@ -478,26 +483,72 @@ def test_the_untouched_template_is_not_a_definition_of_done(cli, journey):
 
     problems = attestation.verify_dod(journey, "gabarit")
 
-    assert problems and all(problem.startswith("Gabarit non rempli") for problem in problems)
+    assert [problem for problem in problems if problem.startswith("Gabarit non rempli")]
+    assert all(problem.startswith(("Gabarit non rempli", "Validation")) for problem in problems)
+
+
+def validated(mention: str) -> str:
+    """La definition of done de test, dont la seule ligne de validation change."""
+    return DOD.replace("Validé par test@example.invalid le 2026-08-18.", mention)
+
+
+@pytest.mark.parametrize(
+    ("mention", "accepte"),
+    [
+        ("Validé par test@example.invalid le 2026-08-18.", True),
+        ("Validé par Paul le 2026-08-18", True),
+        ("", False),
+        ("À valider.", False),
+        ("Validé par Paul.", False),
+        ("Validé le 2026-08-18.", False),
+        ("Validé par Paul le 18/08/2026.", False),
+    ],
+)
+def test_a_validation_section_without_who_and_when_is_not_a_validation(journey, mention, accepte):
+    """Seul le titre de section était exigé : son contenu pouvait rester vide."""
+    attestation.dod_path(journey, FEATURE).write_text(validated(mention))
+
+    problems = [p for p in attestation.verify_dod(journey, FEATURE) if p.startswith("Validation")]
+
+    assert (problems == []) is accepte
 
 
 @pytest.mark.parametrize(
     ("command", "attendu"),
     [
         ("uv run --frozen pytest tests/test_x.py -k dod_1", []),
+        ("uv run --frozen pytest tests/test_x.py::test_dod_1_rapport", []),
         ("uv run --frozen alembic check", []),
-        ("make test", []),
+        ("uv run --frozen python outils/preuve.py DOD-1 0", []),
+        ("uv run --frozen python scripts/absent.py", ["n'est pas suivi par git"]),
+        ("uv run --frozen python /tmp/dehors.py", ["hors du dépôt"]),
+        ("uv run --frozen pytest ../ailleurs/test_x.py -k dod_1", ["hors du dépôt"]),
+        ("uv run --frozen pytest -c /tmp/pytest.ini -k dod_1", ["hors du dépôt", "détourne la collecte"]),
+        ("uv run --frozen pytest -p mon_plugin -k dod_1", ["détourne la collecte"]),
+        ("uv run --frozen pytest --deselect tests/x.py::test_dod_1 -k dod_1", ["détourne la collecte"]),
+        ('uv run --frozen pytest tests/ -k "not dod_1"', ["ne désigne aucun test nommé d'après"]),
+        ("uv run --frozen pytest tests/ -k dod_11", ["ne désigne aucun test nommé d'après"]),
+        ("uv run --frozen pytest tests/ --junitxml=/tmp/a::dod_1.xml", ["hors du dépôt", "ne désigne aucun test"]),
+        ('uv run --frozen python "pas_ferme.py', ["illisible"]),
+        ("uv run --frozen alembic -x db_url=postgresql://u:secret@h/db upgrade head", ["identifiants en clair"]),
+        ("make test", ["ne commence par aucune commande de preuve admise"]),
+        ("make help", ["ne commence par aucune commande de preuve admise"]),
         ("echo bonjour", ["ne commence par aucune commande de preuve admise"]),
         ("false", ["ne commence par aucune commande de preuve admise"]),
-        ("rm -rf /", ["ne commence par aucune commande de preuve admise"]),
+        ("rm -rf /", ["ne commence par aucune commande de preuve admise", "hors du dépôt"]),
         ("uv run --frozen pytest tests/ --collect-only -k dod_1", ["collecte les tests sans les exécuter"]),
         ("uv run --frozen pytest tests/ --co -k dod_1", ["collecte les tests sans les exécuter"]),
-        ("uv run --frozen pytest tests/test_health.py", ["ne sélectionne aucun test nommé d'après"]),
-        ("uv run --frozen pytest tests/ -k dod_1\nrm -rf /", ["tient sur une ligne"]),
+        ('uv run --frozen python -c "pass"', ["exécuter un fichier du dépôt"]),
+        ("uv run --frozen python --version", ["exécuter un fichier du dépôt"]),
+        ("uv run --frozen python", ["exécuter un fichier du dépôt"]),
+        ("uv run --frozen python -m pytest -k dod_1", ["exécuter un fichier du dépôt"]),
+        ("uv run --frozen pytest tests/test_health.py", ["ne désigne aucun test nommé d'après"]),
+        ("uv run --frozen pytest tests/ --junitxml=/tmp/dod-1.xml", ["hors du dépôt", "ne désigne aucun test"]),
+        ("uv run --frozen pytest tests/ -k dod_1\nrm -rf /", ["tient sur une ligne", "hors du dépôt"]),
     ],
 )
-def test_command_refusals(command, attendu):
-    refusals = attestation.command_refusals(command, "DOD-1")
+def test_command_refusals(repo, command, attendu):
+    refusals = attestation.command_refusals(command, "DOD-1", repo)
 
     assert len(refusals) == len(attendu)
     for refus, motif in zip(refusals, attendu, strict=True):
@@ -515,6 +566,8 @@ def test_command_refusals(command, attendu):
 )
 def test_a_pytest_that_runs_no_test_is_refused_even_when_it_exits_zero(journey, mocker, sortie, leve):
     """Un `-k` qui ne désigne rien sort en 0 : sans cette garde, le critère serait « démontré »."""
+    attestation.record_red(journey, FEATURE, "DOD-1", prove_command("DOD-1", ok=False))
+    implement(journey)
     mocker.patch.object(attestation, "run_command", return_value=(0, sortie))
     commande = "uv run --frozen pytest tests/ -k dod_1"
 
@@ -525,37 +578,13 @@ def test_a_pytest_that_runs_no_test_is_refused_even_when_it_exits_zero(journey, 
         assert attestation.prove(journey, FEATURE, "DOD-1", commande).proven
 
 
-@pytest.mark.parametrize(
-    ("command", "mention"),
-    [
-        ("uv run --frozen pytest browser/test_socle.py -k dod_1", "E2E"),
-        ("uv run --frozen pytest tests/ -m browser -k dod_1", "E2E"),
-        ("uv run --frozen python scripts/mesure.py --nightly", "nightly"),
-        ("uv run --frozen pytest tests/test_x.py -k dod_1", None),
-    ],
-)
-def test_replay_exemption(command, mention):
-    assert attestation.replay_exemption(command) == mention
-
-
-@pytest.mark.parametrize(
-    ("proven", "mention", "attendu"),
-    [
-        (True, None, "démontré."),
-        (True, "E2E", "démontré (E2E)."),
-        (True, "nightly", "démontré (nightly)."),
-        (False, "E2E", "non démontré."),
-    ],
-)
-def test_verdict_carries_its_replay_exemption(proven, mention, attendu):
-    entry = attestation.Attestation(
-        dod="DOD-1", criterion="…", command="…", exit_code=0, output="", proven=proven, not_replayable=mention
-    )
+@pytest.mark.parametrize(("proven", "attendu"), [(True, "démontré."), (False, "non démontré.")])
+def test_a_criterion_carries_one_verdict_and_only_one(proven, attendu):
+    """Aucune mention ne nuance plus le verdict : rien ne rejoue les preuves, donc rien n'en dispense."""
+    entry = attestation.Attestation(dod="DOD-1", criterion="…", command="…", exit_code=0, output="", proven=proven)
 
     assert attestation.verdict(entry) == attendu
-    assert attestation.parse_attestation(attestation.render_attestation(entry)).not_replayable == (
-        mention if proven else None
-    )
+    assert attestation.parse_attestation(attestation.render_attestation(entry)) == entry
 
 
 def test_skills_is_fingerprinted():
@@ -609,3 +638,308 @@ def test_verify_content_couvre_tout_le_parcours_pas_seulement_les_attestations(j
     problems = attestation.verify_content(journey)
 
     assert any(chemin in problem for problem in problems) is refuse
+
+
+@pytest.fixture
+def branche(journey):
+    """Une branche de parcours partant de `main`, sur laquelle la definition of done est committée."""
+    attestation.git(journey, "checkout", "-q", "-b", FEATURE)
+    return journey
+
+
+def commit_code_alone(repo: Path) -> None:
+    """Committe une modification de `web/` sans emporter la definition of done."""
+    (repo / "web" / "app.py").write_text("x = 7\n")
+    attestation.git(repo, "add", "web/app.py")
+    attestation.git(repo, "commit", "-q", "-m", "code")
+
+
+def test_a_contract_committed_before_any_code_raises_nothing(branche):
+    commit(branche, "contrat")
+    commit_code_alone(branche)
+
+    assert attestation.dod_antedates_code(branche, FEATURE, "main") == []
+
+
+def test_code_committed_before_the_contract_is_refused(branche):
+    commit_code_alone(branche)
+    commit(branche, "contrat")
+
+    problems = attestation.dod_antedates_code(branche, FEATURE, "main")
+
+    assert len(problems) == 1
+    assert "réécriture d'historique" in problems[0]
+
+
+def test_code_committed_while_the_contract_stays_uncommitted_is_refused(branche):
+    commit_code_alone(branche)
+
+    assert len(attestation.dod_antedates_code(branche, FEATURE, "main")) == 1
+
+
+@pytest.mark.parametrize("base", ["origin/main", "n-existe-pas"])
+def test_an_unreachable_base_leaves_the_anteriority_unchecked(branche, base):
+    """Sans base, la fenêtre du parcours est indéterminable : le contrôle ne peut pas s'exercer."""
+    commit_code_alone(branche)
+
+    assert attestation.dod_antedates_code(branche, FEATURE, base) == []
+
+
+def test_verify_dod_carries_the_anteriority_check(branche):
+    commit_code_alone(branche)
+    commit(branche, "contrat")
+
+    assert any("réécriture d'historique" in problem for problem in attestation.verify_dod(branche, FEATURE, "main"))
+
+
+def test_the_dod_check_takes_the_base_that_delimits_the_journey(cli, branche, capsys):
+    commit_code_alone(branche)
+    commit(branche, "contrat")
+
+    assert cli.main(["--feature", FEATURE, "check", "dod", "--base", "main"]) == 1
+    assert "réécriture d'historique" in capsys.readouterr().out
+
+
+def test_an_attestation_whose_command_became_unacceptable_is_reported(journey):
+    """Les refus ne servaient qu'à l'écriture : une attestation ancienne ou écrite à la main y échappait."""
+    prove_cycle(journey, "DOD-1", "DOD-2")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    target.write_text(target.read_text().replace(prove_command("DOD-1"), "make test"))
+
+    problems = attestation.verify_attestations(journey, FEATURE)
+
+    assert len(problems) == 1
+    assert "DOD-1 — commande de preuve irrecevable" in problems[0]
+
+
+def test_the_command_line_cannot_narrow_the_proven_scope(cli):
+    """`PATHS=tests` rangeait une attestation n'engageant que `tests/` : tout `web/` restait réécrivable."""
+    with pytest.raises(SystemExit):
+        cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--command", PROUVE_1, "--paths", "tests"])
+
+    assert cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--red", "--command", PROUVE_1_ECHOUE]) == 0
+
+
+def test_a_proof_always_covers_the_whole_scope_present_in_the_repository(journey):
+    (journey / "tests").mkdir()
+    (journey / "tests" / "test_x.py").write_text("def test_x():\n    assert 1 == 1\n")
+    commit(journey, "ajoute tests/")
+
+    entry = prove_cycle(journey, "DOD-1")[0]
+
+    assert set(entry.trees) == {"web", "lib", "tests"}
+
+
+def implement(repo: Path) -> None:
+    """Écrit et committe du code sous un chemin prouvé — sans lui, l'empreinte du vert est celle du rouge."""
+    (repo / "lib" / "implementation.py").write_text("valeur = 1\n")
+    commit(repo, "implémente")
+
+
+def prove_cycle(repo: Path, *dods: str) -> list[attestation.Attestation]:
+    """Le cycle complet : le rouge de chaque critère, le code écrit, puis les verts."""
+    for dod in dods:
+        attestation.record_red(repo, FEATURE, dod, prove_command(dod, ok=False))
+    implement(repo)
+    return [attestation.prove(repo, FEATURE, dod, prove_command(dod)) for dod in dods]
+
+
+def test_a_red_that_exits_zero_is_not_a_red(journey):
+    """Un test qui passe avant que le code existe ne démontre rien du cycle."""
+    with pytest.raises(ValueError, match="sort en 0"):
+        attestation.record_red(journey, FEATURE, "DOD-1", prove_command("DOD-1"))
+
+
+def test_a_red_records_the_fingerprint_of_the_code_it_was_run_against(journey):
+    """L'empreinte doit être celle d'avant l'implémentation, sinon elle ne distingue rien."""
+    avant = attestation.scope_fingerprint(journey)
+
+    attestation.record_red(journey, FEATURE, "DOD-1", prove_command("DOD-1", ok=False))
+    implement(journey)
+
+    recorded = attestation.events(journey, FEATURE)[-1]
+    assert (recorded["Résultat"], recorded["Critère"]) == ("rouge", "DOD-1")
+    assert recorded["Empreinte du périmètre"] == avant != attestation.scope_fingerprint(journey)
+
+
+def test_a_red_is_journaled_on_an_uncommitted_working_tree(journey):
+    """Le test rouge ne se commit pas : on l'écrit, on le voit échouer, on code, et on commit le tout."""
+    (journey / "web" / "app.py").write_text("x = 99\n")
+
+    code, _ = attestation.record_red(journey, FEATURE, "DOD-1", prove_command("DOD-1", ok=False))
+
+    assert code != 0
+    assert [event["Critère"] for event in attestation.reds(journey, FEATURE, "DOD-1")] == ["DOD-1"]
+
+
+def test_a_green_still_needs_a_clean_tree(journey):
+    """Le vert, lui, inscrit une empreinte : elle ne décrirait pas un travail non committé."""
+    attestation.record_red(journey, FEATURE, "DOD-1", prove_command("DOD-1", ok=False))
+    (journey / "web" / "app.py").write_text("x = 99\n")
+
+    with pytest.raises(ValueError, match="Committer d'abord"):
+        attestation.prove(journey, FEATURE, "DOD-1", prove_command("DOD-1"))
+
+
+def test_a_green_without_any_recorded_red_is_refused(journey):
+    with pytest.raises(ValueError, match="aucun rouge journalisé"):
+        attestation.prove(journey, FEATURE, "DOD-1", prove_command("DOD-1"))
+
+
+def test_a_green_on_the_very_code_the_red_ran_against_is_refused(journey):
+    """Rien n'a été implémenté entre les deux : le cycle n'a pas eu lieu."""
+    attestation.record_red(journey, FEATURE, "DOD-1", prove_command("DOD-1", ok=False))
+
+    with pytest.raises(ValueError, match="même code"):
+        attestation.prove(journey, FEATURE, "DOD-1", prove_command("DOD-1"))
+
+
+def test_the_full_cycle_is_accepted(journey):
+    entry = prove_cycle(journey, "DOD-1")[0]
+
+    assert entry.proven
+    assert attestation.verify_attestations(journey, FEATURE) == ["DOD-2 — non démontré : aucune attestation."]
+
+
+def test_a_red_the_command_of_which_is_unacceptable_is_refused(journey):
+    with pytest.raises(ValueError, match="ne commence par aucune commande de preuve admise"):
+        attestation.record_red(journey, FEATURE, "DOD-1", "make test")
+
+
+def test_a_failing_command_is_still_attested_without_any_red(journey):
+    """La garde porte sur le vert : un critère non démontré se range comme avant."""
+    assert not attestation.prove(journey, FEATURE, "DOD-1", prove_command("DOD-1", ok=False)).proven
+
+
+def test_the_cli_records_a_red(cli, journey, capsys):
+    assert cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--red", "--command", PROUVE_1_ECHOUE]) == 0
+    assert "DOD-1 — rouge" in capsys.readouterr().out
+
+    implement(journey)
+
+    assert cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--command", PROUVE_1]) == 0
+
+
+def test_the_cli_reports_a_green_without_red_as_a_repairable_failure(cli, journey, capsys):
+    assert cli.main(["--feature", FEATURE, "advance", "--dod", "DOD-1", "--command", PROUVE_1]) == 1
+
+    out = capsys.readouterr().out
+    assert "aucun rouge journalisé" in out and "Famille A" in out
+
+
+@pytest.fixture
+def contrat(branche):
+    """Une definition of done validée et committée — l'état à partir duquel toute retouche se compare."""
+    commit(branche, "contrat")
+    return branche
+
+
+ORIGINAL = "DOD-1 — Le premier critère produit un résultat observable."
+
+
+def test_an_untouched_contract_raises_nothing(contrat):
+    assert attestation.frozen_criteria(contrat, FEATURE) == []
+
+
+def test_a_criterion_rewritten_after_validation_without_a_dated_revision_is_refused(contrat):
+    """C'est la règle qui empêche de rétrécir la cible jusqu'à ce que le vert soit atteignable."""
+    path = attestation.dod_path(contrat, FEATURE)
+    path.write_text(path.read_text().replace(ORIGINAL, "DOD-1 — Le premier critère produit moins."))
+
+    problems = attestation.frozen_criteria(contrat, FEATURE)
+
+    assert len(problems) == 1
+    assert "DOD-1 a changé depuis la validation sans porter de révision" in problems[0]
+
+
+def test_a_dated_revision_under_the_criterion_makes_the_rewrite_acceptable(contrat):
+    path = attestation.dod_path(contrat, FEATURE)
+    revise = "DOD-1 — Le premier critère produit moins.\nRévision 2026-08-30 — la cible change, et voici pourquoi."
+    path.write_text(path.read_text().replace(ORIGINAL, revise))
+
+    assert attestation.frozen_criteria(contrat, FEATURE) == []
+
+
+def test_a_criterion_deleted_after_validation_is_refused(contrat):
+    path = attestation.dod_path(contrat, FEATURE)
+    path.write_text(path.read_text().replace("DOD-2 — Le deuxième critère aussi, sur\n  deux lignes.\n", ""))
+
+    problems = attestation.frozen_criteria(contrat, FEATURE)
+
+    assert len(problems) == 1
+    assert "DOD-2 a disparu" in problems[0]
+
+
+def test_a_criterion_added_after_validation_carries_its_revision_too(contrat):
+    path = attestation.dod_path(contrat, FEATURE)
+    path.write_text(path.read_text().replace(ORIGINAL, f"{ORIGINAL}\n\nDOD-3 — Un critère de plus."))
+
+    assert ["DOD-3" in problem for problem in attestation.frozen_criteria(contrat, FEATURE)] == [True]
+
+
+def test_a_contract_never_validated_in_history_is_not_frozen(journey):
+    assert attestation.frozen_criteria(journey, FEATURE) == []
+
+
+def test_verify_dod_carries_the_immutability_of_a_validated_contract(contrat):
+    path = attestation.dod_path(contrat, FEATURE)
+    path.write_text(path.read_text().replace(ORIGINAL, "DOD-1 — Le premier critère produit moins."))
+
+    assert any("sans porter de révision" in problem for problem in attestation.verify_dod(contrat, FEATURE, "main"))
+
+
+PYTEST_SANS_ECHEC = "2307 deselected, 1 warning in 3.46s"
+
+
+@pytest.mark.parametrize(
+    ("sortie", "code", "leve"),
+    [
+        (PYTEST_SANS_ECHEC, 5, True),
+        ("ERROR: file or directory not found: tests/absent.py", 4, True),
+        ("1 failed, 2 passed in 0.50s", 1, False),
+        ("1 error in 0.05s", 2, False),
+    ],
+)
+def test_a_red_that_made_no_test_fail_is_refused(journey, mocker, sortie, code, leve):
+    """Un `-k` qui ne désigne rien sort en 5 : sans cette garde, on obtient un rouge sans avoir écrit de test."""
+    mocker.patch.object(attestation, "run_command", return_value=(code, sortie))
+    commande = "uv run --frozen pytest tests/test_x.py -k dod_1"
+
+    if leve:
+        with pytest.raises(ValueError, match="aucun test n'a échoué"):
+            attestation.record_red(journey, FEATURE, "DOD-1", commande)
+    else:
+        assert attestation.record_red(journey, FEATURE, "DOD-1", commande)[0] == code
+
+
+def test_a_contract_committed_before_the_fork_point_raises_nothing(journey):
+    """Une branche qui part d'une base portant déjà le contrat n'a rien committé avant lui."""
+    commit(journey, "contrat sur main")
+    attestation.git(journey, "checkout", "-q", "-b", FEATURE)
+    commit_code_alone(journey)
+
+    assert attestation.dod_antedates_code(journey, FEATURE, "main") == []
+
+
+def test_an_attestation_whose_command_is_unparsable_is_reported_not_crashed(journey):
+    prove_cycle(journey, "DOD-1", "DOD-2")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    target.write_text(target.read_text().replace(prove_command("DOD-1"), 'uv run --frozen python "pas_ferme.py'))
+
+    problems = attestation.verify_attestations(journey, FEATURE)
+
+    assert len(problems) == 1
+    assert "DOD-1" in problems[0] and "illisible" in problems[0]
+
+
+def test_an_attestation_that_drops_a_proven_path_is_reported(journey):
+    """Retirer une ligne du tableau d'empreintes rendait tout `web/` réécrivable sans périmer la preuve."""
+    prove_cycle(journey, "DOD-1", "DOD-2")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    kept = [line for line in target.read_text().splitlines(True) if not line.startswith("| `web`")]
+    target.write_text("".join(kept))
+
+    problems = attestation.verify_attestations(journey, FEATURE)
+
+    assert len(problems) == 1
+    assert "DOD-1 — attestation partielle : web" in problems[0]

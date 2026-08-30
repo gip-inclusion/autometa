@@ -1,6 +1,6 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report e2e diff-cover lint format security ci \
-        migrate check-migrations paved-road paved-road-baseline
+        migrate check-migrations paved-road-baseline lint-js
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
 PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -8,7 +8,6 @@ PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
 # Branche de comparaison des gates de diff. La CI la surcharge avec la base réelle de la PR :
 # c'est ce paramètre qui permet à la CI d'appeler ces cibles au lieu de réécrire les commandes.
 BASE ?= main
-LABELS ?=
 
 setup:
 	uv sync --group dev
@@ -46,11 +45,24 @@ lint:
 	uv run --frozen ruff format --check
 	uv run --frozen python scripts/check_test_quality.py tests browser --base origin/$(BASE)
 	uv run --frozen python scripts/check_http_timeouts.py
-	uv run --frozen ruff check --select S608,BLE001 --statistics --exit-zero
+	uv run --frozen python scripts/check_lint_baseline.py
+	@uv run --frozen python scripts/paved_road_cli.py check content
+
+# Le front n'a aucune suite de tests : Biome est son seul filet. Cette cible reste hors de
+# `make lint` pour que le lint Python tourne sans Node ; `make ci` et `make lint-js` en ont besoin.
+# `--ignore-scripts` : le lock n'a aujourd'hui aucun script d'installation, rien ne fige cet état.
+lint-js: node_modules
+	@./node_modules/.bin/biome ci
+
+node_modules: package-lock.json
+	npm ci --no-audit --no-fund --ignore-scripts
+	@touch node_modules
 
 format:
 	uv run --frozen ruff check --fix
 	uv run --frozen ruff format
+	@test -x node_modules/.bin/biome && ./node_modules/.bin/biome check --write \
+		|| echo "Biome absent : make lint-js l'installe."
 
 security:
 	uv run --frozen bandit -r web/ lib/ skills/ -c pyproject.toml --severity-level medium --confidence-level high -q
@@ -95,9 +107,6 @@ e2e:
 diff-cover:
 	uv run --frozen diff-cover coverage.xml --compare-branch=origin/$(BASE) --config-file gates.toml
 
-paved-road:
-	@uv run --frozen python scripts/check_paved_road.py --base origin/$(BASE) $(LABELS)
-
 # Un shim, pas une copie : le contenu réel reste versionné dans .githooks/ et suit la branche.
 # `core.hooksPath` est volontairement laissé tel quel — il désactiverait le pre-commit du dépôt.
 install-hooks:
@@ -106,9 +115,10 @@ install-hooks:
 	@chmod +x "$$(git rev-parse --git-common-dir)/hooks/pre-push"
 	@echo "Hook pre-push installé — lint et tests unitaires avant chaque push."
 
-ci: lint security check-migrations test-cov diff-cover paved-road
-
-ci: lint security check-migrations test diff-cover paved-road
+# La CI porte des tests, de la sécurité, des migrations et de la couverture. Elle ne lit aucun
+# artefact du parcours : ces documents sont produits par le workflow de développement, et la
+# garantie qu'ils portent est locale — liste d'interdits, `advance`, et la relecture du pair.
+ci: lint lint-js security check-migrations test-cov diff-cover
 
 paved-road-baseline:
 	uv run --frozen python scripts/paved_road_baseline.py --days $(or $(DAYS),90)
@@ -126,5 +136,7 @@ paved-road-status:
 paved-road-checks:
 	@$(PAVED_ROAD) check $(CHECK)
 
+# RED=1 journalise l'échec attendu du critère. Sans ce rouge, `advance` refuse le vert : un test
+# qu'on n'a jamais vu échouer ne démontre pas que c'est lui qui tient le critère.
 paved-road-advance:
-	@$(PAVED_ROAD) advance $(if $(DOD),--dod $(DOD) --command "$(CMD)") $(if $(PATHS),--paths $(PATHS))
+	@$(PAVED_ROAD) advance $(if $(DOD),--dod $(DOD) --command "$(CMD)" $(if $(RED),--red))

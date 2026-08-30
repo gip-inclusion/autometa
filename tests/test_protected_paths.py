@@ -36,11 +36,10 @@ def test_la_couche_4_couvre_l_outillage(chemin):
         "Bash(git push --force*)",
         "Bash(git commit * --no-verify*)",
         "Bash(git -c core.hooksPath=*)",
-        "Bash(gh * --add-label*)",
     ],
 )
 def test_les_contournements_connus_restent_refuses(commande):
-    """L'agent qui se pose lui-même un break-glass lève le seul gate qui vérifie ses preuves."""
+    """Chacune de ces commandes désarme un contrôle que l'agent est censé subir."""
     assert commande in DENY
 
 

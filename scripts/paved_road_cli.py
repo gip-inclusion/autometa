@@ -68,10 +68,10 @@ def status(repo: Path, name: str) -> int:
     return 0
 
 
-def check(repo: Path, name: str, which: str | None) -> int:
+def check(repo: Path, name: str, which: str | None, base: str) -> int:
     """Lance les checks de l'état courant, ou un seul d'entre eux."""
     if which == "dod":
-        return report(attestation.verify_dod(repo, name), "Definition of done conforme.")
+        return report(attestation.verify_dod(repo, name, base), "Definition of done conforme.")
     if which == "attestations":
         return report(attestation.verify_attestations(repo, name), "Chaque critère porte une attestation à jour.")
     if which == "content":
@@ -96,10 +96,15 @@ def report(problems: list[str], success: str) -> int:
     return 1 if problems else 0
 
 
-def advance(repo: Path, name: str, dod: str | None, command: str | None, paths: list[str] | None) -> int:
-    """Prouve un critère, ou fait progresser l'état — jamais sans code de sortie 0."""
+def advance(repo: Path, name: str, dod: str | None, command: str | None, red: bool) -> int:
+    """Journalise un rouge, prouve un critère, ou fait progresser l'état — jamais sans code de sortie réel."""
+    if dod and red:
+        code, mark = attestation.record_red(repo, name, dod, command)
+        print(f"{dod} — rouge journalisé, `{command}` sort en {code}.")
+        print(f"Empreinte du périmètre au moment du rouge : {mark}. Implémenter, committer, puis prouver.")
+        return 0
     if dod:
-        entry = attestation.prove(repo, name, dod, command, paths)
+        entry = attestation.prove(repo, name, dod, command)
         print(f"{dod} — {'démontré' if entry.proven else 'non démontré'}, `{command}` sort en {entry.exit_code}.")
         print(f"Contenu prouvé : {', '.join(entry.trees)}.")
         return 0 if entry.proven else 1
@@ -114,11 +119,15 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="verb", required=True)
     subparsers.add_parser("start")
     subparsers.add_parser("status")
-    subparsers.add_parser("check").add_argument("which", nargs="?", choices=["dod", "attestations", "content"])
+    verify = subparsers.add_parser("check")
+    verify.add_argument("which", nargs="?", choices=["dod", "attestations", "content"])
+    verify.add_argument(
+        "--base", default=attestation.DEFAULT_BASE, help="référence qui délimite les commits du parcours"
+    )
     prove = subparsers.add_parser("advance")
     prove.add_argument("--dod")
     prove.add_argument("--command")
-    prove.add_argument("--paths", nargs="+")
+    prove.add_argument("--red", action="store_true", help="journalise l'échec attendu du critère")
     args = parser.parse_args(argv)
 
     name = args.feature or attestation.slug(REPO)
@@ -127,11 +136,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "status":
         return status(REPO, name)
     if args.verb == "check":
-        return check(REPO, name, args.which)
+        return check(REPO, name, args.which, args.base)
     if args.dod and not args.command:
         parser.error("--dod attend la commande qui le démontre : --command '…'")
     try:
-        return advance(REPO, name, args.dod, args.command, args.paths)
+        return advance(REPO, name, args.dod, args.command, args.red)
     except ValueError as error:
         print(f"{error}\nFamille A : {attestation.FAMILIES['A']}")
         return 1

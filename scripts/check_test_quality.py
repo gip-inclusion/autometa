@@ -111,7 +111,7 @@ def assertions_affaiblies(source, source_base):
 
     avant, apres = par_test(source_base), par_test(source)
     return [
-        (0, f"`{nom}` passe de {avant[nom]} à {apres[nom]} assertion(s) : reprendre, ou demander un break-glass")
+        (0, f"`{nom}` passe de {avant[nom]} à {apres[nom]} assertion(s) : reprendre, ou faire relire l'écart")
         for nom in avant
         if nom in apres and apres[nom] < avant[nom]
     ]

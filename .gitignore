@@ -42,3 +42,9 @@ infra/scaleway/s3_backup/s3_backup.zip
 infra/scaleway/s3_backup/build/
 .coverage
 coverage.xml
+
+# Outillage du front : Biome est épinglé par package-lock.json, pas versionné.
+node_modules/
+
+# Journal d'installation écrit par l'outil de worktree, propre à chaque copie.
+.wt-setup.log

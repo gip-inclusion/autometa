@@ -66,9 +66,7 @@
       "Bash(git push -f *)",
       "Bash(git commit * --no-verify*)",
       "Bash(git commit -n *)",
-      "Bash(git -c core.hooksPath=*)",
-      "Bash(gh * --add-label*)",
-      "Bash(gh * --label*)"
+      "Bash(git -c core.hooksPath=*)"
     ],
     "allow": [
       "Bash(make *)",
