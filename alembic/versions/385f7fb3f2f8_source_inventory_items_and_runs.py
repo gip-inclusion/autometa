@@ -1,7 +1,7 @@
 """source inventory items and runs
 
 Revision ID: 385f7fb3f2f8
-Revises: 1eec43dc9e46
+Revises: d3f5a8c1b607
 Create Date: 2026-08-26 19:15:23.220474
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "385f7fb3f2f8"
-down_revision: Union[str, Sequence[str], None] = "1eec43dc9e46"
+down_revision: Union[str, Sequence[str], None] = "d3f5a8c1b607"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
