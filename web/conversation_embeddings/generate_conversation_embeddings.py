@@ -105,7 +105,7 @@ def prepare_messages(rows):
     messages = []
 
     for row in rows:
-        current_hash = row["current_content_hash"] if "current_content_hash" in row else content_hash(row["content"])
+        current_hash = row["current_content_hash"]
 
         if row["existing_content_hash"] == current_hash:
             continue
@@ -181,7 +181,14 @@ def insert_embeddings(connection, messages, embeddings):
 
     try:
         connection.execute(query, params)
-    except SQLAlchemyError:
+    except SQLAlchemyError as exc:
+        orig = getattr(exc, "orig", None)
+        logger.error(
+            "Insert failed: sqlalchemy_error=%s dbapi_error=%s pgcode=%s",
+            type(exc).__name__,
+            type(orig).__name__ if orig else None,
+            getattr(orig, "pgcode", None),
+        )
         raise RuntimeError(f"Failed to insert {len(params)} conversation message embeddings") from None
 
     return len(params)
@@ -190,9 +197,6 @@ def insert_embeddings(connection, messages, embeddings):
 def generate_embeddings(limit, batch_size, days_ago=None):
     engine = get_engine()
     start_at, end_at = resolve_time_window(days_ago)
-
-    logger.info("Loading embedding model: %s", config.EMBEDDING_MODEL)
-    model = StaticModel.from_pretrained(config.EMBEDDING_MODEL)
 
     if start_at and end_at:
         logger.info("Embedding messages from %s to %s", start_at, end_at)
@@ -212,6 +216,9 @@ def generate_embeddings(limit, batch_size, days_ago=None):
     if not messages:
         logger.info("No messages to embed")
         return
+
+    logger.info("Loading embedding model: %s", config.EMBEDDING_MODEL)
+    model = StaticModel.from_pretrained(config.EMBEDDING_MODEL)
 
     logger.info("Generating embeddings for %s messages", len(messages))
 

@@ -22,6 +22,7 @@ def _row(
         "user_id": user_id,
         "role": role,
         "content": content,
+        "current_content_hash": embeddings.content_hash(content),
         "existing_content_hash": existing_content_hash,
         "message_timestamp": message_timestamp or datetime(2026, 7, 20, 9, 30, tzinfo=ZoneInfo("Europe/Paris")),
     }
@@ -221,7 +222,7 @@ def test_insert_embeddings_executes_idempotent_upsert(monkeypatch):
     ]
 
 
-def test_insert_embeddings_hides_parameters_when_execute_fails(monkeypatch):
+def test_insert_embeddings_hides_parameters_when_execute_fails(monkeypatch, caplog):
     class FailingConnection(_FakeConnection):
         def execute(self, query, params):
             raise embeddings.SQLAlchemyError("database error containing Contenu")
@@ -235,6 +236,9 @@ def test_insert_embeddings_hides_parameters_when_execute_fails(monkeypatch):
     assert str(exc_info.value) == "Failed to insert 1 conversation message embeddings"
     assert "Contenu" not in str(exc_info.value)
     assert exc_info.value.__suppress_context__ is True
+    assert "Insert failed" in caplog.text
+    assert "sqlalchemy_error=SQLAlchemyError" in caplog.text
+    assert "Contenu" not in caplog.text
 
 
 def test_generate_embeddings_returns_when_no_message_to_embed(monkeypatch, mocker):
@@ -243,12 +247,13 @@ def test_generate_embeddings_returns_when_no_message_to_embed(monkeypatch, mocke
     monkeypatch.setattr(embeddings, "resolve_time_window", lambda days_ago: (None, None))
     monkeypatch.setattr(embeddings, "load_candidate_messages", lambda connection, limit, start_at, end_at: [])
     prepare = mocker.patch.object(embeddings, "prepare_messages", return_value=[])
-    mocker.patch.object(embeddings.StaticModel, "from_pretrained")
+    load_model = mocker.patch.object(embeddings.StaticModel, "from_pretrained")
     insert = mocker.patch.object(embeddings, "insert_embeddings")
 
     embeddings.generate_embeddings(limit=None, batch_size=2, days_ago=None)
 
     prepare.assert_called_once_with([])
+    load_model.assert_not_called()
     insert.assert_not_called()
     assert len(engine.connections) == 1
 
