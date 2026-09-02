@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from model2vec import StaticModel
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from web import config
 from web.db import get_engine
@@ -16,10 +17,6 @@ logger = logging.getLogger(__name__)
 
 def content_hash(content):
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def content_preview(content):
-    return content[: config.EMBEDDING_CONTENT_PREVIEW_LENGTH]
 
 
 def to_pgvector(values):
@@ -54,25 +51,41 @@ def load_candidate_messages(connection, limit, start_at=None, end_at=None):
     time_filter = "and m.timestamp >= :start_at and m.timestamp < :end_at" if start_at else ""
 
     query = text(f"""
-    select
-        m.id as message_id,
-        m.conversation_id,
-        c.user_id,
-        m.role,
-        m.content,
-        m.timestamp::timestamptz as message_timestamp,
-        e.content_hash as existing_content_hash
-    from messages m
-    join conversations c
-        on c.id = m.conversation_id
-    left join conversation_message_embeddings e
-        on e.message_id = m.id
-        and e.embedding_model = :embedding_model
-    where m.role in ('user', 'assistant', 'report')
-      and nullif(trim(m.content), '') is not null
-      and (m.role <> 'assistant' or c.needs_response = 0)
-      {time_filter}
-    order by m.id
+    with candidate_messages as (
+        select
+            m.id as message_id,
+            m.conversation_id,
+            c.user_id,
+            m.role,
+            m.content,
+            encode(sha256(convert_to(m.content, 'UTF8')), 'hex') as current_content_hash,
+            m.timestamp::timestamptz as message_timestamp,
+            e.content_hash as existing_content_hash
+        from messages m
+        join conversations c
+            on c.id = m.conversation_id
+        left join conversation_message_embeddings e
+            on e.message_id = m.id
+            and e.embedding_model = :embedding_model
+        where m.role in ('user', 'assistant', 'report')
+          and nullif(trim(m.content), '') is not null
+          and not (
+              c.needs_response = 1
+              and m.role = 'assistant'
+              and not exists (
+                  select 1
+                  from messages later_m
+                  where later_m.conversation_id = m.conversation_id
+                    and later_m.id > m.id
+              )
+          )
+          {time_filter}
+    )
+    select *
+    from candidate_messages
+    where existing_content_hash is null
+       or existing_content_hash <> current_content_hash
+    order by message_id
     {limit_clause}
     """)
 
@@ -92,7 +105,7 @@ def prepare_messages(rows):
     messages = []
 
     for row in rows:
-        current_hash = content_hash(row["content"])
+        current_hash = row["current_content_hash"]
 
         if row["existing_content_hash"] == current_hash:
             continue
@@ -105,7 +118,6 @@ def prepare_messages(rows):
             "content": row["content"],
             "content_hash": current_hash,
             "content_length": len(row["content"]),
-            "content_preview": content_preview(row["content"]),
             "message_timestamp": row["message_timestamp"],
         })
 
@@ -123,7 +135,6 @@ def insert_embeddings(connection, messages, embeddings):
             "role": message["role"],
             "content_hash": message["content_hash"],
             "content_length": message["content_length"],
-            "content_preview": message["content_preview"],
             "message_timestamp": message["message_timestamp"],
             "embedding_model": config.EMBEDDING_MODEL,
             "embedding": to_pgvector(embedding),
@@ -140,7 +151,6 @@ def insert_embeddings(connection, messages, embeddings):
             role,
             content_hash,
             content_length,
-            content_preview,
             message_timestamp,
             embedding_model,
             embedding
@@ -152,7 +162,6 @@ def insert_embeddings(connection, messages, embeddings):
             :role,
             :content_hash,
             :content_length,
-            :content_preview,
             :message_timestamp,
             :embedding_model,
             cast(:embedding as vector)
@@ -164,24 +173,30 @@ def insert_embeddings(connection, messages, embeddings):
             role = excluded.role,
             content_hash = excluded.content_hash,
             content_length = excluded.content_length,
-            content_preview = excluded.content_preview,
             message_timestamp = excluded.message_timestamp,
             embedding = excluded.embedding,
             updated_at = now()
         where conversation_message_embeddings.content_hash is distinct from excluded.content_hash
         """)
 
-    connection.execute(query, params)
+    try:
+        connection.execute(query, params)
+    except SQLAlchemyError as exc:
+        orig = getattr(exc, "orig", None)
+        logger.error(
+            "Insert failed: sqlalchemy_error=%s dbapi_error=%s pgcode=%s",
+            type(exc).__name__,
+            type(orig).__name__ if orig else None,
+            getattr(orig, "pgcode", None),
+        )
+        raise RuntimeError(f"Failed to insert {len(params)} conversation message embeddings") from None
 
     return len(params)
 
 
-def generate_embeddings(limit, batch_size, days_ago):
+def generate_embeddings(limit, batch_size, days_ago=None):
     engine = get_engine()
     start_at, end_at = resolve_time_window(days_ago)
-
-    logger.info("Loading embedding model: %s", config.EMBEDDING_MODEL)
-    model = StaticModel.from_pretrained(config.EMBEDDING_MODEL)
 
     if start_at and end_at:
         logger.info("Embedding messages from %s to %s", start_at, end_at)
@@ -201,6 +216,9 @@ def generate_embeddings(limit, batch_size, days_ago):
     if not messages:
         logger.info("No messages to embed")
         return
+
+    logger.info("Loading embedding model: %s", config.EMBEDDING_MODEL)
+    model = StaticModel.from_pretrained(config.EMBEDDING_MODEL)
 
     logger.info("Generating embeddings for %s messages", len(messages))
 

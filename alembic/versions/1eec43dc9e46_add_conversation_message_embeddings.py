@@ -29,7 +29,6 @@ def upgrade() -> None:
             role TEXT NOT NULL,
             content_hash TEXT NOT NULL,
             content_length INTEGER NOT NULL,
-            content_preview TEXT,
             message_timestamp TIMESTAMPTZ NOT NULL,
             embedding_model TEXT NOT NULL,
             embedding vector(256) NOT NULL,

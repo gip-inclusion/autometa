@@ -39,6 +39,10 @@ SCHEDULE_PRESETS = {
 }
 _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.items()}
 
+# Why: a task that declares nothing runs in the ordinary batch; dashboards and publications have
+# no front-matter, so they always land there.
+DEFAULT_BATCH = "default"
+
 
 def cadence(schedule: str) -> str:
     """Reduce a stored schedule (crontab or cadence token) to a runner cadence: daily|weekly|monthly."""
@@ -106,6 +110,11 @@ def get_timeout(meta: dict) -> int:
 
 def get_schedule(meta: dict) -> str:
     return meta.get("schedule", "daily").lower()
+
+
+def get_batch(meta: dict) -> str:
+    """The task's batch. Each batch is one cron.json line, hence its own container."""
+    return meta.get("batch", DEFAULT_BATCH).strip().lower() or DEFAULT_BATCH
 
 
 def is_due(schedule: str) -> bool:
@@ -194,6 +203,7 @@ def discover_from_dir(base_dir: Path, md_name: str, tier: str) -> list[dict]:
             "enabled": is_enabled(meta),
             "timeout": get_timeout(meta),
             "schedule": get_schedule(meta),
+            "batch": get_batch(meta),
         })
 
     return tasks
@@ -242,6 +252,7 @@ def discover_from_s3() -> list[dict]:
             "enabled": enabled,
             "timeout": timeout,
             "schedule": schedule,
+            "batch": DEFAULT_BATCH,
         })
 
     return tasks
@@ -283,6 +294,7 @@ def discover_publications() -> list[dict]:
             "enabled": enabled,
             "timeout": timeout,
             "schedule": schedule,
+            "batch": DEFAULT_BATCH,
             "publication_id": pub_id,
             "dashboard_slug": slug,
         })
@@ -608,12 +620,17 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
         return []
 
 
-def run_all(dry_run: bool = False) -> list[dict]:
-    """Discover and run all enabled cron tasks that are due today."""
+def run_all(dry_run: bool = False, batch: str = DEFAULT_BATCH) -> list[dict]:
+    """Run the enabled tasks of one batch that are due today."""
     tasks = discover_cron_tasks()
     results = []
 
     for task in tasks:
+        if task["batch"] != batch:
+            if dry_run:
+                logger.info("SKIP %s (batch %s)", task["slug"], task["batch"])
+            continue
+
         if not task["enabled"]:
             if dry_run:
                 logger.info("SKIP %s (disabled)", task["slug"])
@@ -651,6 +668,7 @@ def main():
     setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     parser = argparse.ArgumentParser(description="Run cron tasks")
     parser.add_argument("--app", help="Run a specific task by slug (ignores schedule)")
+    parser.add_argument("--batch", default=DEFAULT_BATCH, help=f"Batch to run (default: {DEFAULT_BATCH})")
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
     args = parser.parse_args()
@@ -664,7 +682,7 @@ def main():
             status = "enabled" if task["enabled"] else "DISABLED"
             sched = task["schedule"]
             tier = task["tier"]
-            print(f"  {task['slug']:30s} [{status}] {sched:8s} {tier:6s}  {task['cron_path']}")
+            print(f"  {task['slug']:30s} [{status}] {sched:8s} {tier:6s} {task['batch']:8s} {task['cron_path']}")
         return
 
     if args.app:
@@ -676,7 +694,7 @@ def main():
         return
 
     print("Running all cron tasks...")
-    results = run_all(dry_run=args.dry_run)
+    results = run_all(dry_run=args.dry_run, batch=args.batch)
     if not args.dry_run:
         ok = sum(1 for r in results if r["status"] == "success")
         fail = len(results) - ok
