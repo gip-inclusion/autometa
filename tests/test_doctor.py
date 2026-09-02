@@ -129,9 +129,56 @@ def test_warn_data_sources(settings, expected_fragment):
     assert (expected_fragment in problem) if expected_fragment else (problem is None)
 
 
-def test_run_counts_failures(capsys):
+@pytest.mark.parametrize(
+    ("which", "biome_installed", "expected_fragment"),
+    [
+        (None, False, "Node.js"),
+        ("/usr/local/bin/npm", False, "make lint-js"),
+        ("/usr/local/bin/npm", True, None),
+    ],
+)
+def test_warn_front_tells_what_is_missing_before_biome_can_run(
+    mocker, tmp_path, which, biome_installed, expected_fragment
+):
+    biome = tmp_path / "biome"
+    if biome_installed:
+        biome.write_text("")
+    mocker.patch.object(_module.shutil, "which", return_value=which)
+    mocker.patch.object(_module, "BIOME", biome)
+
+    problem = _module.warn_front({})
+
+    assert (expected_fragment in problem) if expected_fragment else (problem is None)
+
+
+@pytest.mark.parametrize("installed", ["chromium-1234", None])
+def test_warn_browser_looks_where_playwright_actually_ranges_its_browsers(tmp_path, installed):
+    """Le navigateur ne bloque pas le parcours : seule la présence du test sous `browser/` est exigée."""
+    if installed:
+        (tmp_path / installed).mkdir()
+
+    problem = _module.warn_browser({"PLAYWRIGHT_BROWSERS_PATH": str(tmp_path)})
+
+    assert (problem is None) if installed else ("make browsers" in problem)
+
+
+def test_the_playwright_cache_defaults_to_the_place_of_the_platform(mocker):
+    mocker.patch.object(_module.sys, "platform", "linux")
+
+    assert _module.playwright_cache({}) == Path.home() / ".cache" / "ms-playwright"
+
+
+def test_the_front_and_the_browser_are_notes_not_breakages():
+    """Rendre le parcours otage de Node ou de Playwright, c'est ce qu'on a refusé pour Docker."""
+    named = [label for label, _ in _module.OPTIONAL]
+
+    assert {"Front", "Navigateur"} <= set(named)
+    assert not {"Front", "Navigateur"} & {label for label, _ in _module.REQUIRED}
+
+
+def test_run_reports_every_failure_it_met(capsys):
     checks = [("A", lambda _: None), ("B", lambda _: "cassé")]
-    assert _module.run(checks, {}, "PANNE") == 1
+    assert _module.run(checks, {}, "PANNE") == ["cassé"]
     assert "cassé" in capsys.readouterr().out
 
 
@@ -157,3 +204,41 @@ def test_main_returns_the_verdict_of_the_required_checks(mocker, tmp_path, requi
     mocker.patch.object(_module, "REQUIRED", required)
     mocker.patch.object(_module, "OPTIONAL", [])
     assert _module.main() == expected_code
+
+
+def last_line(capsys) -> str:
+    """La dernière ligne est celle que le journal du parcours retient d'une panne d'environnement."""
+    return [line for line in capsys.readouterr().out.splitlines() if line.strip()][-1]
+
+
+def test_the_verdict_carries_the_gesture_to_make_not_only_the_count(mocker, tmp_path, capsys):
+    """« 4 point(s) à corriger » ne dit ni lesquels ni quoi faire : c'est le geste qui débloque."""
+    env_file(mocker, tmp_path, exists=True)
+    mocker.patch.object(_module, "REQUIRED", [("A", lambda _: "Ouvrez Docker, puis relancez `make doctor`.")])
+    mocker.patch.object(_module, "OPTIONAL", [])
+
+    _module.main()
+
+    assert last_line(capsys) == "1 point à corriger. Commencer par : Ouvrez Docker, puis relancez `make doctor`."
+
+
+def test_the_verdict_counts_every_breakage_and_names_the_first_to_repair(mocker, tmp_path, capsys):
+    env_file(mocker, tmp_path, exists=True)
+    mocker.patch.object(
+        _module, "REQUIRED", [("A", lambda _: "Ouvrez Docker."), ("B", lambda _: "Lancez `make setup`.")]
+    )
+    mocker.patch.object(_module, "OPTIONAL", [])
+
+    _module.main()
+
+    assert last_line(capsys) == "2 points à corriger. Commencer par : Ouvrez Docker."
+
+
+def test_a_ready_environment_ends_on_a_line_that_asks_for_nothing(mocker, tmp_path, capsys):
+    env_file(mocker, tmp_path, exists=True)
+    mocker.patch.object(_module, "REQUIRED", [("A", lambda _: None)])
+    mocker.patch.object(_module, "OPTIONAL", [])
+
+    _module.main()
+
+    assert last_line(capsys) == "Environnement prêt."

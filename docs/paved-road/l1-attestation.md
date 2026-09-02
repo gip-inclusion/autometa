@@ -23,17 +23,23 @@ plus bas. Ce qui les tient, c'est que l'empreinte du contenu prouvé les périme
 change, et que seul `advance` y écrit. Le journal reste un cache et une source de statistiques,
 jamais une autorité.
 
-## Quatre commandes, trois états
+## Cinq commandes, trois états
 
 Aucune CLI propriétaire : des cibles du `Makefile`, invocables par un agent, par un humain ou par
 la CI. `FEATURE=<slug>` surcharge le répertoire d'artefacts, déduit sinon de la branche courante.
 
 | Commande | Rôle |
 |---|---|
-| `make paved-road-start` | Ouvre `paved-road/<slug>/` et le gabarit de definition of done |
+| `make paved-road-start` | Ouvre `paved-road/<slug>/`, prépare le worktree, journalise la base |
 | `make paved-road-status` | État atteint, verdict de chaque critère, compteur d'échecs réparables |
 | `make paved-road-checks` | Lance les checks de l'état courant, sans rien journaliser |
 | `make paved-road-advance` | Journalise un rouge, prouve un critère, ou fait progresser l'état |
+| `make paved-road-reprove` | Rejoue en un lot les preuves qu'un rebase a périmées |
+
+`start` fait deux choses de plus qu'ouvrir un répertoire. Il installe les hooks que le worktree
+n'a pas — un worktree neuf n'en porte aucun, et les premiers commits d'un parcours passaient alors
+sans lint ni tests — puis il lance le diagnostic d'environnement et rapporte ce qu'il bloque.
+`BASE=<branche>` journalise la branche dont le parcours part ; sans lui, la base est `origin/main`.
 
 Les états sont les trois temps du parcours : `align`, `build`, `prove`. `advance` lance les checks
 de l'état courant et ne progresse que s'ils sortent tous en 0.
@@ -48,7 +54,9 @@ make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_rapport
 Le périmètre prouvé n'est pas paramétrable, et ce n'est pas une commodité perdue : `PATHS=tests`
 rangeait une attestation qui n'engageait que `tests/`, si bien que tout `web/` pouvait être réécrit
 sans périmer une seule preuve. Toute attestation porte désormais l'empreinte de `web`, `lib`,
-`scripts`, `skills`, `alembic` et `tests` — de ceux, parmi eux, qui existent au HEAD.
+`scripts`, `skills`, `alembic`, `tests` et `browser` — de ceux, parmi eux, qui existent au HEAD.
+`browser` en fait partie depuis le 1er septembre : sans lui, le test de navigateur qu'exige la
+section « Toucher l'interface » pouvait être vidé ou supprimé après coup sans périmer une preuve.
 
 ## Rattachement au code : le contenu prouvé, ni la date ni le commit
 
@@ -150,8 +158,17 @@ et le plus dommageable : écrire le test après le code, et ne l'avoir jamais vu
 
 `verify_dod` refuse un parcours dont un commit touchant `web/`, `lib/`, `skills/` ou `alembic/`
 précède celui qui ajoute la definition of done. La fenêtre est celle de la branche, délimitée par
-la merge-base avec `--base` (`origin/main` par défaut) ; quand cette base n'est pas résolvable, le
-contrôle ne s'exerce pas, faute de savoir où commence le parcours.
+la merge-base avec la base du parcours : celle que `start` a journalisée, `origin/main` sinon.
+
+Quand cette base n'est pas résolvable — un dépôt sans référence distante, par exemple — le contrôle
+**refuse** et dit quoi faire : rouvrir le parcours avec `BASE=<branche>`. Il se taisait jusqu'au
+1er septembre, et ce silence valait acceptation : c'était le seul cas où du code pouvait précéder le
+contrat sans que rien ne l'arrête. `browser_coverage` répond de la même façon, sur la même fenêtre.
+
+Sans base journalisée, un parcours taillé sur une branche de travail locale répondait des commits
+de cette branche : le contrôle annonçait « du code est committé avant le contrat » alors que le
+contrat était bien le premier commit du parcours. C'est ce faux positif, constaté le 31 août, qui a
+fait ajouter `BASE=`.
 
 Le contrôle lit l'ordre des commits : une réécriture d'historique l'efface. C'est un signal fort,
 pas une garantie, et il ne faut pas le présenter autrement.
@@ -163,6 +180,31 @@ marcher » qui change exige une ligne `Révision AAAA-MM-JJ` sous le critère co
 qui disparaît est refusé. C'est la règle qui empêche de rétrécir la cible jusqu'à ce que le vert
 soit atteignable.
 
+## Toucher l'interface engage un test de navigateur
+
+`make test` est le couloir hermétique : il exclut `browser`. Un parcours pouvait donc réécrire un
+écran et démontrer « le bouton précédent me ramène là d'où je viens » par un test Node, où ni le
+retour arrière ni l'historique htmx n'existent.
+
+Quand la fenêtre du parcours touche `web/templates/` ou `web/static/`, `verify_attestations` exige
+qu'au moins un critère porte un test `browser/…::test_dod_N_…`, déclaré au niveau du module — le
+nom cité dans un commentaire, une chaîne ou une méthode ne compte pas. Seule la **présence** du test
+est vérifiée : une panne du moteur de conteneurs ne bloque donc pas le parcours. L'exécution appartient
+à `make e2e` et au workflow `.github/workflows/e2e.yml`, joué sur chaque PR et chaque nuit — c'est
+du test, pas de la lecture d'artefact, et cela ne revient pas sur la décision de la section
+suivante.
+
+## Rejouer les preuves périmées en un lot
+
+Une attestation porte l'empreinte de tout le périmètre : un rebase, ou n'importe quel commit sous
+`scripts/` ou `tests/`, les périme toutes d'un coup. Les rejouer une par une coûtait d'autant plus
+cher que le contrat était riche, ce qui décourageait les contrats riches.
+
+`make paved-road-reprove` rejoue chaque preuve périmée avec la commande inscrite dans son
+attestation. Le rouge du cycle initial reste valable : il porte l'empreinte du code d'avant, donc
+différente de l'empreinte courante. Une preuve que le rejeu ne fait plus passer est nommée, et le
+lot sort en 1.
+
 ## Rien ne rejoue les preuves
 
 La CI ne lit aucun artefact du parcours. Le verdict d'une attestation est celui de la commande qui
@@ -172,6 +214,24 @@ C'est un choix, pas un oubli : la CI porte des tests, de la sécurité, des audi
 déploiements ; elle ne relit pas des documents produits par le workflow de développement. Ce qui
 tient la preuve, c'est que l'empreinte périme l'attestation dès que le code change, que la liste
 d'interdits protège les attestations et le journal en écriture, et que le pair les lit dans la PR.
+
+## Ce que ce dispositif ne garantit pas
+
+Trois limites, à lire avant de croire la garantie plus forte qu'elle n'est.
+
+**La liste d'interdits se désactive d'un drapeau.** Elle vit dans `.claude/settings.json`, au niveau
+projet : une session lancée avec `--setting-sources user` ne la charge pas, et l'agent peut alors
+écrire dans `lib/attestation.py`, dans les attestations et dans le journal. Rien dans le dépôt n'en
+garde la trace. Depuis le retrait de la CI, le dispositif repose sur cette liste, sur `advance` et
+sur la relecture du pair — et le premier des trois se contourne sans laisser de marque.
+
+**Rien n'oblige à ouvrir un parcours.** `verify_dod` et `verify_attestations` ne s'exécutent que si
+quelqu'un les invoque. Une PR qui touche `web/` sans aucun artefact de parcours n'est remarquée par
+personne d'autre que le relecteur.
+
+**Une attestation écrite à la main passe tous les contrôles.** Plus rien ne ré-exécute la commande
+d'une preuve. Un rejeu local ne prouverait rien de plus, puisque c'est le même agent qui écrit la
+preuve et qui la rejouerait. Ce qui tient, c'est l'empreinte qui périme, et la lecture du pair.
 
 Ce qu'on perd, et qui est assumé : rien du côté GitHub ne constatera qu'une PR touchant `web/` a un
 contrat démontré. La garantie est locale.

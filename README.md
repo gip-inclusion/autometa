@@ -74,34 +74,39 @@ Le fichier `CLAUDE.md` contient le system prompt. Sections clés :
 
 ### Prérequis
 
-- Python 3.14+
-- Node.js 20+ (pour Claude Code CLI)
+- Python 3.14+ et [uv](https://docs.astral.sh/uv/)
+- Docker, en marche : PostgreSQL, Redis et MinIO tournent en conteneurs
+- Node.js 20+ : la CLI Claude Code, et Biome — seul filet du front
 - Clés API : `MATOMO_TOKEN`, `METABASE_USER`, `METABASE_PASSWORD`
 
 ### Setup
 
 ```bash
-# Cloner le repo
 git clone https://github.com/gip-inclusion/autometa.git
 cd autometa
 
-# Environnement Python
-python -m venv .venv
-source .venv/bin/activate
-uv sync
-
-# Variables d'environnement
-cp .env.example .env
-# Éditer .env avec vos credentials
-
-# Installer Claude Code CLI
 npm install -g @anthropic-ai/claude-code
-
-# Lancer l'application
-make dev
+make setup
 ```
 
-L'interface est accessible sur http://127.0.0.1:5000
+`make setup` fait tout le reste : dépendances Python, `.env` depuis `.env.example`, conteneurs,
+migrations, les deux hooks git, les dépendances du front, puis `make doctor`. Ce diagnostic
+**nomme ce qui manque et le geste qui le répare** — c'est lui qui fait foi, pas cette page.
+
+Un outil reste à installer à la demande, parce qu'il est lourd et qu'aucun parcours n'en dépend :
+`make browsers` pose le navigateur des tests `browser/` — et `make e2e` le fait pour vous.
+
+Éditez ensuite `.env` avec vos credentials, puis `make dev`. L'interface est sur
+http://127.0.0.1:5000
+
+### Développer avec le parcours paved road
+
+```bash
+make claude
+```
+
+Le parcours vit dans un plugin du dépôt : cette cible seule charge `/paved-road:paved-road` et ses
+sous-agents. Un `claude` lancé à la main ne les a pas. Voir `docs/paved-road/l1-attestation.md`.
 
 ### Configuration
 

@@ -8,6 +8,17 @@ personne non technique peut lire et valider, et sur lesquels elle jugera la PR.
 **1. Ouvrir le parcours.** Crée la branche `<auteur>/feat/<slug>` — le slug donne aussi le nom du
 répertoire sous `paved-road/`. Lance `make paved-road-start FEATURE=<slug>`.
 
+**Si ta branche ne part pas de la branche principale publiée**, ajoute `BASE=<branche de départ>` :
+`make paved-road-start FEATURE=<slug> BASE=<branche>`. Sans elle, le contrôle du contrat juge ton
+parcours sur les commits de la branche dont il part, et refuse en annonçant que du code a été
+committé avant le contrat — alors que le contrat est bien ton premier commit. `git log --oneline -1
+<branche>` te dit d'où tu pars si tu as un doute.
+
+`start` installe au passage les hooks que le worktree n'a pas et lance le diagnostic
+d'environnement. Lis ce qu'il affiche : ce qui n'est pas en ordre y figure, avec le geste qui le
+répare. Une panne d'environnement est de famille B — elle s'annonce au demandeur avec ce geste,
+jamais avec un nom de fichier.
+
 **2. Lire avant d'écrire.** Six règles, dont les deux premières sont inconditionnelles :
 
 - **R1** — le code existant de la surface touchée. Tu ne peux pas écrire un critère sur un écran
@@ -59,7 +70,8 @@ code. C'est la seule chose qui distingue un accord passé d'avance d'un contrat 
 pour coller au code produit. La description de PR affichera les deux dates côte à côte.
 
 **8. Avancer** : `make paved-road-advance`. Si `verify_dod` passe, l'état devient `build`. Dis au
-demandeur que l'étape est franchie, et demande une nouvelle session.
+demandeur, en français, ce que le contrat promet, et attends son feu vert avant d'écrire la
+première ligne de code. Reste dans la même session.
 
 ## Si le besoin est trop flou pour cinq décisions
 

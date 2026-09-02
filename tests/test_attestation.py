@@ -25,7 +25,14 @@ def make_repo(root: Path) -> Path:
     attestation.git(root, "config", "user.email", "test@example.invalid")
     attestation.git(root, "config", "user.name", "Test")
     commit(root, "initial")
+    publish(root, "main")
     return root
+
+
+def publish(repo: Path, branch: str) -> None:
+    """Fait exister `origin/<branche>` sans serveur : une référence distante est une référence."""
+    sha = attestation.git(repo, "rev-parse", branch).stdout.strip()
+    attestation.git(repo, "update-ref", f"refs/remotes/origin/{branch}", sha)
 
 
 def commit(repo: Path, message: str) -> str:
@@ -234,6 +241,17 @@ def test_advance_moves_on_when_every_check_exits_zero(journey, mocker):
     assert attestation.current_state(attestation.events(journey, FEATURE)) == "build"
 
 
+def test_a_failing_check_says_what_it_reported_not_only_that_it_failed(journey, mocker):
+    """« `dod` sort en 1 » n'a jamais dit ce qui bloque : il fallait relancer le check pour le lire."""
+    failing = ("sh", "-c", "echo 'le contrat ne dit pas d où il part'; exit 1")
+    mocker.patch.object(attestation, "CHECKS", {"align": (check("dod", "A", failing),)})
+
+    moved, message = attestation.advance(journey, FEATURE)
+
+    assert not moved
+    assert "le contrat ne dit pas d où il part" in message
+
+
 def test_advance_refuses_to_progress_without_a_zero_exit_code(journey, mocker):
     mocker.patch.object(attestation, "CHECKS", {"align": (check("dod", "A", ("false",)),)})
 
@@ -369,6 +387,84 @@ def cli(journey, mocker):
     spec.loader.exec_module(module)
     mocker.patch.object(module, "REPO", journey)
     return module
+
+
+HOOK_TARGETS = {"pre-commit": "hooks", "pre-push": "install-hooks"}
+
+
+def install_hook(repo: Path, name: str) -> None:
+    """Pose un hook exécutable là où git le cherchera."""
+    target = attestation.hooks_dir(repo) / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("#!/bin/sh\nexit 0\n")
+    target.chmod(0o755)
+
+
+def test_a_fresh_worktree_has_none_of_the_hooks_the_journey_relies_on(repo):
+    assert attestation.missing_hooks(repo) == ["pre-commit", "pre-push"]
+
+
+@pytest.mark.parametrize("installed", ["pre-commit", "pre-push"])
+def test_only_the_missing_hooks_are_reported(repo, installed):
+    install_hook(repo, installed)
+
+    assert attestation.missing_hooks(repo) == [name for name in HOOK_TARGETS if name != installed]
+
+
+def test_a_hook_that_is_not_executable_counts_as_missing(repo):
+    """Un fichier posé sans droit d'exécution n'est jamais lancé par git : il ne protège rien."""
+    install_hook(repo, "pre-commit")
+    (attestation.hooks_dir(repo) / "pre-commit").chmod(0o644)
+
+    assert "pre-commit" in attestation.missing_hooks(repo)
+
+
+def test_start_records_the_branch_the_journey_departs_from(cli, journey, capsys):
+    assert cli.main(["--feature", FEATURE, "start", "--base", "chantier-en-cours"]) == 0
+
+    assert attestation.journey_base(journey, FEATURE) == "chantier-en-cours"
+    assert "chantier-en-cours" in capsys.readouterr().out
+
+
+def test_start_installs_the_hooks_the_worktree_is_missing(cli, journey, mocker):
+    """Sans hook, les premiers commits du parcours ne voient passer ni lint ni tests."""
+    lancees = mocker.patch.object(attestation, "run_command", return_value=(0, ""))
+
+    cli.main(["--feature", FEATURE, "start"])
+
+    assert [("make", "hooks"), ("make", "install-hooks")] == [
+        tuple(argv) for argv in [call.args[1] for call in lancees.call_args_list] if argv[0] == "make"
+    ]
+
+
+def test_start_leaves_alone_the_hooks_that_are_already_there(cli, journey, mocker):
+    for name in HOOK_TARGETS:
+        install_hook(journey, name)
+    lancees = mocker.patch.object(attestation, "run_command", return_value=(0, ""))
+
+    cli.main(["--feature", FEATURE, "start"])
+
+    assert [call.args[1] for call in lancees.call_args_list if call.args[1][0] == "make"] == []
+
+
+def test_start_reports_the_notes_of_a_healthy_environment_and_drops_what_is_fine(cli, journey, mocker, capsys):
+    """Sans navigateur ni Biome, `doctor` sort en 0 : la note ne se verrait jamais à l'ouverture."""
+    diagnostic = "  ok    Docker\n  note  Navigateur — Lancez `make browsers`.\n\nEnvironnement prêt.\n"
+    mocker.patch.object(attestation, "run_command", return_value=(0, diagnostic))
+
+    cli.main(["--feature", FEATURE, "start"])
+
+    printed = capsys.readouterr().out
+    assert "make browsers" in printed
+    assert "Docker" not in printed
+
+
+def test_start_says_what_the_environment_blocks_instead_of_leaving_it_to_be_discovered(cli, journey, mocker, capsys):
+    mocker.patch.object(attestation, "run_command", return_value=(1, "Docker Desktop est arrêté : l'ouvrir."))
+
+    cli.main(["--feature", FEATURE, "start"])
+
+    assert "Docker Desktop est arrêté : l'ouvrir." in capsys.readouterr().out
 
 
 def test_start_opens_the_journey_with_a_definition_of_done_to_write(cli, journey, capsys):
@@ -587,9 +683,10 @@ def test_a_criterion_carries_one_verdict_and_only_one(proven, attendu):
     assert attestation.parse_attestation(attestation.render_attestation(entry)) == entry
 
 
-def test_skills_is_fingerprinted():
-    """Sans lui, réécrire un SKILL.md après coup ne périmerait aucune preuve."""
-    assert "skills" in attestation.DEFAULT_PROVEN_PATHS
+@pytest.mark.parametrize("path", ["skills", "browser"])
+def test_the_paths_a_late_rewrite_could_empty_are_fingerprinted(path):
+    """Sans eux, réécrire un SKILL.md ou supprimer un test de navigateur ne périmerait aucune preuve."""
+    assert path in attestation.DEFAULT_PROVEN_PATHS
 
 
 @pytest.mark.parametrize(
@@ -677,12 +774,186 @@ def test_code_committed_while_the_contract_stays_uncommitted_is_refused(branche)
     assert len(attestation.dod_antedates_code(branche, FEATURE, "main")) == 1
 
 
-@pytest.mark.parametrize("base", ["origin/main", "n-existe-pas"])
-def test_an_unreachable_base_leaves_the_anteriority_unchecked(branche, base):
-    """Sans base, la fenêtre du parcours est indéterminable : le contrôle ne peut pas s'exercer."""
+@pytest.mark.parametrize("base", ["origin/autre-depot", "n-existe-pas"])
+def test_a_journey_that_cannot_locate_where_it_starts_is_refused(branche, base):
+    """Une base introuvable rendait le contrôle muet : il validait au lieu de dire qu'il ne sait pas."""
     commit_code_alone(branche)
 
-    assert attestation.dod_antedates_code(branche, FEATURE, base) == []
+    problems = attestation.dod_antedates_code(branche, FEATURE, base)
+
+    assert len(problems) == 1
+    assert "BASE=" in problems[0]
+
+
+def test_a_repository_without_any_remote_reference_is_refused_too(branche):
+    """C'était le seul cas où du code pouvait précéder le contrat sans que rien ne l'arrête."""
+    attestation.git(branche, "update-ref", "-d", "refs/remotes/origin/main")
+    commit_code_alone(branche)
+
+    assert len(attestation.dod_antedates_code(branche, FEATURE)) == 1
+
+
+def test_a_locatable_base_leaves_the_anteriority_message_alone(branche):
+    commit(branche, "contrat")
+    commit_code_alone(branche)
+
+    assert attestation.dod_antedates_code(branche, FEATURE, "main") == []
+
+
+def touch_interface(repo: Path, path: str) -> None:
+    """Committe une modification de l'interface, celle qui ne se teste pas sous Node."""
+    target = repo / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("<p>écran</p>\n")
+    commit(repo, "interface")
+
+
+def browser_test(repo: Path, body: str) -> None:
+    """Pose un test de navigateur — sa présence suffit, son exécution appartient au workflow e2e."""
+    (repo / "browser").mkdir(exist_ok=True)
+    (repo / "browser" / "test_parcours.py").write_text(body)
+    commit(repo, "test de navigateur")
+
+
+@pytest.mark.parametrize("path", ["web/templates/accueil.html", "web/static/app.js"])
+def test_touching_the_interface_without_a_browser_test_is_refused(branche, path):
+    commit(branche, "contrat")
+    touch_interface(branche, path)
+
+    problems = attestation.browser_coverage(branche, FEATURE, "main")
+
+    assert len(problems) == 1
+    assert "browser/" in problems[0]
+
+
+def test_a_journey_that_leaves_the_interface_alone_needs_no_browser_test(branche):
+    commit(branche, "contrat")
+    commit_code_alone(branche)
+
+    assert attestation.browser_coverage(branche, FEATURE, "main") == []
+
+
+SOCLE = (
+    "import pytest\n"
+    "from playwright.sync_api import Page\n\n"
+    "pytestmark = pytest.mark.browser\n\n\n"
+    "def test_dod_2_la_navigation_revient_en_arriere(visit: Callable[[str], None], page: Page):\n"
+    '    visit("/")\n'
+)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "def test_dod_2_la_navigation_revient_en_arriere():\n    pass\n",
+        SOCLE,
+        "@pytest.mark.browser\ndef test_dod_2_la_navigation_revient_en_arriere():\n    pass\n",
+    ],
+)
+def test_a_browser_test_named_after_one_criterion_is_enough(branche, body):
+    """La forme reconnue est celle que `browser/test_socle.py` porte déjà, décorateurs compris."""
+    commit(branche, "contrat")
+    touch_interface(branche, "web/templates/accueil.html")
+    browser_test(branche, body)
+
+    assert attestation.browser_coverage(branche, FEATURE, "main") == []
+
+
+def test_a_browser_test_in_a_subdirectory_counts_too(branche):
+    commit(branche, "contrat")
+    touch_interface(branche, "web/templates/accueil.html")
+    (branche / "browser" / "parcours").mkdir(parents=True)
+    (branche / "browser" / "parcours" / "test_menu.py").write_text("def test_dod_1_le_menu():\n    pass\n")
+    commit(branche, "test de navigateur rangé plus bas")
+
+    assert attestation.browser_coverage(branche, FEATURE, "main") == []
+
+
+def test_a_test_named_after_a_criterion_but_placed_outside_browser_does_not_count(branche):
+    """Le retour arrière et l'historique htmx ne se testent pas sous Node : c'est l'étage qui compte."""
+    commit(branche, "contrat")
+    touch_interface(branche, "web/templates/accueil.html")
+    (branche / "tests").mkdir(exist_ok=True)
+    (branche / "tests" / "test_ecran.py").write_text("def test_dod_1_le_menu():\n    pass\n")
+    commit(branche, "test hors navigateur")
+
+    assert len(attestation.browser_coverage(branche, FEATURE, "main")) == 1
+
+
+def test_a_browser_test_named_after_no_criterion_at_all_does_not_count(branche):
+    commit(branche, "contrat")
+    touch_interface(branche, "web/templates/accueil.html")
+    browser_test(branche, "def test_le_socle_repond():\n    pass\n")
+
+    assert len(attestation.browser_coverage(branche, FEATURE, "main")) == 1
+
+
+def test_a_browser_coverage_that_cannot_locate_where_the_journey_starts_is_refused(branche):
+    touch_interface(branche, "web/templates/accueil.html")
+
+    problems = attestation.browser_coverage(branche, FEATURE, "n-existe-pas")
+
+    assert len(problems) == 1
+    assert "BASE=" in problems[0]
+
+
+def test_verify_attestations_carries_the_browser_coverage(branche):
+    commit(branche, "contrat")
+    touch_interface(branche, "web/templates/accueil.html")
+
+    assert any("browser/" in problem for problem in attestation.verify_attestations(branche, FEATURE))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "# on aurait pu écrire def test_dod_1_le_menu ici\n",
+        "COMMENTAIRE = 'def test_dod_1_le_menu'\n",
+        "    def test_dod_1_le_menu(self):\n        pass\n",
+    ],
+)
+def test_a_criterion_name_that_is_not_a_module_level_test_does_not_count(branche, body):
+    """Le nom cité dans un commentaire, une chaîne ou une méthode ne fait pas exister le test."""
+    commit(branche, "contrat")
+    touch_interface(branche, "web/templates/accueil.html")
+    browser_test(branche, body)
+
+    assert len(attestation.browser_coverage(branche, FEATURE, "main")) == 1
+
+
+def test_hooks_are_looked_up_where_git_shares_them_between_worktrees(repo, tmp_path):
+    """Un worktree n'a pas ses propres hooks : git les lit dans le répertoire commun du dépôt."""
+    worktree = tmp_path / "worktree"
+    attestation.git(repo, "worktree", "add", "-q", "-b", "ailleurs", str(worktree))
+    install_hook(repo, "pre-commit")
+
+    assert attestation.hooks_dir(worktree) == attestation.hooks_dir(repo)
+    assert attestation.missing_hooks(worktree) == ["pre-push"]
+
+
+def test_a_journey_starting_from_another_branch_answers_to_that_branch(branche):
+    """Un parcours qui part d'une branche de travail n'a pas à répondre du code qu'elle portait."""
+    commit_code_alone(branche)
+    attestation.git(branche, "branch", "chantier-en-cours")
+    commit(branche, "contrat")
+
+    attestation.record_base(branche, FEATURE, "chantier-en-cours")
+
+    assert attestation.journey_base(branche, FEATURE) == "chantier-en-cours"
+    assert attestation.dod_antedates_code(branche, FEATURE) == []
+    assert len(attestation.dod_antedates_code(branche, FEATURE, "main")) == 1
+
+
+def test_a_journey_without_a_recorded_base_answers_to_the_published_main(branche):
+    assert attestation.journey_base(branche, FEATURE) == attestation.DEFAULT_BASE
+
+
+def test_the_last_recorded_base_is_the_one_that_counts(branche):
+    """Rouvrir un parcours sur une autre branche remplace le point de départ, sans effacer le journal."""
+    attestation.record_base(branche, FEATURE, "premiere")
+    attestation.record_base(branche, FEATURE, "seconde")
+
+    assert attestation.journey_base(branche, FEATURE) == "seconde"
 
 
 def test_verify_dod_carries_the_anteriority_check(branche):
@@ -943,3 +1214,94 @@ def test_an_attestation_that_drops_a_proven_path_is_reported(journey):
 
     assert len(problems) == 1
     assert "DOD-1 — attestation partielle : web" in problems[0]
+
+
+def change_proven_code(repo: Path) -> None:
+    """Un rebase, ou n'importe quel commit sous un chemin prouvé, périme toutes les attestations."""
+    (repo / "web" / "app.py").write_text("x = 99\n")
+    commit(repo, "touche un chemin prouvé")
+
+
+def test_nothing_is_replayed_while_every_proof_still_describes_the_code(journey):
+    prove_cycle(journey, "DOD-1", "DOD-2")
+
+    assert attestation.stale_attestations(journey, FEATURE) == {}
+    assert attestation.reprove_stale(journey, FEATURE) == []
+
+
+def test_every_stale_proof_is_replayed_in_one_go_with_the_command_it_recorded(journey):
+    prove_cycle(journey, "DOD-1", "DOD-2")
+    change_proven_code(journey)
+
+    assert sorted(attestation.stale_attestations(journey, FEATURE)) == ["DOD-1", "DOD-2"]
+    assert attestation.reprove_stale(journey, FEATURE) == []
+    assert attestation.verify_attestations(journey, FEATURE) == []
+
+
+def test_replaying_satisfies_the_red_before_green_rule_without_a_new_red(journey):
+    """Le rouge du cycle initial porte une empreinte d'avant : elle diffère toujours de l'actuelle."""
+    prove_cycle(journey, "DOD-1")
+    change_proven_code(journey)
+
+    assert attestation.red_before_green(journey, FEATURE, "DOD-1") == []
+    assert attestation.reprove_stale(journey, FEATURE) == []
+
+
+def test_an_attestation_that_lost_a_proven_path_is_replayed_too(journey):
+    prove_cycle(journey, "DOD-1")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    target.write_text(target.read_text().replace("| `lib` |", "| `docs` |"))
+
+    assert list(attestation.stale_attestations(journey, FEATURE)) == ["DOD-1"]
+
+
+def test_a_replay_whose_command_became_unacceptable_is_reported_not_crashed(journey):
+    prove_cycle(journey, "DOD-1")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    target.write_text(target.read_text().replace(PROUVE_1, "make test"))
+    change_proven_code(journey)
+
+    failures = attestation.reprove_stale(journey, FEATURE)
+
+    assert len(failures) == 1
+    assert failures[0][0] == "DOD-1"
+    assert "aucune commande de preuve admise" in failures[0][1]
+
+
+def test_a_replay_that_now_fails_is_reported_as_such(journey):
+    prove_cycle(journey, "DOD-1")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    target.write_text(target.read_text().replace(PROUVE_1, PROUVE_1_ECHOUE))
+    change_proven_code(journey)
+
+    failures = attestation.reprove_stale(journey, FEATURE)
+
+    assert len(failures) == 1
+    assert "sort en 1" in failures[0][1]
+
+
+def test_the_cli_replays_every_stale_proof_and_says_how_many(cli, journey, capsys):
+    prove_cycle(journey, "DOD-1", "DOD-2")
+    change_proven_code(journey)
+
+    assert cli.main(["--feature", FEATURE, "reprove"]) == 0
+
+    assert "2 preuve(s) rejouée(s)" in capsys.readouterr().out
+    assert attestation.verify_attestations(journey, FEATURE) == []
+
+
+def test_the_cli_reports_a_replay_it_could_not_redo(cli, journey, capsys):
+    prove_cycle(journey, "DOD-1")
+    target = attestation.attestations_dir(journey, FEATURE) / "DOD-1.md"
+    target.write_text(target.read_text().replace(PROUVE_1, PROUVE_1_ECHOUE))
+    change_proven_code(journey)
+
+    assert cli.main(["--feature", FEATURE, "reprove"]) == 1
+    assert "DOD-1" in capsys.readouterr().out
+
+
+def test_the_cli_says_when_no_proof_needs_replaying(cli, journey, capsys):
+    prove_cycle(journey, "DOD-1")
+
+    assert cli.main(["--feature", FEATURE, "reprove"]) == 0
+    assert "Aucune preuve périmée" in capsys.readouterr().out

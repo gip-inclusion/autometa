@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 ENV_FILE = Path(".env")
 CREDENTIALS_FILE = Path.home() / ".claude" / ".credentials.json"
+BIOME = Path("node_modules") / ".bin" / "biome"
 
 
 def check_docker(settings):
@@ -97,6 +98,37 @@ def warn_data_sources(settings):
     )
 
 
+# Why: ni le parcours, ni les hooks, ni `make lint` n'ont besoin de Node ou d'un navigateur. Les
+# rendre bloquants prendrait le parcours en otage — c'est ce qu'on a refusé pour Docker et le smoke.
+# Mais `make setup` ne les posait pas et `doctor` ne les regardait pas : le trou se découvrait en
+# lançant `make lint-js` ou `make e2e`, c'est-à-dire trop tard.
+def warn_front(settings):
+    if shutil.which("npm") is None:
+        return "npm est absent : Biome, seul filet du front, ne pourra pas tourner. Installez Node.js 20+."
+    if not BIOME.exists():
+        return "Les dépendances du front ne sont pas installées. Lancez `make lint-js`, qui les installe."
+    return None
+
+
+def playwright_cache(settings):
+    """Où Playwright range ses navigateurs, selon la plateforme ou ce que .env impose."""
+    if override := settings.get("PLAYWRIGHT_BROWSERS_PATH"):
+        return Path(override)
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
+def warn_browser(settings):
+    cache = playwright_cache(settings)
+    if cache.is_dir() and any(cache.glob("chromium-*")):
+        return None
+    return (
+        "Aucun navigateur Playwright installé : les tests sous `browser/` ne tourneront pas ici. "
+        "Lancez `make browsers`. Le parcours n'en dépend pas — il n'exige que la présence du test."
+    )
+
+
 REQUIRED = [
     ("Docker", check_docker),
     ("PostgreSQL", check_postgres),
@@ -108,20 +140,22 @@ REQUIRED = [
 
 OPTIONAL = [
     ("Authentification de l'agent", warn_agent_auth),
+    ("Front", warn_front),
+    ("Navigateur", warn_browser),
     ("Sources de données", warn_data_sources),
 ]
 
 
 def run(checks, settings, marker):
-    failures = 0
+    problems = []
     for label, check in checks:
         problem = check(settings)
         if problem is None:
             print(f"  {'ok':<5} {label}")
         else:
             print(f"  {marker:<5} {label} — {problem}")
-            failures += 1
-    return failures
+            problems.append(problem)
+    return problems
 
 
 def main() -> int:
@@ -130,11 +164,14 @@ def main() -> int:
         return 1
 
     settings = dotenv_values(ENV_FILE)
-    failures = run(REQUIRED, settings, "PANNE")
+    problems = run(REQUIRED, settings, "PANNE")
     run(OPTIONAL, settings, "note")
 
-    if failures:
-        print(f"\n{failures} point(s) à corriger avant de pouvoir travailler.")
+    # Why: cette dernière ligne est tout ce que le journal du parcours retient d'une panne
+    # d'environnement. Un compte ne dit ni ce qui casse ni quoi faire : elle porte le geste.
+    if problems:
+        plural = "s" if len(problems) > 1 else ""
+        print(f"\n{len(problems)} point{plural} à corriger. Commencer par : {problems[0]}")
         return 1
     print("\nEnvironnement prêt.")
     return 0

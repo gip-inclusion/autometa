@@ -19,8 +19,10 @@ from lib.pii import redact_nir
 ARTIFACTS_ROOT = "paved-road"
 
 # Why: `skills` en fait partie depuis le 27/08 — sans lui, réécrire le corps d'un SKILL.md après
-# coup ne périmerait aucune preuve, alors que c'est du comportement livré comme le reste.
-DEFAULT_PROVEN_PATHS = ("web", "lib", "scripts", "skills", "alembic", "tests")
+# coup ne périmerait aucune preuve, alors que c'est du comportement livré comme le reste. `browser`
+# l'a rejoint le 01/09 : un test de navigateur exigé par `browser_coverage` pouvait sinon être vidé
+# ou supprimé après coup sans périmer une seule attestation.
+DEFAULT_PROVEN_PATHS = ("web", "lib", "scripts", "skills", "alembic", "tests", "browser")
 
 # Périmètre du produit : y toucher avant d'avoir committé le contrat, c'est écrire le contrat après coup.
 CONTRACT_SCOPE = ("web", "lib", "skills", "alembic")
@@ -99,6 +101,22 @@ def dirty_paths(repo: Path, paths: Iterable[str]) -> list[str]:
     """Chemins prouvés portant des modifications non committées."""
     done = git(repo, "status", "--porcelain", "--", *paths)
     return sorted({line[3:].split(" -> ")[-1] for line in done.stdout.splitlines()})
+
+
+# Un worktree neuf ne porte aucun hook : les premiers commits du parcours passent alors sans lint
+# ni tests, et rien ne le signale. Constaté le 2026-08-31.
+JOURNEY_HOOKS = ("pre-commit", "pre-push")
+
+
+def hooks_dir(repo: Path) -> Path:
+    """Répertoire où git cherche les hooks — partagé par les worktrees d'un même dépôt."""
+    found = Path(git(repo, "rev-parse", "--git-path", "hooks").stdout.strip())
+    return found if found.is_absolute() else repo / found
+
+
+def missing_hooks(repo: Path) -> list[str]:
+    """Hooks dont le parcours dépend et que git ne lancerait pas en l'état."""
+    return [name for name in JOURNEY_HOOKS if not os.access(hooks_dir(repo) / name, os.X_OK)]
 
 
 def slug(repo: Path) -> str:
@@ -287,11 +305,35 @@ def journey_window(repo: Path, base: str) -> str | None:
     return f"{fork.stdout.strip()}..HEAD" if fork.returncode == 0 else None
 
 
-def dod_antedates_code(repo: Path, name: str, base: str = DEFAULT_BASE) -> list[str]:
+def journey_base(repo: Path, name: str) -> str:
+    """Référence dont le parcours est parti — la branche principale publiée, sauf mention au journal."""
+    recorded = [event["Base"] for event in events(repo, name) if "Base" in event]
+    return recorded[-1] if recorded else DEFAULT_BASE
+
+
+def record_base(repo: Path, name: str, base: str) -> Path:
+    """Journalise le point de départ — tout parcours ne descend pas de la branche principale."""
+    return append_event(repo, name, "base", [("Base", base)])
+
+
+# Why: une base introuvable rendait les deux contrôles de fenêtre muets — ils validaient au lieu de
+# dire qu'ils ne savent pas. Un dépôt sans référence distante laissait donc passer du code committé
+# avant le contrat, et une interface réécrite sans test de navigateur.
+def unlocatable(base: str) -> list[str]:
+    """Ce qu'il faut faire quand le parcours ne sait pas de quelle branche il part."""
+    return [
+        f"Le parcours ne sait pas d'où il part : « {base} » n'est pas résolvable ici. Rouvrir le "
+        f"parcours avec `make paved-road-start BASE=<branche>` pour journaliser la branche dont il "
+        f"part — sans elle, ni l'ordre du contrat et du code ni le périmètre touché ne se constatent."
+    ]
+
+
+def dod_antedates_code(repo: Path, name: str, base: str | None = None) -> list[str]:
     """Le contrat est le premier commit du parcours — l'ordre des commits le dit, une réécriture l'efface."""
-    window = journey_window(repo, base)
+    departure = base or journey_base(repo, name)
+    window = journey_window(repo, departure)
     if window is None:
-        return []
+        return unlocatable(departure)
     touched = set(git(repo, "rev-list", window, "--", *CONTRACT_SCOPE).stdout.split())
     if not touched:
         return []
@@ -349,7 +391,7 @@ def frozen_criteria(repo: Path, name: str) -> list[str]:
     ]
 
 
-def verify_dod(repo: Path, name: str, base: str = DEFAULT_BASE) -> list[str]:
+def verify_dod(repo: Path, name: str, base: str | None = None) -> list[str]:
     """Ce qu'une machine peut constater d'une definition of done — aucune lecture n'est remplacée."""
     path = dod_path(repo, name)
     if not path.is_file():
@@ -367,6 +409,44 @@ def verify_dod(repo: Path, name: str, base: str = DEFAULT_BASE) -> list[str]:
         )
     problems += [f"Gabarit non rempli : {found}" for found in sorted(set(PLACEHOLDER.findall(text)))]
     return problems + frozen_criteria(repo, name) + dod_antedates_code(repo, name, base)
+
+
+# Why: `make test` est le couloir hermétique — il exclut `browser`. Le parcours n'exigeait donc
+# aucun test de navigateur, et un critère qui parlait de retour arrière et d'historique htmx a été
+# démontré par un test Node, où ni l'un ni l'autre n'existe. Constaté le 2026-08-31.
+INTERFACE_SCOPE = ("web/templates", "web/static")
+BROWSER_ROOT = "browser"
+
+
+def touches_interface(repo: Path, window: str) -> list[str]:
+    """Fichiers d'interface que le parcours a modifiés — ceux dont la preuve demande un navigateur."""
+    return sorted(set(git(repo, "diff", "--name-only", window, "--", *INTERFACE_SCOPE).stdout.split()))
+
+
+def browser_tests_named_after(repo: Path, dods: Iterable[str]) -> list[str]:
+    """Critères portant un test sous `browser/` — la présence suffit, `make e2e` l'exécute."""
+    root = repo / BROWSER_ROOT
+    sources = "\n".join(path.read_text() for path in sorted(root.rglob("*.py"))) if root.is_dir() else ""
+    return [dod for dod in dods if re.search(rf"^def test_{dod.lower().replace('-', '_')}(?!\d)", sources, re.M)]
+
+
+def browser_coverage(repo: Path, name: str, base: str | None = None) -> list[str]:
+    """Toucher l'interface engage un critère démontré au bon étage, celui d'un vrai navigateur."""
+    departure = base or journey_base(repo, name)
+    window = journey_window(repo, departure)
+    if window is None:
+        return unlocatable(departure)
+    if not (touched := touches_interface(repo, window)):
+        return []
+    expected = criteria(dod_path(repo, name).read_text()) if dod_path(repo, name).is_file() else {}
+    if browser_tests_named_after(repo, expected):
+        return []
+    return [
+        f"Le parcours touche l'interface ({', '.join(touched)}) sans qu'aucun critère soit démontré "
+        f"sous `{BROWSER_ROOT}/` : le retour arrière, l'adresse et l'historique ne se testent pas sans "
+        f"navigateur. Écrire `{BROWSER_ROOT}/test_….py::test_dod_N_…` pour le critère concerné ; sa "
+        f"présence suffit ici, `make e2e` et le workflow e2e l'exécutent."
+    ]
 
 
 def verify_attestations(repo: Path, name: str) -> list[str]:
@@ -397,7 +477,8 @@ def verify_attestations(repo: Path, name: str) -> list[str]:
             )
         elif stale := stale_paths(repo, entry.trees):
             problems.append(f"{dod} — attestation périmée, {', '.join(stale)} a changé depuis. Relancer la preuve.")
-    return problems + [f"{dod} — attestation sans critère correspondant." for dod in filed if dod not in expected]
+    problems += [f"{dod} — attestation sans critère correspondant." for dod in filed if dod not in expected]
+    return problems + browser_coverage(repo, name)
 
 
 def verify_content(repo: Path) -> list[str]:
@@ -639,6 +720,37 @@ def prove(repo: Path, name: str, dod: str, command: str) -> Attestation:
     return entry
 
 
+# Why: une attestation porte l'empreinte de tout le périmètre. Un rebase, ou n'importe quel commit
+# sous `scripts/` ou `tests/`, les périme donc toutes d'un coup, et les rejouer une par une coûte
+# d'autant plus cher que le contrat est riche — ce qui décourage exactement les contrats riches.
+def stale_attestations(repo: Path, name: str) -> dict[str, Attestation]:
+    """Preuves dont l'empreinte ne décrit plus le code : arbre changé, ou chemin prouvé absent."""
+    directory = attestations_dir(repo, name)
+    if not directory.is_dir():
+        return {}
+    tracked = set(proven_paths(repo))
+    filed = {path.stem: parse_attestation(path.read_text()) for path in sorted(directory.glob("*.md"))}
+    return {
+        dod: entry
+        for dod, entry in filed.items()
+        if entry.proven and (stale_paths(repo, entry.trees) or tracked - set(entry.trees))
+    }
+
+
+def reprove_stale(repo: Path, name: str) -> list[tuple[str, str]]:
+    """Rejoue chaque preuve périmée avec la commande inscrite, et rend celles qui n'ont pas repassé."""
+    failures = []
+    for dod, entry in stale_attestations(repo, name).items():
+        try:
+            replayed = prove(repo, name, dod, entry.command)
+        except ValueError as erreur:
+            failures.append((dod, str(erreur)))
+            continue
+        if not replayed.proven:
+            failures.append((dod, f"`{entry.command}` sort en {replayed.exit_code}."))
+    return failures
+
+
 def last_line(output: str) -> str:
     lines = [line for line in redact_nir(output).splitlines() if line.strip()]
     return lines[-1][:200] if lines else "(aucune sortie)"
@@ -668,7 +780,12 @@ def advance(repo: Path, name: str) -> tuple[bool, str]:
                 ("Détail", last_line(output)),
             ],
         )
-        return False, f"{state} — `{check.name}` sort en {code}. Famille {check.family} : {FAMILIES[check.family]}."
+        # Why: sans le détail, « `dod` sort en 1 » obligeait à relancer le check pour savoir ce qui
+        # bloque — et c'est cette ligne-là que l'agent doit traduire au demandeur.
+        return False, (
+            f"{state} — `{check.name}` sort en {code}. Famille {check.family} : {FAMILIES[check.family]}.\n"
+            f"{last_line(output)}"
+        )
     reached = next_state(state)
     append_event(
         repo,

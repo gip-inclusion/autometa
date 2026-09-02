@@ -703,3 +703,102 @@ preuve et qui la rejouerait. Les documents ont donc été corrigés pour le dire
 pour le masquer : `prove.md` annonce désormais que les refus ferment la preuve vide et la preuve
 hors dépôt, qu'ils ne sont pas une frontière de sécurité, et que ce qui tient réellement est
 l'empreinte qui périme, plus la relecture du pair.
+
+
+## 17. Ce que trois exécutions comparées ont montré, le 1er septembre
+
+La même fonctionnalité a été développée trois fois à partir du même prompt : sans le parcours
+(1 commit, 4 tests, 0 critère), avec le parcours d'avant durcissement (8 commits, 10 critères, 12
+tests, **0 rouge journalisé**), et avec le parcours durci (14 commits, 15 critères, 14 tests,
+**19 rouges journalisés**, 5 frictions écrites). Cette section ajoute ce que la comparaison a
+appris ; elle ne réécrit pas les sections 1 à 16.
+
+### Un parcours répond de la branche dont il part, pas de `origin/main`
+
+`dod_antedates_code` comparait toujours à `origin/main`. Un parcours taillé sur une branche de
+travail locale était donc jugé sur les commits de cette branche, et le contrôle annonçait « du code
+est committé avant le contrat » alors que le contrat était bien le premier commit du parcours.
+Coût observé : deux échecs `align`, trois interventions humaines, et un agent contraint de modifier
+`lib/attestation.py` — le fichier même qu'il a interdiction de toucher.
+
+`start` journalise désormais la base (`BASE=<branche>`), et le contrôle s'y réfère, en retombant
+sur `origin/main` quand rien n'est enregistré. `start` installe aussi les hooks manquants et lance
+le diagnostic : dans un worktree neuf, aucun hook n'était installé, et l'agent avait contourné
+l'absence par `git -c core.hooksPath=` — les deux premiers commits du parcours n'ont vu passer ni
+lint ni tests.
+
+### Deux niveaux de message
+
+Le demandeur a répondu « je comprends pas trop ce que tu dis » face à un message pourtant en
+français, mais qui supposait de savoir ce qu'est un commit. `advance` et les contrôles restent
+techniques : ils parlent à l'agent. `SKILL.md` porte maintenant deux règles explicites — rien de ce
+que l'agent dit au demandeur ne contient de chemin de fichier ni de terme git ; tout échec de
+famille B ou C se termine par une action concrète que le demandeur peut faire. `doctor` ne se
+contente plus d'un compte : sa dernière ligne, celle que le journal retient, porte le geste.
+
+### Le test d'intégration du parcours
+
+Sur quatre contrôles ajoutés le 30 août, un était faux, et les tests unitaires ne l'ont pas vu
+**parce qu'ils faisaient tous partir la branche de parcours de `main`**. `tests/test_paved_road_parcours.py`
+déroule le parcours de bout en bout par la CLI, paramétré sur trois topologies de dépôt — branche
+principale publiée, branche de travail locale non publiée, dépôt sans référence distante — et
+double chaque déroulé d'un pendant négatif. Vérifié par mutation : désarmer `red_before_green` fait
+tomber six tests, et revenir au comportement d'avant fait tomber les trois de la seule topologie
+« branche de travail locale ».
+
+Ce test a exposé un trou : **dans un dépôt sans référence distante, la fenêtre du parcours est
+indéterminable et l'antériorité n'était pas vérifiée du tout** — le contrôle se taisait, et ce
+silence valait acceptation. Les deux contrôles de fenêtre refusent désormais, avec le geste :
+rouvrir le parcours avec `BASE=<branche>`. Élargir la fenêtre à tout l'historique n'était pas une
+option : dans un dépôt existant, tout le code précède tout contrat, et le faux positif serait
+systématique.
+
+Le test ne mocke ni la préparation du worktree ni les checks de `build` : le dépôt jetable porte un
+`Makefile`, un diagnostic et une copie de la CLI, et le parcours les invoque pour de vrai. `start` y
+installe donc de vrais hooks, ce qui exerce le chemin complet plutôt que de le supposer.
+
+L'idée d'une « période d'observation » pour les contrôles neufs a été proposée puis **remplacée**
+par ce test, jugé meilleur parce qu'il attrape le faux positif avant le commit.
+
+### Le bon étage de preuve, et le smoke qu'on n'a pas fait
+
+Aucune des trois exécutions n'a été vue tourner dans un navigateur. La troisième a réécrit
+l'ouverture d'une conversation — de 90 à 216 lignes, navigation htmx comprise — et son critère
+disait « le bouton précédent me ramène là d'où je viens » : bon critère, prouvé au mauvais étage,
+par un test Node. Toucher `web/templates/` ou `web/static/` engage désormais un test sous
+`browser/`, dont seule la présence est vérifiée. Et quand l'interface a changé sans passe de smoke
+enregistrée, `scripts/smoke.py note` rend la ligne que la description de PR doit porter — non
+bloquante, parce que la passe dépend d'un moteur de conteneurs qui tombe.
+
+Une idée a été **rejetée** : un « compteur de risque » signalant au relecteur qu'un changement est
+gros ou qu'il sort du contrat. Si le demandeur veut que la navigation change, on la change sans
+alarme ; ce qui garantit qu'on ne casse rien, ce sont les tests aux bons étages.
+
+`advance` ne rendait que « `dod` sort en 1 » : il fallait relancer le check pour savoir ce qui
+bloque, alors que c'est précisément cette ligne que l'agent doit traduire au demandeur. Le message
+porte maintenant la dernière ligne de la sortie du check.
+
+### Ce que l'onboarding ne posait pas, et ce que le dispositif ne garantit pas
+
+Le point 3 a créé un prérequis — un test sous `browser/` — que ni `make setup` ni `doctor` ne
+regardaient. `doctor` porte maintenant deux notes, `Front` et `Navigateur`, volontairement
+**optionnelles** : ni le parcours, ni les hooks, ni `make lint` n'ont besoin de Node ou d'un
+navigateur, et les rendre bloquants prendrait le parcours en otage, comme on l'a refusé pour Docker
+et pour le smoke. `make setup` installe les dépendances du front ; `make browsers` reste à la
+demande, parce que c'est un téléchargement lourd. `start` remonte désormais les notes en plus des
+pannes — sans quoi une note, qui sort en 0, ne se verrait jamais.
+
+Le `README` décrivait une installation qui n'existait plus : `python -m venv` et `uv sync`, sans
+`make setup`, sans Docker, sans hooks, sans `make claude`. Il renvoie maintenant à `make doctor`,
+qui est le seul document qui ne peut pas mentir.
+
+Enfin, `l1` gagne une section « Ce que ce dispositif ne garantit pas ». La première limite n'y était
+écrite nulle part : **la liste d'interdits vit dans `.claude/settings.json` et une session lancée
+avec `--setting-sources user` ne la charge pas** — c'est ainsi que la session du 1er septembre a pu
+modifier `lib/attestation.py`. Un agent ne peut pas se contraindre lui-même ; ce qui pouvait être
+fait, c'était l'écrire.
+
+### Le coût de la re-preuve
+
+Trois commits sur vingt-deux d'une branche précédente n'existaient que pour rejouer les preuves une
+par une après un rebase. `make paved-road-reprove` les rejoue en un lot.

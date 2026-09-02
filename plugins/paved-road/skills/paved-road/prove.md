@@ -47,6 +47,18 @@ celle du HEAD, donc du code d'avant, ce qui suffit à la distinguer de celle du 
 | une migration | `alembic check`, plus la migration jouée sur une base fraîche |
 | un chiffre : volumétrie, durée | un test qui mesure et assère un seuil, comme les autres |
 
+**Toucher `web/templates/` ou `web/static/` engage un test de navigateur.** Le contrôle des
+attestations refuse alors le parcours tant qu'aucun `browser/…::test_dod_N_…` ne porte le nom d'un
+critère. `make test` est le couloir hermétique : il exclut `browser`, donc un critère qui parle de
+retour arrière, d'adresse ou d'historique htmx passait « démontré » sur un test qui ne charge aucune
+page. Seule la **présence** du test est vérifiée ici — une panne du moteur de conteneurs ne bloque
+donc pas le parcours ; son exécution appartient à `make e2e` et au workflow E2E, joué sur chaque PR.
+
+Quand un rebase ou un commit sous un chemin prouvé périme toutes les attestations d'un coup,
+`make paved-road-reprove` les rejoue en un lot, chacune avec la commande qu'elle a inscrite. Le
+rouge du cycle initial reste valable : il porte l'empreinte du code d'avant, donc différente de
+l'actuelle. Une preuve que le rejeu ne fait plus passer est nommée, et le lot sort en 1.
+
 Rien ne rejoue ces preuves ailleurs : la CI ne lit aucun artefact du parcours. Le verdict que vous
 lisez est celui de la commande qui a tourné ici, sur l'empreinte de code inscrite dans
 l'attestation. Une preuve périmée se voit à cette empreinte, pas à un rejeu.

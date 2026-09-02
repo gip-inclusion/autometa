@@ -1,6 +1,6 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report e2e diff-cover lint format security ci \
-        migrate check-migrations paved-road-baseline lint-js
+        migrate check-migrations paved-road-baseline lint-js browsers
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
 PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -17,6 +17,7 @@ setup:
 	uv run --frozen alembic upgrade head
 	@$(MAKE) --no-print-directory hooks
 	@$(MAKE) --no-print-directory install-hooks
+	@$(MAKE) --no-print-directory node_modules || echo "Front non installé, make lint-js le reprendra."
 	@$(MAKE) --no-print-directory doctor
 
 doctor:
@@ -27,8 +28,12 @@ dev:
 
 # Le parcours paved road vit dans un plugin du dépôt : la commande `/paved-road:paved-road` et ses
 # sous-agents ne sont chargés que par cette cible, jamais par un `claude` lancé à la main.
+# `--dangerously-skip-permissions` : un parcours enchaîne des dizaines de commandes, et valider
+# chacune à la main n'est pas tenable. Le drapeau saute les *demandes* d'approbation ; il ne
+# décharge pas `.claude/settings.json`, donc la liste d'interdits — attestations, journal,
+# `lib/attestation.py`, `Makefile`, `.github/` — reste opposée à l'agent.
 claude:
-	claude --plugin-dir plugins/paved-road
+	claude --plugin-dir plugins/paved-road --dangerously-skip-permissions
 
 hooks:
 	uv run --frozen pre-commit install --hook-type pre-commit
@@ -98,10 +103,15 @@ test-cov:
 	@$(MAKE) --no-print-directory test-integration-cov
 	@$(MAKE) --no-print-directory coverage-report
 
+# Le navigateur des tests `browser/`. Volontairement hors de `make setup` : c'est un téléchargement
+# lourd, et le parcours n'exige que la présence du test, pas son exécution. `doctor` note son
+# absence et renvoie ici.
+browsers:
+	uv run --frozen playwright install chromium
+
 # Parcours de navigateur — exige une application servie (`make dev` dans un autre terminal),
 # ou E2E_BASE_URL pointant sur une review app.
-e2e:
-	uv run --frozen playwright install chromium
+e2e: browsers
 	uv run --frozen pytest browser -q -m browser
 
 diff-cover:
@@ -123,15 +133,23 @@ ci: lint lint-js security check-migrations test-cov diff-cover
 paved-road-baseline:
 	uv run --frozen python scripts/paved_road_baseline.py --days $(or $(DAYS),90)
 
-.PHONY: paved-road-start paved-road-status paved-road-checks paved-road-advance
+.PHONY: paved-road-start paved-road-status paved-road-checks paved-road-advance paved-road-reprove
 
 PAVED_ROAD := uv run --frozen python scripts/paved_road_cli.py $(if $(FEATURE),--feature $(FEATURE))
 
+# `BASE ?= main` sert au lint et à la couverture : seul un `BASE=` posé sur la ligne de commande
+# désigne la branche dont le parcours part. Sans lui, le contrôle d'antériorité répond à origin/main.
+# `start` installe au passage les hooks que le worktree n'a pas — un worktree neuf n'en porte aucun.
 paved-road-start:
-	@$(PAVED_ROAD) start
+	@$(PAVED_ROAD) start $(if $(filter command line,$(origin BASE)),--base $(BASE))
 
 paved-road-status:
 	@$(PAVED_ROAD) status
+
+# Un rebase, ou n'importe quel commit sous un chemin prouvé, périme toutes les attestations d'un
+# coup. Cette cible les rejoue avec la commande inscrite dans chacune, plutôt qu'une par une.
+paved-road-reprove:
+	@$(PAVED_ROAD) reprove
 
 paved-road-checks:
 	@$(PAVED_ROAD) check $(CHECK)

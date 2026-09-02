@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ DOD-9 — cette ligne n'est pas un critère, elle est hors de la section.
     ],
 )
 def test_interface_changes_keeps_only_what_a_browser_could_reveal(mocker, changed, expected):
-    mocker.patch.object(_module, "git", return_value="\n".join(changed))
+    mocker.patch.object(_module, "changed_since", return_value=changed)
     assert _module.interface_changes("main") == expected
 
 
@@ -151,3 +152,73 @@ def test_verify_refuses_a_pass_without_a_written_report(mocker, tmp_path, capsys
     (tmp_path / "01-accueil.png").write_bytes(b"")
     assert _module.verify(tmp_path) == 1
     assert "rapport.md" in capsys.readouterr().out
+
+
+def interface_note(mocker, tmp_path, changed, recorded):
+    """Prépare le cache de smoke et rend la ligne que la description de PR doit porter."""
+    mocker.patch.object(_module, "OUTPUT_ROOT", tmp_path / "cache")
+    mocker.patch.object(_module, "interface_changes", return_value=changed)
+    mocker.patch.object(_module, "branch", return_value="paved-road/08-smoke")
+    mocker.patch.object(_module, "fingerprint", return_value="abc1234")
+    if recorded is not None:
+        directory = tmp_path / "cache" / "paved-road-08-smoke" / "abc1234"
+        directory.mkdir(parents=True)
+        (directory / "passe.json").write_text(json.dumps(recorded, ensure_ascii=False))
+    return _module.note("main")
+
+
+def test_note_says_nothing_to_signal_when_the_interface_was_left_alone(mocker, tmp_path, capsys):
+    assert interface_note(mocker, tmp_path, [], None) == 0
+    assert "rien à signaler" in capsys.readouterr().out
+
+
+def test_note_says_the_interface_changed_without_anyone_seeing_it(mocker, tmp_path, capsys):
+    """« Quinze critères démontrés » se lit « ça marche » ; en réalité quinze tests passent."""
+    assert interface_note(mocker, tmp_path, ["web/templates/x.html"], None) == 0
+
+    output = capsys.readouterr().out
+    assert "Aucune passe de smoke" in output
+    assert "personne n'a vu cet écran dans un navigateur" in output
+
+
+def test_note_says_so_when_a_pass_was_recorded_on_this_state_of_the_interface(mocker, tmp_path, capsys):
+    recorded = {"branche": "paved-road/08-smoke", "empreinte": "abc1234", "captures": ["01.png", "02.png"]}
+
+    assert interface_note(mocker, tmp_path, ["web/templates/x.html"], recorded) == 0
+    assert "2 capture(s)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("given", "recorded", "expected"),
+    [
+        ("main", "chantier", "main"),
+        (None, "chantier", "chantier"),
+        (None, "origin/main", "origin/main"),
+    ],
+)
+def test_the_base_falls_back_to_the_one_the_journey_recorded(mocker, given, recorded, expected):
+    """Sans base explicite, `main` était supposé — faux dès qu'un parcours part d'une autre branche."""
+    mocker.patch.object(_module, "branch", return_value="cdarnispro/feat/son")
+    mocker.patch.object(_module.attestation, "journey_base", return_value=recorded)
+
+    assert _module.resolved_base(given) == expected
+
+
+@pytest.mark.parametrize("command", ["plan", "note"])
+def test_an_unresolvable_base_says_what_to_do_instead_of_crashing(mocker, capsys, command):
+    """Le contrôle d'antériorité a eu ce défaut ; `smoke.py` le portait encore."""
+    mocker.patch.object(_module, "branch", return_value="cdarnispro/feat/son")
+    mocker.patch.object(_module.attestation, "journey_base", return_value="n-existe-pas")
+    mocker.patch.object(_module, "changed_since", return_value=None)
+
+    code = _module.plan(None, None) if command == "plan" else _module.note(None)
+
+    assert code == 1
+    assert "n-existe-pas" in capsys.readouterr().out
+
+
+def test_changed_since_reports_an_unresolvable_base_as_none(mocker):
+    failed = subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr="")
+    mocker.patch.object(_module.subprocess, "run", return_value=failed)
+
+    assert _module.changed_since("n-existe-pas") is None
