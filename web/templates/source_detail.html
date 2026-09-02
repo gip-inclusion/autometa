@@ -44,6 +44,75 @@
         </div>
       </div>
 
+      {% if contents %}
+      <section class="source-contents">
+        <div class="source-contents-head">
+          <h2 class="source-contents-title">Contenu
+            {% if contents.total %}<span class="source-contents-count">{{ contents.total }}</span>{% endif %}
+          </h2>
+          {% if contents.kind == 'catalog' %}
+          <form method="get" action="/sources/{{ source.slug }}" class="source-search">
+            <input type="search" name="q" value="{{ search }}" placeholder="Filtrer par table ou colonne"
+                   class="form-control form-control-sm" aria-label="Filtrer le catalogue">
+          </form>
+          {% endif %}
+        </div>
+
+        {% if contents.error %}
+        <p class="text-muted">Contenu indisponible : {{ contents.error }}</p>
+        {% elif not contents.groups %}
+        <p class="text-muted">
+          {% if search %}Aucune table ne correspond à « {{ search }} ».{% else %}Pas encore d'inventaire pour cette source.{% endif %}
+        </p>
+        {% else %}
+        {% if contents.note %}<p class="source-contents-note">{{ contents.note }}</p>{% endif %}
+        {% for group in contents.groups %}
+        <details class="source-contents-group"{% if search or group['items']|length <= 30 %} open{% endif %}>
+          <summary>{{ group.label }} <span class="source-contents-count">{{ group['items']|length }}</span></summary>
+          {% if contents.kind == 'catalog' %}
+          <ul class="source-table-list">
+            {% for table in group['items'] %}
+            <li>
+              <details>
+                <summary><code>{{ table.name }}</code>
+                  <span class="source-contents-count">{{ table.columns|length }} col.</span>
+                  {% if table.description %}<span class="source-table-desc">{{ table.description }}</span>{% endif %}
+                </summary>
+                <div class="table-responsive">
+                  <table class="table table-sm source-column-table">
+                    <thead><tr><th>Colonne</th><th>Type</th><th>Description</th></tr></thead>
+                    <tbody>
+                      {% for column in table.columns %}
+                      <tr>
+                        <td><code>{{ column.name }}</code></td>
+                        <td class="text-muted">{{ column.type }}</td>
+                        <td>{{ column.description or '' }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <ul class="source-item-list">
+            {% for item in group['items'] %}
+            <li>
+              {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.name }}</a>
+              {% else %}{{ item.name }}{% endif %}
+              {% if item.description %}<span class="text-muted small">— {{ item.description }}</span>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </details>
+        {% endfor %}
+        {% endif %}
+      </section>
+      {% endif %}
+
       {% if doc_html %}
       <p class="source-doc-origin">
         Documentation lue par l'agent —

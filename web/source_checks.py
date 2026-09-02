@@ -11,6 +11,7 @@ from lib.query import (
     execute_autometa_tables_query,
     execute_dashboard_storage_query,
     execute_data_inclusion_query,
+    execute_dora_staging_query,
     get_matomo,
 )
 from lib.rpe import doctor
@@ -18,6 +19,7 @@ from lib.sources import get_source_config, list_instances, load_config
 
 from . import config, s3
 from .db import get_db
+from .helpers import list_knowledge_files
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,14 @@ def redact(detail: str) -> str:
     return out
 
 
+def check_knowledge_base() -> tuple[bool, str]:
+    sections = list_knowledge_files()
+    count = sum(len(files) for files in sections.values())
+    if not count:
+        return (False, "aucune fiche lisible")
+    return (True, f"{count} fiches dans {len(sections)} sections")
+
+
 def check_app_db() -> tuple[bool, str]:
     with get_db() as session:
         session.execute(text("SELECT 1"))
@@ -78,6 +88,13 @@ def check_autometa_tables() -> tuple[bool, str]:
     result = execute_autometa_tables_query("SELECT 1", caller=CallerType.APP)
     if result.success:
         return (True, f"connectée ({result.execution_time_ms} ms)")
+    return (False, result.error or "requête en échec")
+
+
+def check_dora_staging() -> tuple[bool, str]:
+    result = execute_dora_staging_query("SELECT 1", caller=CallerType.APP)
+    if result.success:
+        return (True, f"connectée en lecture seule ({result.execution_time_ms} ms)")
     return (False, result.error or "requête en échec")
 
 

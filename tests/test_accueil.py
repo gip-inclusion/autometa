@@ -148,18 +148,16 @@ def test_a_pinned_conversation_without_title_falls_back_to_its_label(client):
     assert "Label admin" in html
 
 
-def test_navigation_links_to_the_knowledge_pages(client):
-    html = client.get("/", headers=_h()).text
+def test_the_knowledge_base_is_reachable_from_the_sources_page(client):
+    """Les connaissances ne sont plus une entrée de menu : elles sont une carte du groupe Interne."""
+    html = client.get("/sources", headers=_h()).text
 
-    assert html.count('href="/knowledge"') == 2
     assert "Connaissances" in html
+    assert 'href="/knowledge"' in html
 
 
-def test_the_knowledge_link_is_marked_active_on_the_knowledge_page(client):
-    html = client.get("/knowledge", headers=_h()).text
-
-    index = html.index('href="/knowledge"')
-    assert 'aria-current="page"' in html[index : index + 200]
+def test_the_menu_no_longer_carries_a_knowledge_entry(client):
+    assert 'href="/knowledge"' not in client.get("/", headers=_h()).text
 
 
 def _count_queries(fn):

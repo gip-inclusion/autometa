@@ -102,7 +102,8 @@ def truncate_all_tables():
                 user_favorites,
                 reports, conversations, tags,
                 matomo_baselines, matomo_dimensions, matomo_segments,
-                matomo_events, metabase_cards, metabase_dashboards
+                matomo_events, metabase_cards, metabase_dashboards,
+                source_inventory_items, source_inventory_runs
                 CASCADE;
         """)
         )
