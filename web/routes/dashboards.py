@@ -45,9 +45,9 @@ PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
 FACET_TERM_CAP = 6
 
 
-def facet_filters(active_tags: list[str]) -> list[dict]:
+def facet_filters(active_tags: list[str], slugs: set[str] | None = None) -> list[dict]:
     """Facettes affichables : celles portant au moins un terme utilisé, dans l'ordre TDB."""
-    used = store.get_used_dashboard_tags_by_type()
+    used = store.get_used_dashboard_tags_by_type(slugs=slugs)
     filters = []
     for facet in ordered_facets("dashboard"):
         terms = used.get(facet.name)
@@ -107,9 +107,14 @@ def dashboards_page(
     pinned_cards = []
     published_groups = None
     active_tags = [t for t in tag if t]
+    facet_slugs = None
 
     if view == "published":
         published_groups = build_published_groups()
+        facet_slugs = {g["slug"] for g in published_groups}
+        if active_tags:
+            matching = {d["slug"] for d in store.list_dashboards(tag_names=active_tags)}
+            published_groups = [g for g in published_groups if g["slug"] in matching]
         if q:
             needle = q.lower()
             published_groups = [g for g in published_groups if needle in g["title"].lower()]
@@ -155,7 +160,7 @@ def dashboards_page(
             "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
             "published_groups": published_groups,
-            "facets": facet_filters(active_tags),
+            "facets": facet_filters(active_tags, facet_slugs),
             "active_tags": active_tags,
             **data,
         },
