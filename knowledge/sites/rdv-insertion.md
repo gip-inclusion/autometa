@@ -6,45 +6,12 @@
 - Metabase: [RDVI instance](../rdvi/README.md) — business data (invitations, RDVs, departments, organisations)
 - Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (acquisition, activation, rétention, pénétration).
 
-## Traffic Baselines (2025)
+## Références de trafic
 
-Data retrieved 2026-03-29 via Matomo API.
-
-### Monthly Visitor Stats
-
-| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|-----------|--------------------|-----------------:|
-| 2025-01 |           3,962 |    14,648 |                128 |              473 |
-| 2025-02 |           3,563 |    13,617 |                127 |              486 |
-| 2025-03 |           4,013 |    15,739 |                129 |              508 |
-| 2025-04 |           3,874 |    14,954 |                129 |              498 |
-| 2025-05 |           2,556 |     8,851 |                 82 |              286 |
-| 2025-06 |               4 |         5 |                  0 |                0 |
-| 2025-07 |           2,542 |    11,264 |                 82 |              363 |
-| 2025-08 |             820 |     6,499 |                 26 |              210 |
-| 2025-09 |           1,043 |     8,738 |                 35 |              291 |
-| 2025-10 |             980 |     8,979 |                 32 |              290 |
-| 2025-11 |             877 |     8,091 |                 29 |              270 |
-| 2025-12 |             923 |     7,784 |                 30 |              251 |
-
-**Typical range:** 0-129 unique visitors/day, 0-508 visits/day.
-
-### Engagement Metrics
-
-| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
-|---------|-------------|---------------|------------------|
-| 2025-01 |         27% |          13.8 |          12m 09s |
-| 2025-02 |         26% |          14.3 |          12m 58s |
-| 2025-03 |         23% |          20.8 |          13m 28s |
-| 2025-04 |         22% |          23.9 |          14m 07s |
-| 2025-05 |         23% |          25.1 |          13m 31s |
-| 2025-06 |         80% |           1.2 |               1s |
-| 2025-07 |         19% |          27.8 |          14m 18s |
-| 2025-08 |          5% |          23.7 |          15m 46s |
-| 2025-09 |          5% |            21 |          15m 03s |
-| 2025-10 |          5% |          20.6 |          15m 10s |
-| 2025-11 |          4% |          21.7 |          15m 52s |
-| 2025-12 |          5% |            21 |          15m 10s |
+Les chiffres de trafic de ce site — visites, visiteurs, rebond, durée, répartition par type
+d'utilisateur — sont synchronisés chaque nuit dans la base applicative
+(`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
+ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
 ## Custom Dimensions
 

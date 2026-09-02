@@ -12,8 +12,6 @@ from web.selftest import (
     Check,
     _check_claude_code_ping,
     _check_claude_status_page,
-    _check_rpe,
-    _check_s3,
     _check_specs,
     _fmt,
     _probe,
@@ -22,63 +20,7 @@ from web.selftest import (
 )
 
 
-def test_check_rpe_summarizes_passing_contract(mocker):
-    mocker.patch(
-        "lib.rpe.doctor",
-        return_value={
-            "ok": True,
-            "checks": [
-                {"check": "tls", "ok": True, "reason": "TLS OK"},
-                {"check": "getcuberesult", "ok": True, "reason": "19 valeurs"},
-            ],
-        },
-    )
-    ok, detail = _check_rpe()
-    assert ok is True
-    assert detail == "tls · getcuberesult OK"
-
-
-def test_check_rpe_surfaces_first_failing_check(mocker):
-    mocker.patch(
-        "lib.rpe.doctor",
-        return_value={
-            "ok": False,
-            "checks": [
-                {"check": "tls", "ok": True, "reason": "TLS OK"},
-                {"check": "login", "ok": False, "reason": "login refusé"},
-            ],
-        },
-    )
-    ok, detail = _check_rpe()
-    assert ok is False
-    assert detail == "login: login refusé"
-
-
-@pytest.mark.parametrize(
-    ("bucket", "upload", "download", "expect_ok", "detail_substr"),
-    [
-        ("matometa", True, b"ping", True, "write/read/delete OK"),
-        ("", True, b"ping", False, "S3_BUCKET not set"),
-        ("matometa", False, None, False, "upload failed"),
-        ("matometa", True, b"nope", False, "read-back mismatch"),
-    ],
-)
-def test_check_s3_roundtrip(mocker, bucket, upload, download, expect_ok, detail_substr):
-    mocker.patch("web.selftest.config.S3_BUCKET", bucket)
-    interactive = mocker.patch("web.s3.interactive")
-    interactive.upload.return_value = upload
-    interactive.download.return_value = download
-
-    ok, detail = _check_s3()
-
-    assert ok is expect_ok
-    assert detail_substr in detail
-    if expect_ok:
-        interactive.delete.assert_called_once_with("selftest/ping.txt")
-
-
-def test_inventory_check_runs_last(mocker):
-    mocker.patch("web.selftest.list_instances", return_value=["stats"])
+def test_inventory_check_runs_last():
     names = [name for name, _ in _check_specs()]
     assert names[-1] == "Ressources offline accessibles"
 
@@ -299,7 +241,6 @@ def test_run_all_checks_produces_check_instances(mocker):
     mock_config.GRIST_API_KEY = None
     mock_config.GRIST_WEBINAIRES_DOC_ID = None
     mock_config.LIVESTORM_API_KEY = None
-    mock_config.TALLY_API_KEY = None
     mock_config.SLACK_BOT_TOKEN = ""
 
     mock_subprocess.return_value = mocker.MagicMock(returncode=0, stdout="1.0.0\n", stderr="")
@@ -309,23 +250,13 @@ def test_run_all_checks_produces_check_instances(mocker):
     mock_get.return_value = mock_resp
     mock_head.return_value = mocker.MagicMock(status_code=200)
 
-    mocker.patch("web.selftest._check_postgresql", return_value=(True, ""))
     mocker.patch("web.selftest._check_admin_users", return_value=(True, "1 configured"))
     mocker.patch("web.selftest._check_task_runner", return_value=(True, "0 running, 0 queued"))
     mocker.patch("web.selftest._check_conversation_roundtrip", return_value=(True, "OK"))
     mocker.patch("web.selftest._check_claude_cli", return_value=(True, "1.0.0; 3 skills: a, b, c"))
     mocker.patch("web.selftest._check_claude_status_page", return_value=(True, "page OK"))
     mocker.patch("web.selftest._check_claude_code_ping", return_value=(True, "API OK"))
-    mocker.patch("web.selftest._check_s3", return_value=(False, "not configured"))
-    mocker.patch("web.selftest._check_matomo", return_value=(True, "v5.0"))
-    mocker.patch("web.selftest._check_metabase_instance", return_value=(True, "healthy"))
-    mocker.patch("web.selftest._check_rpe", return_value=(True, "login OK"))
-    mocker.patch("web.selftest._check_notion", return_value=(False, "not set"))
-    mocker.patch("web.selftest._check_grist", return_value=(False, "not set"))
-    mocker.patch("web.selftest._check_livestorm", return_value=(False, "not set"))
-    mocker.patch("web.selftest._check_tally", return_value=(False, "not set"))
-    mocker.patch("web.selftest._check_slack", return_value=(False, "not set"))
-    mocker.patch("lib.sources.list_instances", return_value=["stats"])
+    mocker.patch("web.selftest.check_source", side_effect=lambda source: (source.slug == "matomo", "sondée"))
 
     checks = _run_all_checks()
 

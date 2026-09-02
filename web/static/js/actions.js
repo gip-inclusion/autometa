@@ -540,7 +540,7 @@ function formatPillContent(toolUse, toolResult) {
   const category = toolUse.category || '';
   let hasKnowledgeLink = false;
 
-  // Knowledge files: show link to open in connaissances section
+  // Knowledge files: link into the knowledge section
   if (category === 'Read: knowledge' && toolUse.input?.file_path) {
     const fullPath = toolUse.input.file_path;
     const match = fullPath.match(/\/knowledge\/(.+)$/);
@@ -548,7 +548,7 @@ function formatPillContent(toolUse, toolResult) {
       hasKnowledgeLink = true;
       const relativePath = match[1];
       const fileName = relativePath.split('/').pop();
-      html += `<a href="/connaissances/${escapeHtml(relativePath)}" target="_blank" class="action-knowledge-link">
+      html += `<a href="/knowledge/${escapeHtml(relativePath)}" target="_blank" class="action-knowledge-link">
         <i class="ri-book-open-line"></i>
         <span>Ouvrir ${escapeHtml(fileName)}</span>
         <i class="ri-external-link-line"></i>

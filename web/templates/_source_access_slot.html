@@ -1,0 +1,8 @@
+{# Sonde différée. hx-target/hx-select/hx-push-url s'héritent : sans ces valeurs explicites,
+   un emplacement placé dans une carte boostée remplacerait la page et polluerait l'historique. #}
+<span hx-get="/sources/{{ slug }}/access" hx-trigger="load"
+      hx-target="this" hx-swap="outerHTML" hx-select="unset" hx-push-url="false">
+  <span class="source-signal source-signal-pending">
+    <i class="ri-loader-4-line ri-spin" aria-hidden="true"></i> Accès…
+  </span>
+</span>

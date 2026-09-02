@@ -1,62 +1,44 @@
-# Notion API
+# API Notion
 
-Toutes les requêtes Notion du projet utilisent `urllib.request` directement (pas de SDK).
+Le client du projet est `lib/notion.py`, bâti sur `httpx`. Il lit **et** écrit. Le skill
+`notion` est le point d'entrée ; ne pas appeler l'API à la main ailleurs.
 
 ## Configuration
 
-| Variable | Requis pour | Exemple |
-|----------|-------------|---------|
-| `NOTION_TOKEN` | Tout | `secret_abc...` |
-| `NOTION_REPORTS_DB` | Publish | UUID de la base "Rapports publics" |
+| Variable | Requise pour | Forme |
+|----------|--------------|-------|
+| `NOTION_TOKEN` | tout | `secret_abc...` |
+| `NOTION_REPORTS_DB` | publication | identifiant de la base « Rapports publics » |
 
-Les database IDs du corpus sont codés en dur dans `scripts/refresh_research.py`.
+## Ce que le client sait faire
 
-## Requêtes API
+| Fonction | Rôle |
+|---|---|
+| `query_database(db_id)` | lister les pages d'une base, pagination comprise |
+| `get_block_children(block_id)` | récupérer le contenu d'une page |
+| `db_id_from_url(url)` | extraire un identifiant depuis une URL d'espace de travail |
+| `publish_report(...)` | créer une page de rapport et y écrire le markdown converti |
+| `is_configured()` | savoir si le jeton est présent avant de tenter un appel |
 
-- Base URL : `https://api.notion.com/v1/`
-- Version : `Notion-Version: 2022-06-28`
-- Auth : `Authorization: Bearer {NOTION_TOKEN}`
-- Content-Type : `application/json`
-- Timeout : 30s (publish, corpus)
+## Appels
 
-### Endpoints utilisés
+- Base : `https://api.notion.com/v1/`
+- En-tête de version : `Notion-Version: 2022-06-28`
+- Authentification : `Authorization: Bearer {NOTION_TOKEN}`
+- Délai d'attente : 30 s
 
-| Endpoint | Méthode | Utilisé par |
-|----------|---------|-------------|
-| `/pages` | POST | Publish (créer une page) |
-| `/blocks/{page_id}/children` | PATCH | Publish (ajouter des blocs de contenu) |
-| `/databases/{db_id}/query` | POST | Corpus (lister les pages d'une base) |
-| `/blocks/{block_id}/children` | GET | Corpus (récupérer le contenu des pages) |
+La pagination suit `has_more` / `next_cursor`. Sur HTTP 429, respecter `Retry-After`.
 
-### Pagination
+## Publication de rapports
 
-```python
-payload = {"page_size": 100}
-if cursor:
-    payload["start_cursor"] = cursor
-# ...
-if not data.get("has_more"):
-    break
-cursor = data.get("next_cursor")
-```
+Route `POST /api/reports/{id}/publish-notion`. Crée une page dans la base « Rapports
+publics » avec les propriétés `Titre`, `Date de publication`, `Produits concernés` et
+`Requête initiale`, puis y ajoute le contenu.
 
-### Rate limiting (corpus)
+La conversion markdown → blocs couvre titres, paragraphes, code, tableaux, listes et
+séparateurs ; en ligne, gras, italique, code et liens.
 
-`REQUEST_INTERVAL = 0.34` (~3 req/s). Retry automatique sur HTTP 429 avec `Retry-After`.
+## Portée de l'intégration
 
-## Fonctionnalité : Publish — Publier des rapports
-
-**Fichier** : `web/notion.py`
-**Route** : `POST /api/reports/{id}/publish-notion`
-
-Crée une page dans la base "Rapports publics" et y ajoute le contenu markdown converti en blocs Notion.
-
-Propriétés créées :
-- `Titre` (title)
-- `Date de publication` (date, optionnel)
-- `Produits concernés` (multi-select, optionnel)
-- `Requête initiale` (rich_text, optionnel)
-
-Blocs supportés : headings, paragraphs, code, tables, listes, dividers.
-Inline : **bold**, *italic*, `code`, [liens](url).
-
+L'intégration ne voit que ce qui lui a été partagé explicitement. Une page absente n'est pas
+manquante : elle n'est pas partagée.

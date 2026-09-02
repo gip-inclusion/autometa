@@ -75,7 +75,16 @@ else:
     print(result.error)
 ```
 
+## Pièges
+
+Les colonnes de date de `les_emplois` sont du **texte** ISO, pas des dates. Écrire
+`colonne::date >= x` écarte l'index et double le coût de la requête : comparer comme du
+texte, et passer par `TO_CHAR` quand le terme de droite n'est pas un littéral.
+
 ## Schémas disponibles
+
+Cette liste est indicative — la source de vérité est `documentation.doc_autometa_tables`,
+à interroger à l'exécution.
 
 | Schéma | Contenu |
 |---|---|
