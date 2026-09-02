@@ -162,6 +162,17 @@ def test_get_used_conversation_tags_counts_by_user(client):
     assert alice_counts == {"emplois": 1, "trafic": 1}
 
 
+def test_get_used_conversation_tags_counts_expand_implications_like_the_listing(client):
+    _implication("siae", "solutions-structurees")
+    make_conv(ALICE, tags=["siae", "emplois"])
+    make_conv(BOB, tags=["solutions-structurees", "emplois"])
+
+    by_type = store.get_used_conversation_tags_by_type(active_tag_names=["solutions-structurees"])
+    counts = {t.name: t.count for tags in by_type.values() for t in tags}
+
+    assert counts == {"emplois": 2, "siae": 1, "solutions-structurees": 1}
+
+
 def test_get_used_conversation_tags_with_active_filter(client):
     ensure_tag("trafic", tag_type="metric")
     make_conv(ALICE, tags=["emplois", "trafic"])

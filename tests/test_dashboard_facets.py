@@ -64,6 +64,19 @@ def test_used_tags_exclude_archived_dashboards(db):
     assert store.get_used_dashboard_tags_by_type()["usage"][0]["count"] == 1
 
 
+def test_used_tags_can_be_restricted_to_some_dashboards(db):
+    with get_db() as session:
+        territoire = _tag(session, "territoire", "usage")
+        siae = _tag(session, "siae", "audience")
+        _dashboard(session, "publie", [territoire])
+        _dashboard(session, "brouillon", [territoire, siae])
+
+    used = store.get_used_dashboard_tags_by_type(slugs={"publie"})
+
+    assert used["usage"][0]["count"] == 1
+    assert "audience" not in used
+
+
 def test_filter_by_tag_returns_only_matching(db):
     with get_db() as session:
         territoire = _tag(session, "territoire", "usage")
