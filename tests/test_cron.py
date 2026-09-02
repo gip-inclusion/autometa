@@ -1,6 +1,7 @@
 """Tests for cron task discovery, execution, and database logging."""
 
 import json
+import logging
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,7 @@ from web.cron import (
     discover_from_s3,
     discover_publications,
     get_app_runs,
+    get_batch,
     get_last_runs,
     get_schedule,
     get_timeout,
@@ -560,6 +562,74 @@ def test_run_all_does_not_rediscover_per_task(mocker, s3_cron_env):
     assert find_task.call_count == 0
 
 
+def _task(slug, batch="default"):
+    return {
+        "slug": slug,
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "cron_path": "/x",
+        "tier": "system",
+        "batch": batch,
+    }
+
+
+def test_run_all_only_runs_the_requested_batch(mocker):
+    # Why: chaque batch est une ligne de cron.json, donc son propre conteneur — une tâche qui
+    # déborde du batch ordinaire tournerait dans une boîte trop petite.
+    mocker.patch("web.cron.discover_cron_tasks", return_value=[_task("regular-task"), _task("heavy-task", batch="xl")])
+    mocker.patch("web.cron.is_due", return_value=True)
+    execute = mocker.patch(
+        "web.cron.execute_task",
+        return_value={"slug": "regular-task", "status": "success", "duration_ms": 10, "output": ""},
+    )
+
+    results = run_all()
+
+    assert [result["slug"] for result in results] == ["regular-task"]
+    execute.assert_called_once()
+    assert execute.call_args.args[0]["slug"] == "regular-task"
+
+
+def test_run_all_runs_the_named_batch(mocker):
+    mocker.patch("web.cron.discover_cron_tasks", return_value=[_task("regular-task"), _task("heavy-task", batch="xl")])
+    mocker.patch("web.cron.is_due", return_value=True)
+    execute = mocker.patch(
+        "web.cron.execute_task",
+        return_value={"slug": "heavy-task", "status": "success", "duration_ms": 10, "output": ""},
+    )
+
+    results = run_all(batch="xl")
+
+    assert [result["slug"] for result in results] == ["heavy-task"]
+    assert execute.call_args.args[0]["slug"] == "heavy-task"
+
+
+def test_run_all_names_the_skipped_batch_in_dry_run(mocker, caplog):
+    mocker.patch("web.cron.discover_cron_tasks", return_value=[_task("heavy-task", batch="xl")])
+
+    with caplog.at_level(logging.INFO, logger="web.cron"):
+        results = run_all(dry_run=True)
+
+    assert results == []
+    assert "SKIP heavy-task (batch xl)" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("frontmatter", "expected"),
+    [
+        ("---\n---\n", "default"),
+        ("---\nbatch: xl\n---\n", "xl"),
+        ("---\nbatch: XL\n---\n", "xl"),
+        ("---\nbatch:\n---\n", "default"),
+    ],
+)
+def test_get_batch_defaults_and_normalises(tmp_path, frontmatter, expected):
+    p = tmp_path / "CRON.md"
+    p.write_text(frontmatter)
+    assert get_batch(parse_frontmatter(p)) == expected
+
+
 def test_run_s3_executes_script(mocker, s3_cron_env):
     _seed_dashboard("s3-runner")
     app = mock_s3_app("s3-runner", cron_script="print('s3 hello')")
@@ -680,8 +750,6 @@ def test_cron_alert_snippet_escapes_triple_backticks(mocker):
 
 
 def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
-    import logging
-
     mocker.patch(
         "web.cron.discover_cron_tasks",
         return_value=[
@@ -692,6 +760,7 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
                 "timeout": 60,
                 "cron_path": "/x",
                 "tier": "app",
+                "batch": "default",
             }
         ],
     )
@@ -710,6 +779,34 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     assert getattr(record, "cron.task.name") == "my-task"
     assert getattr(record, "cron.task.status") == "success"
     assert getattr(record, "cron.task.duration") == 1234
+
+
+def test_main_app_runs_a_single_task_manually(monkeypatch, mocker, capsys):
+    monkeypatch.setattr("sys.argv", ["cron", "--app", "heavy-task"])
+    mocker.patch("web.cron.setup_logging")
+    run = mocker.patch(
+        "web.cron.run_cron_task",
+        return_value={"slug": "heavy-task", "status": "success", "duration_ms": 10, "output": ""},
+    )
+
+    cron.main()
+
+    run.assert_called_once_with("heavy-task", trigger="manual")
+    assert "Running cron for heavy-task" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_batch"),
+    [(["cron", "--dry-run"], "default"), (["cron", "--batch", "xl", "--dry-run"], "xl")],
+)
+def test_main_passes_the_batch_to_run_all(monkeypatch, mocker, argv, expected_batch):
+    monkeypatch.setattr("sys.argv", argv)
+    mocker.patch("web.cron.setup_logging")
+    run = mocker.patch("web.cron.run_all", return_value=[])
+
+    cron.main()
+
+    run.assert_called_once_with(dry_run=True, batch=expected_batch)
 
 
 def _seed_dashboard_and_publication(

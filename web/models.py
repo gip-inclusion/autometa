@@ -429,7 +429,6 @@ class ConversationMessageEmbedding(Base):
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
     content_length: Mapped[int] = mapped_column(Integer, nullable=False)
-    content_preview: Mapped[str | None] = mapped_column(Text)
     message_timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

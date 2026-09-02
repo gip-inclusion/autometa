@@ -43,7 +43,7 @@ def test_template_only_imports_the_facade():
 
 
 def cron_task(slug):
-    return {"slug": slug, "cron_path": f"{slug}/cron.py", "source": "s3"}
+    return {"slug": slug, "cron_path": f"{slug}/cron.py", "source": "s3", "batch": cron.DEFAULT_BATCH}
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,12 @@ def test_facade_violations_by_slug(mocker, sources, expected):
 
 def test_system_crons_are_not_held_to_the_facade(mocker):
     mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
-    system_task = {"slug": "refresh-rpe", "cron_path": "cron/refresh-rpe/cron.py", "tier": "system"}
+    system_task = {
+        "slug": "refresh-rpe",
+        "cron_path": "cron/refresh-rpe/cron.py",
+        "tier": "system",
+        "batch": cron.DEFAULT_BATCH,
+    }
     assert cron.facade_violations_by_slug([system_task]) == {}
 
 

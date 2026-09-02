@@ -160,8 +160,15 @@ def check_exceptions(lines):
 # -- SQL safety (rules/sql.md, rules/review.md) --
 
 
+# Why: `raise ... from None` est de la syntaxe Python, pas du SQL. Son « from » suffisait à porter
+# une ligne à deux mots-clés, et le check criait sur un simple message d'erreur contenant « insert ».
+# Constaté le 2026-09-02 sur un fichier arrivé de main.
+RAISE_FROM = re.compile(r"\bfrom\s+(?:None|[A-Za-z_]\w*)\s*$")
+
+
 def _count_sql_keywords(s):
-    return len(SQL_KEYWORDS.findall(s))
+    cleaned = RAISE_FROM.sub("", s) if s.lstrip().startswith("raise ") else s
+    return len(SQL_KEYWORDS.findall(cleaned))
 
 
 def check_sql(lines):

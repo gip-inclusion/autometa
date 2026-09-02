@@ -75,3 +75,30 @@ RUFF_OWNED_CODE = [
 )
 def test_ruff_owned_rules_replayed_only_where_ruff_is_blind(code, path, expect_violations):
     assert bool(check_python.check(code, path)) == expect_violations
+
+
+# Why: les mots-clés sont coupés en deux pour que les lignes de ce fichier ne déclenchent pas
+# elles-mêmes le check qu'elles vérifient — même raison que HOOK_ONLY_CODE plus haut.
+_INS = "inse" + "rt"
+_FROM = "fr" + "om"
+_SEL = "SELE" + "CT"
+_WHERE = "WHE" + "RE"
+
+RAISE_FROM = f'raise RuntimeError(f"Failed to {_INS} {{n}} rows") {_FROM} None\n'
+LOG_FROM = f'logger.info(f"handled {{n}} rows {_FROM} the queue")\n'
+VRAI_SQL = f'db.execute(f"{_SEL} id {_FROM.upper()} users {_WHERE} name = {{name}}")\n'
+
+
+@pytest.mark.parametrize(
+    ("code", "attendu"),
+    [
+        (RAISE_FROM, False),
+        (LOG_FROM, False),
+        (VRAI_SQL, True),
+    ],
+)
+def test_python_exception_chaining_is_not_sql_interpolation(code, attendu):
+    """« from None » est de la syntaxe Python : le compter comme mot-clé SQL fait crier sur un message d'erreur."""
+    violations = [v for v in check_python.check(code, "web/foo.py") if "Interpolation SQL" in v]
+
+    assert bool(violations) is attendu
