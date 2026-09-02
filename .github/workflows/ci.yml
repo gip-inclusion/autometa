@@ -15,19 +15,27 @@ concurrency:
 permissions:
   contents: read
 
+# Les jobs appellent les cibles du `Makefile` plutôt que de réécrire les commandes : sans cela,
+# « la CI relance le même check » est faux, et la dérive s'installe sans que personne la voie —
+# un CVE ignoré d'un côté et pas de l'autre, un périmètre de lint différent.
+
 jobs:
   lint:
     name: Lint & format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # `check_test_quality --base` lit la version d'avant de chaque fichier de test :
+          # un checkout superficiel la lui cacherait, et le check passerait sans rien comparer.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
       - run: uv sync --group dev --frozen
-      - run: uv run ruff check web/ lib/ tests/ scripts/
-      - run: uv run ruff format --check web/ lib/ tests/ scripts/
-      - run: uv run python scripts/check_test_quality.py tests
+      # BASE sert à `check_test_quality --base` : comparer les assertions d'un test préexistant
+      # exige de savoir contre quoi. En local, la valeur par défaut `main` fait l'affaire.
+      - run: make lint BASE=${{ github.base_ref || 'main' }}
 
   security:
     name: Security
@@ -41,10 +49,16 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev --frozen
 
-      - name: Bandit (SAST)
-        run: uv run bandit -r web/ lib/ -c pyproject.toml --severity-level medium --confidence-level high -q
+      - name: Bandit, protection des routes, dérive des checks requis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make security
 
+      # Why: pip-audit scanne l'arbre de dépendances, pas le diff — il rougit sur une publication
+      # de CVE amont, à un moment que personne ne choisit. Mesuré : 11 des 12 échecs du job Security
+      # sur 117 runs. Le signal reste visible sur chaque PR, il n'immobilise plus une PR sans rapport.
       - name: pip-audit
+        continue-on-error: true
         run: |
           uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt
           uv run pip-audit -r /tmp/requirements.txt --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -70,6 +84,24 @@ jobs:
             ./gitleaks detect --source . -v
           fi
 
+      - name: CODEOWNERS actif
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          errors=$(gh api "repos/${{ github.repository }}/codeowners/errors?ref=$REF" --jq '.errors | length')
+          if [ "$errors" != "0" ]; then
+            gh api "repos/${{ github.repository }}/codeowners/errors?ref=$REF" \
+              --jq '.errors[] | "ligne \(.line) : \(.message)"'
+            echo "::error::$errors entrée(s) de CODEOWNERS sont inertes — GitHub les ignore sans erreur."
+            exit 1
+          fi
+
+      - name: Dérive des checks requis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python scripts/check_required_checks.py
+
   unit:
     name: Tests unit (sans services)
     runs-on: ubuntu-latest
@@ -84,10 +116,7 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev --frozen
       - name: Unit tests (no services)
-        run: >-
-          uv run pytest tests/ infra/ -q --tb=short -p no:cacheprovider
-          -m "not integration and not e2e and not external"
-          --cov --cov-branch --cov-fail-under=0 --cov-report=
+        run: make test-unit-cov
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-unit
@@ -138,10 +167,7 @@ jobs:
           docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
       - run: uv sync --group dev --frozen
       - name: Integration tests
-        run: >-
-          uv run pytest tests/ -q --tb=short
-          -m "integration or e2e"
-          --cov --cov-branch --cov-fail-under=0 --cov-report=
+        run: make test-integration-cov
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-integration
@@ -165,13 +191,10 @@ jobs:
         with:
           pattern: coverage-*
           merge-multiple: true
-      - name: Combine + report (plancher défini dans pyproject.toml)
-        run: |
-          uv run coverage combine .coverage.unit .coverage.integration
-          uv run coverage report
-          uv run coverage xml
+      - name: Combine + report (plancher défini dans gates.toml)
+        run: make coverage-report
       - name: Diff coverage gate
-        run: uv run diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref || 'main' }} --config-file pyproject.toml
+        run: make diff-cover BASE=${{ github.base_ref || 'main' }}
 
   migrations:
     name: Migrations
@@ -203,9 +226,21 @@ jobs:
           docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
       - run: uv sync --group dev --frozen
       - name: Apply migrations on a fresh DB (catches broken chain)
-        run: uv run --frozen alembic upgrade head
-      - name: Check models match migrations (catches missing migration)
-        run: uv run --frozen alembic check
+        run: make migrate
+      - name: Check models match migrations, and backfills before NOT NULL
+        run: make check-migrations
+
+  lint-js:
+    name: Lint front (Biome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+      - run: make lint-js
 
   docker:
     name: Docker

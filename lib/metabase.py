@@ -107,6 +107,7 @@ class MetabaseAPI:
         self._session = httpx.Client(
             transport=transport,
             headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+            timeout=httpx.Timeout(60, connect=10),
         )
 
     def close(self) -> None:

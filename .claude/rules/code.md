@@ -1,3 +1,5 @@
+> **Vérifié par** — ruff pour les imports bannis, `os.environ`, les timeouts et les f-strings de log (`TID251`, `TID252`, `S113`, `G004`) ; `.claude/hooks/check_python.py` pour les docstrings, les commentaires, le SQL et les `except` ; `scripts/check_http_timeouts.py` pour les clients de session — au fil de l'écriture, puis `make lint` et la CI.
+
 Imports : tout regrouper en tête de module (stdlib, puis tiers, puis paquet local), dans l'ordre attendu par le linter. Ne pas utiliser d'imports différés dans des fonctions ou des blocs `if` sauf cas documenté où c'est indispensable (dépendance circulaire qu'on ne peut pas résoudre autrement, coût de chargement prohibitive pour un module optionnel rarement utilisé, etc.). Les agents ne doivent pas introduire d'imports lazy « par habitude ». **Imports relatifs parents interdits** : ne jamais utiliser `from .. import` ou `from ..module import`. Utiliser des imports absolus (`from web.config import ...`, `from lib.query import ...`). Les imports relatifs au même niveau (`from .module import`) sont acceptés.
 
 Noms de modules : ne jamais nommer un fichier Python en commençant par `_` (sauf `__init__.py`). Ne jamais nommer un module comme un module de la stdlib (`logging`, `json`, `os`, etc.). Les modules n'ont pas de raison d'être « privés » — contrôler l'API publique via `__all__` ou les imports dans `__init__.py`.
@@ -24,7 +26,7 @@ Constantes nommées : ne pas en introduire une si elle n'est référencée qu'un
 
 Variables d'environnement : toute lecture de variable d'environnement passe par `web/config.py`. Ne jamais utiliser `os.getenv`, `os.environ.get` ou `os.environ[...]` en dehors de ce fichier pour lire une valeur de configuration. Seules exceptions : passage de l'environnement complet à un sous-processus (`dict(os.environ)`, `**os.environ`) et substitution dynamique de patterns `${env.VAR}` dans des fichiers de configuration.
 
-HTTP : utiliser exclusivement `httpx` pour toutes les requêtes HTTP. Ne jamais utiliser `requests`, `urllib.request`, ni `urllib3` directement. Chaque appel `httpx.get/post/request()` doit avoir un `timeout=` explicite (5s par défaut, plus long seulement si justifié par l'API cible). Pour les sessions avec headers/retries : `httpx.Client(transport=httpx.HTTPTransport(retries=N))`.
+HTTP : utiliser exclusivement `httpx` pour toutes les requêtes HTTP. Ne jamais utiliser `requests`, `urllib.request`, ni `urllib3` directement. Chaque appel `httpx.get/post/request()` doit avoir un `timeout=` explicite (5s par défaut, plus long seulement si justifié par l'API cible). Un client de session (`httpx.Client`, `httpx.AsyncClient`) porte lui aussi un `timeout=` au constructeur : `httpx.Client(transport=httpx.HTTPTransport(retries=N), timeout=httpx.Timeout(30, connect=10))`. Sans lui, un appel ajouté plus tard sur le client hérite du défaut d'httpx sans que rien ne le signale.
 
 Respecter les patterns du fichier et du module. Ne pas introduire un nouveau pattern sans raison. Nommage en français pour le domaine métier, en anglais pour le code technique.
 
@@ -32,6 +34,13 @@ Ne jamais détailler l'implémentation dans les spécifications (CLAUDE.md, SKIL
 
 Messages de commit en anglais, concis. Ne pas commiter ni pousser sauf demande explicite. Ne JAMAIS exécuter `git push` — ni sur main, ni sur les branches utilisateur. Seul l'utilisateur pousse.
 
-Apps interactives (`data/interactive/`) : ces apps sont générées par l'agent et tournent via le système de cron. Elles DOIVENT utiliser les mêmes conventions que le reste du code : `httpx` pour le HTTP, `web.db.get_db` + SQLAlchemy pour la base, `web.config` pour les variables d'environnement, `lib.query` pour les APIs Matomo/Metabase. Ne jamais utiliser `psycopg2`, `requests`, `urllib.request`, ou `os.environ` directement dans ces apps. **Attention** : toute modification d'une API dans `web/`, `lib/` ou `skills/` (renommage, suppression, changement de signature) peut casser des apps interactives en production. Si tu modifies un module importé par ces apps (`lib.query`, `web.database`, `web.db`, `web.config`), tu DOIS le signaler dans ta réponse et vérifier les impacts sur `data/interactive/`.
+**Exception, et une seule : le parcours paved road.** Sur une branche `<auteur>/feat/<slug>` dont
+`paved-road/<slug>/definition-of-done.md` existe, l'agent commite et pousse lui-même : le contrat
+committé en premier, les attestations à mesure, la branche poussée pour ouvrir la PR. Sans cette
+levée, aucune étape du parcours ne peut aboutir. Ailleurs, l'interdit tient.
+Reste interdit partout, y compris dans le parcours : `git push --force`, `git commit --no-verify`,
+`git commit -n`, et toute réécriture d'un historique déjà poussé.
+
+Apps interactives (`data/interactive/`) : ces apps sont générées par l'agent et tournent via le système de cron. Elles n'importent qu'un seul module du dépôt, la façade `lib.dashboard_api` — jamais `lib.query`, `web.db`, `web.config` ni aucun autre interne, qui ne promettent aucune stabilité. La façade est un contrat versionné : un import hors façade est refusé par `create_dashboard`/`update_dashboard` et signalé par le runner cron. Si la façade ne couvre pas un besoin, l'élargir explicitement (avec son test) plutôt que la contourner. Pour tout le reste, mêmes conventions que le dépôt : `httpx` pour le HTTP, jamais `psycopg2`, `requests`, `urllib.request` ni `os.environ`.
 
 Ne lancer `make test` et `make lint` que quand des fichiers Python (`.py`) sont modifiés. Ne pas les lancer pour des modifications de fichiers Markdown, de skills, de knowledge, de configuration YAML, ou de documentation.

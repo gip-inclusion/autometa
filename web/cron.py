@@ -15,9 +15,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import sentry_sdk
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from lib import dashboard_api
 from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
 
@@ -350,6 +351,40 @@ def read_cron_script(task: dict) -> str | None:
     return path.read_text() if path.exists() else None
 
 
+def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
+    """Modules applicatifs importés hors de la façade par les cron.py de tableaux de bord."""
+    found = {}
+    # Why: les crons système (config.CRON_DIR) sont du code applicatif, pas des tableaux de bord —
+    # la façade ne les contraint pas.
+    for task in (t for t in tasks if t.get("source") in ("s3", "s3-publication")):
+        source = read_cron_script(task)
+        if source is None:
+            continue
+        try:
+            violations = dashboard_api.facade_violations(source)
+        # Why: un cron.py illisible échouera à l'exécution ; la découverte, elle, doit continuer.
+        except SyntaxError:
+            logger.warning("cron %s: cron.py unparsable, facade not checked", sanitize_for_log(task["slug"]))
+            continue
+        if violations:
+            found[task["slug"]] = violations
+    return found
+
+
+def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[str]]:
+    """En observation : journalise et alerte, sans refuser la planification."""
+    found = facade_violations_by_slug(tasks)
+    for slug, modules in sorted(found.items()):
+        logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(modules))
+    if found and notify:
+        listing = "\n".join(f"• `{slug}` — {', '.join(modules)}" for slug, modules in sorted(found.items()))
+        alerts.notify_alert_channel(
+            f":warning: *{len(found)} tableau(x) de bord importent hors de `{dashboard_api.FACADE}`*\n"
+            f"Observation : la planification n'est pas encore refusée.\n{listing}"
+        )
+    return found
+
+
 def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
     safe_label = re.sub(r"[^a-zA-Z0-9_-]", "", label) or "task"
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
@@ -447,7 +482,9 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     start_time = time.monotonic()
 
     env = {
-        **os.environ,
+        # Why: transmission de l'environnement complet au sous-processus, pas une lecture
+        # de configuration.
+        **os.environ,  # noqa: TID251
         "PYTHONPATH": str(config.BASE_DIR),
     }
 
@@ -620,9 +657,20 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
         return []
 
 
+def facade_audit() -> list[str]:
+    """Mesure la migration vers la façade : combien de TDB tournent, combien restent à migrer."""
+    with get_db() as session:
+        active = session.scalar(select(func.count()).select_from(Dashboard).where(~Dashboard.is_archived))
+    found = facade_violations_by_slug(discover_cron_tasks())
+    lines = [f"{active} tableaux de bord actifs, {len(found)} importent hors de {dashboard_api.FACADE}."]
+    lines += [f"  {slug:30s} {', '.join(modules)}" for slug, modules in sorted(found.items())]
+    return lines
+
+
 def run_all(dry_run: bool = False, batch: str = DEFAULT_BATCH) -> list[dict]:
     """Run the enabled tasks of one batch that are due today."""
     tasks = discover_cron_tasks()
+    report_facade_violations(tasks, notify=not dry_run)
     results = []
 
     for task in tasks:
@@ -671,7 +719,13 @@ def main():
     parser.add_argument("--batch", default=DEFAULT_BATCH, help=f"Batch to run (default: {DEFAULT_BATCH})")
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
+    parser.add_argument("--facade-audit", action="store_true", help="Count dashboards importing outside the facade")
     args = parser.parse_args()
+
+    if args.facade_audit:
+        for line in facade_audit():
+            print(line)
+        return
 
     if args.list:
         tasks = discover_cron_tasks()

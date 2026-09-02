@@ -9,8 +9,10 @@ _spec = importlib.util.spec_from_file_location(
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 check_source = _module.check_source
+check_dod_budget = _module.check_dod_budget
 main = _module.main
 iter_test_files = _module._iter_test_files
+MAX_DOD_CRITERIA = _module.MAX_DOD_CRITERIA
 
 
 def messages(source):
@@ -39,6 +41,7 @@ def test_flags_test_without_verification(source):
         "def test_ok():\n    mock.assert_called_once_with(1)\n",
         "def test_ok():\n    obj.assertEqual(a, b)\n",
         "def test_ok():\n    pytest.fail('nope')\n",
+        "def test_ok():\n    expect(page).to_have_url('/x')\n",
     ],
 )
 def test_accepts_real_verification(source):
@@ -131,3 +134,76 @@ def test_main_reports_hollow_test_and_returns_one(tmp_path, capsys):
     assert exit_code == 1
     assert "test_bad.py" in out
     assert "sans vérification" in out
+
+
+def dod_module(count):
+    return "".join(f"def test_dod_{n}():\n    assert compute() == {n}\n\n" for n in range(1, count + 1))
+
+
+@pytest.mark.parametrize("count", [0, 1, MAX_DOD_CRITERIA])
+def test_dod_budget_accepts_up_to_the_bound(count):
+    assert check_dod_budget(dod_module(count)) == []
+
+
+def test_dod_budget_flags_every_criterion_beyond_the_bound():
+    violations = check_dod_budget(dod_module(MAX_DOD_CRITERIA + 2))
+
+    assert len(violations) == 2
+    assert all("parcours de navigateur" in reason for _, reason in violations)
+
+
+def test_dod_budget_only_applies_to_browser_tests(tmp_path, capsys):
+    (tmp_path / "test_dods.py").write_text(dod_module(MAX_DOD_CRITERIA + 1))
+
+    assert main([str(tmp_path)]) == 0
+    assert capsys.readouterr().out == ""
+
+
+AVANT = """
+def test_calcule_la_remise():
+    assert remise(100) == 10
+    assert remise(0) == 0
+"""
+
+APRES_AFFAIBLI = """
+def test_calcule_la_remise():
+    assert remise(100) == 10
+"""
+
+
+def test_une_assertion_retiree_d_un_test_preexistant_est_refusee():
+    """Retirer une assertion d'un test qu'on n'a pas écrit, c'est le désarmer pour rester vert."""
+    violations = _module.assertions_affaiblies(APRES_AFFAIBLI, AVANT)
+
+    assert len(violations) == 1
+    assert "passe de 2 à 1 assertion" in violations[0][1]
+
+
+@pytest.mark.parametrize(
+    ("apres", "avant"),
+    [
+        (AVANT, AVANT),
+        (AVANT.replace("== 0", "== 0\n    assert remise(50) == 5"), AVANT),
+        (AVANT, "def test_autre_chose():\n    assert True\n"),
+    ],
+    ids=["inchangé", "assertion ajoutée", "test neuf"],
+)
+def test_assertions_affaiblies_ne_signale_rien_quand_rien_ne_s_affaiblit(apres, avant):
+    assert _module.assertions_affaiblies(apres, avant) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "refuse"),
+    [
+        ("import pytest\n\n\n@pytest.mark.skip\ndef test_x():\n    assert True\n", True),
+        ('import pytest\n\n\n@pytest.mark.skip(reason="API tierce en panne")\ndef test_x():\n    assert True\n', False),
+        (
+            "import pytest\n\n\n# Why: dépend d'un service qu'on retire\n@pytest.mark.xfail\ndef test_x():\n    assert True\n",
+            False,
+        ),
+        ("def test_x():\n    assert True\n", False),
+    ],
+    ids=["skip nu", "reason=", "# Why:", "pas de skip"],
+)
+def test_skips_sans_raison(source, refuse):
+    assert bool(_module.skips_sans_raison(source)) is refuse

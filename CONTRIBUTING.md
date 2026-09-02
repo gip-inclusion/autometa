@@ -7,36 +7,96 @@
 git clone https://github.com/votre-org/autometa.git
 cd autometa
 
-# 2. Lancer Claude Code
+# 2. Installer l'environnement de développement
+make setup
+
+# 3. Vérifier que tout est en place — chaque échec est une phrase actionnable
+make doctor
+
+# 4. Lancer Claude Code
 claude
 ```
 
-## Développer une fonctionnalité avec spec-kit
+## Développer une fonctionnalité
 
-Ce projet utilise [spec-kit](https://github.com/spec-kit/spec-kit) pour piloter la spécification, la planification et l'implémentation des fonctionnalités.
+Le projet suit le **paved road** : un parcours unique, qui ajoute une contrainte à la fois. Sa
+conception et sa justification sont dans `docs/plans/2026-08-22-paved-road-workflow.md`.
 
-```bash
-# 1. Décrivez votre fonctionnalité en français
-/speckit.specify "Je veux pouvoir exporter les rapports en PDF"
+Les sept niveaux sont en place, à deux réglages près : `require_code_owner_review` n'entrera dans
+les règles qu'une fois `CODEOWNERS` fusionné, et « Lint front (Biome) » qu'une fois publié une
+première fois sur `main` — les cocher d'avance rendrait toute PR infusionnable.
+L0 (l'accord écrit) se tient **à la main** — aucune commande à lancer ;
+L1 (les attestations) s'outille par quatre cibles du `Makefile`, qui refusent de faire progresser le
+parcours sans code de sortie 0 ; L2 est armé sur les gates techniques — lint, sécurité, tests,
+couverture, migrations — que la CI refuse de laisser passer, mais **pas** sur les artefacts du
+parcours, qu'elle ne lit plus ;
+L3 démontre les critères par des tests Playwright ; L4 est la passe de smoke exploratoire, via
+`scripts/smoke.py` et le skill `smoke` ; L5 est la lentille `paved-road:design-coherence`, bloquante en
+session ; L6 pose la
+façade des tableaux de bord et les règles devenues exécutables. Détail :
+`docs/paved-road/l2-quality-gates.md`, `l3-e2e.md`, `l4-smoke.md`, `l5-design-coherence.md`,
+`l6-fitness-functions.md`.
 
-# 2. Relisez la spec, clarifiez si besoin
-/speckit.clarify
+1. **Écrire la Definition of Done avant de coder.** Un fichier
+   `paved-road/<nom-de-branche>/definition-of-done.md` qui dit, en français, ce qui devra marcher à
+   la fin. Format et règles : `docs/paved-road/l0-definition-of-done.md`.
+2. **La faire valider** par la personne qui a formulé la demande, en lui soumettant au plus cinq
+   décisions, chacune avec un défaut déjà choisi. Ne rien dire, c'est accepter le défaut.
+3. **Committer la DoD en premier.** Le premier commit de la branche est celui qui l'ajoute : c'est la
+   seule chose qui distingue un accord convenu d'avance d'une DoD écrite après coup pour coller au
+   code produit.
+4. **Coder**, puis démontrer chaque critère par une commande réelle :
+   `make paved-road-advance DOD=DOD-1 RED=1 CMD='…'` journalise d'abord le rouge — le test écrit,
+   et vu échouer faute d'implémentation ; rien n'a besoin d'être committé à ce stade. Une fois le
+   test et le code écrits et committés,
+   `make paved-road-advance DOD=DOD-1 CMD='…'` range l'attestation — la commande, son code de
+   sortie, les empreintes du contenu prouvé, le verdict. Sans rouge préalable, ou si le rouge et le
+   vert portent sur le même code, le vert est refusé. Format et règles :
+   `docs/paved-road/l1-attestation.md`.
+5. **Relire le diff avec la lentille `paved-road:design-coherence`** — le code fait-il ce que la DoD dit, ni plus
+   ni moins ? Ses bloqueurs arrêtent le travail : chacun se corrige, ou se justifie par écrit sous le
+   bloqueur, avant d'aller plus loin. Détails : `docs/paved-road/l5-design-coherence.md`.
+6. **Passer au smoke** si la fonctionnalité touche une interface — un template, un fichier statique,
+   une route. Une seule passe, sur le dernier état du code : le skill `smoke` la déroule, et
+   `scripts/smoke.py plan` tranche seul si elle est nécessaire. Les captures restent hors du dépôt.
+   Le smoke vient après la lentille : `plan` refuse une seconde passe sur la même empreinte
+   d'interface, donc toute correction postérieure rouvrirait une passe.
+7. **Ouvrir la PR** avec la DoD, le journal et les attestations dedans.
 
-# 3. Générez le plan et les tâches
-/speckit.plan
-/speckit.tasks
+`make paved-road-status` dit à tout moment l'état atteint et quels critères restent à démontrer.
+Aucune image et aucun binaire sous `attestations/` : le dépôt est public, et un check le refuse.
 
-# 4. Vérifiez la cohérence (optionnel)
-/speckit.analyze
+## Ce que la CI exige, et ce qu'elle ne regarde pas
 
-# 5. Lancez l'implémentation
-/speckit.implement
-```
+La CI porte des tests, de la sécurité, des migrations, de la couverture, un build d'image et un
+déploiement. Elle ne lit **aucun** artefact du parcours : ni la Definition of Done, ni le journal,
+ni les attestations. Ces documents sont produits par le workflow de développement, et une CI qui
+les relit ne mesure que ce que ce workflow a bien voulu écrire. C'est un choix, pas un oubli.
 
-Les étapes 2-4 sont itératives : revenez à `/speckit.clarify` ou `/speckit.specify` à tout moment.
+La garantie que vos preuves tiennent est donc **locale**, et repose sur trois choses : la liste
+d'interdits de `.claude/settings.json`, qui refuse à l'agent d'écrire les attestations et le
+journal avec ses outils d'édition — sans bac à sable, un `sed -i` y arriverait quand même ;
+`make paved-road-advance`, seule voie pour passer un état, et qui refuse un vert sans rouge
+préalable ni empreinte à jour ; et la relecture du pair, qui voit les artefacts dans la PR.
 
-### Références spec-kit
+Une attestation devient caduque quand le code qu'elle prouve change : `make paved-road-checks
+CHECK=attestations` le dit. Chaque échec porte sa famille — A réparable, B panne d'environnement,
+C question métier, D interdit — parce que la réponse n'est pas la même.
 
-- **Constitution** : `.specify/memory/constitution.md` — principes et contraintes du projet. Mise à jour via `/speckit.constitution`.
-- **Templates** : personnalisables dans `.specify/templates/overrides/` (prioritaires sur les templates de base).
-- **Specs** : rangées sous `specs/001-nom-feature/`, créées automatiquement par `/speckit.specify`.
+Vérifier avant de pousser : `make paved-road-checks`, ou `make ci` pour l'ensemble des gates.
+`make setup` installe un hook `pre-push` qui lance lint et tests unitaires — un service, pas une
+garantie : `--no-verify` le contourne. Pour l'installer seul : `make install-hooks`.
+
+Une DoD validée ne se réécrit pas. Un critère qui se révèle infaisable est un blocage métier : il
+remonte à la personne qui a formulé la demande, avec au moins deux options formulées en résultats
+observables.
+
+## Les règles que la DoD ne porte pas
+
+Les invariants permanents — SQL paramétré, timeouts, migrations, sécurité — ne se recopient pas dans
+chaque Definition of Done. Ils vivent dans `.claude/rules/`, dans `gates.toml` et dans la CI, et
+protègent aussi le travail qui ne passe pas par le paved road.
+
+Un cas mérite d'être connu avant de refactorer : les tableaux de bord interactifs vivent sur S3,
+hors du dépôt, et n'importent que la façade `lib.dashboard_api`. Élargir cette façade est sans
+risque ; en changer une signature casse des tableaux de bord qu'aucun diff ne montre.

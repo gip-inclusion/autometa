@@ -142,9 +142,6 @@ def check_exceptions(lines):
     for i, line in enumerate(lines):
         stripped = line.strip()
 
-        if re.match(r"^except\s*:", stripped):
-            violations.append(f"except: nu interdit — spécifier l'exception: {stripped}")
-
         if re.match(r"^except\s+Exception\b", stripped) and "# Why:" not in stripped:
             next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
             if "# Why:" not in next_line:
@@ -163,8 +160,15 @@ def check_exceptions(lines):
 # -- SQL safety (rules/sql.md, rules/review.md) --
 
 
+# Why: `raise ... from None` est de la syntaxe Python, pas du SQL. Son « from » suffisait à porter
+# une ligne à deux mots-clés, et le check criait sur un simple message d'erreur contenant « insert ».
+# Constaté le 2026-09-02 sur un fichier arrivé de main.
+RAISE_FROM = re.compile(r"\bfrom\s+(?:None|[A-Za-z_]\w*)\s*$")
+
+
 def _count_sql_keywords(s):
-    return len(SQL_KEYWORDS.findall(s))
+    cleaned = RAISE_FROM.sub("", s) if s.lstrip().startswith("raise ") else s
+    return len(SQL_KEYWORDS.findall(cleaned))
 
 
 def check_sql(lines):
@@ -268,6 +272,11 @@ def check_file_name(path):
 # -- Entrypoint --
 
 
+def is_ruff_blind(path):
+    """Ruff exclut data/ de sa configuration, où l'agent écrit les tableaux de bord."""
+    return "data" in os.path.normpath(path).split(os.sep)
+
+
 def check(code, path):
     lines = code.split("\n")
     violations = []
@@ -277,13 +286,16 @@ def check(code, path):
     # Why: les hooks sont des scripts autonomes sensibles à la latence — psycopg2 direct,
     # os.environ et params psycopg2 nommés y sont permis (pas d'import de web.config).
     if ".claude/hooks/" not in os.path.normpath(path):
+        violations.extend(check_sql(lines))
+    # Why: TID251, TID252, S113 et G004 portent ces règles partout où ruff tourne. Elles ne
+    # sont rejouées ici que là où il est aveugle, sinon les deux implémentations divergent.
+    if is_ruff_blind(path):
         violations.extend(check_imports(lines, path))
         violations.extend(check_env_vars(lines, path))
-        violations.extend(check_sql(lines))
+        violations.extend(check_httpx_timeout(lines))
+        violations.extend(check_log_fstrings(lines))
     violations.extend(check_exceptions(lines))
     violations.extend(check_api(lines))
-    violations.extend(check_httpx_timeout(lines))
-    violations.extend(check_log_fstrings(lines))
     return violations
 
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Service, pas guardrail : `git push --no-verify` le contourne, ce hook ne garantit donc rien.
+# Il évite un aller-retour de CI, rien de plus — la garantie est la protection de branche.
+# Volontairement limité à ce qui est rapide : un miroir complet de la CI serait contourné.
+set -euo pipefail
+
+echo "pre-push — lint"
+uv run --frozen ruff check
+uv run --frozen ruff format --check
+
+echo "pre-push — tests unitaires"
+uv run --frozen pytest tests/ infra/ -q --tb=line -x -p no:cacheprovider \
+  -m "not integration and not external"

@@ -20,3 +20,7 @@ evals/
 docker-compose.local.yml
 AGENTS.local.md
 auth/allowed_emails.txt
+
+# Outillage de développement : le parcours paved road ne sert pas en production.
+plugins/
+paved-road/

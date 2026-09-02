@@ -53,7 +53,8 @@ sync-webinaires = "lib.webinaires:main"
 slack-feedback = "web.slack_feedback:main"
 
 [tool.uv]
-constraint-dependencies = ["urllib3>=2.7.0"]
+# cryptography < 50 : PYSEC-2026-3552 (dépendance transitive de paramiko)
+constraint-dependencies = ["urllib3>=2.7.0", "cryptography>=50.0.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -74,6 +75,7 @@ dev = [
     "pytest-cov>=7",
     "diff-cover>=9",
     "pre-commit>=4.6.1",
+    "pytest-playwright>=0.7.1",
 ]
 
 # =============================================================================
@@ -90,37 +92,58 @@ exclude = ["data/", ".venv/", "evals/", "skills/pdf/"]
 [tool.ruff.lint]
 preview = true
 # Anti-slop : tests creux/fragiles (PT0xx/B011) + assertions tautologiques (PLR0124 self-compare, PLW0129 str)
-select = ["E", "F", "W", "I", "G", "B011", "PT010", "PT012", "PT015", "PT017", "PT027", "PLR0124", "PLW0129"]
+select = [
+    "E", "F", "W", "I", "G", "B011", "PT010", "PT012", "PT015", "PT017", "PT027", "PLR0124", "PLW0129",
+    # Règles de .claude/rules/code.md rendues exécutables — mesurées à 0 violation
+    "E722",   # except nu
+    # S113 ne voit qu'un appel littéral ; un httpx.Client() construit sans timeout puis réutilisé
+    # lui échappe. Ce second cas est couvert par scripts/check_http_timeouts.py, lancé par make lint.
+    "S113",   # appel HTTP sans timeout littéral
+    "TID251", # imports et APIs bannis, configurés ci-dessous
+    "TID252", # imports relatifs parents
+    # Activées le 2026-08-30, mesurées à 0 violation (ERA001 : une seule, un faux positif annoté)
+    "N999",   # nom de module invalide
+    "ERA001", # code commenté — la version d'avant vit dans git, pas dans le fichier
+]
 ignore = [
     "E501",   # line length — enforce progressively, not retroactively
     "G001",   # logging-string-format — `.format()` is acceptable in this codebase
     "G002",   # logging-percent-format — same
 ]
 
+# Motifs recopiés de .claude/hooks/check_python.py : la règle réelle bannit
+# urllib.request et urllib3, pas urllib.parse, qui est légitimement utilisé.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"requests".msg = "Utiliser httpx."
+"urllib.request".msg = "Utiliser httpx."
+"urllib3".msg = "Utiliser httpx."
+"unittest".msg = "Utiliser pytest."
+"unittest.mock".msg = "Utiliser le fixture mocker de pytest-mock."
+"psycopg2".msg = "Utiliser SQLAlchemy, ou lib.data_inclusion pour le tunnel SSH."
+"os.getenv".msg = "Toute lecture de configuration passe par web/config.py."
+"os.environ".msg = "Toute lecture de configuration passe par web/config.py."
+
 [tool.ruff.lint.per-file-ignores]
 "web/app.py" = ["E402"]              # imports after logging setup
 "tests/test_knowledge_sync.py" = ["E402"]  # sys.path setup before imports
 "tests/test_uploads.py" = ["E402"]         # env config before imports
-"tests/conftest.py" = ["E402"]             # DATABASE_URL override before imports
+"tests/conftest.py" = ["E402", "TID251"]   # DATABASE_URL override before imports ; crée la base de test
+"browser/conftest.py" = ["TID251"]         # cible et identifiants du runner, hors configuration applicative
+"web/config.py" = ["TID251"]               # le module de configuration lui-même
+# Hooks et déployables séparés : processus hors application, sans accès à web.config
+".claude/hooks/*.py" = ["TID251"]
+"infra/scaleway/s3_backup/config.py" = ["TID251"]
 
-[tool.coverage.run]
-branch = true
-relative_files = true
-source = ["web", "lib", "scripts"]
-
-[tool.coverage.report]
-precision = 2
-fail_under = 74.90
-
-[tool.diff_cover]
-fail_under = 90
+# Les seuils de couverture vivent dans gates.toml — voir ce fichier.
 
 # =============================================================================
 # Bandit — SAST
 # =============================================================================
 
 [tool.bandit]
-exclude_dirs = ["tests", "evals", "data", "skills"]
+# `skills/` en a été retiré le 2026-08-18 : ce sont des scripts exécutables qui écrivent
+# en base et sur S3, mesurés à 0 issue medium/high avant l'inclusion.
+exclude_dirs = ["tests", "evals", "data"]
 skips = [
     "B704",  # markupsafe.Markup — used intentionally to render agent-generated markdown
 ]
