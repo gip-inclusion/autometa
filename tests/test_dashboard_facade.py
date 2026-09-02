@@ -126,3 +126,17 @@ def test_facade_audit_counts_active_dashboards(mocker):
         f"0 tableaux de bord actifs, 1 importent hors de {cron.dashboard_api.FACADE}.",
         f"  {'ko':30s} lib.query, web.db",
     ]
+
+
+@pytest.mark.parametrize("slug", ["../../etc", "tdb/../../secrets", "..", "TDB Majuscules", ""])
+def test_check_facade_compliance_refuses_a_slug_that_escapes_the_dashboards_directory(slug):
+    """Un appelant ne valide pas le slug : la défense appartient à la fonction qui construit le chemin."""
+    with pytest.raises(ValueError, match="[Ss]lug"):
+        dashboards.check_facade_compliance(slug)
+
+
+def test_check_facade_compliance_accepts_a_well_formed_slug(mocker, tmp_path):
+    mocker.patch.object(dashboards.config, "INTERACTIVE_DIR", tmp_path)
+    (tmp_path / "mon-tdb").mkdir()
+
+    assert dashboards.check_facade_compliance("mon-tdb") is None

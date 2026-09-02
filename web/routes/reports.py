@@ -37,7 +37,9 @@ def rapports_list(report_id: int | None = Query(default=None, alias="id")):
 @html_router.get("/rapports/{report_id}.txt")
 def rapport_txt(report_id: int):
     """Ancienne « version exportable » — les liens déjà partagés doivent continuer de mener au rapport."""
-    return RedirectResponse(f"/rapports/{report_id}.md", status_code=301)
+    # Why: `int()` est redondant — FastAPI a déjà converti le paramètre — mais l'analyse statique ne
+    # suit pas la coercition et lit une redirection ouverte. Même parade qu'à `rapports_list`.
+    return RedirectResponse(f"/rapports/{int(report_id)}.md", status_code=301)
 
 
 def download_filename(report: Report) -> str:
