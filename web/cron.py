@@ -590,21 +590,23 @@ def _run_to_dict(run: CronRun) -> dict:
     }
 
 
-def get_last_runs(limit_per_app: int = 1) -> dict[str, list[dict]]:
-    runs: dict[str, list[dict]] = {}
+def get_last_runs(slug: str | None = None) -> dict[str, dict]:
+    """Latest run per app slug, without the output text."""
+    columns = (CronRun.id, CronRun.app_slug, CronRun.started_at, CronRun.finished_at, CronRun.status)
+    stmt = (
+        select(*columns, CronRun.duration_ms, CronRun.trigger)
+        .distinct(CronRun.app_slug)
+        .order_by(CronRun.app_slug, CronRun.started_at.desc())
+    )
+    if slug:
+        stmt = stmt.where(CronRun.app_slug == slug)
     try:
         with get_db() as session:
-            rows = session.scalars(select(CronRun).order_by(CronRun.started_at.desc())).all()
-            for row in rows:
-                slug = row.app_slug
-                if slug not in runs:
-                    runs[slug] = []
-                if len(runs[slug]) < limit_per_app:
-                    runs[slug].append(_run_to_dict(row))
+            return {row.app_slug: row._asdict() for row in session.execute(stmt)}
     # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception:
         logger.exception("failed to read cron runs")
-    return runs
+        return {}
 
 
 def get_app_runs(slug: str, limit: int = 20) -> list[dict]:

@@ -1,6 +1,6 @@
 """Tests for cron route slug validation — guards against path-injection in downstream tempfile/S3 keys."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -198,3 +198,22 @@ def test_run_endpoint_no_fanout_for_publication_composite(client, mocker):
     body = r.json()
     assert run.call_count == 1
     assert body["publications"] == []
+
+
+def test_cron_page_shows_the_latest_run_of_each_task(client, mocker):
+    task = {"slug": "nightly", "title": "Nightly", "tier": "system", "enabled": True, "schedule": "daily"}
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+    now = datetime.now(timezone.utc)
+    earlier = now - timedelta(hours=1)
+    with get_db() as session:
+        session.add(
+            cron.CronRun(app_slug="nightly", started_at=earlier, status="failure", duration_ms=500, trigger="manual")
+        )
+        session.add(
+            cron.CronRun(app_slug="nightly", started_at=now, status="success", duration_ms=2500, trigger="scheduled")
+        )
+    response = client.get("/cron")
+    assert response.status_code == 200
+    assert "(scheduled)" in response.text
+    assert "2.5s" in response.text
+    assert "(manual)" not in response.text

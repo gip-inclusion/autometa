@@ -133,9 +133,9 @@ def dashboards_page(
                 active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
             ]
 
-        last_runs = get_last_runs(limit_per_app=1)
+        last_runs = get_last_runs()
         for d in items:
-            run = next(iter(last_runs.get(d["slug"], [])), None)
+            run = last_runs.get(d["slug"])
             d["cron_status"] = run["status"] if run else None
             d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
             d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
@@ -199,8 +199,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     last_run = None
     next_run_label = ""
     if dashboard["has_cron"]:
-        runs = get_last_runs(limit_per_app=1).get(slug, [])
-        last_run = runs[0] if runs else None
+        last_run = get_last_runs(slug).get(slug)
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
         if dashboard["cron_enabled"]:
