@@ -74,6 +74,10 @@ class DashboardUpdateResult:
 
 def check_facade_compliance(slug: str) -> None:
     """Refuse un TDB dont un fichier Python importe autre chose que la façade."""
+    # Why: `update_dashboard` appelle sans valider le slug, contrairement à l'adoption. La défense
+    # appartient donc à la fonction qui construit le chemin, sinon un `../` sort du répertoire.
+    if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
+        raise ValueError(f"Invalid slug: {slug!r}")
     slug_dir = config.INTERACTIVE_DIR / slug
     problems = []
     for path in sorted(slug_dir.rglob("*.py")):
