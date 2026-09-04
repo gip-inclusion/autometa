@@ -35,6 +35,8 @@ def known_secrets() -> list[str]:
         config.LIVESTORM_API_KEY,
         config.SLACK_BOT_TOKEN,
         config.TALLY_API_KEY,
+        config.DATADOG_API_KEY,
+        config.DATADOG_APP_KEY,
         config.RPE_PUBLIC_PASS,
         config.AUTOMETA_TABLES_DATABASE_URL,
         config.DATA_INCLUSION_DATABASE_URL,
@@ -160,6 +162,21 @@ def check_livestorm() -> tuple[bool, str]:
     )
     if resp.status_code == 200:
         return (True, "joignable")
+    return (False, f"HTTP {resp.status_code}")
+
+
+def check_datadog() -> tuple[bool, str]:
+    """Compte les événements de la dernière minute : valide la clé et la permission de lecture."""
+    resp = httpx.post(
+        f"https://api.{config.DATADOG_SITE}/api/v2/logs/analytics/aggregate",
+        headers={"DD-API-KEY": config.DATADOG_API_KEY, "DD-APPLICATION-KEY": config.DATADOG_APP_KEY},
+        json={"filter": {"query": "", "from": "now-1m", "to": "now"}, "compute": [{"aggregation": "count"}]},
+        timeout=PROBE_TIMEOUT_SEC,
+    )
+    if resp.status_code == 200:
+        buckets = resp.json().get("data", {}).get("buckets", [])
+        events = buckets[0]["computes"]["c0"] if buckets else 0
+        return (True, f"{events} événements sur la dernière minute")
     return (False, f"HTTP {resp.status_code}")
 
 
