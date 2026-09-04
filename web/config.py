@@ -200,6 +200,11 @@ LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 # Tally API (form submissions as a data source)
 TALLY_API_KEY = os.getenv("TALLY_API_KEY")
 
+# Datadog Logs API — lecture des logs applicatifs (site EU). Rétention 30 jours.
+DATADOG_API_KEY = os.getenv("DATADOG_API_KEY")
+DATADOG_APP_KEY = os.getenv("DATADOG_APP_KEY")
+DATADOG_SITE = os.getenv("DATADOG_SITE", "datadoghq.eu")
+
 # GitHub API — cron scripts read public repos; an unscoped token lifts the rate limit (60 → 5000 req/h)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
