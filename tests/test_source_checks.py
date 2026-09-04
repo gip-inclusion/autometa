@@ -10,6 +10,7 @@ from web.source_checks import (
     check_autometa_tables,
     check_dashboard_storage,
     check_data_inclusion,
+    check_datadog,
     check_grist,
     check_livestorm,
     check_matomo,
@@ -49,6 +50,12 @@ def stub_credentials(mocker):
 HTTP_PROBES = [
     (check_notion, "get", {"name": "Autometa"}, "intégration : Autometa"),
     (check_tally, "get", {}, "joignable"),
+    (
+        check_datadog,
+        "post",
+        {"data": {"buckets": [{"computes": {"c0": 42}}]}},
+        "42 événements sur la dernière minute",
+    ),
     (check_grist, "get", {"tables": [{"id": "a"}, {"id": "b"}]}, "2 tables"),
     (check_livestorm, "get", {}, "joignable"),
     (check_slack, "head", {}, "API joignable"),
