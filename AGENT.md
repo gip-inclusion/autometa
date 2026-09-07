@@ -87,6 +87,14 @@ Invoquer via l'outil `Skill` :
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `save_report` — Sauvegarder un rapport en base.
 
+## Modélisation bayésienne (MMM)
+
+`pymc-marketing` est installé dans l'environnement Python. L'utiliser pour les questions d'attribution ou d'effet d'une action dans le temps (adstock, saturation, contribution par canal, budget optimal), quand une agrégation SQL ne suffit pas à séparer les effets.
+
+- Agréger les données à la semaine ou au mois avant de modéliser — l'échantillonnage est coûteux.
+- Toujours exécuter dans un script lancé via `Bash`, jamais dans le process web.
+- Un modèle bayésien produit des intervalles de crédibilité : les restituer, ne jamais présenter la moyenne seule.
+
 ## Chemins clés
 
 | Chemin | Rôle |

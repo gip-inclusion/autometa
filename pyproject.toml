@@ -42,6 +42,8 @@ dependencies = [
     "pdfplumber>=0.11.0",
     "pillow>=12.3.0",
     "model2vec>=0.8.2",
+    # Modélisation bayésienne (MMM) — utilisée par l'agent dans ses analyses.
+    "pymc-marketing>=1.1.0",
 ]
 
 [project.scripts]
