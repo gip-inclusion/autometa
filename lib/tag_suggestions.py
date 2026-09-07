@@ -147,8 +147,8 @@ def parse_response(response: str, valid: set[str]) -> list[str]:
 def suggest_for(subject: Subject, taxonomy: str, valid: set[str], model: str) -> list[str] | None:
     try:
         response = llm.generate_text(build_prompt(taxonomy, subject), model=model, max_tokens=120)
-    except LLMError:
-        logger.warning("tag-suggestions: échec LLM sur %s/%s", subject.object_type, subject.object_id)
+    except LLMError as exc:
+        logger.warning("tag-suggestions: échec LLM sur %s/%s : %s", subject.object_type, subject.object_id, exc)
         return None
     return parse_response(response, valid)
 
