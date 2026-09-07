@@ -64,7 +64,7 @@ def test_le_hook_bash_couvre_ce_qu_un_glob_ne_voit_pas():
     hooks = json.loads((REPO / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]
     commandes = [hook["command"] for entree in hooks if entree["matcher"] == "Bash" for hook in entree["hooks"]]
 
-    assert "python3 .claude/hooks/guard_bash.py" in commandes
+    assert any("guard_bash.py" in commande for commande in commandes)
 
 
 def test_pyproject_reste_hors_de_la_couche_1():

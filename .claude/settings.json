@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/guard_bash.py"
+            "command": "f=.claude/hooks/guard_bash.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
           }
         ]
       },
@@ -15,11 +15,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/guard_write_paths.py"
+            "command": "f=.claude/hooks/guard_write_paths.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
           },
           {
             "type": "command",
-            "command": "python3 .claude/hooks/check_python.py"
+            "command": "f=.claude/hooks/check_python.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
           }
         ]
       }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/check_env_on_tag.py"
+            "command": "f=.claude/hooks/check_env_on_tag.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
           }
         ]
       },
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/ruff_edited.py"
+            "command": "f=.claude/hooks/ruff_edited.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
           }
         ]
       }
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/stop_lint_gate.py"
+            "command": "f=.claude/hooks/stop_lint_gate.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
           }
         ]
       }
