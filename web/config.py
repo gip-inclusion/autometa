@@ -220,6 +220,8 @@ ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KN
 
 # Sentry
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+# Scalingo injecte APP (nom de l'app : matometa, autometa-staging, autometa-staging-prNNN).
+APP_NAME = os.getenv("APP", ENV.value)
 SENTRY_ENVIRONMENT = ENV.value
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
 SENTRY_PROFILES_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0"))
