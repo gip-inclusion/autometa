@@ -30,6 +30,7 @@ class TallyClient:
             base_url=BASE_URL,
             headers={"Authorization": f"Bearer {self.api_key}"},
             transport=httpx.HTTPTransport(retries=2),
+            timeout=timeout,
         )
 
     def close(self) -> None:

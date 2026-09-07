@@ -174,7 +174,7 @@ def main(argv=None):
         parser.error("--sha est requis pour ensure")
 
     api_token = sys.stdin.read().strip()
-    with httpx.Client() as client:
+    with httpx.Client(timeout=TIMEOUT) as client:
         bearer = exchange_token(client, api_token)
         if args.command == "ensure":
             result = ensure(client, bearer, args.app, args.pr, args.sha)
