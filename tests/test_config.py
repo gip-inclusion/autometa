@@ -28,3 +28,8 @@ def test_public_dashboards_buckets_read_deployment_env_var_names():
     # blocks publication with public-bucket-not-configured.
     assert config.PUBLIC_S3_BUCKET_STAGING == "test-staging-bucket"
     assert config.PUBLIC_S3_BUCKET_PROD == "test-prod-bucket"
+
+
+def test_ollama_defaults_target_cloud():
+    assert config.OLLAMA_BASE_URL == "https://ollama.com"
+    assert config.OLLAMA_MODEL == "glm-5.2"
