@@ -342,6 +342,7 @@ class TaskRunner:
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
+        last_message_id: int | None = None
         tool_spans = SpanStack()
         tool_call_count = 0
         tool_active_name: str | None = None
@@ -391,6 +392,7 @@ class TaskRunner:
                         if assistant_msg_id is None:
                             msg = store.add_message(conversation_id, "assistant", full_text)
                             assistant_msg_id = msg.id if msg else None
+                            last_message_id = msg.id if msg else last_message_id
                         else:
                             store.update_message(assistant_msg_id, full_text)
                         _record_usage(conversation_id, event.raw, run_usage)
@@ -437,7 +439,9 @@ class TaskRunner:
                             _close_tool_log()
                             tool_spans.pop()
                         content = _serialize_tool_event(event, conversation_id, user_email)
-                        store.add_message(conversation_id, event.type, content)
+                        stored = store.add_message(conversation_id, event.type, content)
+                        if stored:
+                            last_message_id = stored.id
                         await self.notify(conversation_id)
 
                     elif event.type == "system":
@@ -494,6 +498,13 @@ class TaskRunner:
                 # means cancel already took ownership, or a direct call with no consumer slot).
                 slot = self._running.get(conversation_id)
                 if slot is my_task or slot is None:
+                    if agent_status == "ok" and last_message_id is not None:
+                        store.set_engine_state(
+                            conversation_id,
+                            backend_name,
+                            session_id=session_id,
+                            seen_through=last_message_id,
+                        )
                     store.update_conversation(conversation_id, needs_response=False)
                     await self.notify_done(conversation_id)
                     self._running.pop(conversation_id, None)
