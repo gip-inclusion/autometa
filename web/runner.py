@@ -450,11 +450,11 @@ class TaskRunner:
         with tracer.start_as_current_span(
             "agent.run",
             context=parent_ctx,
-            attributes={"conversation_id": conversation_id, "agent_backend": config.AGENT_BACKEND},
+            attributes={"conversation_id": conversation_id, "agent_backend": backend_name},
         ) as span:
             if user_email:
                 set_user_context(user_email)
-            sentry_sdk.set_tag("agent_backend", config.AGENT_BACKEND)
+            sentry_sdk.set_tag("agent_backend", backend_name)
             conv_token = set_conversation_id(conversation_id)
 
             try:
@@ -475,7 +475,7 @@ class TaskRunner:
                             last_message_id = msg.id if msg else last_message_id
                         else:
                             store.update_message(assistant_msg_id, full_text)
-                        _record_usage(conversation_id, event.raw, run_usage)
+                        _record_usage(conversation_id, event.raw, run_usage, backend_name)
                         await self.notify(conversation_id)
 
                     elif event.type in ("tool_use", "tool_result"):
@@ -531,7 +531,7 @@ class TaskRunner:
                             store.add_message(conversation_id, "system", json.dumps(event.raw))
                             await self.notify(conversation_id)
                         if event.raw.get("type") == "result" and event.raw.get("usage"):
-                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage)
+                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage, backend_name)
 
                     elif event.type == "limit":
                         limit_reset = event.raw.get("reset")
@@ -652,7 +652,7 @@ def _record_span_usage(usage: dict):
     span.set_attributes(attrs)
 
 
-def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) -> None:
+def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage, backend: str) -> None:
     msg = raw_event.get("message") or {}
     usage = msg.get("usage")
     if not usage:
@@ -670,7 +670,7 @@ def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) ->
             cli_message_id=cli_message_id,
             timestamp=utcnow(),
             model=model,
-            backend=config.AGENT_BACKEND,
+            backend=backend,
             usage=usage,
         )
         run_usage.output_total += usage.get("output_tokens", 0) or 0
@@ -680,7 +680,7 @@ def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) ->
         logger.exception("Failed to record usage for %s", conversation_id)
 
 
-def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: RunUsage) -> None:
+def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: RunUsage, backend: str) -> None:
     total_output = result_usage.get("output_tokens", 0) or 0
     delta = total_output - run_usage.output_total
     if delta <= 0:
@@ -691,7 +691,7 @@ def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: R
             cli_message_id=None,
             timestamp=utcnow(),
             model=run_usage.last_model,
-            backend=config.AGENT_BACKEND,
+            backend=backend,
             usage={"output_tokens": delta, "service_tier": result_usage.get("service_tier")},
             kind="thinking",
         )

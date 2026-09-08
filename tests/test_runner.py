@@ -768,7 +768,7 @@ def test_record_usage_inserts_event(mocker):
         },
     )
 
-    _record_usage("c1", raw, state)
+    _record_usage("c1", raw, state, "cli")
 
     assert "msg_abc" in state.seen_ids
     assert state.output_total == 50
@@ -788,8 +788,8 @@ def test_record_usage_dedups_same_message_id(mocker):
     state = RunUsage()
     raw = _usage_raw_event("msg_dup", "claude-sonnet-4-7", {"input_tokens": 10, "output_tokens": 5})
 
-    _record_usage("c1", raw, state)
-    _record_usage("c1", raw, state)
+    _record_usage("c1", raw, state, "cli")
+    _record_usage("c1", raw, state, "cli")
 
     assert mock_store.insert_usage_event.call_count == 1
     assert state.output_total == 5
@@ -800,7 +800,7 @@ def test_record_usage_noop_when_usage_missing(mocker):
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     state = RunUsage()
 
-    _record_usage("c1", {"message": {"id": "msg_x", "model": "m"}}, state)
+    _record_usage("c1", {"message": {"id": "msg_x", "model": "m"}}, state, "cli")
 
     assert mock_store.insert_usage_event.call_count == 0
     assert state.output_total == 0
@@ -813,7 +813,7 @@ def test_record_usage_leaves_state_unchanged_on_store_failure(mocker):
     state = RunUsage()
     raw = _usage_raw_event("msg_boom", "claude-sonnet-4-7", {"input_tokens": 1, "output_tokens": 42})
 
-    _record_usage("c1", raw, state)
+    _record_usage("c1", raw, state, "cli")
 
     assert "msg_boom" in state.seen_ids
     assert state.output_total == 0
@@ -825,7 +825,7 @@ def test_record_thinking_tail_writes_delta(mocker):
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     state = RunUsage(output_total=141, last_model="claude-opus-4-7")
 
-    _record_thinking_tail("c1", {"output_tokens": 1717, "service_tier": "standard"}, state)
+    _record_thinking_tail("c1", {"output_tokens": 1717, "service_tier": "standard"}, state, "cli")
 
     insert_kwargs = mock_store.insert_usage_event.call_args[1]
     assert insert_kwargs["kind"] == "thinking"
@@ -841,7 +841,7 @@ def test_record_thinking_tail_skips_when_no_delta(mocker, total, recorded):
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     state = RunUsage(output_total=recorded, last_model="claude-sonnet-4-7")
 
-    _record_thinking_tail("c1", {"output_tokens": total}, state)
+    _record_thinking_tail("c1", {"output_tokens": total}, state, "cli")
 
     assert mock_store.insert_usage_event.call_count == 0
 
@@ -852,7 +852,7 @@ def test_record_thinking_tail_leaves_state_unchanged_on_store_failure(mocker):
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     state = RunUsage(output_total=10, last_model="claude-opus-4-7")
 
-    _record_thinking_tail("c1", {"output_tokens": 1000}, state)
+    _record_thinking_tail("c1", {"output_tokens": 1000}, state, "cli")
 
     assert state.output_total == 10
 
