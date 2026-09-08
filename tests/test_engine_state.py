@@ -68,6 +68,21 @@ def test_fork_remaps_seen_through_by_position(app, mocker):
     assert remapped != second.id
 
 
+def test_fork_copies_the_primary_session_once_and_keeps_both_pointers_aligned(app, mocker):
+    """session_id porte la session du moteur primaire, qui est aussi dans engine_state : une seule
+    copie (deux téléchargements S3 sinon) et deux pointeurs qui restent égaux."""
+    copy = mocker.patch("web.stores.conversations.session_sync.copy_session", return_value=True)
+    conv_id = make_conversation()
+    store.update_conversation(conv_id, session_id="sess-src")
+    store.set_engine_state(conv_id, "cli", session_id="sess-src")
+
+    forked = store.fork_conversation(conv_id, "u2")
+
+    assert copy.call_count == 1
+    assert forked.session_id == store.get_engine_state(forked.id, "cli")["session_id"]
+    assert forked.session_id != "sess-src"
+
+
 @pytest.mark.parametrize("succeeding_backend", ["cli", "cli-ollama"])
 def test_fork_keeps_only_the_engine_whose_session_copy_succeeds(app, mocker, succeeding_backend):
     sessions = {"cli": "sess-cli", "cli-ollama": "sess-cli-ollama"}

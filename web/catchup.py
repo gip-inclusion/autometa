@@ -52,10 +52,10 @@ def build_catchup(messages: list) -> list[dict]:
         size = len(entry["content"])
         if total + size > TOTAL_CAP:
             if not kept:
-                kept.append({
-                    "role": entry["role"],
-                    "content": _clip(entry["content"], TOTAL_CAP - CLIP_MARKER_OVERHEAD),
-                })
+                # Why: même politique que la sélection des entrées — sur une entrée unique
+                # surdimensionnée, c'est sa fin qui touche le tour à jouer.
+                tail = entry["content"][-(TOTAL_CAP - CLIP_MARKER_OVERHEAD) :]
+                kept.append({"role": entry["role"], "content": f"[tronqué, {size} caractères au total] …{tail}"})
             break
         kept.append(entry)
         total += size

@@ -150,20 +150,22 @@ class ConversationsMixin:
         now = utcnow()
         new_id = str(uuid.uuid4())
 
-        new_engine_state = {}
-        for backend, entry in (source.engine_state or {}).items():
-            src_session = entry.get("session_id")
-            if not src_session:
-                continue
-            candidate = str(uuid.uuid4())
-            if session_sync.copy_session(src_session, candidate):
-                new_engine_state[backend] = {"session_id": candidate, "seen_through": None}
+        # Why: session_id porte la session du moteur primaire, qui est aussi dans engine_state —
+        # une copie par session source, partagée par les deux pointeurs, sinon ils divergeraient.
+        engine_sessions = {b: (e or {}).get("session_id") for b, e in (source.engine_state or {}).items()}
+        copies: dict[str, str] = {}
+        for src_session in [*engine_sessions.values(), source.session_id]:
+            if src_session and src_session not in copies:
+                candidate = str(uuid.uuid4())
+                if session_sync.copy_session(src_session, candidate):
+                    copies[src_session] = candidate
 
-        new_session_id = None
-        if source.session_id:
-            candidate = str(uuid.uuid4())
-            if session_sync.copy_session(source.session_id, candidate):
-                new_session_id = candidate
+        new_engine_state = {
+            backend: {"session_id": copies[src], "seen_through": None}
+            for backend, src in engine_sessions.items()
+            if src in copies
+        }
+        new_session_id = copies.get(source.session_id)
 
         with get_db() as session:
             model = ConvModel(

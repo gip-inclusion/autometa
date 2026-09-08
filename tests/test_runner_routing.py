@@ -48,6 +48,20 @@ def test_pick_backend_skips_redis_without_fallback(mocker):
     spy.assert_not_called()
 
 
+@pytest.mark.parametrize("primary, fallback", [("cli", "ollama"), ("claude", "")])
+def test_startup_refuses_an_unknown_backend_name(mocker, fake_redis, primary, fallback):
+    """Le nom fautif doit faire échouer le déploiement, pas chaque tour de chaque conversation."""
+    mocker.patch("web.runner.config.AGENT_BACKEND", primary)
+    mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", fallback)
+    mocker.patch("web.runner.get_redis", return_value=fake_redis)
+
+    async def _run():
+        with pytest.raises(ValueError):
+            await runner.TaskRunner().startup()
+
+    asyncio.run(_run())
+
+
 def test_mark_backend_limited_sets_key_expiring_at_reset(mocker, fake_redis):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     reset = datetime.now(timezone.utc) + timedelta(hours=3)

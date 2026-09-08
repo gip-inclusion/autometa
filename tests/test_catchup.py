@@ -71,15 +71,18 @@ def test_tolerates_non_json_tool_content():
     assert build_catchup([_msg(1, "tool_use", "pas du json")])[0]["content"]
 
 
-def test_oversized_single_entry_clips_rather_than_empties():
-    """A single entry longer than TOTAL_CAP must be clipped, not dropped."""
-    msgs = [_msg(1, "user", "question courte"), _msg(2, "assistant", "x" * (TOTAL_CAP + 10000))]
+def test_oversized_single_entry_is_clipped_to_its_tail():
+    """Une entrée unique plus longue que le plafond est tronquée, pas jetée — et on garde sa fin,
+    la plus proche du tour à jouer."""
+    long_answer = "DEBUT " + "x" * (TOTAL_CAP + 10000) + " FIN"
+    msgs = [_msg(1, "user", "question courte"), _msg(2, "assistant", long_answer)]
     result = build_catchup(msgs)
 
-    assert len(result) > 0
-    total = sum(len(e["content"]) for e in result)
-    assert total <= TOTAL_CAP
+    assert len(result) == 1
+    assert sum(len(e["content"]) for e in result) <= TOTAL_CAP
     assert "tronqué" in result[-1]["content"]
+    assert result[-1]["content"].endswith(" FIN")
+    assert "DEBUT" not in result[-1]["content"]
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,9 @@
 """Tests for web/runner.py history_for_turn — resume vs full-history fallback."""
 
+import pytest
+
 from web import runner
+from web.agents.cli import CLIBackend
 from web.database import Message
 
 
@@ -96,6 +99,53 @@ def test_returns_empty_catchup_when_nothing_happened_since(mocker):
     mocker.patch.object(runner.store, "get_conversation", return_value=_conv(msgs))
 
     assert runner.history_for_turn("c1", "sess-1", [], seen_through=2) == []
+
+
+def test_the_message_being_submitted_is_not_replayed_in_the_catchup(mocker):
+    """La route stocke le message utilisateur avant de soumettre le tour : sans ce retrait il serait
+    rendu dans le rattrapage *et* ajouté comme prompt, donc posé deux fois au moteur."""
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: True))
+    msgs = [_msg(1, "user", "Q1"), _msg(2, "assistant", "R1"), _msg(3, "user", "Q2")]
+    mocker.patch.object(runner.store, "get_conversation", return_value=_conv(msgs))
+
+    assert runner.history_for_turn("c1", "sess-1", [], seen_through=2) == []
+
+
+def test_the_degenerate_turn_sends_the_bare_message_to_the_cli(mocker):
+    """Non-régression : moteur unique, tour n>1 — le prompt reste le message seul, sans préfixe."""
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: True))
+    msgs = [_msg(1, "user", "Q1"), _msg(2, "assistant", "R1"), _msg(3, "user", "Q2")]
+    mocker.patch.object(runner.store, "get_conversation", return_value=_conv(msgs))
+
+    history = runner.history_for_turn("c1", "sess-1", [], seen_through=2)
+
+    assert CLIBackend()._build_prompt("Q2", history) == "Q2"
+
+
+def test_a_catchup_keeps_everything_but_the_message_being_submitted(mocker):
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: True))
+    msgs = [_msg(1, "assistant", "vu"), _msg(2, "user", "Q1"), _msg(3, "assistant", "R1"), _msg(4, "user", "Q2")]
+    mocker.patch.object(runner.store, "get_conversation", return_value=_conv(msgs))
+
+    result = runner.history_for_turn("c1", "sess-1", [], seen_through=1)
+
+    assert result == [{"role": "user", "content": "Q1"}, {"role": "assistant", "content": "R1"}]
+
+
+@pytest.mark.parametrize("session_is_new, alerted", [(True, False), (False, True)])
+def test_a_missing_session_alerts_only_when_the_engine_had_one(mocker, session_is_new, alerted):
+    """Première main du moteur de secours : pas de fichier de session, donc rien d'anormal à signaler
+    — sinon chaque conversation active crie « resume cassé » au pire moment."""
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: False))
+    mocker.patch.object(runner.store, "get_conversation", return_value=_conv([_msg(1, "assistant", "b")]))
+    capture = mocker.patch.object(runner.sentry_sdk, "capture_message")
+    warn = mocker.patch.object(runner.logger, "warning")
+
+    result = runner.history_for_turn("c1", "sess-1", [], session_is_new=session_is_new)
+
+    assert result == [{"role": "assistant", "content": "b"}]
+    assert capture.called is alerted
+    assert warn.called is alerted
 
 
 def test_session_missing_still_wins_over_catchup(mocker):

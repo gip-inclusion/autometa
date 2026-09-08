@@ -65,6 +65,11 @@ class TaskRunner:
         self._sweep_task: asyncio.Task | None = None
 
     async def startup(self):
+        # Why: un nom de moteur invalide doit faire échouer le déploiement, pas chaque tour — sinon
+        # la faute ne se révèle qu'au premier reroutage, en plein incident, conversation par conversation.
+        get_agent(config.AGENT_BACKEND)
+        if config.AGENT_FALLBACK_BACKEND:
+            get_agent(config.AGENT_FALLBACK_BACKEND)
         r = await get_redis()
         await self._recover_stuck(r)
         self._consumer_task = asyncio.create_task(self._consumer_loop())
@@ -260,9 +265,24 @@ class TaskRunner:
             logger.exception("complexity alert failed (conv=%s)", conv_id)
 
     def _owns_conversation(self, conv_id: str) -> bool:
-        """Aucun run plus récent (cancel + renvoi) n'a pris la main sur cette conversation."""
-        slot = self._running.get(conv_id)
-        return slot is asyncio.current_task() or slot is None
+        """Cette tâche tient toujours le créneau : ni un cancel ni un run plus récent n'ont pris la main."""
+        return self._running.get(conv_id) is asyncio.current_task()
+
+    async def _abandon_conversation(self, conv_id: str, note: str | None) -> None:
+        """Rend la conversation au sweep : on lâche le créneau d'abord, on tente la libération ensuite."""
+        if not self._owns_conversation(conv_id):
+            return
+        # Why: sortir de _running d'abord — le heartbeat cesse alors de rafraîchir la clé running:,
+        # qui expire, et le sweep peut réclamer la conversation même si la libération échoue.
+        # L'ordre inverse dégraderait une reprise partielle en blocage définitif.
+        self._running.pop(conv_id, None)
+        try:
+            r = await get_redis()
+            await self._release_conversation(r, conv_id, note)
+        except Exception:
+            # Why: la libération tape sur les mêmes DB/Redis peut-être encore en panne ; ne jamais
+            # laisser l'échec s'échapper. Le sweep périodique réconcilie cette conversation plus tard.
+            logger.exception("release after failure failed (conv=%s)", conv_id)
 
     async def _release_conversation(self, r, conv_id, note):
         """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""
@@ -333,71 +353,76 @@ class TaskRunner:
         prompt: str,
         history: list[dict],
         user_email: str | None,
-        trace_headers: dict | None = None,
-        session_id: str | None = None,
-        backend_name: str | None = None,
+        trace_headers: dict | None,
+        session_id: str | None,
+        backend_name: str,
     ):
-        backend_name = backend_name or config.AGENT_BACKEND
         fallback = config.AGENT_FALLBACK_BACKEND
         may_reroute = bool(fallback) and backend_name != fallback
 
-        limit_reset, limit_message = await self._stream_turn(
-            conversation_id,
-            prompt,
-            history,
-            user_email,
-            trace_headers,
-            session_id,
-            backend_name,
-            release=not may_reroute,
-        )
-
-        if limit_reset is None or not may_reroute:
-            return
-
         try:
-            await mark_backend_limited(backend_name, limit_reset)
-            logger.info("Usage limit on %s for %s — replaying the turn on %s", backend_name, conversation_id, fallback)
-            state = await asyncio.to_thread(store.get_engine_state, conversation_id, fallback)
-            fallback_sid = state["session_id"] or str(uuid.uuid4())
-            if state["session_id"]:
-                await asyncio.to_thread(session_sync.download_session, fallback_sid)
-            fallback_history = await asyncio.to_thread(
-                history_for_turn, conversation_id, fallback_sid, history, state["seen_through"]
+            limit_reset, limit_message = await self._stream_turn(
+                conversation_id,
+                prompt,
+                history,
+                user_email,
+                trace_headers,
+                session_id,
+                backend_name,
+                release=not may_reroute,
+            )
+
+            if limit_reset is None or not may_reroute:
+                return
+
+            try:
+                await mark_backend_limited(backend_name, limit_reset)
+                logger.info(
+                    "Usage limit on %s for %s — replaying the turn on %s", backend_name, conversation_id, fallback
+                )
+                state = await asyncio.to_thread(store.get_engine_state, conversation_id, fallback)
+                fallback_sid = state["session_id"] or str(uuid.uuid4())
+                if state["session_id"]:
+                    await asyncio.to_thread(session_sync.download_session, fallback_sid)
+                fallback_history = await asyncio.to_thread(
+                    history_for_turn,
+                    conversation_id,
+                    fallback_sid,
+                    history,
+                    state["seen_through"],
+                    not state["session_id"],
+                )
+            except Exception:
+                # Why: la première passe a délibérément gardé la conversation ouverte pour le rejeu.
+                # Sans ce filet elle resterait bloquée jusqu'au redémarrage du worker : le heartbeat
+                # rafraîchit la clé running: tant que _running la contient, donc le sweep l'ignore.
+                logger.exception("Fallback replay setup failed for %s", conversation_id)
+                sentry_sdk.capture_exception()
+                await self._abandon_conversation(conversation_id, limit_message)
+                return
+
+            # Why: gate strict — un cancel a sorti la conversation de _running et a déjà affiché
+            # « Interrompu » ; rejouer ici streamerait une réponse dans un tour abandonné.
+            if not self._owns_conversation(conversation_id):
+                return
+
+            await self._stream_turn(
+                conversation_id,
+                prompt,
+                fallback_history,
+                user_email,
+                trace_headers,
+                fallback_sid,
+                fallback,
+                release=True,
             )
         except Exception:
-            # Why: la première passe a délibérément gardé la conversation ouverte pour le rejeu.
-            # Sans ce filet elle resterait bloquée jusqu'au redémarrage du worker : le heartbeat
-            # rafraîchit la clé running: tant que _running la contient, donc le sweep l'ignore.
-            logger.exception("Fallback replay setup failed for %s", conversation_id)
+            # Why: une exception hors du finally de _stream_turn (nom de moteur inconnu, par exemple)
+            # laisserait la conversation dans _running : le heartbeat rafraîchirait sa clé running:
+            # indéfiniment, le sweep l'ignorerait, et le créneau serait perdu jusqu'au redémarrage.
+            logger.exception("Agent task failed outside the stream for %s", conversation_id)
             sentry_sdk.capture_exception()
-            if self._owns_conversation(conversation_id):
-                # Why: sortir de _running d'abord — le heartbeat cesse alors de rafraîchir la clé
-                # running:, qui expire, et le sweep peut réclamer la conversation même si la suite
-                # échoue. L'ordre inverse dégraderait une reprise partielle en blocage définitif.
-                self._running.pop(conversation_id, None)
-                try:
-                    r = await get_redis()
-                    await self._release_conversation(r, conversation_id, limit_message)
-                except Exception:
-                    # Why: recovery hits the same DB/Redis that may still be down; never let it
-                    # escape this task. The periodic sweep reconciles this conversation later.
-                    logger.exception("replay recovery failed (conv=%s)", conversation_id)
-            return
-
-        if not self._owns_conversation(conversation_id):
-            return
-
-        await self._stream_turn(
-            conversation_id,
-            prompt,
-            fallback_history,
-            user_email,
-            trace_headers,
-            fallback_sid,
-            fallback,
-            release=True,
-        )
+            await self._abandon_conversation(conversation_id, "*Une erreur s'est produite, merci de réessayer.*")
 
     async def _stream_turn(
         self,
@@ -537,10 +562,13 @@ class TaskRunner:
                         limit_reset = event.raw.get("reset")
                         limit_message = str(event.content)
                         agent_status = "error"
+                        # Why: l'alerte est déjà dédupliquée par fenêtre de reprise, et en régime
+                        # nominal toutes les conversations sont reroutées — la garder sous `release`
+                        # revient à ne jamais prévenir que le moteur primaire est épuisé.
+                        await self._alert_usage_limit_once(limit_reset)
                         if release:
                             store.add_message(conversation_id, "limit", limit_message)
                             await self.notify(conversation_id)
-                            await self._alert_usage_limit_once(limit_reset)
 
                     elif event.type == "error":
                         store.add_message(
@@ -751,6 +779,7 @@ def history_for_turn(
     session_id: str | None,
     default_history: list[dict],
     seen_through: int | None = None,
+    session_is_new: bool = False,
 ) -> list[dict]:
     """Ce que le moteur doit rattraper : rien, l'intermède de l'autre moteur, ou tout le transcript."""
     if not session_id:
@@ -767,12 +796,17 @@ def history_for_turn(
 
     if session_present:
         missed = sorted((m for m in conv.messages if m.id and m.id > seen_through), key=lambda m: m.id)
+        # Why: le message utilisateur du tour est déjà stocké quand le tour est soumis — sans ça il
+        # serait rendu dans le rattrapage *et* ajouté comme prompt, donc posé deux fois.
+        if missed and missed[-1].type == "user":
+            missed = missed[:-1]
         return build_catchup(missed)
 
-    logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
-    sentry_sdk.capture_message(
-        f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
-    )
+    if not session_is_new:
+        logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
+        sentry_sdk.capture_message(
+            f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
+        )
     msgs = [m for m in conv.messages if m.type in ("user", "assistant")]
     if msgs and msgs[-1].type == "user":
         msgs = msgs[:-1]

@@ -16,9 +16,12 @@ def _texts(msgs):
 
 
 @pytest.mark.skipif(not config.OLLAMA_API_KEY, reason="OLLAMA_API_KEY absent")
-def test_fallback_calls_tools_then_resumes(tmp_path):
+def test_fallback_calls_tools_then_resumes(tmp_path, mocker):
     target = tmp_path / "secret.txt"
     target.write_text("Le mot secret est ANANAS-4712.\n")
+    # Why: tmp_path est hors du dépôt — sans --add-dir le CLI refuserait le Read et l'échec
+    # porterait sur les permissions, pas sur le comportement du modèle qu'on veut mesurer.
+    mocker.patch.object(config, "ADDITIONAL_DIRS", [*config.ADDITIONAL_DIRS, str(tmp_path)])
     backend = get_agent("cli-ollama")
     conv_id, session_id = str(uuid.uuid4()), str(uuid.uuid4())
 

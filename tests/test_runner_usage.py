@@ -21,6 +21,7 @@ from web import runner
             backend,
         ),
     ],
+    ids=["record_usage", "record_thinking_tail"],
 )
 def test_usage_is_attributed_to_the_running_backend(mocker, record):
     mocker.patch.object(runner.config, "AGENT_BACKEND", "cli")
