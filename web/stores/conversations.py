@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy import func, or_, select
 
-from web import session_sync
+from web import config, session_sync
 from web.db import get_db
 from web.helpers import utcnow
 from web.models import Conversation as ConvModel
@@ -94,6 +94,7 @@ class ConversationsMixin:
                 user_id=c.user_id,
                 title=c.title,
                 session_id=c.session_id,
+                engine_state=c.engine_state,
                 conv_type=c.conv_type or "exploration",
                 file_path=c.file_path,
                 status=c.status or "active",
@@ -128,6 +129,7 @@ class ConversationsMixin:
                     user_id=c.user_id,
                     title=c.title,
                     session_id=c.session_id,
+                    engine_state=c.engine_state,
                     conv_type=c.conv_type or "exploration",
                     file_path=c.file_path,
                     status=c.status or "active",
@@ -147,6 +149,15 @@ class ConversationsMixin:
 
         now = utcnow()
         new_id = str(uuid.uuid4())
+
+        new_engine_state = {}
+        for backend, entry in (source.engine_state or {}).items():
+            src_session = entry.get("session_id")
+            if not src_session:
+                continue
+            candidate = str(uuid.uuid4())
+            if session_sync.copy_session(src_session, candidate):
+                new_engine_state[backend] = {"session_id": candidate, "seen_through": None}
 
         new_session_id = None
         if source.session_id:
@@ -169,16 +180,25 @@ class ConversationsMixin:
             )
             session.add(model)
 
+            old_ids = [m.id for m in source.messages]
+            new_msgs = []
             for msg in source.messages:
-                session.add(
-                    MsgModel(
-                        conversation_id=new_id,
-                        type=msg.type,
-                        role=msg.type,
-                        content=msg.content,
-                        timestamp=msg.created_at,
-                    )
+                new_msg = MsgModel(
+                    conversation_id=new_id,
+                    type=msg.type,
+                    role=msg.type,
+                    content=msg.content,
+                    timestamp=msg.created_at,
                 )
+                session.add(new_msg)
+                new_msgs.append(new_msg)
+            session.flush()
+
+            for backend, entry in new_engine_state.items():
+                old_seen = ((source.engine_state or {}).get(backend) or {}).get("seen_through")
+                if old_seen in old_ids:
+                    entry["seen_through"] = new_msgs[old_ids.index(old_seen)].id
+            model.engine_state = new_engine_state or None
 
         return self.get_conversation(new_id, include_messages=True)
 
@@ -294,6 +314,7 @@ class ConversationsMixin:
                 user_id=c.user_id,
                 title=c.title,
                 session_id=c.session_id,
+                engine_state=c.engine_state,
                 conv_type=c.conv_type,
                 file_path=c.file_path,
                 status=c.status,
@@ -316,6 +337,7 @@ class ConversationsMixin:
                     user_id=c.user_id,
                     title=c.title,
                     session_id=c.session_id,
+                    engine_state=c.engine_state,
                     conv_type=c.conv_type,
                     file_path=c.file_path,
                     status=c.status,
@@ -346,7 +368,7 @@ class ConversationsMixin:
             return ids
 
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
-        allowed = {"title", "session_id", "user_id", "status", "pr_url", "needs_response"}
+        allowed = {"title", "session_id", "engine_state", "user_id", "status", "pr_url", "needs_response"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
@@ -359,6 +381,44 @@ class ConversationsMixin:
                 if k == "needs_response":
                     v = int(v)
                 setattr(c, k, v)
+            c.updated_at = utcnow()
+            return True
+
+    def get_engine_state(self, conv_id: str, backend: str) -> dict:
+        """État d'un moteur : identifiant de sa session native et dernier message qu'il a vu."""
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return {"session_id": None, "seen_through": None}
+            entry = (c.engine_state or {}).get(backend)
+            if entry is None:
+                # Why: avant la migration multi-moteurs, la session du moteur principal vivait
+                # dans conversations.session_id — on la reprend au lieu d'en ouvrir une neuve.
+                if backend == config.AGENT_BACKEND:
+                    return {"session_id": c.session_id, "seen_through": None}
+                return {"session_id": None, "seen_through": None}
+            return {"session_id": entry.get("session_id"), "seen_through": entry.get("seen_through")}
+
+    def set_engine_state(
+        self,
+        conv_id: str,
+        backend: str,
+        *,
+        session_id: Optional[str] = None,
+        seen_through: Optional[int] = None,
+    ) -> bool:
+        with get_db() as session:
+            c = session.get(ConvModel, conv_id)
+            if not c:
+                return False
+            state = dict(c.engine_state or {})
+            entry = dict(state.get(backend) or {})
+            if session_id is not None:
+                entry["session_id"] = session_id
+            if seen_through is not None:
+                entry["seen_through"] = seen_through
+            state[backend] = entry
+            c.engine_state = state
             c.updated_at = utcnow()
             return True
 
