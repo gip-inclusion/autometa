@@ -56,7 +56,6 @@ class RunUsage:
 
 class TaskRunner:
     def __init__(self):
-        self.backend = get_agent()
         self._running: dict[str, asyncio.Task] = {}
         self._cancel_tasks: dict[str, asyncio.Task] = {}
         self._worker_id = uuid.uuid4().hex[:12]
@@ -119,11 +118,18 @@ class TaskRunner:
         store.update_conversation(conv_id, needs_response=False)
         await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
         if conv_id in self._running:
-            await self.backend.cancel(conv_id)
+            await self._cancel_all_backends(conv_id)
             self._running.pop(conv_id, None)
         store.add_message(conv_id, "assistant", "*Interrompu.*")
         await self._notify_done(conv_id)
         return True
+
+    async def _cancel_all_backends(self, conv_id: str) -> None:
+        names = {config.AGENT_BACKEND}
+        if config.AGENT_FALLBACK_BACKEND:
+            names.add(config.AGENT_FALLBACK_BACKEND)
+        for name in names:
+            await get_agent(name).cancel(conv_id)
 
     async def notify(self, conv_id: str):
         r = await get_redis()
@@ -306,7 +312,7 @@ class TaskRunner:
         try:
             async for msg in pubsub.listen():
                 if msg["type"] == "message":
-                    await self.backend.cancel(conv_id)
+                    await self._cancel_all_backends(conv_id)
                     break
         finally:
             await pubsub.unsubscribe()
@@ -321,6 +327,8 @@ class TaskRunner:
         trace_headers: dict | None = None,
         session_id: str | None = None,
     ):
+        backend_name = await pick_backend()
+        backend = get_agent(backend_name)
         parent_ctx = extract_trace_context(trace_headers or {})
 
         my_task = asyncio.current_task()
@@ -365,7 +373,7 @@ class TaskRunner:
             conv_token = set_conversation_id(conversation_id)
 
             try:
-                async for event in self.backend.send_message(
+                async for event in backend.send_message(
                     conversation_id=conversation_id,
                     message=prompt,
                     history=history,
@@ -400,7 +408,7 @@ class TaskRunner:
                                     category="agent",
                                     level="warning",
                                 )
-                                await self.backend.cancel(conversation_id)
+                                await backend.cancel(conversation_id)
                                 store.add_message(
                                     conversation_id,
                                     "assistant",
@@ -610,6 +618,29 @@ def _persist_failure(conv_id: str, title: str, marker: str, snippet: str, url: s
         record_failure(conv_id, title, marker, snippet, url, user_id)
     except SQLAlchemyError:
         logger.exception("Échec de la journalisation de l'erreur détectée pour %s", conv_id)
+
+
+def limit_key(backend: str) -> str:
+    return f"{PREFIX}:limit:{backend}"
+
+
+async def mark_backend_limited(backend: str, reset_iso: str | None) -> None:
+    """Marque un moteur comme bloqué jusqu'à son instant de reprise."""
+    if not reset_iso:
+        return
+    r = await get_redis()
+    await r.set(limit_key(backend), "1", exat=int(datetime.fromisoformat(reset_iso).timestamp()))
+
+
+async def pick_backend() -> str:
+    """Moteur à utiliser pour le prochain tour."""
+    primary = config.AGENT_BACKEND
+    if not config.AGENT_FALLBACK_BACKEND:
+        return primary
+    r = await get_redis()
+    if await r.exists(limit_key(primary)):
+        return config.AGENT_FALLBACK_BACKEND
+    return primary
 
 
 def history_for_turn(conv_id: str, session_id: str | None, default_history: list[dict]) -> list[dict]:

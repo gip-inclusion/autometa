@@ -20,6 +20,9 @@ DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 # Agent backend: "cli" or "cli-ollama"
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 
+# Moteur de secours quand la limite d'usage du moteur principal est atteinte. Vide = désactivé.
+AGENT_FALLBACK_BACKEND = os.getenv("AGENT_FALLBACK_BACKEND", "").strip().lower()
+
 # LLM backend for short prompts (titles, tags). Defaults to AGENT_BACKEND.
 LLM_BACKEND = os.getenv("LLM_BACKEND", "").strip().lower() or AGENT_BACKEND
 

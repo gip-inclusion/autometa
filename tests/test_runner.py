@@ -42,6 +42,10 @@ def make_runner(mocker, fake_redis, max_concurrent=2):
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", max_concurrent)
     mocker.patch("web.runner.session_sync")
     r = TaskRunner()
+    # Why: production has no `backend` attribute anymore — get_agent above always resolves
+    # to mock_backend regardless of name, so this lets the 19 existing `r.backend.*` mutation
+    # sites keep reaching the object production actually calls.
+    r.backend = mock_backend
     return r
 
 
@@ -87,6 +91,27 @@ def test_run_agent_forwards_user_email_to_backend(runner, mocker):
     assert captured["user_email"] == "alice@example.com"
 
 
+def test_run_agent_asks_get_agent_for_backend_picked_by_pick_backend(runner, mocker):
+    mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
+    calls = []
+
+    def fake_get_agent(name):
+        calls.append(name)
+        backend = mocker.MagicMock()
+        backend.send_message = _noop_stream
+        return backend
+
+    mocker.patch("web.runner.get_agent", side_effect=fake_get_agent)
+    mocker.patch("web.runner.store")
+
+    async def _run():
+        await runner._run_agent("c1", "prompt", [], None)
+
+    asyncio.run(_run())
+
+    assert calls == ["cli-ollama"]
+
+
 def test_cancel_publishes_and_updates_db(runner, mocker):
     mock_store = mocker.patch("web.runner.store")
 
@@ -120,6 +145,19 @@ def test_cancel_clears_needs_response_before_backend_cancel_completes(runner, mo
         assert cleared, "needs_response still True while backend.cancel runs -> immediate resend would 409"
 
     asyncio.run(_run())
+
+
+def test_cancel_all_backends_calls_get_agent_for_both_backends_when_fallback_configured(runner, mocker):
+    mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
+    mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", "cli-ollama")
+    spy = mocker.patch("web.runner.get_agent", return_value=mocker.MagicMock(cancel=mocker.AsyncMock()))
+
+    async def _run():
+        await runner._cancel_all_backends("c1")
+
+    asyncio.run(_run())
+
+    assert {call.args[0] for call in spy.call_args_list} == {"cli", "cli-ollama"}
 
 
 def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, mocker):
