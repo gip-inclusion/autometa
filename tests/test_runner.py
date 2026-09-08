@@ -33,6 +33,13 @@ def fake_redis():
     return fakeredis.aioredis.FakeRedis(decode_responses=True)
 
 
+@pytest.fixture(autouse=True)
+def _no_fallback_backend(mocker):
+    # Why: _run_agent rejoue le tour sur le moteur de secours ; ces tests supposent une passe unique
+    # et ne doivent pas dépendre d'un AGENT_FALLBACK_BACKEND exporté dans l'environnement.
+    mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", "")
+
+
 def make_runner(mocker, fake_redis, max_concurrent=2):
     mock_backend = mocker.MagicMock()
     mock_backend.send_message = _noop_stream

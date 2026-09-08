@@ -259,6 +259,11 @@ class TaskRunner:
         except Exception:
             logger.exception("complexity alert failed (conv=%s)", conv_id)
 
+    def _owns_conversation(self, conv_id: str) -> bool:
+        """Aucun run plus récent (cancel + renvoi) n'a pris la main sur cette conversation."""
+        slot = self._running.get(conv_id)
+        return slot is asyncio.current_task() or slot is None
+
     async def _release_conversation(self, r, conv_id, note):
         """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""
         store.update_conversation(conv_id, needs_response=False)
@@ -332,6 +337,79 @@ class TaskRunner:
         session_id: str | None = None,
         backend_name: str | None = None,
     ):
+        backend_name = backend_name or config.AGENT_BACKEND
+        fallback = config.AGENT_FALLBACK_BACKEND
+        may_reroute = bool(fallback) and backend_name != fallback
+
+        limit_reset, limit_message = await self._stream_turn(
+            conversation_id,
+            prompt,
+            history,
+            user_email,
+            trace_headers,
+            session_id,
+            backend_name,
+            release=not may_reroute,
+        )
+
+        if limit_reset is None or not may_reroute:
+            return
+
+        try:
+            await mark_backend_limited(backend_name, limit_reset)
+            logger.info("Usage limit on %s for %s — replaying the turn on %s", backend_name, conversation_id, fallback)
+            state = await asyncio.to_thread(store.get_engine_state, conversation_id, fallback)
+            fallback_sid = state["session_id"] or str(uuid.uuid4())
+            if state["session_id"]:
+                await asyncio.to_thread(session_sync.download_session, fallback_sid)
+            fallback_history = await asyncio.to_thread(
+                history_for_turn, conversation_id, fallback_sid, history, state["seen_through"]
+            )
+        except Exception:
+            # Why: la première passe a délibérément gardé la conversation ouverte pour le rejeu.
+            # Sans ce filet elle resterait bloquée jusqu'au redémarrage du worker : le heartbeat
+            # rafraîchit la clé running: tant que _running la contient, donc le sweep l'ignore.
+            logger.exception("Fallback replay setup failed for %s", conversation_id)
+            sentry_sdk.capture_exception()
+            if self._owns_conversation(conversation_id):
+                # Why: sortir de _running d'abord — le heartbeat cesse alors de rafraîchir la clé
+                # running:, qui expire, et le sweep peut réclamer la conversation même si la suite
+                # échoue. L'ordre inverse dégraderait une reprise partielle en blocage définitif.
+                self._running.pop(conversation_id, None)
+                try:
+                    r = await get_redis()
+                    await self._release_conversation(r, conversation_id, limit_message)
+                except Exception:
+                    # Why: recovery hits the same DB/Redis that may still be down; never let it
+                    # escape this task. The periodic sweep reconciles this conversation later.
+                    logger.exception("replay recovery failed (conv=%s)", conversation_id)
+            return
+
+        if not self._owns_conversation(conversation_id):
+            return
+
+        await self._stream_turn(
+            conversation_id,
+            prompt,
+            fallback_history,
+            user_email,
+            trace_headers,
+            fallback_sid,
+            fallback,
+            release=True,
+        )
+
+    async def _stream_turn(
+        self,
+        conversation_id: str,
+        prompt: str,
+        history: list[dict],
+        user_email: str | None,
+        trace_headers: dict | None,
+        session_id: str | None,
+        backend_name: str,
+        release: bool,
+    ) -> tuple[str | None, str | None]:
         backend = get_agent(backend_name)
         parent_ctx = extract_trace_context(trace_headers or {})
 
@@ -349,6 +427,8 @@ class TaskRunner:
         tool_active_start: float | None = None
         agent_start = time.perf_counter()
         agent_status = "ok"
+        limit_reset: str | None = None
+        limit_message: str | None = None
         run_usage = RunUsage()
 
         def _close_tool_log():
@@ -454,10 +534,13 @@ class TaskRunner:
                             _record_thinking_tail(conversation_id, event.raw["usage"], run_usage)
 
                     elif event.type == "limit":
-                        store.add_message(conversation_id, "limit", str(event.content))
-                        await self.notify(conversation_id)
-                        await self._alert_usage_limit_once(event.raw.get("reset"))
+                        limit_reset = event.raw.get("reset")
+                        limit_message = str(event.content)
                         agent_status = "error"
+                        if release:
+                            store.add_message(conversation_id, "limit", limit_message)
+                            await self.notify(conversation_id)
+                            await self._alert_usage_limit_once(limit_reset)
 
                     elif event.type == "error":
                         store.add_message(
@@ -505,11 +588,14 @@ class TaskRunner:
                             session_id=session_id,
                             seen_through=last_message_id,
                         )
-                    store.update_conversation(conversation_id, needs_response=False)
-                    await self.notify_done(conversation_id)
-                    self._running.pop(conversation_id, None)
-                    r = await get_redis()
-                    await r.delete(f"{PREFIX}:running:{conversation_id}")
+                    # Why: quand un rejeu suit, libérer ici fermerait le flux SSE avant que le
+                    # moteur de secours ait répondu — seule la passe que personne ne reprend libère.
+                    if release or limit_reset is None:
+                        store.update_conversation(conversation_id, needs_response=False)
+                        await self.notify_done(conversation_id)
+                        self._running.pop(conversation_id, None)
+                        r = await get_redis()
+                        await r.delete(f"{PREFIX}:running:{conversation_id}")
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
@@ -522,6 +608,8 @@ class TaskRunner:
                         "agent.status": agent_status,
                     },
                 )
+
+        return limit_reset, limit_message
 
 
 def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -> str:
