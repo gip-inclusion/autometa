@@ -175,11 +175,9 @@ class CLIBackend(AgentBackend):
         outcome: dict,
     ) -> AsyncIterator[AgentMessage]:
         is_resume = session_id is not None and session_sync.get_session_path(session_id).exists()
-
-        if is_resume:
-            prompt = message
-        else:
-            prompt = self._build_prompt(message, history)
+        # Why: _build_prompt rend le message seul quand l'historique est vide — le cas « reprise
+        # sans rattrapage » est donc déjà couvert, sans branche dédiée.
+        prompt = self._build_prompt(message, history)
         outcome["prompt"] = prompt
 
         cmd = [

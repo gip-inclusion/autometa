@@ -91,8 +91,7 @@ def test_run_agent_forwards_user_email_to_backend(runner, mocker):
     assert captured["user_email"] == "alice@example.com"
 
 
-def test_run_agent_asks_get_agent_for_backend_picked_by_pick_backend(runner, mocker):
-    mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
+def test_run_agent_asks_get_agent_for_the_backend_it_is_given(runner, mocker):
     calls = []
 
     def fake_get_agent(name):
@@ -105,11 +104,94 @@ def test_run_agent_asks_get_agent_for_backend_picked_by_pick_backend(runner, moc
     mocker.patch("web.runner.store")
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], None)
+        await runner._run_agent("c1", "prompt", [], None, backend_name="cli-ollama")
 
     asyncio.run(_run())
 
     assert calls == ["cli-ollama"]
+
+
+def test_consumer_loop_picks_backend_and_forwards_it_to_run_agent(mocker, fake_redis):
+    """pick_backend's choice must reach _run_agent, which is what feeds it to get_agent."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_conv = mocker.MagicMock()
+    mock_conv.needs_response = True
+    mock_store.get_conversation.return_value = mock_conv
+    mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
+    mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
+
+    captured = {}
+
+    async def fake_run_agent(
+        conversation_id, prompt, history, user_email, trace_headers=None, session_id=None, backend_name=None
+    ):
+        captured["backend_name"] = backend_name
+
+    mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
+
+    async def _run():
+        await fake_redis.rpush(
+            "autometa:tasks",
+            json.dumps({"conv_id": "c1", "prompt": "hi", "history": [], "session_id": None, "user_email": None}),
+        )
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(0.3)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    asyncio.run(_run())
+    assert captured["backend_name"] == "cli-ollama"
+
+
+def test_consumer_loop_prefers_engine_state_session_and_forwards_seen_through(mocker, fake_redis):
+    """The picked backend's own session/seen_through must win over the payload's legacy session_id,
+    and get_engine_state must be asked for the backend pick_backend chose — not the fixed default."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mock_conv = mocker.MagicMock()
+    mock_conv.needs_response = True
+    mock_store.get_conversation.return_value = mock_conv
+    mock_store.get_engine_state.return_value = {"session_id": "sess-engine", "seen_through": 7}
+    mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
+    mock_session_sync = mocker.patch("web.runner.session_sync")
+
+    captured = {}
+
+    def fake_history_for_turn(conv_id, session_id, default_history, seen_through=None):
+        captured["session_id"] = session_id
+        captured["seen_through"] = seen_through
+        return []
+
+    mocker.patch("web.runner.history_for_turn", side_effect=fake_history_for_turn)
+
+    async def fake_run_agent(*args, **kwargs):
+        return
+
+    mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
+
+    async def _run():
+        await fake_redis.rpush(
+            "autometa:tasks",
+            json.dumps({
+                "conv_id": "c1",
+                "prompt": "hi",
+                "history": [],
+                "session_id": "sess-payload",
+                "user_email": None,
+            }),
+        )
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(0.3)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    asyncio.run(_run())
+
+    mock_store.get_engine_state.assert_called_once_with("c1", "cli-ollama")
+    mock_session_sync.download_session.assert_called_once_with("sess-engine")
+    assert captured["session_id"] == "sess-engine"
+    assert captured["seen_through"] == 7
 
 
 def test_cancel_publishes_and_updates_db(runner, mocker):
@@ -431,6 +513,7 @@ def test_consumer_survives_task_handling_exception(mocker, fake_redis):
     good_conv = mocker.MagicMock()
     good_conv.needs_response = True
     mock_store.get_conversation.side_effect = [RuntimeError("db connection lost"), good_conv]
+    mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
 
     async def slow_stream(*a, **kw):
         await asyncio.sleep(10)
@@ -460,6 +543,7 @@ def test_consumer_survives_when_recovery_also_fails(mocker, fake_redis):
     good_conv.needs_response = True
     mock_store.get_conversation.side_effect = [RuntimeError("db down"), good_conv]
     mock_store.update_conversation.side_effect = RuntimeError("db still down")
+    mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
 
     async def slow_stream(*a, **kw):
         await asyncio.sleep(10)

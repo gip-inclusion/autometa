@@ -376,3 +376,16 @@ def test_ollama_backend_limit_message_uses_its_own_model_label(stub_config, mock
     assert messages[-1].type == "limit"
     assert "du modèle llama3" in messages[-1].content
     assert "Claude" not in messages[-1].content
+
+
+def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mocker, tmp_path):
+    """A resumed session (session file present) must still get its catch-up history threaded
+    into the real subprocess prompt — not silently dropped in favour of the bare message."""
+    mocker.patch("web.agents.cli.session_sync.get_session_path", return_value=mocker.Mock(exists=lambda: True))
+    stub_config('printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho \'{"type": "result", "subtype": "success"}\'')
+    history = [{"role": "assistant", "content": "rattrapage"}]
+
+    collect_messages(make_backend(), session_id="sess-1", history=history, message="suite")
+
+    argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
+    assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"

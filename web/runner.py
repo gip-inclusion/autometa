@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker, record_failure
 from lib.tool_taxonomy import classify_tool
+from web.catchup import build_catchup
 
 from . import complexity, config, session_sync
 from .agents import get_agent
@@ -178,10 +179,12 @@ class TaskRunner:
                 if not conv or not conv.needs_response:
                     continue
                 await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
-                sid = payload.get("session_id")
+                backend_name = await pick_backend()
+                state = await asyncio.to_thread(store.get_engine_state, conv_id, backend_name)
+                sid = state["session_id"] or payload.get("session_id")
                 if sid:
                     await asyncio.to_thread(session_sync.download_session, sid)
-                history = history_for_turn(conv_id, sid, payload["history"])
+                history = history_for_turn(conv_id, sid, payload["history"], state["seen_through"])
                 # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
                 trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
                 task = asyncio.create_task(
@@ -192,6 +195,7 @@ class TaskRunner:
                         payload.get("user_email"),
                         trace_headers,
                         sid,
+                        backend_name,
                     )
                 )
                 self._running[conv_id] = task
@@ -326,8 +330,8 @@ class TaskRunner:
         user_email: str | None,
         trace_headers: dict | None = None,
         session_id: str | None = None,
+        backend_name: str | None = None,
     ):
-        backend_name = await pick_backend()
         backend = get_agent(backend_name)
         parent_ctx = extract_trace_context(trace_headers or {})
 
@@ -643,20 +647,33 @@ async def pick_backend() -> str:
     return primary
 
 
-def history_for_turn(conv_id: str, session_id: str | None, default_history: list[dict]) -> list[dict]:
-    """Seed history: empty when the session file is present (resume works), full transcript when it is missing."""
-    if not session_id or session_sync.get_session_path(session_id).exists():
+def history_for_turn(
+    conv_id: str,
+    session_id: str | None,
+    default_history: list[dict],
+    seen_through: int | None = None,
+) -> list[dict]:
+    """Ce que le moteur doit rattraper : rien, l'intermède de l'autre moteur, ou tout le transcript."""
+    if not session_id:
         return default_history
 
-    logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
-    sentry_sdk.capture_message(
-        f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
-    )
+    session_present = session_sync.get_session_path(session_id).exists()
+
+    if session_present and seen_through is None:
+        return []
 
     conv = store.get_conversation(conv_id, include_messages=True)
     if not conv:
         return default_history
 
+    if session_present:
+        missed = sorted((m for m in conv.messages if m.id and m.id > seen_through), key=lambda m: m.id)
+        return build_catchup(missed)
+
+    logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
+    sentry_sdk.capture_message(
+        f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
+    )
     msgs = [m for m in conv.messages if m.type in ("user", "assistant")]
     if msgs and msgs[-1].type == "user":
         msgs = msgs[:-1]
