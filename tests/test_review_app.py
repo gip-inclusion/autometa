@@ -80,6 +80,10 @@ def deployment(status="queued"):
     return {"deployment": {"id": "dep-1", "status": status, "git_ref": "abc123"}}
 
 
+def containers(amount=1, name="web"):
+    return {"containers": [{"name": name, "amount": amount}]}
+
+
 def creation_flow(*, entry_listing, app_name="autometa-staging-pr42"):
     """Les réponses que `ensure` consomme sur le chemin de création."""
     return [
@@ -126,6 +130,10 @@ def stop_app(client):
     return review_app.stop(client, "jwt", "autometa-staging", 42)
 
 
+def read_containers(client):
+    return review_app.web_container_amount(client, "jwt", "autometa-staging-pr42")
+
+
 @pytest.mark.parametrize(
     ("operation", "responses"),
     [
@@ -135,8 +143,9 @@ def stop_app(client):
         (deploy_app, [FakeResponse(deployment())]),
         (follow_deployment, [FakeResponse(deployment("success"))]),
         (stop_app, [FakeResponse(listing(review_app_entry())), FakeResponse({})]),
+        (read_containers, [FakeResponse(containers())]),
     ],
-    ids=["read_state", "read_link", "create", "deploy", "follow", "stop"],
+    ids=["read_state", "read_link", "create", "deploy", "follow", "stop", "containers"],
 )
 def test_scalingo_calls_carry_the_bearer_and_a_timeout(operation, responses):
     client = FakeClient(responses)
@@ -254,13 +263,38 @@ def test_ensure_redeploys_an_existing_app_without_creating_it_again():
     ]
 
 
-def test_ensure_does_nothing_when_the_head_sha_is_already_deployed():
-    client = FakeClient([FakeResponse(link()), FakeResponse(listing(review_app_entry(git_ref="abc123")))])
+def test_ensure_does_nothing_when_the_head_sha_is_already_deployed_and_running():
+    client = FakeClient([
+        FakeResponse(link()),
+        FakeResponse(listing(review_app_entry(git_ref="abc123"))),
+        FakeResponse(containers(amount=1)),
+    ])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
 
     assert result["action"] == "noop"
     assert all(method != "POST" for method, _, _ in client.calls)
+
+
+def test_ensure_rescales_when_the_sha_matches_but_the_app_was_scaled_to_zero():
+    """Repose le label après un teardown sans avoir repoussé : ensure doit relancer l'app, pas répondre noop."""
+    client = FakeClient([
+        FakeResponse(link()),
+        FakeResponse(listing(review_app_entry(git_ref="abc123"))),
+        FakeResponse(containers(amount=0)),
+        FakeResponse({}),
+    ])
+
+    result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
+
+    assert result == {
+        "action": "started",
+        "app": "autometa-staging-pr42",
+        "url": "https://autometa-staging-pr42.osc-fr1.scalingo.io",
+    }
+    method, url, kwargs = client.calls[3]
+    assert (method, url.rsplit("/v1", 1)[-1]) == ("POST", "/apps/autometa-staging-pr42/scale")
+    assert kwargs["json"] == {"containers": [{"name": "web", "amount": 1}]}
 
 
 @pytest.mark.parametrize(
@@ -372,6 +406,12 @@ def test_wait_for_addons_gives_up_loudly(mocker):
 
     with pytest.raises(RuntimeError, match="addons"):
         review_app.wait_for_addons(client, "jwt", "autometa-staging-pr42")
+
+
+def test_web_container_amount_returns_zero_when_the_web_container_is_absent():
+    client = FakeClient([FakeResponse(containers(name="clock"))])
+
+    assert review_app.web_container_amount(client, "jwt", "autometa-staging-pr42") == 0
 
 
 def test_stop_scales_the_web_containers_to_zero():

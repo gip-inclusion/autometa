@@ -9,7 +9,7 @@ on:
     - cron: '0 6 * * 1'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'code' }}
   cancel-in-progress: true
 
 permissions:
@@ -258,7 +258,6 @@ jobs:
   review-app:
     name: Review app
     needs: [lint, security, unit, integration, migrations]
-    # Le label review-app est l'interrupteur : sans lui, pas de review app, même sur une PR verte.
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
