@@ -68,6 +68,7 @@ RUFF_OWNED_CODE = [
     [
         ("data/interactive/tdb/cron.py", True),
         ("/app/data/interactive/tdb/cron.py", True),
+        ("evals/run_eval.py", True),
         ("lib/foo.py", False),
         ("web/routes/bar.py", False),
         ("tests/test_foo.py", False),
@@ -75,6 +76,22 @@ RUFF_OWNED_CODE = [
 )
 def test_ruff_owned_rules_replayed_only_where_ruff_is_blind(code, path, expect_violations):
     assert bool(check_python.check(code, path)) == expect_violations
+
+
+@pytest.mark.parametrize(
+    ("path", "expect_violations"),
+    [
+        ("data/interactive/tdb/cron.py", True),
+        ("evals/run_eval.py", True),
+        # E722 porte la règle partout où ruff tourne — la rejouer ici ferait diverger les deux.
+        ("lib/foo.py", False),
+        ("web/routes/bar.py", False),
+    ],
+)
+def test_bare_except_replayed_only_where_ruff_is_blind(path, expect_violations):
+    code = "try:\n    x = 1\nex" + "cept:\n    log(x)\n"
+    violations = [v for v in check_python.check(code, path) if "nu" in v]
+    assert bool(violations) == expect_violations
 
 
 # Why: les mots-clés sont coupés en deux pour que les lignes de ce fichier ne déclenchent pas

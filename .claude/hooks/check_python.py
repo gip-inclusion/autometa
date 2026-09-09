@@ -137,6 +137,15 @@ def check_env_vars(lines, path):
 # -- Exceptions (rules/code.md) --
 
 
+def check_bare_except(lines):
+    violations = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^except\s*:", stripped):
+            violations.append(f"except: nu interdit — attraper l'exception attendue: {stripped}")
+    return violations
+
+
 def check_exceptions(lines):
     violations = []
     for i, line in enumerate(lines):
@@ -272,9 +281,13 @@ def check_file_name(path):
 # -- Entrypoint --
 
 
+# Miroir de [tool.ruff] exclude — .venv/ n'est jamais édité par l'agent.
+RUFF_EXCLUDED = frozenset(("data", "evals"))
+
+
 def is_ruff_blind(path):
-    """Ruff exclut data/ de sa configuration, où l'agent écrit les tableaux de bord."""
-    return "data" in os.path.normpath(path).split(os.sep)
+    """Chemins exclus de la configuration ruff, où l'agent écrit les tableaux de bord et les evals."""
+    return bool(RUFF_EXCLUDED & set(os.path.normpath(path).split(os.sep)))
 
 
 def check(code, path):
@@ -294,6 +307,7 @@ def check(code, path):
         violations.extend(check_env_vars(lines, path))
         violations.extend(check_httpx_timeout(lines))
         violations.extend(check_log_fstrings(lines))
+        violations.extend(check_bare_except(lines))
     violations.extend(check_exceptions(lines))
     violations.extend(check_api(lines))
     return violations
