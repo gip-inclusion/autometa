@@ -34,7 +34,8 @@ def test_la_couche_4_couvre_l_outillage(chemin):
     "commande",
     [
         "Bash(git push --force*)",
-        "Bash(git commit * --no-verify*)",
+        # Why: `git commit * --no-verify*` exigeait un token entre les deux — le `*` absorbe l'espace.
+        "Bash(git commit*--no-verify*)",
         "Bash(git -c core.hooksPath=*)",
     ],
 )
@@ -47,8 +48,23 @@ def test_le_parcours_nominal_ne_demande_pas_d_autorisation():
     """Sans liste allow, chaque `make` et chaque `git` du parcours ouvre une invite au demandeur."""
     allow = json.loads((REPO / ".claude" / "settings.json").read_text())["permissions"]["allow"]
 
-    for commande in ["Bash(make *)", "Bash(git commit*)", "Bash(gh pr create*)"]:
+    for commande in ["Bash(make *)", "Bash(git commit*)"]:
         assert commande in allow
+
+
+def test_ouvrir_une_pr_reste_une_action_confirmee():
+    """Une PR est une action sortante : elle passe par une confirmation, pas par la liste allow."""
+    allow = json.loads((REPO / ".claude" / "settings.json").read_text())["permissions"]["allow"]
+
+    assert not [regle for regle in allow if regle.startswith("Bash(gh pr create")]
+
+
+def test_le_hook_bash_couvre_ce_qu_un_glob_ne_voit_pas():
+    """Un cluster de drapeaux courts (`-nm`) est hors de portée du modèle de motifs des permissions."""
+    hooks = json.loads((REPO / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]
+    commandes = [hook["command"] for entree in hooks if entree["matcher"] == "Bash" for hook in entree["hooks"]]
+
+    assert "python3 .claude/hooks/guard_bash.py" in commandes
 
 
 def test_pyproject_reste_hors_de_la_couche_1():
