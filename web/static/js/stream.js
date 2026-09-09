@@ -17,7 +17,7 @@ function isValidConversationId(id) {
 }
 
 let eventSource = null;
-let eventSourceConversationId = null;  // Track which conversation the eventSource belongs to
+let eventSourceConversationId = null; // Track which conversation the eventSource belongs to
 let retryCount = 0;
 let lastUserMessage = null;
 const MAX_RETRIES = 3;
@@ -80,7 +80,7 @@ async function sendMessage() {
   // Upload pending files first (if any)
   let fullMessage = message;
   if (hasFiles) {
-    setStreamingState(true);  // Show loading during upload
+    setStreamingState(true); // Show loading during upload
     const fileContexts = await uploadPendingFiles();
     fullMessage = buildMessageWithFiles(message, fileContexts);
     setStreamingState(false);
@@ -131,13 +131,12 @@ async function sendToAgent(message) {
         await recover({ createNew: true });
         return;
       }
-      showError(data.error || 'Erreur lors de l\'envoi');
+      showError(data.error || "Erreur lors de l'envoi");
       return;
     }
 
     // Start streaming from after the user message we just sent
     startStream(data.after_id || 0);
-
   } catch (error) {
     console.error('Failed to send message:', error);
     showError('Erreur de connexion');
@@ -163,9 +162,7 @@ function closeEventSource() {
  * Return the ID of the last message the client already has from a conv payload.
  */
 function lastLoadedMsgId(conv) {
-  return conv?.messages?.length
-    ? conv.messages[conv.messages.length - 1].id
-    : 0;
+  return conv?.messages?.length ? conv.messages[conv.messages.length - 1].id : 0;
 }
 
 /**
@@ -188,7 +185,7 @@ function startStream(afterMsgId = 0) {
   eventSourceConversationId = currentConversationId;
 
   // Content events — reset retry counter (agent is alive and producing output)
-  ['assistant', 'tool_use', 'tool_result', 'system', 'limit'].forEach(type => {
+  ['assistant', 'tool_use', 'tool_result', 'system', 'limit'].forEach((type) => {
     eventSource.addEventListener(type, (e) => {
       retryCount = 0;
       const data = JSON.parse(e.data);
@@ -251,11 +248,11 @@ function startStream(afterMsgId = 0) {
     }
 
     retryCount++;
-    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
 
     // Reload conversation to catch missed messages, then reconnect if still running
     const reloaded = await loadConversation(currentConversationId, { autoStream: false });
-    if (reloaded && reloaded.is_running) {
+    if (reloaded?.is_running) {
       startStream(lastLoadedMsgId(reloaded));
     } else if (reloaded) {
       // Conversation finished while we were reconnecting
@@ -313,7 +310,7 @@ function removeRecoveryMessage() {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
   const lastBlock = chatOutput.lastElementChild;
-  if (lastBlock && lastBlock.classList.contains('event-error')) {
+  if (lastBlock?.classList.contains('event-error')) {
     lastBlock.remove();
   }
 }
@@ -368,7 +365,7 @@ async function cancelStream() {
   setStreamingState(false);
   hideLoading();
   removeProgressIndicator();
-  appendEvent('error', { content: 'Annulé par l\'utilisateur' });
+  appendEvent('error', { content: "Annulé par l'utilisateur" });
 }
 
 /**
@@ -473,11 +470,11 @@ async function reconcileSidebarSpinners() {
     const runningSet = new Set(running);
 
     // Find all sidebar links that currently show a spinner
-    document.querySelectorAll('a.nav-link-conversation i.ri-loader-4-line.ri-spin').forEach(icon => {
+    document.querySelectorAll('a.nav-link-conversation i.ri-loader-4-line.ri-spin').forEach((icon) => {
       const link = icon.closest('a');
       if (!link) return;
       const href = link.getAttribute('href');
-      const match = href && href.match(/\/explorations\/(.+)/);
+      const match = href?.match(/\/explorations\/(.+)/);
       if (!match) return;
       const convId = match[1];
       if (!runningSet.has(convId)) {
@@ -709,7 +706,10 @@ async function loadConversation(convId, { autoStream = true } = {}) {
     requestAnimationFrame(() => {
       if (hash) {
         const el = document.getElementById(hash.substring(1));
-        if (el) { el.scrollIntoView({ block: 'start' }); return; }
+        if (el) {
+          el.scrollIntoView({ block: 'start' });
+          return;
+        }
       }
       scrollToBottom();
       scrollActionsToBottom();
@@ -726,7 +726,6 @@ async function loadConversation(convId, { autoStream = true } = {}) {
     }
 
     return conv;
-
   } catch (error) {
     console.error('Failed to load conversation:', error);
   }
@@ -745,7 +744,9 @@ function startFreshConversation() {
   resetActionsState();
 
   // Deselect active conversation in sidebar
-  document.querySelectorAll('.nav-sublink.active').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-sublink.active').forEach((el) => {
+    el.classList.remove('active');
+  });
 
   // Clear chat output
   const chatOutput = document.getElementById('chatOutput');

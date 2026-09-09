@@ -15,14 +15,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 import sentry_sdk
-from sqlalchemy import select
+from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, Table, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from lib import dashboard_api
 from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
 
 from . import alerts, config, publications, s3
 from .database import get_db
+from .db import get_engine
 from .log import setup_logging
 from .models import CronRun, Dashboard, DashboardPublication
 
@@ -42,6 +46,7 @@ _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.ite
 # Why: a task that declares nothing runs in the ordinary batch; dashboards and publications have
 # no front-matter, so they always land there.
 DEFAULT_BATCH = "default"
+FACADE_AUDIT_SCHEMA = "dashboard_storage"
 
 
 def cadence(schedule: str) -> str:
@@ -350,6 +355,106 @@ def read_cron_script(task: dict) -> str | None:
     return path.read_text() if path.exists() else None
 
 
+def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
+    """Modules applicatifs importés hors de la façade par les cron.py de tableaux de bord."""
+    found = {}
+    # Why: les crons système (config.CRON_DIR) sont du code applicatif, pas des tableaux de bord —
+    # la façade ne les contraint pas.
+    for task in (t for t in tasks if t.get("source") in ("s3", "s3-publication")):
+        source = read_cron_script(task)
+        if source is None:
+            continue
+        try:
+            violations = dashboard_api.facade_violations(source)
+        # Why: un cron.py illisible échouera à l'exécution ; la découverte, elle, doit continuer.
+        except SyntaxError:
+            logger.warning("cron %s: cron.py unparsable, facade not checked", sanitize_for_log(task["slug"]))
+            continue
+        if violations:
+            found[task["slug"]] = violations
+    return found
+
+
+def log_facade_violations(slug: str, script: Path) -> None:
+    """Le cron.py est déjà sur disque au moment de l'exécution : le lire ne coûte aucun appel S3."""
+    try:
+        violations = dashboard_api.facade_violations(script.read_text(errors="replace"))
+    except (SyntaxError, OSError) as e:
+        logger.debug("cron %s: facade not checked (%s)", sanitize_for_log(slug), e)
+        return
+    if violations:
+        logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(violations))
+
+
+_facade_metadata = MetaData(schema=FACADE_AUDIT_SCHEMA)
+facade_audit_state = Table(
+    "facade_audit_state",
+    _facade_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("slugs", JSON),
+    Column("reported_at", DateTime(timezone=True)),
+)
+
+
+def last_reported_slugs() -> list[str] | None:
+    """Ensemble signalé au dernier passage, ou None quand rien n'a encore été journalisé."""
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            if not eng.dialect.has_table(conn, "facade_audit_state", schema=FACADE_AUDIT_SCHEMA):
+                return None
+            row = conn.execute(select(facade_audit_state).where(facade_audit_state.c.id == 1)).mappings().first()
+    except SQLAlchemyError as e:
+        logger.warning("audit façade : lecture de l'état précédent impossible (%s)", e)
+        return None
+    return row["slugs"] if row else None
+
+
+def record_reported_slugs(slugs: list[str]) -> None:
+    """Un état non écrit ne fait que réémettre l'alerte demain : il ne doit pas faire échouer l'audit."""
+    try:
+        eng = get_engine()
+        with eng.begin() as conn:
+            conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + FACADE_AUDIT_SCHEMA))
+        _facade_metadata.create_all(eng)
+        payload = {"id": 1, "slugs": slugs, "reported_at": utcnow()}
+        statement = pg_insert(facade_audit_state).values(payload)
+        statement = statement.on_conflict_do_update(
+            index_elements=["id"], set_={"slugs": slugs, "reported_at": utcnow()}
+        )
+        with eng.begin() as conn:
+            conn.execute(statement)
+    except SQLAlchemyError as e:
+        logger.warning("audit façade : état non enregistré, l'alerte repartira au prochain passage (%s)", e)
+
+
+# Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs RPE
+# et runner qui s'y noient. Seul un changement de la liste vaut une alerte.
+def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[str]]:
+    """En observation : journalise, et n'alerte que quand l'ensemble des non conformes change."""
+    found = facade_violations_by_slug(tasks)
+    for slug, modules in sorted(found.items()):
+        logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(modules))
+    if not notify:
+        return found
+    slugs = sorted(found)
+    known = last_reported_slugs()
+    if known is not None and sorted(known) == slugs:
+        return found
+    if slugs:
+        listing = "\n".join(f"• `{slug}` — {', '.join(modules)}" for slug, modules in sorted(found.items()))
+        alerts.notify_alert_channel(
+            f":warning: *{len(found)} tableau(x) de bord importent hors de `{dashboard_api.FACADE}`*\n"
+            f"Observation : la planification n'est pas encore refusée.\n{listing}"
+        )
+    elif known:
+        alerts.notify_alert_channel(
+            f":white_check_mark: *Plus aucun tableau de bord n'importe hors de `{dashboard_api.FACADE}`.*"
+        )
+    record_reported_slugs(slugs)
+    return found
+
+
 def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
     safe_label = re.sub(r"[^a-zA-Z0-9_-]", "", label) or "task"
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
@@ -447,7 +552,9 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     start_time = time.monotonic()
 
     env = {
-        **os.environ,
+        # Why: transmission de l'environnement complet au sous-processus, pas une lecture
+        # de configuration.
+        **os.environ,  # noqa: TID251
         "PYTHONPATH": str(config.BASE_DIR),
     }
 
@@ -462,6 +569,7 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         if uses_workdir:
             workdir, pre_hashes = prepare_s3_workdir(store, store_prefix, slug)
             cron_script = str(workdir / "cron.py")
+            log_facade_violations(slug, workdir / "cron.py")
             cwd = str(workdir)
         else:
             cron_script = task["cron_path"]
@@ -620,6 +728,16 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
         return []
 
 
+def facade_audit() -> list[str]:
+    """Mesure la migration vers la façade : combien de TDB tournent, combien restent à migrer."""
+    with get_db() as session:
+        active = session.scalar(select(func.count()).select_from(Dashboard).where(~Dashboard.is_archived))
+    found = facade_violations_by_slug(discover_cron_tasks())
+    lines = [f"{active} tableaux de bord actifs, {len(found)} importent hors de {dashboard_api.FACADE}."]
+    lines += [f"  {slug:30s} {', '.join(modules)}" for slug, modules in sorted(found.items())]
+    return lines
+
+
 def run_all(dry_run: bool = False, batch: str = DEFAULT_BATCH) -> list[dict]:
     """Run the enabled tasks of one batch that are due today."""
     tasks = discover_cron_tasks()
@@ -671,7 +789,13 @@ def main():
     parser.add_argument("--batch", default=DEFAULT_BATCH, help=f"Batch to run (default: {DEFAULT_BATCH})")
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
+    parser.add_argument("--facade-audit", action="store_true", help="Count dashboards importing outside the facade")
     args = parser.parse_args()
+
+    if args.facade_audit:
+        for line in facade_audit():
+            print(line)
+        return
 
     if args.list:
         tasks = discover_cron_tasks()

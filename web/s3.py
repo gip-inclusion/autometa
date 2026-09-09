@@ -65,6 +65,9 @@ class S3Store:
                 return None
             logger.error("S3 download failed for %s: %s", k, e)
             return None
+        except BotoCoreError as e:
+            logger.error("S3 unreachable while downloading %s: %s", k, e)
+            return None
 
     def get_url(self, path: str, expires_in: int = 3600) -> Optional[str]:
         k = self.key(path)

@@ -174,7 +174,9 @@ def main(argv=None):
         parser.error("--sha est requis pour ensure")
 
     api_token = sys.stdin.read().strip()
-    with httpx.Client() as client:
+    # Why: le timeout va au constructeur, pas à chaque appel — un appel ajouté plus tard
+    # hériterait sinon du défaut d'httpx. L'API Scalingo déploie, elle peut être lente.
+    with httpx.Client(timeout=30) as client:
         bearer = exchange_token(client, api_token)
         if args.command == "ensure":
             result = ensure(client, bearer, args.app, args.pr, args.sha)

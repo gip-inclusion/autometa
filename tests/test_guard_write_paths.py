@@ -125,7 +125,7 @@ def test_slug_exists_fails_open_on_connection_error(monkeypatch):
     ],
 )
 def test_main_protocol_exit_codes(stdin_payload, env_value, expected_exit, tmp_path):
-    env = dict(os.environ, AUTOMETA_ENV=env_value)
+    env = dict(os.environ, AUTOMETA_ENV=env_value)  # noqa: TID251
     env.pop("DATABASE_URL", None)
     result = subprocess.run(
         [sys.executable, str(_HOOK_PATH)],
@@ -137,3 +137,31 @@ def test_main_protocol_exit_codes(stdin_payload, env_value, expected_exit, tmp_p
         timeout=10,
     )
     assert result.returncode == expected_exit
+
+
+CONFORMING = "from lib.dashboard_api import query_matomo\n"
+OFFENDING = "from lib.query import execute_matomo_query\n"
+
+
+@pytest.mark.parametrize(
+    ("path", "code", "refuse"),
+    [
+        ("/app/data/interactive/tdb/cron.py", OFFENDING, True),
+        ("/app/data/interactive/tdb/lib/helper.py", OFFENDING, True),
+        ("/app/data/interactive/tdb/cron.py", CONFORMING, False),
+        ("/app/data/interactive/tdb/cron.py", "import json\n", False),
+        # Why: un fragment d'Edit n'est pas un module complet — le refuser bloquerait toute retouche.
+        ("/app/data/interactive/tdb/cron.py", "def main(\n", False),
+        ("/app/data/interactive/notes.py", OFFENDING, False),
+        ("/app/data/cache/script.py", OFFENDING, False),
+        ("/app/lib/query.py", OFFENDING, False),
+        ("/app/data/interactive/tdb/index.html", OFFENDING, False),
+    ],
+)
+def test_the_facade_is_enforced_where_the_dashboard_code_enters(path, code, refuse):
+    """Le hook voit passer le code d'un TDB, quel que soit l'environnement — les métadonnées non."""
+    verdict = guard.facade_verdict(path, code, ROOT)
+
+    assert (verdict is not None) == refuse
+    if refuse:
+        assert "lib.query" in verdict

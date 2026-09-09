@@ -5,7 +5,7 @@
 
 // Actions sidebar state
 let actionIndex = 0;
-let actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, icon}
+const actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, icon}
 let pendingToolUses = []; // Queue for tool_use waiting for their results (supports parallel calls)
 let lastAssistantBlock = null; // Track last assistant block for footnotes
 let currentTurnActions = []; // Actions in current turn (for footnotes)
@@ -57,25 +57,25 @@ const CATEGORY_TRANSLATIONS = {
   'API: curl': 'API curl',
   // Read
   'Read: knowledge': 'Lecture de la base de connaissances',
-  'Read: skill definition': 'Lecture d\'une définition de skill',
-  'Read: skill code': 'Lecture du code d\'un skill',
+  'Read: skill definition': "Lecture d'une définition de skill",
+  'Read: skill code': "Lecture du code d'un skill",
   'Read: code': 'Lecture du code',
   'Read: docs': 'Lecture de la documentation',
-  'Read: temp': 'Lecture d\'un fichier temporaire',
-  'Read: other': 'Lecture d\'un fichier',
+  'Read: temp': "Lecture d'un fichier temporaire",
+  'Read: other': "Lecture d'un fichier",
   // Write
-  'Write: temp': 'Écriture d\'un fichier temporaire',
-  'Write: interactive': 'Écriture d\'une appli',
-  'Write: script': 'Rédaction d\'un programme',
+  'Write: temp': "Écriture d'un fichier temporaire",
+  'Write: interactive': "Écriture d'une appli",
+  'Write: script': "Rédaction d'un programme",
   'Write: knowledge': 'Écriture dans la base de connaissances',
-  'Write: other': 'Écriture d\'un fichier',
+  'Write: other': "Écriture d'un fichier",
   // Edit
   'Edit: knowledge': 'Modification de la base de connaissances',
-  'Edit: skill': 'Modification d\'un skill',
+  'Edit: skill': "Modification d'un skill",
   'Edit: code': 'Modification du code',
-  'Edit: other': 'Modification d\'un fichier',
+  'Edit: other': "Modification d'un fichier",
   // Execute
-  'Execute: script': 'Exécution d\'un programme',
+  'Execute: script': "Exécution d'un programme",
   // Query
   'Query: SQLite': 'Requête SQLite',
   // Search
@@ -138,8 +138,8 @@ function isDataAction(toolUse, toolResult) {
  */
 function applyActionsFilter() {
   const pills = document.querySelectorAll('.action-pill');
-  pills.forEach(pill => {
-    const idx = parseInt(pill.dataset.actionIndex);
+  pills.forEach((pill) => {
+    const idx = parseInt(pill.dataset.actionIndex, 10);
     const action = actionsMap.get(idx);
     if (!action) return;
 
@@ -170,7 +170,7 @@ function initActionsFilterToggle() {
   toggle.replaceWith(newToggle);
 
   // Sync UI with current filter mode
-  newToggle.querySelectorAll('.actions-filter-btn').forEach(b => {
+  newToggle.querySelectorAll('.actions-filter-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.filter === actionsFilterMode);
   });
 
@@ -182,7 +182,9 @@ function initActionsFilterToggle() {
     if (filter === actionsFilterMode) return;
 
     // Update active state
-    newToggle.querySelectorAll('.actions-filter-btn').forEach(b => b.classList.remove('active'));
+    newToggle.querySelectorAll('.actions-filter-btn').forEach((b) => {
+      b.classList.remove('active');
+    });
     btn.classList.add('active');
 
     actionsFilterMode = filter;
@@ -202,7 +204,7 @@ function switchToDetailedMode() {
   // Update toggle UI
   const toggle = document.getElementById('actionsFilterToggle');
   if (toggle) {
-    toggle.querySelectorAll('.actions-filter-btn').forEach(b => {
+    toggle.querySelectorAll('.actions-filter-btn').forEach((b) => {
       b.classList.toggle('active', b.dataset.filter === 'detailed');
     });
   }
@@ -263,7 +265,7 @@ function syncSidebarTabState() {
 
   if (sidebar) sidebar.dataset.activeTab = currentSidebarTab;
   if (toggle) {
-    toggle.querySelectorAll('.sidebar-tab-btn').forEach(b => {
+    toggle.querySelectorAll('.sidebar-tab-btn').forEach((b) => {
       b.classList.toggle('active', b.dataset.tab === currentSidebarTab);
     });
   }
@@ -295,7 +297,7 @@ function addTocEntry(headingElement, text) {
 
   // Click to scroll to the heading and update URL hash
   entry.addEventListener('click', () => {
-    if (headingElement && headingElement.id) {
+    if (headingElement?.id) {
       history.replaceState(null, '', `#${headingElement.id}`);
       headingElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -324,12 +326,15 @@ function scanHeadingsForToc(block) {
  * Generate a URL-friendly slug from text
  */
 function generateSlug(text) {
-  return text
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .substring(0, 60) || 'section';
+  return (
+    text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .substring(0, 60) || 'section'
+  );
 }
 
 /**
@@ -420,8 +425,8 @@ function extractPillData(toolUse, toolResult) {
  * In data mode: API summary is prominent. In detailed mode: tool label is prominent.
  */
 function pillLabelHtml({ label, apiSummary }) {
-  const main = (actionsFilterMode === 'data' && apiSummary) ? apiSummary : label;
-  const sub = (actionsFilterMode === 'data' && apiSummary) ? label : apiSummary;
+  const main = actionsFilterMode === 'data' && apiSummary ? apiSummary : label;
+  const sub = actionsFilterMode === 'data' && apiSummary ? label : apiSummary;
   let html = `<span class="action-pill-label-main">${escapeHtml(main)}</span>`;
   if (sub) html += `<span class="action-pill-label-sub">${escapeHtml(sub)}</span>`;
   return html;
@@ -481,7 +486,6 @@ function createAndAppendAction(toolUse, toolResult) {
     const footnote = createFootnoteIcon(idx);
     if (footnote) footnotes.appendChild(footnote);
   }
-
 }
 
 /**
@@ -560,7 +564,7 @@ function formatPillContent(toolUse, toolResult) {
   if (toolResult?.api_calls?.length > 0) {
     html += '<div class="action-api-links">';
     for (const call of toolResult.api_calls) {
-      const linkText = call.method || (call.sql?.replace(/^[\s\\n]+/, '').substring(0, 50) + '...') || 'View';
+      const linkText = call.method || `${call.sql?.replace(/^[\s\\n]+/, '').substring(0, 50)}...` || 'View';
       const icon = call.source === 'matomo' ? 'ri-bar-chart-line' : 'ri-database-2-line';
       html += `<a href="${escapeHtml(call.url)}" target="_blank" class="action-api-link">
         <i class="${icon}"></i>
@@ -570,7 +574,7 @@ function formatPillContent(toolUse, toolResult) {
       // Show SQL preview for Metabase queries
       if (call.sql) {
         const sqlClean = call.sql.replace(/^[\s\\n]+/, '');
-        const sqlPreview = sqlClean.length > 200 ? sqlClean.substring(0, 200) + '...' : sqlClean;
+        const sqlPreview = sqlClean.length > 200 ? `${sqlClean.substring(0, 200)}...` : sqlClean;
         html += `<pre class="action-sql-preview">${escapeHtml(sqlPreview)}</pre>`;
         if (sqlClean.length > 200) {
           const expandIdx = registerExpandData('SQL', sqlClean, true);
@@ -596,14 +600,10 @@ function formatPillContent(toolUse, toolResult) {
       // Skip file_path if we already show a knowledge link
       if (key === 'file_path' && hasKnowledgeLink) continue;
 
-      const displayValue = typeof value === 'object'
-        ? JSON.stringify(value)
-        : String(value);
+      const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
       const MAX_INLINE = 500;
       const needsTruncation = displayValue.length > MAX_INLINE;
-      const truncated = needsTruncation
-        ? displayValue.substring(0, MAX_INLINE) + '...'
-        : displayValue;
+      const truncated = needsTruncation ? `${displayValue.substring(0, MAX_INLINE)}...` : displayValue;
 
       // Expand button before the value when truncated
       let expandBtnHtml = '';
@@ -674,7 +674,7 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('.action-expand-btn');
   if (!btn) return;
   const idx = parseInt(btn.dataset.expandIdx, 10);
-  if (isNaN(idx) || !expandDataStore[idx]) return;
+  if (Number.isNaN(idx) || !expandDataStore[idx]) return;
   const { title, value, isCode } = expandDataStore[idx];
   openActionModal(title, value, isCode);
 });
@@ -730,7 +730,7 @@ function addFootnotesToLastAssistant() {
  */
 function highlightPill(idx, highlight) {
   const pills = document.querySelectorAll(`.action-pill[data-action-index="${idx}"]`);
-  pills.forEach(pill => {
+  pills.forEach((pill) => {
     pill.classList.toggle('highlighted', highlight);
   });
 }
@@ -740,7 +740,7 @@ function highlightPill(idx, highlight) {
  */
 function highlightFootnote(idx, highlight) {
   const footnotes = document.querySelectorAll(`.action-footnote[data-action-index="${idx}"]`);
-  footnotes.forEach(fn => {
+  footnotes.forEach((fn) => {
     fn.classList.toggle('highlighted', highlight);
   });
 }
@@ -754,7 +754,7 @@ function scrollToPillAndExpand(idx) {
 
   // Check if pill is filtered out - switch to detailed mode
   const pill = document.querySelector(`#actionsContent .action-pill[data-action-index="${idx}"]`);
-  if (pill && pill.classList.contains('filtered-out')) {
+  if (pill?.classList.contains('filtered-out')) {
     switchToDetailedMode();
   }
 
@@ -928,26 +928,24 @@ document.body.addEventListener('htmx:afterSettle', () => {
 });
 
 function toggleFavorite(btn) {
-  const {itemType, itemId} = btn.dataset;
+  const { itemType, itemId } = btn.dataset;
   const isFavorite = btn.classList.contains('is-favorite');
-  fetch(`/api/favorites/${itemType}/${itemId}`, {method: isFavorite ? 'DELETE' : 'POST'})
-    .then(response => {
-      if (!response.ok) return;
-      btn.classList.toggle('is-favorite', !isFavorite);
-      const label = isFavorite ? 'Ajouter aux favoris' : 'Retirer des favoris';
-      btn.title = label;
-      btn.setAttribute('aria-label', label);
-      btn.setAttribute('aria-pressed', String(!isFavorite));
-      btn.querySelector('i').className = isFavorite ? 'ri-star-line' : 'ri-star-fill';
-    });
+  fetch(`/api/favorites/${itemType}/${itemId}`, { method: isFavorite ? 'DELETE' : 'POST' }).then((response) => {
+    if (!response.ok) return;
+    btn.classList.toggle('is-favorite', !isFavorite);
+    const label = isFavorite ? 'Ajouter aux favoris' : 'Retirer des favoris';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('aria-pressed', String(!isFavorite));
+    btn.querySelector('i').className = isFavorite ? 'ri-star-line' : 'ri-star-fill';
+  });
 }
 
 function removeFavoriteTile(btn) {
   const tile = btn.closest('.accueil-favorite');
-  fetch(`/api/favorites/${tile.dataset.itemType}/${tile.dataset.itemId}`, {method: 'DELETE'})
-    .then(response => {
-      if (response.ok) tile.remove();
-    });
+  fetch(`/api/favorites/${tile.dataset.itemType}/${tile.dataset.itemId}`, { method: 'DELETE' }).then((response) => {
+    if (response.ok) tile.remove();
+  });
 }
 
 function initFavoritesDnd() {
@@ -956,12 +954,12 @@ function initFavoritesDnd() {
   grid.dataset.dndReady = '1';
   let dragged = null;
 
-  grid.addEventListener('dragstart', event => {
+  grid.addEventListener('dragstart', (event) => {
     dragged = event.target.closest('.accueil-favorite');
     if (dragged) dragged.classList.add('dragging');
   });
 
-  grid.addEventListener('dragover', event => {
+  grid.addEventListener('dragover', (event) => {
     event.preventDefault();
     const target = event.target.closest('.accueil-favorite');
     if (!dragged || !target || target === dragged) return;
@@ -973,14 +971,14 @@ function initFavoritesDnd() {
     if (!dragged) return;
     dragged.classList.remove('dragging');
     dragged = null;
-    const items = [...grid.querySelectorAll('.accueil-favorite')].map(tile => ({
+    const items = [...grid.querySelectorAll('.accueil-favorite')].map((tile) => ({
       item_type: tile.dataset.itemType,
       item_id: tile.dataset.itemId,
     }));
     fetch('/api/favorites/order', {
       method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({items}),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
     });
   });
 }

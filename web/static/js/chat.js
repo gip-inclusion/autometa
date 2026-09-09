@@ -5,8 +5,8 @@
  */
 
 // File upload state
-let pendingFiles = [];  // Files waiting to be uploaded
-const MAX_FILE_SIZE = 200 * 1024 * 1024;  // 200 MB
+let pendingFiles = []; // Files waiting to be uploaded
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 
 // Scroll position management for htmx navigation
 let isPopState = false;
@@ -199,7 +199,7 @@ function initForkButton() {
         window.location.href = data.links.view;
       } else {
         const err = await resp.json();
-        alert('Erreur: ' + (err.error || 'Impossible de dupliquer'));
+        alert(`Erreur: ${err.error || 'Impossible de dupliquer'}`);
         newForkBtn.disabled = false;
         newForkBtn.innerHTML = '<i class="ri-git-branch-line"></i> <span>Dupliquer</span>';
       }
@@ -263,7 +263,7 @@ function initTitleEditing() {
       const response = await fetch(`/api/conversations/${currentConversationId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle })
+        body: JSON.stringify({ title: newTitle }),
       });
 
       if (response.ok) {
@@ -291,7 +291,7 @@ function initTitleEditing() {
       try {
         if (!isValidConversationId(currentConversationId)) return;
         const response = await fetch(`/api/conversations/${currentConversationId}/generate-title`, {
-          method: 'POST'
+          method: 'POST',
         });
 
         if (response.ok) {
@@ -336,7 +336,7 @@ function initFileUpload() {
   fileInput.addEventListener('change', (e) => {
     const files = Array.from(e.target.files);
     addPendingFiles(files);
-    fileInput.value = '';  // Reset so same file can be selected again
+    fileInput.value = ''; // Reset so same file can be selected again
   });
 
   // Allow drag and drop on the chat input area
@@ -373,7 +373,7 @@ function addPendingFiles(files) {
     }
 
     // Check for duplicates
-    if (pendingFiles.some(f => f.name === file.name && f.size === file.size)) {
+    if (pendingFiles.some((f) => f.name === file.name && f.size === file.size)) {
       continue;
     }
 
@@ -406,7 +406,9 @@ function updatePendingFilesUI() {
   }
 
   container.style.display = 'flex';
-  container.innerHTML = pendingFiles.map((file, index) => `
+  container.innerHTML = pendingFiles
+    .map(
+      (file, index) => `
     <div class="pending-file" data-index="${index}">
       <i class="ri-file-line"></i>
       <span class="pending-file-name" title="${escapeHtml(file.name)}">${escapeHtml(truncateFilename(file.name))}</span>
@@ -415,7 +417,9 @@ function updatePendingFilesUI() {
         <i class="ri-close-line"></i>
       </button>
     </div>
-  `).join('');
+  `,
+    )
+    .join('');
 }
 
 /**
@@ -448,7 +452,6 @@ async function uploadPendingFiles() {
 
       const data = await response.json();
       contextMessages.push(data.context_message);
-
     } catch (error) {
       console.error(`Failed to upload ${file.name}:`, error);
       showError(`Erreur upload ${file.name}`);
@@ -519,7 +522,10 @@ function dismissPublicWarning() {
 async function relaunchConversation() {
   if (!currentConversationId) return;
   const btn = document.getElementById('relaunchBtn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Relance...'; }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Relance...';
+  }
   try {
     const resp = await fetch(`/api/conversations/${currentConversationId}/relaunch`, { method: 'POST' });
     const data = await resp.json();
@@ -527,11 +533,17 @@ async function relaunchConversation() {
       startStream(data.after_id);
     } else {
       alert(data.error || 'Erreur');
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-restart-line"></i> Relancer'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri-restart-line"></i> Relancer';
+      }
     }
   } catch (e) {
     alert('Erreur réseau');
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-restart-line"></i> Relancer'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-restart-line"></i> Relancer';
+    }
   }
 }
 
@@ -543,7 +555,7 @@ async function pinConversation() {
   const res = await fetch(`/api/conversations/${currentConversationId}/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label })
+    body: JSON.stringify({ label }),
   });
   if (res.ok) window.location.reload();
 }

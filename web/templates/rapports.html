@@ -16,7 +16,7 @@
             <p class="text-muted mb-1 small">
               Rapport{% if current_report.website %} · {{ current_report.website }}{% endif %}{% if current_report.category %} · {{ current_report.category }}{% endif %}
               <button type="button" class="conv-action-btn" id="continueExplorationBtn" data-report-id="{{ current_report.id }}" data-report-title="{{ current_report.title }}"><i class="ri-chat-follow-up-line"></i> Poursuivre l'exploration</button>
-              <a href="/rapports/{{ current_report.id }}.txt" class="conv-action-btn" target="_blank"><i class="ri-file-download-line"></i> Version exportable</a>
+              <a href="/rapports/{{ current_report.id }}.md" class="conv-action-btn" download><i class="ri-file-download-line"></i> Télécharger en Markdown</a>
               {% if current_report.notion_url %}
               <a href="{{ current_report.notion_url }}" class="conv-action-btn" target="_blank" id="notionBtn"><i class="ri-notion-fill"></i> Lien Notion</a>
               {% else %}

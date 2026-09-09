@@ -14,7 +14,7 @@ function escapeHtml(text) {
 function autoGrow(textarea) {
   textarea.style.height = 'auto';
   // Hauteur plafonnée par max-height en CSS (.chat-input) : source unique.
-  textarea.style.height = textarea.scrollHeight + 'px';
+  textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
 function isAtBottom() {
@@ -35,9 +35,9 @@ function scrollToBottom() {
 }
 
 function formatFileSize(bytes) {
-  if (bytes < 1024) return bytes + ' o';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' Ko';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' Mo';
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
 // Why: user markdown can produce link hrefs; browsers tolerate whitespace and
@@ -51,17 +51,19 @@ function isSafeUserUrl(url) {
     if (c < 32 || c === 127) return false;
   }
   const cleaned = s.replace(/\s+/g, '').toLowerCase();
-  return cleaned.startsWith('http://')
-    || cleaned.startsWith('https://')
-    || cleaned.startsWith('mailto:')
-    || cleaned.startsWith('/')
-    || cleaned.startsWith('#');
+  return (
+    cleaned.startsWith('http://') ||
+    cleaned.startsWith('https://') ||
+    cleaned.startsWith('mailto:') ||
+    cleaned.startsWith('/') ||
+    cleaned.startsWith('#')
+  );
 }
 
 function truncateFilename(name, maxLen = 25) {
   if (name.length <= maxLen) return name;
-  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+  const ext = name.includes('.') ? `.${name.split('.').pop()}` : '';
   const stem = name.slice(0, name.length - ext.length);
-  const truncated = stem.slice(0, maxLen - ext.length - 3) + '...';
+  const truncated = `${stem.slice(0, maxLen - ext.length - 3)}...`;
   return truncated + ext;
 }

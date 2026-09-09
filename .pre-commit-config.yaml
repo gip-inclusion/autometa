@@ -12,6 +12,10 @@ repos:
         entry: uv run --frozen python scripts/check_test_quality.py
         language: system
         files: ^tests/.*\.py$
+      - id: check-http-timeouts
+        name: check http session timeouts
+        entry: uv run --frozen python scripts/check_http_timeouts.py
+        language: system
       - id: unit-suite
         name: suite unit hermétique (avant commit)
         entry: make test
