@@ -511,6 +511,18 @@ def test_run_agent_clears_needs_response_on_error(runner, mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_run_agent_unregisters_the_run_even_when_cleanup_notification_fails(runner, mocker, fake_redis):
+    mock_store = mocker.patch("web.runner.store")
+    mocker.patch.object(runner, "notify_done", side_effect=ConnectionError("name resolution"))
+
+    async def _run():
+        await runner._run_agent("c1", "prompt", [], None, None)
+        assert "c1" not in runner._running
+        mock_store.update_conversation.assert_called_with("c1", needs_response=False)
+
+    asyncio.run(_run())
+
+
 def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
     mock_store = mocker.patch("web.runner.store")
     mocker.patch("web.runner.schema_ready", return_value=True)
