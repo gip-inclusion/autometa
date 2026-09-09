@@ -411,15 +411,21 @@ def last_reported_slugs() -> list[str] | None:
 
 
 def record_reported_slugs(slugs: list[str]) -> None:
-    eng = get_engine()
-    with eng.begin() as conn:
-        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + FACADE_AUDIT_SCHEMA))
-    _facade_metadata.create_all(eng)
-    payload = {"id": 1, "slugs": slugs, "reported_at": utcnow()}
-    statement = pg_insert(facade_audit_state).values(payload)
-    statement = statement.on_conflict_do_update(index_elements=["id"], set_={"slugs": slugs, "reported_at": utcnow()})
-    with eng.begin() as conn:
-        conn.execute(statement)
+    """Un état non écrit ne fait que réémettre l'alerte demain : il ne doit pas faire échouer l'audit."""
+    try:
+        eng = get_engine()
+        with eng.begin() as conn:
+            conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + FACADE_AUDIT_SCHEMA))
+        _facade_metadata.create_all(eng)
+        payload = {"id": 1, "slugs": slugs, "reported_at": utcnow()}
+        statement = pg_insert(facade_audit_state).values(payload)
+        statement = statement.on_conflict_do_update(
+            index_elements=["id"], set_={"slugs": slugs, "reported_at": utcnow()}
+        )
+        with eng.begin() as conn:
+            conn.execute(statement)
+    except SQLAlchemyError as e:
+        logger.warning("audit façade : état non enregistré, l'alerte repartira au prochain passage (%s)", e)
 
 
 # Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs RPE

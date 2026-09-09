@@ -249,3 +249,17 @@ def test_un_parc_redevenu_conforme_le_dit_une_fois(mocker):
 
     cron.report_facade_violations(cron.discover_cron_tasks(), notify=True)
     assert notify.call_count == 1
+
+
+def test_un_incident_db_ne_fait_pas_echouer_laudit(mocker, caplog):
+    """`last_reported_slugs` échoue déjà en douceur : l'écriture de l'état doit faire de même."""
+    mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[cron_task("ko")])
+    mocker.patch.object(cron.alerts, "notify_alert_channel")
+    mocker.patch.object(cron, "last_reported_slugs", return_value=None)
+    mocker.patch.object(cron, "get_engine", side_effect=cron.SQLAlchemyError("injoignable"))
+
+    with caplog.at_level("WARNING"):
+        assert cron.report_facade_violations(cron.discover_cron_tasks(), notify=True) == {"ko": ["lib.query", "web.db"]}
+
+    assert "état" in caplog.text
