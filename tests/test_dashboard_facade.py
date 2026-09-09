@@ -140,3 +140,35 @@ def test_check_facade_compliance_accepts_a_well_formed_slug(mocker, tmp_path):
     (tmp_path / "mon-tdb").mkdir()
 
     assert dashboards.check_facade_compliance("mon-tdb") is None
+
+
+@pytest.mark.parametrize(
+    ("files", "attendu"),
+    [
+        ({"cron.py": CONFORMING}, []),
+        ({"cron.py": OFFENDING}, ["cron.py importe lib.query, web.db"]),
+        (None, []),
+    ],
+)
+def test_facade_problems_enonce_sans_lever(mocker, tmp_path, files, attendu):
+    """La liste des problèmes est une donnée : c'est l'appelant qui décide d'en faire un refus."""
+    dashboard_dir(mocker, tmp_path, files)
+
+    assert dashboards.facade_problems("tdb") == attendu
+
+
+def test_facade_problems_refuse_un_slug_qui_sort_du_repertoire():
+    with pytest.raises(ValueError, match="[Ss]lug"):
+        dashboards.facade_problems("../../etc")
+
+
+def test_mettre_a_jour_les_metadonnees_dun_tdb_herite_ne_juge_pas_son_code(mocker, tmp_path):
+    """`lib.dashboard_api` naît avec cette PR : tout TDB antérieur viole la façade par construction."""
+    dashboard_dir(mocker, tmp_path, {"cron.py": OFFENDING})
+    refuse = mocker.patch.object(dashboards, "check_facade_compliance")
+    mocker.patch.object(dashboards, "get_db", side_effect=dashboards.DashboardNotFound("tdb"))
+
+    with pytest.raises(dashboards.DashboardNotFound):
+        dashboards.update_dashboard(slug="tdb", updater_email="a@b.c", title="Nouveau titre")
+
+    refuse.assert_not_called()

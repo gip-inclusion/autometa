@@ -10,6 +10,7 @@ from pathlib import Path
 # pour partager web/environment.py (stdlib uniquement) avec l'application.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lib.facade_imports import FACADE, facade_violations  # noqa: E402
 from web.environment import Environment  # noqa: E402
 
 BLOCK_BAD_ENV_MSG = (
@@ -25,6 +26,10 @@ BLOCK_GUARD_MSG = "Écriture refusée : la configuration des hooks de garde n'es
 BLOCK_UNREGISTERED_MSG = (
     "Écriture refusée : TDB non enregistré dans la table dashboards — utiliser le skill "
     "create_dashboard (option --adopt pour enregistrer un dossier existant)."
+)
+BLOCK_FACADE_MSG = (
+    "Écriture refusée : un tableau de bord n'importe que `{facade}` — {violations} n'offre aucune "
+    "stabilité et sort du contrat versionné. Voir docs/interactive-dashboards.md."
 )
 BLOCK_ROOT_HTML_MSG = (
     "Écriture refusée : tout HTML accessible aux utilisateurs doit appartenir à un TDB enregistré "
@@ -79,12 +84,31 @@ def verdict(path, repo_root, env, exists=slug_exists):
     return None
 
 
+# Why: le hook est le seul point où le code d'un TDB passe avant d'exister. `adopt_dashboard` et la
+# création le contrôlent aussi, mais `update_dashboard` ne touche que des métadonnées : elle n'a rien
+# à juger du code, et tout TDB antérieur à la façade la violerait par construction.
+def facade_verdict(path, code, repo_root):
+    """Refuse le code d'un tableau de bord qui importe hors de la façade — quel que soit l'environnement."""
+    rel = os.path.relpath(os.path.realpath(path), os.path.realpath(repo_root)).split(os.sep)
+    if len(rel) < 4 or rel[:2] != ["data", "interactive"] or not path.endswith(".py"):
+        return None
+    try:
+        violations = facade_violations(code)
+    except SyntaxError:  # Why: un fragment d'Edit n'est pas un module complet — le hook n'a rien à dire.
+        return None
+    if not violations:
+        return None
+    return BLOCK_FACADE_MSG.format(facade=FACADE, violations=", ".join(violations))
+
+
 if __name__ == "__main__":
     data = json.load(sys.stdin)
-    path = data.get("tool_input", {}).get("file_path", "")
+    tool_input = data.get("tool_input", {})
+    path = tool_input.get("file_path", "")
     if not path:
         sys.exit(0)
-    msg = verdict(path, os.getcwd(), os.environ)
+    code = tool_input.get("content") or tool_input.get("new_string") or ""
+    msg = verdict(path, os.getcwd(), os.environ) or facade_verdict(path, code, os.getcwd())
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)

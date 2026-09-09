@@ -72,10 +72,10 @@ class DashboardUpdateResult:
     fields_changed: list[str]
 
 
-def check_facade_compliance(slug: str) -> None:
-    """Refuse un TDB dont un fichier Python importe autre chose que la façade."""
-    # Why: `update_dashboard` appelle sans valider le slug, contrairement à l'adoption. La défense
-    # appartient donc à la fonction qui construit le chemin, sinon un `../` sort du répertoire.
+def facade_problems(slug: str) -> list[str]:
+    """Fichiers Python d'un TDB qui importent autre chose que la façade — un énoncé, pas un refus."""
+    # Why: un appelant peut passer un slug non validé. La défense appartient donc à la fonction qui
+    # construit le chemin, sinon un `../` sort du répertoire des tableaux de bord.
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
     slug_dir = config.INTERACTIVE_DIR / slug
@@ -88,7 +88,12 @@ def check_facade_compliance(slug: str) -> None:
             raise ValueError(f"{name} n'est pas un fichier Python valide : {exc}") from exc
         if violations:
             problems.append(f"{name} importe {', '.join(violations)}")
-    if problems:
+    return problems
+
+
+def check_facade_compliance(slug: str) -> None:
+    """Refuse un TDB dont un fichier Python importe autre chose que la façade."""
+    if problems := facade_problems(slug):
         raise ValueError(
             "Imports hors de la façade des tableaux de bord :\n  "
             + "\n  ".join(problems)
@@ -414,9 +419,9 @@ def update_dashboard(
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
     cron_schedule = _normalize_schedule(cron_schedule)
     cron_timeout = _normalize_timeout(cron_timeout)
-    # Why: archiver un TDB hérité ne doit pas exiger de le migrer vers la façade d'abord.
-    if is_archived is not True:
-        check_facade_compliance(slug)
+    # Why: `lib.dashboard_api` naît avec le contrôle de façade — tout TDB antérieur le viole par
+    # construction. Renommer, taguer ou désarchiver un TDB hérité ne touche pas à son code : le
+    # contrôle vit à la création, à l'adoption, et à l'écriture du fichier (guard_write_paths).
 
     fields_changed: list[str] = []
 

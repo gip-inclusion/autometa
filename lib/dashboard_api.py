@@ -4,12 +4,13 @@
 # ne peut mesurer ce qu'il casse chez eux. Plutôt que de courir après les cassures, on réduit la
 # surface où elles peuvent se produire — cette façade est un contrat, ses tests en sont la preuve.
 
-import ast
-
 from lib import query
+from lib.facade_imports import APPLICATION_PACKAGES, FACADE, facade_violations
 from lib.query import CallerType, QueryResult
 
 __all__ = [
+    "APPLICATION_PACKAGES",
+    "FACADE",
     "VERSION",
     "QueryResult",
     "facade_violations",
@@ -21,9 +22,6 @@ __all__ = [
 ]
 
 VERSION = 1
-
-FACADE = "lib.dashboard_api"
-APPLICATION_PACKAGES = ("lib", "web", "scripts", "skills", "infra")
 
 
 def query_matomo(instance: str, method: str, params: dict | None = None, timeout: int = 180) -> QueryResult:
@@ -53,23 +51,3 @@ def query_autometa_tables(sql: str, timeout: int = 60) -> QueryResult:
 def query_storage(sql: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
     """Lit et écrit dans le schéma dashboard_storage. Renvoie un QueryResult, ne lève jamais."""
     return query.execute_dashboard_storage_query(sql=sql, caller=CallerType.APP, params=params, timeout=timeout)
-
-
-def imported_modules(tree: ast.AST):
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            yield from (alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            if node.module in APPLICATION_PACKAGES:
-                yield from (f"{node.module}.{alias.name}" for alias in node.names)
-            else:
-                yield node.module
-
-
-def facade_violations(source: str) -> list[str]:
-    """Modules applicatifs qu'un tableau de bord importe hors de la façade. Lève sur source illisible."""
-    return sorted({
-        module
-        for module in imported_modules(ast.parse(source))
-        if module.split(".")[0] in APPLICATION_PACKAGES and module != FACADE
-    })

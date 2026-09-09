@@ -166,8 +166,11 @@ La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `que
 `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
-L'import hors façade est refusé par `create_dashboard` / `update_dashboard`, et le runner cron le
-signale sur le canal Slack d'alerte — en observation d'abord, sans refuser la planification.
+L'import hors façade est refusé à la création et à l'adoption d'un TDB, et à l'écriture de tout
+fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne juge pas le code : les
+TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
+renommage. Le cron d'audit signale les non conformes sur le canal Slack d'alerte, seulement quand la
+liste change — en observation, sans refuser la planification.
 
 Si un besoin n'est pas couvert, élargir la façade (avec son test) plutôt que la contourner : c'est
 là tout l'intérêt, un changement de contrat devient un acte visible.
