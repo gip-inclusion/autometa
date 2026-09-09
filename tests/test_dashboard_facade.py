@@ -217,3 +217,35 @@ def test_le_cron_daudit_est_decouvert_et_quotidien():
 
     assert cron.cadence(audit_task["schedule"]) == "daily"
     assert audit_task["enabled"]
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+def test_letat_precedent_survit_dun_passage_a_lautre(mocker):
+    """Sans persistance, l'audit ne peut pas savoir que la liste n'a pas bougé — il crie chaque jour."""
+    mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[cron_task("ko")])
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+
+    cron.report_facade_violations(cron.discover_cron_tasks(), notify=True)
+    assert cron.last_reported_slugs() == ["ko"]
+    assert notify.call_count == 1
+
+    cron.report_facade_violations(cron.discover_cron_tasks(), notify=True)
+    assert notify.call_count == 1
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+def test_un_parc_redevenu_conforme_le_dit_une_fois(mocker):
+    mocker.patch.object(cron, "read_cron_script", return_value=CONFORMING)
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[cron_task("ok")])
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+    cron.record_reported_slugs(["ko"])
+
+    cron.report_facade_violations(cron.discover_cron_tasks(), notify=True)
+    assert "Plus aucun tableau de bord" in notify.call_args.args[0]
+    assert cron.last_reported_slugs() == []
+
+    cron.report_facade_violations(cron.discover_cron_tasks(), notify=True)
+    assert notify.call_count == 1
