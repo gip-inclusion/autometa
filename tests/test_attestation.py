@@ -422,7 +422,7 @@ def test_a_hook_that_is_not_executable_counts_as_missing(repo):
 def test_start_records_the_branch_the_journey_departs_from(cli, journey, capsys):
     assert cli.main(["--feature", FEATURE, "start", "--base", "chantier-en-cours"]) == 0
 
-    assert attestation.journey_base(journey, FEATURE) == "chantier-en-cours"
+    assert attestation.journey_base(journey, FEATURE)[0] == "chantier-en-cours"
     assert "chantier-en-cours" in capsys.readouterr().out
 
 
@@ -939,13 +939,13 @@ def test_a_journey_starting_from_another_branch_answers_to_that_branch(branche):
 
     attestation.record_base(branche, FEATURE, "chantier-en-cours")
 
-    assert attestation.journey_base(branche, FEATURE) == "chantier-en-cours"
+    assert attestation.journey_base(branche, FEATURE)[0] == "chantier-en-cours"
     assert attestation.dod_antedates_code(branche, FEATURE) == []
     assert len(attestation.dod_antedates_code(branche, FEATURE, "main")) == 1
 
 
 def test_a_journey_without_a_recorded_base_answers_to_the_published_main(branche):
-    assert attestation.journey_base(branche, FEATURE) == attestation.DEFAULT_BASE
+    assert attestation.journey_base(branche, FEATURE) == (attestation.DEFAULT_BASE, None)
 
 
 def test_the_last_recorded_base_is_the_one_that_counts(branche):
@@ -953,7 +953,50 @@ def test_the_last_recorded_base_is_the_one_that_counts(branche):
     attestation.record_base(branche, FEATURE, "premiere")
     attestation.record_base(branche, FEATURE, "seconde")
 
-    assert attestation.journey_base(branche, FEATURE) == "seconde"
+    assert attestation.journey_base(branche, FEATURE)[0] == "seconde"
+
+
+def test_recording_a_base_journals_its_fork_point_alongside_its_name(branche):
+    """Le nom d'une branche disparaît à son merge ; le sha du point de fourche, non."""
+    attestation.git(branche, "branch", "chantier-en-cours")
+    commit(branche, "contrat")
+    fourche = attestation.git(branche, "merge-base", "chantier-en-cours", "HEAD").stdout.strip()
+
+    attestation.record_base(branche, FEATURE, "chantier-en-cours")
+
+    assert attestation.journey_base(branche, FEATURE) == ("chantier-en-cours", fourche)
+
+
+def test_a_base_whose_branch_was_deleted_is_still_locatable_by_its_sha(branche):
+    """Une branche supprimée après son merge ne doit pas geler tous les contrôles du parcours."""
+    attestation.git(branche, "branch", "chantier-en-cours")
+    commit(branche, "contrat")
+    attestation.record_base(branche, FEATURE, "chantier-en-cours")
+    attestation.git(branche, "branch", "-D", "chantier-en-cours")
+    commit_code_alone(branche)
+
+    nom, sha = attestation.journey_base(branche, FEATURE)
+
+    assert attestation.journey_window(branche, nom) is None
+    assert attestation.journey_window(branche, nom, sha) == f"{sha}..HEAD"
+    assert attestation.dod_antedates_code(branche, FEATURE) == []
+
+
+def test_the_name_wins_over_the_sha_when_both_resolve(branche):
+    """Un rebase fait avancer la base : le sha figé à l'ouverture n'est plus le point de fourche."""
+    attestation.record_base(branche, FEATURE, "main")
+    fige = attestation.git(branche, "rev-parse", "HEAD").stdout.strip()
+    commit(branche, "contrat")
+
+    assert attestation.journey_window(branche, "main", fige) == f"{fige}..HEAD"
+    assert attestation.journey_window(branche, "main", "0" * 40) == f"{fige}..HEAD"
+
+
+def test_a_base_lost_by_both_name_and_sha_still_reopens_the_journey(branche):
+    commit(branche, "contrat")
+
+    assert attestation.journey_window(branche, "n-existe-pas", "0" * 40) is None
+    assert attestation.dod_antedates_code(branche, FEATURE, "n-existe-pas")
 
 
 def test_verify_dod_carries_the_anteriority_check(branche):

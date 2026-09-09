@@ -189,17 +189,21 @@ def test_note_says_so_when_a_pass_was_recorded_on_this_state_of_the_interface(mo
 
 
 @pytest.mark.parametrize(
-    ("given", "recorded", "expected"),
+    ("given", "recorded", "fork", "expected"),
     [
-        ("main", "chantier", "main"),
-        (None, "chantier", "chantier"),
-        (None, "origin/main", "origin/main"),
+        ("main", ("chantier", None), "abc123", "main"),
+        (None, ("chantier", None), "chantier", "chantier"),
+        (None, ("origin/main", None), "origin/main", "origin/main"),
+        # Branche supprimée après son merge : le sha journalisé reste le point de fourche.
+        (None, ("chantier", "abc123"), "abc123", "abc123"),
+        (None, ("chantier", None), None, "chantier"),
     ],
 )
-def test_the_base_falls_back_to_the_one_the_journey_recorded(mocker, given, recorded, expected):
+def test_the_base_falls_back_to_the_one_the_journey_recorded(mocker, given, recorded, fork, expected):
     """Sans base explicite, `main` était supposé — faux dès qu'un parcours part d'une autre branche."""
     mocker.patch.object(_module, "branch", return_value="cdarnispro/feat/son")
     mocker.patch.object(_module.attestation, "journey_base", return_value=recorded)
+    mocker.patch.object(_module.attestation, "journey_fork", return_value=fork)
 
     assert _module.resolved_base(given) == expected
 
@@ -208,7 +212,8 @@ def test_the_base_falls_back_to_the_one_the_journey_recorded(mocker, given, reco
 def test_an_unresolvable_base_says_what_to_do_instead_of_crashing(mocker, capsys, command):
     """Le contrôle d'antériorité a eu ce défaut ; `smoke.py` le portait encore."""
     mocker.patch.object(_module, "branch", return_value="cdarnispro/feat/son")
-    mocker.patch.object(_module.attestation, "journey_base", return_value="n-existe-pas")
+    mocker.patch.object(_module.attestation, "journey_base", return_value=("n-existe-pas", None))
+    mocker.patch.object(_module.attestation, "journey_fork", return_value=None)
     mocker.patch.object(_module, "changed_since", return_value=None)
 
     code = _module.plan(None, None) if command == "plan" else _module.note(None)

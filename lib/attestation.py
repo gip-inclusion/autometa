@@ -299,21 +299,40 @@ def commit_rank(repo: Path, window: str) -> dict[str, int]:
     return {sha: rank for rank, sha in enumerate(git(repo, "rev-list", "--reverse", window).stdout.split())}
 
 
-def journey_window(repo: Path, base: str) -> str | None:
-    """Plage des commits que la branche ajoute, ou None quand la base n'est pas résolvable."""
+def journey_fork(repo: Path, base: str, sha: str | None = None) -> str | None:
+    """Point de fourche du parcours : la base par son nom, à défaut le sha journalisé à l'ouverture."""
     fork = git(repo, "merge-base", base, "HEAD")
-    return f"{fork.stdout.strip()}..HEAD" if fork.returncode == 0 else None
+    if fork.returncode == 0:
+        return fork.stdout.strip()
+    if sha and git(repo, "cat-file", "-e", f"{sha}^{{commit}}").returncode == 0:
+        return sha
+    return None
 
 
-def journey_base(repo: Path, name: str) -> str:
-    """Référence dont le parcours est parti — la branche principale publiée, sauf mention au journal."""
-    recorded = [event["Base"] for event in events(repo, name) if "Base" in event]
-    return recorded[-1] if recorded else DEFAULT_BASE
+def journey_window(repo: Path, base: str, sha: str | None = None) -> str | None:
+    """Plage des commits que la branche ajoute, ou None quand la base n'est pas résolvable."""
+    fork = journey_fork(repo, base, sha)
+    return f"{fork}..HEAD" if fork else None
 
 
+def journey_base(repo: Path, name: str) -> tuple[str, str | None]:
+    """Référence dont le parcours est parti, et son point de fourche — la branche principale par défaut."""
+    recorded = [event for event in events(repo, name) if "Base" in event]
+    if not recorded:
+        return DEFAULT_BASE, None
+    return recorded[-1]["Base"], recorded[-1].get("BaseSha")
+
+
+# Why: le nom d'une branche disparaît à son merge, et avec lui tous les contrôles de fenêtre. Le sha
+# du point de fourche survit. Le nom reste résolu en premier : un sha figé à l'ouverture cesse d'être
+# le bon point de fourche dès qu'on rebase sur une base qui a avancé.
 def record_base(repo: Path, name: str, base: str) -> Path:
     """Journalise le point de départ — tout parcours ne descend pas de la branche principale."""
-    return append_event(repo, name, "base", [("Base", base)])
+    fork = git(repo, "merge-base", base, "HEAD")
+    pairs = [("Base", base)]
+    if fork.returncode == 0:
+        pairs.append(("BaseSha", fork.stdout.strip()))
+    return append_event(repo, name, "base", pairs)
 
 
 # Why: une base introuvable rendait les deux contrôles de fenêtre muets — ils validaient au lieu de
@@ -330,8 +349,8 @@ def unlocatable(base: str) -> list[str]:
 
 def dod_antedates_code(repo: Path, name: str, base: str | None = None) -> list[str]:
     """Le contrat est le premier commit du parcours — l'ordre des commits le dit, une réécriture l'efface."""
-    departure = base or journey_base(repo, name)
-    window = journey_window(repo, departure)
+    departure, sha = (base, None) if base else journey_base(repo, name)
+    window = journey_window(repo, departure, sha)
     if window is None:
         return unlocatable(departure)
     touched = set(git(repo, "rev-list", window, "--", *CONTRACT_SCOPE).stdout.split())
@@ -432,8 +451,8 @@ def browser_tests_named_after(repo: Path, dods: Iterable[str]) -> list[str]:
 
 def browser_coverage(repo: Path, name: str, base: str | None = None) -> list[str]:
     """Toucher l'interface engage un critère démontré au bon étage, celui d'un vrai navigateur."""
-    departure = base or journey_base(repo, name)
-    window = journey_window(repo, departure)
+    departure, sha = (base, None) if base else journey_base(repo, name)
+    window = journey_window(repo, departure, sha)
     if window is None:
         return unlocatable(departure)
     if not (touched := touches_interface(repo, window)):

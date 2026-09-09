@@ -64,7 +64,7 @@ def start(repo: Path, name: str, base: str | None) -> int:
     if base:
         attestation.record_base(repo, name, base)
     prepare(repo)
-    print(f"Parcours « {name} » — état align, parti de {attestation.journey_base(repo, name)}.")
+    print(f"Parcours « {name} » — état align, parti de {attestation.journey_base(repo, name)[0]}.")
     print(f"Rédiger {path}, la faire valider, puis `make paved-road-advance`.")
     return 0
 
@@ -74,7 +74,7 @@ def status(repo: Path, name: str) -> int:
     journal = attestation.events(repo, name)
     state = attestation.current_state(journal)
     print(
-        f"Parcours « {name} » — état {state}, parti de {attestation.journey_base(repo, name)}, "
+        f"Parcours « {name} » — état {state}, parti de {attestation.journey_base(repo, name)[0]}, "
         f"{len(journal)} événement(s) au journal."
     )
     print(

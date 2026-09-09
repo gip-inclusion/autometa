@@ -40,8 +40,11 @@ def fingerprint() -> str:
 # contrôle d'antériorité avait le même défaut, et il échouait ici par une trace Python. La base
 # journalisée à l'ouverture du parcours existe déjà : on la lit.
 def resolved_base(base: str | None) -> str:
-    """La base explicite, sinon celle que le parcours a journalisée à son ouverture."""
-    return base or attestation.journey_base(Path("."), branch().split("/")[-1])
+    """La base explicite, sinon celle que le parcours a journalisée — son nom, à défaut son sha."""
+    if base:
+        return base
+    name, sha = attestation.journey_base(Path("."), branch().split("/")[-1])
+    return attestation.journey_fork(Path("."), name, sha) or name
 
 
 def changed_since(base: str) -> list[str] | None:
