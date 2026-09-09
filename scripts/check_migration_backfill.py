@@ -38,9 +38,12 @@ def unbackfilled_columns(source: str) -> list[str]:
 
     backfilled = False
     problems = []
-    for node in ast.walk(upgrade):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
+    # Why: ast.walk parcourt en largeur — l'ordre du source ne survit pas à une imbrication.
+    calls = sorted(
+        (n for n in ast.walk(upgrade) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)),
+        key=lambda n: (n.lineno, n.col_offset),
+    )
+    for node in calls:
         if node.func.attr == "execute":
             backfilled = True
         elif poses_not_null(node) and not backfilled:

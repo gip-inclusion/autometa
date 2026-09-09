@@ -26,6 +26,16 @@ AJOUT_AVEC_DEFAUT = migration(
 )
 AJOUT_NULLABLE = migration('    op.add_column("reports", sa.Column("titre", sa.String(), nullable=True))\n')
 SANS_UPGRADE = 'def downgrade() -> None:\n    op.alter_column("reports", "version", nullable=False)\n'
+BACKFILL_IMBRIQUE = migration(
+    '    with op.batch_alter_table("reports") as batch:\n'
+    "        op.execute(remplissage)\n"
+    '    op.alter_column("reports", "version", nullable=False)\n'
+)
+ALTER_IMBRIQUE_APRES_COUP = migration(
+    '    op.alter_column("reports", "version", nullable=False)\n'
+    '    with op.batch_alter_table("reports") as batch:\n'
+    "        op.execute(remplissage)\n"
+)
 
 
 @pytest.mark.parametrize(
@@ -39,6 +49,8 @@ SANS_UPGRADE = 'def downgrade() -> None:\n    op.alter_column("reports", "versio
         (AJOUT_AVEC_DEFAUT, []),
         (AJOUT_NULLABLE, []),
         (SANS_UPGRADE, []),
+        (BACKFILL_IMBRIQUE, []),
+        (ALTER_IMBRIQUE_APRES_COUP, ["reports.version"]),
     ],
 )
 def test_signale_les_contraintes_non_nulles_sans_backfill(source, attendu):

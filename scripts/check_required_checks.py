@@ -10,6 +10,7 @@ import yaml
 WORKFLOW = Path(".github/workflows/ci.yml")
 REPO = "gip-inclusion/autometa"
 BRANCH = "main"
+GH_UNAUTHENTICATED = 4  # code de sortie de `gh` quand aucun credential n'est disponible
 
 
 def declared_check_names(path: Path) -> set[str]:
@@ -19,7 +20,7 @@ def declared_check_names(path: Path) -> set[str]:
 
 
 def required_check_names(repo: str, branch: str) -> set[str] | None:
-    """None quand gh est absent ; lève si l'API répond mal, un check aveugle étant pire que pas de check."""
+    """None quand gh est absent ou non authentifié ; lève si l'API répond mal, un check aveugle étant pire que pas de check."""
     # Why: les checks requis vivent dans un ruleset, pas dans la protection de branche classique.
     # `/branches/{b}/protection` ne renvoie que les contextes de la protection classique — sur ce
     # dépôt, un seul des sept — et le script se croyait aligné en ne voyant presque rien.
@@ -31,6 +32,8 @@ def required_check_names(repo: str, branch: str) -> set[str] | None:
             check=False,
         )
     except FileNotFoundError:
+        return None
+    if result.returncode == GH_UNAUTHENTICATED:
         return None
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"gh api a échoué ({result.returncode})")
@@ -67,7 +70,7 @@ def main() -> int:
 
     if required is None:
         print(
-            f"gh absent : dérive des checks requis non vérifiable sur {BRANCH}.\n"
+            f"gh absent ou non authentifié : dérive des checks requis non vérifiable sur {BRANCH}.\n"
             f"Checks à inscrire dans le ruleset : {', '.join(sorted(declared))}"
         )
         return 0

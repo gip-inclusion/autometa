@@ -1,5 +1,5 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
-        test-integration-cov coverage-report e2e diff-cover lint format security ci \
+        test-integration-cov coverage-report e2e diff-cover lint format security audit ci \
         migrate check-migrations paved-road-baseline lint-js browsers
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
@@ -73,6 +73,10 @@ security:
 	uv run --frozen bandit -r web/ lib/ skills/ -c pyproject.toml --severity-level medium --confidence-level high -q
 	uv run --frozen python scripts/check_route_auth.py
 	uv run --frozen python scripts/check_required_checks.py
+
+# Why: pip-audit rougit sur une publication de CVE amont, à un moment que personne ne choisit.
+# Hors de `security` et hors de `ci` : la CI l'appelle en continue-on-error.
+audit:
 	uv export --frozen --no-hashes --no-emit-project > /tmp/requirements.txt
 	uv run --frozen pip-audit -r /tmp/requirements.txt $(PIP_AUDIT_IGNORES)
 
