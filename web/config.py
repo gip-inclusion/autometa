@@ -64,10 +64,14 @@ RPE_STRONG_NAME = os.getenv("RPE_STRONG_NAME", "")
 RPE_POLICY_LOGIN = os.getenv("RPE_POLICY_LOGIN", "")
 RPE_POLICY_DASH = os.getenv("RPE_POLICY_DASH", "")
 
-# Ollama Cloud (moteur de secours). qwen3-coder-next a été retiré le 2026-07-15.
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "https://ollama.com")
+# Ollama (moteur de secours). qwen3-coder-next a été retiré le 2026-07-15.
+OLLAMA_LOCAL_BASE_URL = os.getenv("OLLAMA_LOCAL_BASE_URL", "http://localhost:11434")
+OLLAMA_REMOTE_BASE_URL = os.getenv("OLLAMA_REMOTE_BASE_URL", "https://ollama.com")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "glm-5.2")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+# Why: sortir du réseau vers un tiers doit être un acte explicite, jamais un défaut hérité — une
+# instance locale ignore le jeton, Ollama Cloud l'exige, donc sa présence est le choix de cible.
+OLLAMA_BASE_URL = OLLAMA_REMOTE_BASE_URL if OLLAMA_API_KEY else OLLAMA_LOCAL_BASE_URL
 OLLAMA_TITLE_MODEL = os.getenv("OLLAMA_TITLE_MODEL", OLLAMA_MODEL)
 OLLAMA_TAG_MODEL = os.getenv("OLLAMA_TAG_MODEL", OLLAMA_MODEL)
 OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "120"))

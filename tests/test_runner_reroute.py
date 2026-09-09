@@ -135,6 +135,8 @@ def test_limit_message_is_written_when_no_reroute_happens(mocker, fallback, sess
 
 
 def test_no_limit_message_when_the_fallback_takes_over(mocker):
+    """La bascule est muette côté utilisateur : le tour n'est pas perdu, donc le message brut de
+    limite n'a rien à faire dans le fil, et aucun marqueur ne le remplace."""
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     mocker.patch(
         "web.runner.get_agent",
@@ -144,6 +146,38 @@ def test_no_limit_message_when_the_fallback_takes_over(mocker):
     _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
 
     assert not any(c.args[1] == "limit" for c in runner.store.add_message.call_args_list)
+
+
+def test_a_turn_routed_straight_to_the_fallback_stays_silent_too(mocker):
+    """Le gros du temps de panne se passe sans événement `limit` : pick_backend route directement.
+    Ces tours-là non plus ne signalent rien à l'utilisateur."""
+    mocker.patch("web.runner.get_agent", return_value=_backend(mocker, AgentMessage(type="assistant", content="ok")))
+
+    _play(TaskRunner(), "c1", "p", [], None, None, "s2", "cli-ollama")
+
+    assert not any(c.args[1] == "limit" for c in runner.store.add_message.call_args_list)
+
+
+def test_each_reroute_is_journalised_for_the_operator(mocker):
+    """Pendant une panne de quota, ce log est le seul moyen de savoir combien de conversations
+    partent au secours — un `info` en texte libre ne se compte pas."""
+    mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
+    mocker.patch(
+        "web.runner.get_agent",
+        side_effect=[_backend(mocker, _limit()), _backend(mocker, AgentMessage(type="assistant", content="repris"))],
+    )
+    warn = mocker.patch.object(runner.logger, "warning")
+
+    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+
+    logged = [c for c in warn.call_args_list if c.args[0] == "agent.backend.rerouted"]
+    assert len(logged) == 1
+    assert logged[0].kwargs["extra"] == {
+        "session.id": "c1",
+        "agent.backend_from": "cli",
+        "agent.backend_to": "cli-ollama",
+        "agent.limit_reset": RESET,
+    }
 
 
 def test_the_conversation_stays_open_until_the_fallback_answers(mocker):

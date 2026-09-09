@@ -377,8 +377,16 @@ class TaskRunner:
 
             try:
                 await mark_backend_limited(backend_name, limit_reset)
-                logger.info(
-                    "Usage limit on %s for %s — replaying the turn on %s", backend_name, conversation_id, fallback
+                # Why: un reroutage est un événement d'exploitation, pas une trace de debug — c'est
+                # le seul signal qui dit à l'opérateur combien de conversations partent au secours.
+                logger.warning(
+                    "agent.backend.rerouted",
+                    extra={
+                        "session.id": conversation_id,
+                        "agent.backend_from": backend_name,
+                        "agent.backend_to": fallback,
+                        "agent.limit_reset": limit_reset,
+                    },
                 )
                 state = await asyncio.to_thread(store.get_engine_state, conversation_id, fallback)
                 fallback_sid = state["session_id"] or str(uuid.uuid4())
@@ -810,7 +818,20 @@ def history_for_turn(
     msgs = [m for m in conv.messages if m.type in ("user", "assistant")]
     if msgs and msgs[-1].type == "user":
         msgs = msgs[:-1]
-    return [{"role": m.type, "content": m.content} for m in msgs]
+    # Why: amorcer une session sans repère envoie tout le transcript au moteur — donc à un tiers
+    # quand c'est le secours. Les mêmes plafonds que le rattrapage bornent cet égress, et sa taille
+    # est tracée parce que c'est le seul endroit où une conversation entière quitte le service.
+    history = build_catchup(msgs)
+    logger.warning(
+        "agent.session.bootstrap",
+        extra={
+            "session.id": conv_id,
+            "agent.session_new": session_is_new,
+            "agent.bootstrap_messages": len(history),
+            "agent.bootstrap_chars": sum(len(h["content"]) for h in history),
+        },
+    )
+    return history
 
 
 runner = TaskRunner()

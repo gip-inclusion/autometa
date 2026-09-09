@@ -391,3 +391,16 @@ n'est pas impacté.
 
 **Réversibilité.** `AGENT_FALLBACK_BACKEND` vide éteint toute la fonctionnalité et rend le comportement
 actuel. La colonne peut rester en place sans être lue.
+
+**Données et destinataires.** Le moteur de secours introduit un destinataire hors Anthropic. Ce qui
+sort vers lui : le message de l'utilisateur, les réponses de l'agent, et le rendu borné des appels et
+résultats d'outils — donc des extraits des bases interrogées, qui portent des données de candidats à
+l'IAE. Deux garde-fous : tout ce qui part passe par les plafonds de `web/catchup.py`, y compris
+l'amorçage d'une session neuve (un transcript complet non borné partait auparavant au premier
+basculement) ; et la cible Ollama n'est distante que si `OLLAMA_API_KEY` est renseignée, l'instance
+locale restant le défaut, pour qu'aucun déploiement ne se mette à sortir du réseau par héritage.
+La bascule reste muette côté utilisateur — décision produit assumée : le tour n'est pas perdu, donc
+rien ne justifie d'interrompre la lecture. Côté exploitation en revanche, chaque reroutage et chaque
+amorçage de session sont journalisés, ce dernier avec sa taille. Activer `AGENT_FALLBACK_BACKEND` en
+production suppose donc un arbitrage explicite sur ce destinataire, qui n'est pas un sous-traitant
+déclaré du service.

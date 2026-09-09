@@ -2,7 +2,7 @@
 
 import pytest
 
-from web import runner
+from web import catchup, runner
 from web.agents.cli import CLIBackend
 from web.database import Message
 
@@ -145,7 +145,34 @@ def test_a_missing_session_alerts_only_when_the_engine_had_one(mocker, session_i
 
     assert result == [{"role": "assistant", "content": "b"}]
     assert capture.called is alerted
-    assert warn.called is alerted
+    assert any("Session file" in str(c.args[0]) for c in warn.call_args_list) is alerted
+
+
+def test_every_bootstrap_is_journalised_with_its_size(mocker):
+    """L'amorçage est le seul endroit où une conversation entière quitte le service : il se trace
+    même quand il est normal (première main d'un moteur), sinon l'égress est invisible."""
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: False))
+    mocker.patch.object(runner.store, "get_conversation", return_value=_conv([_msg(1, "assistant", "bonjour")]))
+    warn = mocker.patch.object(runner.logger, "warning")
+
+    runner.history_for_turn("c1", "sess-1", [], session_is_new=True)
+
+    logged = [c for c in warn.call_args_list if c.args[0] == "agent.session.bootstrap"]
+    assert len(logged) == 1
+    assert logged[0].kwargs["extra"]["agent.bootstrap_chars"] == len("bonjour")
+
+
+def test_bootstrapping_a_session_is_capped_like_a_catchup(mocker):
+    """Au premier basculement le moteur de secours n'a pas de session : sans plafond, tout le
+    transcript — donc des analyses sur des candidats — partirait chez un tiers d'un seul bloc."""
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: False))
+    msgs = [_msg(i, "assistant", "x" * 5000) for i in range(1, 21)]
+    mocker.patch.object(runner.store, "get_conversation", return_value=_conv(msgs))
+
+    result = runner.history_for_turn("c1", "sess-1", [], session_is_new=True)
+
+    assert sum(len(e["content"]) for e in result) <= catchup.TOTAL_CAP
+    assert len(result) < len(msgs)
 
 
 def test_session_missing_still_wins_over_catchup(mocker):

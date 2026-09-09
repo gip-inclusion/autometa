@@ -264,7 +264,9 @@ docker compose --profile ollama up -d
 AGENT_BACKEND=cli-ollama make dev
 ```
 
-Variables Ollama configurables dans `.env` : `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_REQUEST_TIMEOUT`.
+Variables Ollama configurables dans `.env` : `OLLAMA_LOCAL_BASE_URL`, `OLLAMA_REMOTE_BASE_URL`,
+`OLLAMA_API_KEY`, `OLLAMA_MODEL`, `OLLAMA_REQUEST_TIMEOUT`. La cible effective est l'instance locale
+tant qu'`OLLAMA_API_KEY` est vide, et Ollama Cloud dès qu'elle est renseignée.
 
 ### Evals
 
