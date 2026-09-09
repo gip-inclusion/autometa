@@ -592,11 +592,17 @@ class TaskRunner:
                     # Why: quand un rejeu suit, libérer ici fermerait le flux SSE avant que le
                     # moteur de secours ait répondu — seule la passe que personne ne reprend libère.
                     if release or limit_reset is None:
-                        store.update_conversation(conversation_id, needs_response=False)
-                        await self.notify_done(conversation_id)
                         self._running.pop(conversation_id, None)
-                        r = await get_redis()
-                        await r.delete(f"{PREFIX}:running:{conversation_id}")
+                        try:
+                            store.update_conversation(conversation_id, needs_response=False)
+                            await self.notify_done(conversation_id)
+                            r = await get_redis()
+                            await r.delete(f"{PREFIX}:running:{conversation_id}")
+                        except Exception:
+                            # Why: Redis/DB unreachable during cleanup (2026-09-07 DNS blip after a container
+                            # freeze) must not abort here — the conv would stay registered and every resend
+                            # would be dropped until the sweep. The sweep reconciles the flags later.
+                            logger.exception("cleanup failed for %s", conversation_id)
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
