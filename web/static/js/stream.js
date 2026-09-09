@@ -166,6 +166,13 @@ function lastLoadedMsgId(conv) {
 }
 
 /**
+ * Notify the user (tab badge + sound) that a run has finished. No-op until notify.js loads.
+ */
+function signalRunFinished() {
+  if (typeof window.notifyRunFinished === 'function') window.notifyRunFinished();
+}
+
+/**
  * Start SSE streaming for the current conversation
  */
 function startStream(afterMsgId = 0) {
@@ -206,6 +213,7 @@ function startStream(afterMsgId = 0) {
     const data = JSON.parse(e.data);
     appendEvent('error', data);
     hideLoading();
+    signalRunFinished();
   });
 
   // Server heartbeat — resets retry counter during quiet periods (long tool calls)
@@ -231,6 +239,8 @@ function startStream(afterMsgId = 0) {
 
     // Reconcile all sidebar spinners (catches background conversations that finished)
     reconcileSidebarSpinners();
+
+    signalRunFinished();
   });
 
   // Connection lost — just reconnect. The server handles liveness logic.
@@ -260,6 +270,7 @@ function startStream(afterMsgId = 0) {
       hideLoading();
       removeProgressIndicator();
       markFinalAnswer();
+      signalRunFinished();
     } else {
       setStreamingState(false);
       hideLoading();
