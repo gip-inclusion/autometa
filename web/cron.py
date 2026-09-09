@@ -15,7 +15,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import sentry_sdk
-from sqlalchemy import func, select
+from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, Table, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lib import dashboard_api
@@ -24,6 +26,7 @@ from web.s3 import S3Store
 
 from . import alerts, config, publications, s3
 from .database import get_db
+from .db import get_engine
 from .log import setup_logging
 from .models import CronRun, Dashboard, DashboardPublication
 
@@ -43,6 +46,7 @@ _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.ite
 # Why: a task that declares nothing runs in the ordinary batch; dashboards and publications have
 # no front-matter, so they always land there.
 DEFAULT_BATCH = "default"
+FACADE_AUDIT_SCHEMA = "dashboard_storage"
 
 
 def cadence(schedule: str) -> str:
@@ -371,17 +375,77 @@ def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
     return found
 
 
+def log_facade_violations(slug: str, script: Path) -> None:
+    """Le cron.py est déjà sur disque au moment de l'exécution : le lire ne coûte aucun appel S3."""
+    try:
+        violations = dashboard_api.facade_violations(script.read_text(errors="replace"))
+    except (SyntaxError, OSError) as e:
+        logger.debug("cron %s: facade not checked (%s)", sanitize_for_log(slug), e)
+        return
+    if violations:
+        logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(violations))
+
+
+_facade_metadata = MetaData(schema=FACADE_AUDIT_SCHEMA)
+facade_audit_state = Table(
+    "facade_audit_state",
+    _facade_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("slugs", JSON),
+    Column("reported_at", DateTime(timezone=True)),
+)
+
+
+def last_reported_slugs() -> list[str] | None:
+    """Ensemble signalé au dernier passage, ou None quand rien n'a encore été journalisé."""
+    try:
+        eng = get_engine()
+        with eng.connect() as conn:
+            if not eng.dialect.has_table(conn, "facade_audit_state", schema=FACADE_AUDIT_SCHEMA):
+                return None
+            row = conn.execute(select(facade_audit_state).where(facade_audit_state.c.id == 1)).mappings().first()
+    except SQLAlchemyError as e:
+        logger.warning("audit façade : lecture de l'état précédent impossible (%s)", e)
+        return None
+    return row["slugs"] if row else None
+
+
+def record_reported_slugs(slugs: list[str]) -> None:
+    eng = get_engine()
+    with eng.begin() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + FACADE_AUDIT_SCHEMA))
+    _facade_metadata.create_all(eng)
+    payload = {"id": 1, "slugs": slugs, "reported_at": utcnow()}
+    statement = pg_insert(facade_audit_state).values(payload)
+    statement = statement.on_conflict_do_update(index_elements=["id"], set_={"slugs": slugs, "reported_at": utcnow()})
+    with eng.begin() as conn:
+        conn.execute(statement)
+
+
+# Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs RPE
+# et runner qui s'y noient. Seul un changement de la liste vaut une alerte.
 def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[str]]:
-    """En observation : journalise et alerte, sans refuser la planification."""
+    """En observation : journalise, et n'alerte que quand l'ensemble des non conformes change."""
     found = facade_violations_by_slug(tasks)
     for slug, modules in sorted(found.items()):
         logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(modules))
-    if found and notify:
+    if not notify:
+        return found
+    slugs = sorted(found)
+    known = last_reported_slugs()
+    if known is not None and sorted(known) == slugs:
+        return found
+    if slugs:
         listing = "\n".join(f"• `{slug}` — {', '.join(modules)}" for slug, modules in sorted(found.items()))
         alerts.notify_alert_channel(
             f":warning: *{len(found)} tableau(x) de bord importent hors de `{dashboard_api.FACADE}`*\n"
             f"Observation : la planification n'est pas encore refusée.\n{listing}"
         )
+    elif known:
+        alerts.notify_alert_channel(
+            f":white_check_mark: *Plus aucun tableau de bord n'importe hors de `{dashboard_api.FACADE}`.*"
+        )
+    record_reported_slugs(slugs)
     return found
 
 
@@ -499,6 +563,7 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         if uses_workdir:
             workdir, pre_hashes = prepare_s3_workdir(store, store_prefix, slug)
             cron_script = str(workdir / "cron.py")
+            log_facade_violations(slug, workdir / "cron.py")
             cwd = str(workdir)
         else:
             cron_script = task["cron_path"]
@@ -670,7 +735,6 @@ def facade_audit() -> list[str]:
 def run_all(dry_run: bool = False, batch: str = DEFAULT_BATCH) -> list[dict]:
     """Run the enabled tasks of one batch that are due today."""
     tasks = discover_cron_tasks()
-    report_facade_violations(tasks, notify=not dry_run)
     results = []
 
     for task in tasks:

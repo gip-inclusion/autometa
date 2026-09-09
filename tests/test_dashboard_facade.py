@@ -73,8 +73,9 @@ def test_system_crons_are_not_held_to_the_facade(mocker):
     assert cron.facade_violations_by_slug([system_task]) == {}
 
 
-def test_scheduling_alerts_but_does_not_block(mocker):
-    mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
+def test_scheduling_does_not_scan_s3_nor_alert(mocker):
+    """L'audit tombait avant tout filtrage batch : deux passes par jour, un pavé Slack par passe."""
+    read = mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
     notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
     execute = mocker.patch.object(cron, "execute_task", return_value={"status": "success", "duration_ms": 1})
     mocker.patch.object(
@@ -85,36 +86,71 @@ def test_scheduling_alerts_but_does_not_block(mocker):
 
     assert len(cron.run_all()) == 1
     execute.assert_called_once()
-    message = notify.call_args.args[0]
-    assert "lib.dashboard_api" in message
-    assert "`ko`" in message
-
-
-def test_dry_run_does_not_alert(mocker):
-    mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
-    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
-    mocker.patch.object(
-        cron,
-        "discover_cron_tasks",
-        return_value=[{**cron_task("ko"), "enabled": True, "schedule": "daily", "timeout": 30}],
-    )
-
-    assert cron.run_all(dry_run=True) == []
     notify.assert_not_called()
+    read.assert_not_called()
 
 
-def test_conforming_schedule_stays_silent(mocker):
-    mocker.patch.object(cron, "read_cron_script", return_value=CONFORMING)
-    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
-    mocker.patch.object(cron, "execute_task", return_value={"status": "success", "duration_ms": 1})
-    mocker.patch.object(
-        cron,
-        "discover_cron_tasks",
-        return_value=[{**cron_task("ok"), "enabled": True, "schedule": "daily", "timeout": 30}],
-    )
+def test_an_executed_task_logs_what_it_imports_outside_the_facade(mocker, tmp_path, caplog):
+    """Le cron.py est déjà sur disque au moment de l'exécution : le signaler ne coûte aucun appel S3."""
+    script = tmp_path / "cron.py"
+    script.write_text(OFFENDING)
 
-    cron.run_all()
+    with caplog.at_level("WARNING"):
+        cron.log_facade_violations("ko", script)
+
+    assert "lib.query, web.db" in caplog.text
+
+
+@pytest.mark.parametrize("body", [CONFORMING, "def main(\n"])
+def test_an_executed_task_stays_silent_when_it_has_nothing_to_say(mocker, tmp_path, caplog, body):
+    script = tmp_path / "cron.py"
+    script.write_text(body)
+
+    with caplog.at_level("WARNING"):
+        cron.log_facade_violations("ok", script)
+
+    assert caplog.text == ""
+
+
+def audit(mocker, sources, connus):
+    mocker.patch.object(cron, "read_cron_script", side_effect=lambda task: sources[task["slug"]])
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[cron_task(slug) for slug in sources])
+    mocker.patch.object(cron, "last_reported_slugs", return_value=connus)
+    return mocker.patch.object(cron.alerts, "notify_alert_channel"), mocker.patch.object(cron, "record_reported_slugs")
+
+
+@pytest.mark.parametrize(
+    ("sources", "connus", "alerte", "enregistre"),
+    [
+        ({"ko": OFFENDING}, None, True, True),
+        ({"ko": OFFENDING}, [], True, True),
+        # Why: un canal où le même message revient chaque jour cesse d'être lu — les échecs s'y noient.
+        ({"ko": OFFENDING}, ["ko"], False, False),
+        ({"ko": OFFENDING, "ko2": OFFENDING}, ["ko"], True, True),
+        ({"ok": CONFORMING}, ["ko"], True, True),
+        ({"ok": CONFORMING}, [], False, False),
+        # Premier passage d'un parc conforme : rien à dire, mais l'état de référence se pose.
+        ({"ok": CONFORMING}, None, False, True),
+    ],
+)
+def test_the_audit_alerts_only_when_the_list_changes(mocker, sources, connus, alerte, enregistre):
+    notify, record = audit(mocker, sources, connus)
+
+    cron.report_facade_violations(cron.discover_cron_tasks(), notify=True)
+
+    assert notify.called == alerte
+    assert record.called == enregistre
+    if enregistre:
+        record.assert_called_once_with(sorted(slug for slug, body in sources.items() if body is OFFENDING))
+
+
+def test_the_audit_records_nothing_when_it_does_not_notify(mocker):
+    notify, record = audit(mocker, {"ko": OFFENDING}, [])
+
+    cron.report_facade_violations(cron.discover_cron_tasks(), notify=False)
+
     notify.assert_not_called()
+    record.assert_not_called()
 
 
 @pytest.mark.integration
@@ -172,3 +208,12 @@ def test_mettre_a_jour_les_metadonnees_dun_tdb_herite_ne_juge_pas_son_code(mocke
         dashboards.update_dashboard(slug="tdb", updater_email="a@b.c", title="Nouveau titre")
 
     refuse.assert_not_called()
+
+
+def test_le_cron_daudit_est_decouvert_et_quotidien():
+    """Sorti de `run_all()`, l'audit n'existe que si le runner le découvre comme tâche système."""
+    tasks = cron.discover_from_dir(cron.config.CRON_DIR, "CRON.md", "system")
+    audit_task = next(task for task in tasks if task["slug"] == "facade-audit")
+
+    assert cron.cadence(audit_task["schedule"]) == "daily"
+    assert audit_task["enabled"]
