@@ -523,6 +523,46 @@ def test_run_agent_unregisters_the_run_even_when_cleanup_notification_fails(runn
     asyncio.run(_run())
 
 
+def test_consumer_logs_when_dropping_a_task_for_a_live_run(mocker, fake_redis, caplog):
+    runner = make_runner(mocker, fake_redis)
+    mocker.patch("web.runner.store")
+
+    async def _run():
+        runner._running["busy"] = asyncio.create_task(asyncio.sleep(10))
+        await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": "busy", "prompt": "p", "history": []}))
+        consumer = asyncio.create_task(runner._consumer_loop())
+        with caplog.at_level(logging.WARNING, logger="web.runner"):
+            await asyncio.sleep(0.5)
+        assert "task for busy dropped" in caplog.text
+        consumer.cancel()
+        runner._running["busy"].cancel()
+        await asyncio.gather(consumer, runner._running["busy"], return_exceptions=True)
+
+    asyncio.run(_run())
+
+
+def test_consumer_serves_a_task_when_the_registered_run_is_finished(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    conv = mocker.MagicMock()
+    conv.needs_response = True
+    mock_store.get_conversation.return_value = conv
+    run_agent = mocker.patch.object(runner, "_run_agent", mocker.AsyncMock())
+
+    async def _run():
+        finished = asyncio.create_task(asyncio.sleep(0))
+        await finished
+        runner._running["stale"] = finished
+        await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": "stale", "prompt": "p", "history": []}))
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(0.5)
+        run_agent.assert_called_once()
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    asyncio.run(_run())
+
+
 def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
     mock_store = mocker.patch("web.runner.store")
     mocker.patch("web.runner.schema_ready", return_value=True)

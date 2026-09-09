@@ -165,7 +165,9 @@ class TaskRunner:
                 _, payload_str = result
                 payload = json.loads(payload_str)
                 conv_id = payload["conv_id"]
-                if conv_id in self._running:
+                current = self._running.get(conv_id)
+                if current and not current.done():
+                    logger.warning("task for %s dropped: a run is still registered in this worker", conv_id)
                     continue
                 # Skip stale tasks (already handled or cancelled)
                 conv = store.get_conversation(conv_id, include_messages=False)
