@@ -46,9 +46,14 @@ def transient_api_error(text: str) -> str | None:
 # est toujours en UTC dans le texte du CLI.
 # Why: motif ancré aux deux bouts — le message classé « limite » est retiré du flux, donc un message
 # qui ne fait que *citer* la phrase (l'agent qui relit un log, ou qui parle de cette fonctionnalité)
-# doit rester du texte normal. Un préfixe court est toléré, du texte après ne l'est pas.
+# doit rester du texte normal. Un préfixe court est toléré, du texte après ne l'est pas. L'intérieur
+# est large parce que la formulation appartient à Anthropic : « reached »/« exceeded », « usage
+# limit », « resets at », 24 h et « UTC » sans parenthèses sont autant de variantes plausibles.
 _USAGE_LIMIT_RE = re.compile(
-    r"\A.{0,40}?hit your limit\b.*?resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)[\s.!·]*\Z",
+    r"\A.{0,40}?\b(?:hit|reached|exceeded)\b[^.\n]{0,60}?\blimits?\b"
+    r".*?\bresets?\b\s*(?:at\s+)?"
+    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*"
+    r"\(?\s*UTC\s*\)?[\s.!·]*\Z",
     re.I | re.S,
 )
 
@@ -58,11 +63,14 @@ def usage_limit_reset(text: str, now: datetime | None = None) -> datetime | None
     match = _USAGE_LIMIT_RE.search(text.strip())
     if not match:
         return None
-    hour = int(match.group(1)) % 12
-    if match.group(3).lower() == "pm":
-        hour += 12
+    hour, minute, meridiem = int(match.group(1)), int(match.group(2) or 0), match.group(3)
+    # Why: sans cette borne, « resets 99pm » deviendrait 15h par l'effet du modulo ci-dessous.
+    if minute > 59 or hour > (12 if meridiem else 23):
+        return None
+    if meridiem:
+        hour = hour % 12 + (12 if meridiem.lower() == "pm" else 0)
     now = now or datetime.now(timezone.utc)
-    reset = now.replace(hour=hour, minute=int(match.group(2) or 0), second=0, microsecond=0)
+    reset = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if reset < now:
         reset += timedelta(days=1)
     return reset
@@ -249,6 +257,7 @@ class CLIBackend(AgentBackend):
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
 
             last_events: list[str] = []
+            held_limit: AgentMessage | None = None
 
             try:
                 line_count = 0
@@ -292,6 +301,10 @@ class CLIBackend(AgentBackend):
                             if agent_msg.type == "assistant" and isinstance(agent_msg.content, str):
                                 if reset := usage_limit_reset(agent_msg.content):
                                     outcome["usage_limit_reset"] = reset
+                                    # Why: mis de côté plutôt que jeté — le code de sortie, connu
+                                    # seulement à la fin, dit si c'était une vraie limite ou l'agent
+                                    # qui citait la phrase. On le restitue dans le second cas.
+                                    held_limit = agent_msg
                                     continue
                                 api_error = transient_api_error(agent_msg.content)
                                 if api_error:
@@ -344,6 +357,10 @@ class CLIBackend(AgentBackend):
             outcome["exit_code"] = process.returncode
             outcome["stderr"] = stderr_str
             outcome["last_events"] = list(last_events)
+
+            if held_limit is not None and process.returncode == 0:
+                outcome["usage_limit_reset"] = None
+                yield held_limit
 
             if process.returncode != 0:
                 stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
