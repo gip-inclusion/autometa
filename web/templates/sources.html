@@ -20,7 +20,7 @@
         <div class="source-grid">
           {% for source in groups[group] %}
           {% set inventory = inventories[source.slug] %}
-          <a class="source-card" href="/sources/{{ source.slug }}"
+          <a class="source-card" href="{{ hrefs[source.slug] }}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <div class="source-card-head">
               <i class="{{ source.icon }}" aria-hidden="true"></i>

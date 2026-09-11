@@ -535,7 +535,7 @@ def knowledge_page(
         request,
         "knowledge.html",
         {
-            "section": "knowledge",
+            "section": "sources",
             "categories": categories,
             "current_file": None,
             "file_content": None,
@@ -565,7 +565,7 @@ def knowledge_file(
             request,
             "knowledge.html",
             {
-                "section": "knowledge",
+                "section": "sources",
                 "error": "Fichier non trouvé",
                 "categories": list_knowledge_files(),
                 "active_conversations": store.list_active_knowledge_conversations(),
@@ -594,7 +594,7 @@ def knowledge_file(
         request,
         "knowledge.html",
         {
-            "section": "knowledge",
+            "section": "sources",
             "categories": categories,
             "current_file": file_path,
             "file_content": file_content,

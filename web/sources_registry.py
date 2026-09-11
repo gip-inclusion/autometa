@@ -7,6 +7,7 @@ from typing import Callable
 
 from sqlalchemy import func, select
 
+from lib.source_inventory import last_success as last_inventory_success
 from lib.sources import list_instances, load_config
 
 from . import config, source_checks
@@ -18,7 +19,7 @@ WEB = "Analytiques web"
 CONNECTEURS = "Connecteurs"
 INTERNE = "Interne"
 
-GROUPS = [METIER, WEB, CONNECTEURS, INTERNE]
+GROUPS = [INTERNE, METIER, WEB, CONNECTEURS]
 
 METABASE_DOCS = {
     "stats": "skills/metabase_query/SKILL.md",
@@ -46,6 +47,7 @@ class Source:
     configured: Callable[[], bool]
     icon: str = "ri-database-2-line"
     skill: str | None = None
+    href: str | None = None
     doc: str | None = None
     inventory: Callable[[], datetime | None] | None = None
 
@@ -153,6 +155,7 @@ def all_sources() -> list[Source]:
             blurb="Conteneurs, déclencheurs et balises de suivi des sites.",
             icon="ri-price-tag-3-line",
             skill="tag_manager",
+            href="/tag-manager",
             check=source_checks.check_matomo,
             configured=partial(yaml_configured, "matomo", "inclusion", "token"),
         ),
@@ -166,6 +169,7 @@ def all_sources() -> list[Source]:
             skill="notion",
             check=source_checks.check_notion,
             configured=lambda: bool(config.NOTION_TOKEN),
+            inventory=partial(last_inventory_success, "notion"),
         ),
         Source(
             slug="tally",
@@ -176,6 +180,7 @@ def all_sources() -> list[Source]:
             skill="tally",
             check=source_checks.check_tally,
             configured=lambda: bool(config.TALLY_API_KEY),
+            inventory=partial(last_inventory_success, "tally"),
         ),
         Source(
             slug="grist",
@@ -241,6 +246,20 @@ def all_sources() -> list[Source]:
             configured=lambda: bool(config.DASHBOARD_STORAGE_DB_URL),
         ),
         Source(
+            slug="dora-staging",
+            name="Dora staging",
+            group=INTERNE,
+            blurb=(
+                "Base de la préprod Dora, en lecture seule stricte — vérifier l'état des données pendant "
+                "une migration. Ses données ne sont jamais croisées avec celles des autres sources."
+            ),
+            icon="ri-flask-line",
+            skill="dora_staging",
+            doc="skills/dora_staging/SKILL.md",
+            check=source_checks.check_dora_staging,
+            configured=lambda: bool(config.DORA_STAGING_DB_URL),
+        ),
+        Source(
             slug="s3",
             name="S3",
             group=INTERNE,
@@ -249,6 +268,16 @@ def all_sources() -> list[Source]:
             check=source_checks.check_s3,
             configured=lambda: bool(config.S3_BUCKET),
         ),
+        Source(
+            slug="knowledge",
+            name="Connaissances",
+            group=INTERNE,
+            blurb="Le contexte métier écrit par l'équipe et lu par l'agent : glossaire bizdev, fiches par site, pièges.",
+            icon="ri-book-open-line",
+            href="/knowledge",
+            check=source_checks.check_knowledge_base,
+            configured=lambda: True,
+        ),
     ]
 
 
@@ -256,6 +285,10 @@ def check_source(source: Source) -> tuple[bool, str]:
     if not source.configured():
         return (False, "non configuré dans cet environnement")
     return source.check()
+
+
+def source_href(source: Source) -> str:
+    return source.href or f"/sources/{source.slug}"
 
 
 def find_source(slug: str) -> Source | None:

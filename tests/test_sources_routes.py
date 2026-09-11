@@ -163,3 +163,44 @@ def test_unknown_source_is_not_found(client):
 @pytest.mark.parametrize("bad_slug", ["UPPER", "with.dot", "with$dollar", "a" * 61])
 def test_invalid_slug_rejected(client, bad_slug):
     assert client.get(f"/sources/{bad_slug}").status_code == 422
+
+
+def catalog_stub(mocker, rows):
+    from lib.query import QueryResult
+    from web import source_inventories
+
+    return mocker.patch.object(
+        source_inventories,
+        "execute_autometa_tables_query",
+        return_value=QueryResult(success=True, data={"columns": [], "rows": rows, "row_count": len(rows)}),
+    )
+
+
+def test_the_catalog_panel_renders_tables_and_columns(client, mocker):
+    """DOD-7 : le dictionnaire de données devient consultable sans écrire de SQL."""
+    catalog_stub(mocker, [[50, "candidatures", "Les candidatures", "id", "text", "Identifiant"]])
+
+    body = client.get("/sources/autometa-tables-db").text
+
+    assert "candidatures" in body
+    assert "Les candidatures" in body
+    assert "Identifiant" in body
+
+
+def test_the_catalog_panel_accepts_a_filter(client, mocker):
+    catalog_stub(mocker, [[50, "candidatures", None, "id", "text", None]])
+
+    assert "Aucune table ne correspond" in client.get("/sources/autometa-tables-db?q=introuvable").text
+
+
+def test_a_source_without_inventory_shows_no_contents_panel(client):
+    assert "source-contents" not in client.get("/sources/s3").text
+
+
+def test_the_connector_panel_lists_what_the_last_sync_stored(client):
+    """DOD-5 : les racines Notion collectées sont affichées."""
+    from lib.source_inventory import InventoryItem, replace_inventory
+
+    replace_inventory("notion", [InventoryItem(item_type="database", external_id="db-1", label="Suivi bizdev")])
+
+    assert "Suivi bizdev" in client.get("/sources/notion").text
