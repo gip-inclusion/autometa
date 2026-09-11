@@ -56,12 +56,17 @@ def test_a_refresh_replaces_what_disappeared_upstream():
     assert stored("notion") == [("a", "Base A renommée")]
 
 
-def test_one_failing_connector_does_not_stop_the_others(mocker):
+@pytest.mark.parametrize(
+    "failure",
+    [httpx.ConnectError("injoignable"), tally.TallyError("Tally GET /workspaces -> 503"), RuntimeError("rate-limited")],
+    ids=["transport", "tally", "quota"],
+)
+def test_one_failing_connector_does_not_stop_the_others(mocker, failure):
     """DOD-3 : les autres aboutissent, et le compte rendu nomme celui qui a échoué."""
     mocker.patch.dict(
         source_inventory.CONNECTORS,
         {
-            "notion": lambda: (_ for _ in ()).throw(httpx.ConnectError("injoignable")),
+            "notion": lambda: (_ for _ in ()).throw(failure),
             "tally": lambda: [item("w1", "Espace", item_type="workspace")],
         },
         clear=True,

@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -11,7 +12,7 @@ from web.db import get_db
 from web.models import SourceInventoryItem, SourceInventoryRun
 
 from .notion import extract_text_from_rich_text, notion_request
-from .tally import TallyClient
+from .tally import TallyClient, TallyError
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +182,9 @@ def refresh_all() -> dict[str, str]:
     for source in CONNECTORS:
         try:
             report[source] = f"{refresh(source)} éléments"
-        except Exception as exc:
-            # Why: chaque connecteur a sa propre famille d'erreurs (HTTP, schéma, quota) et ne doit pas
-            # emporter les autres — l'inventaire précédent de cette source reste affiché.
+        except (httpx.HTTPError, TallyError, RuntimeError) as exc:
+            # Why: transport, réponse HTTP ou quota Notion épuisé (RuntimeError après les relances) : ce
+            # connecteur seul échoue, les autres continuent et son inventaire précédent reste affiché.
             logger.warning("Inventaire %s en échec : %s", source, type(exc).__name__)
             record_failure(source, f"{type(exc).__name__}: {exc}"[:500])
             report[source] = f"ÉCHEC ({type(exc).__name__})"
