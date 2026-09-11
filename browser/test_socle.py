@@ -53,7 +53,7 @@ def test_a_report_opens_from_the_reports_list(visit: Callable[[str], None], page
 def test_selftest_streams_service_checks(visit: Callable[[str], None], page: Page):
     visit("/selftest")
 
-    expect(page.locator("#out")).to_contain_text(re.compile(r"✅ PostgreSQL"), timeout=30_000)
+    expect(page.locator("#out")).to_contain_text(re.compile(r"✅ Base applicative"), timeout=30_000)
 
 
 def test_dashboards_list_renders(visit: Callable[[str], None], page: Page):
