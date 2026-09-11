@@ -17,6 +17,8 @@ from .tally import TallyClient, TallyError
 logger = logging.getLogger(__name__)
 
 NOTION_PAGE_SIZE = 100
+# Garde-fou anti-emballement : 50 × 100 objets, bien au-delà des ~120 que l'intégration voit aujourd'hui.
+MAX_NOTION_PAGES = 50
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ def fetch_notion_roots() -> list[InventoryItem]:
     # sont donc conservés, au risque d'en garder quelques-uns qui ne sont pas de vrais points de partage.
     objects: dict[str, dict] = {}
     cursor = None
-    while True:
+    for _ in range(MAX_NOTION_PAGES):
         payload: dict = {"page_size": NOTION_PAGE_SIZE}
         if cursor:
             payload["start_cursor"] = cursor
@@ -65,6 +67,8 @@ def fetch_notion_roots() -> list[InventoryItem]:
         if not data.get("has_more"):
             break
         cursor = data.get("next_cursor")
+    else:
+        logger.warning("Notion : recherche plafonnée à %d pages", MAX_NOTION_PAGES)
 
     accessible = set(objects)
     return [

@@ -132,6 +132,20 @@ def test_notion_keeps_only_the_points_where_access_starts(mocker):
     assert sorted(r.external_id for r in roots) == ["db-racine", "page-partagee"]
 
 
+def test_notion_pagination_stops_even_if_the_api_always_claims_more(mocker):
+    """Un `has_more` sans curseur qui avance ne doit pas boucler jusqu'au timeout du cron."""
+    request = mocker.patch.object(
+        source_inventory,
+        "notion_request",
+        return_value={"has_more": True, "next_cursor": None, "results": SEARCH_RESULTS},
+    )
+
+    roots = source_inventory.fetch_notion_roots()
+
+    assert request.call_count == source_inventory.MAX_NOTION_PAGES
+    assert sorted(r.external_id for r in roots) == ["db-racine", "page-partagee"]
+
+
 def test_notion_reads_titles_of_both_pages_and_databases(mocker):
     mocker.patch.object(source_inventory, "notion_request", return_value={"has_more": False, "results": SEARCH_RESULTS})
 
