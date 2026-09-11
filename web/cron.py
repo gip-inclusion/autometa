@@ -700,9 +700,16 @@ def _run_to_dict(run: CronRun) -> dict:
 
 def get_last_runs(slug: str | None = None) -> dict[str, dict]:
     """Latest run per app slug, without the output text."""
-    columns = (CronRun.id, CronRun.app_slug, CronRun.started_at, CronRun.finished_at, CronRun.status)
     stmt = (
-        select(*columns, CronRun.duration_ms, CronRun.trigger)
+        select(
+            CronRun.id,
+            CronRun.app_slug,
+            CronRun.started_at,
+            CronRun.finished_at,
+            CronRun.status,
+            CronRun.duration_ms,
+            CronRun.trigger,
+        )
         .distinct(CronRun.app_slug)
         .order_by(CronRun.app_slug, CronRun.started_at.desc())
     )
