@@ -53,7 +53,7 @@ async def cache_set(slug: str, result: dict) -> None:
 def run_check(source: Source) -> dict:
     try:
         ok, detail = source.check()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         # Why: chaque client tiers lève sa propre famille d'exceptions, et une sonde en échec n'emporte pas la page.
         logger.warning("Sonde %s en échec : %s", source.slug, type(exc).__name__)
         ok, detail = False, f"{type(exc).__name__} : {exc}"
