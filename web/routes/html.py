@@ -495,20 +495,34 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
     )
 
 
+def redirect_to_knowledge_file(path: str | None) -> RedirectResponse:
+    """Redirige vers une fiche existante ; tout le reste retombe sur l'index."""
+    if path and validate_knowledge_path(path):
+        return RedirectResponse(f"/knowledge/{path}", status_code=301)
+    return RedirectResponse("/knowledge", status_code=301)
+
+
 @router.get("/connaissances")
-def connaissances(
+def knowledge_legacy_redirect(request: Request, user_email: str = Depends(get_current_user)):
+    """Ancienne URL française : des liens vivent dans les messages déjà enregistrés."""
+    return RedirectResponse("/knowledge" + (f"?{request.url.query}" if request.url.query else ""), status_code=301)
+
+
+@router.get("/connaissances/{file_path:path}")
+def knowledge_file_legacy_redirect(file_path: str, user_email: str = Depends(get_current_user)):
+    return redirect_to_knowledge_file(file_path)
+
+
+@router.get("/knowledge")
+def knowledge_page(
     request: Request,
     user_email: str = Depends(get_current_user),
     file: str | None = Query(default=None),
     section_filter: str | None = Query(default=None, alias="section"),
 ):
-    """Connaissances section - knowledge file browser (index)."""
-    # Redirect old ?file= pattern to RESTful URL
+    """Navigateur de la base de connaissances."""
     if file:
-        # Validate file path contains only safe characters to prevent open redirect
-        if re.match(r"^[a-zA-Z0-9_\-./]+$", file) and ".." not in file:
-            return RedirectResponse(f"/connaissances/{file}", status_code=301)
-        return RedirectResponse("/connaissances", status_code=301)
+        return redirect_to_knowledge_file(file)
 
     data = get_sidebar_data(user_email, request)
     categories = list_knowledge_files()
@@ -519,9 +533,9 @@ def connaissances(
 
     return templates.TemplateResponse(
         request,
-        "connaissances.html",
+        "knowledge.html",
         {
-            "section": "connaissances",
+            "section": "knowledge",
             "categories": categories,
             "current_file": None,
             "file_content": None,
@@ -535,23 +549,23 @@ def connaissances(
     )
 
 
-@router.get("/connaissances/{file_path:path}")
-def connaissances_file(
+@router.get("/knowledge/{file_path:path}")
+def knowledge_file(
     file_path: str,
     request: Request,
     user_email: str = Depends(get_current_user),
     conv: str | None = Query(default=None),
 ):
-    """Connaissances section - view a specific knowledge file."""
+    """Affiche une fiche de connaissance."""
     data = get_sidebar_data(user_email, request)
 
     validated_path = validate_knowledge_path(file_path)
     if not validated_path:
         return templates.TemplateResponse(
             request,
-            "connaissances.html",
+            "knowledge.html",
             {
-                "section": "connaissances",
+                "section": "knowledge",
                 "error": "Fichier non trouvé",
                 "categories": list_knowledge_files(),
                 "active_conversations": store.list_active_knowledge_conversations(),
@@ -578,9 +592,9 @@ def connaissances_file(
 
     return templates.TemplateResponse(
         request,
-        "connaissances.html",
+        "knowledge.html",
         {
-            "section": "connaissances",
+            "section": "knowledge",
             "categories": categories,
             "current_file": file_path,
             "file_content": file_content,

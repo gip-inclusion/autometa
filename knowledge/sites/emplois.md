@@ -31,62 +31,12 @@ A candidate can apply autonomously but have eligibility validated by a prescribe
 Conversely, a prescriber-referred candidate can have eligibility validated via
 autoprescription by the SIAE.
 
-## Traffic Baselines (2025)
+## Références de trafic
 
-Data retrieved 2026-03-29 via Matomo API.
-
-### Monthly Visitor Stats
-
-| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|-----------|--------------------|-----------------:|
-| 2025-01 |         189,083 |   460,201 |              6,099 |           14,845 |
-| 2025-02 |         177,970 |   434,333 |              6,356 |           15,512 |
-| 2025-03 |         188,675 |   466,830 |              6,086 |           15,059 |
-| 2025-04 |         187,006 |   447,922 |              6,234 |           14,931 |
-| 2025-05 |         165,132 |   391,514 |              5,327 |           12,629 |
-| 2025-06 |         175,318 |   425,531 |              5,844 |           14,184 |
-| 2025-07 |         169,339 |   424,698 |              5,463 |           13,700 |
-| 2025-08 |         155,529 |   339,390 |              5,017 |           10,948 |
-| 2025-09 |         219,810 |   526,170 |              7,327 |           17,539 |
-| 2025-10 |         221,726 |   545,370 |              7,152 |           17,593 |
-| 2025-11 |         189,674 |   452,497 |              6,322 |           15,083 |
-| 2025-12 |         170,160 |   405,574 |              5,489 |           13,083 |
-
-**Typical range:** 5,017-7,327 unique visitors/day, 10,948-17,593 visits/day.
-
-### User Type Distribution (visits)
-
-| Month   |    anonymous |     employer |   itou_staff |   job_seeker | labor_inspec |   prescriber |
-|---------|--------------|--------------|--------------|--------------|--------------|--------------|
-| 2025-01 |      280,748 |       91,138 |          160 |       24,197 |          245 |       63,710 |
-| 2025-02 |      264,333 |       87,988 |           87 |       22,849 |          272 |       58,804 |
-| 2025-03 |      283,548 |       96,849 |          139 |       25,378 |          367 |       60,539 |
-| 2025-04 |      272,379 |       90,260 |          134 |       25,075 |          267 |       59,798 |
-| 2025-05 |      240,363 |       79,116 |          115 |       22,347 |          199 |       49,333 |
-| 2025-06 |      257,911 |       87,870 |          123 |       21,972 |          235 |       57,417 |
-| 2025-07 |      253,321 |       89,411 |          119 |       21,503 |          359 |       59,983 |
-| 2025-08 |      213,971 |       63,929 |           77 |       18,365 |          218 |       42,829 |
-| 2025-09 |            0 |            0 |            0 |            0 |            0 |            0 |
-| 2025-10 |      337,149 |      102,533 |          152 |       30,760 |          604 |       73,892 |
-| 2025-11 |      281,392 |       82,199 |          173 |       26,756 |          427 |       61,538 |
-| 2025-12 |      249,482 |       75,882 |          110 |       22,599 |          366 |       57,135 |
-
-### Engagement Metrics
-
-| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
-|---------|-------------|---------------|------------------|
-| 2025-01 |         23% |           9.4 |           6m 03s |
-| 2025-02 |         23% |           9.3 |           6m 10s |
-| 2025-03 |         24% |           9.1 |           6m 01s |
-| 2025-04 |         23% |           9.1 |           6m 00s |
-| 2025-05 |         24% |             9 |           5m 54s |
-| 2025-06 |         23% |             9 |           5m 56s |
-| 2025-07 |         23% |           9.2 |           6m 02s |
-| 2025-08 |         27% |           8.7 |           5m 33s |
-| 2025-09 |         26% |           8.7 |           5m 40s |
-| 2025-10 |         26% |           8.8 |           5m 44s |
-| 2025-11 |         26% |           8.8 |           5m 34s |
-| 2025-12 |         25% |             9 |           5m 38s |
+Les chiffres de trafic de ce site — visites, visiteurs, rebond, durée, répartition par type
+d'utilisateur — sont synchronisés chaque nuit dans la base applicative
+(`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
+ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
 ## Baseline Interpretations
 

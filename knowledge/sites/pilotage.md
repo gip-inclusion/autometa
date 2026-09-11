@@ -15,85 +15,12 @@ Pilotage de l'inclusion est une plateforme de tableaux de bord interne destinée
 Il s'agit d'un outil interne à faible trafic utilisé par les professionnels de l'écosystème de l'inclusion, et non d'un site web grand public.
 
 
-## Traffic Baselines (2025)
+## Références de trafic
 
-Data retrieved 2026-03-29 via Matomo API.
-
-### Monthly Visitor Stats
-
-| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|-----------|--------------------|-----------------:|
-| 2025-01 |           1,177 |     1,529 |                 38 |               49 |
-| 2025-02 |           2,218 |     2,800 |                 79 |              100 |
-| 2025-03 |           1,010 |     1,363 |                 33 |               44 |
-| 2025-04 |               - |         - |                  - |                - |
-| 2025-05 |             288 |       346 |                  9 |               11 |
-| 2025-06 |           5,731 |     6,460 |                191 |              215 |
-| 2025-07 |           1,239 |     1,572 |                 40 |               51 |
-| 2025-08 |             710 |       876 |                 23 |               28 |
-| 2025-09 |           3,226 |     3,958 |                108 |              132 |
-| 2025-10 |           1,462 |     1,905 |                 47 |               61 |
-| 2025-11 |             975 |     1,266 |                 32 |               42 |
-| 2025-12 |             686 |       921 |                 22 |               30 |
-
-**Typical range:** 9-191 unique visitors/day, 11-215 visits/day.
-
-### Engagement Metrics
-
-| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
-|---------|-------------|---------------|------------------|
-| 2025-01 |         45% |             3 |           3m 02s |
-| 2025-02 |         59% |           2.3 |           2m 25s |
-| 2025-03 |         43% |             3 |           3m 13s |
-| 2025-04 |           - |             - |                - |
-| 2025-05 |         46% |           3.1 |           2m 36s |
-| 2025-06 |         43% |           2.1 |           2m 09s |
-| 2025-07 |         51% |           2.5 |           1m 53s |
-| 2025-08 |         53% |           2.5 |           2m 09s |
-| 2025-09 |         38% |           2.4 |           2m 09s |
-| 2025-10 |         53% |           2.8 |           2m 14s |
-| 2025-11 |         52% |           2.7 |           2m 27s |
-| 2025-12 |         42% |           3.3 |           5m 38s |
-
-## Trafic de référence (2025)
-
-Données récupérées le 6 janvier 2026 via l'API Matomo.
-
-### Statistiques mensuelles de visiteurs
-
-| Mois    | Visiteurs uniques | Visites | Moy. quotidienne visiteurs | Moy. quotidienne visites |
-|---------|-------------------|---------|----------------------------|--------------------------|
-| 2025-01 |             1 177 |   1 529 |                         38 |                       49 |
-| 2025-02 |             2 218 |   2 800 |                         79 |                      100 |
-| 2025-03 |             1 010 |   1 363 |                         33 |                       44 |
-| 2025-04 |                 - |       - |                          - |                        - |
-| 2025-05 |               288 |     346 |                          9 |                       11 |
-| 2025-06 |             5 731 |   6 460 |                        191 |                      215 |
-| 2025-07 |             1 239 |   1 572 |                         40 |                       51 |
-| 2025-08 |               710 |     876 |                         23 |                       28 |
-| 2025-09 |             3 226 |   3 958 |                        108 |                      132 |
-| 2025-10 |             1 462 |   1 905 |                         47 |                       61 |
-| 2025-11 |               975 |   1 266 |                         32 |                       42 |
-| 2025-12 |               686 |     921 |                         22 |                       30 |
-
-**Fourchette typique :** 9-191 visiteurs uniques/jour, 11-215 visites/jour.
-
-### Métriques d'engagement
-
-| Mois    | Taux de rebond | Actions/visite | Temps moyen sur le site |
-|---------|----------------|----------------|-------------------------|
-| 2025-01 |            45% |              3 |                  3m 02s |
-| 2025-02 |            59% |            2,3 |                  2m 25s |
-| 2025-03 |            43% |              3 |                  3m 13s |
-| 2025-04 |              - |              - |                       - |
-| 2025-05 |            46% |            3,1 |                  2m 36s |
-| 2025-06 |            43% |            2,1 |                  2m 09s |
-| 2025-07 |            51% |            2,5 |                  1m 53s |
-| 2025-08 |            53% |            2,5 |                  2m 09s |
-| 2025-09 |            38% |            2,4 |                  2m 09s |
-| 2025-10 |            53% |            2,8 |                  2m 14s |
-| 2025-11 |            52% |            2,7 |                  2m 27s |
-| 2025-12 |            42% |            3,3 |                  5m 38s |
+Les chiffres de trafic de ce site — visites, visiteurs, rebond, durée, répartition par type
+d'utilisateur — sont synchronisés chaque nuit dans la base applicative
+(`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
+ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
 ## Dimensions personnalisées
 
