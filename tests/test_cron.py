@@ -33,7 +33,7 @@ from web.cron import (
     set_cron_enabled,
 )
 from web.database import get_db
-from web.models import Dashboard, DashboardPublication
+from web.models import CronRun, Dashboard, DashboardPublication
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -284,23 +284,50 @@ def test_get_last_runs_empty(interactive_dir, db_setup):
     assert get_last_runs() == {}
 
 
-def test_get_last_runs_returns_latest(interactive_dir, db_setup):
+def test_get_last_runs_returns_latest_per_slug(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "multi-app", cron_script="print('run')")
+    create_interactive_app(interactive_dir, "other-app", cron_script="print('other')")
     run_cron_task("multi-app")
+    run_cron_task("other-app")
+    latest = run_cron_task("multi-app")
+
+    runs = get_last_runs()
+    assert set(runs) == {"multi-app", "other-app"}
+    assert runs["multi-app"]["started_at"] == latest["started_at"]
+    assert runs["multi-app"]["status"] == "success"
+    assert "output" not in runs["multi-app"]
+
+
+def test_get_last_runs_breaks_a_started_at_tie_on_the_highest_id(db_setup):
+    """Deux runs à la même microseconde : DISTINCT ON choisirait au hasard sans départage."""
+    started = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    with get_db() as session:
+        for status in ("failure", "success"):
+            session.add(CronRun(app_slug="tie-app", started_at=started, finished_at=started, status=status))
+
+    assert get_last_runs()["tie-app"]["status"] == "success"
+
+
+def test_the_cron_runs_index_serves_the_latest_run_order(db_setup):
+    """L'index porte started_at DESC : l'ordre de get_last_runs se lit sans tri."""
+    with get_db() as session:
+        indexdef = session.scalar(
+            text("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_cron_runs_slug_started'")
+        )
+
+    assert "started_at DESC" in indexdef
+
+
+def test_get_last_runs_filters_by_slug(interactive_dir, db_setup):
+    create_interactive_app(interactive_dir, "multi-app", cron_script="print('run')")
+    create_interactive_app(interactive_dir, "other-app", cron_script="print('other')")
     run_cron_task("multi-app")
+    run_cron_task("other-app")
 
-    runs = get_last_runs(limit_per_app=1)
-    assert "multi-app" in runs
-    assert len(runs["multi-app"]) == 1
-
-
-def test_get_last_runs_limit_per_app(interactive_dir, db_setup):
-    create_interactive_app(interactive_dir, "many-app", cron_script="print('x')")
-    for _ in range(5):
-        run_cron_task("many-app")
-
-    runs = get_last_runs(limit_per_app=3)
-    assert len(runs["many-app"]) == 3
+    runs = get_last_runs(slug="other-app")
+    assert set(runs) == {"other-app"}
+    assert runs["other-app"]["status"] == "success"
+    assert get_last_runs(slug="missing") == {}
 
 
 def test_get_app_runs_empty(interactive_dir, db_setup):

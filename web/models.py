@@ -272,7 +272,9 @@ class CronRun(Base):
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     trigger: Mapped[str] = mapped_column(Text, nullable=False, default="scheduled")
 
-    __table_args__ = (Index("idx_cron_runs_slug_started", "app_slug", "started_at"),)
+    # Why: get_last_runs lit le dernier run par slug (DISTINCT ON … started_at DESC) — un btree ASC
+    # oblige Postgres à trier ; la migration a1b2c3d4e5f6 avait perdu ce DESC du schéma initial.
+    __table_args__ = (Index("idx_cron_runs_slug_started", "app_slug", text("started_at DESC")),)
 
 
 class PinnedItem(Base):
