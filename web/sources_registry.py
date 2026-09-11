@@ -172,6 +172,20 @@ def all_sources() -> list[Source]:
             inventory=partial(last_inventory_success, "notion"),
         ),
         Source(
+            slug="datadog",
+            doc="skills/datadog_logs/SKILL.md",
+            name="Datadog Logs",
+            group=CONNECTEURS,
+            blurb=(
+                "Logs applicatifs des services en production : URL réellement appelées, "
+                "paramètres de filtre, vues Django, utilisateur connecté. Rétention 30 jours."
+            ),
+            icon="ri-file-list-3-line",
+            skill="datadog_logs",
+            check=source_checks.check_datadog,
+            configured=lambda: bool(config.DATADOG_API_KEY and config.DATADOG_APP_KEY),
+        ),
+        Source(
             slug="tally",
             name="Tally",
             group=CONNECTEURS,
