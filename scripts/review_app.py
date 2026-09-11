@@ -124,6 +124,25 @@ def deployed_ref(entry):
     return deployment["git_ref"]
 
 
+def web_container_amount(client, bearer, app_name):
+    """Le nombre de conteneurs web en ligne : `last_deployment` seul ne dit pas si `stop` a scalé à zéro."""
+    response = client.get(f"{API_URL}/apps/{app_name}/containers", headers=headers(bearer), timeout=TIMEOUT)
+    response.raise_for_status()
+    for container in response.json()["containers"]:
+        if container["name"] == "web":
+            return container["amount"]
+    return 0
+
+
+def scale(client, bearer, app_name, amount):
+    return client.post(
+        f"{API_URL}/apps/{app_name}/scale",
+        headers=headers(bearer),
+        json={"containers": [{"name": "web", "amount": amount}]},
+        timeout=TIMEOUT,
+    )
+
+
 def ensure(client, bearer, parent_app, pr_number, sha):
     """Amène la review app de la PR à l'état voulu, quel que soit l'état constaté."""
     if not scm_repo_link(client, bearer, parent_app)["delete_on_close_enabled"]:
@@ -131,7 +150,11 @@ def ensure(client, bearer, parent_app, pr_number, sha):
 
     entry = find_review_app(client, bearer, parent_app, pr_number)
     if entry and deployed_ref(entry) == sha:
-        return {"action": "noop", "app": entry["app_name"], "url": app_url(entry["app_name"])}
+        name = entry["app_name"]
+        if web_container_amount(client, bearer, name) > 0:
+            return {"action": "noop", "app": name, "url": app_url(name)}
+        scale(client, bearer, name, 1).raise_for_status()
+        return {"action": "started", "app": name, "url": app_url(name)}
 
     action = "updated"
     if entry is None:
@@ -151,12 +174,7 @@ def stop(client, bearer, parent_app, pr_number):
     if entry is None:
         return {"action": "absent", "app": None}
     name = entry["app_name"]
-    response = client.post(
-        f"{API_URL}/apps/{name}/scale",
-        headers=headers(bearer),
-        json={"containers": [{"name": "web", "amount": 0}]},
-        timeout=TIMEOUT,
-    )
+    response = scale(client, bearer, name, 0)
     if response.status_code == 404:
         return {"action": "absent", "app": name}
     response.raise_for_status()

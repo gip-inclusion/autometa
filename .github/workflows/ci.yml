@@ -2,14 +2,14 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches: [main]
   schedule:
     - cron: '0 6 * * 1'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'code' }}
   cancel-in-progress: true
 
 permissions:
@@ -263,6 +263,7 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
       && github.event.pull_request.user.login != 'dependabot[bot]'
+      && contains(github.event.pull_request.labels.*.name, 'review-app')
     runs-on: ubuntu-latest
     environment: review-app
     permissions:
@@ -293,9 +294,10 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.state) \(.draft)"')
-          if [ "$pr" != "open false" ]; then
-            echo "PR #$PR est '$pr' : le teardown a déjà pu passer, on ne crée rien."
+          pr=$(gh api "repos/$REPO/pulls/$PR" \
+            --jq '"\(.state) \(.draft) \(any(.labels[]; .name == "review-app"))"')
+          if [ "$pr" != "open false true" ]; then
+            echo "PR #$PR est '$pr' (état, draft, label) : le teardown a déjà pu passer, on ne crée rien."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
