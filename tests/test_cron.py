@@ -308,6 +308,16 @@ def test_get_last_runs_breaks_a_started_at_tie_on_the_highest_id(db_setup):
     assert get_last_runs()["tie-app"]["status"] == "success"
 
 
+def test_the_cron_runs_index_serves_the_latest_run_order(db_setup):
+    """L'index porte started_at DESC : l'ordre de get_last_runs se lit sans tri."""
+    with get_db() as session:
+        indexdef = session.scalar(
+            text("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_cron_runs_slug_started'")
+        )
+
+    assert "started_at DESC" in indexdef
+
+
 def test_get_last_runs_filters_by_slug(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "multi-app", cron_script="print('run')")
     create_interactive_app(interactive_dir, "other-app", cron_script="print('other')")
