@@ -4,9 +4,11 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 from hook_env import is_server, ruff_base
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCOPE = ["web/", "lib/", "tests/", "scripts/"]
 
 
@@ -22,7 +24,7 @@ def commands():
 def failing_checks(run=subprocess.run):
     failures = []
     for cmd, label in commands():
-        proc = run(cmd, capture_output=True, text=True)
+        proc = run(cmd, capture_output=True, text=True, cwd=REPO_ROOT)
         if proc.returncode != 0:
             failures.append((label, (proc.stdout + proc.stderr).strip()))
     return failures

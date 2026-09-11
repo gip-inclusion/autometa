@@ -8,7 +8,8 @@ from pathlib import Path
 
 # Why: hook autonome lancé hors package — la racine du dépôt doit être sur sys.path
 # pour partager web/environment.py (stdlib uniquement) avec l'application.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
 
 from lib.facade_imports import FACADE, facade_violations  # noqa: E402
 from web.environment import Environment  # noqa: E402
@@ -108,7 +109,8 @@ if __name__ == "__main__":
     if not path:
         sys.exit(0)
     code = tool_input.get("content") or tool_input.get("new_string") or ""
-    msg = verdict(path, os.getcwd(), os.environ) or facade_verdict(path, code, os.getcwd())
+    # Why: le cwd du CLI n'est pas la racine du dépôt (session ouverte ailleurs) — le hook, lui, y vit.
+    msg = verdict(path, REPO_ROOT, os.environ) or facade_verdict(path, code, REPO_ROOT)
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)

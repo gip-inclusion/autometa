@@ -1,6 +1,7 @@
 """Tests for the guard_write_paths.py pre-tool-use hook."""
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -137,6 +138,25 @@ def test_main_protocol_exit_codes(stdin_payload, env_value, expected_exit, tmp_p
         timeout=10,
     )
     assert result.returncode == expected_exit
+
+
+def test_the_repo_root_is_the_hook_location_not_the_cwd(tmp_path):
+    """Depuis un autre cwd, data/ du dépôt reste autorisé : la racine ne se déduit pas du cwd."""
+    env = dict(os.environ, AUTOMETA_ENV="prod")  # noqa: TID251
+    env.pop("DATABASE_URL", None)
+    allowed = _HOOK_PATH.parents[2] / "data" / "cache" / "x.json"
+
+    result = subprocess.run(
+        [sys.executable, str(_HOOK_PATH)],
+        input=json.dumps({"tool_input": {"file_path": str(allowed)}}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 CONFORMING = "from lib.dashboard_api import query_matomo\n"
