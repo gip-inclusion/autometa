@@ -10,6 +10,7 @@ from lib.source_inventory import list_inventory
 
 from .db import get_db
 from .models import MatomoDimension, MatomoEvent, MatomoSegment
+from .source_checks import redact
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def autometa_tables_catalog(search: str = "") -> Inventory:
     # Le catalogue ne porte pas de schéma, et le déduire des jeux de colonnes n'en résout que 26 sur 71.
     result = execute_autometa_tables_query(CATALOG_SQL, caller=CallerType.APP)
     if not result.success:
-        return Inventory(kind="catalog", groups=[], total=0, error=result.error or "catalogue illisible")
+        return Inventory(kind="catalog", groups=[], total=0, error=redact(result.error or "catalogue illisible"))
 
     needle = search.strip().lower()
     tables: dict[int, dict] = {}

@@ -79,6 +79,20 @@ def test_catalog_reports_an_unreachable_source_without_raising(mocker):
     assert inventory.groups == []
 
 
+def test_catalog_error_never_carries_credentials(mocker):
+    """L'erreur SQLAlchemy brute cite la DSN complète : elle est caviardée comme celle des sondes."""
+    mocker.patch.object(
+        source_inventories,
+        "execute_autometa_tables_query",
+        return_value=catalog_result(success=False, error="OperationalError: postgresql://app:motdepasse@db/tables"),
+    )
+
+    error = autometa_tables_catalog().error
+
+    assert "motdepasse" not in error
+    assert "://***@" in error
+
+
 @pytest.mark.parametrize("slug", ["s3", "slack", "rpe", "metabase-stats", "inexistante"])
 def test_sources_without_an_inventory_return_none(slug):
     assert inventory_for(slug) is None
