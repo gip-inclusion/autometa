@@ -14,6 +14,7 @@ from web.models import UploadedFile as FileModel
 VALID_CONVERSATION_COLUMNS = frozenset({
     "title",
     "session_id",
+    "engine_state",
     "user_id",
     "status",
     "pr_url",
@@ -172,6 +173,7 @@ class Conversation:
     user_id: Optional[str] = None
     title: Optional[str] = None
     session_id: Optional[str] = None
+    engine_state: Optional[dict] = None
     conv_type: str = "exploration"
     file_path: Optional[str] = None
     status: str = "active"
@@ -302,6 +304,7 @@ def conv_with_report_row(row, report_id, report_title) -> Conversation:
         user_id=row.user_id,
         title=row.title,
         session_id=row.session_id,
+        engine_state=row.engine_state,
         conv_type=row.conv_type or "exploration",
         file_path=row.file_path,
         status=row.status or "active",

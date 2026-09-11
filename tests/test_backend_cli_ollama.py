@@ -1,14 +1,22 @@
 """Tests specific to the cli-ollama backend."""
 
+import pytest
 
-def test_build_env_sets_ollama_vars():
-    from web.agents.cli_ollama import CLIOllamaBackend
+from web.agents.cli_ollama import CLIOllamaBackend
 
-    backend = CLIOllamaBackend()
-    env = backend._build_env()
 
-    assert env["ANTHROPIC_BASE_URL"] == "http://localhost:11434"
-    assert env["ANTHROPIC_AUTH_TOKEN"] == "ollama"
+@pytest.mark.parametrize(
+    "api_key, expected_token",
+    [("sk-abc", "sk-abc"), ("", "ollama")],
+)
+def test_build_env_uses_configured_api_key(mocker, api_key, expected_token):
+    mock_config = mocker.patch("web.agents.cli_ollama.config")
+    mock_config.OLLAMA_BASE_URL = "https://ollama.com"
+    mock_config.OLLAMA_API_KEY = api_key
+    env = CLIOllamaBackend()._build_env()
+
+    assert env["ANTHROPIC_BASE_URL"] == "https://ollama.com"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == expected_token
     assert env["ANTHROPIC_API_KEY"] == ""
 
 
