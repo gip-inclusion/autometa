@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from lib.datadog import DatadogClient, by_count, day_windows  # noqa: E402
+from lib.datadog import DatadogClient, by_count, day_windows, window  # noqa: E402
 
 DEFAULT_FIELDS = [
     "http.url",
@@ -54,7 +54,7 @@ def dump(client: DatadogClient, args) -> dict:
 
 
 def aggregate(client: DatadogClient, args) -> list[dict]:
-    frm, to = f"now-{args.days}d", "now"
+    frm, to = window(args.days)
     compute = [{"aggregation": "count"}]
     if args.distinct:
         compute.append({"aggregation": "cardinality", "metric": args.distinct})
@@ -90,13 +90,13 @@ def main() -> None:
         elif args.group_by:
             result = aggregate(client, args)
         elif args.search:
-            frm, to = f"now-{args.days}d", "now"
+            frm, to = window(args.days)
             result = [
                 pluck(event, args.field or DEFAULT_FIELDS)
                 for event in client.iter_events(args.query, frm, to, max_events=args.limit)
             ]
         else:
-            result = client.count(args.query, f"now-{args.days}d", "now", distinct=args.distinct)
+            result = client.count(args.query, *window(args.days), distinct=args.distinct)
 
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")

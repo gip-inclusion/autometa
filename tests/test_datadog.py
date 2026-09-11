@@ -3,7 +3,16 @@
 import httpx
 import pytest
 
-from lib.datadog import BURST, RETENTION_DAYS, DatadogClient, DatadogError, RateLimiter, by_count, day_windows
+from lib.datadog import (
+    BURST,
+    RETENTION_DAYS,
+    DatadogClient,
+    DatadogError,
+    RateLimiter,
+    by_count,
+    day_windows,
+    window,
+)
 
 
 def make_client(mocker, responses):
@@ -57,9 +66,15 @@ def test_day_windows_covers_the_requested_depth(days):
     assert windows[-1] == ("now-1d", "now-0d")
 
 
-def test_day_windows_refuses_to_ask_beyond_retention():
+def test_window_spans_the_requested_depth_up_to_now():
+    assert window(7) == ("now-7d", "now")
+
+
+@pytest.mark.parametrize("build", [window, day_windows])
+def test_windows_refuse_to_ask_beyond_retention(build):
+    """Au-delà de 30 jours Datadog renvoie le total à 30 jours : mieux vaut refuser que mentir."""
     with pytest.raises(DatadogError, match="30 jours"):
-        day_windows(RETENTION_DAYS + 1)
+        build(RETENTION_DAYS + 1)
 
 
 def test_day_windows_groups_days_into_chunks():

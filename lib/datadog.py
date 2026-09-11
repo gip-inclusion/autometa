@@ -154,8 +154,14 @@ def by_count(facet: str, limit: int = 50) -> dict:
     return {"facet": facet, "limit": limit, "sort": {"aggregation": "count", "order": "desc", "type": "measure"}}
 
 
-def day_windows(days: int, chunk: int = 1) -> list[tuple[str, str]]:
-    """Découpe une fenêtre en tranches `now-Xd`, du plus ancien au plus récent."""
+def window(days: int) -> tuple[str, str]:
+    """Fenêtre `now-Xd` → `now`, refusée au-delà de la rétention plutôt que de renvoyer un total tronqué."""
     if days > RETENTION_DAYS:
         raise DatadogError(f"Rétention Datadog : {RETENTION_DAYS} jours maximum (demandé : {days})")
+    return f"now-{days}d", "now"
+
+
+def day_windows(days: int, chunk: int = 1) -> list[tuple[str, str]]:
+    """Découpe une fenêtre en tranches `now-Xd`, du plus ancien au plus récent."""
+    window(days)
     return [(f"now-{start}d", f"now-{max(start - chunk, 0)}d") for start in range(days, 0, -chunk)]
