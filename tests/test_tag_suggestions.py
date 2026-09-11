@@ -160,19 +160,35 @@ def test_run_drops_hallucinated_tags(db, mocker):
     assert _stored("halluc")[0][1] == ["territoire"]
 
 
-def test_run_counts_llm_failures_without_crashing(db, mocker):
+def test_run_counts_llm_failures_without_crashing(db, mocker, caplog):
     from web.llm_errors import LLMError
 
     with get_db() as session:
         _tag(session, "territoire", "usage")
         _dashboard(session, slug="ko")
 
-    mocker.patch("web.llm.generate_text", side_effect=LLMError("boom"))
+    mocker.patch("web.llm.generate_text", side_effect=LLMError("Claude CLI timed out"))
 
     result = run(object_type="dashboard", limit=10, model="test-model")
 
     assert result["failed"] >= 1
     assert result["processed"] == 0
+    assert "Claude CLI timed out" in caplog.text
+
+
+def test_run_truncates_the_llm_error_before_logging_it(db, mocker, caplog):
+    """Le stderr du CLI peut ré-émettre le prompt, donc des extraits de conversations : jamais en entier."""
+    from web.llm_errors import LLMError
+
+    with get_db() as session:
+        _tag(session, "territoire", "usage")
+        _dashboard(session, slug="ko")
+    mocker.patch("web.llm.generate_text", side_effect=LLMError("stderr " + "x" * 1000))
+
+    run(object_type="dashboard", limit=10, model="test-model")
+
+    assert "stderr " + "x" * 193 in caplog.text
+    assert "x" * 194 not in caplog.text
 
 
 def test_run_refuses_when_vocabulary_empty(db, mocker):

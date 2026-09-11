@@ -9,14 +9,15 @@ from web import alerts, config
 def slack_configured(monkeypatch):
     monkeypatch.setattr(config, "SLACK_BOT_TOKEN", "tok")
     monkeypatch.setattr(config, "SLACK_ALERT_CHANNEL", "C0TEST")
+    monkeypatch.setattr(config, "APP_NAME", "autometa-staging")
 
 
-def test_notify_alert_channel_posts_to_configured_channel(mocker, slack_configured):
+def test_notify_alert_channel_posts_to_configured_channel_naming_the_app(mocker, slack_configured):
     post = mocker.patch("web.alerts.post_message", return_value=True)
 
     alerts.notify_alert_channel("hello world")
 
-    post.assert_called_once_with("tok", "C0TEST", "hello world")
+    post.assert_called_once_with("tok", "C0TEST", "[autometa-staging] hello world")
 
 
 @pytest.mark.parametrize("token,channel", [("", "C0TEST"), ("tok", "")])
