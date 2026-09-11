@@ -41,12 +41,11 @@ def dump(client: DatadogClient, args) -> dict:
         frm, to = window
         return [pluck(event, fields) for event in client.iter_events(args.query, frm, to)]
 
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        batches = list(pool.map(fetch, windows))
-
+    # Why: écrire chaque tranche dès qu'elle arrive borne la mémoire et laisse un fichier exploitable
+    # si une tranche échoue après un quart d'heure de quota consommé.
     total = 0
-    with out.open("w") as handle:
-        for batch in batches:
+    with out.open("w") as handle, ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for batch in pool.map(fetch, windows):
             for row in batch:
                 handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
                 total += 1
@@ -72,8 +71,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Lire les logs Datadog (lecture seule).")
     ap.add_argument("--query", required=True, help="filtre Datadog, ex. 'service:itou-prod @http.method:GET'")
     ap.add_argument("--days", type=int, default=7, help="profondeur en jours (rétention : 30 max)")
-    ap.add_argument("--count", action="store_true", help="nombre d'événements")
-    ap.add_argument("--distinct", metavar="FACETTE", help="cardinalité d'une facette, ex. @usr.id")
+    ap.add_argument("--distinct", metavar="FACETTE", help="cardinalité d'une facette (par défaut : comptage)")
     ap.add_argument("--search", action="store_true", help="échantillon d'événements bruts")
     ap.add_argument("--limit", type=int, default=10, help="taille de l'échantillon --search")
     ap.add_argument("--group-by", action="append", default=[], metavar="FACETTE", help="agréger par facette")
