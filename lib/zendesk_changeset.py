@@ -86,7 +86,8 @@ def plan(
     write_json(f"{prefix}/before.json.gz", before)
     write_json(f"{prefix}/after.json.gz", after)
     diff = "\n".join(article_diff(before[str(e["id"])], after[str(e["id"])], e) for e in entries)
-    s3.zendesk.upload(f"{prefix}/diff.md", f"# {label}\n\n{diff}".encode(), "text/markdown; charset=utf-8")
+    header = "\n".join(f"- {k} : {v!r}" for k, v in (params or {}).items())
+    s3.zendesk.upload(f"{prefix}/diff.md", f"# {label}\n\n{header}\n\n{diff}".encode(), "text/markdown; charset=utf-8")
     write_json(f"{prefix}/manifest.json", manifest)
     return {**manifest, "diff_url": s3.zendesk.get_url(f"{prefix}/diff.md", expires_in=86400)}
 
@@ -166,6 +167,7 @@ def write_guarded(api: ZendeskAPI, ids: list[str], expected: dict, target: dict,
             if (current.title, current.body) != (expected[article_id]["title"], expected[article_id]["body"]):
                 report["skipped"].append({
                     "id": int(article_id),
+                    "title": expected[article_id]["title"],
                     "reason": "modifié entre-temps",
                     "expected_updated_at": expected[article_id].get("updated_at"),
                     "updated_at": current.updated_at,
@@ -175,7 +177,7 @@ def write_guarded(api: ZendeskAPI, ids: list[str], expected: dict, target: dict,
             report["written"][article_id] = content(stored)
         except ZendeskError as exc:
             logger.warning("Zendesk article %s skipped: %s", article_id, exc)
-            report["errors"].append({"id": int(article_id), "error": str(exc)})
+            report["errors"].append({"id": int(article_id), "title": expected[article_id]["title"], "error": str(exc)})
         write_json(report_path, report)
     return report
 

@@ -65,7 +65,7 @@ cs.show(changeset_id) ; cs.list_changesets()
 **Déroulé imposé dans une conversation :**
 
 1. Lire, construire la transformation, appeler `plan` ou `replace`. Aucune écriture Zendesk.
-2. Terminer le tour par la relecture. Article seul : le diff complet dans un bloc de code. Batch : tableau des articles touchés (titre, URL, lignes modifiées), trois diffs représentatifs, le lien `diff_url`, et le nombre d'articles parcourus. Terminer par l'identifiant du changeset et une proposition de phrase pour appliquer.
+2. Terminer le tour par la relecture. Article seul : le diff complet dans un bloc de code. Batch : tableau des articles touchés (titre, URL, lignes modifiées), trois diffs représentatifs, le lien `diff_url`, le nombre d'articles parcourus, le mode de recherche (littéral ou expression régulière, `params`), et `markup_hits` s'il y en a. Terminer par l'identifiant du changeset et une proposition de phrase pour appliquer.
 3. **Ne jamais appeler `apply` dans le tour qui a produit le `plan`.** Attendre un message de l'utilisateur qui valide explicitement — le format est libre, l'intention doit être sans ambiguïté. Si plusieurs changesets sont en jeu, l'identifiant lève le doute.
 4. Après `apply`, rendre compte : écrits, sautés (« modifié entre-temps », avec titre), erreurs, et rappeler qu'un `revert` est possible avec l'identifiant.
 
