@@ -63,12 +63,12 @@ class DatadogClient:
         if not self.api_key or not self.app_key:
             raise DatadogError("DATADOG_API_KEY / DATADOG_APP_KEY not set")
         self.site = site or config.DATADOG_SITE
-        self.timeout = timeout
         self.limiter = limiter or RateLimiter()
         self._session = httpx.Client(
             base_url=f"https://api.{self.site}/api/v2",
             headers={"DD-API-KEY": self.api_key, "DD-APPLICATION-KEY": self.app_key},
             transport=httpx.HTTPTransport(retries=2),
+            timeout=timeout,
         )
 
     def close(self) -> None:
@@ -85,7 +85,7 @@ class DatadogClient:
         for attempt in range(MAX_ATTEMPTS):
             self.limiter.acquire()
             try:
-                response = self._session.post(path, json=payload, timeout=self.timeout)
+                response = self._session.post(path, json=payload)
             except httpx.RequestError as exc:
                 raise DatadogError(f"Datadog unreachable: {exc}") from exc
             if response.status_code in RETRYABLE_STATUS:
