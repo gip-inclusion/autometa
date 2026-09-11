@@ -8,7 +8,7 @@ from sqlalchemy import select
 from web.config import ADMIN_USERS
 from web.database import store
 from web.db import get_db
-from web.models import CronRun, Dashboard, DashboardPublication
+from web.models import CronRun, Dashboard, DashboardPublication, DashboardTag, Tag
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -615,6 +615,38 @@ def test_published_view_groups_publications_prod_first(client, mocker):
     assert r.text.count("env-pill-prod") == 1
     assert r.text.count("env-pill-staging") == 1
     assert r.text.index("env-pill-prod") < r.text.index("env-pill-staging")
+
+
+def _tag_dashboard(slug, tag_name):
+    with get_db() as session:
+        tag = session.scalar(select(Tag).where(Tag.name == tag_name))
+        if tag is None:
+            tag = Tag(name=tag_name, type="usage", label=tag_name, active=True)
+            session.add(tag)
+            session.flush()
+        session.add(DashboardTag(dashboard_slug=slug, tag_id=tag.id))
+
+
+def test_published_view_offers_facets_and_filters_by_tag(client, mocker):
+    _mock_publish_s3(mocker)
+    _make_dashboard("pubv-territoire", title="TDB Territoire")
+    _make_dashboard("pubv-autre", title="TDB Autre")
+    _make_dashboard("pubv-brouillon", title="TDB Brouillon")
+    _tag_dashboard("pubv-territoire", "territoire")
+    _tag_dashboard("pubv-brouillon", "territoire")
+    _tag_dashboard("pubv-autre", "siae")
+    for slug in ("pubv-territoire", "pubv-autre"):
+        client.post(f"/api/dashboards/{slug}/publish", json={"environment": "staging"}, headers=_h())
+
+    r = client.get("/dashboards?view=published", headers=_h())
+    assert 'data-tag="territoire"' in r.text
+    assert "TDB Territoire" in r.text and "TDB Autre" in r.text
+
+    r = client.get("/dashboards?view=published&tag=territoire", headers=_h())
+    assert r.status_code == 200
+    assert "TDB Territoire" in r.text
+    assert "TDB Autre" not in r.text
+    assert "TDB Brouillon" not in r.text
 
 
 def test_published_view_empty_state(client):
