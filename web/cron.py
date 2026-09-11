@@ -711,7 +711,7 @@ def get_last_runs(slug: str | None = None) -> dict[str, dict]:
             CronRun.trigger,
         )
         .distinct(CronRun.app_slug)
-        .order_by(CronRun.app_slug, CronRun.started_at.desc())
+        .order_by(CronRun.app_slug, CronRun.started_at.desc(), CronRun.id.desc())
     )
     if slug:
         stmt = stmt.where(CronRun.app_slug == slug)

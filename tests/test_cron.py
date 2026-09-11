@@ -33,7 +33,7 @@ from web.cron import (
     set_cron_enabled,
 )
 from web.database import get_db
-from web.models import Dashboard, DashboardPublication
+from web.models import CronRun, Dashboard, DashboardPublication
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -298,13 +298,25 @@ def test_get_last_runs_returns_latest_per_slug(interactive_dir, db_setup):
     assert "output" not in runs["multi-app"]
 
 
+def test_get_last_runs_breaks_a_started_at_tie_on_the_highest_id(db_setup):
+    """Deux runs à la même microseconde : DISTINCT ON choisirait au hasard sans départage."""
+    started = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    with get_db() as session:
+        for status in ("failure", "success"):
+            session.add(CronRun(app_slug="tie-app", started_at=started, finished_at=started, status=status))
+
+    assert get_last_runs()["tie-app"]["status"] == "success"
+
+
 def test_get_last_runs_filters_by_slug(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "multi-app", cron_script="print('run')")
     create_interactive_app(interactive_dir, "other-app", cron_script="print('other')")
     run_cron_task("multi-app")
     run_cron_task("other-app")
 
-    assert set(get_last_runs(slug="other-app")) == {"other-app"}
+    runs = get_last_runs(slug="other-app")
+    assert set(runs) == {"other-app"}
+    assert runs["other-app"]["status"] == "success"
     assert get_last_runs(slug="missing") == {}
 
 
