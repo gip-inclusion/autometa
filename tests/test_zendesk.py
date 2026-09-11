@@ -9,6 +9,7 @@ from lib.zendesk import (
     TicketResult,
     ZendeskAPI,
     ZendeskError,
+    article_id_from_url,
     parse_retry_after,
 )
 
@@ -68,7 +69,7 @@ def test_get_ticket_parses_payload(api_no_signal, mocker):
             "tags": ["bug", "emplois"],
         }
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     ticket = api_no_signal.get_ticket(42)
 
@@ -80,7 +81,7 @@ def test_get_ticket_parses_payload(api_no_signal, mocker):
 
 @pytest.mark.parametrize("status", [400, 403, 404, 500, 502])
 def test_get_raises_zendesk_error_on_http_error(api_no_signal, mocker, status):
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, status_code=status))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, status_code=status))
 
     with pytest.raises(ZendeskError) as exc:
         api_no_signal.get_ticket(999)
@@ -115,7 +116,7 @@ def test_get_ticket_comments_uses_sideloaded_roles(api_no_signal, mocker):
             },
         ],
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     comments = api_no_signal.get_ticket_comments(42)
 
@@ -131,7 +132,7 @@ def test_get_ticket_comments_unknown_role_stays_none(api_no_signal, mocker):
             {"id": 1, "author_id": 1, "plain_body": "x", "html_body": "", "public": True, "created_at": "t"},
         ],
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     comments = api_no_signal.get_ticket_comments(42)
 
@@ -151,7 +152,7 @@ def test_first_user_reply_returns_user_after_agent(api_no_signal, mocker):
             {"id": 3, "author_id": 1, "plain_body": "Clarif", "html_body": "", "public": True, "created_at": "t3"},
         ],
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     reply = api_no_signal.first_user_reply(42)
 
@@ -166,7 +167,7 @@ def test_first_user_reply_returns_none_when_no_agent(api_no_signal, mocker):
             {"id": 1, "author_id": 1, "plain_body": "Hello", "html_body": "", "public": True, "created_at": "t1"},
         ],
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     assert api_no_signal.first_user_reply(42) is None
 
@@ -200,7 +201,7 @@ def test_iter_tickets_continues_on_per_ticket_error(api_no_signal, mocker):
         _mock_response(mocker, json_data=_ticket_payload(1)),
         _mock_response(mocker, status_code=404),
     ]
-    mocker.patch.object(api_no_signal._client, "get", side_effect=responses)
+    mocker.patch.object(api_no_signal._client, "request", side_effect=responses)
 
     results = list(api_no_signal.iter_tickets([1, 2]))
 
@@ -218,7 +219,7 @@ def test_iter_tickets_with_comments_returns_both(api_no_signal, mocker):
         _mock_response(mocker, json_data=_ticket_payload(1)),
         _mock_response(mocker, json_data=_comments_payload()),
     ]
-    mocker.patch.object(api_no_signal._client, "get", side_effect=responses)
+    mocker.patch.object(api_no_signal._client, "request", side_effect=responses)
 
     results = list(api_no_signal.iter_tickets([1], with_comments=True))
 
@@ -234,24 +235,24 @@ def test_get_retries_on_rate_limit(api_no_signal, mocker):
         _mock_response(mocker, status_code=429, headers={"Retry-After": "1"}),
         _mock_response(mocker, json_data=_ticket_payload(1)),
     ]
-    mocker.patch.object(api_no_signal._client, "get", side_effect=responses)
+    mocker.patch.object(api_no_signal._client, "request", side_effect=responses)
 
     ticket = api_no_signal.get_ticket(1)
 
     assert ticket.id == 1
-    assert api_no_signal._client.get.call_count == 2
+    assert api_no_signal._client.request.call_count == 2
 
 
 def test_get_raises_after_max_429_retries(api_no_signal, mocker):
     """After _MAX_429_RETRIES persistent 429s, the client must give up — no infinite recursion."""
     responses = [_mock_response(mocker, status_code=429, headers={"Retry-After": "1"}) for _ in range(10)]
-    mocker.patch.object(api_no_signal._client, "get", side_effect=responses)
+    mocker.patch.object(api_no_signal._client, "request", side_effect=responses)
 
     with pytest.raises(ZendeskError) as exc:
         api_no_signal.get_ticket(1)
 
     assert exc.value.status_code == 429
-    assert api_no_signal._client.get.call_count == 4
+    assert api_no_signal._client.request.call_count == 4
 
 
 def test_429_uses_retry_after_value(api_no_signal, mocker):
@@ -260,7 +261,7 @@ def test_429_uses_retry_after_value(api_no_signal, mocker):
         _mock_response(mocker, status_code=429, headers={"Retry-After": "7"}),
         _mock_response(mocker, json_data=_ticket_payload(1)),
     ]
-    mocker.patch.object(api_no_signal._client, "get", side_effect=responses)
+    mocker.patch.object(api_no_signal._client, "request", side_effect=responses)
 
     api_no_signal.get_ticket(1)
 
@@ -287,7 +288,7 @@ def test_get_emits_api_signal_on_success(api, mocker):
     emit = mocker.patch("lib.zendesk.emit_api_signal")
     mocker.patch.object(
         api._client,
-        "get",
+        "request",
         return_value=_mock_response(
             mocker,
             json_data=_ticket_payload(1),
@@ -306,7 +307,7 @@ def test_get_emits_api_signal_on_success(api, mocker):
 
 def test_get_does_not_emit_signal_on_error(api, mocker):
     emit = mocker.patch("lib.zendesk.emit_api_signal")
-    mocker.patch.object(api._client, "get", return_value=_mock_response(mocker, status_code=500))
+    mocker.patch.object(api._client, "request", return_value=_mock_response(mocker, status_code=500))
 
     with pytest.raises(ZendeskError):
         api.get_ticket(1)
@@ -316,7 +317,7 @@ def test_get_does_not_emit_signal_on_error(api, mocker):
 
 def test_check_auth_returns_user(api_no_signal, mocker):
     payload = {"user": {"id": 1, "role": "agent", "email": "bot@example.com"}}
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     user = api_no_signal.check_auth()
 
@@ -388,7 +389,7 @@ def _search_payload(tickets):
 def test_search_tickets_appends_type_filter(api_no_signal, mocker):
     get = mocker.patch.object(
         api_no_signal._client,
-        "get",
+        "request",
         return_value=_mock_response(mocker, json_data=_search_payload([{"id": 1}, {"id": 2}])),
     )
 
@@ -403,7 +404,7 @@ def test_search_tickets_appends_type_filter(api_no_signal, mocker):
 def test_search_tickets_does_not_double_type_filter(api_no_signal, mocker):
     get = mocker.patch.object(
         api_no_signal._client,
-        "get",
+        "request",
         return_value=_mock_response(mocker, json_data=_search_payload([])),
     )
     api_no_signal.search_tickets("type:ticket status:open")
@@ -427,14 +428,14 @@ def test_search_tickets_filters_non_ticket_results(api_no_signal, mocker):
         ],
         "next_page": None,
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
     results = api_no_signal.search_tickets("foo")
     assert [t.id for t in results] == [1]
 
 
 def test_search_tickets_honors_max_results(api_no_signal, mocker):
     page = _search_payload([{"id": i} for i in range(1, 6)])
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=page))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=page))
     results = api_no_signal.search_tickets("foo", max_results=3)
     assert len(results) == 3
     assert [t.id for t in results] == [1, 2, 3]
@@ -460,7 +461,7 @@ def test_search_tickets_paginates_until_max(api_no_signal, mocker):
     page2 = _search_payload([{"id": 4}, {"id": 5}])
     mocker.patch.object(
         api_no_signal._client,
-        "get",
+        "request",
         side_effect=[
             _mock_response(mocker, json_data=page1),
             _mock_response(mocker, json_data=page2),
@@ -473,12 +474,12 @@ def test_search_tickets_paginates_until_max(api_no_signal, mocker):
 def test_count_tickets_calls_count_endpoint(api_no_signal, mocker):
     get = mocker.patch.object(
         api_no_signal._client,
-        "get",
+        "request",
         return_value=_mock_response(mocker, json_data={"count": 42}),
     )
     n = api_no_signal.count_tickets("status:open")
     assert n == 42
-    call_url = get.call_args.args[0]
+    call_url = get.call_args.args[1]
     assert "search/count.json" in call_url
     assert "type:ticket" in get.call_args.kwargs["params"]["query"]
 
@@ -498,7 +499,7 @@ def test_count_tickets_calls_count_endpoint(api_no_signal, mocker):
 def test_search_tickets_forwards_sort_options(api_no_signal, mocker, kwargs, expected):
     get = mocker.patch.object(
         api_no_signal._client,
-        "get",
+        "request",
         return_value=_mock_response(mocker, json_data=_search_payload([])),
     )
 
@@ -529,7 +530,7 @@ def test_search_tickets_does_not_resend_params_on_next_page(api_no_signal, mocke
     }
     get = mocker.patch.object(
         api_no_signal._client,
-        "get",
+        "request",
         side_effect=[
             _mock_response(mocker, json_data=page1),
             _mock_response(mocker, json_data=_search_payload([{"id": 2}])),
@@ -542,14 +543,14 @@ def test_search_tickets_does_not_resend_params_on_next_page(api_no_signal, mocke
     assert first.kwargs["params"]["query"] == "foo type:ticket"
     # params must be None, not {}: httpx wipes a URL's own query string for either dict or empty dict.
     assert second.kwargs["params"] is None
-    assert second.args[0].endswith("search.json?page=2&query=foo+type%3Aticket")
+    assert second.args[1].endswith("search.json?page=2&query=foo+type%3Aticket")
 
 
 @pytest.mark.parametrize("payload_subject", [None, ""])
 def test_ticket_subject_missing_becomes_empty_string(api_no_signal, mocker, payload_subject):
     payload = _ticket_payload(1)
     payload["ticket"]["subject"] = payload_subject
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     assert api_no_signal.get_ticket(1).subject == ""
 
@@ -574,7 +575,7 @@ def test_comments_are_redacted_by_default(api_no_signal, mocker):
             }
         ],
     }
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     comment = api_no_signal.get_ticket_comments(42)[0]
 
@@ -589,7 +590,7 @@ def test_redaction_can_be_disabled_explicitly(mocker):
     api = ZendeskAPI(subdomain="x", email="e", token="t", redact=False)
     payload = _ticket_payload(1)
     payload["ticket"]["subject"] = f"dossier {_nir()}"
-    mocker.patch.object(api._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     assert _nir() in api.get_ticket(1).subject
 
@@ -597,6 +598,167 @@ def test_redaction_can_be_disabled_explicitly(mocker):
 def test_ticket_subject_is_redacted_by_default(api_no_signal, mocker):
     payload = _ticket_payload(1)
     payload["ticket"]["subject"] = f"dossier {_nir()}"
-    mocker.patch.object(api_no_signal._client, "get", return_value=_mock_response(mocker, json_data=payload))
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload))
 
     assert NIR_PLACEHOLDER in api_no_signal.get_ticket(1).subject
+
+
+def article_payload(article_id=1, title="Titre", body="<p>corps</p>", **extra):
+    return {
+        "id": article_id,
+        "title": title,
+        "body": body,
+        "section_id": 42,
+        "draft": False,
+        "updated_at": "2026-09-11T10:00:00Z",
+        "html_url": f"https://aide.example/hc/fr/articles/{article_id}-slug",
+        "label_names": ["a"],
+        **extra,
+    }
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://aide.emplois.inclusion.beta.gouv.fr/hc/fr/articles/50749099598481--test-API", 50749099598481),
+        ("https://x.zendesk.com/hc/fr/articles/123", 123),
+        ("https://x.zendesk.com/knowledge/articles/987/fr?brand_id=1", 987),
+    ],
+)
+def test_article_id_from_url(url, expected):
+    assert article_id_from_url(url) == expected
+
+
+def test_dod_13_article_id_from_url_rejects_other_urls():
+    with pytest.raises(ValueError):
+        article_id_from_url("https://x.zendesk.com/hc/fr/sections/123")
+
+
+def test_list_articles_follows_next_page(api_no_signal, mocker):
+    base = api_no_signal.base_url
+    pages = [
+        {"articles": [article_payload(1)], "next_page": f"{base}/help_center/articles.json?page=2&per_page=100"},
+        {"articles": [article_payload(2, body=None)], "next_page": None},
+    ]
+    request = mocker.patch.object(
+        api_no_signal._client, "request", side_effect=[_mock_response(mocker, json_data=p) for p in pages]
+    )
+    articles = api_no_signal.list_articles()
+    assert [a.id for a in articles] == [1, 2]
+    assert articles[1].body == ""
+    assert articles[0].raw == article_payload(1)
+    first, second = request.call_args_list
+    assert first.kwargs["params"] == {"per_page": 100}
+    assert second.args[1].endswith("articles.json?page=2&per_page=100")
+    assert second.kwargs["params"] is None
+
+
+def test_list_articles_scoped_to_section(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"articles": []})
+    )
+    api_no_signal.list_articles(section_id=7)
+    assert "help_center/sections/7/articles.json" in request.call_args.args[1]
+
+
+def test_get_article_parses_payload(api_no_signal, mocker):
+    mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"article": article_payload(5)})
+    )
+    article = api_no_signal.get_article(5)
+    assert (article.id, article.title, article.section_id, article.label_names) == (5, "Titre", 42, ["a"])
+
+
+def test_search_articles_caps_results(api_no_signal, mocker):
+    payload = {"results": [article_payload(i) for i in range(5)], "next_page": None}
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data=payload)
+    )
+    assert len(api_no_signal.search_articles("pass IAE", max_results=2)) == 2
+    assert request.call_args.kwargs["params"]["query"] == "pass IAE"
+
+
+def test_update_article_content_puts_translation_then_rereads(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        side_effect=[
+            _mock_response(mocker, json_data={"translation": {}}),
+            _mock_response(mocker, json_data={"article": article_payload(5, body="<p>stocké</p>")}),
+        ],
+    )
+    article = api_no_signal.update_article_content(5, "T", "<p>b</p>")
+    method, url = request.call_args_list[0].args
+    assert (method, url.endswith("help_center/articles/5/translations/fr.json")) == ("PUT", True)
+    assert request.call_args_list[0].kwargs["json"] == {"translation": {"title": "T", "body": "<p>b</p>"}}
+    assert article.body == "<p>stocké</p>"
+
+
+def test_dod_8_update_article_sends_metadata_fields(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        return_value=_mock_response(mocker, json_data={"article": article_payload(5, section_id=9)}),
+    )
+    article = api_no_signal.update_article(5, section_id=9, label_names=["x"])
+    assert request.call_args.args[0] == "PUT"
+    assert request.call_args.kwargs["json"] == {"article": {"section_id": 9, "label_names": ["x"]}}
+    assert article.section_id == 9
+
+
+def test_dod_8_create_article_defaults_to_draft_and_first_permission_group(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        side_effect=[
+            _mock_response(mocker, json_data={"permission_groups": [{"id": 77}]}),
+            _mock_response(mocker, json_data={"article": article_payload(9, draft=True)}),
+        ],
+    )
+    article = api_no_signal.create_article(42, "T", "<p>b</p>")
+    create = request.call_args_list[1]
+    assert create.args[0] == "POST"
+    assert create.args[1].endswith("help_center/sections/42/articles.json")
+    assert create.kwargs["json"]["article"] == {
+        "title": "T",
+        "body": "<p>b</p>",
+        "locale": "fr",
+        "draft": True,
+        "permission_group_id": 77,
+        "user_segment_id": None,
+    }
+    assert article.draft is True
+
+
+def test_create_article_with_explicit_permission_group_skips_lookup(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"article": article_payload(9)})
+    )
+    api_no_signal.create_article(42, "T", "b", draft=False, permission_group_id=3, user_segment_id=4)
+    assert request.call_count == 1
+    sent = request.call_args.kwargs["json"]["article"]
+    assert (sent["draft"], sent["permission_group_id"], sent["user_segment_id"]) == (False, 3, 4)
+
+
+@pytest.mark.parametrize(
+    "method, args, path, key",
+    [
+        ("create_section", (12, "Nom"), "help_center/categories/12/sections.json", "section"),
+        ("create_category", ("Nom",), "help_center/categories.json", "category"),
+    ],
+)
+def test_dod_8_create_section_and_category(api_no_signal, mocker, method, args, path, key):
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={key: {"id": 1, "name": "Nom"}})
+    )
+    assert getattr(api_no_signal, method)(*args) == {"id": 1, "name": "Nom"}
+    assert request.call_args.args[0] == "POST"
+    assert request.call_args.args[1].endswith(path)
+    assert request.call_args.kwargs["json"][key]["name"] == "Nom"
+
+
+def test_empty_response_body_yields_empty_dict(api_no_signal, mocker):
+    resp = _mock_response(mocker, status_code=204)
+    resp.content = b""
+    mocker.patch.object(api_no_signal._client, "request", return_value=resp)
+    assert api_no_signal._request("DELETE", "help_center/articles/1.json") == {}
