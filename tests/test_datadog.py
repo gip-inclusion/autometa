@@ -5,6 +5,7 @@ import pytest
 
 from lib.datadog import (
     BURST,
+    MAX_ATTEMPTS,
     RETENTION_DAYS,
     DatadogClient,
     DatadogError,
@@ -86,6 +87,19 @@ def test_a_throttled_call_is_retried_then_succeeds(mocker, status):
     client = make_client(mocker, [fake_response(status), fake_response(200, {"data": {"buckets": []}})])
     assert client.aggregate("service:x", "now-1d", "now") == []
     assert client._session.post.call_count == 2
+
+
+def test_a_transport_failure_becomes_a_datadog_error(mocker):
+    client = make_client(mocker, httpx.ConnectError("boom"))
+    with pytest.raises(DatadogError, match="unreachable"):
+        client.count("service:x", "now-1d", "now")
+
+
+def test_a_call_still_throttled_after_every_attempt_gives_up(mocker):
+    client = make_client(mocker, [fake_response(429)] * MAX_ATTEMPTS)
+    with pytest.raises(DatadogError, match="after 6 attempts"):
+        client.count("service:x", "now-1d", "now")
+    assert client._session.post.call_count == MAX_ATTEMPTS
 
 
 def test_a_client_error_is_raised_rather_than_retried(mocker):
