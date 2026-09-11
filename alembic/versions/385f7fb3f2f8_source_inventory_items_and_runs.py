@@ -1,10 +1,4 @@
-"""source inventory items and runs
-
-Revision ID: 385f7fb3f2f8
-Revises: d3f5a8c1b607
-Create Date: 2026-08-26 19:15:23.220474
-
-"""
+"""Tables source_inventory_items et source_inventory_runs."""
 
 from typing import Sequence, Union
 
