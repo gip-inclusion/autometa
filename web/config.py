@@ -218,10 +218,11 @@ MEMORY_PROFILE_DEEP = os.getenv("MEMORY_PROFILE_DEEP", "false").lower() == "true
 KNOWLEDGE_DIR = BASE_DIR / "knowledge"
 ADDITIONAL_DIRS = ["/tmp", str(DATA_DIR / "cache"), str(INTERACTIVE_DIR), str(KNOWLEDGE_DIR)]
 
-# Sentry
-SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 # Scalingo injecte APP (nom de l'app : matometa, autometa-staging, autometa-staging-prNNN).
 APP_NAME = os.getenv("APP", ENV.value)
+
+# Sentry
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 SENTRY_ENVIRONMENT = ENV.value
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2"))
 SENTRY_PROFILES_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0"))
