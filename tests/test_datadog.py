@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from lib import datadog
 from lib.datadog import (
     BURST,
     MAX_ATTEMPTS,
@@ -36,7 +37,8 @@ def events_page(count, cursor=None):
     return {"data": data, "meta": {"page": {"after": cursor} if cursor else {}}}
 
 
-def test_the_client_refuses_to_start_without_both_keys():
+def test_the_client_refuses_to_start_without_both_keys(mocker):
+    mocker.patch.object(datadog.config, "DATADOG_APP_KEY", None)
     with pytest.raises(DatadogError, match="not set"):
         DatadogClient(api_key="factice", app_key=None, site="exemple.test")
 

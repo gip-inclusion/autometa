@@ -1,6 +1,7 @@
 """CLI du skill datadog_logs — skills/datadog_logs/scripts/query.py."""
 
 import importlib.util
+import json
 from argparse import Namespace
 from pathlib import Path
 
@@ -69,3 +70,62 @@ def test_every_cli_path_refuses_to_look_beyond_retention(fn, tmp_path, mocker):
 
     with pytest.raises(DatadogError, match="30 jours"):
         fn(mocker.Mock(), args)
+
+
+def test_aggregate_sorts_buckets_by_count_and_adds_the_cardinality_on_demand(mocker):
+    client = mocker.Mock()
+    client.aggregate.return_value = [
+        {"by": {"@usr.kind": "employer"}, "computes": {"c0": 3, "c1": 2}},
+        {"by": {"@usr.kind": "prescriber"}, "computes": {"c0": 9, "c1": 4}},
+    ]
+    args = Namespace(query="service:x", days=7, distinct="@usr.id", group_by=["@usr.kind"], top=5)
+
+    rows = cli.aggregate(client, args)
+
+    assert [(r["by"]["@usr.kind"], r["count"], r["distinct"]) for r in rows] == [
+        ("prescriber", 9, 4),
+        ("employer", 3, 2),
+    ]
+    _, kwargs = client.aggregate.call_args
+    assert kwargs["compute"] == [{"aggregation": "count"}, {"aggregation": "cardinality", "metric": "@usr.id"}]
+
+
+@pytest.mark.parametrize(
+    "argv,method,expected",
+    [
+        (["--search", "--limit", "1"], "iter_events", [{"ts": "2026-09-01T00:00:00Z", "http.url": "/a"}]),
+        (["--group-by", "@usr.kind"], "aggregate", [{"by": {"@usr.kind": "k"}, "count": 1}]),
+        ([], "count", 42),
+    ],
+    ids=["search", "group-by", "count"],
+)
+def test_main_dispatches_on_the_flags_and_prints_json(argv, method, expected, mocker, capsys):
+    client = mocker.Mock()
+    client.__enter__ = lambda self: self
+    client.__exit__ = lambda self, *args: None
+    client.iter_events.return_value = iter([event({"http": {"url": "/a"}})])
+    client.aggregate.return_value = [{"by": {"@usr.kind": "k"}, "computes": {"c0": 1}}]
+    client.count.return_value = 42
+    mocker.patch.object(cli, "DatadogClient", return_value=client)
+    mocker.patch.object(cli, "DEFAULT_FIELDS", ["http.url"])
+    mocker.patch("sys.argv", ["query.py", "--query", "service:x", *argv])
+
+    cli.main()
+
+    assert json.loads(capsys.readouterr().out) == expected
+    assert getattr(client, method).called
+
+
+def test_main_dump_writes_the_file_and_prints_its_summary(tmp_path, mocker, capsys):
+    client = mocker.Mock()
+    client.__enter__ = lambda self: self
+    client.__exit__ = lambda self, *args: None
+    client.iter_events.return_value = iter([event({})])
+    mocker.patch.object(cli, "DatadogClient", return_value=client)
+    out = tmp_path / "logs.jsonl"
+    mocker.patch("sys.argv", ["query.py", "--query", "service:x", "--days", "1", "--dump", str(out)])
+
+    cli.main()
+
+    assert json.loads(capsys.readouterr().out)["events"] == 1
+    assert out.read_text().count("\n") == 1
