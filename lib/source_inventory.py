@@ -4,19 +4,17 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from web import config
 from web.db import get_db
 from web.models import SourceInventoryItem, SourceInventoryRun
 
 from .notion import extract_text_from_rich_text, notion_request
+from .tally import TallyClient
 
 logger = logging.getLogger(__name__)
 
-FETCH_TIMEOUT_SEC = 15
 NOTION_PAGE_SIZE = 100
 
 
@@ -97,14 +95,8 @@ def notion_title(result: dict) -> str | None:
 
 def fetch_tally_workspaces() -> list[InventoryItem]:
     """Espaces de travail seulement : descendre aux formulaires transformerait un sommaire en copie."""
-    resp = httpx.get(
-        "https://api.tally.so/workspaces",
-        headers={"Authorization": f"Bearer {config.TALLY_API_KEY}"},
-        timeout=FETCH_TIMEOUT_SEC,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    workspaces = payload.get("items", payload) if isinstance(payload, dict) else payload
+    with TallyClient() as client:
+        workspaces = client.list_workspaces().get("items", [])
     return [
         InventoryItem(
             item_type="workspace",

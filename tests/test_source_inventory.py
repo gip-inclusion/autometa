@@ -4,7 +4,7 @@ import httpx
 import pytest
 from sqlalchemy import delete, select
 
-from lib import source_inventory
+from lib import source_inventory, tally
 from lib.source_inventory import InventoryItem, refresh_all, replace_inventory
 from web.db import get_db
 from web.models import SourceInventoryItem, SourceInventoryRun
@@ -150,13 +150,11 @@ def test_an_untitled_object_has_no_label(result):
 
 
 def test_tally_collects_workspaces_only(mocker):
-    """DOD-6 : les espaces, pas les formulaires ni les réponses."""
-    response = httpx.Response(
-        200,
-        json={"items": [{"id": "ws-1", "name": "Équipe"}]},
-        request=httpx.Request("GET", "https://api.tally.so/workspaces"),
+    """DOD-6 : les espaces, pas les formulaires ni les réponses — via le client Tally et ses signaux."""
+    mocker.patch.object(tally.config, "TALLY_API_KEY", "tly-test")
+    mocker.patch.object(
+        tally.TallyClient, "list_workspaces", return_value={"items": [{"id": "ws-1", "name": "Équipe"}]}
     )
-    mocker.patch.object(httpx, "get", return_value=response)
 
     workspaces = source_inventory.fetch_tally_workspaces()
 
