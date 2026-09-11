@@ -212,3 +212,9 @@ def test_check_s3_roundtrip(mocker, upload, download, expect_ok, detail_substr):
     assert detail_substr in detail
     if expect_ok:
         interactive.delete.assert_called_once_with("selftest/ping.txt")
+
+
+def test_the_dora_staging_url_is_a_known_secret(mocker):
+    mocker.patch.object(source_checks.config, "DORA_STAGING_DB_URL", "dora-secret-value-123")
+
+    assert "dora-secret-value-123" in source_checks.known_secrets()

@@ -42,6 +42,7 @@ def known_secrets() -> list[str]:
         config.DATA_INCLUSION_DATABASE_URL,
         config.DATABASE_URL,
         config.DASHBOARD_STORAGE_DB_URL,
+        config.DORA_STAGING_DB_URL,
     ]
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
