@@ -166,7 +166,7 @@ def test_dod_5_apply_skips_articles_modified_since_plan(store):
 
     assert report["written"] == 1
     assert report["skipped"] == [
-        {"id": 2, "reason": "modifié entre-temps", "expected_updated_at": "t0", "updated_at": "t0+1"}
+        {"id": 2, "title": "Titre", "reason": "modifié entre-temps", "expected_updated_at": "t0", "updated_at": "t0+1"}
     ]
     assert "Quelqu'un" in api.get_article(2).body
 
@@ -179,7 +179,7 @@ def test_dod_5_apply_records_http_errors_and_continues(store):
     report = cs.apply(api, changeset_id)
 
     assert report["written"] == 1
-    assert report["errors"] == [{"id": 1, "error": "Zendesk 404: not found"}]
+    assert report["errors"] == [{"id": 1, "title": "Titre", "error": "Zendesk 404: not found"}]
 
 
 def test_dod_6_revert_restores_written_articles_unless_edited_after_apply(store):
@@ -272,6 +272,8 @@ def test_dod_11_replace_is_literal_unless_regex_requested(store, kwargs, expecte
     after = store.json(f"changesets/{result['id']}/after.json.gz")
     assert list(after) == [expected_id]
     assert (after[expected_id]["body"], after[expected_id]["title"]) == (expected_body, expected_title)
+    diff = store.files[f"changesets/{result['id']}/diff.md"].decode()
+    assert f"- regex : {kwargs.get('regex', False)!r}" in diff
     assert result["params"] == {
         "pattern": kwargs["pattern"],
         "replacement": kwargs["replacement"],
