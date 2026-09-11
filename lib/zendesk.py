@@ -1,6 +1,7 @@
 """Zendesk API client — support Emplois de l'Inclusion."""
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
@@ -42,6 +43,41 @@ class ZendeskTicket:
     requester_id: int
     assignee_id: Optional[int]
     tags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Article:
+    id: int
+    title: str
+    body: str
+    section_id: int
+    draft: bool
+    updated_at: str
+    html_url: str
+    label_names: list[str] = field(default_factory=list)
+    raw: dict = field(default_factory=dict, repr=False)
+
+
+def article_from_payload(data: dict) -> Article:
+    return Article(
+        id=data["id"],
+        title=data.get("title") or "",
+        body=data.get("body") or "",
+        section_id=data["section_id"],
+        draft=data.get("draft", False),
+        updated_at=data["updated_at"],
+        html_url=data.get("html_url") or "",
+        label_names=data.get("label_names", []),
+        raw=data,
+    )
+
+
+def article_id_from_url(url: str) -> int:
+    """Extract the article id from a Help Center URL such as .../hc/fr/articles/123456-slug."""
+    match = re.search(r"/articles/(\d+)", url)
+    if not match:
+        raise ValueError(f"no article id in {url}")
+    return int(match.group(1))
 
 
 @dataclass
@@ -88,7 +124,7 @@ def parse_retry_after(value: Optional[str], default: int = 60) -> int:
 
 
 class ZendeskAPI:
-    """Read-only Zendesk REST API client with built-in rate limiting."""
+    """Zendesk REST API client with built-in rate limiting: tickets read-only, Guide read-write."""
 
     def __init__(
         self,
@@ -122,6 +158,9 @@ class ZendeskAPI:
         return redact_nir(text) if self.redact else text
 
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
+        return self._request("GET", path, params=params)
+
+    def _request(self, method: str, path: str, params: Optional[dict] = None, json: Optional[dict] = None) -> Any:
         url = f"{self.base_url}/{path.lstrip('/')}"
         response: Optional[httpx.Response] = None
         for attempt in range(_MAX_429_RETRIES + 1):
@@ -130,7 +169,7 @@ class ZendeskAPI:
                 time.sleep(_MIN_DELAY - elapsed)
             # Why: httpx replaces a URL's own query string when params is passed, even empty —
             # next_page URLs already carry theirs, so params must stay None there.
-            response = self._client.get(url, params=params)
+            response = self._client.request(method, url, params=params, json=json)
             self._last_call = time.monotonic()
             if response.status_code != 429:
                 break
@@ -142,13 +181,23 @@ class ZendeskAPI:
         if not response.is_success:
             raise ZendeskError(response.status_code, response.text[:200])
         emit_api_signal(source="zendesk", instance=self.instance, url=str(response.url))
-        return response.json()
+        return response.json() if response.content else {}
+
+    def _iter_pages(self, path: str, key: str, params: Optional[dict] = None) -> Iterator[dict]:
+        """Yield every item of a paginated Help Center listing, following next_page."""
+        params = {"per_page": 100, **(params or {})}
+        while path:
+            data = self._get(path, params)
+            yield from data.get(key, [])
+            next_page = data.get("next_page")
+            path = next_page.replace(f"{self.base_url}/", "") if next_page else ""
+            params = None
 
     def get_ticket(self, ticket_id: int) -> ZendeskTicket:
         return ticket_from_payload(self._get(f"tickets/{ticket_id}")["ticket"], self.redact)
 
     def get_ticket_comments(self, ticket_id: int) -> list[ZendeskComment]:
-        """Return all comments for a ticket, oldest first (first page only — see SKILL.md)."""
+        """Return all comments for a ticket, oldest first (first page only — see skills/zendesk/SKILL.md)."""
         data = self._get(f"tickets/{ticket_id}/comments", {"sort_order": "asc"})
         sideloaded_users: dict[int, Optional[str]] = {}
         for u in data.get("users", []):
@@ -244,3 +293,74 @@ class ZendeskAPI:
     def check_auth(self) -> dict[str, Any]:
         """Verify credentials. Returns current user info."""
         return self._get("users/me")["user"]
+
+    def list_articles(self, section_id: Optional[int] = None) -> list[Article]:
+        """Every Help Center article with its full body — three requests for the whole base."""
+        path = f"help_center/sections/{section_id}/articles.json" if section_id else "help_center/articles.json"
+        return [article_from_payload(a) for a in self._iter_pages(path, "articles")]
+
+    def get_article(self, article_id: int) -> Article:
+        return article_from_payload(self._get(f"help_center/articles/{article_id}.json")["article"])
+
+    def search_articles(self, query: str, max_results: int = 100) -> list[Article]:
+        """Zendesk full-text search (stemmed, ranked) — for topics, not exact strings."""
+        results = []
+        for a in self._iter_pages("help_center/articles/search.json", "results", {"query": query}):
+            if len(results) >= max_results:
+                break
+            results.append(article_from_payload(a))
+        return results
+
+    def list_sections(self) -> list[dict]:
+        return list(self._iter_pages("help_center/sections.json", "sections"))
+
+    def list_categories(self) -> list[dict]:
+        return list(self._iter_pages("help_center/categories.json", "categories"))
+
+    def update_article_content(self, article_id: int, title: str, body: str, locale: str = "fr") -> Article:
+        """Rewrite an article's title and body; returns the article as stored by Zendesk."""
+        self._request(
+            "PUT",
+            f"help_center/articles/{article_id}/translations/{locale}.json",
+            json={"translation": {"title": title, "body": body}},
+        )
+        return self.get_article(article_id)
+
+    def update_article(self, article_id: int, **fields: Any) -> Article:
+        """Update article metadata (section_id, label_names, draft, position, ...)."""
+        data = self._request("PUT", f"help_center/articles/{article_id}.json", json={"article": fields})
+        return article_from_payload(data["article"])
+
+    def create_article(
+        self,
+        section_id: int,
+        title: str,
+        body: str,
+        draft: bool = True,
+        locale: str = "fr",
+        permission_group_id: Optional[int] = None,
+        user_segment_id: Optional[int] = None,
+    ) -> Article:
+        """Create an article, as a draft unless told otherwise. permission_group_id defaults to the first group."""
+        if permission_group_id is None:
+            permission_group_id = self._get("guide/permission_groups.json")["permission_groups"][0]["id"]
+        article = {
+            "title": title,
+            "body": body,
+            "locale": locale,
+            "draft": draft,
+            "permission_group_id": permission_group_id,
+            "user_segment_id": user_segment_id,
+        }
+        data = self._request("POST", f"help_center/sections/{section_id}/articles.json", json={"article": article})
+        return article_from_payload(data["article"])
+
+    def create_section(self, category_id: int, name: str, description: str = "", locale: str = "fr") -> dict:
+        section = {"name": name, "description": description, "locale": locale}
+        return self._request("POST", f"help_center/categories/{category_id}/sections.json", json={"section": section})[
+            "section"
+        ]
+
+    def create_category(self, name: str, description: str = "", locale: str = "fr") -> dict:
+        category = {"name": name, "description": description, "locale": locale}
+        return self._request("POST", "help_center/categories.json", json={"category": category})["category"]
