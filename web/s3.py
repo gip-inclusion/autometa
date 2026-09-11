@@ -181,6 +181,7 @@ sessions = S3Store("sessions/")
 uploads = S3Store("interactive/uploads/")
 publications = S3Store("publications/")
 job_inputs = S3Store("job-inputs/")
+zendesk = S3Store("zendesk/")
 
 
 def list_prefix(bucket: str, prefix: str) -> list[str]:
