@@ -148,7 +148,7 @@ data/interactive/mon-dashboard/
 └── data.json    ← écrit par cron.py
 ```
 
-Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il importe `lib.dashboard_api` — et rien d'autre du dépôt — pour interroger Matomo, Metabase, data·inclusion, autometa_tables_db et `dashboard_storage`. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
+Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il importe `lib.dashboard_api` — et rien d'autre du dépôt — pour interroger Matomo, Metabase, data·inclusion, autometa_tables_db, Datadog et `dashboard_storage`. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
 
 **Un `cron.py` ne tourne que si le TDB est enregistré** avec `has_cron` : le système de cron découvre les tâches via la table `dashboards`, pas en scannant les dossiers. Un dossier non enregistré n'est jamais exécuté.
 
@@ -162,8 +162,8 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 `web.db`, `web.config` — est interne et n'a jamais promis d'être stable ; un dashboard qui s'y branche
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
-La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables` et
-`query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
+`query_datadog` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 L'import hors façade est refusé à la création et à l'adoption d'un TDB, et à l'écriture de tout
