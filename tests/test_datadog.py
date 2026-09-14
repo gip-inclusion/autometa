@@ -150,3 +150,21 @@ def test_by_count_carries_the_measure_type_the_api_demands():
         "limit": 5,
         "sort": {"aggregation": "count", "order": "desc", "type": "measure"},
     }
+
+
+def test_iter_events_asks_only_for_the_events_it_will_keep(mocker):
+    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    post = mocker.patch.object(client, "_post", return_value={"data": [{"id": 1}], "meta": {}})
+
+    list(client.iter_events("q", "now-1d", "now", max_events=7, sort="-timestamp"))
+
+    assert post.call_args.args[1]["page"] == {"limit": 7}
+    assert post.call_args.args[1]["sort"] == "-timestamp"
+
+
+def test_iter_events_yields_nothing_for_a_zero_ceiling(mocker):
+    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    post = mocker.patch.object(client, "_post")
+
+    assert list(client.iter_events("q", "now-1d", "now", max_events=0)) == []
+    post.assert_not_called()

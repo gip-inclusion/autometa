@@ -305,7 +305,7 @@ def _run_datadog(
     attrs = {
         "db.system": "datadog",
         "caller": caller.value,
-        "datadog.window": "-".join(window) if window else f"{days}d",
+        "datadog.window": str(window) if window else f"{days}d",
         "db.statement.hash": _sql_hash(search),
     }
 
@@ -328,15 +328,13 @@ def execute_datadog_query(
     timeout: int = 60,
 ) -> QueryResult:
     """Aggregate Datadog logs over `window` or the last `days` days. Returns QueryResult, never raises."""
-    facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+
+    def aggregate(client: DatadogClient, frm: str, to: str) -> list[dict]:
+        facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+        return client.aggregate(search, frm, to, group_by=facets or None, compute=compute)
+
     return _run_datadog(
-        "datadog.query",
-        search,
-        caller,
-        days,
-        window,
-        timeout,
-        lambda client, frm, to: client.aggregate(search, frm, to, group_by=facets or None, compute=compute),
+        "datadog.query", search=search, caller=caller, days=days, window=window, timeout=timeout, fn=aggregate
     )
 
 
@@ -351,12 +349,12 @@ def execute_datadog_count(
     """Count Datadog log events, plus a facet's cardinality when `distinct` is given. Never raises."""
     return _run_datadog(
         "datadog.count",
-        search,
-        caller,
-        days,
-        window,
-        timeout,
-        lambda client, frm, to: client.count(search, frm, to, distinct=distinct),
+        search=search,
+        caller=caller,
+        days=days,
+        window=window,
+        timeout=timeout,
+        fn=lambda client, frm, to: client.count(search, frm, to, distinct=distinct),
     )
 
 
@@ -368,15 +366,15 @@ def execute_datadog_events(
     window: Optional[tuple[str, str]] = None,
     timeout: int = 60,
 ) -> QueryResult:
-    """Fetch up to `limit` raw Datadog log events, oldest first. Never raises."""
+    """Fetch up to `limit` raw Datadog log events, newest first. Never raises."""
     return _run_datadog(
         "datadog.events",
-        search,
-        caller,
-        days,
-        window,
-        timeout,
-        lambda client, frm, to: list(client.iter_events(search, frm, to, max_events=limit)),
+        search=search,
+        caller=caller,
+        days=days,
+        window=window,
+        timeout=timeout,
+        fn=lambda client, frm, to: list(client.iter_events(search, frm, to, max_events=limit, sort="-timestamp")),
     )
 
 

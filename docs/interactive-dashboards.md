@@ -167,15 +167,30 @@ La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `que
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
-window=None)` agrège les logs ; `count_datadog(search, days=7, distinct=None, window=None)` renvoie
-`{"count": n, "distinct": m}` ; `sample_datadog(search, days=7, limit=100, window=None)` renvoie jusqu'à
-`limit` événements bruts, du plus ancien au plus récent. Par défaut la fenêtre est glissante,
-`now-Nd → now` (au plus 30 jours), donc deux exécutions à des heures différentes ne comptent pas les mêmes
-événements ; `window=("2026-08-01", "2026-09-01")` fixe des bornes absolues, transmises telles quelles à
-l'API. Un `str` dans `group_by` devient une facette triée par volume décroissant (50 valeurs) ; `by_count(facette, limite)`
-produit la même chose avec une autre limite ; un `dict` est transmis tel quel. `data` de `query_datadog` est la liste brute des
-buckets Datadog : `[{"by": {facette: valeur}, "computes": {"c0": n, "c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`.
-Les événements de `sample_datadog` sont des logs bruts : ne pas les publier tels quels dans un `data.json` public.
+window=None)` agrège les logs ; `count_datadog(search, days=7, distinct=None, window=None)` renvoie un
+`data` valant `{"count": n, "distinct": m}` (`distinct` à `None` sans facette) ; `sample_datadog(search,
+days=7, limit=100, window=None)` renvoie jusqu'à `limit` événements bruts, du plus récent au plus ancien.
+Par défaut la fenêtre est glissante, `now-Nd → now`, refusée au-delà de 30 jours de rétention ; deux
+exécutions à des heures différentes ne comptent donc pas les mêmes événements. `window=("2026-08-01",
+"2026-09-01")` fixe des bornes absolues, transmises telles quelles à l'API et **non vérifiées** : une borne
+antérieure à la rétention renvoie un total tronqué sans erreur. Un `str` dans `group_by` devient une facette
+triée par volume décroissant (50 valeurs) ; le helper `by_count(facette, limite)`, lui aussi exporté par la
+façade, produit la même chose avec une autre limite ; un `dict` est transmis tel quel. `data` de
+`query_datadog` est la liste brute des buckets Datadog : `[{"by": {facette: valeur}, "computes": {"c0": n,
+"c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`. Les événements de `sample_datadog` sont des logs bruts :
+ne pas les publier tels quels dans un `data.json` public.
+
+`VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
+n'incrémente rien.
+
+L'import hors façade est refusé à la création et à l'adoption d'un TDB, et à l'écriture de tout
+fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne juge pas le code : les
+TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
+renommage. Le cron d'audit signale les non conformes sur le canal Slack d'alerte, seulement quand la
+liste change — en observation, sans refuser la planification.
+
+Si un besoin n'est pas couvert, élargir la façade (avec son test) plutôt que la contourner : c'est
+là tout l'intérêt, un changement de contrat devient un acte visible.
 
 #### Convention `data.json`
 
