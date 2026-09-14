@@ -67,7 +67,9 @@ def main() -> None:
         print(f"{variant['key']} ({variant['label']}) : écrit")
 
     if failed:
-        raise SystemExit(f"Déclinaisons sans données, fichier précédent conservé : {', '.join(failed)}")
+        # Code 3 : run partiel — l'outillage conserve les fichiers écrits et marque le run en échec.
+        print(f"Déclinaisons sans données, fichier précédent conservé : {', '.join(failed)}")
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":

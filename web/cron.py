@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
+# Why: un cron multi-sources qui a produit une partie de ses fichiers sort en 3 — le run est un
+# échec (historique, alertes), mais ce qu'il a écrit est conservé, sinon une déclinaison en panne
+# priverait toutes les autres de leur rafraîchissement.
+PARTIAL_EXIT_CODE = 3
 MAX_OUTPUT_SIZE = 50_000
 MAX_LOGGED_LINES = 20_000
 # Why: sous les 10 connexions que botocore garde par client — au-delà, les appels attendraient une
@@ -745,6 +749,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     timeout = task["timeout"]
     workdir = None
     problems = []
+    keep_outputs = False
     pre_hashes: dict[str, str] = {}
 
     previous_status = None
@@ -791,10 +796,14 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
             stderr = f"{stderr}\nScript timed out after {timeout}s".lstrip()
         output = combine_output(stdout, stderr)
         error = stderr or stdout
-        if uses_workdir and returncode == 0 and workdir:
-            upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
+        keep_outputs = returncode in (0, PARTIAL_EXIT_CODE)
+        if uses_workdir and keep_outputs and workdir:
             if source == "s3-publication":
                 problems = publications.exposure_problems(task["dashboard_slug"], variants.folder_files(workdir))
+            # Why: un snapshot de publication ne reçoit jamais un fichier qui expose un jeton — la
+            # copie publique est refusée, et le snapshot privé reste tel qu'il était.
+            if not problems:
+                upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
         status = {0: "success", None: "timeout"}.get(returncode, "failure")
 
     except Exception as e:
@@ -833,7 +842,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     if trigger == "scheduled":
         notify_cron_status_change(slug, status, previous_status, error, repeat=source == "s3-publication")
 
-    if source == "s3-publication" and status == "success":
+    if source == "s3-publication" and keep_outputs:
         try:
             publications.refresh(task["publication_id"], blocked_by=problems)
         except SQLAlchemyError:

@@ -5,7 +5,7 @@ import json
 import sys
 
 from lib.dashboards import DashboardNotFound, update_dashboard
-from lib.variants import add_variant, list_variants, remove_variant
+from lib.variants import add_variant, list_variants, remove_variant, validate_variant
 from web import config
 from web.publications import list_publications
 
@@ -101,6 +101,8 @@ def main() -> None:
             cron_timeout=args.cron_timeout,
             is_archived=is_archived,
         )
+        for key, label in args.add_variant:
+            validate_variant(key, label)
         for key, label in args.add_variant:
             add_variant(args.slug, key, label)
         removed = [key for key in args.remove_variant if remove_variant(args.slug, key)]

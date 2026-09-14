@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
+from lib.variants import add_variant
 from web import config, publications
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
@@ -198,8 +199,6 @@ def _s3_folder(mocker, files: dict[str, bytes]):
 
 
 def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker):
-    from lib.variants import add_variant
-
     _make_dashboard("pub-exposed")
     token = add_variant("pub-exposed", "67", "Bas-Rhin")["token"]
     _s3_folder(mocker, {"pub-exposed/app.js": f"const MAP = {{'67': '{token}'}};".encode()})
@@ -214,8 +213,6 @@ def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker):
 
 
 def test_dod_20_publish_passes_when_tokens_only_name_files(client, mocker):
-    from lib.variants import add_variant
-
     _make_dashboard("pub-clean")
     token = add_variant("pub-clean", "67", "Bas-Rhin")["token"]
     _s3_folder(mocker, {f"pub-clean/data/{token}.json": b'{"metadata": {"key": "67"}}'})

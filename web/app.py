@@ -121,6 +121,15 @@ _STATIC_ASSET_EXTS = frozenset({
 })
 
 
+def declared_variants(slug: str) -> list[dict]:
+    """Les déclinaisons d'un TDB — vide si la base ne répond pas, pour que la page reste servie."""
+    try:
+        return list_variants(slug)
+    except SQLAlchemyError:
+        logger.warning("dashboard_variants injoignable pour %s — index des déclinaisons ignoré", slug)
+        return []
+
+
 @app.get("/interactive/{filename:path}")
 @app.get("/interactive/")
 def serve_interactive(request: Request, filename: str = ""):
@@ -136,7 +145,7 @@ def serve_interactive(request: Request, filename: str = ""):
     # Why: la page servie ne doit jamais énumérer ses déclinaisons — c'est l'application, jamais
     # copiée dans une publication, qui rend l'index quand le lien n'en désigne aucune.
     slug, _, rest = filename.partition("/")
-    if rest == "index.html" and "q" not in request.query_params and (declared := list_variants(slug)):
+    if rest == "index.html" and "q" not in request.query_params and (declared := declared_variants(slug)):
         return templates.TemplateResponse(request, "interactive_variants.html", {"slug": slug, "variants": declared})
 
     if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):

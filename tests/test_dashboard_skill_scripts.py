@@ -27,13 +27,17 @@ def _run(module, argv, monkeypatch):
     module.main()
 
 
-def test_dod_7_add_variant_declares_key_and_label(runtime, monkeypatch, mocker, capsys):
-    cli = _load("update_dashboard")
-    mocker.patch.object(
+def _updated(mocker, cli):
+    return mocker.patch.object(
         cli,
         "update_dashboard",
         return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
     )
+
+
+def test_dod_7_add_variant_declares_key_and_label(runtime, monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    _updated(mocker, cli)
     add = mocker.patch.object(cli, "add_variant", return_value={"key": "67", "label": "Bas-Rhin", "token": "t"})
     mocker.patch.object(cli, "list_variants", return_value=[{"key": "67", "label": "Bas-Rhin", "token": "t"}])
 
@@ -46,11 +50,7 @@ def test_dod_7_add_variant_declares_key_and_label(runtime, monkeypatch, mocker, 
 
 def test_dod_7_remove_variant_by_key(runtime, monkeypatch, mocker, capsys):
     cli = _load("update_dashboard")
-    mocker.patch.object(
-        cli,
-        "update_dashboard",
-        return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
-    )
+    _updated(mocker, cli)
     remove = mocker.patch.object(cli, "remove_variant", return_value=True)
     mocker.patch.object(cli, "list_variants", return_value=[])
     mocker.patch.object(cli, "list_publications", return_value=[])
@@ -72,11 +72,7 @@ def test_dod_7_malformed_add_variant_is_refused(runtime, monkeypatch, mocker, ba
 
 def test_dod_7_duplicate_key_error_is_reported_with_exit_1(runtime, monkeypatch, mocker, capsys):
     cli = _load("update_dashboard")
-    mocker.patch.object(
-        cli,
-        "update_dashboard",
-        return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
-    )
+    _updated(mocker, cli)
     mocker.patch.object(cli, "add_variant", side_effect=ValueError("déclinaison déjà déclarée : 67"))
     with pytest.raises(SystemExit) as exc:
         _run(cli, ["--slug", "multi", "--add-variant", "67=Bas-Rhin"], monkeypatch)
@@ -102,37 +98,35 @@ def test_dod_9_create_dashboard_multi_source_flag(runtime, monkeypatch, mocker, 
     assert json.loads(capsys.readouterr().out)["slug"] == "multi"
 
 
-def test_dod_7_remove_variant_announces_a_public_link_still_online(runtime, monkeypatch, mocker, capsys):
+@pytest.mark.parametrize(
+    ("publications", "announced"),
+    [([{"url": "https://statistiques.inclusion.gouv.fr/dashboards/multi"}], True), ([], False)],
+    ids=["published", "not-published"],
+)
+def test_dod_7_remove_variant_announces_a_public_link_still_online(
+    runtime, monkeypatch, mocker, capsys, publications, announced
+):
     cli = _load("update_dashboard")
-    mocker.patch.object(
-        cli,
-        "update_dashboard",
-        return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
-    )
+    _updated(mocker, cli)
     mocker.patch.object(cli, "remove_variant", return_value=True)
     mocker.patch.object(cli, "list_variants", return_value=[])
-    mocker.patch.object(
-        cli, "list_publications", return_value=[{"url": "https://statistiques.inclusion.gouv.fr/dashboards/multi"}]
-    )
+    mocker.patch.object(cli, "list_publications", return_value=publications)
 
     _run(cli, ["--slug", "multi", "--remove-variant", "67"], monkeypatch)
 
     captured = capsys.readouterr()
-    assert "reste en ligne jusqu'au prochain rafraîchissement" in captured.err
-    assert "reste en ligne" in json.loads(captured.out)["notices"][0]
+    assert ("reste en ligne jusqu'au prochain rafraîchissement" in captured.err) is announced
+    assert (json.loads(captured.out)["notices"] != []) is announced
 
 
-def test_dod_7_remove_variant_is_silent_without_publication(runtime, monkeypatch, mocker, capsys):
+def test_dod_12_every_add_variant_pair_is_checked_before_any_is_declared(runtime, monkeypatch, mocker, capsys):
     cli = _load("update_dashboard")
-    mocker.patch.object(
-        cli,
-        "update_dashboard",
-        return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
-    )
-    mocker.patch.object(cli, "remove_variant", return_value=True)
-    mocker.patch.object(cli, "list_variants", return_value=[])
-    mocker.patch.object(cli, "list_publications", return_value=[])
+    _updated(mocker, cli)
+    add = mocker.patch.object(cli, "add_variant")
 
-    _run(cli, ["--slug", "multi", "--remove-variant", "67"], monkeypatch)
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "multi", "--add-variant", "67=Bas-Rhin", "--add-variant", "Bad Key=X"], monkeypatch)
 
-    assert json.loads(capsys.readouterr().out)["notices"] == []
+    assert exc.value.code == 1
+    assert "Bad Key" in capsys.readouterr().err
+    add.assert_not_called()
