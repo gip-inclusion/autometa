@@ -16,7 +16,7 @@ def multi_source_dashboard():
     """Un TDB multi-sources avec une déclinaison, créé par la bibliothèque de l'application."""
     from lib.dashboards import create_dashboard
     from lib.variants import add_variant
-    from web import config
+    from web import config, s3
     from web.db import get_db
     from web.models import Dashboard
 
@@ -38,6 +38,9 @@ def multi_source_dashboard():
     with get_db() as session:
         session.execute(delete(Dashboard).where(Dashboard.slug == slug))
     shutil.rmtree(config.INTERACTIVE_DIR / slug, ignore_errors=True)
+    # Why: le watcher a déjà poussé le dossier sur S3, d'où l'application le restaurerait au boot.
+    for entry in s3.interactive.list_files(f"{slug}/"):
+        s3.interactive.delete(entry["path"])
 
 
 def test_dod_3_the_internal_index_lists_variants_and_links_to_the_edit_page(

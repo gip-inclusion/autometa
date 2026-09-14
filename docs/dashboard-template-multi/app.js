@@ -4,6 +4,7 @@ function show(id) {
     for (const el of ['invalid-link', 'no-data', 'loading', 'content']) {
         document.getElementById(el).hidden = el !== id;
     }
+    document.querySelector('footer').hidden = id !== 'content';
 }
 
 // Why: le conteneur Matomo n'est chargé qu'ici, après setCustomUrl. Chargé dans <head>, il
