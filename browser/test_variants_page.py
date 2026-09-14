@@ -12,7 +12,7 @@ from playwright.sync_api import Page, expect
 pytestmark = pytest.mark.browser
 
 TEMPLATES = Path(__file__).parent.parent / "docs"
-TOKEN = "00000000-0000-4000-8000-000000000067"
+TOKEN = "00000000-0000-4000-8000-000000000117"
 ORPHAN_TOKEN = "00000000-0000-4000-8000-000000000211"
 
 
@@ -55,7 +55,7 @@ def test_dod_1_a_declared_token_shows_that_variant_alone(served, tracked: Page):
 
 @pytest.mark.parametrize(
     "query",
-    ["", "?q=", f"?q={ORPHAN_TOKEN.replace('a', 'z')}", f"?q={ORPHAN_TOKEN}"],
+    ["", "?q=", "?q=zzzzzzzz-0000-4000-8000-000000000211", f"?q={ORPHAN_TOKEN}"],
     ids=["no-q", "empty-q", "not-a-uuid", "unknown-token"],
 )
 def test_dod_2_without_a_valid_token_the_page_is_a_dead_end(served, tracked: Page, query):

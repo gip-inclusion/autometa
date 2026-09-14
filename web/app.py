@@ -14,11 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib import failure_detection
-from lib.variants import list_variants
+from lib.variants import TOKEN_RE, list_variants
 
 from . import config, memory_introspect, sync_to_s3
 from . import s3 as s3_module
 from .deps import templates
+from .helpers import sanitize_for_log
 from .log import setup_logging
 from .otel import init_otel, instrument_app
 from .redis_conn import close_redis
@@ -126,7 +127,7 @@ def declared_variants(slug: str) -> list[dict]:
     try:
         return list_variants(slug)
     except SQLAlchemyError:
-        logger.warning("dashboard_variants injoignable pour %s — index des déclinaisons ignoré", slug)
+        logger.warning("dashboard_variants injoignable pour %s — index des déclinaisons ignoré", sanitize_for_log(slug))
         return []
 
 
@@ -149,7 +150,10 @@ def serve_interactive(request: Request, filename: str = ""):
         return templates.TemplateResponse(request, "interactive_variants.html", {"slug": slug, "variants": declared})
 
     if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
-        query = f"?{request.url.query}" if request.url.query else ""
+        # Why: seul un jeton bien formé suit la redirection — la chaîne de requête n'est jamais
+        # recopiée telle quelle.
+        token = request.query_params.get("q", "")
+        query = f"?q={token}" if TOKEN_RE.match(token) else ""
         return RedirectResponse(f"/interactive/{filename}/{query}", status_code=301)
 
     mime_type, _ = mimetypes.guess_type(filename)
