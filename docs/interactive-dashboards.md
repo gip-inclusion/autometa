@@ -237,9 +237,11 @@ Ce qui le définit :
   fait foi ; un TDB devient multi-sources dès qu'une déclinaison lui est déclarée.
 - **Un lien par déclinaison** : `/interactive/{slug}/?q=<jeton>`. La page lit `?q`, vérifie la forme
   du jeton avant toute requête, charge `data/<jeton>.json`, et n'affiche que cette déclinaison. Sans
-  `?q`, avec un jeton mal formé ou inconnu : « Ce lien n'est pas valide ». Jeton valide mais fichier
-  absent : « pas encore disponibles ». Jamais de sélecteur, jamais de lien vers une autre
-  déclinaison — c'est le nom du fichier, et lui seul, qui ouvre l'accès.
+  `?q` ou avec un jeton mal formé : « Ce lien n'est pas valide ». Jeton bien formé sans fichier :
+  « Ce lien n'est pas valide, ou les données ne sont pas encore disponibles » — la page ne peut pas
+  distinguer un jeton inconnu d'une déclinaison pas encore calculée, faute de liste. Jamais de
+  sélecteur, jamais de lien vers une autre déclinaison — c'est le nom du fichier, et lui seul, qui
+  ouvre l'accès.
 - **Dans l'application**, `/interactive/{slug}/` sans `?q` affiche l'index des déclinaisons et un
   lien vers la page d'édition. Cet index est rendu par le serveur : la publication, qui copie les
   fichiers du dossier, ne l'emporte pas.
