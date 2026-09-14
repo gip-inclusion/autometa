@@ -188,6 +188,11 @@ valeurs brutes : grouper par `@usr.id`, `@usr.email` ou `@http.url` liste les id
 Ne jamais publier tels quels, dans un `data.json` public, des événements ni des valeurs de facette qui désignent
 une personne.
 
+Elle expose aussi `list_variants()` : les déclinaisons déclarées du tableau de bord dont le cron
+tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'après
+`AUTOMETA_DASHBOARD_SLUG`, posé par le runner de cron. Pour un lancement à la main, passer le slug :
+`list_variants("mon-tdb")`. Voir § Mode multi-sources.
+
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.
 
@@ -250,6 +255,46 @@ plus le timeout du dernier tableau de bord lancé.
 #### UI
 
 `/cron` liste tous les dashboards éligibles, leur dernier statut, et permet de déclencher ou toggler manuellement.
+
+### Mode multi-sources : une déclinaison par lien
+
+Un tableau de bord **multi-sources** sert plusieurs **déclinaisons** (un département, une structure,
+un réseau…) avec le même écran et les mêmes calculs. Il remplace la duplication d'un TDB par
+territoire : un seul dossier, un seul `cron.py`, un fichier de données par déclinaison.
+
+Ce qui le définit :
+
+- **Déclinaisons déclarées**, jamais devinées : `update_dashboard --add-variant clé=libellé`. Chaque
+  déclinaison reçoit un **jeton** (UUID) généré par l'outil et stable. La table `dashboard_variants`
+  fait foi ; un TDB devient multi-sources dès qu'une déclinaison lui est déclarée.
+- **Un lien par déclinaison** : `/interactive/{slug}/?q=<jeton>`. La page lit `?q`, vérifie la forme
+  du jeton avant toute requête, charge `data/<jeton>.json`, et n'affiche que cette déclinaison. Sans
+  `?q`, avec un jeton mal formé ou inconnu : « Ce lien n'est pas valide ». Jeton valide mais fichier
+  absent : « pas encore disponibles ». Jamais de sélecteur, jamais de lien vers une autre
+  déclinaison — c'est le nom du fichier, et lui seul, qui ouvre l'accès.
+- **Dans l'application**, `/interactive/{slug}/` sans `?q` affiche l'index des déclinaisons et un
+  lien vers la page d'édition. Cet index est rendu par le serveur : la publication, qui copie les
+  fichiers du dossier, ne l'emporte pas.
+- **Le cron** obtient ses déclinaisons par la façade, `list_variants()`, interroge la source **une
+  seule fois** pour toutes les clés, puis écrit un fichier par déclinaison déclarée — et rien
+  d'autre. Une déclinaison qui échoue n'empêche pas les autres : son fichier précédent est conservé
+  et le run se termine en échec en nommant les clés fautives. Le fichier porte `metadata.key` et
+  `metadata.label`, jamais son propre jeton.
+- **Matomo** enregistre la page sous `/interactive/{slug}/<clé>/`, pas sous le jeton : la page
+  charge le conteneur Tag Manager **après** avoir posé `setCustomUrl`, et désactive Heatmap Session
+  Recording, dont la requête de configuration porte l'URL réelle. La page déclare aussi
+  `referrer: no-referrer`. Le gabarit `docs/dashboard-template-multi/` fait tout cela.
+- **La publication et chaque rafraîchissement refusent** un dossier dont un fichier (page, script,
+  données…) contient un jeton déclaré : raison `variant-token-exposed`, fichier nommé sur la page
+  d'édition. Une liste de clés ou de libellés dans le code n'est pas un problème.
+
+La page d'édition liste chaque déclinaison (clé, libellé, lien interne, lien public par publication
+active, présence du fichier de données) et expose le mapping en JSON
+(`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne ; il n'y a
+pas de révocation d'un lien public déjà en ligne avant le rafraîchissement suivant.
+
+Création : `create_dashboard --multi-source`, **après accord explicite de l'utilisateur** (cf. le
+skill). Le scaffold pose le gabarit de base puis `docs/dashboard-template-multi/` par-dessus.
 
 ### Modes non publiables
 

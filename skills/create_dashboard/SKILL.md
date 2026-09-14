@@ -21,6 +21,31 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
 5. **Dossier existant mais non enregistré** (app legacy) : utiliser `--adopt` pour créer la ligne DB sans toucher aux fichiers.
 
 
+## Tableau de bord multi-sources : proposer, puis obtenir l'accord explicite
+
+Un TDB **multi-sources** sert plusieurs **déclinaisons** (un département, une structure, un réseau…)
+avec le même écran et les mêmes calculs : un seul dossier, un seul `cron.py`, et un fichier de
+données par déclinaison, `data/<jeton>.json`. Chaque déclinaison a son propre lien,
+`/interactive/{slug}/?q=<jeton>` ; sans jeton valide la page est un cul-de-sac, et rien dans le
+dossier ne les énumère. C'est ce qui remplace la duplication d'un TDB par territoire.
+
+**Quand le proposer** : dès que la demande vise plusieurs territoires, structures ou entités sur un
+même écran (« un tableau par département », « le même TDB pour chaque CCAS », « une version par
+GT »), ou qu'un TDB existant est demandé « pour un autre territoire ». Dans ce cas :
+
+1. Dire à l'utilisateur ce que change ce mode : un seul TDB, des liens distincts non listés, les
+   déclinaisons déclarées une à une, la publication qui refuse tout fichier exposant un jeton.
+2. **Attendre son accord explicite** avant de créer avec `--multi-source`. Un silence ou une
+   demande ambiguë n'est pas un accord : créer alors un TDB classique, ou reposer la question.
+3. Après création, déclarer les déclinaisons avec `update_dashboard --add-variant clé=libellé`, puis
+   adapter `cron.py` : une requête en une seule passe pour toutes les clés, puis un fichier par
+   déclinaison déclarée via `list_variants()`. Jamais de fichier de liste, jamais le jeton dans le
+   contenu d'un fichier.
+
+Un TDB déjà enregistré bascule en multi-sources dès qu'une déclinaison lui est déclarée : pas
+besoin de le recréer. Lire `docs/interactive-dashboards.md` § Mode multi-sources avant d'écrire le
+code.
+
 ## Façade obligatoire
 
 Un TDB n'importe qu'un seul module du dépôt : `lib.dashboard_api`. `lib.query`, `web.db` et
@@ -68,6 +93,7 @@ Sortie sur stdout (JSON) :
 | `--cron-schedule` | | Cadence `daily`/`weekly`/`monthly` (ou leur crontab équivalent) ; défaut chaque nuit |
 | `--cron-timeout` | | Timeout d'un run cron en secondes |
 | `--adopt` | | Enregistre un dossier `data/interactive/{slug}/` **existant** sans scaffold (ligne DB + tags uniquement). Échec si le dossier n'existe pas ou si le slug est déjà enregistré. |
+| `--multi-source` | | Scaffold multi-sources (page qui lit `?q=<jeton>`, cron qui produit un fichier par déclinaison, dossier `data/`). **Uniquement après accord explicite de l'utilisateur**, cf. § Tableau de bord multi-sources. |
 
 ## Variables d'environnement
 
