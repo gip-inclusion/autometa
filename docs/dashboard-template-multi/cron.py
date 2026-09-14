@@ -52,10 +52,18 @@ def main() -> None:
         if payload is None:
             failed.append(variant["key"])
             continue
+        try:
+            data = assemble(variant, payload)
+        except Exception as exc:  # noqa: BLE001
+            # Why: une déclinaison dont l'assemblage casse ne doit pas priver les autres de leur
+            # rafraîchissement ; son fichier précédent reste en place et le run finira en échec.
+            print(f"{variant['key']} ({variant['label']}) : échec — {exc}")
+            failed.append(variant["key"])
+            continue
         path = Path(variant["path"])
         path.parent.mkdir(exist_ok=True)
         with open(path, "w") as f:
-            json.dump(assemble(variant, payload), f, indent=2)
+            json.dump(data, f, indent=2)
         print(f"{variant['key']} ({variant['label']}) : écrit")
 
     if failed:

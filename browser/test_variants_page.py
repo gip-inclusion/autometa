@@ -54,13 +54,17 @@ def test_dod_1_a_declared_token_shows_that_variant_alone(served, tracked: Page):
 
 
 @pytest.mark.parametrize(
-    "query", ["", "?q=", f"?q={ORPHAN_TOKEN.replace('a', 'z')}"], ids=["no-q", "empty-q", "not-a-uuid"]
+    "query",
+    ["", "?q=", f"?q={ORPHAN_TOKEN.replace('a', 'z')}", f"?q={ORPHAN_TOKEN}"],
+    ids=["no-q", "empty-q", "not-a-uuid", "unknown-token"],
 )
 def test_dod_2_without_a_valid_token_the_page_is_a_dead_end(served, tracked: Page, query):
     tracked.goto(f"{served}/index.html{query}")
 
-    expect(tracked.locator("#invalid-link")).to_be_visible()
-    expect(tracked.locator("#invalid-link")).to_contain_text("Ce lien n'est pas valide")
+    # Why: la page publiée n'a pas la liste des jetons — un jeton bien formé mais inconnu est
+    # indiscernable d'une déclinaison sans données ; le message couvre les deux lectures.
+    expect(tracked.locator(".error:visible")).to_have_count(1)
+    expect(tracked.locator(".error:visible")).to_contain_text("Ce lien n'est pas valide")
     expect(tracked.locator("#content")).to_be_hidden()
     assert tracked.locator("select").count() == 0
     assert tracked.locator("a[href*='?q=']").count() == 0

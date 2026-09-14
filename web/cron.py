@@ -24,7 +24,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from lib import facade_imports
+from lib import facade_imports, variants
 from web.helpers import sanitize_for_log, utcnow
 from web.s3 import S3Store
 
@@ -794,7 +794,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
         if uses_workdir and returncode == 0 and workdir:
             upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
             if source == "s3-publication":
-                problems = publications.exposure_problems(task["dashboard_slug"], workdir)
+                problems = publications.exposure_problems(task["dashboard_slug"], variants.folder_files(workdir))
         status = {0: "success", None: "timeout"}.get(returncode, "failure")
 
     except Exception as e:
