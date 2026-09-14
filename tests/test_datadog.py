@@ -43,6 +43,12 @@ def test_the_client_refuses_to_start_without_both_keys(mocker):
         DatadogClient(api_key="factice", app_key=None, site="exemple.test")
 
 
+def test_clients_share_one_limiter_by_default():
+    build = lambda: DatadogClient(api_key="factice", app_key="factice", site="exemple.test")  # noqa: E731
+
+    assert build().limiter is build().limiter
+
+
 def test_the_limiter_lets_the_burst_through_then_holds(mocker):
     clock = {"now": 0.0}
     mocker.patch("lib.datadog.time.monotonic", side_effect=lambda: clock["now"])

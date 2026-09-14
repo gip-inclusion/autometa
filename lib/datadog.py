@@ -49,6 +49,10 @@ class RateLimiter:
             time.sleep(wait)
 
 
+# Why: the quota is per org, so every client in the process must draw from the same bucket.
+SHARED_LIMITER = RateLimiter()
+
+
 class DatadogClient:
     def __init__(
         self,
@@ -63,7 +67,7 @@ class DatadogClient:
         if not self.api_key or not self.app_key:
             raise DatadogError("DATADOG_API_KEY / DATADOG_APP_KEY not set")
         self.site = site or config.DATADOG_SITE
-        self.limiter = limiter or RateLimiter()
+        self.limiter = limiter or SHARED_LIMITER
         self._session = httpx.Client(
             base_url=f"https://api.{self.site}/api/v2",
             headers={"DD-API-KEY": self.api_key, "DD-APPLICATION-KEY": self.app_key},

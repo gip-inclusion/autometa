@@ -166,6 +166,12 @@ La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `que
 `query_datadog` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
+`query_datadog(search, days, group_by=None, compute=None)` agrège les logs sur une fenêtre glissante
+`now-Nd → now` (au plus 30 jours), donc deux exécutions à des heures différentes ne comptent pas les
+mêmes événements. Un `str` dans `group_by` devient une facette triée par volume décroissant (50 valeurs)
+; un `dict` est transmis tel quel à l'API. `data` est la liste brute des buckets Datadog :
+`[{"by": {facette: valeur}, "computes": {"c0": n, "c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`.
+
 L'import hors façade est refusé à la création et à l'adoption d'un TDB, et à l'écriture de tout
 fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne juge pas le code : les
 TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
