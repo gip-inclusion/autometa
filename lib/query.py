@@ -11,6 +11,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .data_inclusion import execute_sql as _di_execute_sql
+from .datadog import DatadogClient, DatadogError, by_count, window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
@@ -289,6 +290,26 @@ def execute_dashboard_storage_query(
 
     # Why: SQLAlchemy/psycopg2 can raise a wide variety of errors; caller checks result.success.
     return _run_traced_query("dashboard_storage.query", attrs, _do)
+
+
+def execute_datadog_query(
+    search: str,
+    caller: CallerType,
+    days: int,
+    group_by: Optional[list[str | dict]] = None,
+    compute: Optional[list[dict]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Aggregate Datadog logs over the last `days` days. Returns QueryResult, never raises."""
+    attrs = {"db.system": "datadog", "caller": caller.value, "datadog.days": days}
+
+    def _do():
+        frm, to = window(days)
+        facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+        with DatadogClient(timeout=timeout) as client:
+            return client.aggregate(search, frm, to, group_by=facets or None, compute=compute)
+
+    return _run_traced_query("datadog.query", attrs, _do, catches=(DatadogError,))
 
 
 def execute_query(

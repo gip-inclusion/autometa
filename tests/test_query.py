@@ -391,6 +391,47 @@ def test_execute_dashboard_storage_query_calls_client(mocker):
     assert client.call_args.kwargs["timeout"] == 60
 
 
+def test_execute_datadog_query_aggregates_over_the_window(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.aggregate.return_value = [{"by": {"a": 1}, "computes": {"c0": 3}}]
+
+    result = q.execute_datadog_query(
+        "service:dora", q.CallerType.APP, days=7, group_by=["@a", {"facet": "@b", "limit": 3}]
+    )
+
+    assert result.success is True
+    assert result.data == [{"by": {"a": 1}, "computes": {"c0": 3}}]
+    assert client.call_args.kwargs == {"timeout": 60}
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "now-7d", "now")
+    assert aggregate.call_args.kwargs == {
+        "group_by": [q.by_count("@a"), {"facet": "@b", "limit": 3}],
+        "compute": None,
+    }
+
+
+def test_execute_datadog_query_reports_a_client_error_as_a_failed_result(mocker):
+    from lib import query as q
+
+    mocker.patch("lib.query.DatadogClient", side_effect=q.DatadogError("DATADOG_API_KEY / DATADOG_APP_KEY not set"))
+
+    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=7)
+
+    assert result.success is False
+    assert "DATADOG_API_KEY" in result.error
+
+
+def test_execute_datadog_query_refuses_a_window_beyond_retention():
+    from lib import query as q
+
+    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=31)
+
+    assert result.success is False
+    assert "Rétention" in result.error
+
+
 def test_execute_dora_staging_query_calls_client_read_only(mocker):
     from lib import query as q
 
