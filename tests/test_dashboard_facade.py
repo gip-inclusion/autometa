@@ -37,8 +37,9 @@ def test_check_facade_compliance(mocker, tmp_path, files, expectation):
         dashboards.check_facade_compliance("tdb")
 
 
-def test_template_only_imports_the_facade():
-    template = dashboards.config.BASE_DIR / "docs" / "dashboard-template" / "cron.py"
+@pytest.mark.parametrize("template_dir", ["dashboard-template", "dashboard-template-multi"])
+def test_template_only_imports_the_facade(template_dir):
+    template = dashboards.config.BASE_DIR / "docs" / template_dir / "cron.py"
     assert cron.facade_imports.facade_violations(template.read_text()) == []
 
 
