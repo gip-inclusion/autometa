@@ -1,1 +1,5 @@
 8b7754640c30a61e43c37d527b635e1f55643ca6:web/claude_credentials.py:generic-api-key:20
+5389824d00c8bc453694049ba492c7bd4090b776:tests/test_variants_lib.py:generic-api-key:131
+5389824d00c8bc453694049ba492c7bd4090b776:tests/test_variants_lib.py:generic-api-key:141
+adc42ef2bdf782941044f87a621d7a7975337c65:tests/test_interactive_serving.py:generic-api-key:83
+e3e594bab198b532e581f86ea863d102aa34b688:browser/test_variants_page.py:generic-api-key:15

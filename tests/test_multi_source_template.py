@@ -9,7 +9,7 @@ import pytest
 from lib.query import QueryResult
 
 TEMPLATE = Path(__file__).parent.parent / "docs" / "dashboard-template-multi"
-TOKENS = {"117": "00000000-0000-4000-8000-000000000067", "211": "00000000-0000-4000-8000-000000000211"}
+TOKENS = {"117": "00000000-0000-4000-8000-000000000117", "211": "00000000-0000-4000-8000-000000000211"}
 
 
 def _load_cron():
