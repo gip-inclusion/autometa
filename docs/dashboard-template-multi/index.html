@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Le jeton du lien ne doit jamais partir vers un site tiers : aucun referrer sortant. -->
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex">
+    <title>Mon Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <style>[hidden] { display: none !important; }</style>
+    <!-- Matomo Tag Manager : le conteneur est chargé par app.js une fois la déclinaison connue,
+         pour que Matomo enregistre la page sous sa clé et jamais sous son jeton. -->
+    <script>
+      var _paq = window._paq = window._paq || [];
+      var _mtm = window._mtm = window._mtm || [];
+    </script>
+</head>
+<body>
+    <header>
+        <h1>Mon Dashboard <span id="variant-label"></span></h1>
+    </header>
+
+    <main>
+        <div id="invalid-link" hidden class="error">Ce lien n'est pas valide. Demandez un lien à la personne qui gère ce tableau de bord.</div>
+        <div id="no-data" hidden class="error">Les données de cette déclinaison ne sont pas encore disponibles. Réessayez après la prochaine mise à jour.</div>
+        <div id="loading" hidden>Chargement…</div>
+        <div id="content" hidden></div>
+    </main>
+
+    <footer>
+        <p>Données mises à jour le <span id="generated-at">…</span></p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

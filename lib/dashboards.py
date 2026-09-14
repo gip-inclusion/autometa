@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from lib import facade_imports
+from lib.dashboard_errors import DashboardNotFound
 from lib.taxonomy import normalize_tags
 from web import config
 from web.cron import SCHEDULE_PRESETS, is_valid_schedule
@@ -58,10 +59,6 @@ def _normalize_timeout(cron_timeout: int | None) -> int | None:
 
 class UnknownTag(ValueError):
     """Raised when a tag name is not in the synced vocabulary."""
-
-
-class DashboardNotFound(Exception):
-    """Raised when a slug doesn't resolve to an existing dashboard row."""
 
 
 @dataclass
@@ -186,6 +183,7 @@ def create_dashboard(
     has_persistence: bool = False,
     cron_schedule: str | None = None,
     cron_timeout: int | None = None,
+    multi_source: bool = False,
     first_author_email: str,
     created_in_conversation_id: str | None,
 ) -> Dashboard:
@@ -196,7 +194,11 @@ def create_dashboard(
     cron_timeout = _normalize_timeout(cron_timeout)
 
     final_dir = config.INTERACTIVE_DIR / slug
-    template_dir = config.BASE_DIR / "docs" / "dashboard-template"
+    # Why: le gabarit multi-sources ne redéfinit que les fichiers qui lisent `?q` — il se pose
+    # par-dessus le gabarit de base pour ne pas dupliquer la feuille de style.
+    template_dirs = [config.BASE_DIR / "docs" / "dashboard-template"]
+    if multi_source:
+        template_dirs.append(config.BASE_DIR / "docs" / "dashboard-template-multi")
 
     if final_dir.exists():
         raise ValueError(f"Slug already exists on disk: {final_dir} — use --adopt to register the existing folder")
@@ -208,12 +210,15 @@ def create_dashboard(
     staging_dir.mkdir(parents=True)
     renamed = False
     try:
-        for src in template_dir.iterdir():
-            if src.name == "APP.md":
-                continue
-            if src.name == "cron.py" and not has_cron:
-                continue
-            shutil.copy2(src, staging_dir / src.name)
+        for template_dir in template_dirs:
+            for src in template_dir.iterdir():
+                if src.name == "APP.md" or not src.is_file():
+                    continue
+                if src.name == "cron.py" and not has_cron:
+                    continue
+                shutil.copy2(src, staging_dir / src.name)
+        if multi_source:
+            (staging_dir / "data").mkdir()
 
         with get_db() as session:
             if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:

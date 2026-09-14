@@ -7,7 +7,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from lib.dashboards import DashboardNotFound
+from lib.dashboard_errors import DashboardNotFound
 from web import config, s3
 from web.db import get_db
 from web.models import Dashboard, DashboardVariant
