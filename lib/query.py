@@ -11,7 +11,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .data_inclusion import execute_sql as _di_execute_sql
-from .datadog import DatadogClient, DatadogError, by_count, window
+from .datadog import DatadogClient, by_count, window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
@@ -301,7 +301,12 @@ def execute_datadog_query(
     timeout: int = 60,
 ) -> QueryResult:
     """Aggregate Datadog logs over the last `days` days. Returns QueryResult, never raises."""
-    attrs = {"db.system": "datadog", "caller": caller.value, "datadog.days": days}
+    attrs = {
+        "db.system": "datadog",
+        "caller": caller.value,
+        "datadog.days": days,
+        "db.statement.hash": _sql_hash(search),
+    }
 
     def _do():
         frm, to = window(days)
@@ -309,7 +314,8 @@ def execute_datadog_query(
         with DatadogClient(timeout=timeout) as client:
             return client.aggregate(search, frm, to, group_by=facets or None, compute=compute)
 
-    return _run_traced_query("datadog.query", attrs, _do, catches=(DatadogError,))
+    # Why: a 200 with an unexpected body raises KeyError/JSONDecodeError, not DatadogError; caller checks result.success.
+    return _run_traced_query("datadog.query", attrs, _do)
 
 
 def execute_query(
