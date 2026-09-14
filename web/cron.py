@@ -598,7 +598,8 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         if uses_workdir and status == "success" and workdir:
             upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
             if source == "s3-publication":
-                publications.refresh(task["publication_id"])
+                problems = publications.exposure_problems(task["dashboard_slug"], workdir)
+                publications.refresh(task["publication_id"], blocked_by=problems)
 
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)

@@ -1117,3 +1117,30 @@ def test_dod_6_publication_run_receives_the_dashboard_slug_not_the_composite(cli
     run_cron_task("pub-variants-pubv01", trigger="manual")
 
     assert run.call_args.kwargs["env"]["AUTOMETA_DASHBOARD_SLUG"] == "pub-variants"
+
+
+def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token(client, mocker):
+    import subprocess as sp
+
+    from lib.variants import add_variant
+    from web.cron import run_cron_task
+
+    _seed_dashboard_and_publication("pub-leak", "leak01")
+    token = add_variant("pub-leak", "67", "Bas-Rhin")["token"]
+    files = {"pub-leak/leak01/cron.py": b"print('ok')", "pub-leak/leak01/app.js": f"const T = '{token}';".encode()}
+    mocker.patch("web.cron.s3.publications.list_files", return_value=[{"path": key} for key in files])
+    mocker.patch("web.cron.s3.publications.download", side_effect=files.get)
+    mocker.patch("web.cron.s3.publications.upload", return_value=True)
+    sync = mocker.patch("web.publications.s3.sync_prefix")
+    mocker.patch("web.publications.alerts.notify_alert_channel")
+    completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
+    mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    result = run_cron_task("pub-leak-leak01", trigger="manual")
+
+    assert result["status"] == "success"
+    sync.assert_not_called()
+    with get_db() as session:
+        row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "leak01"))
+        assert row.last_refresh_status == "failure"
+        assert row.last_refresh_error == "app.js expose le jeton de 67"

@@ -219,7 +219,7 @@
                     <i class="ri-refresh-line me-1"></i>
                     <span class="text-muted">Données rafraîchies {{ p.last_refresh_relative or 'jamais' }}</span>
                     {% if p.last_refresh_status == 'failure' %}
-                      <span class="text-danger">— rafraîchissement en échec</span>
+                      <span class="text-danger">— rafraîchissement en échec{% if p.last_refresh_error %} : {{ p.last_refresh_error }}{% endif %}</span>
                     {% endif %}
                   {% endif %}
                 </p>
@@ -385,7 +385,7 @@ function filterTagOptions(input) {
       let detail = `HTTP ${res.status}`;
       try {
         const body = await res.json();
-        if (body.reason) detail = `${body.error || ''}: ${body.reason}`.trim();
+        if (body.reason) detail = `${body.error || ''}: ${body.reason}${body.detail ? ' — ' + body.detail : ''}`.trim();
         else if (body.error) detail = body.error;
       } catch (_) { /* not JSON */ }
       alert(`${label} a échoué — ${detail}`);
