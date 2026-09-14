@@ -88,7 +88,7 @@ def sample_datadog(
     window: tuple[str, str] | None = None,
     timeout: int = 60,
 ) -> QueryResult:
-    """Renvoie jusqu'à `limit` événements Datadog bruts, du plus ancien au plus récent. Ne lève jamais."""
+    """Renvoie jusqu'à `limit` événements Datadog bruts, du plus récent au plus ancien. Ne lève jamais."""
     return query.execute_datadog_events(
         search=search, caller=CallerType.APP, days=days, limit=limit, window=window, timeout=timeout
     )
