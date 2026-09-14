@@ -192,19 +192,17 @@ def test_pause_refresh_is_idempotent(client, mocker):
     assert publications.resume_refresh("zzz999") is False  # unknown
 
 
-@pytest.fixture
-def interactive_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "INTERACTIVE_DIR", tmp_path)
-    return tmp_path
+def _s3_folder(mocker, files: dict[str, bytes]):
+    mocker.patch("web.s3.interactive.list_files", return_value=[{"path": key} for key in files])
+    mocker.patch("web.s3.interactive.download", side_effect=files.get)
 
 
-def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker, interactive_dir):
+def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker):
     from lib.variants import add_variant
 
     _make_dashboard("pub-exposed")
     token = add_variant("pub-exposed", "67", "Bas-Rhin")["token"]
-    (interactive_dir / "pub-exposed").mkdir()
-    (interactive_dir / "pub-exposed" / "app.js").write_text(f"const MAP = {{'67': '{token}'}};")
+    _s3_folder(mocker, {"pub-exposed/app.js": f"const MAP = {{'67': '{token}'}};".encode()})
     copy = mocker.patch("web.publications.s3.copy_prefix", return_value=1)
 
     with pytest.raises(PublicationBlocked) as exc:
@@ -215,13 +213,12 @@ def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker, i
     copy.assert_not_called()
 
 
-def test_dod_20_publish_passes_when_tokens_only_name_files(client, mocker, interactive_dir):
+def test_dod_20_publish_passes_when_tokens_only_name_files(client, mocker):
     from lib.variants import add_variant
 
     _make_dashboard("pub-clean")
     token = add_variant("pub-clean", "67", "Bas-Rhin")["token"]
-    (interactive_dir / "pub-clean" / "data").mkdir(parents=True)
-    (interactive_dir / "pub-clean" / "data" / f"{token}.json").write_text('{"metadata": {"key": "67"}}')
+    _s3_folder(mocker, {f"pub-clean/data/{token}.json": b'{"metadata": {"key": "67"}}'})
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)
     mocker.patch("web.publications.s3.sync_prefix", return_value=1)
 

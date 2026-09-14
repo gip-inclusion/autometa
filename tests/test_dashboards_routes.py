@@ -884,14 +884,13 @@ def test_dod_18_detail_shows_the_count_and_a_filter_above_twenty(client, mocker,
     assert r.text.count("Département ") == count
 
 
-def test_dod_20_publish_endpoint_names_the_file_that_exposes_a_token(client, mocker, tmp_path, monkeypatch):
+def test_dod_20_publish_endpoint_names_the_file_that_exposes_a_token(client, mocker):
     from lib.variants import add_variant
 
-    monkeypatch.setattr("web.config.INTERACTIVE_DIR", tmp_path)
     _make_dashboard("route-exposed")
     token = add_variant("route-exposed", "67", "Bas-Rhin")["token"]
-    (tmp_path / "route-exposed").mkdir()
-    (tmp_path / "route-exposed" / "index.html").write_text(f"<a href='?q={token}'>Bas-Rhin</a>")
+    mocker.patch("web.s3.interactive.list_files", return_value=[{"path": "route-exposed/index.html"}])
+    mocker.patch("web.s3.interactive.download", return_value=f"<a href='?q={token}'>Bas-Rhin</a>".encode())
 
     r = client.post("/api/dashboards/route-exposed/publish", json={"environment": "staging"}, headers=_h())
 

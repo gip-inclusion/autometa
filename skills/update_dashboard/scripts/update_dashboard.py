@@ -7,6 +7,7 @@ import sys
 from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.variants import add_variant, list_variants, remove_variant
 from web import config
+from web.publications import list_publications
 
 
 def _require_runtime_context() -> tuple[str, str]:
@@ -102,9 +103,17 @@ def main() -> None:
         )
         for key, label in args.add_variant:
             add_variant(args.slug, key, label)
-        for key in args.remove_variant:
-            if not remove_variant(args.slug, key):
-                print(f"Warning: déclinaison inconnue, rien retiré : {key}", file=sys.stderr)
+        removed = [key for key in args.remove_variant if remove_variant(args.slug, key)]
+        for key in set(args.remove_variant) - set(removed):
+            print(f"Warning: déclinaison inconnue, rien retiré : {key}", file=sys.stderr)
+        notices = []
+        if removed and (active := list_publications(args.slug)):
+            urls = ", ".join(p["url"] for p in active)
+            notices.append(
+                f"Déclinaison(s) retirée(s) : {', '.join(removed)}. Le lien public reste en ligne jusqu'au "
+                f"prochain rafraîchissement de la publication ({urls})."
+            )
+            print(f"Notice: {notices[0]}", file=sys.stderr)
     except DashboardNotFound as exc:
         print(f"Error: dashboard not found: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -122,6 +131,7 @@ def main() -> None:
     }
     if args.add_variant or args.remove_variant:
         output["variants"] = list_variants(args.slug)
+        output["notices"] = notices
     print(json.dumps(output))
 
 
