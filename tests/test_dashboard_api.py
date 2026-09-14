@@ -82,6 +82,17 @@ RESULT = QueryResult(success=True, data=[])
             {"sql": "SELECT 1", "timeout": 60},
         ),
         (
+            lambda: dashboard_api.query_datadog("service:dora status:error", 7, group_by=["@http.status_code"]),
+            "execute_datadog_query",
+            {
+                "search": "service:dora status:error",
+                "days": 7,
+                "group_by": ["@http.status_code"],
+                "compute": None,
+                "timeout": 60,
+            },
+        ),
+        (
             lambda: dashboard_api.query_autometa_tables("SELECT 1"),
             "execute_autometa_tables_query",
             {"sql": "SELECT 1", "timeout": 60},

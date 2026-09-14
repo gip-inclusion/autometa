@@ -18,7 +18,7 @@ from lib.dashboard_api import query_matomo
 
 def main() -> None:
     # TODO : remplacer par la requête du dashboard — query_matomo, query_metabase,
-    # query_autometa_tables, query_data_inclusion ou query_storage.
+    # query_autometa_tables, query_data_inclusion, query_datadog ou query_storage.
     result = query_matomo("inclusion", "VisitsSummary.get", {"idSite": 117, "period": "month", "date": "today"})
     if not result.success:
         raise SystemExit(f"Requête en échec : {result.error}")
