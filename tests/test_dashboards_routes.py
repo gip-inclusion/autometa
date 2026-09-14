@@ -772,3 +772,113 @@ def test_detail_no_schedule_editor_without_cron(client):
     assert r.status_code == 200
     assert 'id="cad-daily"' not in r.text
     assert 'id="scheduleModal"' not in r.text
+
+
+def _with_data_files(mocker, slug, tokens):
+    return mocker.patch(
+        "web.routes.dashboards.s3.interactive.list_files",
+        return_value=[{"path": f"{slug}/data/{t}.json", "size": 1, "last_modified": None} for t in tokens],
+    )
+
+
+def test_dod_5_detail_lists_each_variant_with_links_and_mapping_json(client, mocker):
+    from lib.variants import add_variant
+
+    _make_dashboard("multi-edit")
+    token = add_variant("multi-edit", "67", "Bas-Rhin")["token"]
+    _with_data_files(mocker, "multi-edit", [token])
+
+    r = client.get("/dashboards/multi-edit/edit", headers=_h())
+    assert r.status_code == 200
+    assert "Bas-Rhin" in r.text
+    assert f'href="/interactive/multi-edit/?q={token}"' in r.text
+    assert 'href="/api/dashboards/multi-edit/variants"' in r.text
+
+    mapping = client.get("/api/dashboards/multi-edit/variants", headers=_h())
+    assert mapping.status_code == 200
+    assert mapping.json()["variants"] == [
+        {
+            "key": "67",
+            "label": "Bas-Rhin",
+            "token": token,
+            "url": f"/interactive/multi-edit/?q={token}",
+            "public_urls": [],
+            "has_data": True,
+        }
+    ]
+
+
+def test_dod_5_mapping_json_requires_a_known_dashboard(client):
+    r = client.get("/api/dashboards/nope/variants", headers=_h())
+    assert r.status_code == 404
+
+
+def test_dod_8_a_registered_dashboard_becomes_multi_source_once_a_variant_is_declared(client, mocker):
+    from lib.variants import add_variant
+
+    _make_dashboard("mono-then-multi")
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>mono</html>"]))
+    _with_data_files(mocker, "mono-then-multi", [])
+    assert b"<html>mono</html>" in client.get("/interactive/mono-then-multi/").content
+
+    token = add_variant("mono-then-multi", "67", "Bas-Rhin")["token"]
+
+    index = client.get("/interactive/mono-then-multi/")
+    assert 'href="/dashboards/mono-then-multi/edit"' in index.text
+    assert f'href="/interactive/mono-then-multi/?q={token}"' in index.text
+    assert "Bas-Rhin" in client.get("/dashboards/mono-then-multi/edit", headers=_h()).text
+
+
+def test_dod_11_detail_says_when_no_variant_is_declared(client, mocker):
+    _make_dashboard("no-variant")
+    _with_data_files(mocker, "no-variant", [])
+    r = client.get("/dashboards/no-variant/edit", headers=_h())
+    assert "Aucune déclinaison" in r.text
+
+
+def test_dod_14_detail_flags_a_variant_whose_data_file_is_missing(client, mocker):
+    from lib.variants import add_variant
+
+    _make_dashboard("missing-data")
+    with_file = add_variant("missing-data", "67", "Bas-Rhin")["token"]
+    add_variant("missing-data", "68", "Haut-Rhin")
+    _with_data_files(mocker, "missing-data", [with_file])
+
+    r = client.get("/dashboards/missing-data/edit", headers=_h())
+    assert r.text.count("sans données") == 1
+    flags = {
+        v["key"]: v["has_data"]
+        for v in client.get("/api/dashboards/missing-data/variants", headers=_h()).json()["variants"]
+    }
+    assert flags == {"67": True, "68": False}
+
+
+def test_dod_16_detail_shows_a_public_link_per_active_publication(client, mocker):
+    from lib.variants import add_variant
+
+    _make_dashboard("pub-links")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    _with_data_files(mocker, "pub-links", [])
+    pub = client.post("/api/dashboards/pub-links/publish", json={"environment": "staging"}, headers=_h()).json()
+    token = add_variant("pub-links", "67", "Bas-Rhin")["token"]
+
+    r = client.get("/dashboards/pub-links/edit", headers=_h())
+    assert f"{pub['url']}/?q={token}" in r.text
+    public_urls = client.get("/api/dashboards/pub-links/variants", headers=_h()).json()["variants"][0]["public_urls"]
+    assert public_urls == [f"{pub['url']}/?q={token}"]
+
+
+@pytest.mark.parametrize(("count", "has_filter"), [(3, False), (21, True)])
+def test_dod_18_detail_shows_the_count_and_a_filter_above_twenty(client, mocker, count, has_filter):
+    from lib.variants import add_variant
+
+    _make_dashboard("many-variants")
+    _with_data_files(mocker, "many-variants", [])
+    for i in range(count):
+        add_variant("many-variants", f"d{i:02d}", f"Département {i}")
+
+    r = client.get("/dashboards/many-variants/edit", headers=_h())
+    assert f"{count} déclinaisons" in r.text
+    assert ('id="variant-filter"' in r.text) is has_filter
+    assert r.text.count("Département ") == count

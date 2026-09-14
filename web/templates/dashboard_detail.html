@@ -113,6 +113,51 @@
         {% include "_dashboard_tags.html" %}
       </div>
 
+      <div class="mt-5" id="variants-block">
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-2">
+          <h2 class="mb-0">Déclinaisons</h2>
+          {% if variants %}
+          <span class="small text-muted">
+            {{ variants | length }} déclinaison{{ 's' if variants | length > 1 else '' }}
+            · <a href="/api/dashboards/{{ dashboard.slug }}/variants" target="_blank" rel="noopener">Mapping JSON</a>
+          </span>
+          {% endif %}
+        </div>
+        {% if variants %}
+        <p class="small text-muted mb-2">Chaque déclinaison a son propre lien ; seul le jeton du lien ouvre ses données. Déclarer ou retirer une déclinaison passe par le skill <code>update_dashboard</code>.</p>
+        {% if variants | length > 20 %}
+        <input type="search" id="variant-filter" class="form-control form-control-sm mb-2" placeholder="Filtrer par clé ou libellé" style="max-width: 24rem;">
+        {% endif %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="variants-table">
+            <thead><tr><th>Clé</th><th>Libellé</th><th>Lien interne</th><th>Lien public</th><th>Données</th></tr></thead>
+            <tbody>
+              {% for v in variants %}
+              <tr data-variant="{{ v.key }} {{ v.label | lower }}">
+                <td><code>{{ v.key }}</code></td>
+                <td>{{ v.label }}</td>
+                <td><a href="{{ v.url }}" target="_blank" rel="noopener" class="text-decoration-none">Ouvrir <i class="ri-external-link-line"></i></a></td>
+                <td>
+                  {% for url in v.public_urls %}
+                  <div class="d-flex align-items-center gap-1">
+                    <a href="{{ url }}" target="_blank" rel="noopener" class="text-decoration-none text-truncate" style="max-width: 22rem;">{{ url }}</a>
+                    <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-action="copy-url" data-url="{{ url }}" title="Copier l'URL"><i class="ri-file-copy-line"></i></button>
+                  </div>
+                  {% else %}
+                  <span class="text-muted">—</span>
+                  {% endfor %}
+                </td>
+                <td>{% if v.has_data %}<span class="badge bg-success">OK</span>{% else %}<span class="badge bg-warning text-dark">sans données</span>{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">Aucune déclinaison. Un tableau de bord multi-sources en déclare via le skill <code>update_dashboard</code> (<code>--add-variant clé=libellé</code>).</p>
+        {% endif %}
+      </div>
+
       <div class="mt-5" id="publier-block" data-slug="{{ dashboard.slug }}">
         {% if dashboard_drifted %}
         <p class="small text-warning mb-2">
@@ -359,7 +404,14 @@ function filterTagOptions(input) {
       });
     });
 
-    document.querySelectorAll('#publier-block [data-action=copy-url]').forEach((btn) => {
+    document.getElementById('variant-filter')?.addEventListener('input', (e) => {
+      const needle = e.target.value.trim().toLowerCase();
+      document.querySelectorAll('#variants-table tbody tr').forEach((row) => {
+        row.hidden = needle !== '' && !row.dataset.variant.includes(needle);
+      });
+    });
+
+    document.querySelectorAll('#publier-block [data-action=copy-url], #variants-block [data-action=copy-url]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(btn.dataset.url); }
         catch (_) { return; }

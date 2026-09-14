@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.taxonomy import FACETS_BY_NAME, apply_toggle, load_vocabulary, normalize_tag_name, ordered_facets
+from lib.variants import list_variants
+from web import s3
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.cron import cadence, get_last_runs, next_cron_run
@@ -167,9 +169,35 @@ def dashboards_page(
     )
 
 
+def variants_with_links(slug: str, dashboard_publications: list[dict]) -> list[dict]:
+    """Déclinaisons d'un TDB avec leurs liens publics et la présence de leur fichier de données."""
+    declared = list_variants(slug)
+    if not declared:
+        return []
+    present = {f["path"].rsplit("/", 1)[-1] for f in s3.interactive.list_files(f"{slug}/data/")}
+    return [
+        {
+            "key": v["key"],
+            "label": v["label"],
+            "token": v["token"],
+            "url": v["url"],
+            "public_urls": [f"{p['url']}/?q={v['token']}" for p in dashboard_publications],
+            "has_data": f"{v['token']}.json" in present,
+        }
+        for v in declared
+    ]
+
+
 @router.get("/dashboards/{slug}")
 def dashboard_redirect(slug: Slug, user_email: str = Depends(get_current_user)):
     return RedirectResponse(f"/dashboards/{slug}/edit", status_code=301)
+
+
+@router.get("/api/dashboards/{slug}/variants")
+def dashboard_variants(slug: Slug, user_email: str = Depends(get_current_user)):
+    if store.get_dashboard(slug) is None:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    return {"slug": slug, "variants": variants_with_links(slug, list_publications(slug))}
 
 
 @router.get("/dashboards/{slug}/edit")
@@ -219,6 +247,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "section": "dashboards",
             "current_conv": None,
             "dashboard": dashboard,
+            "variants": variants_with_links(slug, dashboard_publications),
             "publications": dashboard_publications,
             "can_publish": can_publish,
             "dashboard_drifted": dashboard_drifted,
