@@ -4,10 +4,11 @@
 # ne peut mesurer ce qu'il casse chez eux. Plutôt que de courir après les cassures, on réduit la
 # surface où elles peuvent se produire — cette façade est un contrat, ses tests en sont la preuve.
 
-from lib import query
+from lib import query, variants
 from lib.datadog import by_count
 from lib.facade_imports import APPLICATION_PACKAGES, FACADE, facade_violations
 from lib.query import CallerType, QueryResult
+from web import config
 
 __all__ = [
     "APPLICATION_PACKAGES",
@@ -17,6 +18,7 @@ __all__ = [
     "by_count",
     "count_datadog",
     "facade_violations",
+    "list_variants",
     "query_autometa_tables",
     "query_data_inclusion",
     "query_datadog",
@@ -26,7 +28,15 @@ __all__ = [
     "sample_datadog",
 ]
 
-VERSION = 1
+VERSION = 2
+
+
+def list_variants(slug: str | None = None) -> list[dict]:
+    """Déclinaisons déclarées du tableau de bord dont le cron tourne : clé, libellé, jeton, chemin."""
+    slug = slug or config.dashboard_slug()
+    if slug is None:
+        raise RuntimeError("AUTOMETA_DASHBOARD_SLUG absent : le cron ne sait pas pour quel tableau de bord il tourne")
+    return variants.list_variants(slug)
 
 
 def query_matomo(instance: str, method: str, params: dict | None = None, timeout: int = 180) -> QueryResult:
