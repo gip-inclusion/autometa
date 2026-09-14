@@ -23,6 +23,8 @@ Ordre de préférence, du plus au moins prioritaire :
 2. **Tables documentées** : si les tables de référence ne couvrent pas le besoin, se limiter aux tables présentes dans `documentation.doc_autometa_tables`.
 3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*`, `intermediate*` et `raw*` (sauf `raw_dora`) contiennent des données brutes ou des couches intermédiaires du pipeline, non destinées aux analyses.
 
+Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora__orientations` (tables de référence) avant de se rabattre sur `raw_dora`.
+
 ### Schémas autorisés
 
 `public`, `monrecap`, `reporting`, `data_inclusion`, `esat`, `seeds`, `raw_dora` (seule exception à l'interdiction de lire les schémas `raw*`), plus `documentation` pour le catalogue.
@@ -36,7 +38,7 @@ Ordre de préférence, du plus au moins prioritaire :
 | Mon Récap | `Contacts`, `Commandes`, `barometre` |
 | data·inclusion | `structures_v1`, `services_v1` |
 | Datalake | `pdi_base_unique_tous_les_pros` |
-| Dora | `structures_structure`, `structures_structuremember`, `services_service`, `services_servicecategory`, `services_service_categories`, `orientations_orientation`, `users_user`, `stats_searchview`, `stats_serviceview`, `stats_mobilisationevent`, `stats_structureinfosview`, `stats_structureview` |
+| Dora | `fct_dora__imer`, `fct_dora__orientations` |
 
 Pour localiser une de ces tables :
 
