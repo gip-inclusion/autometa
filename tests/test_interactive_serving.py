@@ -107,6 +107,15 @@ def test_dod_3_index_without_q_lists_variants_and_links_to_edit_page(mocker):
     stream.assert_not_called()
 
 
+def test_dod_1_redirect_to_the_trailing_slash_keeps_the_token(mocker):
+    mocker.patch("web.s3.interactive.exists", return_value=True)
+
+    response = client.get("/interactive/multi?q=00000000-0000-4000-8000-000000000067", follow_redirects=False)
+
+    assert response.status_code == 301
+    assert response.headers["Location"] == "/interactive/multi/?q=00000000-0000-4000-8000-000000000067"
+
+
 def test_dod_3_index_with_q_serves_the_dashboard_page(mocker):
     listing = mocker.patch("web.app.list_variants", return_value=[_variant("67")])
     mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>tdb</html>"]))

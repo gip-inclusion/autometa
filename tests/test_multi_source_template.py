@@ -76,3 +76,22 @@ def test_dod_15_a_failing_variant_keeps_its_old_file_and_fails_the_run_by_name(c
 
     assert (tmp_path / "data" / f"{TOKENS['117']}.json").exists()
     assert json.loads((tmp_path / "data" / f"{TOKENS['211']}.json").read_text()) == {"old": True}
+
+
+def _raise_for_117(original):
+    def assemble(variant, payload):
+        if variant["key"] == "117":
+            raise KeyError("champ manquant")
+        return original(variant, payload)
+
+    return assemble
+
+
+def test_dod_15_an_assembly_error_on_one_variant_does_not_block_the_others(cron, tmp_path, mocker):
+    mocker.patch.object(cron, "assemble", side_effect=_raise_for_117(cron.assemble))
+
+    with pytest.raises(SystemExit, match="117"):
+        cron.main()
+
+    assert not (tmp_path / "data" / f"{TOKENS['117']}.json").exists()
+    assert (tmp_path / "data" / f"{TOKENS['211']}.json").exists()

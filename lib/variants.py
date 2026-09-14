@@ -2,10 +2,12 @@
 
 import re
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from lib.dashboard_errors import DashboardNotFound
 from web import config, s3
@@ -63,7 +65,12 @@ def add_variant(slug: str, key: str, label: str) -> dict:
             created_at=datetime.now(timezone.utc),
         )
         session.add(variant)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            # Why: deux déclarations simultanées passent toutes deux le SELECT ; la contrainte
+            # d'unicité tranche, et l'appelant reçoit le même refus qu'un doublon ordinaire.
+            raise ValueError(f"déclinaison déjà déclarée : {key}") from exc
         return to_dict(variant)
 
 
@@ -83,12 +90,24 @@ def remove_variant(slug: str, key: str) -> bool:
     return True
 
 
-def exposed_tokens(folder: Path, variants: list[dict]) -> list[str]:
-    """Fichiers du dossier dont le contenu contient un jeton — le nom de fichier ne compte pas."""
+def exposed_tokens(files: Iterable[tuple[str, bytes]], variants: list[dict]) -> list[str]:
+    """Fichiers dont le contenu contient un jeton — le nom de fichier ne compte pas."""
     problems = []
-    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
-        content = path.read_bytes()
+    for name, content in files:
         for variant in variants:
             if variant["token"].encode() in content:
-                problems.append(f"{path.relative_to(folder)} expose le jeton de {variant['key']}")
+                problems.append(f"{name} expose le jeton de {variant['key']}")
     return problems
+
+
+def folder_files(folder: Path) -> Iterable[tuple[str, bytes]]:
+    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+        yield str(path.relative_to(folder)), path.read_bytes()
+
+
+def s3_files(slug: str) -> Iterable[tuple[str, bytes]]:
+    prefix = f"{slug}/"
+    for entry in s3.interactive.list_files(prefix):
+        content = s3.interactive.download(entry["path"])
+        if content is not None:
+            yield entry["path"][len(prefix) :], content

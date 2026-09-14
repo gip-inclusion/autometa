@@ -140,7 +140,8 @@ def serve_interactive(request: Request, filename: str = ""):
         return templates.TemplateResponse(request, "interactive_variants.html", {"slug": slug, "variants": declared})
 
     if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
-        return RedirectResponse(f"/interactive/{filename}/", status_code=301)
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(f"/interactive/{filename}/{query}", status_code=301)
 
     mime_type, _ = mimetypes.guess_type(filename)
     mime_type = mime_type or "application/octet-stream"

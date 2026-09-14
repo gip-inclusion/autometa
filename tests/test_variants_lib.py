@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
-from lib.variants import add_variant, exposed_tokens, list_variants, remove_variant
+from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, remove_variant
 from web.db import get_db
 from web.db import test_transaction as _test_tx
 from web.models import Dashboard, DashboardVariant
@@ -134,7 +134,7 @@ def test_dod_20_exposed_tokens_reports_content_not_file_names(tmp_path):
     (tmp_path / "app.js").write_text(f"const MAP = {{'67': '{token}'}};")
     (tmp_path / "index.html").write_text("<html></html>")
 
-    assert exposed_tokens(tmp_path, [{"key": "67", "token": token}]) == ["app.js expose le jeton de 67"]
+    assert exposed_tokens(folder_files(tmp_path), [{"key": "67", "token": token}]) == ["app.js expose le jeton de 67"]
 
 
 def test_dod_20_exposed_tokens_is_empty_when_only_file_names_carry_tokens(tmp_path):
@@ -142,4 +142,4 @@ def test_dod_20_exposed_tokens_is_empty_when_only_file_names_carry_tokens(tmp_pa
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / f"{token}.json").write_bytes(b'{"metadata": {"key": "67"}}')
 
-    assert exposed_tokens(tmp_path, [{"key": "67", "token": token}]) == []
+    assert exposed_tokens(folder_files(tmp_path), [{"key": "67", "token": token}]) == []

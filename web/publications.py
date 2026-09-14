@@ -38,9 +38,9 @@ class PublicationBlocked(Exception):
         self.detail = detail
 
 
-def exposure_problems(slug: str, folder) -> list[str]:
-    """Fichiers du dossier qui contiennent un jeton de déclinaison — l'énumération que le lien interdit."""
-    return variants.exposed_tokens(folder, variants.list_variants(slug))
+def exposure_problems(slug: str, files) -> list[str]:
+    """Fichiers (nom, contenu) qui portent un jeton de déclinaison — l'énumération que le lien interdit."""
+    return variants.exposed_tokens(files, variants.list_variants(slug))
 
 
 def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
@@ -97,9 +97,9 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             raise PublicationBlocked("archived")
         if not is_publishable(dashboard.has_api_access, dashboard.has_persistence):
             raise PublicationBlocked("uses-query-api")
-        # Why: le dossier local porte le code écrit par l'agent ; les fichiers produits par le cron
-        # sont contrôlés à chaque rafraîchissement, dans le répertoire de travail du cron.
-        if problems := exposure_problems(slug, config.INTERACTIVE_DIR / slug):
+        # Why: le snapshot part de S3, pas du dossier local — les fichiers du cron n'y vivent jamais.
+        # C'est donc S3 qu'on lit, pour contrôler exactement ce qui va être copié.
+        if problems := exposure_problems(slug, variants.s3_files(slug)):
             raise PublicationBlocked("variant-token-exposed", "; ".join(problems))
 
         publication_id = _generate_publication_id()

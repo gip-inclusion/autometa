@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from lib import facade_imports
+from lib import facade_imports, variants
 from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
 
@@ -598,7 +598,7 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         if uses_workdir and status == "success" and workdir:
             upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
             if source == "s3-publication":
-                problems = publications.exposure_problems(task["dashboard_slug"], workdir)
+                problems = publications.exposure_problems(task["dashboard_slug"], variants.folder_files(workdir))
                 publications.refresh(task["publication_id"], blocked_by=problems)
 
     except subprocess.TimeoutExpired:

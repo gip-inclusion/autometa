@@ -53,6 +53,7 @@ def test_dod_7_remove_variant_by_key(runtime, monkeypatch, mocker, capsys):
     )
     remove = mocker.patch.object(cli, "remove_variant", return_value=True)
     mocker.patch.object(cli, "list_variants", return_value=[])
+    mocker.patch.object(cli, "list_publications", return_value=[])
 
     _run(cli, ["--slug", "multi", "--remove-variant", "67"], monkeypatch)
 
@@ -99,3 +100,39 @@ def test_dod_9_create_dashboard_multi_source_flag(runtime, monkeypatch, mocker, 
 
     assert create.call_args.kwargs["multi_source"] is True
     assert json.loads(capsys.readouterr().out)["slug"] == "multi"
+
+
+def test_dod_7_remove_variant_announces_a_public_link_still_online(runtime, monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    mocker.patch.object(
+        cli,
+        "update_dashboard",
+        return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
+    )
+    mocker.patch.object(cli, "remove_variant", return_value=True)
+    mocker.patch.object(cli, "list_variants", return_value=[])
+    mocker.patch.object(
+        cli, "list_publications", return_value=[{"url": "https://statistiques.inclusion.gouv.fr/dashboards/multi"}]
+    )
+
+    _run(cli, ["--slug", "multi", "--remove-variant", "67"], monkeypatch)
+
+    captured = capsys.readouterr()
+    assert "reste en ligne jusqu'au prochain rafraîchissement" in captured.err
+    assert "reste en ligne" in json.loads(captured.out)["notices"][0]
+
+
+def test_dod_7_remove_variant_is_silent_without_publication(runtime, monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    mocker.patch.object(
+        cli,
+        "update_dashboard",
+        return_value=mocker.Mock(slug="multi", originating_user_email="a@x", updater_email="bob@x", fields_changed=[]),
+    )
+    mocker.patch.object(cli, "remove_variant", return_value=True)
+    mocker.patch.object(cli, "list_variants", return_value=[])
+    mocker.patch.object(cli, "list_publications", return_value=[])
+
+    _run(cli, ["--slug", "multi", "--remove-variant", "67"], monkeypatch)
+
+    assert json.loads(capsys.readouterr().out)["notices"] == []
