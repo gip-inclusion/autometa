@@ -432,7 +432,10 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
         return await run_in_thread(publish, slug, environment, user_email)
     except PublicationBlocked as exc:
         reason = exc.code if exc.code in BLOCKED_CODES else "blocked"
-        return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
+        body = {"error": "publication_blocked", "reason": reason}
+        if exc.detail:
+            body["detail"] = exc.detail
+        return JSONResponse(body, status_code=409)
 
 
 @router.post("/api/publications/{publication_id}/unpublish")

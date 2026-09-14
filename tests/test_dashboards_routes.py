@@ -882,3 +882,44 @@ def test_dod_18_detail_shows_the_count_and_a_filter_above_twenty(client, mocker,
     assert f"{count} déclinaisons" in r.text
     assert ('id="variant-filter"' in r.text) is has_filter
     assert r.text.count("Département ") == count
+
+
+def test_dod_20_publish_endpoint_names_the_file_that_exposes_a_token(client, mocker, tmp_path, monkeypatch):
+    from lib.variants import add_variant
+
+    monkeypatch.setattr("web.config.INTERACTIVE_DIR", tmp_path)
+    _make_dashboard("route-exposed")
+    token = add_variant("route-exposed", "67", "Bas-Rhin")["token"]
+    (tmp_path / "route-exposed").mkdir()
+    (tmp_path / "route-exposed" / "index.html").write_text(f"<a href='?q={token}'>Bas-Rhin</a>")
+
+    r = client.post("/api/dashboards/route-exposed/publish", json={"environment": "staging"}, headers=_h())
+
+    assert r.status_code == 409
+    assert r.json() == {
+        "error": "publication_blocked",
+        "reason": "variant-token-exposed",
+        "detail": "index.html expose le jeton de 67",
+    }
+
+
+def test_dod_20_detail_shows_why_the_last_refresh_was_refused(client, mocker):
+    _make_dashboard("refresh-refused")
+    _with_data_files(mocker, "refresh-refused", [])
+    now = datetime.now(timezone.utc)
+    with get_db() as session:
+        session.add(
+            DashboardPublication(
+                dashboard_slug="refresh-refused",
+                publication_id="rr0001",
+                environment="staging",
+                published_by="bob@x",
+                published_at=now,
+                snapshot_has_cron=True,
+                last_refresh_status="failure",
+                last_refresh_error="app.js expose le jeton de 67",
+            )
+        )
+
+    r = client.get("/dashboards/refresh-refused/edit", headers=_h())
+    assert "app.js expose le jeton de 67" in r.text
