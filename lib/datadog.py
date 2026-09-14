@@ -49,6 +49,10 @@ class RateLimiter:
             time.sleep(wait)
 
 
+# Why: the quota is per org, so every client in the process must draw from the same bucket.
+SHARED_LIMITER = RateLimiter()
+
+
 class DatadogClient:
     def __init__(
         self,
@@ -63,7 +67,7 @@ class DatadogClient:
         if not self.api_key or not self.app_key:
             raise DatadogError("DATADOG_API_KEY / DATADOG_APP_KEY not set")
         self.site = site or config.DATADOG_SITE
-        self.limiter = limiter or RateLimiter()
+        self.limiter = limiter or SHARED_LIMITER
         self._session = httpx.Client(
             base_url=f"https://api.{self.site}/api/v2",
             headers={"DD-API-KEY": self.api_key, "DD-APPLICATION-KEY": self.app_key},
@@ -97,25 +101,38 @@ class DatadogClient:
             return response.json()
         raise DatadogError(f"Datadog still rate-limited after {MAX_ATTEMPTS} attempts on {path}")
 
-    def search(self, query: str, frm: str, to: str, limit: int = PAGE_LIMIT, cursor: Optional[str] = None) -> dict:
+    def search(
+        self,
+        query: str,
+        frm: str,
+        to: str,
+        limit: int = PAGE_LIMIT,
+        cursor: Optional[str] = None,
+        sort: str = "timestamp",
+    ) -> dict:
         page: dict[str, Any] = {"limit": limit}
         if cursor:
             page["cursor"] = cursor
         return self._post(
             "/logs/events/search",
-            {"filter": {"query": query, "from": frm, "to": to}, "sort": "timestamp", "page": page},
+            {"filter": {"query": query, "from": frm, "to": to}, "sort": sort, "page": page},
         )
 
-    def iter_events(self, query: str, frm: str, to: str, max_events: Optional[int] = None) -> Iterator[dict]:
-        """Parcourt tous les événements d'une fenêtre, en suivant le curseur."""
+    def iter_events(
+        self, query: str, frm: str, to: str, max_events: Optional[int] = None, sort: str = "timestamp"
+    ) -> Iterator[dict]:
+        """Parcourt les événements d'une fenêtre en suivant le curseur, au plus `max_events`."""
+        if max_events is not None and max_events <= 0:
+            return
         cursor, seen = None, 0
         while True:
-            payload = self.search(query, frm, to, cursor=cursor)
+            page_size = min(max_events - seen, PAGE_LIMIT) if max_events is not None else PAGE_LIMIT
+            payload = self.search(query, frm, to, limit=page_size, cursor=cursor, sort=sort)
             events = payload.get("data", [])
             for event in events:
                 yield event
                 seen += 1
-                if max_events and seen >= max_events:
+                if max_events is not None and seen >= max_events:
                     return
             cursor = payload.get("meta", {}).get("page", {}).get("after")
             if not cursor or not events:

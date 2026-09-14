@@ -391,6 +391,126 @@ def test_execute_dashboard_storage_query_calls_client(mocker):
     assert client.call_args.kwargs["timeout"] == 60
 
 
+def test_execute_datadog_query_aggregates_over_the_window(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.aggregate.return_value = [{"by": {"a": 1}, "computes": {"c0": 3}}]
+
+    result = q.execute_datadog_query(
+        "service:dora", q.CallerType.APP, days=7, group_by=["@a", {"facet": "@b", "limit": 3}]
+    )
+
+    assert result.success is True
+    assert result.data == [{"by": {"a": 1}, "computes": {"c0": 3}}]
+    assert client.call_args.kwargs == {"timeout": 60}
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "now-7d", "now")
+    assert aggregate.call_args.kwargs == {
+        "group_by": [q.by_count("@a"), {"facet": "@b", "limit": 3}],
+        "compute": None,
+    }
+
+
+def test_execute_datadog_query_reports_a_client_error_as_a_failed_result(mocker):
+    from lib import query as q
+    from lib.datadog import DatadogError
+
+    mocker.patch("lib.query.DatadogClient", side_effect=DatadogError("DATADOG_API_KEY / DATADOG_APP_KEY not set"))
+
+    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=7)
+
+    assert result.success is False
+    assert "DATADOG_API_KEY" in result.error
+
+
+def test_execute_datadog_query_survives_an_unexpected_response_body(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.aggregate.side_effect = KeyError("data")
+
+    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=7)
+
+    assert result.success is False
+    assert "data" in result.error
+
+
+def test_execute_datadog_query_forwards_compute_and_timeout(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    compute = [{"aggregation": "cardinality", "metric": "@usr.id"}]
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, days=30, compute=compute, timeout=120)
+
+    assert client.call_args.kwargs == {"timeout": 120}
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "now-30d", "now")
+    assert aggregate.call_args.kwargs == {"group_by": None, "compute": compute}
+
+
+def test_execute_datadog_query_prefers_an_explicit_window_over_days(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, days=90, window=("2026-08-01", "2026-09-01"))
+
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "2026-08-01", "2026-09-01")
+
+
+def test_execute_datadog_count_delegates_to_the_client(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.count.return_value = {"count": 5, "distinct": 2}
+
+    result = q.execute_datadog_count("service:dora", q.CallerType.APP, days=3, distinct="@usr.id")
+
+    assert result.data == {"count": 5, "distinct": 2}
+    count = client.return_value.__enter__.return_value.count
+    assert count.call_args.args == ("service:dora", "now-3d", "now")
+    assert count.call_args.kwargs == {"distinct": "@usr.id"}
+
+
+def test_execute_datadog_events_materialises_the_capped_iterator(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.iter_events.return_value = iter([{"id": 1}, {"id": 2}])
+
+    result = q.execute_datadog_events("service:dora", q.CallerType.APP, limit=2)
+
+    assert result.data == [{"id": 1}, {"id": 2}]
+    iter_events = client.return_value.__enter__.return_value.iter_events
+    assert iter_events.call_args.args == ("service:dora", "now-7d", "now")
+    assert iter_events.call_args.kwargs == {"max_events": 2, "sort": "-timestamp"}
+
+
+@pytest.mark.parametrize("execute", ["execute_datadog_query", "execute_datadog_count", "execute_datadog_events"])
+def test_datadog_executors_refuse_a_rolling_window_beyond_retention(execute):
+    from lib import query as q
+
+    result = getattr(q, execute)("service:dora", q.CallerType.APP, days=31)
+
+    assert result.success is False
+    assert "Rétention" in result.error
+
+
+def test_execute_datadog_query_maps_facets_on_the_explicit_window_path(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, group_by=["@a"], window=("2026-08-01", "2026-09-01"))
+
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "2026-08-01", "2026-09-01")
+    assert aggregate.call_args.kwargs["group_by"] == [q.by_count("@a")]
+
+
 def test_execute_dora_staging_query_calls_client_read_only(mocker):
     from lib import query as q
 

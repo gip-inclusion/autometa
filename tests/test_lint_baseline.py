@@ -1,6 +1,7 @@
 """Tests for scripts/check_lint_baseline.py — une dette gelée se résorbe, elle ne s'étend pas."""
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -71,13 +72,32 @@ def test_the_frozen_baseline_matches_what_the_repository_actually_carries():
 DOCSTRING_TROP_LONGUE = 'def f():\n    """Une docstring\n    sur\n    trois lignes."""\n    return 1\n'
 
 
+def git_repo(path):
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    return path
+
+
 def test_measure_conventions_counts_violations_by_file_and_skips_what_is_not_ours(tmp_path):
+    git_repo(tmp_path)
     (tmp_path / "a.py").write_text(DOCSTRING_TROP_LONGUE)
     for ignore in (".venv", "data"):
         (tmp_path / ignore).mkdir()
         (tmp_path / ignore / "b.py").write_text(DOCSTRING_TROP_LONGUE)
 
     assert _module.measure_conventions(tmp_path) == {"a.py": 1}
+
+
+def test_measure_conventions_leaves_what_gitignore_excludes_but_sees_untracked_files(tmp_path):
+    """Les worktrees et le vendoring local sont ignorés par git : ils ne comptent pas, un fichier neuf si."""
+    git_repo(tmp_path)
+    (tmp_path / ".gitignore").write_text(".worktrees/\n")
+    (tmp_path / ".worktrees" / "autre").mkdir(parents=True)
+    (tmp_path / ".worktrees" / "autre" / "b.py").write_text(DOCSTRING_TROP_LONGUE)
+    (tmp_path / "suivi.py").write_text(DOCSTRING_TROP_LONGUE)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "suivi.py"], check=True)
+    (tmp_path / "neuf.py").write_text(DOCSTRING_TROP_LONGUE)
+
+    assert _module.measure_conventions(tmp_path) == {"neuf.py": 1, "suivi.py": 1}
 
 
 def test_the_frozen_conventions_match_what_the_repository_actually_carries():
