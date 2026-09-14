@@ -1085,3 +1085,35 @@ def test_cadence(schedule, expected):
 )
 def test_is_valid_schedule(schedule, valid):
     assert is_valid_schedule(schedule) is valid
+
+
+def test_dod_6_s3_run_receives_its_dashboard_slug(mocker, s3_cron_env):
+    _seed_dashboard("s3-variants")
+    script = textwrap.dedent("""\
+        import os
+        print("slug=" + os.environ["AUTOMETA_DASHBOARD_SLUG"])
+    """)
+    app = mock_s3_app("s3-variants", cron_script=script)
+    mocks = make_s3_mocks([app])
+    _patch_s3_full(mocker, mocks)
+    result = run_cron_task("s3-variants", trigger="manual")
+    assert result["status"] == "success"
+    assert "slug=s3-variants" in result["output"]
+
+
+def test_dod_6_publication_run_receives_the_dashboard_slug_not_the_composite(client, mocker):
+    import subprocess as sp
+
+    from web.cron import run_cron_task
+
+    _seed_dashboard_and_publication("pub-variants", "pubv01")
+    mocker.patch("web.cron.s3.publications.download", return_value=b"print('ok')")
+    mocker.patch("web.cron.s3.publications.list_files", return_value=[])
+    mocker.patch("web.cron.s3.publications.upload", return_value=True)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
+    run = mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    run_cron_task("pub-variants-pubv01", trigger="manual")
+
+    assert run.call_args.kwargs["env"]["AUTOMETA_DASHBOARD_SLUG"] == "pub-variants"

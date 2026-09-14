@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from lib import dashboard_api
+from lib import facade_imports
 from lib.taxonomy import normalize_tags
 from web import config
 from web.cron import SCHEDULE_PRESETS, is_valid_schedule
@@ -83,7 +83,7 @@ def facade_problems(slug: str) -> list[str]:
     for path in sorted(slug_dir.rglob("*.py")):
         name = path.relative_to(slug_dir)
         try:
-            violations = dashboard_api.facade_violations(path.read_text(errors="replace"))
+            violations = facade_imports.facade_violations(path.read_text(errors="replace"))
         except SyntaxError as exc:
             raise ValueError(f"{name} n'est pas un fichier Python valide : {exc}") from exc
         if violations:
@@ -97,7 +97,7 @@ def check_facade_compliance(slug: str) -> None:
         raise ValueError(
             "Imports hors de la façade des tableaux de bord :\n  "
             + "\n  ".join(problems)
-            + f"\nSeul `{dashboard_api.FACADE}` est autorisé — voir docs/interactive-dashboards.md."
+            + f"\nSeul `{facade_imports.FACADE}` est autorisé — voir docs/interactive-dashboards.md."
         )
 
 
