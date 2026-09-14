@@ -42,3 +42,15 @@ Session unique, de l'assessment à la preuve : environ 2,2 M de tokens d'entrée
 sous-agents de lecture à 150 k, 100 k et 100 k), une quarantaine de commits et relances de la suite
 hermétique à trois minutes chacune. Le poste le plus cher a été la suite complète rejouée par le hook
 à chaque commit — sept fois — pour des changements dont un seul fichier de tests avait bougé.
+
+## Après la double relecture (Opus et Fable, sur la branche prouvée)
+
+Deux relecteurs indépendants ont trouvé deux vrais défauts que ni les tests ni la lentille
+n'avaient vus, parce qu'ils vivent à la jointure de deux composants : le cron du gabarit sortait en
+échec après un run partiel, et le runner n'envoie rien vers S3 sur un échec — les 106 fichiers
+produits partaient à la corbeille avec le répertoire temporaire. Et le retrait d'une déclinaison ne
+touchait pas les snapshots publiés, alors que la notice promettait une révocation au prochain
+rafraîchissement. Corrigés : code de sortie 3 = run partiel dont les fichiers sont conservés ;
+le retrait supprime aussi la copie de chaque snapshot actif, avant la ligne en base. Leçon pour le
+dispositif : un critère qui décrit un comportement de bout en bout (« les autres sont produites
+quand même ») ne se prouve pas sur le gabarit seul — il faut un test qui traverse le runner.
