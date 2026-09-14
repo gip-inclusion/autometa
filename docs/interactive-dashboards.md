@@ -163,23 +163,19 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+`query_datadog`, `count_datadog`, `sample_datadog` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
-`query_datadog(search, days, group_by=None, compute=None)` agrège les logs sur une fenêtre glissante
-`now-Nd → now` (au plus 30 jours), donc deux exécutions à des heures différentes ne comptent pas les
-mêmes événements. Un `str` dans `group_by` devient une facette triée par volume décroissant (50 valeurs)
-; un `dict` est transmis tel quel à l'API. `data` est la liste brute des buckets Datadog :
-`[{"by": {facette: valeur}, "computes": {"c0": n, "c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`.
-
-L'import hors façade est refusé à la création et à l'adoption d'un TDB, et à l'écriture de tout
-fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne juge pas le code : les
-TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
-renommage. Le cron d'audit signale les non conformes sur le canal Slack d'alerte, seulement quand la
-liste change — en observation, sans refuser la planification.
-
-Si un besoin n'est pas couvert, élargir la façade (avec son test) plutôt que la contourner : c'est
-là tout l'intérêt, un changement de contrat devient un acte visible.
+Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
+window=None)` agrège les logs ; `count_datadog(search, days=7, distinct=None, window=None)` renvoie
+`{"count": n, "distinct": m}` ; `sample_datadog(search, days=7, limit=100, window=None)` renvoie jusqu'à
+`limit` événements bruts, du plus ancien au plus récent. Par défaut la fenêtre est glissante,
+`now-Nd → now` (au plus 30 jours), donc deux exécutions à des heures différentes ne comptent pas les mêmes
+événements ; `window=("2026-08-01", "2026-09-01")` fixe des bornes absolues, transmises telles quelles à
+l'API. Un `str` dans `group_by` devient une facette triée par volume décroissant (50 valeurs) ; `by_count(facette, limite)`
+produit la même chose avec une autre limite ; un `dict` est transmis tel quel. `data` de `query_datadog` est la liste brute des
+buckets Datadog : `[{"by": {facette: valeur}, "computes": {"c0": n, "c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`.
+Les événements de `sample_datadog` sont des logs bruts : ne pas les publier tels quels dans un `data.json` public.
 
 #### Convention `data.json`
 
