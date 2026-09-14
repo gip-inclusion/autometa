@@ -450,6 +450,45 @@ def test_execute_datadog_query_forwards_compute_and_timeout(mocker):
     assert aggregate.call_args.kwargs == {"group_by": None, "compute": compute}
 
 
+def test_execute_datadog_query_prefers_an_explicit_window_over_days(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, days=90, window=("2026-08-01", "2026-09-01"))
+
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "2026-08-01", "2026-09-01")
+
+
+def test_execute_datadog_count_delegates_to_the_client(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.count.return_value = {"count": 5, "distinct": 2}
+
+    result = q.execute_datadog_count("service:dora", q.CallerType.APP, days=3, distinct="@usr.id")
+
+    assert result.data == {"count": 5, "distinct": 2}
+    count = client.return_value.__enter__.return_value.count
+    assert count.call_args.args == ("service:dora", "now-3d", "now")
+    assert count.call_args.kwargs == {"distinct": "@usr.id"}
+
+
+def test_execute_datadog_events_materialises_the_capped_iterator(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.iter_events.return_value = iter([{"id": 1}, {"id": 2}])
+
+    result = q.execute_datadog_events("service:dora", q.CallerType.APP, limit=2)
+
+    assert result.data == [{"id": 1}, {"id": 2}]
+    iter_events = client.return_value.__enter__.return_value.iter_events
+    assert iter_events.call_args.args == ("service:dora", "now-7d", "now")
+    assert iter_events.call_args.kwargs == {"max_events": 2}
+
+
 def test_execute_datadog_query_refuses_a_window_beyond_retention():
     from lib import query as q
 

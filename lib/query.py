@@ -11,7 +11,8 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .data_inclusion import execute_sql as _di_execute_sql
-from .datadog import DatadogClient, by_count, window
+from .datadog import DatadogClient, by_count
+from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
@@ -292,30 +293,91 @@ def execute_dashboard_storage_query(
     return _run_traced_query("dashboard_storage.query", attrs, _do)
 
 
-def execute_datadog_query(
+def _run_datadog(
+    span_name: str,
     search: str,
     caller: CallerType,
     days: int,
-    group_by: Optional[list[str | dict]] = None,
-    compute: Optional[list[dict]] = None,
-    timeout: int = 60,
+    window: Optional[tuple[str, str]],
+    timeout: int,
+    fn: Callable[[DatadogClient, str, str], Any],
 ) -> QueryResult:
-    """Aggregate Datadog logs over the last `days` days. Returns QueryResult, never raises."""
     attrs = {
         "db.system": "datadog",
         "caller": caller.value,
-        "datadog.days": days,
+        "datadog.window": "-".join(window) if window else f"{days}d",
         "db.statement.hash": _sql_hash(search),
     }
 
     def _do():
-        frm, to = window(days)
-        facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+        frm, to = window or rolling_window(days)
         with DatadogClient(timeout=timeout) as client:
-            return client.aggregate(search, frm, to, group_by=facets or None, compute=compute)
+            return fn(client, frm, to)
 
     # Why: a 200 with an unexpected body raises KeyError/JSONDecodeError, not DatadogError; caller checks result.success.
-    return _run_traced_query("datadog.query", attrs, _do)
+    return _run_traced_query(span_name, attrs, _do)
+
+
+def execute_datadog_query(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    group_by: Optional[list[str | dict]] = None,
+    compute: Optional[list[dict]] = None,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Aggregate Datadog logs over `window` or the last `days` days. Returns QueryResult, never raises."""
+    facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+    return _run_datadog(
+        "datadog.query",
+        search,
+        caller,
+        days,
+        window,
+        timeout,
+        lambda client, frm, to: client.aggregate(search, frm, to, group_by=facets or None, compute=compute),
+    )
+
+
+def execute_datadog_count(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    distinct: Optional[str] = None,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Count Datadog log events, plus a facet's cardinality when `distinct` is given. Never raises."""
+    return _run_datadog(
+        "datadog.count",
+        search,
+        caller,
+        days,
+        window,
+        timeout,
+        lambda client, frm, to: client.count(search, frm, to, distinct=distinct),
+    )
+
+
+def execute_datadog_events(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    limit: int = 100,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Fetch up to `limit` raw Datadog log events, oldest first. Never raises."""
+    return _run_datadog(
+        "datadog.events",
+        search,
+        caller,
+        days,
+        window,
+        timeout,
+        lambda client, frm, to: list(client.iter_events(search, frm, to, max_events=limit)),
+    )
 
 
 def execute_query(
