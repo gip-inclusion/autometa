@@ -14,9 +14,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib import failure_detection
+from lib.variants import list_variants
 
 from . import config, memory_introspect, sync_to_s3
 from . import s3 as s3_module
+from .deps import templates
 from .log import setup_logging
 from .otel import init_otel, instrument_app
 from .redis_conn import close_redis
@@ -130,6 +132,12 @@ def serve_interactive(request: Request, filename: str = ""):
 
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=404)
+
+    # Why: la page servie ne doit jamais énumérer ses déclinaisons — c'est l'application, jamais
+    # copiée dans une publication, qui rend l'index quand le lien n'en désigne aucune.
+    slug, _, rest = filename.partition("/")
+    if rest == "index.html" and "q" not in request.query_params and (declared := list_variants(slug)):
+        return templates.TemplateResponse(request, "interactive_variants.html", {"slug": slug, "variants": declared})
 
     if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
         return RedirectResponse(f"/interactive/{filename}/", status_code=301)

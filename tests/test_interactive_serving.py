@@ -24,6 +24,7 @@ def test_static_asset_redirects_to_presigned_url(mocker):
 
 
 def test_html_streamed_not_redirected(mocker):
+    mocker.patch("web.app.list_variants", return_value=[])
     mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>ok</html>"]))
 
     response = client.get("/interactive/app/index.html")
@@ -77,3 +78,60 @@ def test_extensioned_path_is_not_treated_as_dir(mocker):
     mocker.patch("web.s3.interactive.stream", return_value=None)
     response = client.get("/interactive/data.json", follow_redirects=False)
     assert response.status_code == 404
+
+
+def _variant(key, label="Bas-Rhin", token="00000000-0000-4000-8000-000000000067"):
+    return {
+        "key": key,
+        "label": label,
+        "token": token,
+        "path": f"data/{token}.json",
+        "url": f"/interactive/multi/?q={token}",
+    }
+
+
+def test_dod_3_index_without_q_lists_variants_and_links_to_edit_page(mocker):
+    mocker.patch(
+        "web.app.list_variants",
+        return_value=[_variant("67"), _variant("68", "Haut-Rhin", "00000000-0000-4000-8000-000000000211")],
+    )
+    stream = mocker.patch("web.s3.interactive.stream")
+
+    response = client.get("/interactive/multi/")
+
+    assert response.status_code == 200
+    assert "Bas-Rhin" in response.text and "Haut-Rhin" in response.text
+    assert "<code>67</code>" in response.text
+    assert 'href="/interactive/multi/?q=00000000-0000-4000-8000-000000000067"' in response.text
+    assert 'href="/dashboards/multi/edit"' in response.text
+    stream.assert_not_called()
+
+
+def test_dod_3_index_with_q_serves_the_dashboard_page(mocker):
+    listing = mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>tdb</html>"]))
+
+    response = client.get("/interactive/multi/?q=00000000-0000-4000-8000-000000000067")
+
+    assert response.status_code == 200
+    assert b"<html>tdb</html>" in response.content
+    listing.assert_not_called()
+
+
+def test_dod_3_dashboard_without_variants_is_not_intercepted(mocker):
+    mocker.patch("web.app.list_variants", return_value=[])
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>mono</html>"]))
+
+    response = client.get("/interactive/mono/")
+
+    assert b"<html>mono</html>" in response.content
+
+
+def test_dod_3_only_the_index_is_intercepted(mocker):
+    listing = mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"{}"]))
+
+    response = client.get("/interactive/multi/data/x.json")
+
+    assert response.content == b"{}"
+    listing.assert_not_called()
