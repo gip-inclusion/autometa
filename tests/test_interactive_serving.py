@@ -144,3 +144,14 @@ def test_dod_3_only_the_index_is_intercepted(mocker):
 
     assert response.content == b"{}"
     listing.assert_not_called()
+
+
+def test_dod_3_a_database_outage_does_not_take_the_dashboard_down(mocker):
+    from sqlalchemy.exc import OperationalError
+
+    mocker.patch("web.app.list_variants", side_effect=OperationalError("SELECT", {}, Exception("down")))
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>still up</html>"]))
+
+    response = client.get("/interactive/multi/")
+
+    assert b"<html>still up</html>" in response.content

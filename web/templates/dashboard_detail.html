@@ -124,6 +124,9 @@
           {% endif %}
         </div>
         {% if variants %}
+        {% if page_leak_warning %}
+        <p class="small text-warning mb-2"><i class="ri-alert-line"></i> {{ page_leak_warning }}</p>
+        {% endif %}
         <p class="small text-muted mb-2">Chaque déclinaison a son propre lien ; seul le jeton du lien ouvre ses données. Déclarer ou retirer une déclinaison passe par le skill <code>update_dashboard</code>.</p>
         {% if variants | length > 20 %}
         <input type="search" id="variant-filter" class="form-control form-control-sm mb-2" placeholder="Filtrer par clé ou libellé" style="max-width: 24rem;">

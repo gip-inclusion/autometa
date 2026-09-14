@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from lib.dashboard_errors import DashboardNotFound
 from web import config, s3
 from web.db import get_db
-from web.models import Dashboard, DashboardVariant
+from web.models import Dashboard, DashboardPublication, DashboardVariant
 
 KEY_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 TOKEN_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -42,13 +42,19 @@ def list_variants(slug: str) -> list[dict]:
         return [to_dict(v) for v in rows]
 
 
-def add_variant(slug: str, key: str, label: str) -> dict:
-    """Déclare une déclinaison ; le jeton est généré ici et ne change plus."""
+def validate_variant(key: str, label: str) -> str:
+    """Refuse une clé ou un libellé hors format ; renvoie le libellé nettoyé."""
     if not KEY_RE.match(key):
         raise ValueError(f"clé invalide : {key!r} (lettres minuscules, chiffres et tirets, 1 à 64 caractères)")
     label = label.strip()
     if not label:
         raise ValueError("libellé obligatoire")
+    return label
+
+
+def add_variant(slug: str, key: str, label: str) -> dict:
+    """Déclare une déclinaison ; le jeton est généré ici et ne change plus."""
+    label = validate_variant(key, label)
     with get_db() as session:
         if session.scalar(select(Dashboard.slug).where(Dashboard.slug == slug)) is None:
             raise DashboardNotFound(slug)
@@ -75,7 +81,7 @@ def add_variant(slug: str, key: str, label: str) -> dict:
 
 
 def remove_variant(slug: str, key: str) -> bool:
-    """Retire une déclinaison et son fichier de données interne. False si elle n'existe pas."""
+    """Retire une déclinaison et son fichier de données, interne et dans chaque snapshot publié."""
     with get_db() as session:
         variant = session.scalar(
             select(DashboardVariant).where(DashboardVariant.dashboard_slug == slug, DashboardVariant.key == key)
@@ -83,20 +89,33 @@ def remove_variant(slug: str, key: str) -> bool:
         if variant is None:
             return False
         path = data_path(variant.token)
+        # Why: les fichiers d'abord, la ligne ensuite — une ligne disparue avec un fichier encore en
+        # ligne laisserait un lien vivant qu'aucun contrôle ne verrait plus.
+        if not s3.interactive.delete(f"{slug}/{path}"):
+            raise ValueError(f"fichier S3 non supprimé, déclinaison conservée : {slug}/{path}")
+        active = session.scalars(
+            select(DashboardPublication.publication_id).where(
+                DashboardPublication.dashboard_slug == slug, DashboardPublication.unpublished_at.is_(None)
+            )
+        )
+        for publication_id in active:
+            s3.publications.delete(f"{slug}/{publication_id}/{path}")
+        (config.INTERACTIVE_DIR / slug / path).unlink(missing_ok=True)
         session.delete(variant)
         session.flush()
-    (config.INTERACTIVE_DIR / slug / path).unlink(missing_ok=True)
-    s3.interactive.delete(f"{slug}/{path}")
     return True
 
 
 def exposed_tokens(files: Iterable[tuple[str, bytes]], variants: list[dict]) -> list[str]:
     """Fichiers dont le contenu contient un jeton — le nom de fichier ne compte pas."""
+    if not variants:
+        return []
+    key_by_token = {v["token"].encode(): v["key"] for v in variants}
+    pattern = re.compile(b"|".join(re.escape(token) for token in key_by_token))
     problems = []
     for name, content in files:
-        for variant in variants:
-            if variant["token"].encode() in content:
-                problems.append(f"{name} expose le jeton de {variant['key']}")
+        for token in sorted(set(pattern.findall(content))):
+            problems.append(f"{name} expose le jeton de {key_by_token[token]}")
     return problems
 
 

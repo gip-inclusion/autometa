@@ -49,7 +49,10 @@ async function init() {
     document.getElementById('generated-at').textContent = data.metadata?.generated_at || '';
     render(data);
     show('content');
-    track(data.metadata.key, label);
+    track(data.metadata?.key || 'sans-cle', label);
 }
 
-init();
+init().catch(() => {
+    show('no-data');
+    track('sans-donnees', document.title);
+});

@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, remove_variant
 from web.db import get_db
 from web.db import test_transaction as _test_tx
-from web.models import Dashboard, DashboardVariant
+from web.models import Dashboard, DashboardPublication, DashboardVariant
 
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
@@ -85,6 +86,56 @@ class TestDeclaration:
         assert not (data_dir / f"{token}.json").exists()
         s3_delete.assert_called_once_with(f"multi/data/{token}.json")
         assert remove_variant("multi", "67") is False
+
+    def test_dod_7_remove_also_drops_the_copy_in_every_active_publication_snapshot(self, mocker):
+        _make_dashboard("multi")
+        token = add_variant("multi", "67", "Bas-Rhin")["token"]
+        now = datetime.now(timezone.utc)
+        with get_db() as session:
+            for pid, unpublished in (("live01", None), ("old001", now)):
+                session.add(
+                    DashboardPublication(
+                        dashboard_slug="multi",
+                        publication_id=pid,
+                        environment="staging",
+                        published_by="bob@x",
+                        published_at=now,
+                        unpublished_at=unpublished,
+                    )
+                )
+        mocker.patch("web.s3.interactive.delete", return_value=True)
+        snapshot_delete = mocker.patch("web.s3.publications.delete", return_value=True)
+
+        assert remove_variant("multi", "67") is True
+
+        snapshot_delete.assert_called_once_with(f"multi/live01/data/{token}.json")
+
+    def test_dod_7_remove_keeps_the_declaration_when_the_file_cannot_be_deleted(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        mocker.patch("web.s3.interactive.delete", return_value=False)
+
+        with pytest.raises(ValueError, match="S3"):
+            remove_variant("multi", "67")
+
+        assert [v["key"] for v in list_variants("multi")] == ["67"]
+
+    def test_dod_7_a_concurrent_declaration_gets_the_same_refusal(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        # Why: simule la fenêtre de course — le SELECT ne voit rien, la contrainte d'unicité tranche.
+        real_scalar = Session.scalar
+        mocker.patch.object(
+            Session,
+            "scalar",
+            side_effect=lambda self, stmt, *a, **k: (
+                None if "dashboard_variants" in str(stmt) else real_scalar(self, stmt, *a, **k)
+            ),
+            autospec=True,
+        )
+
+        with pytest.raises(ValueError, match="déjà déclarée : 67"):
+            add_variant("multi", "67", "Bas-Rhin bis")
 
     @pytest.mark.parametrize(
         ("key", "label", "field"),

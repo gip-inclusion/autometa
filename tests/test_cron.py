@@ -1130,17 +1130,66 @@ def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token
     files = {"pub-leak/leak01/cron.py": b"print('ok')", "pub-leak/leak01/app.js": f"const T = '{token}';".encode()}
     mocker.patch("web.cron.s3.publications.list_files", return_value=[{"path": key} for key in files])
     mocker.patch("web.cron.s3.publications.download", side_effect=files.get)
-    mocker.patch("web.cron.s3.publications.upload", return_value=True)
+    upload = mocker.patch("web.cron.s3.publications.upload", return_value=True)
     sync = mocker.patch("web.publications.s3.sync_prefix")
     mocker.patch("web.publications.alerts.notify_alert_channel")
-    completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
-    mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    def run_and_write(args, **kwargs):
+        (Path(kwargs["cwd"]) / "data.json").write_text("{}")
+        return sp.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    mocker.patch("web.cron.subprocess.run", side_effect=run_and_write)
 
     result = run_cron_task("pub-leak-leak01", trigger="manual")
 
     assert result["status"] == "success"
     sync.assert_not_called()
+    upload.assert_not_called()
     with get_db() as session:
         row = session.scalar(select(DashboardPublication).where(DashboardPublication.publication_id == "leak01"))
         assert row.last_refresh_status == "failure"
         assert row.last_refresh_error == "app.js expose le jeton de 67"
+
+
+def test_dod_15_a_partial_run_keeps_the_files_it_wrote_and_is_recorded_as_a_failure(mocker, s3_cron_env):
+    _seed_dashboard("s3-partial")
+    script = textwrap.dedent("""\
+        from pathlib import Path
+        Path("data").mkdir()
+        Path("data/ok.json").write_text('{"ok": true}')
+        raise SystemExit(3)
+    """)
+    app = mock_s3_app("s3-partial", cron_script=script)
+    mocks = make_s3_mocks([app])
+    _patch_s3_full(mocker, mocks)
+    result = run_cron_task("s3-partial", trigger="manual")
+    assert result["status"] == "failure"
+    assert "s3-partial/data/ok.json" in mocks["_all_files"]
+
+
+def test_dod_15_a_plain_failure_uploads_nothing(mocker, s3_cron_env):
+    _seed_dashboard("s3-crash")
+    script = 'from pathlib import Path\nPath("data.json").write_text("{}")\nraise SystemExit(1)\n'
+    app = mock_s3_app("s3-crash", cron_script=script)
+    mocks = make_s3_mocks([app])
+    _patch_s3_full(mocker, mocks)
+    assert run_cron_task("s3-crash", trigger="manual")["status"] == "failure"
+    assert "s3-crash/data.json" not in mocks["_all_files"]
+
+
+def test_dod_15_a_partial_publication_run_still_refreshes(client, mocker):
+    import subprocess as sp
+
+    from web.cron import run_cron_task
+
+    _seed_dashboard_and_publication("pub-partial", "part01")
+    mocker.patch("web.cron.s3.publications.download", return_value=b"print('ok')")
+    mocker.patch("web.cron.s3.publications.list_files", return_value=[])
+    mocker.patch("web.cron.s3.publications.upload", return_value=True)
+    sync = mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    mocker.patch("web.publications.alerts.notify_alert_channel")
+    completed = sp.CompletedProcess(args=[], returncode=3, stdout="partiel", stderr="")
+    mocker.patch("web.cron.subprocess.run", return_value=completed)
+
+    assert run_cron_task("pub-partial-part01", trigger="manual")["status"] == "failure"
+    assert sync.called

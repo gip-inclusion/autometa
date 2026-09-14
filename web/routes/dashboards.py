@@ -169,6 +169,19 @@ def dashboards_page(
     )
 
 
+def page_leak_warning(slug: str) -> str | None:
+    """Ce que la page d'un TDB converti laisse fuir : le referrer, ou l'URL réelle vers Matomo."""
+    index_html = s3.interactive.download(f"{slug}/index.html") or b""
+    problems = []
+    if b'content="no-referrer"' not in index_html:
+        problems.append("aucune balise referrer no-referrer")
+    if b"container_" in index_html and b"matomo" in index_html.lower():
+        problems.append("le conteneur Matomo est chargé par la page, avant la lecture de ?q")
+    if not problems:
+        return None
+    return "La page peut laisser fuir le jeton : " + " ; ".join(problems) + ". Repartir du gabarit multi-sources."
+
+
 def variants_with_links(slug: str, dashboard_publications: list[dict]) -> list[dict]:
     """Déclinaisons d'un TDB avec leurs liens publics et la présence de leur fichier de données."""
     declared = list_variants(slug)
@@ -247,7 +260,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "section": "dashboards",
             "current_conv": None,
             "dashboard": dashboard,
-            "variants": variants_with_links(slug, dashboard_publications),
+            "variants": (declared := variants_with_links(slug, dashboard_publications)),
+            "page_leak_warning": page_leak_warning(slug) if declared else None,
             "publications": dashboard_publications,
             "can_publish": can_publish,
             "dashboard_drifted": dashboard_drifted,

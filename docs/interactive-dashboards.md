@@ -248,7 +248,8 @@ Ce qui le définit :
 - **Le cron** obtient ses déclinaisons par la façade, `list_variants()`, interroge la source **une
   seule fois** pour toutes les clés, puis écrit un fichier par déclinaison déclarée — et rien
   d'autre. Une déclinaison qui échoue n'empêche pas les autres : son fichier précédent est conservé
-  et le run se termine en échec en nommant les clés fautives. Le fichier porte `metadata.key` et
+  et le run se termine en échec en nommant les clés fautives — code de sortie **3**, que le runner
+  reconnaît comme un run partiel : les fichiers écrits sont conservés, le run est marqué en échec. Le fichier porte `metadata.key` et
   `metadata.label`, jamais son propre jeton.
 - **Matomo** enregistre la page sous `/interactive/{slug}/<clé>/`, pas sous le jeton : la page
   charge le conteneur Tag Manager **après** avoir posé `setCustomUrl`, et désactive Heatmap Session
@@ -260,8 +261,11 @@ Ce qui le définit :
 
 La page d'édition liste chaque déclinaison (clé, libellé, lien interne, lien public par publication
 active, présence du fichier de données) et expose le mapping en JSON
-(`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne ; il n'y a
-pas de révocation d'un lien public déjà en ligne avant le rafraîchissement suivant.
+(`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne et sa
+copie dans chaque snapshot publié ; le lien public répond encore jusqu'au rafraîchissement suivant,
+qui élague la copie publique. Un TDB converti (créé avant ce mode) qui déclare des déclinaisons est
+signalé sur la page d'édition tant que sa page charge Matomo avant de lire `?q` ou ne déclare pas
+`referrer: no-referrer`.
 
 Création : `create_dashboard --multi-source`, **après accord explicite de l'utilisateur** (cf. le
 skill). Le scaffold pose le gabarit de base puis `docs/dashboard-template-multi/` par-dessus.
