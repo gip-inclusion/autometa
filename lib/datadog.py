@@ -101,25 +101,38 @@ class DatadogClient:
             return response.json()
         raise DatadogError(f"Datadog still rate-limited after {MAX_ATTEMPTS} attempts on {path}")
 
-    def search(self, query: str, frm: str, to: str, limit: int = PAGE_LIMIT, cursor: Optional[str] = None) -> dict:
+    def search(
+        self,
+        query: str,
+        frm: str,
+        to: str,
+        limit: int = PAGE_LIMIT,
+        cursor: Optional[str] = None,
+        sort: str = "timestamp",
+    ) -> dict:
         page: dict[str, Any] = {"limit": limit}
         if cursor:
             page["cursor"] = cursor
         return self._post(
             "/logs/events/search",
-            {"filter": {"query": query, "from": frm, "to": to}, "sort": "timestamp", "page": page},
+            {"filter": {"query": query, "from": frm, "to": to}, "sort": sort, "page": page},
         )
 
-    def iter_events(self, query: str, frm: str, to: str, max_events: Optional[int] = None) -> Iterator[dict]:
-        """Parcourt tous les événements d'une fenêtre, en suivant le curseur."""
+    def iter_events(
+        self, query: str, frm: str, to: str, max_events: Optional[int] = None, sort: str = "timestamp"
+    ) -> Iterator[dict]:
+        """Parcourt les événements d'une fenêtre en suivant le curseur, au plus `max_events`."""
+        if max_events is not None and max_events <= 0:
+            return
         cursor, seen = None, 0
         while True:
-            payload = self.search(query, frm, to, cursor=cursor)
+            page_size = min(max_events - seen, PAGE_LIMIT) if max_events is not None else PAGE_LIMIT
+            payload = self.search(query, frm, to, limit=page_size, cursor=cursor, sort=sort)
             events = payload.get("data", [])
             for event in events:
                 yield event
                 seen += 1
-                if max_events and seen >= max_events:
+                if max_events is not None and seen >= max_events:
                     return
             cursor = payload.get("meta", {}).get("page", {}).get("after")
             if not cursor or not events:

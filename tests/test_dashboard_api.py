@@ -131,9 +131,24 @@ def test_query_delegates_as_an_app_caller(mocker, call, delegate, expected):
     assert spy.call_args.kwargs == {**expected, "caller": CallerType.APP}
 
 
-def test_by_count_is_the_facade_way_to_cap_a_grouping():
-    assert dashboard_api.by_count("@status", 10) == {
-        "facet": "@status",
-        "limit": 10,
-        "sort": {"aggregation": "count", "order": "desc", "type": "measure"},
-    }
+def test_by_count_is_re_exported_unchanged():
+    from lib.datadog import by_count
+
+    assert dashboard_api.by_count is by_count
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: dashboard_api.query_datadog("service:x", group_by=5),
+        lambda: dashboard_api.count_datadog("service:x", window="hier"),
+        lambda: dashboard_api.sample_datadog("service:x", window=("2026-09-01",)),
+    ],
+)
+def test_datadog_functions_turn_a_bad_argument_into_a_failed_result(mocker, call):
+    mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    result = call()
+
+    assert result.success is False
+    assert result.error

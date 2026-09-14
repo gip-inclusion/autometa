@@ -486,16 +486,29 @@ def test_execute_datadog_events_materialises_the_capped_iterator(mocker):
     assert result.data == [{"id": 1}, {"id": 2}]
     iter_events = client.return_value.__enter__.return_value.iter_events
     assert iter_events.call_args.args == ("service:dora", "now-7d", "now")
-    assert iter_events.call_args.kwargs == {"max_events": 2}
+    assert iter_events.call_args.kwargs == {"max_events": 2, "sort": "-timestamp"}
 
 
-def test_execute_datadog_query_refuses_a_window_beyond_retention():
+@pytest.mark.parametrize("execute", ["execute_datadog_query", "execute_datadog_count", "execute_datadog_events"])
+def test_datadog_executors_refuse_a_rolling_window_beyond_retention(execute):
     from lib import query as q
 
-    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=31)
+    result = getattr(q, execute)("service:dora", q.CallerType.APP, days=31)
 
     assert result.success is False
     assert "Rétention" in result.error
+
+
+def test_execute_datadog_query_maps_facets_on_the_explicit_window_path(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, group_by=["@a"], window=("2026-08-01", "2026-09-01"))
+
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "2026-08-01", "2026-09-01")
+    assert aggregate.call_args.kwargs["group_by"] == [q.by_count("@a")]
 
 
 def test_execute_dora_staging_query_calls_client_read_only(mocker):
