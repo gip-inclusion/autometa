@@ -42,8 +42,12 @@ dependencies = [
     "pdfplumber>=0.11.0",
     "pillow>=12.3.0",
     "model2vec>=0.8.2",
-    # Modélisation bayésienne (MMM) — utilisée par l'agent dans ses analyses.
+    # Modélisation statistique, fréquentiste et bayésienne (MMM, GLM, modèles mixtes,
+    # panel/DiD, survie) — utilisée par l'agent dans ses analyses.
     "pymc-marketing>=1.1.0",
+    "statsmodels>=0.15.0",
+    "linearmodels>=7.0",
+    "bambi>=0.21.0",
 ]
 
 [project.scripts]
