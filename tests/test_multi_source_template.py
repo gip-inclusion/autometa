@@ -66,13 +66,16 @@ def test_dod_11_no_declared_variant_writes_nothing(cron, tmp_path):
     cron.query_matomo.assert_not_called()
 
 
-def test_dod_15_a_failing_variant_keeps_its_old_file_and_fails_the_run_by_name(cron, tmp_path):
+def test_dod_15_a_failing_variant_keeps_its_old_file_and_fails_the_run_by_name(cron, tmp_path, capsys):
     cron.query_matomo.return_value = QueryResult(success=True, data={"117": {"nb_visits": 10}})
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / f"{TOKENS['211']}.json").write_text('{"old": true}')
 
-    with pytest.raises(SystemExit, match="211"):
+    with pytest.raises(SystemExit) as exc:
         cron.main()
+
+    assert exc.value.code == 3
+    assert "211" in capsys.readouterr().out
 
     assert (tmp_path / "data" / f"{TOKENS['117']}.json").exists()
     assert json.loads((tmp_path / "data" / f"{TOKENS['211']}.json").read_text()) == {"old": True}
@@ -90,8 +93,9 @@ def _raise_for_117(original):
 def test_dod_15_an_assembly_error_on_one_variant_does_not_block_the_others(cron, tmp_path, mocker):
     mocker.patch.object(cron, "assemble", side_effect=_raise_for_117(cron.assemble))
 
-    with pytest.raises(SystemExit, match="117"):
+    with pytest.raises(SystemExit) as exc:
         cron.main()
 
+    assert exc.value.code == 3
     assert not (tmp_path / "data" / f"{TOKENS['117']}.json").exists()
     assert (tmp_path / "data" / f"{TOKENS['211']}.json").exists()

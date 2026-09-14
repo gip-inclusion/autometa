@@ -3,6 +3,7 @@
 import logging
 import secrets
 import string
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -38,9 +39,12 @@ class PublicationBlocked(Exception):
         self.detail = detail
 
 
-def exposure_problems(slug: str, files) -> list[str]:
+def exposure_problems(slug: str, files: Iterable[tuple[str, bytes]]) -> list[str]:
     """Fichiers (nom, contenu) qui portent un jeton de déclinaison — l'énumération que le lien interdit."""
-    return variants.exposed_tokens(files, variants.list_variants(slug))
+    declared = variants.list_variants(slug)
+    if not declared:
+        return []
+    return variants.exposed_tokens(files, declared)
 
 
 def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
@@ -89,6 +93,11 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
         raise ValueError(f"Invalid environment: {environment}")
     if not _public_bucket(environment):
         raise PublicationBlocked("public-bucket-not-configured")
+    # Why: le snapshot part de S3, pas du dossier local — les fichiers du cron n'y vivent jamais.
+    # C'est donc S3 qu'on lit, pour contrôler exactement ce qui va être copié, et hors de toute
+    # transaction : ce parcours télécharge le dossier entier.
+    if problems := exposure_problems(slug, variants.s3_files(slug)):
+        raise PublicationBlocked("variant-token-exposed", "; ".join(problems))
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
         if dashboard is None:
@@ -97,10 +106,6 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
             raise PublicationBlocked("archived")
         if not is_publishable(dashboard.has_api_access, dashboard.has_persistence):
             raise PublicationBlocked("uses-query-api")
-        # Why: le snapshot part de S3, pas du dossier local — les fichiers du cron n'y vivent jamais.
-        # C'est donc S3 qu'on lit, pour contrôler exactement ce qui va être copié.
-        if problems := exposure_problems(slug, variants.s3_files(slug)):
-            raise PublicationBlocked("variant-token-exposed", "; ".join(problems))
 
         publication_id = _generate_publication_id()
         snapshot_has_cron = s3.interactive.exists(f"{slug}/cron.py")
@@ -271,6 +276,9 @@ def refresh(publication_id: str, blocked_by: list[str] | None = None) -> None:
         if blocked_by:
             pub.last_refresh_status = "failure"
             pub.last_refresh_error = _short_text("; ".join(blocked_by))
+            logger.info(
+                "refresh slug=%s id=%s status=blocked", sanitize_for_log(pub.dashboard_slug), pub.publication_id
+            )
             _notify_refresh_status_change(pub, previous_status)
             return
         try:
