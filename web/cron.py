@@ -744,6 +744,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     uses_workdir = source in ("s3", "s3-publication")
     timeout = task["timeout"]
     workdir = None
+    problems = []
     pre_hashes: dict[str, str] = {}
 
     previous_status = None
@@ -792,6 +793,8 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
         error = stderr or stdout
         if uses_workdir and returncode == 0 and workdir:
             upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
+            if source == "s3-publication":
+                problems = publications.exposure_problems(task["dashboard_slug"], workdir)
         status = {0: "success", None: "timeout"}.get(returncode, "failure")
 
     except Exception as e:
@@ -832,7 +835,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
 
     if source == "s3-publication" and status == "success":
         try:
-            publications.refresh(task["publication_id"])
+            publications.refresh(task["publication_id"], blocked_by=problems)
         except SQLAlchemyError:
             logger.exception("cron %s: publication refresh failed", sanitize_for_log(slug))
     return run_result
