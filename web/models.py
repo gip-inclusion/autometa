@@ -208,6 +208,22 @@ class DashboardTag(Base):
     )
 
 
+class DashboardVariant(Base):
+    __tablename__ = "dashboard_variants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dashboard_slug: Mapped[str] = mapped_column(Text, ForeignKey("dashboards.slug", ondelete="CASCADE"), nullable=False)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    token: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("dashboard_slug", "key", name="uq_dashboard_variants_slug_key"),
+        UniqueConstraint("token", name="uq_dashboard_variants_token"),
+    )
+
+
 class DashboardPublication(Base):
     __tablename__ = "dashboard_publications"
 
