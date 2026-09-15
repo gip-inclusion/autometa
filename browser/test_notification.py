@@ -28,6 +28,13 @@ def set_hidden(page: Page, hidden: bool) -> None:
     )
 
 
+def set_focus(page: Page, focused: bool) -> None:
+    page.evaluate(
+        "(focused) => { Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused }); }",
+        focused,
+    )
+
+
 def spy_sound(page: Page) -> None:
     page.evaluate(
         """() => {
@@ -41,12 +48,27 @@ def finish_run(page: Page) -> None:
     page.evaluate("() => window.notifyRunFinished()")
 
 
-def test_dod_1_badge_apparait_onglet_masque(visit: Callable[[str], None], page: Page):
+def test_dod_1_badge_et_son_onglet_masque(visit: Callable[[str], None], page: Page):
     favicon = open_chat(visit, page)
     expect(favicon).to_have_count(1)
+    spy_sound(page)
     set_hidden(page, True)
     finish_run(page)
     expect(favicon).to_have_attribute("href", BADGE)
+    assert page.evaluate("() => window.__playCount") == 1
+
+
+def test_dod_1_notifie_quand_autre_application(visit: Callable[[str], None], page: Page):
+    favicon = open_chat(visit, page)
+    spy_sound(page)
+    set_hidden(page, False)
+    set_focus(page, False)
+    finish_run(page)
+    expect(favicon).to_have_attribute("href", BADGE)
+    assert page.evaluate("() => window.__playCount") == 1
+    set_focus(page, True)
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    expect(favicon).to_have_attribute("href", BASE)
 
 
 def test_dod_3_badge_disparait_au_retour(visit: Callable[[str], None], page: Page):
@@ -62,6 +84,7 @@ def test_dod_4_rien_si_onglet_actif(visit: Callable[[str], None], page: Page):
     favicon = open_chat(visit, page)
     spy_sound(page)
     set_hidden(page, False)
+    set_focus(page, True)
     finish_run(page)
     expect(favicon).to_have_attribute("href", BASE)
     assert page.evaluate("() => window.__playCount") == 0
