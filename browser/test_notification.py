@@ -9,7 +9,7 @@ from playwright.sync_api import Page, expect
 pytestmark = pytest.mark.browser
 
 BADGE = re.compile(r"^data:image/png")
-BASE = re.compile(r"favicon\.svg")
+BASE = re.compile(r"favicon\.png")
 
 
 def open_chat(visit: Callable[[str], None], page: Page):
