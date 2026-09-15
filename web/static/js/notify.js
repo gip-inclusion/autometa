@@ -73,9 +73,15 @@ function notifyRunFinished() {
 }
 
 function initTabNotifier() {
+  if (document.getElementById('appFavicon')) return;
+
   const links = document.querySelectorAll('link[rel="icon"]');
   if (links.length) {
-    baseHref = links[0].getAttribute('href') || '';
+    // On garde le PNG comme base : c'est aussi la source de la pastille
+    // (buildBadge lit /static/favicon.png), donc l'onglet ne saute plus entre
+    // rendu SVG et rendu PNG, et le PNG reste servi aux navigateurs sans SVG.
+    const pngLink = document.querySelector('link[rel="icon"][href$=".png"]');
+    baseHref = (pngLink || links[0]).getAttribute('href') || '';
     links.forEach((l) => {
       l.remove();
     });

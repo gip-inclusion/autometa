@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-SOUND = Path("web/static/sounds/notification.wav")
+SOUND = Path(__file__).parent.parent / "web" / "static" / "sounds" / "notification.wav"
 
 
 def test_dod_2_le_son_de_notification_est_un_wav_valide():
