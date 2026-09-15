@@ -51,13 +51,14 @@ function buildBadge() {
     badgedHref = canvas.toDataURL('image/png');
     if (badgePending) setBadge(true);
   };
+  img.onerror = () => console.warn('notification: favicon de base introuvable, pastille indisponible');
   img.src = '/static/favicon.png';
 }
 
 function playSound() {
   if (!sound) return;
   sound.currentTime = 0;
-  sound.play().catch(() => {});
+  sound.play().catch((err) => console.warn('notification: son bloqué %o', err));
 }
 
 /**
