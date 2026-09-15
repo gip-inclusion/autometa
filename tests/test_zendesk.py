@@ -678,20 +678,17 @@ def test_search_articles_caps_results(api_no_signal, mocker):
     assert request.call_args.kwargs["params"]["query"] == "pass IAE"
 
 
-def test_update_article_content_puts_translation_then_rereads(api_no_signal, mocker):
+def test_update_article_content_returns_stored_translation_from_the_put_alone(api_no_signal, mocker):
+    translation = {"title": "T", "body": "<p>stocké</p>", "updated_at": "2026-09-15T18:53:41Z", "locale": "fr"}
     request = mocker.patch.object(
-        api_no_signal._client,
-        "request",
-        side_effect=[
-            _mock_response(mocker, json_data={"translation": {}}),
-            _mock_response(mocker, json_data={"article": article_payload(5, body="<p>stocké</p>")}),
-        ],
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"translation": translation})
     )
-    article = api_no_signal.update_article_content(5, "T", "<p>b</p>")
-    method, url = request.call_args_list[0].args
+    stored = api_no_signal.update_article_content(5, "T", "<p>b</p>")
+    method, url = request.call_args.args
     assert (method, url.endswith("help_center/articles/5/translations/fr.json")) == ("PUT", True)
-    assert request.call_args_list[0].kwargs["json"] == {"translation": {"title": "T", "body": "<p>b</p>"}}
-    assert article.body == "<p>stocké</p>"
+    assert request.call_args.kwargs["json"] == {"translation": {"title": "T", "body": "<p>b</p>"}}
+    assert request.call_count == 1
+    assert stored == {"title": "T", "body": "<p>stocké</p>", "updated_at": "2026-09-15T18:53:41Z"}
 
 
 def test_dod_8_update_article_sends_metadata_fields(api_no_signal, mocker):

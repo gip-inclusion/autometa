@@ -51,7 +51,7 @@ def transform(title, body):
     return title, body.replace("<h2>Contact</h2>", "<h2>Contact</h2>\n<p>Nouveau paragraphe.</p>")
 result = cs.plan([article], transform, "ajout encart contact")
 
-# result : {"id": "2026-09-11-1032-remplacer-dora", "articles": [...], "scanned": 229, "diff_url": ...,
+# result : {"id": "2026-09-11-103200-remplacer-dora", "articles": [...], "scanned": 229, "diff_url": ...,
 #           "markup_hits": {id: n}, "structure_hits": [{"kind": "section", "id", "name"}, ...]}
 # result est None si rien ne change. Un motif vide est refusé (ValueError).
 
@@ -71,7 +71,9 @@ cs.show(changeset_id) ; cs.list_changesets()
 
 Si l'utilisateur demande une correction à l'étape 2, produire un nouveau changeset ; l'ancien reste `planned` et n'est jamais appliqué.
 
-**Interruption** : `apply` enregistre son avancement article par article. Si la session ou le réseau tombe, `show` donne les articles écrits et ceux qui restent (`remaining`), `apply` reprend là où il s'est arrêté, et `revert` défait ce qui a été écrit.
+**Interruption** : `apply` enregistre son avancement article par article, et son intention avant chaque écriture. Si la session ou le réseau tombe, `show` donne les articles écrits et ceux qui restent (`remaining`), `apply` reprend là où il s'est arrêté, et `revert` défait ce qui a été écrit, y compris l'article dont l'accusé de réception s'est perdu. `revert` se reprend de la même façon. Ne jamais reprendre depuis une seconde conversation tant que la première peut encore tourner : deux reprises simultanées se réécrivent mutuellement le rapport.
+
+**Erreurs** : un article en erreur (`errors`, avec le code HTTP) n'est pas abandonné. Le changeset reste `applying` (ou `reverting`) tant qu'il en reste : relancer `apply` (ou `revert`) réessaie ces seuls articles ; `revert` reste possible entre-temps.
 
 **Garde de cohérence** : `apply` relit chaque article et n'écrit que si son contenu est identique à l'état figé au plan ; sinon l'article est sauté et listé. `revert` fait de même contre l'état enregistré à l'application. Un article retouché à la main entre-temps n'est jamais écrasé. Pour rattraper les sautés, refaire un `plan` sur ces seuls articles (le motif d'un `replace` est dans `result["params"]`).
 

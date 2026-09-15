@@ -5,6 +5,7 @@ import json
 import pytest
 
 from lib import zendesk_changeset as cs
+from lib.sources import get_zendesk
 from lib.zendesk import Article, ZendeskError
 
 
@@ -19,6 +20,9 @@ class FakeStore:
     def download(self, path):
         return self.files.get(path)
 
+    def head(self, path):
+        return {"exists": path in self.files}
+
     def get_url(self, path, expires_in=3600):
         return f"https://s3.example/{path}"
 
@@ -31,12 +35,13 @@ class FakeStore:
 
 
 class FakeZendesk:
-    """In-memory Guide: get_article reads, update_article_content writes and bumps updated_at."""
+    """In-memory Guide; fail_on raises before writing an article, fail_after writes it then raises (ack lost)."""
 
-    def __init__(self, articles, sections=(), categories=(), fail_on=None):
+    def __init__(self, articles, sections=(), categories=(), fail_on=None, fail_after=None):
         self.articles = {a.id: a for a in articles}
         self.sections, self.categories = list(sections), list(categories)
-        self.fail_on = fail_on
+        self.fail_on, self.fail_after = fail_on, fail_after
+        self.after_write_error = ConnectionError("réseau coupé après écriture")
         self.writes = []
 
     def list_articles(self):
@@ -67,7 +72,9 @@ class FakeZendesk:
             html_url=old.html_url,
         )
         self.writes.append(article_id)
-        return self.articles[article_id]
+        if article_id == self.fail_after:
+            raise self.after_write_error
+        return cs.content(self.articles[article_id])
 
 
 def article(article_id, title="Titre", body="<p>Dora est un service.</p>\n<p>Autre ligne.</p>", draft=False):
@@ -105,13 +112,13 @@ def test_dod_1_replace_lists_changed_articles_with_diff_and_writes_nothing(store
     result = cs.replace(api, "Dora", "Nova", label="Renommer Dora")
 
     assert api.writes == []
-    assert result["id"] == "2026-09-11-1032-renommer-dora"
+    assert result["id"] == "2026-09-11-103200-renommer-dora"
     assert result["status"] == "planned"
     assert result["scanned"] == 3
     assert [e["id"] for e in result["articles"]] == [1, 3]
     assert result["articles"][0]["lines_changed"] == 1
-    assert result["diff_url"] == "https://s3.example/changesets/2026-09-11-1032-renommer-dora/diff.md"
-    prefix = "changesets/2026-09-11-1032-renommer-dora"
+    assert result["diff_url"] == "https://s3.example/changesets/2026-09-11-103200-renommer-dora/diff.md"
+    prefix = "changesets/2026-09-11-103200-renommer-dora"
     diff = store.files[f"{prefix}/diff.md"].decode()
     assert "# Renommer Dora" in diff
     assert "-<p>Dora est un service.</p>" in diff
@@ -134,7 +141,7 @@ def test_dod_2_plan_on_one_article_touches_only_it(store, mocker):
     assert "+<p>Encart.</p>" in store.files[f"changesets/{result['id']}/diff.md"].decode()
 
 
-def test_dod_3_planned_changeset_stays_inert_until_applied(store):
+def test_dod_3_unapproved_plan_stays_inert_and_is_still_listed_later(store):
     api = FakeZendesk([article(1)])
     changeset_id = planned(api)
 
@@ -294,7 +301,7 @@ def test_dod_12_empty_pattern_is_refused(store):
     "action, setup, message",
     [
         (cs.apply, lambda api, cid: cs.apply(api, cid), "est applied, attendu planned ou applying"),
-        (cs.revert, lambda api, cid: None, "est planned, attendu applied ou applying"),
+        (cs.revert, lambda api, cid: None, "est planned, attendu applied ou applying ou reverting"),
         (cs.revert, lambda api, cid: (cs.apply(api, cid), cs.revert(api, cid)), "est reverted, attendu applied"),
         (cs.apply, lambda api, cid: cs.s3.zendesk.files.clear(), "introuvable"),
     ],
@@ -327,18 +334,77 @@ def test_dod_15_interrupted_apply_keeps_written_articles_revertible_and_names_th
     assert api.writes == [1, 2, 3]
 
 
-def test_dod_15_interrupted_apply_can_be_reverted(store):
-    api = FakeZendesk([article(1), article(2)], fail_on=2)
+@pytest.mark.parametrize("failure", ["fail_on", "fail_after"], ids=["before the write", "after the write"])
+def test_dod_15_interrupted_apply_can_be_reverted(store, failure):
+    api = FakeZendesk([article(1), article(2)], **{failure: 2})
     changeset_id = planned(api)
     with pytest.raises(ConnectionError):
         cs.apply(api, changeset_id)
 
+    api.fail_on = api.fail_after = None
+    report = cs.revert(api, changeset_id)
+
+    assert report["status"] == "reverted"
+    assert report["written"] == (1 if failure == "fail_on" else 2)
+    assert api.articles[1].body == article(1).body
+    assert "Dora" in api.articles[2].body
+
+
+def test_dod_15_write_with_lost_acknowledgement_counts_as_written_on_resume(store):
+    api = FakeZendesk([article(1), article(2), article(3)], fail_after=2)
+    changeset_id = planned(api)
+    with pytest.raises(ConnectionError):
+        cs.apply(api, changeset_id)
+    assert list(cs.show(changeset_id)["applied"]["written"]) == ["1"]
+
+    api.fail_after = None
+    report = cs.apply(api, changeset_id)
+
+    assert (report["status"], report["written"], report["skipped"]) == ("applied", 3, [])
+    assert api.writes == [1, 2, 3]
+    assert store.json(f"changesets/{changeset_id}/applied.json")["written"]["2"]["updated_at"] == "t0+1"
+
+
+def test_dod_15_write_acknowledged_by_an_error_is_still_written_and_revertible(store):
+    api = FakeZendesk([article(1), article(2), article(3)], fail_after=2)
+    api.after_write_error = ZendeskError(502, "bad gateway")
+    changeset_id = planned(api)
+
+    report = cs.apply(api, changeset_id)
+
+    assert (report["status"], report["written"], report["errors"]) == ("applied", 3, [])
+    assert cs.revert(api, changeset_id)["written"] == 3
+    assert all(a.body == article(1).body for a in api.articles.values())
+
+
+def test_dod_15_interrupted_revert_resumes(store):
+    api = FakeZendesk([article(1), article(2)])
+    changeset_id = planned(api)
+    cs.apply(api, changeset_id)
+    api.fail_on = 2
+    with pytest.raises(ConnectionError):
+        cs.revert(api, changeset_id)
+    assert cs.show(changeset_id)["status"] == "reverting"
+
     api.fail_on = None
     report = cs.revert(api, changeset_id)
 
-    assert report["written"] == 1
-    assert api.articles[1].body == article(1).body
-    assert "Dora" in api.articles[2].body
+    assert (report["status"], report["written"]) == ("reverted", 2)
+    assert all(a.body == article(1).body for a in api.articles.values())
+
+
+def test_dod_15_errors_keep_the_changeset_applying_and_are_retried(store):
+    api = FakeZendesk([article(1), article(2)])
+    changeset_id = planned(api)
+    hidden = api.articles.pop(2)
+
+    first = cs.apply(api, changeset_id)
+    assert (first["status"], first["written"], [e["id"] for e in first["errors"]]) == ("applying", 1, [2])
+    assert [e["id"] for e in cs.show(changeset_id)["remaining"]] == [2]
+
+    api.articles[2] = hidden
+    second = cs.apply(api, changeset_id)
+    assert (second["status"], second["written"], second["errors"]) == ("applied", 2, [])
 
 
 def test_dod_16_section_and_category_names_are_named_but_untouched(store):
@@ -401,17 +467,58 @@ def test_show_and_list_changesets(store):
         cs.show("nope")
 
 
-def test_write_json_raises_on_upload_failure(store, mocker):
-    mocker.patch.object(store, "upload", return_value=False)
-    with pytest.raises(RuntimeError, match="S3 upload failed"):
-        cs.write_json("x.json", {})
+def test_two_plans_in_the_same_second_do_not_overwrite_each_other(store):
+    api = FakeZendesk([article(1)])
+    first = cs.replace(api, "Dora", "Nova")
+    with pytest.raises(RuntimeError, match="existe déjà"):
+        cs.replace(api, "Dora", "Neo")
+    assert (
+        store.json(f"changesets/{first['id']}/after.json.gz")["1"]["body"]
+        == "<p>Nova est un service.</p>\n<p>Autre ligne.</p>"
+    )
+
+
+def test_plan_raises_when_any_upload_fails(store, mocker):
+    api = FakeZendesk([article(1)])
+    mocker.patch.object(store, "upload", side_effect=lambda path, *a: not path.endswith("diff.md"))
+    with pytest.raises(RuntimeError, match="S3 upload failed .*diff.md"):
+        cs.replace(api, "Dora", "Nova")
+
+
+@pytest.mark.parametrize(
+    "head, expected",
+    [({"exists": False}, None), ({"exists": True, "size": 1, "etag": "e"}, RuntimeError), (None, RuntimeError)],
+    ids=["absent", "download failed", "unreachable"],
+)
+def test_read_json_tells_absent_from_unreachable(store, mocker, head, expected):
+    mocker.patch.object(store, "download", return_value=None)
+    mocker.patch.object(store, "head", return_value=head)
+    if expected is None:
+        assert cs.read_json("x.json") is None
+    else:
+        with pytest.raises(expected, match="S3 read failed"):
+            cs.read_json("x.json")
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ('<a title="a>Dora">Dora</a>', '<a title="a>Dora">Nova</a>'),
+        ("<a title='Accueil > Dora'>Dora</a>", "<a title='Accueil > Dora'>Nova</a>"),
+        ("<!-- Dora > note -->Dora", "<!-- Dora > note -->Nova"),
+    ],
+    ids=["double-quoted >", "single-quoted >", "comment"],
+)
+def test_dod_17_a_greater_than_inside_markup_does_not_leak_into_visible_text(store, body, expected):
+    api = FakeZendesk([article(1, body=body)])
+    result = cs.replace(api, "Dora", "Nova")
+    assert store.json(f"changesets/{result['id']}/after.json.gz")["1"]["body"] == expected
+    assert result["markup_hits"] == {1: 1}
 
 
 @pytest.mark.external
 def test_sandbox_roundtrip(store):
     """Plan → apply → revert on a throwaway draft article in the Zendesk sandbox section (S3 in memory)."""
-    from lib.sources import get_zendesk
-
     api = get_zendesk()
     # Section « Charte édito » of the « Bac a sable des emplois » category.
     created = api.create_article(29763119236753, "[test changeset — à supprimer]", "<p>Dora test.</p>")

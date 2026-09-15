@@ -317,14 +317,14 @@ class ZendeskAPI:
     def list_categories(self) -> list[dict]:
         return list(self._iter_pages("help_center/categories.json", "categories"))
 
-    def update_article_content(self, article_id: int, title: str, body: str, locale: str = "fr") -> Article:
-        """Rewrite an article's title and body; returns the article as stored by Zendesk."""
-        self._request(
+    def update_article_content(self, article_id: int, title: str, body: str, locale: str = "fr") -> dict:
+        """Rewrite an article's title and body; returns title, body and updated_at exactly as Zendesk stored them."""
+        data = self._request(
             "PUT",
             f"help_center/articles/{article_id}/translations/{locale}.json",
             json={"translation": {"title": title, "body": body}},
         )
-        return self.get_article(article_id)
+        return {k: data["translation"][k] for k in ("title", "body", "updated_at")}
 
     def update_article(self, article_id: int, **fields: Any) -> Article:
         """Update article metadata (section_id, label_names, draft, position, ...)."""
