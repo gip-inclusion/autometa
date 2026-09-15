@@ -29,20 +29,25 @@ def content(article: Article) -> dict:
 
 
 def read_json(path: str) -> Optional[Any]:
+    """Parsed object, None when absent; raises when S3 is unreachable rather than mistaking it for absence."""
     raw = s3.zendesk.download(path)
     if raw is None:
+        if s3.zendesk.head(path) != {"exists": False}:
+            raise RuntimeError(f"S3 read failed for {path}")
         return None
     if path.endswith(".gz"):
         raw = gzip.decompress(raw)
     return json.loads(raw)
 
 
+def write_bytes(path: str, raw: bytes, content_type: Optional[str] = None) -> None:
+    if not s3.zendesk.upload(path, raw, content_type):
+        raise RuntimeError(f"S3 upload failed for {path}")
+
+
 def write_json(path: str, data: Any) -> None:
     raw = json.dumps(data, ensure_ascii=False, indent=1).encode()
-    if path.endswith(".gz"):
-        raw = gzip.compress(raw)
-    if not s3.zendesk.upload(path, raw):
-        raise RuntimeError(f"S3 upload failed for {path}")
+    write_bytes(path, gzip.compress(raw) if path.endswith(".gz") else raw)
 
 
 def article_diff(before: dict, after: dict, article: dict) -> str:
@@ -71,7 +76,10 @@ def plan(
         entries.append({"id": article.id, "title": article.title, "html_url": article.html_url, "lines_changed": added})
     if not entries:
         return None
-    changeset_id = f"{datetime.now().strftime('%Y-%m-%d-%H%M')}-{slugify(label)}"
+    changeset_id = f"{datetime.now().strftime('%Y-%m-%d-%H%M%S')}-{slugify(label)}"
+    prefix = f"changesets/{changeset_id}"
+    if read_json(f"{prefix}/manifest.json") is not None:
+        raise RuntimeError(f"changeset {changeset_id} existe déjà")
     manifest = {
         "id": changeset_id,
         "label": label,
@@ -82,19 +90,18 @@ def plan(
         "scanned": len(articles),
         **notes,
     }
-    prefix = f"changesets/{changeset_id}"
     write_json(f"{prefix}/before.json.gz", before)
     write_json(f"{prefix}/after.json.gz", after)
     diff = "\n".join(article_diff(before[str(e["id"])], after[str(e["id"])], e) for e in entries)
     header = "\n".join(f"- {k} : {v!r}" for k, v in (params or {}).items())
-    s3.zendesk.upload(f"{prefix}/diff.md", f"# {label}\n\n{header}\n\n{diff}".encode(), "text/markdown; charset=utf-8")
+    write_bytes(f"{prefix}/diff.md", f"# {label}\n\n{header}\n\n{diff}".encode(), "text/markdown; charset=utf-8")
     write_json(f"{prefix}/manifest.json", manifest)
     return {**manifest, "diff_url": s3.zendesk.get_url(f"{prefix}/diff.md", expires_in=86400)}
 
 
 def split_markup(body: str) -> list[str]:
-    """Alternate visible-text and tag segments; odd indexes are tags."""
-    return re.split(r"(<[^>]*>)", body)
+    """Alternate visible-text and markup segments (tags with quoted attributes, comments); odd indexes are markup."""
+    return re.split(r"""(<!--.*?-->|<(?:[^>"']|"[^"]*"|'[^']*')*>)""", body, flags=re.DOTALL)
 
 
 def replace(
@@ -155,10 +162,30 @@ def set_status(manifest: dict, status: str) -> None:
     write_json(f"changesets/{manifest['id']}/manifest.json", manifest)
 
 
+def settled(report: dict) -> set[str]:
+    """Articles a run will not touch again: written, or skipped by the guard. Errors are retried."""
+    return set(report["written"]) | {str(x["id"]) for x in report["skipped"]}
+
+
+def resolve_pending(api: ZendeskAPI, report: dict, expected: dict, report_path: str) -> None:
+    """Settle the article whose PUT was in flight when a run died: written unless its content is still the expected one."""
+    article_id = report.get("pending")
+    if article_id is None:
+        return
+    current = api.get_article(int(article_id))
+    if (current.title, current.body) != (expected[article_id]["title"], expected[article_id]["body"]):
+        report["written"][article_id] = content(current)
+        report["errors"] = [e for e in report["errors"] if str(e["id"]) != article_id]
+    report["pending"] = None
+    write_json(report_path, report)
+
+
 def write_guarded(api: ZendeskAPI, ids: list[str], expected: dict, target: dict, report_path: str) -> dict:
     """Write target where live content still equals expected, skip or log otherwise; checkpointed after each article."""
-    report: dict[str, Any] = read_json(report_path) or {"written": {}, "skipped": [], "errors": []}
-    done = set(report["written"]) | {str(x["id"]) for x in report["skipped"] + report["errors"]}
+    report: dict[str, Any] = read_json(report_path) or {"written": {}, "skipped": [], "errors": [], "pending": None}
+    resolve_pending(api, report, expected, report_path)
+    done = settled(report)
+    report["errors"] = []
     for article_id in ids:
         if article_id in done:
             continue
@@ -173,11 +200,18 @@ def write_guarded(api: ZendeskAPI, ids: list[str], expected: dict, target: dict,
                     "updated_at": current.updated_at,
                 })
                 continue
-            stored = api.update_article_content(current.id, target[article_id]["title"], target[article_id]["body"])
-            report["written"][article_id] = content(stored)
+            # Why: the intent is checkpointed before the PUT so that a write whose acknowledgement is lost
+            # (crash, or an error on the response) is still found and revertible on the next run.
+            report["pending"] = article_id
+            write_json(report_path, report)
+            report["written"][article_id] = api.update_article_content(
+                current.id, target[article_id]["title"], target[article_id]["body"]
+            )
+            report["pending"] = None
         except ZendeskError as exc:
             logger.warning("Zendesk article %s skipped: %s", article_id, exc)
             report["errors"].append({"id": int(article_id), "title": expected[article_id]["title"], "error": str(exc)})
+            resolve_pending(api, report, expected, report_path)
         write_json(report_path, report)
     return report
 
@@ -189,18 +223,21 @@ def apply(api: ZendeskAPI, changeset_id: str) -> dict:
     before, after = read_json(f"{prefix}/before.json.gz"), read_json(f"{prefix}/after.json.gz")
     set_status(manifest, "applying")
     report = write_guarded(api, list(before), before, after, f"{prefix}/applied.json")
-    set_status(manifest, "applied")
+    if not report["errors"]:
+        set_status(manifest, "applied")
     return summary(manifest, report)
 
 
 def revert(api: ZendeskAPI, changeset_id: str) -> dict:
     """Restore the pre-changeset content of every article the apply actually wrote, with the same guard."""
-    manifest = load(changeset_id, "applied", "applying")
+    manifest = load(changeset_id, "applied", "applying", "reverting")
     prefix = f"changesets/{changeset_id}"
     before, applied = read_json(f"{prefix}/before.json.gz"), read_json(f"{prefix}/applied.json")
     set_status(manifest, "reverting")
+    resolve_pending(api, applied, before, f"{prefix}/applied.json")
     report = write_guarded(api, list(applied["written"]), applied["written"], before, f"{prefix}/reverted.json")
-    set_status(manifest, "reverted")
+    if not report["errors"]:
+        set_status(manifest, "reverted")
     return summary(manifest, report)
 
 
@@ -219,13 +256,12 @@ def show(changeset_id: str) -> dict:
     manifest = read_json(f"{prefix}/manifest.json")
     if manifest is None:
         raise ValueError(f"changeset {changeset_id} introuvable")
-    applied = read_json(f"{prefix}/applied.json") or {"written": {}, "skipped": [], "errors": []}
-    done = set(applied["written"]) | {str(x["id"]) for x in applied["skipped"] + applied["errors"]}
+    applied = read_json(f"{prefix}/applied.json") or {"written": {}, "skipped": [], "errors": [], "pending": None}
     return {
         **manifest,
         "diff_url": s3.zendesk.get_url(f"{prefix}/diff.md", expires_in=86400),
         "applied": applied,
-        "remaining": [e for e in manifest["articles"] if str(e["id"]) not in done],
+        "remaining": [e for e in manifest["articles"] if str(e["id"]) not in settled(applied)],
         "reverted": read_json(f"{prefix}/reverted.json"),
     }
 

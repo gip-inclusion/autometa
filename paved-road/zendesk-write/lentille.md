@@ -8,3 +8,5 @@ Aucun bloqueur. Dix-sept critères rattachés à du code identifiable. Six remar
 - **Excès, `plan(**notes)` et repli `{}` sur réponse sans corps** — conservé. Le repli sert au `DELETE` d'un article (204 sans corps), utilisé par le test d'aller-retour sur le bac à sable.
 - **Excès, fusion du skill `zendesk_query` dans `zendesk`** — conservé, décidé avec le demandeur : le skill est le support de `DOD-3` et `DOD-8`, et deux fiches pour un seul client auraient contredit l'une l'autre.
 - **Relecture systématique après écriture, trois appels par article** — conservé, c'est ce qui rend la garde de `revert` exacte (`DOD-6`).
+
+Addendum 2026-09-15, relecture de la PR : la relecture après écriture est retirée — la réponse du `PUT` de traduction porte déjà titre, corps et `updated_at` tels que stockés (vérifié sur le bac à sable : identiques à une relecture). La garde de `revert` reste exacte avec deux appels par article, et la fenêtre entre écriture et relecture disparaît.
