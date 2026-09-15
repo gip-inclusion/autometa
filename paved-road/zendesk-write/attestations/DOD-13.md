@@ -8,14 +8,14 @@
 ```
 ============================= test session starts ==============================
 platform darwin -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0
-rootdir: /Users/louije/Development/gip/Autometa/.worktrees/zendesk-write
+rootdir: /Users/louije/Development/gip/Autometa
 configfile: pytest.ini
 plugins: mock-3.15.1, cov-7.1.0, playwright-0.9.0, base-url-2.1.0, anyio-4.13.0
 collected 63 items / 62 deselected / 1 selected
 
 tests/test_zendesk.py .                                                  [100%]
 
-======================= 1 passed, 62 deselected in 0.26s =======================
+======================= 1 passed, 62 deselected in 0.25s =======================
 ```
 
 **Contenu prouvé**
@@ -23,11 +23,11 @@ tests/test_zendesk.py .                                                  [100%]
 | Chemin | Empreinte d'arbre |
 |---|---|
 | `web` | `8eb2cf007275989e4a2a4bfe7c94dbfaa0bb8dba` |
-| `lib` | `e4c37a630af5ec7efd518afc71219e0b979f9df0` |
+| `lib` | `d45b63aab61ba3d3a105194be3f9b36b88839e1e` |
 | `scripts` | `a4d9138781a04d96661f9e8647f4867cf513d756` |
-| `skills` | `5ec2ad1357a5812863cabcdb9882e380f736d0ac` |
+| `skills` | `7c128e350e1ce205275fe35019db54ad2e264e52` |
 | `alembic` | `78d86fc32fd67e7792b9050474ff4a65a14753d5` |
-| `tests` | `a415a4099bd1cc9093741d1229f6a38cf66a13e0` |
+| `tests` | `f837990eb25439dc209d8b09d6e651e6f4d4fdb2` |
 | `browser` | `a74249cb83790092cc89b32a05588fe41bf6fc70` |
 
 **Verdict** — démontré.
