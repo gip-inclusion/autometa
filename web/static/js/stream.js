@@ -208,12 +208,15 @@ function startStream(afterMsgId = 0) {
   });
 
   // Server error events — display but do NOT reset retryCount
-  // (resetting would prevent onerror from ever reaching MAX_RETRIES)
+  // (resetting would prevent onerror from ever reaching MAX_RETRIES).
+  // Not a run end: this fires on the server's inactivity timeout before the
+  // browser reconnects (conversations.py: "Timeout waiting for agent"), while the
+  // agent keeps working. Real agent errors are stored as an assistant message and
+  // end via the `done` handler below — so only `done` notifies (DOD-5).
   eventSource.addEventListener('error', (e) => {
     const data = JSON.parse(e.data);
     appendEvent('error', data);
     hideLoading();
-    signalRunFinished();
   });
 
   // Server heartbeat — resets retry counter during quiet periods (long tool calls)

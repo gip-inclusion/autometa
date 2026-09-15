@@ -90,16 +90,14 @@ def test_dod_4_rien_si_onglet_actif(visit: Callable[[str], None], page: Page):
     assert page.evaluate("() => window.__playCount") == 0
 
 
-def test_dod_5_notifie_aussi_sur_erreur(visit: Callable[[str], None], page: Page):
+def test_dod_5_erreur_agent_passe_par_le_meme_signal(visit: Callable[[str], None], page: Page):
+    # Une erreur agent est stockée comme message assistant puis clôturée par
+    # l'événement `done` (runner.py, stream.js) : c'est signalRunFinished() qui
+    # notifie, exactement comme une fin nominale. DOD-5 découle donc de DOD-1 —
+    # ici on prouve que signalRunFinished câble bien notifyRunFinished.
     favicon = open_chat(visit, page)
     set_hidden(page, True)
-    page.evaluate(
-        """() => {
-            const out = document.getElementById('chatOutput');
-            if (out) out.insertAdjacentHTML('beforeend', '<div class="event-block event-error">Erreur</div>');
-            window.notifyRunFinished();
-        }"""
-    )
+    page.evaluate("() => window.signalRunFinished()")
     expect(favicon).to_have_attribute("href", BADGE)
 
 
