@@ -91,6 +91,7 @@ def _variant(key, label="Bas-Rhin", token="00000000-0000-4000-8000-000000000067"
 
 
 def test_dod_3_index_without_q_lists_variants_and_links_to_edit_page(mocker):
+    mocker.patch("web.app.list_publications", return_value=[])
     mocker.patch(
         "web.app.list_variants",
         return_value=[_variant("67"), _variant("68", "Haut-Rhin", "00000000-0000-4000-8000-000000000211")],
@@ -155,3 +156,31 @@ def test_dod_3_a_database_outage_does_not_take_the_dashboard_down(mocker):
     response = client.get("/interactive/multi/")
 
     assert b"<html>still up</html>" in response.content
+
+
+def test_dod_3_index_shows_the_production_link_of_each_variant(mocker):
+    mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch(
+        "web.app.list_publications",
+        return_value=[
+            {"environment": "staging", "url": "https://staging.statistiques.inclusion.gouv.fr/dashboards/multi-ab12cd"},
+            {"environment": "production", "url": "https://statistiques.inclusion.gouv.fr/dashboards/multi"},
+        ],
+    )
+
+    response = client.get("/interactive/multi/")
+
+    assert (
+        'href="https://statistiques.inclusion.gouv.fr/dashboards/multi/?q=00000000-0000-4000-8000-000000000067"'
+        in response.text
+    )
+    assert "multi-ab12cd" not in response.text
+
+
+def test_dod_3_index_without_production_publication_has_no_public_link(mocker):
+    mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch("web.app.list_publications", return_value=[])
+
+    response = client.get("/interactive/multi/")
+
+    assert "statistiques.inclusion.gouv.fr" not in response.text
