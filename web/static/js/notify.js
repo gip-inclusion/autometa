@@ -61,10 +61,12 @@ function playSound() {
 }
 
 /**
- * Called by stream.js when a run ends. Notifies only when the tab is hidden.
+ * Called by stream.js when a run ends. Notifies unless the user is looking at us
+ * — the tab is visible AND the window has focus (sinon on rate le cas « parti sur
+ * une autre application », où l'onglet reste visible mais la fenêtre perd le focus).
  */
 function notifyRunFinished() {
-  if (!document.hidden) return;
+  if (!document.hidden && document.hasFocus()) return;
   setBadge(true);
   playSound();
 }
@@ -91,6 +93,9 @@ function initTabNotifier() {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) setBadge(false);
   });
+  // Retour depuis une autre application : l'onglet n'émet pas de visibilitychange,
+  // seul le focus fenêtre revient.
+  window.addEventListener('focus', () => setBadge(false));
 }
 
 if (document.readyState === 'loading') {
