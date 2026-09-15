@@ -22,6 +22,7 @@ from .deps import templates
 from .helpers import sanitize_for_log
 from .log import setup_logging
 from .otel import init_otel, instrument_app
+from .publications import list_publications
 from .redis_conn import close_redis
 from .request_context import request_id_middleware
 from .runner import runner
@@ -147,7 +148,12 @@ def serve_interactive(request: Request, filename: str = ""):
     # copiée dans une publication, qui rend l'index quand le lien n'en désigne aucune.
     slug, _, rest = filename.partition("/")
     if rest == "index.html" and "q" not in request.query_params and (declared := declared_variants(slug)):
-        return templates.TemplateResponse(request, "interactive_variants.html", {"slug": slug, "variants": declared})
+        production = next((p["url"] for p in list_publications(slug) if p["environment"] == "production"), None)
+        return templates.TemplateResponse(
+            request,
+            "interactive_variants.html",
+            {"slug": slug, "variants": declared, "production_url": production},
+        )
 
     if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
         # Why: seul un jeton bien formé suit la redirection — la chaîne de requête n'est jamais

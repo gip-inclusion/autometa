@@ -12,6 +12,7 @@
     p.hint { color: #666; font-size: 14px; margin: 0 0 20px; }
     ul { list-style: none; padding: 0; margin: 0; }
     li { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid #e5e5e5; }
+    li .public { margin-left: auto; font-size: 13px; }
     li:first-child { border-top: 0; }
     code { color: #666; font-size: 13px; min-width: 6em; }
     a { color: #000091; }
@@ -21,10 +22,13 @@
 <body>
   <main>
     <h1>{{ slug }}</h1>
-    <p class="hint">{{ variants | length }} déclinaison{{ 's' if variants | length > 1 else '' }}. Ce sommaire n'existe que dans l'application : chaque lien ci-dessous ouvre une seule déclinaison.</p>
+    <p class="hint">{{ variants | length }} déclinaison{{ 's' if variants | length > 1 else '' }}. Ce sommaire n'existe que dans l'application : chaque lien ci-dessous ouvre une seule déclinaison{% if production_url %} ; « lien public » est l'adresse publiée en production, à partager{% endif %}.</p>
     <ul>
       {% for v in variants %}
-      <li><code>{{ v.key }}</code> <a href="{{ v.url }}">{{ v.label }}</a></li>
+      <li>
+        <code>{{ v.key }}</code> <a href="{{ v.url }}">{{ v.label }}</a>
+        {% if production_url %}<a class="public" href="{{ production_url }}/?q={{ v.token }}">lien public</a>{% endif %}
+      </li>
       {% endfor %}
     </ul>
     <footer><a href="/dashboards/{{ slug }}/edit">Gérer ce tableau de bord</a></footer>
