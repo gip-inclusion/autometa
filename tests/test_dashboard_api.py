@@ -99,3 +99,28 @@ def test_query_delegates_as_an_app_caller(mocker, call, delegate, expected):
     spy = mocker.patch(f"lib.query.{delegate}", autospec=True, return_value=RESULT)
     assert call() is RESULT
     assert spy.call_args.kwargs == {**expected, "caller": CallerType.APP}
+
+
+def test_dod_6_list_variants_targets_the_running_dashboard(mocker):
+    mocker.patch("web.config.dashboard_slug", return_value="multi")
+    declared = [
+        {"key": "67", "label": "Bas-Rhin", "token": "t", "path": "data/t.json", "url": "/interactive/multi/?q=t"}
+    ]
+    spy = mocker.patch("lib.variants.list_variants", autospec=True, return_value=declared)
+
+    assert dashboard_api.list_variants() == declared
+    assert spy.call_args.args == ("multi",)
+
+
+def test_dod_6_list_variants_accepts_an_explicit_slug_for_local_runs(mocker):
+    mocker.patch("web.config.dashboard_slug", return_value=None)
+    spy = mocker.patch("lib.variants.list_variants", autospec=True, return_value=[])
+
+    assert dashboard_api.list_variants("multi") == []
+    assert spy.call_args.args == ("multi",)
+
+
+def test_dod_6_list_variants_without_a_dashboard_is_refused(mocker):
+    mocker.patch("web.config.dashboard_slug", return_value=None)
+    with pytest.raises(RuntimeError, match="AUTOMETA_DASHBOARD_SLUG"):
+        dashboard_api.list_variants()

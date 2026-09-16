@@ -1,5 +1,6 @@
 """Tests for interactive file serving with S3 optimizations."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from web.app import app
@@ -24,6 +25,7 @@ def test_static_asset_redirects_to_presigned_url(mocker):
 
 
 def test_html_streamed_not_redirected(mocker):
+    mocker.patch("web.app.list_variants", return_value=[])
     mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>ok</html>"]))
 
     response = client.get("/interactive/app/index.html")
@@ -77,3 +79,118 @@ def test_extensioned_path_is_not_treated_as_dir(mocker):
     mocker.patch("web.s3.interactive.stream", return_value=None)
     response = client.get("/interactive/data.json", follow_redirects=False)
     assert response.status_code == 404
+
+
+def _variant(key, label="Bas-Rhin", token="00000000-0000-4000-8000-000000000067"):
+    return {
+        "key": key,
+        "label": label,
+        "token": token,
+        "path": f"data/{token}.json",
+        "url": f"/interactive/multi/?q={token}",
+    }
+
+
+def test_dod_3_index_without_q_lists_variants_and_links_to_edit_page(mocker):
+    mocker.patch("web.app.list_publications", return_value=[])
+    mocker.patch(
+        "web.app.list_variants",
+        return_value=[_variant("67"), _variant("68", "Haut-Rhin", "00000000-0000-4000-8000-000000000211")],
+    )
+    stream = mocker.patch("web.s3.interactive.stream")
+
+    response = client.get("/interactive/multi/")
+
+    assert response.status_code == 200
+    assert "Bas-Rhin" in response.text and "Haut-Rhin" in response.text
+    assert "<code>67</code>" in response.text
+    assert 'href="/interactive/multi/?q=00000000-0000-4000-8000-000000000067"' in response.text
+    assert 'href="/dashboards/multi/edit"' in response.text
+    stream.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("query", "location"),
+    [
+        ("?q=00000000-0000-4000-8000-000000000067", "/interactive/multi/?q=00000000-0000-4000-8000-000000000067"),
+        ("?q=nimportequoi", "/interactive/multi/"),
+        ("?q=00000000-0000-4000-8000-000000000067%0A", "/interactive/multi/"),
+    ],
+    ids=["valid-token-kept", "junk-token-dropped", "trailing-newline-dropped"],
+)
+def test_dod_1_redirect_to_the_trailing_slash_keeps_only_a_well_formed_token(mocker, query, location):
+    mocker.patch("web.s3.interactive.exists", return_value=True)
+
+    response = client.get(f"/interactive/multi{query}", follow_redirects=False)
+
+    assert response.status_code == 301
+    assert response.headers["Location"] == location
+
+
+def test_dod_3_index_with_q_serves_the_dashboard_page(mocker):
+    listing = mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>tdb</html>"]))
+
+    response = client.get("/interactive/multi/?q=00000000-0000-4000-8000-000000000067")
+
+    assert response.status_code == 200
+    assert b"<html>tdb</html>" in response.content
+    listing.assert_not_called()
+
+
+def test_dod_3_dashboard_without_variants_is_not_intercepted(mocker):
+    mocker.patch("web.app.list_variants", return_value=[])
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>mono</html>"]))
+
+    response = client.get("/interactive/mono/")
+
+    assert b"<html>mono</html>" in response.content
+
+
+def test_dod_3_only_the_index_is_intercepted(mocker):
+    listing = mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"{}"]))
+
+    response = client.get("/interactive/multi/data/x.json")
+
+    assert response.content == b"{}"
+    listing.assert_not_called()
+
+
+def test_dod_3_a_database_outage_does_not_take_the_dashboard_down(mocker):
+    from sqlalchemy.exc import OperationalError
+
+    mocker.patch("web.app.list_variants", side_effect=OperationalError("SELECT", {}, Exception("down")))
+    mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>still up</html>"]))
+
+    response = client.get("/interactive/multi/")
+
+    assert b"<html>still up</html>" in response.content
+
+
+def test_dod_3_index_shows_the_production_link_of_each_variant(mocker):
+    mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch(
+        "web.app.list_publications",
+        return_value=[
+            {"environment": "staging", "url": "https://staging.statistiques.inclusion.gouv.fr/dashboards/multi-ab12cd"},
+            {"environment": "production", "url": "https://statistiques.inclusion.gouv.fr/dashboards/multi"},
+        ],
+    )
+
+    response = client.get("/interactive/multi/")
+
+    assert (
+        'href="https://statistiques.inclusion.gouv.fr/dashboards/multi/?q=00000000-0000-4000-8000-000000000067"'
+        in response.text
+    )
+    assert "multi-ab12cd" not in response.text
+
+
+def test_dod_3_index_without_production_publication_has_no_public_link(mocker):
+    mocker.patch("web.app.list_variants", return_value=[_variant("67")])
+    mocker.patch("web.app.list_publications", return_value=[])
+
+    response = client.get("/interactive/multi/")
+
+    assert "statistiques.inclusion.gouv.fr" not in response.text

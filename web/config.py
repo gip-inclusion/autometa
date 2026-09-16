@@ -267,3 +267,8 @@ def agent_conversation_id() -> str | None:
 def agent_user_email() -> str | None:
     """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_USER_EMAIL")
+
+
+def dashboard_slug() -> str | None:
+    """Slug du tableau de bord dont le cron tourne, injecté par web/cron.py:execute_task()."""
+    return os.getenv("AUTOMETA_DASHBOARD_SLUG")

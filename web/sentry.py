@@ -38,10 +38,20 @@ def _scrub_value(value):
     return value
 
 
+def _scrub_dashboard_query(event: Event) -> None:
+    """The query string of an /interactive/ link is a variant token: it never reaches Sentry."""
+    request = event.get("request") or {}
+    url = request.get("url") or ""
+    if "/interactive/" in url:
+        request["url"] = url.split("?", 1)[0]
+        request["query_string"] = ""
+
+
 def _before_send(event: Event, hint: Hint) -> Event | None:
-    """Drop events when DSN is empty; scrub PII headers and secret patterns from extras."""
+    """Drop events when DSN is empty; scrub PII headers, dashboard tokens and secret patterns from extras."""
     if not config.SENTRY_DSN:
         return None
+    _scrub_dashboard_query(event)
     headers = event.get("request", {}).get("headers")
     if headers:
         for sensitive in _SENSITIVE_HEADERS:
@@ -55,9 +65,10 @@ def _before_send(event: Event, hint: Hint) -> Event | None:
 
 
 def _before_send_transaction(event: Event, hint: Hint) -> Event | None:
-    """Scrub secret patterns from span attributes exported via SentrySpanProcessor."""
+    """Scrub dashboard tokens and secret patterns from span attributes exported via SentrySpanProcessor."""
     if not config.SENTRY_DSN:
         return None
+    _scrub_dashboard_query(event)
     trace_data = event.get("contexts", {}).get("trace", {}).get("data")
     if trace_data:
         for key, value in list(trace_data.items()):

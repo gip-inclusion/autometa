@@ -66,6 +66,26 @@ def test_tracer_emits_valid_span_after_init(mocker):
         assert ctx.trace_id != 0
 
 
+@pytest.mark.parametrize(
+    ("path", "kept"), [("/interactive/multi/", False), ("/api/x", True)], ids=["interactive", "other route"]
+)
+def test_server_spans_under_interactive_never_carry_the_query_string(mocker, path, kept):
+    from fastapi.testclient import TestClient
+
+    exporter = _new_exporter()
+    mocker.patch.object(otel_module, "_initialized", True)
+    app = FastAPI()
+    app.get(path)(lambda: {"ok": True})
+    instrument_app(app)
+    token = "00000000-0000-4000-8000-000000000067"
+
+    TestClient(app).get(f"{path}?q={token}")
+
+    values = " ".join(str(v) for span in exporter.get_finished_spans() for v in (span.attributes or {}).values())
+    assert exporter.get_finished_spans()
+    assert (token in values) is kept
+
+
 def test_instrument_app_raises_when_init_otel_not_called(mocker):
     mocker.patch.object(otel_module, "_initialized", False)
     with pytest.raises(RuntimeError, match="init_otel"):

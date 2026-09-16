@@ -14,11 +14,15 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib import failure_detection
+from lib.variants import TOKEN_RE, list_variants
 
 from . import config, memory_introspect, sync_to_s3
 from . import s3 as s3_module
+from .deps import templates
+from .helpers import sanitize_for_log
 from .log import setup_logging
 from .otel import init_otel, instrument_app
+from .publications import list_publications
 from .redis_conn import close_redis
 from .request_context import request_id_middleware
 from .runner import runner
@@ -119,6 +123,15 @@ _STATIC_ASSET_EXTS = frozenset({
 })
 
 
+def declared_variants(slug: str) -> list[dict]:
+    """Les déclinaisons d'un TDB — vide si la base ne répond pas, pour que la page reste servie."""
+    try:
+        return list_variants(slug)
+    except SQLAlchemyError:
+        logger.warning("dashboard_variants injoignable pour %s — index des déclinaisons ignoré", sanitize_for_log(slug))
+        return []
+
+
 @app.get("/interactive/{filename:path}")
 @app.get("/interactive/")
 def serve_interactive(request: Request, filename: str = ""):
@@ -131,8 +144,23 @@ def serve_interactive(request: Request, filename: str = ""):
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=404)
 
+    # Why: la page servie ne doit jamais énumérer ses déclinaisons — c'est l'application, jamais
+    # copiée dans une publication, qui rend l'index quand le lien n'en désigne aucune.
+    slug, _, rest = filename.partition("/")
+    if rest == "index.html" and "q" not in request.query_params and (declared := declared_variants(slug)):
+        production = next((p["url"] for p in list_publications(slug) if p["environment"] == "production"), None)
+        return templates.TemplateResponse(
+            request,
+            "interactive_variants.html",
+            {"slug": slug, "variants": declared, "production_url": production},
+        )
+
     if "." not in filename.rsplit("/", 1)[-1] and s3_module.interactive.exists(f"{filename}/index.html"):
-        return RedirectResponse(f"/interactive/{filename}/", status_code=301)
+        # Why: seul un jeton bien formé suit la redirection — la chaîne de requête n'est jamais
+        # recopiée telle quelle.
+        token = request.query_params.get("q", "")
+        query = f"?q={token}" if TOKEN_RE.fullmatch(token) else ""
+        return RedirectResponse(f"/interactive/{filename}/{query}", status_code=301)
 
     mime_type, _ = mimetypes.guess_type(filename)
     mime_type = mime_type or "application/octet-stream"

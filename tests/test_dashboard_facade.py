@@ -37,9 +37,10 @@ def test_check_facade_compliance(mocker, tmp_path, files, expectation):
         dashboards.check_facade_compliance("tdb")
 
 
-def test_template_only_imports_the_facade():
-    template = dashboards.config.BASE_DIR / "docs" / "dashboard-template" / "cron.py"
-    assert cron.dashboard_api.facade_violations(template.read_text()) == []
+@pytest.mark.parametrize("template_dir", ["dashboard-template", "dashboard-template-multi"])
+def test_template_only_imports_the_facade(template_dir):
+    template = dashboards.config.BASE_DIR / "docs" / template_dir / "cron.py"
+    assert cron.facade_imports.facade_violations(template.read_text()) == []
 
 
 def cron_task(slug):
@@ -159,7 +160,7 @@ def test_facade_audit_counts_active_dashboards(mocker):
     mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[cron_task("ko")])
     assert cron.facade_audit() == [
-        f"0 tableaux de bord actifs, 1 importent hors de {cron.dashboard_api.FACADE}.",
+        f"0 tableaux de bord actifs, 1 importent hors de {cron.facade_imports.FACADE}.",
         f"  {'ko':30s} lib.query, web.db",
     ]
 

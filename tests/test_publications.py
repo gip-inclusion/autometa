@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
+from lib.variants import add_variant
 from web import config, publications
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
@@ -190,3 +191,32 @@ def test_pause_refresh_is_idempotent(client, mocker):
 
     assert publications.pause_refresh(pub["publication_id"]) is False  # already paused
     assert publications.resume_refresh("zzz999") is False  # unknown
+
+
+def _s3_folder(mocker, files: dict[str, bytes]):
+    mocker.patch("web.s3.interactive.list_files", return_value=[{"path": key} for key in files])
+    mocker.patch("web.s3.interactive.download", side_effect=files.get)
+
+
+def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker):
+    _make_dashboard("pub-exposed")
+    token = add_variant("pub-exposed", "67", "Bas-Rhin")["token"]
+    _s3_folder(mocker, {"pub-exposed/app.js": f"const MAP = {{'67': '{token}'}};".encode()})
+    copy = mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+
+    with pytest.raises(PublicationBlocked) as exc:
+        publications.publish("pub-exposed", "staging", "bob@x")
+
+    assert exc.value.code == "variant-token-exposed"
+    assert exc.value.detail == "app.js expose le jeton de 67"
+    copy.assert_not_called()
+
+
+def test_dod_20_publish_passes_when_tokens_only_name_files(client, mocker):
+    _make_dashboard("pub-clean")
+    token = add_variant("pub-clean", "67", "Bas-Rhin")["token"]
+    _s3_folder(mocker, {f"pub-clean/data/{token}.json": b'{"metadata": {"key": "67"}}'})
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+
+    assert publications.publish("pub-clean", "staging", "bob@x")["environment"] == "staging"

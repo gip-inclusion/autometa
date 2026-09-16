@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ slug }} — déclinaisons</title>
+  <style>
+    body { font-family: Marianne, system-ui, sans-serif; margin: 0; padding: 32px 16px; background: #f6f6f6; color: #161616; }
+    main { max-width: 720px; margin: 0 auto; background: #fff; padding: 24px 32px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p.hint { color: #666; font-size: 14px; margin: 0 0 20px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid #e5e5e5; }
+    li .public { margin-left: auto; font-size: 13px; }
+    li:first-child { border-top: 0; }
+    code { color: #666; font-size: 13px; min-width: 6em; }
+    a { color: #000091; }
+    footer { margin-top: 24px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{ slug }}</h1>
+    <p class="hint">{{ variants | length }} déclinaison{{ 's' if variants | length > 1 else '' }}. Ce sommaire n'existe que dans l'application : chaque lien ci-dessous ouvre une seule déclinaison{% if production_url %} ; « lien public » est l'adresse publiée en production, à partager{% endif %}.</p>
+    <ul>
+      {% for v in variants %}
+      <li>
+        <code>{{ v.key }}</code> <a href="{{ v.url }}">{{ v.label }}</a>
+        {% if production_url %}<a class="public" href="{{ production_url }}/?q={{ v.token }}">lien public</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <footer><a href="/dashboards/{{ slug }}/edit">Gérer ce tableau de bord</a></footer>
+  </main>
+</body>
+</html>
