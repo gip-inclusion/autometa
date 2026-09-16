@@ -70,10 +70,10 @@ jobs:
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=autometa -e MINIO_ROOT_PASSWORD=autometa \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done
           docker run --rm --network host -e MC_HOST_local=http://autometa:autometa@localhost:9000 \
-            minio/mc:RELEASE.2025-08-13T08-35-41Z mb --ignore-existing local/autometa
+            quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z mb --ignore-existing local/autometa
 
       - run: uv sync --group dev --frozen
       - run: uv run playwright install --with-deps chromium
