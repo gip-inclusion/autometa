@@ -9,23 +9,23 @@
 .......                                                                  [100%]
 =============================== warnings summary ===============================
 .venv/lib/python3.14/site-packages/fastapi/testclient.py:1
-  /Users/louije/Development/gip/Autometa/.worktrees/multi-source-dashboards/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  /Users/louije/Development/gip/Autometa/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-7 passed, 92 deselected, 1 warning in 0.73s
+7 passed, 94 deselected, 1 warning in 0.74s
 ```
 
 **Contenu prouvé**
 
 | Chemin | Empreinte d'arbre |
 |---|---|
-| `web` | `14f1d267ea8f25600f6ffefbb9007e08ed3b567e` |
-| `lib` | `b02675ca62f3ed96f13b7f8baa2f0848af28b7db` |
+| `web` | `58b365eef7b9b035d9f68480c1d172f91e42fc07` |
+| `lib` | `a7a421f061a11f05aaf02377b9c935640a68aa07` |
 | `scripts` | `a4d9138781a04d96661f9e8647f4867cf513d756` |
-| `skills` | `492f69b14d8d3ac205c8acf424a21a52ccef1e8a` |
+| `skills` | `e1ac5c036de0d232af9c3e9fcdf21643e7ce045e` |
 | `alembic` | `9dbb4fa33c1a7f59f3d1f956aa23798333baebf3` |
-| `tests` | `a2ca65a4637f982a263f66790c95d57aa57fdb62` |
-| `browser` | `220f7cad51a41efbefd065e26af541c0f2cc5999` |
+| `tests` | `7649e1e844a14ed0481e8aa963d4c2414bbe0854` |
+| `browser` | `237931537134f569ff3228a21f44d3542707d581` |
 
 **Verdict** — démontré.
