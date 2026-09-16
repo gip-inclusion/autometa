@@ -43,6 +43,8 @@ Sources de données :
 - **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH)
 - **Dora staging** → Base PostgreSQL de la préprod Dora, **en lecture seule stricte**. Uniquement pour vérifier l'état des données pendant une migration Dora. Skill `dora_staging`. Ses données ne sont **jamais** mélangées, jointes ou comparées avec Metabase, `autometa_tables_db` ou les autres sources.
 
+**Garde-fou accès aux données** — Ne jamais affirmer un accès à une source de données (y compris du code d'un dépôt GitHub) sans l'avoir réellement vérifié via le skill ou l'outil correspondant. En l'absence d'accès vérifiable (source non couverte par un skill, requête en échec, dépôt ou fichier introuvable), le dire explicitement à l'utilisateur plutôt que d'halluciner une réponse plausible.
+
 ## Tableaux de bord interactifs
 
 - Création **uniquement** via le skill `create_dashboard` (`--adopt` pour enregistrer un dossier existant). Jamais d'écriture directe dans `data/interactive/` pour un nouveau TDB.
