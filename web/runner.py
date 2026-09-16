@@ -16,6 +16,7 @@ from datetime import datetime
 import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
+from redis.exceptions import RedisError
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -136,6 +137,22 @@ class TaskRunner:
         r = await get_redis()
         await r.set(f"{PREFIX}:done:{conv_id}", "1", ex=600)
         await r.publish(f"{PREFIX}:conv:{conv_id}", "done")
+
+    async def _release(self, conv_id: str):
+        """Close the stream, clear the flag and free the Redis slot; each step survives the others failing."""
+        try:
+            await self.notify_done(conv_id)
+        except RedisError, OSError:
+            logger.exception("done notification failed for %s", conv_id)
+        try:
+            store.update_conversation(conv_id, needs_response=False)
+        except SQLAlchemyError:
+            logger.exception("needs_response reset failed for %s", conv_id)
+        try:
+            r = await get_redis()
+            await r.delete(f"{PREFIX}:running:{conv_id}")
+        except RedisError, OSError:
+            logger.exception("running slot release failed for %s", conv_id)
 
     async def is_done(self, conv_id: str) -> bool:
         r = await get_redis()
@@ -484,17 +501,13 @@ class TaskRunner:
                 # means cancel already took ownership, or a direct call with no consumer slot).
                 slot = self._running.get(conversation_id)
                 if slot is my_task or slot is None:
-                    self._running.pop(conversation_id, None)
+                    # Why: the slot stays held until the running: key is gone, so a resend started
+                    # in between cannot have its own key deleted by this run; and it is always
+                    # released, so a Redis or DB outage here cannot leave a zombie that drops resends.
                     try:
-                        store.update_conversation(conversation_id, needs_response=False)
-                        await self.notify_done(conversation_id)
-                        r = await get_redis()
-                        await r.delete(f"{PREFIX}:running:{conversation_id}")
-                    except Exception:
-                        # Why: Redis/DB unreachable during cleanup (2026-09-07 DNS blip after a container
-                        # freeze) must not abort here — the conv would stay registered and every resend
-                        # would be dropped until the sweep. The sweep reconciles the flags later.
-                        logger.exception("cleanup failed for %s", conversation_id)
+                        await self._release(conversation_id)
+                    finally:
+                        self._running.pop(conversation_id, None)
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
