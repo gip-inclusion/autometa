@@ -140,6 +140,7 @@ def test_by_count_is_re_exported_unchanged():
 @pytest.mark.parametrize(
     "call",
     [
+        lambda: dashboard_api.query_datadog(None),
         lambda: dashboard_api.query_datadog("service:x", group_by=5),
         lambda: dashboard_api.count_datadog("service:x", window="hier"),
         lambda: dashboard_api.sample_datadog("service:x", window=("2026-09-01",)),

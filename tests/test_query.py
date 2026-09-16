@@ -489,6 +489,35 @@ def test_execute_datadog_events_materialises_the_capped_iterator(mocker):
     assert iter_events.call_args.kwargs == {"max_events": 2, "sort": "-timestamp"}
 
 
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"search": "@http.status_code:500"}, "service:"),
+        ({"search": "service:dora", "limit": 10_001}, "plafond"),
+    ],
+    ids=["no service filter", "limit over the cap"],
+)
+def test_execute_datadog_events_refuses_unbounded_samples_without_calling_datadog(mocker, kwargs, message):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    result = q.execute_datadog_events(caller=q.CallerType.APP, **kwargs)
+
+    assert (result.success, client.called) == (False, False)
+    assert message in result.error
+
+
+@pytest.mark.parametrize("execute", ["execute_datadog_query", "execute_datadog_count", "execute_datadog_events"])
+def test_datadog_executors_turn_a_non_string_search_into_a_failed_result(execute):
+    from lib import query as q
+
+    result = getattr(q, execute)(None, q.CallerType.APP)
+
+    assert result.success is False
+    assert "chaîne" in result.error
+
+
 @pytest.mark.parametrize("execute", ["execute_datadog_query", "execute_datadog_count", "execute_datadog_events"])
 def test_datadog_executors_refuse_a_rolling_window_beyond_retention(execute):
     from lib import query as q
