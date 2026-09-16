@@ -56,8 +56,8 @@ def measure_conventions(root: Path) -> dict[str, int]:
 
 def python_files(root: Path) -> list[Path]:
     """Les .py que git voit : suivis ou non, mais jamais ceux que .gitignore écarte."""
-    # Why: un parcours du disque ramenait les worktrees et le vendoring local, ignorés par git —
-    # 200 violations qui n'existent pas en CI, et un faux rouge à chaque commit.
+    # Why: un parcours du disque ramenait ce que .gitignore écarte (.venv, builds locaux, vendoring)
+    # et les checkouts imbriqués — des centaines de violations absentes en CI, un faux rouge à chaque commit.
     done = subprocess.run(
         ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.py"],
         capture_output=True,

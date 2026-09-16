@@ -74,7 +74,6 @@ DOCSTRING_TROP_LONGUE = 'def f():\n    """Une docstring\n    sur\n    trois lign
 
 def git_repo(path):
     subprocess.run(["git", "init", "-q", str(path)], check=True)
-    return path
 
 
 def test_measure_conventions_counts_violations_by_file_and_skips_what_is_not_ours(tmp_path):
@@ -98,6 +97,25 @@ def test_measure_conventions_leaves_what_gitignore_excludes_but_sees_untracked_f
     (tmp_path / "neuf.py").write_text(DOCSTRING_TROP_LONGUE)
 
     assert _module.measure_conventions(tmp_path) == {"neuf.py": 1, "suivi.py": 1}
+
+
+def test_measure_conventions_counts_a_tracked_file_even_when_gitignore_covers_it(tmp_path):
+    git_repo(tmp_path)
+    (tmp_path / ".gitignore").write_text("*.py\n")
+    (tmp_path / "force.py").write_text(DOCSTRING_TROP_LONGUE)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", "force.py"], check=True)
+
+    assert _module.measure_conventions(tmp_path) == {"force.py": 1}
+
+
+def test_measure_conventions_skips_a_tracked_file_deleted_from_disk(tmp_path):
+    """`rm` sans `git rm` : l'index le liste encore, le lire lèverait FileNotFoundError."""
+    git_repo(tmp_path)
+    (tmp_path / "parti.py").write_text(DOCSTRING_TROP_LONGUE)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "parti.py"], check=True)
+    (tmp_path / "parti.py").unlink()
+
+    assert _module.measure_conventions(tmp_path) == {}
 
 
 def test_the_frozen_conventions_match_what_the_repository_actually_carries():
