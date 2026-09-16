@@ -159,7 +159,7 @@ def serve_interactive(request: Request, filename: str = ""):
         # Why: seul un jeton bien formé suit la redirection — la chaîne de requête n'est jamais
         # recopiée telle quelle.
         token = request.query_params.get("q", "")
-        query = f"?q={token}" if TOKEN_RE.match(token) else ""
+        query = f"?q={token}" if TOKEN_RE.fullmatch(token) else ""
         return RedirectResponse(f"/interactive/{filename}/{query}", status_code=301)
 
     mime_type, _ = mimetypes.guess_type(filename)

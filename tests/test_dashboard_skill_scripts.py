@@ -39,7 +39,7 @@ def test_dod_7_add_variant_declares_key_and_label(runtime, monkeypatch, mocker, 
     cli = _load("update_dashboard")
     _updated(mocker, cli)
     add = mocker.patch.object(cli, "add_variant", return_value={"key": "67", "label": "Bas-Rhin", "token": "t"})
-    mocker.patch.object(cli, "list_variants", return_value=[{"key": "67", "label": "Bas-Rhin", "token": "t"}])
+    mocker.patch.object(cli, "list_variants", side_effect=[[], [{"key": "67", "label": "Bas-Rhin", "token": "t"}]])
 
     _run(cli, ["--slug", "multi", "--add-variant", "67=Bas-Rhin"], monkeypatch)
 
@@ -73,11 +73,37 @@ def test_dod_7_malformed_add_variant_is_refused(runtime, monkeypatch, mocker, ba
 def test_dod_7_duplicate_key_error_is_reported_with_exit_1(runtime, monkeypatch, mocker, capsys):
     cli = _load("update_dashboard")
     _updated(mocker, cli)
+    mocker.patch.object(cli, "list_variants", return_value=[])
     mocker.patch.object(cli, "add_variant", side_effect=ValueError("déclinaison déjà déclarée : 67"))
     with pytest.raises(SystemExit) as exc:
         _run(cli, ["--slug", "multi", "--add-variant", "67=Bas-Rhin"], monkeypatch)
     assert exc.value.code == 1
     assert "déjà déclarée" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("declared", "argv"),
+    [
+        (
+            [{"key": "67", "label": "Bas-Rhin", "token": "t"}],
+            ["--add-variant", "68=Haut-Rhin", "--add-variant", "67=Bis"],
+        ),
+        ([], ["--add-variant", "67=Bas-Rhin", "--add-variant", "67=Bis"]),
+    ],
+    ids=["already in base", "twice in the arguments"],
+)
+def test_dod_12_a_duplicate_key_is_refused_before_any_declaration(runtime, monkeypatch, mocker, capsys, declared, argv):
+    cli = _load("update_dashboard")
+    _updated(mocker, cli)
+    mocker.patch.object(cli, "list_variants", return_value=declared)
+    add = mocker.patch.object(cli, "add_variant")
+
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "multi", *argv], monkeypatch)
+
+    assert exc.value.code == 1
+    assert "déjà déclarée : 67" in capsys.readouterr().err
+    add.assert_not_called()
 
 
 def test_dod_9_create_dashboard_multi_source_flag(runtime, monkeypatch, mocker, capsys):
@@ -99,12 +125,20 @@ def test_dod_9_create_dashboard_multi_source_flag(runtime, monkeypatch, mocker, 
 
 
 @pytest.mark.parametrize(
-    ("publications", "announced"),
-    [([{"url": "https://statistiques.inclusion.gouv.fr/dashboards/multi"}], True), ([], False)],
-    ids=["published", "not-published"],
+    ("publications", "announced", "unbounded"),
+    [
+        ([{"url": "https://statistiques.inclusion.gouv.fr/dashboards/multi", "refresh_paused_at": None}], True, False),
+        (
+            [{"url": "https://statistiques.inclusion.gouv.fr/dashboards/multi", "refresh_paused_at": "2026-09-01"}],
+            True,
+            True,
+        ),
+        ([], False, False),
+    ],
+    ids=["published", "published-refresh-paused", "not-published"],
 )
 def test_dod_7_remove_variant_announces_a_public_link_still_online(
-    runtime, monkeypatch, mocker, capsys, publications, announced
+    runtime, monkeypatch, mocker, capsys, publications, announced, unbounded
 ):
     cli = _load("update_dashboard")
     _updated(mocker, cli)
@@ -116,12 +150,14 @@ def test_dod_7_remove_variant_announces_a_public_link_still_online(
 
     captured = capsys.readouterr()
     assert ("reste en ligne jusqu'au prochain rafraîchissement" in captured.err) is announced
+    assert ("sans borne" in captured.err) is unbounded
     assert (json.loads(captured.out)["notices"] != []) is announced
 
 
 def test_dod_12_every_add_variant_pair_is_checked_before_any_is_declared(runtime, monkeypatch, mocker, capsys):
     cli = _load("update_dashboard")
     _updated(mocker, cli)
+    mocker.patch.object(cli, "list_variants", return_value=[])
     add = mocker.patch.object(cli, "add_variant")
 
     with pytest.raises(SystemExit) as exc:

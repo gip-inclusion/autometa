@@ -42,11 +42,23 @@ def init_otel() -> None:
     _initialized = True
 
 
+def strip_dashboard_query(span: Span, scope: dict) -> None:
+    """Drop the query string from server spans under /interactive/: a variant token lives there."""
+    if not scope.get("path", "").startswith("/interactive/") or not scope.get("query_string"):
+        return
+    for key in ("http.target", "http.url", "url.full"):
+        value = span.attributes.get(key) if span.attributes else None
+        if value:
+            span.set_attribute(key, str(value).split("?", 1)[0])
+    if span.attributes and "url.query" in span.attributes:
+        span.set_attribute("url.query", "")
+
+
 def instrument_app(app: FastAPI) -> None:
     """Attach FastAPI auto-instrumentation. Raises if init_otel() has not run yet."""
     if not _initialized:
         raise RuntimeError("instrument_app() called before init_otel()")
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(app, server_request_hook=strip_dashboard_query)
 
 
 def inject_trace_headers() -> dict[str, str]:

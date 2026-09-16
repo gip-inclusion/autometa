@@ -101,8 +101,14 @@ def main() -> None:
             cron_timeout=args.cron_timeout,
             is_archived=is_archived,
         )
+        # Why: chaque add_variant commite seul ; un doublon détecté en seconde position laisserait
+        # le lot à moitié appliqué. Tout est vérifié avant la première écriture.
+        declared = {v["key"] for v in list_variants(args.slug)} if args.add_variant else set()
         for key, label in args.add_variant:
             validate_variant(key, label)
+            if key in declared:
+                raise ValueError(f"déclinaison déjà déclarée : {key}")
+            declared.add(key)
         for key, label in args.add_variant:
             add_variant(args.slug, key, label)
         removed = [key for key in args.remove_variant if remove_variant(args.slug, key)]
@@ -111,9 +117,11 @@ def main() -> None:
         notices = []
         if removed and (active := list_publications(args.slug)):
             urls = ", ".join(p["url"] for p in active)
+            paused = ", ".join(p["url"] for p in active if p["refresh_paused_at"])
             notices.append(
                 f"Déclinaison(s) retirée(s) : {', '.join(removed)}. Le lien public reste en ligne jusqu'au "
                 f"prochain rafraîchissement de la publication ({urls})."
+                + (f" Rafraîchissement en pause, donc sans borne, sur : {paused}." if paused else "")
             )
             print(f"Notice: {notices[0]}", file=sys.stderr)
     except DashboardNotFound as exc:

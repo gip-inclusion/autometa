@@ -1151,30 +1151,15 @@ def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token
         assert row.last_refresh_error == "app.js expose le jeton de 67"
 
 
-def test_dod_15_a_partial_run_keeps_the_files_it_wrote_and_is_recorded_as_a_failure(mocker, s3_cron_env):
+@pytest.mark.parametrize(("exit_code", "kept"), [(3, True), (1, False)], ids=["partial run", "plain failure"])
+def test_dod_15_only_a_partial_run_keeps_the_files_it_wrote(mocker, s3_cron_env, exit_code, kept):
     _seed_dashboard("s3-partial")
-    script = textwrap.dedent("""\
-        from pathlib import Path
-        Path("data").mkdir()
-        Path("data/ok.json").write_text('{"ok": true}')
-        raise SystemExit(3)
-    """)
+    script = f'from pathlib import Path\nPath("data.json").write_text("{{}}")\nraise SystemExit({exit_code})\n'
     app = mock_s3_app("s3-partial", cron_script=script)
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    result = run_cron_task("s3-partial", trigger="manual")
-    assert result["status"] == "failure"
-    assert "s3-partial/data/ok.json" in mocks["_all_files"]
-
-
-def test_dod_15_a_plain_failure_uploads_nothing(mocker, s3_cron_env):
-    _seed_dashboard("s3-crash")
-    script = 'from pathlib import Path\nPath("data.json").write_text("{}")\nraise SystemExit(1)\n'
-    app = mock_s3_app("s3-crash", cron_script=script)
-    mocks = make_s3_mocks([app])
-    _patch_s3_full(mocker, mocks)
-    assert run_cron_task("s3-crash", trigger="manual")["status"] == "failure"
-    assert "s3-crash/data.json" not in mocks["_all_files"]
+    assert run_cron_task("s3-partial", trigger="manual")["status"] == "failure"
+    assert ("s3-partial/data.json" in mocks["_all_files"]) is kept
 
 
 def test_dod_15_a_partial_publication_run_still_refreshes(client, mocker):

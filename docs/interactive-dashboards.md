@@ -255,6 +255,10 @@ Ce qui le définit :
   charge le conteneur Tag Manager **après** avoir posé `setCustomUrl`, et désactive Heatmap Session
   Recording, dont la requête de configuration porte l'URL réelle. La page déclare aussi
   `referrer: no-referrer`. Le gabarit `docs/dashboard-template-multi/` fait tout cela.
+- **Le nom du fichier est le secret** : la confidentialité des déclinaisons repose sur le fait que
+  personne ne peut lister le bucket public. C'est le cas : `ListObjects` anonyme répond `AccessDenied`
+  sur les deux buckets Scaleway (vérifié le 2026-09-16), et les domaines `statistiques.inclusion.gouv.fr`
+  répondent la page d'accueil à toute requête de listing. Ce prérequis vaut pour tout nouveau bucket.
 - **La publication et chaque rafraîchissement refusent** un dossier dont un fichier (page, script,
   données…) contient un jeton déclaré : raison `variant-token-exposed`, fichier nommé sur la page
   d'édition. Une liste de clés ou de libellés dans le code n'est pas un problème.
@@ -263,7 +267,7 @@ La page d'édition liste chaque déclinaison (clé, libellé, lien interne, lien
 active, présence du fichier de données) et expose le mapping en JSON
 (`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne et sa
 copie dans chaque snapshot publié ; le lien public répond encore jusqu'au rafraîchissement suivant,
-qui élague la copie publique. Un TDB converti (créé avant ce mode) qui déclare des déclinaisons est
+qui élague la copie publique — sans borne si ce rafraîchissement est en pause, ce que la commande signale. Un TDB converti (créé avant ce mode) qui déclare des déclinaisons est
 signalé sur la page d'édition tant que sa page charge Matomo avant de lire `?q` ou ne déclare pas
 `referrer: no-referrer`.
 
