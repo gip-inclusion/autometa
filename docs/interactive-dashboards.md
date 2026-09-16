@@ -177,8 +177,10 @@ antérieure à la rétention renvoie un total tronqué sans erreur. Un `str` dan
 triée par volume décroissant (50 valeurs) ; le helper `by_count(facette, limite)`, lui aussi exporté par la
 façade, produit la même chose avec une autre limite ; un `dict` est transmis tel quel. `data` de
 `query_datadog` est la liste brute des buckets Datadog : `[{"by": {facette: valeur}, "computes": {"c0": n,
-"c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`. Les événements de `sample_datadog` sont des logs bruts :
-ne pas les publier tels quels dans un `data.json` public.
+"c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`. Les événements de `sample_datadog` sont des logs bruts
+(URL, identifiants d'utilisateurs, en-têtes) : `search` doit porter un filtre `service:` et `limit` est plafonné à
+10 000, sinon le résultat est en échec sans appel à Datadog. Ne jamais les publier tels quels dans un `data.json`
+public.
 
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.
