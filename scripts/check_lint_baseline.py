@@ -54,10 +54,23 @@ def measure_conventions(root: Path) -> dict[str, int]:
     return {shown: len(violations) for shown, violations in sorted(conventions(checker, root).items())}
 
 
+def python_files(root: Path) -> list[Path]:
+    """Les .py que git voit : suivis ou non, mais jamais ceux que .gitignore écarte."""
+    # Why: un parcours du disque ramenait ce que .gitignore écarte (.venv, builds locaux, vendoring)
+    # et les checkouts imbriqués — des centaines de violations absentes en CI, un faux rouge à chaque commit.
+    done = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.py"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return sorted(root / name for name in done.stdout.split("\0") if name and (root / name).is_file())
+
+
 def conventions(checker, root: Path) -> dict[str, list[str]]:
     """Les violations de conventions de chaque fichier du dépôt, par chemin."""
     found = {}
-    for path in sorted(root.rglob("*.py")):
+    for path in python_files(root):
         if not ours(path, root):
             continue
         shown = path.relative_to(root).as_posix()
