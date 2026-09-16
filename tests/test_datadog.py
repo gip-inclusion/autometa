@@ -18,7 +18,8 @@ from lib.datadog import (
 
 
 def make_client(mocker, responses):
-    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    # Why: the shared limiter is per process and waits in real time; a zero window never throttles a test.
+    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test", limiter=RateLimiter(window=0))
     mocker.patch.object(client._session, "post", side_effect=responses)
     mocker.patch("lib.datadog.time.sleep")
     return client

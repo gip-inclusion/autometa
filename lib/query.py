@@ -293,6 +293,10 @@ def execute_dashboard_storage_query(
     return _run_traced_query("dashboard_storage.query", attrs, _do)
 
 
+def failed(error: str) -> QueryResult:
+    return QueryResult(success=False, data=None, error=error)
+
+
 def _run_datadog(
     span_name: str,
     search: str,
@@ -302,6 +306,8 @@ def _run_datadog(
     timeout: int,
     fn: Callable[[DatadogClient, str, str], Any],
 ) -> QueryResult:
+    if not isinstance(search, str):
+        return failed(f"search doit être une chaîne, pas {type(search).__name__}")
     attrs = {
         "db.system": "datadog",
         "caller": caller.value,
@@ -366,7 +372,13 @@ def execute_datadog_events(
     window: Optional[tuple[str, str]] = None,
     timeout: int = 60,
 ) -> QueryResult:
-    """Fetch up to `limit` raw Datadog log events, newest first. Never raises."""
+    """Fetch up to `limit` raw Datadog log events of one service, newest first. Never raises."""
+    # Why: raw events carry PII (URLs, user ids, headers) and a dashboard may publish what it reads,
+    # so a sample is confined to a named service and bounded well under the cron time budget.
+    if isinstance(search, str) and "service:" not in search:
+        return failed("un échantillon d'événements exige un filtre service: dans search")
+    if limit > 10_000:
+        return failed(f"limit {limit} dépasse le plafond de 10000 événements")
     return _run_datadog(
         "datadog.events",
         search=search,
