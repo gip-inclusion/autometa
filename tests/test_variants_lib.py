@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, remove_variant
+from web import config as cfg
 from web.db import get_db
 from web.db import test_transaction as _test_tx
 from web.models import Dashboard, DashboardPublication, DashboardVariant
@@ -19,8 +20,6 @@ UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):
-    import web.config as cfg
-
     interactive_dir = tmp_path / "interactive"
     interactive_dir.mkdir()
     monkeypatch.setattr(cfg, "INTERACTIVE_DIR", interactive_dir)
@@ -116,6 +115,27 @@ class TestDeclaration:
         mocker.patch("web.s3.interactive.delete", return_value=False)
 
         with pytest.raises(ValueError, match="S3"):
+            remove_variant("multi", "67")
+
+        assert [v["key"] for v in list_variants("multi")] == ["67"]
+
+    def test_dod_7_remove_keeps_the_declaration_when_a_snapshot_copy_cannot_be_deleted(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        with get_db() as session:
+            session.add(
+                DashboardPublication(
+                    dashboard_slug="multi",
+                    publication_id="live01",
+                    environment="staging",
+                    published_by="bob@x",
+                    published_at=datetime.now(timezone.utc),
+                )
+            )
+        mocker.patch("web.s3.interactive.delete", return_value=True)
+        mocker.patch("web.s3.publications.delete", return_value=False)
+
+        with pytest.raises(ValueError, match="live01"):
             remove_variant("multi", "67")
 
         assert [v["key"] for v in list_variants("multi")] == ["67"]

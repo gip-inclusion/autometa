@@ -1,5 +1,6 @@
 """Tests for interactive file serving with S3 optimizations."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from web.app import app
@@ -108,13 +109,22 @@ def test_dod_3_index_without_q_lists_variants_and_links_to_edit_page(mocker):
     stream.assert_not_called()
 
 
-def test_dod_1_redirect_to_the_trailing_slash_keeps_the_token(mocker):
+@pytest.mark.parametrize(
+    ("query", "location"),
+    [
+        ("?q=00000000-0000-4000-8000-000000000067", "/interactive/multi/?q=00000000-0000-4000-8000-000000000067"),
+        ("?q=nimportequoi", "/interactive/multi/"),
+        ("?q=00000000-0000-4000-8000-000000000067%0A", "/interactive/multi/"),
+    ],
+    ids=["valid-token-kept", "junk-token-dropped", "trailing-newline-dropped"],
+)
+def test_dod_1_redirect_to_the_trailing_slash_keeps_only_a_well_formed_token(mocker, query, location):
     mocker.patch("web.s3.interactive.exists", return_value=True)
 
-    response = client.get("/interactive/multi?q=00000000-0000-4000-8000-000000000067", follow_redirects=False)
+    response = client.get(f"/interactive/multi{query}", follow_redirects=False)
 
     assert response.status_code == 301
-    assert response.headers["Location"] == "/interactive/multi/?q=00000000-0000-4000-8000-000000000067"
+    assert response.headers["Location"] == location
 
 
 def test_dod_3_index_with_q_serves_the_dashboard_page(mocker):

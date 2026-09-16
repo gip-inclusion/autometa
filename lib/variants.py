@@ -99,7 +99,8 @@ def remove_variant(slug: str, key: str) -> bool:
             )
         )
         for publication_id in active:
-            s3.publications.delete(f"{slug}/{publication_id}/{path}")
+            if not s3.publications.delete(f"{slug}/{publication_id}/{path}"):
+                raise ValueError(f"fichier S3 non supprimé, déclinaison conservée : {slug}/{publication_id}/{path}")
         (config.INTERACTIVE_DIR / slug / path).unlink(missing_ok=True)
         session.delete(variant)
         session.flush()

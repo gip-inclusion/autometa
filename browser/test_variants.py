@@ -8,18 +8,18 @@ import pytest
 from playwright.sync_api import Page, expect
 from sqlalchemy import delete
 
+from lib.dashboards import create_dashboard
+from lib.variants import add_variant
+from web import config, s3
+from web.db import get_db
+from web.models import Dashboard
+
 pytestmark = pytest.mark.browser
 
 
 @pytest.fixture
 def multi_source_dashboard():
     """Un TDB multi-sources avec une déclinaison, créé par la bibliothèque de l'application."""
-    from lib.dashboards import create_dashboard
-    from lib.variants import add_variant
-    from web import config, s3
-    from web.db import get_db
-    from web.models import Dashboard
-
     slug = f"e2e-variants-{uuid.uuid4().hex[:8]}"
     create_dashboard(
         slug=slug,
