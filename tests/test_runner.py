@@ -516,9 +516,46 @@ def test_run_agent_unregisters_the_run_even_when_cleanup_notification_fails(runn
     mocker.patch.object(runner, "notify_done", side_effect=ConnectionError("name resolution"))
 
     async def _run():
+        await fake_redis.set("autometa:running:c1", "w")
+        runner._running["c1"] = asyncio.current_task()
         await runner._run_agent("c1", "prompt", [], None, None)
         assert "c1" not in runner._running
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
+        assert await fake_redis.exists("autometa:running:c1") == 0
+
+    asyncio.run(_run())
+
+
+def test_run_agent_closes_the_stream_and_frees_the_slot_when_the_db_is_down(runner, mocker, fake_redis):
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.update_conversation.side_effect = SQLAlchemyError("db down")
+
+    async def _run():
+        await fake_redis.set("autometa:running:c1", "w")
+        runner._running["c1"] = asyncio.current_task()
+        await runner._run_agent("c1", "prompt", [], None, None)
+        assert "c1" not in runner._running
+        assert await runner.is_done("c1")
+        assert await fake_redis.exists("autometa:running:c1") == 0
+
+    asyncio.run(_run())
+
+
+def test_run_agent_keeps_the_slot_held_until_the_running_key_is_gone(runner, mocker, fake_redis):
+    """A resend registered while cleanup awaits Redis must not have its own running: key deleted."""
+    mocker.patch("web.runner.store")
+    seen = []
+
+    async def notify_done(conv_id):
+        seen.append("c1" in runner._running)
+
+    mocker.patch.object(runner, "notify_done", side_effect=notify_done)
+
+    async def _run():
+        runner._running["c1"] = asyncio.current_task()
+        await runner._run_agent("c1", "prompt", [], None, None)
+        assert seen == [True]
+        assert "c1" not in runner._running
 
     asyncio.run(_run())
 
