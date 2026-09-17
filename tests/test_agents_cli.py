@@ -319,10 +319,35 @@ def test_usage_limit_reset_rolls_to_next_day_when_time_already_passed():
         # rester du texte normal, sinon sa réponse disparaît et une fausse alerte part sur Slack.
         "Le log dit : You've hit your limit · resets 5pm (UTC). Je réessaie plus tard.",
         "You've hit your limit · resets 5pm (UTC) — voici ce que ça veut dire pour nous.",
+        # Why: le modulo 12 transformerait une heure absurde en heure plausible sans cette borne.
+        "You've hit your limit · resets 99pm (UTC)",
+        "You've hit your limit · resets 25:00 (UTC)",
+        "You've hit your limit · resets 5:75pm (UTC)",
     ],
 )
 def test_usage_limit_reset_returns_none_for_non_limit(text):
     assert usage_limit_reset(text) is None
+
+
+@pytest.mark.parametrize(
+    "text, hour, minute",
+    [
+        ("You've hit your limit — resets at 11pm (UTC)", 23, 0),
+        ("You've reached your limit — resets 11pm (UTC)", 23, 0),
+        ("You've hit your usage limit — resets 11pm (UTC)", 23, 0),
+        ("You've hit your limit — resets 23:00 (UTC)", 23, 0),
+        ("You've hit your limit — resets 11pm UTC", 23, 0),
+        ("You've exceeded your rate limit, resets at 7:15am UTC.", 7, 15),
+    ],
+)
+def test_usage_limit_reset_tolerates_rewordings(text, hour, minute):
+    """La formulation appartient à Anthropic : « at », « reached », 24 h, UTC sans parenthèses."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 7, 20, 0, 0, tzinfo=timezone.utc)
+    reset = usage_limit_reset(text, now=now)
+    assert reset is not None
+    assert (reset.hour, reset.minute) == (hour, minute)
 
 
 def test_send_message_yields_french_limit_message(stub_config):
@@ -344,6 +369,16 @@ def test_send_message_limit_does_not_capture_to_sentry(stub_config, mocker):
     messages = collect_messages(make_backend())
     assert messages[-1].type == "limit"
     capture.assert_not_called()
+
+
+def test_send_message_restores_the_text_when_the_turn_actually_succeeded(stub_config):
+    """Le motif a matché mais le processus a réussi : l'agent citait la phrase, on lui rend son texte."""
+    quote = "hit your limit · resets 5pm (UTC)"
+    stub_config(f'{_emit_assistant(quote)}\necho \'{{"type": "result", "subtype": "success"}}\'\nexit 0')
+    messages = collect_messages(make_backend())
+
+    assert [m.type for m in messages if m.type == "limit"] == []
+    assert any(m.type == "assistant" and quote in str(m.content) for m in messages)
 
 
 def test_last_events_ring_buffer_caps_at_ten(stub_config, mocker):
@@ -376,3 +411,16 @@ def test_ollama_backend_limit_message_uses_its_own_model_label(stub_config, mock
     assert messages[-1].type == "limit"
     assert "du modèle llama3" in messages[-1].content
     assert "Claude" not in messages[-1].content
+
+
+def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mocker, tmp_path):
+    """A resumed session (session file present) must still get its catch-up history threaded
+    into the real subprocess prompt — not silently dropped in favour of the bare message."""
+    mocker.patch("web.agents.cli.session_sync.get_session_path", return_value=mocker.Mock(exists=lambda: True))
+    stub_config('printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho \'{"type": "result", "subtype": "success"}\'')
+    history = [{"role": "assistant", "content": "rattrapage"}]
+
+    collect_messages(make_backend(), session_id="sess-1", history=history, message="suite")
+
+    argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
+    assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"

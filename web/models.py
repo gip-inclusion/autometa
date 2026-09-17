@@ -29,6 +29,7 @@ class Conversation(Base):
     user_id: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text)
     session_id: Mapped[str | None] = mapped_column(Text)
+    engine_state: Mapped[dict | None] = mapped_column(JSONB)
     conv_type: Mapped[str] = mapped_column(Text, default="exploration")
     file_path: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="active")

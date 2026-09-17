@@ -100,6 +100,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
     mock_conv = mocker.MagicMock()
     mock_conv.needs_response = True
     mock_store.get_conversation.return_value = mock_conv
+    mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
 
     runner = TaskRunner()
     runner._calls = calls
