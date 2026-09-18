@@ -1,5 +1,6 @@
 """Le skill verify_dashboard rend un vrai TDB dans Chromium, sans application servie, et tranche entre sain et cassé."""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -52,17 +53,24 @@ def dashboard(root: Path, app_js: str) -> Path:
     return directory
 
 
+def verify(*args, **kwargs) -> dict:
+    # Why: les tests de test_socle.py laissent tourner la boucle asyncio de pytest-playwright pour toute la
+    # session, et l'API sync de Playwright refuse de démarrer dans un thread qui en porte une.
+    with ThreadPoolExecutor(1) as pool:
+        return pool.submit(verify_dashboard, *args, **kwargs).result()
+
+
 def test_a_healthy_dashboard_passes_with_its_charts_counted_and_a_screenshot(tmp_path):
     screenshot = tmp_path / "shot.png"
 
-    result = verify_dashboard(str(dashboard(tmp_path, HEALTHY_APP)), screenshot, expected_charts=2)
+    result = verify(str(dashboard(tmp_path, HEALTHY_APP)), screenshot, expected_charts=2)
 
     assert (result["passed"], result["charts"], result["issues"]) == (True, 2, [])
     assert screenshot.stat().st_size > 0
 
 
 def test_a_broken_dashboard_fails_and_names_each_defect(tmp_path):
-    result = verify_dashboard(str(dashboard(tmp_path, BROKEN_APP)), expected_charts=2)
+    result = verify(str(dashboard(tmp_path, BROKEN_APP)), expected_charts=2)
 
     report = "\n".join(f"{i['severity']} {i['check']}: {i['message']}" for i in result["issues"])
     assert not result["passed"]
