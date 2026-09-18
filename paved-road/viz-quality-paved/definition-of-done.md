@@ -49,6 +49,13 @@ DOD-8 — [du brief : « requêtes de ressources en échec »] Le script de mesu
 DOD-9 — [du brief : « requêtes de ressources en échec »] Quand le tableau de bord lit ses données en
   direct auprès d'Autometa, ces lectures, impossibles hors de l'application, ne font pas échouer le
   verdict : elles sortent en avertissement « données en direct non vérifiées ».
+  Révision 2026-09-18 — la lentille `design-coherence` a montré qu'hors de l'application, une page
+  privée de ses données en direct échoue presque toujours par ricochet (erreur JavaScript, graphique
+  vide, bloc d'erreur) : « ne font pas échouer le verdict » ne tient que pour la lecture elle-même.
+  Le critère devient : la lecture en direct sort en avertissement « données en direct non
+  vérifiées », les problèmes qu'elle entraîne restent signalés, et les consignes disent à l'agent de
+  ne pas s'y acharner — il donne le lien en précisant que la vérification n'a pas pu voir les
+  données en direct. Revalidé le 2026-09-18, par délégation.
 
 DOD-10 — [du brief : « mise en page cassée »] Quand la page affiche son bloc d'erreur avec un texte,
   ou montre encore « Chargement… » une fois la page chargée, le verdict est « échoué » et le problème
@@ -115,6 +122,8 @@ Aucune.
    CDN tombe devient inlivrable.
 2. **Données en direct** (`DOD-9`). Par défaut : avertissement. Autrement : échec, et ces tableaux de
    bord ne pourraient jamais obtenir « réussi ».
+   *Révision 2026-09-18 : voir `DOD-9` — l'avertissement porte sur la lecture elle-même ; ses
+   conséquences à l'écran restent des échecs, que l'agent signale sans s'y acharner.*
 3. **Largeur d'écran** (`DOD-6`). Par défaut : ordinateur, 1280 pixels. Autrement : vérifier aussi en
    largeur de téléphone — double le temps de vérification et fait échouer des tableaux de bord
    pensés pour l'ordinateur.

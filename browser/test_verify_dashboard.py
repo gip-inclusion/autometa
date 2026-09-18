@@ -92,6 +92,31 @@ def test_dod_4_a_blank_chart_is_caught(page: Page, tmp_path):
     assert any("canvas #evolution" in message for message in errors_seen(page, directory))
 
 
+# Why: Chart.js et Plot viennent d'un CDN ; on reproduit ce qu'ils laissent dans la page pour tester hors réseau.
+EMPTY_CHARTJS = APP_JS.replace(
+    "init();",
+    """window.Chart = {getChart: el => el.id === 'evolution' ? {data: {datasets: [{data: [null, NaN]}]}} : undefined};
+init();""",
+)
+
+EMPTY_PLOT = """document.body.insertAdjacentHTML('beforeend', `<svg class="plot-d6a7b5" id="repartition" width="400" height="200">
+  <g aria-label="x-axis tick"><path d="M0,0L400,0"></path></g>
+  <g aria-label="y-axis tick label"><text>100</text></g>
+  <g aria-label="bar"></g>
+</svg>`);"""
+
+
+@pytest.mark.parametrize(
+    ("app_js", "blank"),
+    [(EMPTY_CHARTJS, "canvas #evolution"), (APP_JS + EMPTY_PLOT, "svg #repartition")],
+    ids=["chartjs", "plot"],
+)
+def test_dod_4_a_chart_library_drawing_only_its_axes_is_caught(page: Page, tmp_path, app_js, blank):
+    directory = make_dashboard(tmp_path, app_js=app_js)
+
+    assert any(blank in message for message in errors_seen(page, directory))
+
+
 def test_dod_8_the_tracking_script_is_blocked_and_not_reported(page: Page, tmp_path):
     directory = make_dashboard(tmp_path)
     blocked = []
