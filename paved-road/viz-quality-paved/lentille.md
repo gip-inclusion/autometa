@@ -91,3 +91,8 @@ nombres.
 ### Remarque — `Plot.ruleY([0])` masque un graphique Plot vide
 
 **Réponse.** Assumé, même famille que la limite D3 déjà déclarée.
+
+## Passe 3 — sur `01c0c46`
+
+Le bloqueur de la passe 2 est corrigé ; le correctif n'apporte pas de bloqueur nouveau. **Rien à
+signaler.** La boucle a convergé en trois passes.
