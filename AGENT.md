@@ -86,6 +86,7 @@ Invoquer via l'outil `Skill` :
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `save_report` — Sauvegarder un rapport en base.
+- `verify_dashboard` — **Toujours l'invoquer une fois les fichiers d'un tableau de bord écrits**, avant d'en donner le lien.
 
 ## Modélisation statistique (fréquentiste et bayésienne)
 
