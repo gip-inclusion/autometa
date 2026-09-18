@@ -23,7 +23,7 @@ touche que les métadonnées (titre, tags, archivage) ne se vérifie pas.
 | Argument | Description |
 |---|---|
 | `target` | Slug du TDB (dossier `data/interactive/{slug}/`) ou chemin d'un dossier |
-| `--expect-charts` | Nombre de graphiques que le TDB doit afficher. Le passer dès que le TDB en a ; sans lui, aucun minimum n'est exigé |
+| `--expect-charts` | Nombre de graphiques que le TDB doit afficher **au premier affichage** (ceux d'un onglet inactif ne comptent pas). Le passer dès que le TDB en a ; sans lui, aucun minimum n'est exigé |
 
 Sortie sur stdout (JSON) :
 
@@ -59,3 +59,7 @@ ils sortent en avertissement « données en direct non vérifiées ».
 - **Échoué** (code `1`) : corriger chaque problème de sévérité `error`, puis relancer — **trois
   tentatives au plus**. Si des problèmes restent, donner le lien **en les listant** à l'utilisateur ;
   ne jamais présenter le TDB comme vérifié.
+- **Avertissement « données en direct non vérifiées »** : hors de l'application, la page n'a pas ses
+  données live, et les erreurs qui en découlent (graphique vide, bloc d'erreur, erreur JavaScript
+  sur la réponse) sont attendues. Corriger le reste, ne pas consommer de tentative sur celles-là, et
+  donner le lien en précisant que la vérification n'a pas pu voir les données en direct.

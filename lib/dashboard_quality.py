@@ -22,14 +22,26 @@ TRACKING_HOST = "matomo.inclusion.beta.gouv.fr"
 
 BROKEN_VALUES = re.compile(r"\b(?:NaN|undefined|null)\b|\[object Object\]")
 
-# Un <svg> de 32 px au plus est un pictogramme, pas un graphique ; un élément masqué (onglet inactif) n'est pas jugé.
+# Chart.js et Plot dessinent leurs axes même sans donnée : on juge leurs séries, pas leurs pixels. Un <svg> de
+# 32 px au plus est un pictogramme, pas un graphique ; un élément masqué (onglet inactif) n'est pas jugé.
 OBSERVE_JS = """() => {
   const shown = el => el !== null && el.checkVisibility() ? el.innerText.trim() : '';
+  const value = v => (v !== null && typeof v === 'object' ? v.y : v);
   const painted = el => {
+    if (el.tagName === 'svg' && [...el.classList].some(c => c.startsWith('plot'))) {
+      return [...el.querySelectorAll('g[aria-label]')]
+        .some(g => !/axis|grid|frame/.test(g.getAttribute('aria-label')) && g.childElementCount > 0);
+    }
     if (el.tagName === 'svg') return el.querySelector('path, rect, circle, ellipse, line, polyline, polygon, text, image') !== null;
+    const chart = window.Chart?.getChart?.(el);
+    if (chart) return chart.data.datasets.some(d => (d.data ?? []).some(v => value(v) !== null && Number.isFinite(Number(value(v)))));
     if (!el.width || !el.height) return false;
     const ctx = el.getContext('2d');
-    return ctx === null || ctx.getImageData(0, 0, el.width, el.height).data.some((v, i) => i % 4 === 3 && v > 0);
+    try {
+      return ctx === null || ctx.getImageData(0, 0, el.width, el.height).data.some((v, i) => i % 4 === 3 && v > 0);
+    } catch {
+      return true;
+    }
   };
   const charts = [...document.querySelectorAll('canvas, svg')]
     .filter(el => !el.parentElement.closest('svg') && el.checkVisibility())
