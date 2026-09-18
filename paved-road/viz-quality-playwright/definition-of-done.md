@@ -45,6 +45,10 @@ DOD-8 — [proposé par la chasse aux trous, valeur par défaut retenue] Quand u
   signalées en avertissement comme non vérifiables hors de l'application ; si ses graphiques restent
   vides pour cette raison, le verdict est négatif. Pour le vérifier en entier, on le vérifie à
   l'adresse de l'application lancée localement.
+  Révision 2026-09-18 — « en entier » est faux, relevé par la relecture de cohérence : même à
+  l'adresse de l'application lancée localement, une demande de données que l'application refuse
+  n'est qu'un avertissement ; seuls les graphiques restés vides ou le message d'erreur du tableau
+  de bord font alors échouer. À revalider par Alexis.
 
 DOD-9 — [proposé par la chasse aux trous, valeur par défaut retenue] Un tableau de bord fait
   uniquement de chiffres clés, sans graphique, et dont on n'attend aucun graphique, reçoit un
