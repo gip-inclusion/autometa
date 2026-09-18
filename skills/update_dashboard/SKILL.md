@@ -26,6 +26,15 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 Ne jamais inventer ou deviner un slug.
 
 
+## Fin de génération : contrôle qualité obligatoire
+
+Une fois le code du TDB écrit (et `data.json` produit), invoquer le skill `verify_dashboard` avant de
+donner l'URL à l'utilisateur, et corriger jusqu'au verdict positif :
+
+```bash
+.venv/bin/python skills/verify_dashboard/scripts/verify_dashboard.py <slug> --expect-charts <n>
+```
+
 ## Façade obligatoire
 
 Un TDB n'importe qu'un seul module du dépôt : `lib.dashboard_api`. `lib.query`, `web.db` et

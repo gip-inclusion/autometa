@@ -521,9 +521,23 @@ Les dashboards sont servis sous `/interactive/{dossier}/`. Pas d'étape de build
 
 **Toujours utiliser des URLs relatives** (commençant par `/`) pour lier vers des dashboards ou des fichiers.
 
+## Contrôle qualité en fin de génération
+
+Toute création ou modification de TDB se termine par le skill `verify_dashboard` : il rend le TDB
+dans un navigateur headless et vérifie l'absence d'erreur JS ou réseau, la présence du nombre attendu
+de graphiques effectivement tracés, l'absence de débordement horizontal et de valeurs cassées
+(`undefined`, `NaN`…) à l'écran. L'agent corrige jusqu'au verdict positif ; une erreur qu'il ne sait
+pas corriger est signalée à l'utilisateur, sans bloquer la livraison du TDB.
+
+```bash
+.venv/bin/python skills/verify_dashboard/scripts/verify_dashboard.py mon-dashboard --expect-charts 3
+```
+
+Le navigateur s'installe avec `make browsers` en local ; il est inclus dans l'image Docker.
+
 ## Modification
 
-Un dashboard peut être modifié depuis n'importe quelle conversation, du moment que l'utilisateur précise lequel. Identifier le dossier concerné dans `data/interactive/`, appliquer les changements, puis **toujours donner à l'utilisateur l'URL relative du dashboard** (`/interactive/{dossier}/`) pour qu'il puisse constater la mise à jour directement.
+Un dashboard peut être modifié depuis n'importe quelle conversation, du moment que l'utilisateur précise lequel. Identifier le dossier concerné dans `data/interactive/`, appliquer les changements, vérifier le rendu avec `verify_dashboard`, puis **toujours donner à l'utilisateur l'URL relative du dashboard** (`/interactive/{dossier}/`) pour qu'il puisse constater la mise à jour directement.
 
 ## Tags valides
 

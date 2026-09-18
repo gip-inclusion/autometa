@@ -48,6 +48,9 @@ dependencies = [
     "statsmodels>=0.15.0",
     "linearmodels>=7.0",
     "bambi>=0.21.0",
+    # Contrôle qualité des tableaux de bord en fin de génération (skill verify_dashboard) :
+    # rendu headless, donc runtime et pas seulement dev. Le navigateur s'installe à part.
+    "playwright>=1.62.0",
 ]
 
 [project.scripts]
