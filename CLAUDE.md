@@ -90,3 +90,8 @@ Sources de données :
 | RDV-Insertion | `gip-inclusion/rdv-insertion` | master |
 
 Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.
+
+## Session Ledger
+| Date | Type | Summary | Lesson |
+|------|------|---------|--------|
+| 2026-09-18 | feat | Skill `verify_dashboard` (lib/viz_quality.py) : QA Playwright headless des TDB en fin de génération, branché dans create/update_dashboard + AGENT.md ; playwright en dépendance runtime, Chromium headless shell dans l'image Docker | Les « viz » sont les TDB `data/interactive/{slug}/` écrits par l'agent : aucun point de code « fin de génération », le branchement passe par les SKILL.md/AGENT.md. Servir le dossier en HTTP local (fetch data.json casse en file://). Les polices Marianne du gabarit sont bloquées par CORS hors inclusion.gouv.fr → avertissement, pas erreur. Un libellé `undefined` dessiné dans un canvas Chart.js échappe à tout scan de texte : introspecter `Chart.getChart()`. |
