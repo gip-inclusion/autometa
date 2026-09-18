@@ -117,6 +117,18 @@ def test_dod_4_a_chart_library_drawing_only_its_axes_is_caught(page: Page, tmp_p
     assert any(blank in message for message in errors_seen(page, directory))
 
 
+PLOT_LEGEND = """document.body.insertAdjacentHTML('beforeend', `<svg class="plot-d6a7b5-ramp" width="240" height="50">
+  <image width="240" height="10" href="data:image/png;base64,iVBORw0KGgo="></image>
+</svg>`);"""
+
+
+def test_dod_13_a_plot_colour_legend_is_neither_a_chart_nor_an_empty_one(page: Page, tmp_path):
+    directory = make_dashboard(tmp_path, app_js=APP_JS + PLOT_LEGEND)
+
+    assert errors_seen(page, directory, expected_charts=1) == []
+    assert errors_seen(page, directory, expected_charts=2) == ["1 graphique(s) affiché(s), 2 attendu(s)"]
+
+
 def test_dod_8_the_tracking_script_is_blocked_and_not_reported(page: Page, tmp_path):
     directory = make_dashboard(tmp_path)
     blocked = []

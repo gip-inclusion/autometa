@@ -22,8 +22,8 @@ TRACKING_HOST = "matomo.inclusion.beta.gouv.fr"
 
 BROKEN_VALUES = re.compile(r"\b(?:NaN|undefined|null)\b|\[object Object\]")
 
-# Chart.js et Plot dessinent leurs axes même sans donnée : on juge leurs séries, pas leurs pixels. Un <svg> de
-# 32 px au plus est un pictogramme, pas un graphique ; un élément masqué (onglet inactif) n'est pas jugé.
+# Chart.js et Plot dessinent leurs axes même sans donnée : on juge leurs séries, pas leurs pixels. Ne sont pas des
+# graphiques : un <svg> de 32 px au plus (pictogramme), la légende de couleur de Plot (`-ramp`), un élément masqué.
 OBSERVE_JS = """() => {
   const shown = el => el !== null && el.checkVisibility() ? el.innerText.trim() : '';
   const value = v => (v !== null && typeof v === 'object' ? v.y : v);
@@ -45,6 +45,7 @@ OBSERVE_JS = """() => {
   };
   const charts = [...document.querySelectorAll('canvas, svg')]
     .filter(el => !el.parentElement.closest('svg') && el.checkVisibility())
+    .filter(el => ![...el.classList].some(c => c.endsWith('-ramp')))
     .map(el => {
       const {width, height} = el.getBoundingClientRect();
       return {name: el.tagName.toLowerCase() + (el.id ? ' #' + el.id : ''), width, height, painted: painted(el)};

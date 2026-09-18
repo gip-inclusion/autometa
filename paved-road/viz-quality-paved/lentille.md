@@ -63,3 +63,31 @@ JavaScript infinie après chargement reste non bornée : noté pour la rétro.
 ### Remarque — excès justifiés (`/common/`, toute réponse ≥ 400)
 
 **Réponse.** Aucune action.
+
+## Passe 2 — sur `2ef82dd`
+
+Les deux bloqueurs de la passe 1 : DOD-9 « valablement justifié » (révision datée, code et skill
+alignés) ; DOD-4 « corrigé » pour Chart.js et Plot. Tous les autres critères réalisés.
+
+### BLOQUEUR — DOD-1 / DOD-4 : une légende continue d'Observable Plot est jugée « graphique sans aucun tracé »
+
+> La règle Plot s'applique à tout `<svg>` dont une classe commence par `plot`. Plot dessine la légende
+> d'une échelle de couleur continue dans un `<svg>` à part, de classe `plot-xxxx-ramp`, d'environ
+> 240×50 px, sans groupe `aria-label` de marque : elle serait jugée vide et un tableau de bord sain
+> échouerait. Régression apportée par le correctif. Déduit de la source de Plot 0.6 sans l'exécuter ;
+> un rendu réel suffit à confirmer ou lever le bloqueur.
+
+**Réponse — confirmé par un rendu réel, corrigé.** Plot 0.6 chargé depuis le CDN rend bien
+`svg.plot-d6a7b5-ramp` sans aucun groupe `aria-label` ; le même rendu confirme qu'un `barY` vide
+n'a aucun groupe de marque, ce qui valide la règle. Une légende n'est pas un graphique : les `svg`
+`-ramp` sont retirés du compte. Test navigateur
+`test_dod_13_a_plot_colour_legend_is_neither_a_chart_nor_an_empty_one`.
+
+### Remarque — Chart.js dont les données sont des objets orientés y (`indexAxis: 'y'`, `parsing`)
+
+**Réponse.** Assumé et noté pour la rétro : le modèle documenté alimente Chart.js en tableaux de
+nombres.
+
+### Remarque — `Plot.ruleY([0])` masque un graphique Plot vide
+
+**Réponse.** Assumé, même famille que la limite D3 déjà déclarée.
