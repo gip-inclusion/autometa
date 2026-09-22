@@ -6,45 +6,12 @@
 - GitHub: https://github.com/gip-inclusion/le-marche
 - Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
 
-## Traffic Baselines (2025)
+## Références de trafic
 
-Data retrieved 2026-03-29 via Matomo API.
-
-### Monthly Visitor Stats
-
-| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|-----------|--------------------|-----------------:|
-| 2025-01 |          28,898 |    33,722 |                932 |            1,088 |
-| 2025-02 |          21,643 |    25,755 |                773 |              920 |
-| 2025-03 |          28,709 |    33,216 |                926 |            1,071 |
-| 2025-04 |          21,464 |    25,829 |                715 |              861 |
-| 2025-05 |          17,485 |    20,873 |                564 |              673 |
-| 2025-06 |          18,037 |    21,804 |                601 |              727 |
-| 2025-07 |          17,435 |    20,475 |                562 |              660 |
-| 2025-08 |          14,215 |    15,830 |                459 |              511 |
-| 2025-09 |          20,032 |    23,076 |                668 |              769 |
-| 2025-10 |          24,337 |    27,977 |                785 |              902 |
-| 2025-11 |          23,396 |    27,129 |                780 |              904 |
-| 2025-12 |          19,967 |    23,027 |                644 |              743 |
-
-**Typical range:** 459-932 unique visitors/day, 511-1,088 visits/day.
-
-### Engagement Metrics
-
-| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
-|---------|-------------|---------------|------------------|
-| 2025-01 |         68% |           2.7 |           1m 36s |
-| 2025-02 |         64% |           2.8 |           1m 48s |
-| 2025-03 |         66% |           2.6 |           2m 22s |
-| 2025-04 |         64% |           2.8 |           1m 46s |
-| 2025-05 |         64% |           2.6 |           1m 34s |
-| 2025-06 |         64% |           2.8 |           1m 43s |
-| 2025-07 |         64% |           2.9 |           1m 47s |
-| 2025-08 |         69% |           2.5 |           1m 25s |
-| 2025-09 |         69% |           2.7 |           1m 35s |
-| 2025-10 |         73% |           2.5 |           1m 29s |
-| 2025-11 |         72% |           2.4 |           1m 37s |
-| 2025-12 |         72% |           2.5 |           1m 37s |
+Les chiffres de trafic de ce site — visites, visiteurs, rebond, durée, répartition par type
+d'utilisateur — sont synchronisés chaque nuit dans la base applicative
+(`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
+ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
 ## Custom Dimensions
 

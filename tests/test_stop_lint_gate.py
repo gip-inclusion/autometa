@@ -54,6 +54,19 @@ def test_commands_are_lint_only_suite_runs_at_pre_commit():
     assert not any("pytest" in cmd or "make test" in cmd for cmd in cmds)
 
 
+def test_checks_run_from_the_repo_root_whatever_the_cwd():
+    """`ruff check web/` depuis un autre cwd sortirait rouge pour un chemin inexistant, pas pour du lint."""
+    seen = []
+
+    def run(cmd, **kwargs):
+        seen.append(kwargs.get("cwd"))
+        return _Proc(0)
+
+    stop_lint_gate.failing_checks(run=run)
+
+    assert seen == [_HOOKS_DIR.parent.parent] * 3
+
+
 def test_block_reason_mentions_each_failure():
     reason = stop_lint_gate.block_reason([("ruff check", "F401 boom"), ("détecteur", "creux")])
     assert "ruff check" in reason

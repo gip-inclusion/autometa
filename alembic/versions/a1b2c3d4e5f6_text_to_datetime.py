@@ -11,7 +11,7 @@ down_revision: Union[str, Sequence[str], None] = "0d4871663bfd"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# (table, column, nullable)
+# (table, column, nullable)  # noqa: ERA001
 COLUMNS = [
     ("conversations", "created_at", False),
     ("conversations", "updated_at", False),

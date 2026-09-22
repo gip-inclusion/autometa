@@ -64,14 +64,11 @@ class TagsMixin:
                 conv_match.append(ConvModel.user_id == user_id)
 
             if active_tag_names:
-                matching_convs = (
-                    select(ConvTagModel.conversation_id)
-                    .join(TagModel, ConvTagModel.tag_id == TagModel.id)
-                    .where(TagModel.name.in_(active_tag_names))
-                    .group_by(ConvTagModel.conversation_id)
-                    .having(func.count(distinct(TagModel.name)) == len(active_tag_names))
+                conv_match.append(
+                    ConvModel.id.in_(
+                        matching_keys(session, ConvTagModel, ConvTagModel.conversation_id, active_tag_names)
+                    )
                 )
-                conv_match.append(ConvModel.id.in_(matching_convs))
 
             count_expr = func.count(distinct(case((and_(*conv_match), ConvModel.id))))
             stmt = (

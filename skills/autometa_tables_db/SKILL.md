@@ -21,11 +21,13 @@ Ordre de préférence, du plus au moins prioritaire :
 
 1. **Tables de référence** (liste ci-dessous) : chercher la donnée ici en premier. Ce sont les tables métier de référence, les plus fiables et les mieux connues. Elles sont réparties entre les schémas autorisés — chercher le nom de table dans l'ensemble de ces schémas plutôt que de présumer d'un schéma précis.
 2. **Tables documentées** : si les tables de référence ne couvrent pas le besoin, se limiter aux tables présentes dans `documentation.doc_autometa_tables`.
-3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*`, `intermediate*` et `raw*` (sauf `raw_dora`) contiennent des données brutes ou des couches intermédiaires du pipeline, non destinées aux analyses.
+3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*`, `intermediate*` et `raw*` (sauf `raw_dora` et `raw_rdvi`) contiennent des données brutes ou des couches intermédiaires du pipeline, non destinées aux analyses.
+
+Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora__orientations` (tables de référence) avant de se rabattre sur `raw_dora`.
 
 ### Schémas autorisés
 
-`public`, `monrecap`, `reporting`, `data_inclusion`, `esat`, `seeds`, `raw_dora` (seule exception à l'interdiction de lire les schémas `raw*`), plus `documentation` pour le catalogue.
+`public`, `monrecap`, `reporting`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi` (seules exceptions à l'interdiction de lire les schémas `raw*`), plus `documentation` pour le catalogue.
 
 ### Tables de référence
 
@@ -36,7 +38,7 @@ Ordre de préférence, du plus au moins prioritaire :
 | Mon Récap | `Contacts`, `Commandes`, `barometre` |
 | data·inclusion | `structures_v1`, `services_v1` |
 | Datalake | `pdi_base_unique_tous_les_pros` |
-| Dora | `structures_structure`, `structures_structuremember`, `services_service`, `services_servicecategory`, `services_service_categories`, `orientations_orientation`, `users_user`, `stats_searchview`, `stats_serviceview`, `stats_mobilisationevent`, `stats_structureinfosview`, `stats_structureview` |
+| Dora | `fct_dora__imer`, `fct_dora__orientations` |
 
 Pour localiser une de ces tables :
 
@@ -75,7 +77,16 @@ else:
     print(result.error)
 ```
 
+## Pièges
+
+Les colonnes de date de `les_emplois` sont du **texte** ISO, pas des dates. Écrire
+`colonne::date >= x` écarte l'index et double le coût de la requête : comparer comme du
+texte, et passer par `TO_CHAR` quand le terme de droite n'est pas un littéral.
+
 ## Schémas disponibles
+
+Cette liste est indicative — la source de vérité est `documentation.doc_autometa_tables`,
+à interroger à l'exécution.
 
 | Schéma | Contenu |
 |---|---|
@@ -85,7 +96,8 @@ else:
 | `data_inclusion` | Tables data·inclusion |
 | `esat` | Tables ESAT |
 | `seeds` | Tables de référentiel (seeds dbt) |
-| `raw_dora` | Tables Dora brutes — seul schéma `raw*` autorisé |
+| `raw_dora` | Tables Dora brutes — schéma `raw*` autorisé |
+| `raw_rdvi` | Tables RDV-Insertion brutes — schéma `raw*` autorisé |
 | `documentation` | Catalogue des tables (`doc_autometa_tables`) |
 
 Tout autre schéma (`staging*`, `intermediate*`, autres `raw*`) est hors périmètre.

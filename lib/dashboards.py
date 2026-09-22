@@ -12,6 +12,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from lib import dashboard_api
 from lib.taxonomy import normalize_tags
 from web import config
 from web.cron import SCHEDULE_PRESETS, is_valid_schedule
@@ -69,6 +70,35 @@ class DashboardUpdateResult:
     originating_user_email: str
     updater_email: str
     fields_changed: list[str]
+
+
+def facade_problems(slug: str) -> list[str]:
+    """Fichiers Python d'un TDB qui importent autre chose que la façade — un énoncé, pas un refus."""
+    # Why: un appelant peut passer un slug non validé. La défense appartient donc à la fonction qui
+    # construit le chemin, sinon un `../` sort du répertoire des tableaux de bord.
+    if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
+        raise ValueError(f"Invalid slug: {slug!r}")
+    slug_dir = config.INTERACTIVE_DIR / slug
+    problems = []
+    for path in sorted(slug_dir.rglob("*.py")):
+        name = path.relative_to(slug_dir)
+        try:
+            violations = dashboard_api.facade_violations(path.read_text(errors="replace"))
+        except SyntaxError as exc:
+            raise ValueError(f"{name} n'est pas un fichier Python valide : {exc}") from exc
+        if violations:
+            problems.append(f"{name} importe {', '.join(violations)}")
+    return problems
+
+
+def check_facade_compliance(slug: str) -> None:
+    """Refuse un TDB dont un fichier Python importe autre chose que la façade."""
+    if problems := facade_problems(slug):
+        raise ValueError(
+            "Imports hors de la façade des tableaux de bord :\n  "
+            + "\n  ".join(problems)
+            + f"\nSeul `{dashboard_api.FACADE}` est autorisé — voir docs/interactive-dashboards.md."
+        )
 
 
 def detect_api_flags(slug_dir: Path, metadata: dict) -> tuple[bool, bool]:
@@ -239,6 +269,7 @@ def adopt_dashboard(
 
     if not (config.INTERACTIVE_DIR / slug).is_dir():
         raise ValueError(f"No existing folder to adopt: {config.INTERACTIVE_DIR / slug}")
+    check_facade_compliance(slug)
 
     with get_db() as session:
         if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:
@@ -388,6 +419,9 @@ def update_dashboard(
         raise ValueError("set_tags is mutually exclusive with add_tags/remove_tags")
     cron_schedule = _normalize_schedule(cron_schedule)
     cron_timeout = _normalize_timeout(cron_timeout)
+    # Why: `lib.dashboard_api` naît avec le contrôle de façade — tout TDB antérieur le viole par
+    # construction. Renommer, taguer ou désarchiver un TDB hérité ne touche pas à son code : le
+    # contrôle vit à la création, à l'adoption, et à l'écriture du fichier (guard_write_paths).
 
     fields_changed: list[str] = []
 
