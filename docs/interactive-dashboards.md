@@ -166,6 +166,11 @@ La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `que
 `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
+Elle expose aussi `list_variants()` : les déclinaisons déclarées du tableau de bord dont le cron
+tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'après
+`AUTOMETA_DASHBOARD_SLUG`, posé par le runner de cron. Pour un lancement à la main, passer le slug :
+`list_variants("mon-tdb")`. Voir § Mode multi-sources.
+
 L'import hors façade est refusé à la création et à l'adoption d'un TDB, et à l'écriture de tout
 fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne juge pas le code : les
 TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
@@ -218,6 +223,56 @@ Sur la VM actuelle, entrée crontab système :
 #### UI
 
 `/cron` liste tous les dashboards éligibles, leur dernier statut, et permet de déclencher ou toggler manuellement.
+
+### Mode multi-sources : une déclinaison par lien
+
+Un tableau de bord **multi-sources** sert plusieurs **déclinaisons** (un département, une structure,
+un réseau…) avec le même écran et les mêmes calculs. Il remplace la duplication d'un TDB par
+territoire : un seul dossier, un seul `cron.py`, un fichier de données par déclinaison.
+
+Ce qui le définit :
+
+- **Déclinaisons déclarées**, jamais devinées : `update_dashboard --add-variant clé=libellé`. Chaque
+  déclinaison reçoit un **jeton** (UUID) généré par l'outil et stable. La table `dashboard_variants`
+  fait foi ; un TDB devient multi-sources dès qu'une déclinaison lui est déclarée.
+- **Un lien par déclinaison** : `/interactive/{slug}/?q=<jeton>`. La page lit `?q`, vérifie la forme
+  du jeton avant toute requête, charge `data/<jeton>.json`, et n'affiche que cette déclinaison. Sans
+  `?q` ou avec un jeton mal formé : « Ce lien n'est pas valide ». Jeton bien formé sans fichier :
+  « Ce lien n'est pas valide, ou les données ne sont pas encore disponibles » — la page ne peut pas
+  distinguer un jeton inconnu d'une déclinaison pas encore calculée, faute de liste. Jamais de
+  sélecteur, jamais de lien vers une autre déclinaison — c'est le nom du fichier, et lui seul, qui
+  ouvre l'accès.
+- **Dans l'application**, `/interactive/{slug}/` sans `?q` affiche l'index des déclinaisons et un
+  lien vers la page d'édition. Cet index est rendu par le serveur : la publication, qui copie les
+  fichiers du dossier, ne l'emporte pas.
+- **Le cron** obtient ses déclinaisons par la façade, `list_variants()`, interroge la source **une
+  seule fois** pour toutes les clés, puis écrit un fichier par déclinaison déclarée — et rien
+  d'autre. Une déclinaison qui échoue n'empêche pas les autres : son fichier précédent est conservé
+  et le run se termine en échec en nommant les clés fautives — code de sortie **3**, que le runner
+  reconnaît comme un run partiel : les fichiers écrits sont conservés, le run est marqué en échec. Le fichier porte `metadata.key` et
+  `metadata.label`, jamais son propre jeton.
+- **Matomo** enregistre la page sous `/interactive/{slug}/<clé>/`, pas sous le jeton : la page
+  charge le conteneur Tag Manager **après** avoir posé `setCustomUrl`, et désactive Heatmap Session
+  Recording, dont la requête de configuration porte l'URL réelle. La page déclare aussi
+  `referrer: no-referrer`. Le gabarit `docs/dashboard-template-multi/` fait tout cela.
+- **Le nom du fichier est le secret** : la confidentialité des déclinaisons repose sur le fait que
+  personne ne peut lister le bucket public. C'est le cas : `ListObjects` anonyme répond `AccessDenied`
+  sur les deux buckets Scaleway (vérifié le 2026-09-16), et les domaines `statistiques.inclusion.gouv.fr`
+  répondent la page d'accueil à toute requête de listing. Ce prérequis vaut pour tout nouveau bucket.
+- **La publication et chaque rafraîchissement refusent** un dossier dont un fichier (page, script,
+  données…) contient un jeton déclaré : raison `variant-token-exposed`, fichier nommé sur la page
+  d'édition. Une liste de clés ou de libellés dans le code n'est pas un problème.
+
+La page d'édition liste chaque déclinaison (clé, libellé, lien interne, lien public par publication
+active, présence du fichier de données) et expose le mapping en JSON
+(`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne et sa
+copie dans chaque snapshot publié ; le lien public répond encore jusqu'au rafraîchissement suivant,
+qui élague la copie publique — sans borne si ce rafraîchissement est en pause, ce que la commande signale. Un TDB converti (créé avant ce mode) qui déclare des déclinaisons est
+signalé sur la page d'édition tant que sa page charge Matomo avant de lire `?q` ou ne déclare pas
+`referrer: no-referrer`.
+
+Création : `create_dashboard --multi-source`, **après accord explicite de l'utilisateur** (cf. le
+skill). Le scaffold pose le gabarit de base puis `docs/dashboard-template-multi/` par-dessus.
 
 ### Modes non publiables
 

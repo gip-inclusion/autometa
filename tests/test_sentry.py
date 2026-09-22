@@ -110,6 +110,28 @@ def test_before_send_preserves_non_secret_extras(monkeypatch):
     assert result["extra"]["stderr"] == "regular log output"
 
 
+@pytest.mark.parametrize("hook", ["_before_send", "_before_send_transaction"])
+def test_hooks_drop_the_query_string_of_interactive_links(monkeypatch, hook):
+    monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
+    import web.sentry as sentry
+
+    token = "00000000-0000-4000-8000-000000000067"
+    event = {
+        "request": {"url": f"https://autometa/interactive/multi/?q={token}", "query_string": f"q={token}"},
+        "contexts": {"trace": {"data": {}}},
+    }
+    result = getattr(sentry, hook)(event, {})
+    assert result["request"] == {"url": "https://autometa/interactive/multi/", "query_string": ""}
+
+
+def test_before_send_keeps_the_query_string_of_other_urls(monkeypatch):
+    monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
+    from web.sentry import _before_send
+
+    event = {"request": {"url": "https://autometa/api/x?page=2", "query_string": "page=2"}}
+    assert _before_send(event, {})["request"]["query_string"] == "page=2"
+
+
 def test_before_send_transaction_scrubs_span_attributes(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
     from web.sentry import _before_send_transaction

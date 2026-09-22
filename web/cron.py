@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from lib import dashboard_api
+from lib import facade_imports, variants
 from web.helpers import now_local, sanitize_for_log, utcnow
 from web.s3 import S3Store
 
@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_TIMEOUT = 300  # 5 minutes
+# Why: un cron multi-sources qui a produit une partie de ses fichiers sort en 3 — le run est un
+# échec (historique, alertes), mais ce qu'il a écrit est conservé, sinon une déclinaison en panne
+# priverait toutes les autres de leur rafraîchissement.
+PARTIAL_EXIT_CODE = 3
 MAX_OUTPUT_SIZE = 50_000
 
 SCHEDULE_PRESETS = {
@@ -365,7 +369,7 @@ def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
         if source is None:
             continue
         try:
-            violations = dashboard_api.facade_violations(source)
+            violations = facade_imports.facade_violations(source)
         # Why: un cron.py illisible échouera à l'exécution ; la découverte, elle, doit continuer.
         except SyntaxError:
             logger.warning("cron %s: cron.py unparsable, facade not checked", sanitize_for_log(task["slug"]))
@@ -378,7 +382,7 @@ def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
 def log_facade_violations(slug: str, script: Path) -> None:
     """Le cron.py est déjà sur disque au moment de l'exécution : le lire ne coûte aucun appel S3."""
     try:
-        violations = dashboard_api.facade_violations(script.read_text(errors="replace"))
+        violations = facade_imports.facade_violations(script.read_text(errors="replace"))
     except (SyntaxError, OSError) as e:
         logger.debug("cron %s: facade not checked (%s)", sanitize_for_log(slug), e)
         return
@@ -444,12 +448,12 @@ def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[
     if slugs:
         listing = "\n".join(f"• `{slug}` — {', '.join(modules)}" for slug, modules in sorted(found.items()))
         alerts.notify_alert_channel(
-            f":warning: *{len(found)} tableau(x) de bord importent hors de `{dashboard_api.FACADE}`*\n"
+            f":warning: *{len(found)} tableau(x) de bord importent hors de `{facade_imports.FACADE}`*\n"
             f"Observation : la planification n'est pas encore refusée.\n{listing}"
         )
     elif known:
         alerts.notify_alert_channel(
-            f":white_check_mark: *Plus aucun tableau de bord n'importe hors de `{dashboard_api.FACADE}`.*"
+            f":white_check_mark: *Plus aucun tableau de bord n'importe hors de `{facade_imports.FACADE}`.*"
         )
     record_reported_slugs(slugs)
     return found
@@ -564,6 +568,8 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     elif source == "s3-publication":
         store = s3.publications
         store_prefix = f"{task['dashboard_slug']}/{task['publication_id']}/"
+    if uses_workdir:
+        env["AUTOMETA_DASHBOARD_SLUG"] = task.get("dashboard_slug", slug)
 
     try:
         if uses_workdir:
@@ -592,11 +598,18 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         output = output[:MAX_OUTPUT_SIZE]
 
         status = "success" if result.returncode == 0 else "failure"
+        keep_outputs = result.returncode in (0, PARTIAL_EXIT_CODE)
 
-        if uses_workdir and status == "success" and workdir:
-            upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
+        if uses_workdir and keep_outputs and workdir:
+            problems = []
             if source == "s3-publication":
-                publications.refresh(task["publication_id"])
+                problems = publications.exposure_problems(task["dashboard_slug"], variants.folder_files(workdir))
+            # Why: un snapshot de publication ne reçoit jamais un fichier qui expose un jeton — la
+            # copie publique est refusée, et le snapshot privé reste tel qu'il était.
+            if not problems:
+                upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
+            if source == "s3-publication":
+                publications.refresh(task["publication_id"], blocked_by=problems)
 
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
@@ -742,7 +755,7 @@ def facade_audit() -> list[str]:
     with get_db() as session:
         active = session.scalar(select(func.count()).select_from(Dashboard).where(~Dashboard.is_archived))
     found = facade_violations_by_slug(discover_cron_tasks())
-    lines = [f"{active} tableaux de bord actifs, {len(found)} importent hors de {dashboard_api.FACADE}."]
+    lines = [f"{active} tableaux de bord actifs, {len(found)} importent hors de {facade_imports.FACADE}."]
     lines += [f"  {slug:30s} {', '.join(modules)}" for slug, modules in sorted(found.items())]
     return lines
 

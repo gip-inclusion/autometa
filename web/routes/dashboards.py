@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.taxonomy import FACETS_BY_NAME, apply_toggle, load_vocabulary, normalize_tag_name, ordered_facets
+from lib.variants import list_variants
+from web import s3
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
 from web.cron import cadence, get_last_runs, next_cron_run
@@ -167,9 +169,48 @@ def dashboards_page(
     )
 
 
+def page_leak_warning(slug: str) -> str | None:
+    """Ce que la page d'un TDB converti laisse fuir : le referrer, ou l'URL réelle vers Matomo."""
+    index_html = s3.interactive.download(f"{slug}/index.html") or b""
+    problems = []
+    if b'content="no-referrer"' not in index_html:
+        problems.append("aucune balise referrer no-referrer")
+    if b"container_" in index_html and b"matomo" in index_html.lower():
+        problems.append("le conteneur Matomo est chargé par la page, avant la lecture de ?q")
+    if not problems:
+        return None
+    return "La page peut laisser fuir le jeton : " + " ; ".join(problems) + ". Repartir du gabarit multi-sources."
+
+
+def variants_with_links(slug: str, dashboard_publications: list[dict]) -> list[dict]:
+    """Déclinaisons d'un TDB avec leurs liens publics et la présence de leur fichier de données."""
+    declared = list_variants(slug)
+    if not declared:
+        return []
+    present = {f["path"].rsplit("/", 1)[-1] for f in s3.interactive.list_files(f"{slug}/data/")}
+    return [
+        {
+            "key": v["key"],
+            "label": v["label"],
+            "token": v["token"],
+            "url": v["url"],
+            "public_urls": [f"{p['url']}/?q={v['token']}" for p in dashboard_publications],
+            "has_data": f"{v['token']}.json" in present,
+        }
+        for v in declared
+    ]
+
+
 @router.get("/dashboards/{slug}")
 def dashboard_redirect(slug: Slug, user_email: str = Depends(get_current_user)):
     return RedirectResponse(f"/dashboards/{slug}/edit", status_code=301)
+
+
+@router.get("/api/dashboards/{slug}/variants")
+def dashboard_variants(slug: Slug, user_email: str = Depends(get_current_user)):
+    if store.get_dashboard(slug) is None:
+        return JSONResponse({"error": "Dashboard not found"}, status_code=404)
+    return {"slug": slug, "variants": variants_with_links(slug, list_publications(slug))}
 
 
 @router.get("/dashboards/{slug}/edit")
@@ -219,6 +260,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "section": "dashboards",
             "current_conv": None,
             "dashboard": dashboard,
+            "variants": (declared := variants_with_links(slug, dashboard_publications)),
+            "page_leak_warning": page_leak_warning(slug) if declared else None,
             "publications": dashboard_publications,
             "can_publish": can_publish,
             "dashboard_drifted": dashboard_drifted,
@@ -403,7 +446,10 @@ async def publish_dashboard(slug: Slug, request: Request, user_email: str = Depe
         return await run_in_thread(publish, slug, environment, user_email)
     except PublicationBlocked as exc:
         reason = exc.code if exc.code in BLOCKED_CODES else "blocked"
-        return JSONResponse({"error": "publication_blocked", "reason": reason}, status_code=409)
+        body = {"error": "publication_blocked", "reason": reason}
+        if exc.detail:
+            body["detail"] = exc.detail
+        return JSONResponse(body, status_code=409)
 
 
 @router.post("/api/publications/{publication_id}/unpublish")

@@ -37,6 +37,11 @@ def main() -> None:
     parser.add_argument("--cron-schedule", help="Cadence: daily, weekly or monthly (or the equivalent preset crontab)")
     parser.add_argument("--cron-timeout", type=int, help="Cron run timeout in seconds")
     parser.add_argument("--adopt", action="store_true", help="Register an existing folder (no scaffold)")
+    parser.add_argument(
+        "--multi-source",
+        action="store_true",
+        help="Scaffold multi-sources : une page qui lit ?q=<jeton>, un cron par déclinaison déclarée",
+    )
     args = parser.parse_args()
 
     conversation_id, user_email = _require_runtime_context()
@@ -45,6 +50,7 @@ def main() -> None:
 
     try:
         make = adopt_dashboard if args.adopt else create_dashboard
+        scaffold = {} if args.adopt else {"multi_source": args.multi_source}
         dashboard = make(
             slug=args.slug,
             title=args.title,
@@ -59,6 +65,7 @@ def main() -> None:
             cron_timeout=args.cron_timeout,
             first_author_email=user_email,
             created_in_conversation_id=conversation_id,
+            **scaffold,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)

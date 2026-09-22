@@ -3,11 +3,13 @@
 import logging
 import secrets
 import string
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
 
+from lib import variants
 from web import alerts, config, s3
 from web.db import get_db
 from web.helpers import sanitize_for_log
@@ -16,17 +18,33 @@ from web.models import Dashboard, DashboardPublication
 logger = logging.getLogger(__name__)
 
 ENVIRONMENTS = ("staging", "production")
-BLOCKED_CODES = frozenset({"archived", "uses-query-api", "empty", "public-bucket-not-configured", "unknown"})
+BLOCKED_CODES = frozenset({
+    "archived",
+    "uses-query-api",
+    "empty",
+    "public-bucket-not-configured",
+    "unknown",
+    "variant-token-exposed",
+})
 _ID_ALPHABET = string.ascii_lowercase + string.digits
 _MAX_REFRESH_ERROR_LEN = 500
 
 
 class PublicationBlocked(Exception):
-    """Raised when a dashboard cannot be published. `code` is a short stable string."""
+    """Raised when a dashboard cannot be published. `code` is a short stable string, `detail` says which file."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.detail = detail
+
+
+def exposure_problems(slug: str, files: Iterable[tuple[str, bytes]]) -> list[str]:
+    """Fichiers (nom, contenu) qui portent un jeton de déclinaison — l'énumération que le lien interdit."""
+    declared = variants.list_variants(slug)
+    if not declared:
+        return []
+    return variants.exposed_tokens(files, declared)
 
 
 def is_publishable(has_api_access: bool, has_persistence: bool) -> bool:
@@ -66,6 +84,7 @@ def _to_dict(pub: DashboardPublication) -> dict:
         "refresh_paused_at": pub.refresh_paused_at,
         "last_successful_refresh_at": pub.last_successful_refresh_at,
         "last_refresh_status": pub.last_refresh_status,
+        "last_refresh_error": pub.last_refresh_error,
     }
 
 
@@ -74,6 +93,11 @@ def publish(slug: str, environment: str, publisher_email: str) -> dict:
         raise ValueError(f"Invalid environment: {environment}")
     if not _public_bucket(environment):
         raise PublicationBlocked("public-bucket-not-configured")
+    # Why: le snapshot part de S3, pas du dossier local — les fichiers du cron n'y vivent jamais.
+    # C'est donc S3 qu'on lit, pour contrôler exactement ce qui va être copié, et hors de toute
+    # transaction : ce parcours télécharge le dossier entier.
+    if problems := exposure_problems(slug, variants.s3_files(slug)):
+        raise PublicationBlocked("variant-token-exposed", "; ".join(problems))
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
         if dashboard is None:
@@ -203,12 +227,15 @@ def _set_paused(publication_id: str, *, paused: bool) -> bool:
         return True
 
 
-def _short_error(exc: BaseException) -> str:
-    """Compact `ExcClass: message` for storage in last_refresh_error, capped at 500 chars."""
-    text = f"{exc.__class__.__name__}: {exc}"
+def _short_text(text: str) -> str:
     if len(text) > _MAX_REFRESH_ERROR_LEN:
         text = text[: _MAX_REFRESH_ERROR_LEN - 1] + "…"
     return text
+
+
+def _short_error(exc: BaseException) -> str:
+    """Compact `ExcClass: message` for storage in last_refresh_error, capped at 500 chars."""
+    return _short_text(f"{exc.__class__.__name__}: {exc}")
 
 
 def _notify_refresh_status_change(pub: DashboardPublication, previous_status: str | None) -> None:
@@ -229,7 +256,7 @@ def _notify_refresh_status_change(pub: DashboardPublication, previous_status: st
     alerts.notify_alert_channel(message)
 
 
-def refresh(publication_id: str) -> None:
+def refresh(publication_id: str, blocked_by: list[str] | None = None) -> None:
     """Re-sync a publication's snapshot to its public bucket; update refresh state; alert on transition."""
     with get_db() as session:
         # Why: SELECT filters out unpublished/paused publications, but `s3.sync_prefix` is not
@@ -246,6 +273,14 @@ def refresh(publication_id: str) -> None:
         if pub is None:
             return
         previous_status = pub.last_refresh_status
+        if blocked_by:
+            pub.last_refresh_status = "failure"
+            pub.last_refresh_error = _short_text("; ".join(blocked_by))
+            logger.info(
+                "refresh slug=%s id=%s status=blocked", sanitize_for_log(pub.dashboard_slug), pub.publication_id
+            )
+            _notify_refresh_status_change(pub, previous_status)
+            return
         try:
             s3.sync_prefix(
                 f"publications/{pub.dashboard_slug}/{pub.publication_id}/",
