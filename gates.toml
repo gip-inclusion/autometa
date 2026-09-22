@@ -1,0 +1,186 @@
+# Seuils de qualité de la CI.
+#
+# Séparé de `pyproject.toml` pour deux raisons : ce fichier est couvert par
+# CODEOWNERS et abaisser un seuil doit rester un acte visible, alors que
+# `pyproject.toml` porte aussi les dépendances et change plusieurs fois par jour.
+#
+# Référencé par `--cov-config` (coverage) et `--config-file` (diff-cover).
+
+[tool.coverage.run]
+branch = true
+# Sans ce drapeau, `coverage combine` ne rapproche pas les mesures des deux couloirs de la CI,
+# qui tournent dans des jobs distincts : les chemins absolus ne coïncident pas.
+relative_files = true
+# `skills/pdf/` est un skill Anthropic vendored, déjà exclu du lint pour la même raison.
+omit = ["skills/pdf/*"]
+source = ["web", "lib", "scripts", "skills"]
+# Le JavaScript de `web/static/js/` n'y figure pas, et ce n'est pas un oubli : diff-cover lit
+# `coverage.xml`, et il n'existe aucune suite de tests front qui pourrait le produire. Y déclarer
+# le JavaScript ferait croire à une couverture mesurée. Son filet est `make lint-js` (Biome) — qui
+# n'est pas encore dans les checks requis de `main`, donc consultatif tant qu'il n'y est pas.
+
+[tool.coverage.report]
+precision = 2
+# Sans ce drapeau, coverage.py ne descend pas dans un répertoire dépourvu de `__init__.py` :
+# `skills/` était déclaré en source sans qu'aucun de ses sous-répertoires ne soit mesuré.
+include_namespace_packages = true
+# Le plancher a baissé le 2026-08-18 parce que le périmètre a grandi, pas parce que
+# l'exigence a baissé : `skills/` apporte 1262 instructions jamais exécutées, et la mesure
+# passe de 76.96 % à 71.66 % sans qu'une ligne de code ait changé.
+fail_under = 71.00
+
+[tool.diff_cover]
+fail_under = 90
+
+# Routes FastAPI sans dépendance d'authentification, gelées au 2026-08-17.
+# `scripts/check_route_auth.py` refuse toute route neuve absente de cette liste, et refuse
+# aussi une entrée devenue inutile — la baseline se résorbe, elle ne s'étend pas.
+# `web/routes/query.py:query` exécute du SQL fourni par le client : traité à part.
+[tool.route_auth]
+allowlist = [
+    "web/app.py:serve_interactive",
+    "web/routes/auth.py:status",
+    "web/routes/conversations.py:get_conversation_tags",
+    "web/routes/conversations.py:get_file",
+    "web/routes/conversations.py:get_file_content_endpoint",
+    "web/routes/conversations.py:list_files",
+    "web/routes/cron.py:run_task",
+    "web/routes/cron.py:task_logs",
+    "web/routes/cron.py:toggle_task",
+    "web/routes/cron.py:view_script",
+    "web/routes/html.py:explorations",
+    "web/routes/html.py:rechercher_redirect",
+    "web/routes/jobs.py:cancel_run",
+    "web/routes/jobs.py:create_pipeline",
+    "web/routes/jobs.py:run_events",
+    "web/routes/jobs.py:run_output",
+    "web/routes/jobs.py:run_status",
+    "web/routes/jobs.py:trigger_run",
+    "web/routes/knowledge.py:abandon_knowledge_changes",
+    "web/routes/knowledge.py:commit_knowledge_changes",
+    "web/routes/knowledge.py:get_knowledge_file",
+    "web/routes/knowledge.py:get_staged_files",
+    "web/routes/knowledge.py:list_knowledge",
+    "web/routes/knowledge.py:preview_staged_file",
+    "web/routes/query.py:query",
+    "web/routes/reports.py:archive_report",
+    "web/routes/reports.py:delete_report",
+    "web/routes/reports.py:get_report",
+    "web/routes/reports.py:get_report_tags",
+    "web/routes/reports.py:list_reports",
+    "web/routes/reports.py:list_tags",
+    "web/routes/reports.py:publish_to_notion",
+    "web/routes/reports.py:rapport_txt",
+    "web/routes/reports.py:rapports_list",
+    "web/routes/reports.py:set_report_tags",
+    "web/selftest.py:selftest",
+]
+
+# Dette de lint gelée au 2026-08-30, comptée par fichier et par règle.
+# `scripts/check_lint_baseline.py` refuse toute violation neuve, et refuse aussi un compte devenu
+# trop haut — la baseline se résorbe, elle ne s'étend pas. Ces deux règles remplacent le
+# `ruff check --exit-zero` de `make lint`, qui affichait un compte sans jamais rien bloquer.
+# S608 : SQL construit par interpolation. BLE001 : `except Exception` sans type précis.
+[tool.lint_baseline]
+rules = ["S608", "BLE001"]
+
+[tool.lint_baseline.frozen]
+".claude/hooks/guard_write_paths.py:BLE001" = 1
+"alembic/versions/a1b2c3d4e5f6_text_to_datetime.py:S608" = 2
+"benchmarks/card_retrieval.py:BLE001" = 2
+"benchmarks/card_retrieval.py:S608" = 1
+"lib/job_inputs.py:S608" = 1
+"lib/webinaires.py:S608" = 5
+"skills/debug_matomo_ui/scripts/ui_tester.py:BLE001" = 1
+"skills/sync_metabase/scripts/sync_dashboards.py:BLE001" = 1
+"tests/test_check_python.py:S608" = 1
+"tests/test_webinaires.py:S608" = 11
+"web/benchmark.py:BLE001" = 2
+"web/conversation_embeddings/generate_conversation_embeddings.py:S608" = 1
+"web/routes/conversations.py:BLE001" = 2
+"web/selftest.py:BLE001" = 1
+"web/sync_to_s3.py:BLE001" = 1
+
+# Conventions Python de `.claude/rules/`, gelées au 2026-08-30, comptées par fichier.
+# `.claude/hooks/check_python.py` les vérifiait à l'écriture dans une session Claude Code, et
+# nulle part ailleurs — trois règles le citaient pourtant comme leur vérificateur.
+# `scripts/check_lint_baseline.py` le fait tourner sur tout le dépôt à chaque `make lint`.
+[tool.python_conventions]
+
+[tool.python_conventions.frozen]
+".claude/hooks/check_python.py" = 2
+"alembic/versions/0d4871663bfd_initial_schema.py" = 1
+"alembic/versions/1ab3818607f7_add_dashboard_cron_columns.py" = 1
+"alembic/versions/1eec43dc9e46_add_conversation_message_embeddings.py" = 1
+"alembic/versions/7397f669848c_drop_unused_schema_version_table.py" = 1
+"alembic/versions/7946c9c555a4_dashboards_schema.py" = 1
+"alembic/versions/87e9b1ca66b8_dashboard_publications.py" = 1
+"alembic/versions/b12cbac64ff9_enforce_not_null_on_default_backed_.py" = 8
+"alembic/versions/c89f7601677b_cron_schedule_default_to_crontab.py" = 1
+"alembic/versions/f45e6ddef488_user_favorites.py" = 1
+"benchmarks/card_retrieval.py" = 4
+"browser/test_socle.py" = 1
+"evals/blind_eval.py" = 1
+"evals/compare.py" = 3
+"evals/run_eval.py" = 4
+"lib/api_signals.py" = 2
+"lib/attestation.py" = 1
+"lib/dashboards.py" = 1
+"lib/matomo.py" = 5
+"lib/metabase.py" = 4
+"lib/sources.py" = 2
+"lib/tool_taxonomy.py" = 1
+"lib/webinaires.py" = 8
+"lib/zendesk.py" = 1
+"skills/debug_matomo_ui/scripts/ui_tester.py" = 1
+"skills/matomo_query/scripts/__init__.py" = 1
+"skills/metabase_query/scripts/__init__.py" = 1
+"skills/sync_metabase/scripts/sync_dashboards.py" = 1
+"skills/sync_sites/scripts/sync_sites.py" = 1
+"tests/conftest.py" = 2
+"tests/test_bugs.py" = 6
+"tests/test_fork_conversation.py" = 1
+"tests/test_logging.py" = 1
+"tests/test_matomo.py" = 5
+"tests/test_otel.py" = 1
+"tests/test_rapports.py" = 1
+"tests/test_shared_conversations.py" = 1
+"tests/test_tag_manager.py" = 24
+"tests/test_uploads.py" = 1
+"tests/test_webinaires.py" = 11
+"web/cron.py" = 6
+"web/db.py" = 1
+"web/log.py" = 1
+"web/otel.py" = 1
+"web/routes/__init__.py" = 1
+"web/routes/conversations.py" = 7
+"web/routes/html.py" = 1
+"web/routes/query.py" = 1
+"web/routes/reports.py" = 4
+"web/runner.py" = 3
+"web/selftest.py" = 1
+"web/uploads.py" = 2
+"web/warmup.py" = 1
+
+# Chemins de l'outillage : ce que l'agent ne doit pas modifier avec ses propres outils.
+# `permissions.deny` (couche 1) et `CODEOWNERS` (couche 4) recopient cette liste — elle est ici
+# pour qu'un seul endroit fasse foi, et pour qu'un ajout se voie dans une PR que les owners lisent.
+# `pyproject.toml` en est volontairement absent : une fonctionnalité peut ajouter une dépendance.
+# Il est couvert par CODEOWNERS seulement.
+[tool.protected_paths]
+outillage = [
+    ".claude/settings*",
+    ".claude/hooks/**",
+    ".claude/rules/**",
+    ".claude/agents/**",
+    ".github/**",
+    ".githooks/**",
+    "gates.toml",
+    "Makefile",
+    "scripts/check_*.py",
+    "scripts/paved_road_cli.py",
+    "lib/attestation.py",
+    "plugins/paved-road/**",
+]
+# Écrits par `advance`, un processus enfant : la couche 1 les protège, pas le bac à sable.
+artefacts = ["paved-road/*/attestations/**", "paved-road/*/journal/**"]

@@ -45,9 +45,9 @@ PublicationId = Annotated[str, PathParam(pattern=r"^[a-z0-9]{6}$")]
 FACET_TERM_CAP = 6
 
 
-def facet_filters(active_tags: list[str]) -> list[dict]:
+def facet_filters(active_tags: list[str], slugs: set[str] | None = None) -> list[dict]:
     """Facettes affichables : celles portant au moins un terme utilisé, dans l'ordre TDB."""
-    used = store.get_used_dashboard_tags_by_type()
+    used = store.get_used_dashboard_tags_by_type(slugs=slugs)
     filters = []
     for facet in ordered_facets("dashboard"):
         terms = used.get(facet.name)
@@ -107,9 +107,14 @@ def dashboards_page(
     pinned_cards = []
     published_groups = None
     active_tags = [t for t in tag if t]
+    facet_slugs = None
 
     if view == "published":
         published_groups = build_published_groups()
+        facet_slugs = {g["slug"] for g in published_groups}
+        if active_tags:
+            matching = {d["slug"] for d in store.list_dashboards(tag_names=active_tags)}
+            published_groups = [g for g in published_groups if g["slug"] in matching]
         if q:
             needle = q.lower()
             published_groups = [g for g in published_groups if needle in g["title"].lower()]
@@ -133,9 +138,9 @@ def dashboards_page(
                 active_by_slug[p.item_id] for p in store.list_pinned_items("app") if p.item_id in active_by_slug
             ]
 
-        last_runs = get_last_runs(limit_per_app=1)
+        last_runs = get_last_runs()
         for d in items:
-            run = next(iter(last_runs.get(d["slug"], [])), None)
+            run = last_runs.get(d["slug"])
             d["cron_status"] = run["status"] if run else None
             d["cron_run_date"] = format_relative_date(run["started_at"]) if run and run.get("started_at") else None
             d["updated_date"] = format_relative_date(d["updated"]) if d.get("updated") else ""
@@ -155,7 +160,7 @@ def dashboards_page(
             "grouped_items": grouped_items,
             "pinned_cards": pinned_cards,
             "published_groups": published_groups,
-            "facets": facet_filters(active_tags),
+            "facets": facet_filters(active_tags, facet_slugs),
             "active_tags": active_tags,
             **data,
         },
@@ -199,8 +204,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     last_run = None
     next_run_label = ""
     if dashboard["has_cron"]:
-        runs = get_last_runs(limit_per_app=1).get(slug, [])
-        last_run = runs[0] if runs else None
+        last_run = get_last_runs(slug).get(slug)
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
         if dashboard["cron_enabled"]:

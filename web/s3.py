@@ -22,7 +22,12 @@ def make_client():
         aws_access_key_id=config.S3_ACCESS_KEY,
         aws_secret_access_key=config.S3_SECRET_KEY,
         region_name=config.S3_REGION,
-        config=BotoConfig(signature_version="s3v4"),
+        config=BotoConfig(
+            signature_version="s3v4",
+            connect_timeout=5,
+            read_timeout=10,
+            retries={"max_attempts": 2, "mode": "standard"},
+        ),
     )
 
 
@@ -64,6 +69,9 @@ class S3Store:
                 logger.debug("S3 file not found: %s", k)
                 return None
             logger.error("S3 download failed for %s: %s", k, e)
+            return None
+        except BotoCoreError as e:
+            logger.error("S3 unreachable while downloading %s: %s", k, e)
             return None
 
     def get_url(self, path: str, expires_in: int = 3600) -> Optional[str]:
@@ -178,6 +186,7 @@ sessions = S3Store("sessions/")
 uploads = S3Store("interactive/uploads/")
 publications = S3Store("publications/")
 job_inputs = S3Store("job-inputs/")
+zendesk = S3Store("zendesk/")
 
 
 def list_prefix(bucket: str, prefix: str) -> list[str]:

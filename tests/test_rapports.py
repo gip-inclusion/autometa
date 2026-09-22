@@ -1,6 +1,6 @@
 """Tests for rapports routes.
 
-Tests the /rapports/ endpoints including the .txt export feature.
+Tests the /rapports/ endpoints including the markdown download.
 """
 
 import pytest
@@ -43,69 +43,97 @@ def report_with_source(app, conversation):
     )
 
 
-def test_rapport_txt_export_returns_plain_text(app, client, report):
-    """GET /rapports/<id>.txt returns text/plain content type."""
-    response = client.get(
-        f"/rapports/{report.id}.txt",
-        headers={"X-Forwarded-Email": "test@example.com"},
-    )
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/plain")
-
-
-def test_rapport_txt_export_returns_raw_markdown(app, client, report):
-    """GET /rapports/<id>.txt returns the raw markdown content."""
-    response = client.get(
-        f"/rapports/{report.id}.txt",
-        headers={"X-Forwarded-Email": "test@example.com"},
-    )
-    assert response.status_code == 200
-    content = response.content.decode("utf-8")
-    assert "# Test Report" in content
-    assert "**markdown**" in content
-    assert "date: 2026-01-01" in content
-
-
-def test_rapport_txt_export_nonexistent_report_returns_404(app, client):
-    """GET /rapports/<nonexistent>.txt returns 404."""
-    response = client.get(
-        "/rapports/99999.txt",
-        headers={"X-Forwarded-Email": "test@example.com"},
-    )
-    assert response.status_code == 404
-
-
-def test_rapport_txt_export_utf8_encoding(app, client):
-    """GET /rapports/<id>.txt handles UTF-8 content correctly."""
+def make_report(title, content="---\ndate: 2026-01-01\n---\n\n# Titre\n\nDu **markdown**."):
     from web.database import store
 
-    report = store.create_report(
-        title="Rapport avec accents",
-        content="# Résumé\n\nCe rapport contient des caractères spéciaux: é, è, ê, ë, à, ç, ù.",
+    return store.create_report(
+        title=title,
+        content=content,
         website="test",
         category="testing",
         user_id="test@example.com",
     )
 
+
+def test_dod_1_le_rapport_se_telecharge_au_lieu_de_s_afficher(app, client, report):
+    """DOD-1 — un clic télécharge un fichier au lieu d'afficher le texte dans un onglet."""
     response = client.get(
-        f"/rapports/{report.id}.txt",
+        f"/rapports/{report.id}.md",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     assert response.status_code == 200
-    content = response.content.decode("utf-8")
-    assert "Résumé" in content
-    assert "é, è, ê, ë, à, ç, ù" in content
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert response.headers["content-disposition"].startswith("attachment;")
 
 
-def test_rapport_detail_view_has_export_button(app, client, report):
-    """Report detail view includes the 'Version exportable' button."""
+def nom_du_fichier_telecharge(client, title):
+    report = make_report(title)
+    response = client.get(f"/rapports/{report.id}.md", headers={"X-Forwarded-Email": "test@example.com"})
+    return response.headers["content-disposition"], report.id
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Bilan mensuel des candidatures", "bilan-mensuel-des-candidatures.md"),
+        ("Rapport « été 2026 » — pass IAE", "rapport-ete-2026-pass-iae.md"),
+    ],
+)
+def test_dod_2_le_nom_du_fichier_reprend_le_titre_du_rapport(app, client, title, expected):
+    disposition, _ = nom_du_fichier_telecharge(client, title)
+
+    assert disposition == f'attachment; filename="{expected}"'
+
+
+@pytest.mark.parametrize("title", ["", "« — »"])
+def test_dod_4_un_titre_sans_nom_lisible_se_replie_sur_le_numero(app, client, title):
+    """Titre vide ou fait de seuls caractères spéciaux : le nom retombe sur le numéro du rapport."""
+    disposition, report_id = nom_du_fichier_telecharge(client, title)
+
+    assert disposition == f'attachment; filename="rapport-{report_id}.md"'
+
+
+def test_dod_3_le_fichier_contient_le_texte_tel_qu_il_a_ete_ecrit(app, client):
+    """DOD-3 — le fichier contient le texte du rapport tel qu'il a été écrit, en-tête comprise."""
+    content = "---\ndate: 2026-01-01\n---\n\n# Résumé\n\nAccents : é, è, ê, à, ç, ù."
+    report = make_report("Rapport avec accents", content=content)
+
+    response = client.get(
+        f"/rapports/{report.id}.md",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.content.decode("utf-8") == content
+
+
+def test_rapport_markdown_nonexistent_report_returns_404(app, client):
+    """GET /rapports/<inexistant>.md renvoie 404."""
+    response = client.get(
+        "/rapports/99999.md",
+        headers={"X-Forwarded-Email": "test@example.com"},
+    )
+    assert response.status_code == 404
+
+
+def test_dod_5_les_liens_deja_partages_menent_toujours_au_rapport(app, client, report):
+    """DOD-5 — les liens déjà partagés vers la « version exportable » mènent toujours au rapport."""
+    response = client.get(
+        f"/rapports/{report.id}.txt",
+        headers={"X-Forwarded-Email": "test@example.com"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 301
+    assert response.headers["location"] == f"/rapports/{report.id}.md"
+
+
+def test_rapport_detail_view_has_download_button(app, client, report):
+    """DOD-1 — la page du rapport porte le bouton « Télécharger en Markdown »."""
     response = client.get(
         f"/rapports/{report.id}",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     assert response.status_code == 200
-    assert b"Version exportable" in response.content
-    assert f"/rapports/{report.id}.txt".encode() in response.content
+    assert "Télécharger en Markdown".encode() in response.content
+    assert f"/rapports/{report.id}.md".encode() in response.content
 
 
 def test_rapport_detail_view_has_continue_button(app, client, report):

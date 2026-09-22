@@ -1,5 +1,7 @@
 services:
   db:
+    # postgis/postgis ne publie pas d'image arm64 : émulation nécessaire sur Apple Silicon.
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.db
@@ -12,9 +14,14 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autometa"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: server /data
     environment:
@@ -33,7 +40,7 @@ services:
       retries: 3
 
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     restart: "no"
     environment:
       - MC_HOST_local=http://autometa:autometa@minio:9000

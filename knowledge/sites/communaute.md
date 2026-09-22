@@ -4,86 +4,12 @@
 - Matomo site ID : 206
 - GitHub : https://github.com/gip-inclusion/la-communaute
 
-## Références de trafic (2025)
+## Références de trafic
 
-Données récupérées le 06/01/2026 via l'API Matomo.
-
-### Statistiques mensuelles des visiteurs
-
-| Mois    | Visiteurs uniques | Visites | Moyenne quotidienne visiteurs | Moyenne quotidienne visites |
-|---------|-------------------|---------|-------------------------------|-----------------------------|
-| 2025-01 |            30 643 |  41 836 |                           988 |                       1 350 |
-| 2025-02 |            25 553 |  34 110 |                           913 |                       1 218 |
-| 2025-03 |            27 469 |  36 687 |                           886 |                       1 183 |
-| 2025-04 |            27 557 |  36 246 |                           919 |                       1 208 |
-| 2025-05 |            25 716 |  33 818 |                           830 |                       1 091 |
-| 2025-06 |            24 370 |  32 152 |                           812 |                       1 072 |
-| 2025-07 |            22 334 |  28 912 |                           720 |                         933 |
-| 2025-08 |            17 051 |  21 623 |                           550 |                         698 |
-| 2025-09 |            27 707 |  34 910 |                           924 |                       1 164 |
-| 2025-10 |            33 324 |  44 914 |                         1 075 |                       1 449 |
-| 2025-11 |            25 444 |  32 056 |                           848 |                       1 069 |
-| 2025-12 |            21 643 |  27 109 |                           698 |                         874 |
-
-**Fourchette typique :** 550-1 075 visiteurs uniques/jour, 698-1 449 visites/jour.
-
-### Indicateurs d'engagement
-
-| Mois    | Taux de rebond | Actions/Visite | Temps moyen sur le site |
-|---------|----------------|----------------|-------------------------|
-| 2025-01 |            62% |            3,3 |                  2m 40s |
-| 2025-02 |            62% |            3,3 |                  2m 44s |
-| 2025-03 |            62% |            3,3 |                  2m 43s |
-| 2025-04 |            61% |            3,1 |                  2m 44s |
-| 2025-05 |            60% |            3,2 |                  2m 30s |
-| 2025-06 |            61% |              3 |                  2m 28s |
-| 2025-07 |            59% |              3 |                  2m 21s |
-| 2025-08 |            62% |            2,9 |                  2m 14s |
-| 2025-09 |            64% |            2,7 |                  2m 04s |
-| 2025-10 |            67% |            2,6 |                  1m 59s |
-| 2025-11 |            67% |            2,4 |                  2m 02s |
-| 2025-12 |            67% |            2,5 |                  2m 09s |
-
-
-## Traffic Baselines (2025)
-
-Data retrieved 2026-03-29 via Matomo API.
-
-### Monthly Visitor Stats
-
-| Month   | Unique Visitors | Visits    | Daily Avg Visitors | Daily Avg Visits |
-|---------|-----------------|-----------|--------------------|-----------------:|
-| 2025-01 |          30,643 |    41,836 |                988 |            1,350 |
-| 2025-02 |          25,553 |    34,110 |                913 |            1,218 |
-| 2025-03 |          27,469 |    36,687 |                886 |            1,183 |
-| 2025-04 |          27,557 |    36,246 |                919 |            1,208 |
-| 2025-05 |          25,716 |    33,818 |                830 |            1,091 |
-| 2025-06 |          24,370 |    32,152 |                812 |            1,072 |
-| 2025-07 |          22,334 |    28,912 |                720 |              933 |
-| 2025-08 |          17,051 |    21,623 |                550 |              698 |
-| 2025-09 |          27,707 |    34,910 |                924 |            1,164 |
-| 2025-10 |          33,324 |    44,914 |              1,075 |            1,449 |
-| 2025-11 |          25,444 |    32,056 |                848 |            1,069 |
-| 2025-12 |          21,643 |    27,109 |                698 |              874 |
-
-**Typical range:** 550-1,075 unique visitors/day, 698-1,449 visits/day.
-
-### Engagement Metrics
-
-| Month   | Bounce Rate | Actions/Visit | Avg Time on Site |
-|---------|-------------|---------------|------------------|
-| 2025-01 |         62% |           3.3 |           2m 40s |
-| 2025-02 |         62% |           3.3 |           2m 44s |
-| 2025-03 |         62% |           3.3 |           2m 43s |
-| 2025-04 |         61% |           3.1 |           2m 44s |
-| 2025-05 |         60% |           3.2 |           2m 30s |
-| 2025-06 |         61% |             3 |           2m 28s |
-| 2025-07 |         59% |             3 |           2m 21s |
-| 2025-08 |         62% |           2.9 |           2m 14s |
-| 2025-09 |         64% |           2.7 |           2m 04s |
-| 2025-10 |         67% |           2.6 |           1m 59s |
-| 2025-11 |         67% |           2.4 |           2m 02s |
-| 2025-12 |         67% |           2.5 |           2m 09s |
+Les chiffres de trafic de ce site — visites, visiteurs, rebond, durée, répartition par type
+d'utilisateur — sont synchronisés chaque nuit dans la base applicative
+(`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
+ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
 ## Dimensions personnalisées
 

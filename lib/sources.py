@@ -25,7 +25,9 @@ def substitute_env_vars(value: Any, strict: bool = False) -> Any:
 
         def replacer(match):
             var_name = match.group(1)
-            env_value = os.environ.get(var_name)
+            # Why: substitution de ${env.VAR} dans sources.yaml — le nom de la variable vient
+            # du fichier de configuration, il ne peut pas être connu de web/config.py.
+            env_value = os.environ.get(var_name)  # noqa: TID251
             if env_value is None:
                 if strict:
                     raise ValueError(f"Environment variable {var_name} not set")

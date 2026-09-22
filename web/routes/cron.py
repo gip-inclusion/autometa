@@ -32,11 +32,10 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
     """Cron task dashboard — shows all cron-eligible tasks with status."""
     data = get_sidebar_data(user_email, request)
     tasks = discover_cron_tasks()
-    last_runs = get_last_runs(limit_per_app=1)
+    last_runs = get_last_runs()
 
     for task in tasks:
-        runs = last_runs.get(task["slug"], [])
-        task["last_run"] = runs[0] if runs else None
+        task["last_run"] = last_runs.get(task["slug"])
         if task["last_run"] and task["last_run"]["started_at"]:
             task["last_run"]["formatted_date"] = format_relative_date(task["last_run"]["started_at"])
 
