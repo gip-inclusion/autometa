@@ -22,7 +22,12 @@ def make_client():
         aws_access_key_id=config.S3_ACCESS_KEY,
         aws_secret_access_key=config.S3_SECRET_KEY,
         region_name=config.S3_REGION,
-        config=BotoConfig(signature_version="s3v4"),
+        config=BotoConfig(
+            signature_version="s3v4",
+            connect_timeout=5,
+            read_timeout=10,
+            retries={"max_attempts": 2, "mode": "standard"},
+        ),
     )
 
 

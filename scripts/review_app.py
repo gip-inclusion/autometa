@@ -194,7 +194,7 @@ def main(argv=None):
     api_token = sys.stdin.read().strip()
     # Why: le timeout va au constructeur, pas à chaque appel — un appel ajouté plus tard
     # hériterait sinon du défaut d'httpx. L'API Scalingo déploie, elle peut être lente.
-    with httpx.Client(timeout=30) as client:
+    with httpx.Client(timeout=TIMEOUT) as client:
         bearer = exchange_token(client, api_token)
         if args.command == "ensure":
             result = ensure(client, bearer, args.app, args.pr, args.sha)

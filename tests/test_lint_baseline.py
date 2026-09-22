@@ -72,8 +72,27 @@ def test_the_frozen_baseline_matches_what_the_repository_actually_carries():
 DOCSTRING_TROP_LONGUE = 'def f():\n    """Une docstring\n    sur\n    trois lignes."""\n    return 1\n'
 
 
+@pytest.fixture(autouse=True)
+def depot_temporaire_isole(monkeypatch):
+    # Why: sous un hook git, GIT_DIR et GIT_INDEX_FILE sont exportés et priment sur `-C` — les
+    # `git add` de ces tests atterrissaient dans l'index du dépôt, et pre-commit refusait le commit.
+    for variable in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        monkeypatch.delenv(variable, raising=False)
+
+
 def git_repo(path):
     subprocess.run(["git", "init", "-q", str(path)], check=True)
+
+
+def test_un_depot_temporaire_ne_partage_jamais_lindex_du_depot(tmp_path):
+    """Lancés depuis un hook git, ces tests ajoutaient leurs fichiers à l'index du dépôt."""
+    git_repo(tmp_path)
+    (tmp_path / "a.py").write_text(DOCSTRING_TROP_LONGUE)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "a.py"], check=True)
+
+    suivis = subprocess.run(["git", "-C", str(tmp_path), "ls-files"], capture_output=True, text=True, check=True)
+
+    assert suivis.stdout.split() == ["a.py"]
 
 
 def test_measure_conventions_counts_violations_by_file_and_skips_what_is_not_ours(tmp_path):
