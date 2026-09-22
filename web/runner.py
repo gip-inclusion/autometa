@@ -16,6 +16,7 @@ from datetime import datetime
 import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
+from redis.exceptions import RedisError
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -137,6 +138,22 @@ class TaskRunner:
         await r.set(f"{PREFIX}:done:{conv_id}", "1", ex=600)
         await r.publish(f"{PREFIX}:conv:{conv_id}", "done")
 
+    async def _release(self, conv_id: str):
+        """Close the stream, clear the flag and free the Redis slot; each step survives the others failing."""
+        try:
+            await self.notify_done(conv_id)
+        except RedisError, OSError:
+            logger.exception("done notification failed for %s", conv_id)
+        try:
+            store.update_conversation(conv_id, needs_response=False)
+        except SQLAlchemyError:
+            logger.exception("needs_response reset failed for %s", conv_id)
+        try:
+            r = await get_redis()
+            await r.delete(f"{PREFIX}:running:{conv_id}")
+        except RedisError, OSError:
+            logger.exception("running slot release failed for %s", conv_id)
+
     async def is_done(self, conv_id: str) -> bool:
         r = await get_redis()
         return await r.exists(f"{PREFIX}:done:{conv_id}") > 0
@@ -165,7 +182,9 @@ class TaskRunner:
                 _, payload_str = result
                 payload = json.loads(payload_str)
                 conv_id = payload["conv_id"]
-                if conv_id in self._running:
+                current = self._running.get(conv_id)
+                if current and not current.done():
+                    logger.warning("task for %s dropped: a run is still registered in this worker", conv_id)
                     continue
                 # Skip stale tasks (already handled or cancelled)
                 conv = store.get_conversation(conv_id, include_messages=False)
@@ -482,11 +501,13 @@ class TaskRunner:
                 # means cancel already took ownership, or a direct call with no consumer slot).
                 slot = self._running.get(conversation_id)
                 if slot is my_task or slot is None:
-                    store.update_conversation(conversation_id, needs_response=False)
-                    await self.notify_done(conversation_id)
-                    self._running.pop(conversation_id, None)
-                    r = await get_redis()
-                    await r.delete(f"{PREFIX}:running:{conversation_id}")
+                    # Why: the slot stays held until the running: key is gone, so a resend started
+                    # in between cannot have its own key deleted by this run; and it is always
+                    # released, so a Redis or DB outage here cannot leave a zombie that drops resends.
+                    try:
+                        await self._release(conversation_id)
+                    finally:
+                        self._running.pop(conversation_id, None)
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
