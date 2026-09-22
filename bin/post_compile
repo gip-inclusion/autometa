@@ -5,40 +5,42 @@
 # which won't survive into the runtime container. So we resolve it and
 # copy the actual binary to a path that persists.
 #
-# Uses the buildpack CACHE_DIR to avoid re-downloading on every deploy.
+# CACHE_DIR holds a fallback for when downloads.claude.ai is unreachable,
+# never the primary path: reusing it while a fresh install is possible
+# freezes the CLI version silently across deploys.
+#
+# Set CLAUDE_CLI_VERSION to pin a known-good version (rollback escape hatch);
+# empty means latest.
+
+set -o pipefail
 
 CLAUDE_CACHE="${CACHE_DIR:+$CACHE_DIR/claude-cli}"
+TARGET="${CLAUDE_CLI_VERSION:-latest}"
+CLAUDE_BIN=""
 
-if [ -n "$CLAUDE_CACHE" ] && [ -x "$CLAUDE_CACHE" ]; then
-    echo "-----> Using cached Claude Code CLI"
-    mkdir -p "$HOME/bin"
-    cp "$CLAUDE_CACHE" "$HOME/bin/claude"
-    chmod +x "$HOME/bin/claude"
-    "$HOME/bin/claude" --version 2>/dev/null || true
-else
-    echo "-----> Installing Claude Code CLI (not cached)"
-    curl -fsSL https://claude.ai/install.sh | bash 2>&1
+mkdir -p "$HOME/bin"
 
-    # Find the real binary (resolve the broken-at-runtime symlink)
+echo "-----> Installing Claude Code CLI ($TARGET)"
+if curl -fsSL https://claude.ai/install.sh | bash -s "$TARGET" 2>&1; then
     CLAUDE_BIN=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)
-
-    if [ -x "$CLAUDE_BIN" ]; then
-        mkdir -p "$HOME/bin"
-        cp "$CLAUDE_BIN" "$HOME/bin/claude"
-        chmod +x "$HOME/bin/claude"
-        echo "-----> Claude Code CLI copied to \$HOME/bin/claude"
-        "$HOME/bin/claude" --version 2>/dev/null || true
-
-        # Cache for next deploy
-        if [ -n "$CACHE_DIR" ]; then
-            cp "$CLAUDE_BIN" "$CLAUDE_CACHE"
-            echo "-----> Cached Claude Code CLI for future deploys"
-        fi
-    else
-        echo "-----> WARNING: Could not find Claude Code binary"
-        ls -la "$HOME/.local/bin/claude" 2>/dev/null
-    fi
 fi
+
+if [ -x "$CLAUDE_BIN" ]; then
+    cp "$CLAUDE_BIN" "$HOME/bin/claude"
+    if [ -n "$CLAUDE_CACHE" ]; then
+        cp "$CLAUDE_BIN" "$CLAUDE_CACHE"
+        echo "-----> Refreshed Claude Code CLI cache"
+    fi
+elif [ -n "$CLAUDE_CACHE" ] && [ -x "$CLAUDE_CACHE" ]; then
+    echo "-----> WARNING: install failed, falling back to the cached CLI (stale version)"
+    cp "$CLAUDE_CACHE" "$HOME/bin/claude"
+else
+    echo "-----> ERROR: no Claude Code CLI available (install failed, no usable cache)" >&2
+    exit 1
+fi
+
+chmod +x "$HOME/bin/claude"
+"$HOME/bin/claude" --version || true
 
 # Mark onboarding as complete so the CLI skips the interactive setup wizard
 # (theme selection, login method) which doesn't work in non-interactive terminals.
