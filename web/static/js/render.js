@@ -15,8 +15,8 @@ function updateTokenDisplay(usage) {
   if (!tokenDisplay || !tokenCount) return;
 
   // Get current values from data attributes
-  let currentInput = parseInt(tokenDisplay.dataset.input) || 0;
-  let currentOutput = parseInt(tokenDisplay.dataset.output) || 0;
+  let currentInput = parseInt(tokenDisplay.dataset.input, 10) || 0;
+  let currentOutput = parseInt(tokenDisplay.dataset.output, 10) || 0;
 
   // Add new usage
   const newInput = usage.input_tokens || 0;
@@ -46,7 +46,7 @@ function appendEvent(type, data) {
 
   // System events: check for usage data, then skip display
   if (type === 'system') {
-    if (data.raw && data.raw.usage) {
+    if (data.raw?.usage) {
       updateTokenDisplay(data.raw.usage);
     }
     if (typeof window.updateLoadingLastEvent === 'function') {
@@ -140,17 +140,16 @@ function appendEvent(type, data) {
     // Les diagrammes sont rendus une fois le bloc complet (fin de stream, chargement d'historique).
     setTimeout(() => renderOptions(block), 0);
   } else if (type === 'limit') {
-    block.innerHTML =
-      '<i class="ri-time-line" aria-hidden="true"></i><div>' +
-      escapeHtml(data.content || '') +
-      '</div>';
+    block.innerHTML = `<i class="ri-time-line" aria-hidden="true"></i><div>${escapeHtml(data.content || '')}</div>`;
   } else if (type === 'error') {
     block.innerHTML = escapeHtml(data.content || '');
   } else if (type === 'report') {
     // Report card - parse JSON content
     let reportData = data.content;
     if (typeof reportData === 'string') {
-      try { reportData = JSON.parse(reportData); } catch { }
+      try {
+        reportData = JSON.parse(reportData);
+      } catch {}
     }
     // Safe: formatReportCard escapes title via escapeHtml() and validates reportId
     block.innerHTML = formatReportCard(reportData);
@@ -244,7 +243,7 @@ function formatReport(content, reportInfo) {
   // Format the body content
   const formattedBody = formatAssistantContent(bodyContent);
 
-  return header + '<div class="report-body">' + formattedBody + '</div>';
+  return `${header}<div class="report-body">${formattedBody}</div>`;
 }
 
 /**
@@ -257,8 +256,8 @@ function formatAssistantContent(content) {
   if (typeof marked !== 'undefined') {
     // Configure marked for safe rendering
     marked.setOptions({
-      breaks: true,  // GFM line breaks
-      gfm: true,     // GitHub Flavored Markdown
+      breaks: true, // GFM line breaks
+      gfm: true, // GitHub Flavored Markdown
     });
 
     return marked.parse(content);
@@ -306,7 +305,7 @@ function renderOptions(element) {
 
   for (const block of codeBlocks) {
     const code = block.textContent.trim();
-    const lines = code.split('\n').filter(line => line.trim());
+    const lines = code.split('\n').filter((line) => line.trim());
 
     // Sanity check: real options blocks are short lists of choices.
     // If the block is too long, it's a malformed code fence — leave it as-is.
@@ -316,7 +315,7 @@ function renderOptions(element) {
     container.className = 'options-buttons';
 
     lines.forEach((line, index) => {
-      const parts = line.split('|').map(p => p.trim());
+      const parts = line.split('|').map((p) => p.trim());
       const label = parts[0];
       const fullPrompt = parts[1] || label;
 
@@ -334,7 +333,7 @@ function renderOptions(element) {
           chatInput.focus();
           // Auto-resize textarea if needed
           chatInput.style.height = 'auto';
-          chatInput.style.height = chatInput.scrollHeight + 'px';
+          chatInput.style.height = `${chatInput.scrollHeight}px`;
         }
       });
 
@@ -356,7 +355,7 @@ function formatToolUse(content) {
   const tool = content.tool || 'Unknown';
   const input = content.input || {};
 
-  let inputStr = typeof input === 'object' ? JSON.stringify(input, null, 2) : String(input);
+  const inputStr = typeof input === 'object' ? JSON.stringify(input, null, 2) : String(input);
   const lines = inputStr.split('\n');
   const isLong = lines.length > 2;
 
@@ -387,7 +386,7 @@ function formatToolResult(content) {
   const tool = content.tool || '';
   const output = content.output || '';
 
-  let outputStr = typeof output === 'object' ? JSON.stringify(output, null, 2) : String(output);
+  const outputStr = typeof output === 'object' ? JSON.stringify(output, null, 2) : String(output);
   const lines = outputStr.split('\n');
   const isLong = lines.length > 2;
 
@@ -455,7 +454,7 @@ function formatUserContent(content) {
 
       // Extract file size
       const sizeMatch = match.match(/- Size: ([\d,]+) bytes/);
-      const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''))) : '';
+      const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''), 10)) : '';
 
       // Extract file type
       const typeMatch = match.match(/- Type: ([^\n]+)/);
@@ -464,9 +463,11 @@ function formatUserContent(content) {
       // Determine icon based on mime type
       let icon = 'ri-file-line';
       if (mimeType.startsWith('image/')) icon = 'ri-image-line';
-      else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml')) icon = 'ri-file-text-line';
+      else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml'))
+        icon = 'ri-file-text-line';
       else if (mimeType.includes('pdf')) icon = 'ri-file-pdf-line';
-      else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) icon = 'ri-file-excel-line';
+      else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
+        icon = 'ri-file-excel-line';
       else if (mimeType.includes('word') || mimeType.includes('document')) icon = 'ri-file-word-line';
 
       // Create pill HTML
@@ -516,12 +517,8 @@ function formatUserMarkdown(text) {
     const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
     return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer nofollow ugc"${titleAttr}>${inner}</a>`;
   };
-  renderer.image = function ({ text, title }) {
-    return escapeHtml(text || title || '');
-  };
-  renderer.html = function ({ text }) {
-    return escapeHtml(text);
-  };
+  renderer.image = ({ text, title }) => escapeHtml(text || title || '');
+  renderer.html = ({ text }) => escapeHtml(text);
 
   return marked.parse(text, { breaks: true, gfm: true, renderer });
 }
@@ -530,7 +527,7 @@ function formatUserMarkdown(text) {
  * Format a report card for display in conversation
  */
 function formatReportCard(data) {
-  const reportId = typeof data.report_id === 'number' ? data.report_id : (typeof data.id === 'number' ? data.id : 0);
+  const reportId = typeof data.report_id === 'number' ? data.report_id : typeof data.id === 'number' ? data.id : 0;
   const title = data.title || 'Rapport';
   const viewUrl = `/rapports/${reportId}`;
 

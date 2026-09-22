@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - {{ source.name if source else 'Source inconnue' }}{% endblock %}
+
+{% block content %}
+<section class="section-content" id="section-sources">
+  <div class="section-header">
+    <div class="container">
+      <a href="/sources" class="text-muted small text-decoration-none"
+         hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+        <i class="ri-arrow-left-line" aria-hidden="true"></i> Sources de données
+      </a>
+      {% if source %}
+      <h1 class="mb-0 mt-1"><i class="{{ source.icon }} ri-2x text-primary me-2" style="vertical-align: middle;"></i>{{ source.name }}</h1>
+      {% else %}
+      <h1 class="mb-0 mt-1">Source inconnue</h1>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="section-body">
+    <div class="container" style="padding: 1.5rem 0;">
+      {% if error %}
+      <p class="text-muted">{{ error }}</p>
+      {% else %}
+      <div class="source-detail-head">
+        <p class="source-card-blurb">{{ source.blurb }}</p>
+        <div class="source-card-signals">
+          {% with slug = source.slug %}{% include "_source_access_slot.html" %}{% endwith %}
+          {% if inventory.realtime %}
+          <span class="source-signal source-signal-live" title="Interrogée directement, sans copie intermédiaire">
+            <i class="ri-flashlight-line" aria-hidden="true"></i> Temps réel
+          </span>
+          {% else %}
+          <span class="source-signal source-signal-sync"{% if inventory.title %} title="{{ inventory.title }}"{% endif %}>
+            <i class="ri-refresh-line" aria-hidden="true"></i> Inventaire : {{ inventory.label }}
+          </span>
+          {% endif %}
+          {% if source.skill %}
+          <span class="source-signal source-signal-skill">
+            <i class="ri-terminal-box-line" aria-hidden="true"></i> skill <code>{{ source.skill }}</code>
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if contents %}
+      <section class="source-contents">
+        <div class="source-contents-head">
+          <h2 class="source-contents-title">Contenu
+            {% if contents.total %}<span class="source-contents-count">{{ contents.total }}</span>{% endif %}
+          </h2>
+          {% if contents.kind == 'catalog' %}
+          <form method="get" action="/sources/{{ source.slug }}" class="source-search">
+            <input type="search" name="q" value="{{ search }}" placeholder="Filtrer par table ou colonne"
+                   class="form-control form-control-sm" aria-label="Filtrer le catalogue">
+          </form>
+          {% endif %}
+        </div>
+
+        {% if contents.error %}
+        <p class="text-muted">Contenu indisponible : {{ contents.error }}</p>
+        {% elif not contents.groups %}
+        <p class="text-muted">
+          {% if search %}Aucune table ne correspond à « {{ search }} ».{% else %}Pas encore d'inventaire pour cette source.{% endif %}
+        </p>
+        {% else %}
+        {% if contents.note %}<p class="source-contents-note">{{ contents.note }}</p>{% endif %}
+        {% for group in contents.groups %}
+        <details class="source-contents-group"{% if search or group['items']|length <= 30 %} open{% endif %}>
+          <summary>{{ group.label }} <span class="source-contents-count">{{ group['items']|length }}</span></summary>
+          {% if contents.kind == 'catalog' %}
+          <ul class="source-table-list">
+            {% for table in group['items'] %}
+            <li>
+              <details>
+                <summary><code>{{ table.name }}</code>
+                  <span class="source-contents-count">{{ table.columns|length }} col.</span>
+                  {% if table.description %}<span class="source-table-desc">{{ table.description }}</span>{% endif %}
+                </summary>
+                <div class="table-responsive">
+                  <table class="table table-sm source-column-table">
+                    <thead><tr><th>Colonne</th><th>Type</th><th>Description</th></tr></thead>
+                    <tbody>
+                      {% for column in table.columns %}
+                      <tr>
+                        <td><code>{{ column.name }}</code></td>
+                        <td class="text-muted">{{ column.type }}</td>
+                        <td>{{ column.description or '' }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <ul class="source-item-list">
+            {% for item in group['items'] %}
+            <li>
+              {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.name }}</a>
+              {% else %}{{ item.name }}{% endif %}
+              {% if item.description %}<span class="text-muted small">— {{ item.description }}</span>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </details>
+        {% endfor %}
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if doc_html %}
+      <p class="source-doc-origin">
+        Documentation lue par l'agent —
+        {% if doc_rel.startswith('knowledge/') %}
+        <a href="/{{ doc_rel }}" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"><code>{{ doc_rel }}</code></a>
+        {% else %}
+        <code>{{ doc_rel }}</code>
+        {% endif %}
+      </p>
+      <div class="knowledge-content source-doc">
+        <article class="markdown-body">{{ doc_html|safe }}</article>
+      </div>
+      {% else %}
+      <p class="text-muted">Cette source n'a pas encore de documentation dédiée.</p>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

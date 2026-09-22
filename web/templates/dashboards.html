@@ -56,11 +56,21 @@
           </div>
         </div>
 
-        {% if view != 'published' %}
-          {% for facet in facets %}
-          <div class="filter-section">
-            <div class="filter-section-title">{{ facet.label }}</div>
-            {% for term in facet.terms %}
+        {% for facet in facets %}
+        <div class="filter-section">
+          <div class="filter-section-title">{{ facet.label }}</div>
+          {% for term in facet.terms %}
+          <label class="filter-checkbox-item" data-tag="{{ term.name }}">
+            <input type="checkbox" {% if term.name in active_tags %}checked{% endif %}
+                   onchange="toggleTag('{{ term.name }}')">
+            <span class="filter-label">{{ term.label }}</span>
+            <span class="filter-count">{{ term.count }}</span>
+          </label>
+          {% endfor %}
+          {% if facet.overflow %}
+          <details class="filter-overflow">
+            <summary>{{ facet.overflow|length }} de plus</summary>
+            {% for term in facet.overflow %}
             <label class="filter-checkbox-item" data-tag="{{ term.name }}">
               <input type="checkbox" {% if term.name in active_tags %}checked{% endif %}
                      onchange="toggleTag('{{ term.name }}')">
@@ -68,27 +78,15 @@
               <span class="filter-count">{{ term.count }}</span>
             </label>
             {% endfor %}
-            {% if facet.overflow %}
-            <details class="filter-overflow">
-              <summary>{{ facet.overflow|length }} de plus</summary>
-              {% for term in facet.overflow %}
-              <label class="filter-checkbox-item" data-tag="{{ term.name }}">
-                <input type="checkbox" {% if term.name in active_tags %}checked{% endif %}
-                       onchange="toggleTag('{{ term.name }}')">
-                <span class="filter-label">{{ term.label }}</span>
-                <span class="filter-count">{{ term.count }}</span>
-              </label>
-              {% endfor %}
-            </details>
-            {% endif %}
-          </div>
-          {% endfor %}
-
-          {% if active_tags %}
-          <button class="filter-reset mt-3" onclick="clearTags()">
-            <i class="ri-close-line"></i> Effacer les filtres
-          </button>
+          </details>
           {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if active_tags %}
+        <button class="filter-reset mt-3" onclick="clearTags()">
+          <i class="ri-close-line"></i> Effacer les filtres
+        </button>
         {% endif %}
       </aside>
 

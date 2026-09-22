@@ -25,6 +25,15 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 
 Ne jamais inventer ou deviner un slug.
 
+
+## Façade obligatoire
+
+Un TDB n'importe qu'un seul module du dépôt : `lib.dashboard_api`. `lib.query`, `web.db` et
+`web.config` sont internes et n'ont jamais promis d'être stables. Ce skill ne touche qu'aux
+métadonnées : il ne juge pas le code du TDB, sans quoi renommer ou désarchiver un TDB antérieur à la
+façade serait impossible. Le refus vit à la création, à l'adoption, et à l'écriture du `.py`. Détail
+des fonctions disponibles : `docs/interactive-dashboards.md` § La façade `lib.dashboard_api`.
+
 ## Usage
 
 ```bash

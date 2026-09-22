@@ -3,14 +3,19 @@
 Assistant analytics pour l'Inclusion (Matomo + Metabase → analyses en français).
 
 ```bash
+make setup     # Environnement de développement complet (idempotent)
+make doctor    # Diagnostic — une phrase actionnable par panne
 make dev       # Serveur local (lance autometa)
 make test      # Suite unit hermétique (aucun service requis)
 make test-cov  # unit + integration + couverture fusionnée (Postgres + Redis requis)
+make e2e       # Parcours de navigateur Playwright (exige une application servie)
 make hooks     # Installe le hook git pre-commit (lint + suite unit)
 make lint      # ruff check + format check
 make format    # Auto-format
 make migrate   # Migrations Alembic
-make ci        # lint + security + migrations + test-cov + diff-cover
+make lint-js   # Biome sur web/static (JS et CSS) — le front n'a aucun test
+make paved-road-status  # État du parcours, verdict de chaque critère
+make ci        # lint + lint-js + security + migrations + test-cov + diff-cover
 ```
 
 Architecture et flux de données : `.claude/ARCHITECTURE.md`.
@@ -31,7 +36,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 
 Sources de données :
 
-- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (schémas `public`, `reporting`, `monrecap`, `data_inclusion`, `esat`, `seeds`, `raw_dora`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue. Chercher d'abord dans les **tables de référence** listées par le skill `autometa_tables_db`, sinon se limiter aux tables documentées. Ignorer les schémas `staging*`, `intermediate*` et `raw*` — seule exception : `raw_dora`. _Nos services, granulaire._
+- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (schémas `public`, `reporting`, `monrecap`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue. Chercher d'abord dans les **tables de référence** listées par le skill `autometa_tables_db`, sinon se limiter aux tables documentées. Ignorer les schémas `staging*`, `intermediate*` et `raw*` — seules exceptions : `raw_dora`, `raw_rdvi`. Pour Dora, chercher d'abord dans `fct_dora__imer` et `fct_dora__orientations` avant `raw_dora`. _Nos services, granulaire._
 - **RPE (Réseau pour l'emploi)** → Tableau de bord public France Travail (DigDash). Indicateurs **agrégés, nationaux/territoriaux, couvrant tout le réseau** (emploi, formation, recrutement, RSA), **pas spécifiques à nos services** et sans niveau individuel. Skill `rpe` (cache nightly dans le schéma `dashboard_storage`). Si une demande peut relever de `rpe` **ou** d'`autometa_tables_db`, demander à l'utilisateur de préciser (réseau national agrégé vs nos services granulaires).
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
@@ -42,7 +47,7 @@ Sources de données :
 
 - Création **uniquement** via le skill `create_dashboard` (`--adopt` pour enregistrer un dossier existant). Jamais d'écriture directe dans `data/interactive/` pour un nouveau TDB.
 - Un `cron.py` ne tourne **que** si le TDB est enregistré avec `has_cron` — le système de cron lit la table `dashboards`.
-- Persistance de données : schéma `dashboard_storage` de la DB applicative — frontend via `POST /api/query` `{source: "dashboard_storage", sql, params}`, agent via `lib.query.execute_dashboard_storage_query`. Voir `docs/interactive-dashboards.md` § Persistance.
+- Persistance de données : schéma `dashboard_storage` de la DB applicative — frontend via `POST /api/query` `{source: "dashboard_storage", sql, params}`, agent et `cron.py` via `lib.dashboard_api.query_storage` (la façade, seul import autorisé dans un TDB). Voir `docs/interactive-dashboards.md` § Persistance.
 - En prod, un hook de garde bloque les écritures **Edit/Write** hors de `data/`, `.claude/` et `/tmp`. De toute façon `web/`, `lib/`, `knowledge/`, etc. sont baked dans l'image : toute modification (y compris via Bash, non couvert par le hook) est éphémère et perdue au redéploiement.
 - Scratchpad → `/tmp`. Fichiers one-off téléchargeables (csv, xlsx…) → racine de `data/interactive/`, jamais de `.html` hors TDB.
 

@@ -87,13 +87,23 @@ Invoquer via l'outil `Skill` :
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `save_report` — Sauvegarder un rapport en base.
 
-## Modélisation bayésienne (MMM)
+## Modélisation statistique (fréquentiste et bayésienne)
 
-`pymc-marketing` est installé dans l'environnement Python. L'utiliser pour les questions d'attribution ou d'effet d'une action dans le temps (adstock, saturation, contribution par canal, budget optimal), quand une agrégation SQL ne suffit pas à séparer les effets.
+Quand une agrégation SQL ne suffit pas à isoler un effet — plusieurs actions simultanées, avant/après avec groupe témoin, mesures répétées par structure ou territoire, délai jusqu'à un événement — l'environnement Python dispose de :
 
-- Agréger les données à la semaine ou au mois avant de modéliser — l'échantillonnage est coûteux.
+| Classe de modèle | Fréquentiste | Bayésien |
+|---|---|---|
+| MMM (attribution, adstock, saturation, budget optimal) | `statsmodels` (régression sur variables transformées) | `pymc-marketing` |
+| GLM (logistique, Poisson, binomiale négative…) | `statsmodels` | `bambi` |
+| Modèles mixtes (effets aléatoires par structure, territoire…) | `statsmodels` (`MixedLM`) | `bambi` |
+| DiD / DDD | `linearmodels` (`PanelOLS`, effets fixes unité × période) ou `statsmodels` | `bambi` |
+| Survie / durée (Kaplan-Meier, Cox, log-rank) | `statsmodels.duration` | `pymc` |
+
 - Toujours exécuter dans un script lancé via `Bash`, jamais dans le process web.
-- Un modèle bayésien produit des intervalles de crédibilité : les restituer, ne jamais présenter la moyenne seule.
+- Agréger avant de modéliser (semaine, mois, structure, territoire) — l'échantillonnage bayésien est coûteux.
+- Fréquentiste par défaut : rapide, tests d'hypothèse et p-values. Bayésien quand l'incertitude doit être quantifiée finement, que les données sont rares, ou qu'un a priori métier est justifié.
+- Toujours restituer les intervalles (de confiance ou de crédibilité), jamais l'estimation seule. En bayésien, vérifier la convergence (r-hat, ESS) avant de conclure.
+- DiD : erreurs standard groupées au niveau où le traitement est attribué. Si le traitement démarre à des dates différentes selon les unités, les effets fixes unité × période sont biaisés : comparer chaque cohorte aux seules unités jamais traitées. DDD quand une troisième dimension (population éligible ou non) permet d'absorber un choc propre à la zone traitée.
 
 ## Chemins clés
 

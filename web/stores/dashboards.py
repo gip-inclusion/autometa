@@ -65,8 +65,10 @@ class DashboardsMixin:
                 stmt = stmt.where(DashboardModel.slug.in_(matching_slugs(session, tag_names)))
             return serialize_dashboards(session, list(session.scalars(stmt).all()))
 
-    def get_used_dashboard_tags_by_type(self, include_archived: bool = False) -> dict[str, list[dict]]:
-        """Tags réellement portés par des TDB, groupés par facette, avec compteurs."""
+    def get_used_dashboard_tags_by_type(
+        self, include_archived: bool = False, slugs: set[str] | None = None
+    ) -> dict[str, list[dict]]:
+        """Tags réellement portés par des TDB (ou par ceux de `slugs`), groupés par facette, avec compteurs."""
         with get_db() as session:
             stmt = (
                 select(TagModel, func.count(DashboardModel.slug))
@@ -78,6 +80,8 @@ class DashboardsMixin:
             )
             if not include_archived:
                 stmt = stmt.where(~DashboardModel.is_archived)
+            if slugs is not None:
+                stmt = stmt.where(DashboardModel.slug.in_(slugs))
 
             by_facet: dict[str, list[dict]] = {}
             for tag, count in session.execute(stmt).all():
