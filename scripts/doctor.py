@@ -124,7 +124,8 @@ def warn_browser(settings):
     if cache.is_dir() and any(cache.glob("chromium-*")):
         return None
     return (
-        "Aucun navigateur Playwright installé : les tests sous `browser/` ne tourneront pas ici. "
+        "Aucun navigateur Playwright installé : ni les tests sous `browser/` ni le skill `verify_dashboard` "
+        "ne tourneront ici. "
         "Lancez `make browsers`. Le parcours n'en dépend pas — il n'exige que la présence du test."
     )
 

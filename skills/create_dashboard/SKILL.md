@@ -106,6 +106,15 @@ _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
 </script>
 ```
 
+## Fin de génération : contrôle qualité obligatoire
+
+Une fois le code du TDB écrit (et `data.json` produit), invoquer le skill `verify_dashboard` avant de
+donner l'URL à l'utilisateur, et corriger jusqu'au verdict positif :
+
+```bash
+.venv/bin/python skills/verify_dashboard/scripts/verify_dashboard.py <slug> --expect-charts <n>
+```
+
 ## Tags
 
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
