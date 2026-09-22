@@ -131,15 +131,15 @@ def test_before_send_transaction_drops_when_no_dsn(monkeypatch):
 
 
 def test_cron_sentry_monitor_config():
-    from web.cron import _sentry_monitor_config
+    from web.cron import sentry_monitor_config
 
-    daily_task = {"schedule": "daily", "timeout": 300}
-    cfg = _sentry_monitor_config(daily_task)
+    daily_task = {"schedule": "daily", "timeout": 300, "batch": "systeme"}
+    cfg = sentry_monitor_config(daily_task)
     assert cfg["schedule"]["value"] == "0 6 * * *"
     assert cfg["max_runtime"] == 6
 
-    weekly_task = {"schedule": "weekly", "timeout": 600}
-    cfg = _sentry_monitor_config(weekly_task)
+    weekly_task = {"schedule": "weekly", "timeout": 600, "batch": "systeme"}
+    cfg = sentry_monitor_config(weekly_task)
     assert cfg["schedule"]["value"] == "0 6 * * 1"
     assert cfg["max_runtime"] == 11
 

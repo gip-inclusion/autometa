@@ -43,6 +43,15 @@ def test_fetch_saved_segments(mocker):
     assert result[0]["name"] == "Candidats"
 
 
+def test_fetch_saved_segments_keeps_one_segment_per_name(mocker):
+    mock_api = mocker.MagicMock()
+    mock_api._request.return_value = [
+        {"name": "Candidats", "definition": "dimension1==job_seeker"},
+        {"name": "Candidats", "definition": "dimension1==candidat"},
+    ]
+    assert fetch_saved_segments(mock_api, 117) == [{"name": "Candidats", "definition": "dimension1==candidat"}]
+
+
 def test_fetch_event_names(mocker):
     mock_api = mocker.MagicMock()
     mock_api.get_event_names.return_value = [

@@ -17,6 +17,11 @@
 
   <div class="section-body">
     <div class="conversation-list-wrapper" style="padding: 1.5rem;">
+      {% if s3_unavailable %}
+      <div class="alert alert-warning" role="alert">
+        S3 est injoignable : seules les tâches système sont listées, les tableaux de bord manquent à l'appel.
+      </div>
+      {% endif %}
       {% if tasks %}
       <table class="table table-sm" style="table-layout: auto;">
         <thead>
@@ -48,6 +53,8 @@
                 <span class="badge bg-success">OK</span>
                 {% elif task.last_run.status == 'timeout' %}
                 <span class="badge bg-warning text-dark">timeout</span>
+                {% elif task.last_run.status == 'skipped' %}
+                <span class="badge bg-light text-muted">non exécuté</span>
                 {% else %}
                 <span class="badge bg-danger">échec</span>
                 {% endif %}
@@ -135,7 +142,12 @@ async function runCron(slug) {
     const resp = await fetch('/api/cron/' + slug + '/run', { method: 'POST' });
     const data = await resp.json();
 
-    // Reload the page to refresh status
+    if (resp.ok) {
+      alert('Lancé dans un conteneur dédié — rafraîchir dans quelques instants.');
+    } else {
+      alert('Erreur: ' + data.error);
+    }
+
     htmx.ajax('GET', '/cron', { target: '#main', select: '#main > *', swap: 'innerHTML' });
   } catch (err) {
     alert('Erreur: ' + err.message);
@@ -178,7 +190,9 @@ async function showLogs(slug) {
         ? '<span class="badge bg-success">OK</span>'
         : run.status === 'timeout'
           ? '<span class="badge bg-warning text-dark">timeout</span>'
-          : '<span class="badge bg-danger">échec</span>';
+          : run.status === 'skipped'
+            ? '<span class="badge bg-light text-muted">non exécuté</span>'
+            : '<span class="badge bg-danger">échec</span>';
 
       const duration = (run.duration_ms / 1000).toFixed(1) + 's';
       const raw = run.started_at.endsWith('Z') || run.started_at.includes('+') ? run.started_at : run.started_at + 'Z';

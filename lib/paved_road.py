@@ -104,11 +104,14 @@ def dashboard_health(session, since: datetime) -> list[dict]:
 
     weeks = []
     for week, runs in sorted(by_week.items()):
-        durations = [run.duration_ms for run in runs if run.duration_ms is not None]
+        # Why: un run `skipped` n'a jamais démarré — le compter ferait grimper mécaniquement le taux
+        # de réussite d'un lot amputé, et sa durée nulle écraserait la durée médiane.
+        executed = [run for run in runs if run.status != "skipped"]
+        durations = [run.duration_ms for run in executed if run.duration_ms is not None]
         weeks.append({
             "week": week,
-            "runs": len(runs),
-            "failed": sum(1 for run in runs if run.status in BROKEN_STATUSES),
+            "runs": len(executed),
+            "failed": sum(1 for run in executed if run.status in BROKEN_STATUSES),
             "median_duration_ms": statistics.median(durations) if durations else None,
         })
     return weeks

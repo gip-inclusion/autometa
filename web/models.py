@@ -278,6 +278,16 @@ class CronRun(Base):
     __table_args__ = (Index("idx_cron_runs_slug_started", "app_slug", text("started_at DESC")),)
 
 
+class CronTaskState(Base):
+    """État d'activation d'une tâche système. Le front-matter de CRON.md n'est plus qu'un défaut."""
+
+    __tablename__ = "cron_task_states"
+
+    slug: Mapped[str] = mapped_column(Text, primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class PinnedItem(Base):
     __tablename__ = "pinned_items"
 

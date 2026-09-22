@@ -146,7 +146,8 @@ class S3Store:
             logger.error("S3 delete failed for %s: %s", k, e)
             return False
 
-    def list_files(self, prefix: str = "") -> list[dict]:
+    def list_files(self, prefix: str = "", raise_errors: bool = False) -> list[dict]:
+        """Files under prefix; raise_errors tells an unreachable S3 apart from an empty prefix."""
         full_prefix = self.key(prefix)
         files = []
         try:
@@ -158,7 +159,9 @@ class S3Store:
                         "size": obj["Size"],
                         "last_modified": obj["LastModified"],
                     })
-        except ClientError as e:
+        except (ClientError, BotoCoreError) as e:
+            if raise_errors:
+                raise
             logger.error("S3 list failed for prefix %s: %s", full_prefix, e)
         return files
 
@@ -176,7 +179,7 @@ class S3Store:
             for common_prefix in response.get("CommonPrefixes", []):
                 dir_path = common_prefix["Prefix"][len(full_prefix) :].rstrip("/")
                 directories.add(dir_path)
-        except ClientError as e:
+        except (ClientError, BotoCoreError) as e:
             logger.error("S3 list directories failed for prefix %s: %s", full_prefix, e)
         return sorted(directories)
 

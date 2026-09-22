@@ -4,9 +4,11 @@ import sqlite3
 
 import pytest
 
+from lib.query import QueryResult
 from lib.webinaires import (
     T_INSCRIPTIONS,
     T_WEBINAIRES,
+    DatalakeWriter,
     GristClient,
     batch_upsert,
     grist_duration_to_minutes,
@@ -287,3 +289,29 @@ def test_grist_sync_email_lowercased(mocker, conn, grist_client):
     emails = [r[0] for r in conn.execute(f"SELECT email FROM {T_INSCRIPTIONS} ORDER BY email").fetchall()]
     assert "pierre@example.fr" in emails
     assert "Pierre@Example.fr" not in emails
+
+
+def test_grist_sync_skips_inscriptions_without_event(mocker, conn, grist_client):
+    orphan = {"id": 104, "fields": {"event_id": "", "email": "sans-webinaire@example.fr"}}
+
+    def mock_get(url, **kwargs):
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, [*SAMPLE_INSCRIPTIONS, orphan])
+        return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+
+    grist_client._session.get.side_effect = mock_get
+    assert sync_grist(conn, grist_client) == (2, 3)
+
+
+def test_datalake_error_keeps_the_inserted_values_out_of_the_exception(mocker):
+    mocker.patch(
+        "lib.webinaires.execute_metabase_query",
+        return_value=QueryResult(
+            success=False,
+            data=None,
+            error='ERROR: null value in column "webinar_id"\n  Detail: Failing row contains (julie@example.fr).',
+        ),
+    )
+    with pytest.raises(RuntimeError) as raised:
+        DatalakeWriter().execute(mocker.sentinel.sql)
+    assert "julie@example.fr" not in str(raised.value)
