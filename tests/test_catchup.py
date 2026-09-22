@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from web.catchup import CLIP_MARKER_OVERHEAD, TOTAL_CAP, build_catchup
+from web.catchup import TOTAL_CAP, build_catchup
 from web.database import Message
 
 
@@ -52,7 +52,7 @@ def test_drops_noise_types(ignored):
 def test_caps_tool_payloads(type_, content, cap, prefix):
     rendered = build_catchup([_msg(1, type_, content)])[0]["content"]
 
-    max_overhead = len(prefix) + CLIP_MARKER_OVERHEAD
+    max_overhead = len(prefix) + 50
     assert len(rendered) < cap + max_overhead
     assert "tronqué" in rendered
 

@@ -12,6 +12,7 @@ from web import complexity
 from web.agents.base import AgentMessage
 from web.database import Message
 from web.runner import (
+    EngineTurn,
     RunUsage,
     TaskRunner,
     _check_failure,
@@ -48,12 +49,17 @@ def make_runner(mocker, fake_redis, max_concurrent=2):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", max_concurrent)
     mocker.patch("web.runner.session_sync")
+    mocker.patch("web.runner.prepare_turn", return_value=make_turn())
     r = TaskRunner()
     # Why: production has no `backend` attribute anymore — get_agent above always resolves
     # to mock_backend regardless of name, so this lets the 19 existing `r.backend.*` mutation
     # sites keep reaching the object production actually calls.
     r.backend = mock_backend
     return r
+
+
+def make_turn(backend="cli", session_id="s1", history=None, question_id=1):
+    return EngineTurn(backend, session_id, history or [], question_id)
 
 
 def make_event(type, content, raw=None):
@@ -90,7 +96,7 @@ def test_run_agent_forwards_user_email_to_backend(runner, mocker):
     mocker.patch("web.runner.store")
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], "alice@example.com", None, None, "cli")
+        await runner._run_agent("c1", "prompt", "alice@example.com", None, make_turn("cli"))
 
     asyncio.run(_run())
 
@@ -111,71 +117,22 @@ def test_run_agent_asks_get_agent_for_the_backend_it_is_given(runner, mocker):
     mocker.patch("web.runner.store")
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], None, None, None, "cli-ollama")
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli-ollama"))
 
     asyncio.run(_run())
 
     assert calls == ["cli-ollama"]
 
 
-def test_consumer_loop_picks_backend_and_forwards_it_to_run_agent(mocker, fake_redis):
-    """pick_backend's choice must reach _run_agent, which is what feeds it to get_agent."""
+def test_consumer_loop_prepares_the_turn_for_the_picked_backend(mocker, fake_redis):
+    """The turn (session, catch-up) must be built for the backend pick_backend chose, then run as is."""
     runner = make_runner(mocker, fake_redis)
     mock_store = mocker.patch("web.runner.store")
-    mock_conv = mocker.MagicMock()
-    mock_conv.needs_response = True
-    mock_store.get_conversation.return_value = mock_conv
-    mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
+    mock_store.get_conversation.return_value = mocker.MagicMock(needs_response=True)
     mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
-
-    captured = {}
-
-    async def fake_run_agent(
-        conversation_id, prompt, history, user_email, trace_headers=None, session_id=None, backend_name=None
-    ):
-        captured["backend_name"] = backend_name
-
-    mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
-
-    async def _run():
-        await fake_redis.rpush(
-            "autometa:tasks",
-            json.dumps({"conv_id": "c1", "prompt": "hi", "history": [], "session_id": None, "user_email": None}),
-        )
-        consumer = asyncio.create_task(runner._consumer_loop())
-        await asyncio.sleep(0.3)
-        consumer.cancel()
-        await asyncio.gather(consumer, return_exceptions=True)
-
-    asyncio.run(_run())
-    assert captured["backend_name"] == "cli-ollama"
-
-
-def test_consumer_loop_prefers_engine_state_session_and_forwards_seen_through(mocker, fake_redis):
-    """The picked backend's own session/seen_through must win over the payload's legacy session_id,
-    and get_engine_state must be asked for the backend pick_backend chose — not the fixed default."""
-    runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
-    mock_conv = mocker.MagicMock()
-    mock_conv.needs_response = True
-    mock_store.get_conversation.return_value = mock_conv
-    mock_store.get_engine_state.return_value = {"session_id": "sess-engine", "seen_through": 7}
-    mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
-    mock_session_sync = mocker.patch("web.runner.session_sync")
-
-    captured = {}
-
-    def fake_history_for_turn(conv_id, session_id, default_history, seen_through=None):
-        captured["session_id"] = session_id
-        captured["seen_through"] = seen_through
-        return []
-
-    mocker.patch("web.runner.history_for_turn", side_effect=fake_history_for_turn)
-
-    async def fake_run_agent(*args, **kwargs):
-        return
-
-    mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
+    turn = make_turn("cli-ollama", "sess-engine")
+    prepare = mocker.patch("web.runner.prepare_turn", return_value=turn)
+    run_agent = mocker.patch.object(runner, "_run_agent", new=mocker.AsyncMock())
 
     async def _run():
         await fake_redis.rpush(
@@ -195,10 +152,8 @@ def test_consumer_loop_prefers_engine_state_session_and_forwards_seen_through(mo
 
     asyncio.run(_run())
 
-    mock_store.get_engine_state.assert_called_once_with("c1", "cli-ollama")
-    mock_session_sync.download_session.assert_called_once_with("sess-engine")
-    assert captured["session_id"] == "sess-engine"
-    assert captured["seen_through"] == 7
+    prepare.assert_called_once_with("c1", "cli-ollama")
+    run_agent.assert_called_once_with("c1", "hi", None, {}, turn)
 
 
 def test_cancel_publishes_and_updates_db(runner, mocker):
@@ -280,7 +235,7 @@ def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
 
     async def _run():
         runner.backend.send_message = old_stream
-        old_task = asyncio.create_task(runner._run_agent("c1", "old", [], None, None, None, "cli"))
+        old_task = asyncio.create_task(runner._run_agent("c1", "old", None, None, make_turn("cli")))
         runner._running["c1"] = old_task
         await asyncio.sleep(0.05)
 
@@ -288,7 +243,7 @@ def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
         assert "c1" not in runner._running
 
         runner.backend.send_message = new_stream
-        new_task = asyncio.create_task(runner._run_agent("c1", "new", [], None, None, None, "cli"))
+        new_task = asyncio.create_task(runner._run_agent("c1", "new", None, None, make_turn("cli")))
         runner._running["c1"] = new_task
         await runner.cleanup("c1")
         await asyncio.sleep(0.05)
@@ -320,7 +275,7 @@ def test_run_agent_surfaces_backend_error_event(runner, mocker):
     runner.backend.send_message = err_stream
 
     async def _run():
-        await runner._run_agent("c1", "- foo", [], None, None, None, "cli")
+        await runner._run_agent("c1", "- foo", None, None, make_turn("cli"))
         stored = [str(c.args) for c in mock_store.add_message.call_args_list]
         assert any("unknown option" in s for s in stored), "backend error event was dropped; user sees nothing"
 
@@ -428,7 +383,7 @@ def test_consumer_reads_legacy_sentry_trace_key_for_rolling_deploy(mocker, fake_
     captured = {}
 
     async def fake_run_agent(*args, **kwargs):
-        captured["trace_headers"] = args[4]
+        captured["trace_headers"] = args[3]
 
     mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
 
@@ -461,7 +416,7 @@ def test_consumer_prefers_new_trace_headers_key_over_legacy(mocker, fake_redis):
     captured = {}
 
     async def fake_run_agent(*args, **kwargs):
-        captured["trace_headers"] = args[4]
+        captured["trace_headers"] = args[3]
 
     mocker.patch.object(runner, "_run_agent", side_effect=fake_run_agent)
 
@@ -579,8 +534,7 @@ def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
     conv = mocker.MagicMock()
     conv.needs_response = True
     mock_store.get_conversation.return_value = conv
-    sess = mocker.patch("web.runner.session_sync")
-    sess.download_session.side_effect = RuntimeError("s3 unreachable")
+    mocker.patch("web.runner.prepare_turn", side_effect=RuntimeError("s3 unreachable"))
 
     async def _run():
         await fake_redis.rpush(
@@ -616,7 +570,7 @@ def test_run_agent_notifies_and_cleans_up(runner, mocker, fake_redis):
     runner.backend.send_message = mock_stream
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], None, None, None, "cli")
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
         assert await runner.is_done("c1")
 
@@ -633,7 +587,7 @@ def test_run_agent_clears_needs_response_on_error(runner, mocker, fake_redis):
     runner.backend.send_message = mock_stream
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], None, None, None, "cli")
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
         assert await runner.is_done("c1")
 
@@ -909,7 +863,7 @@ def test_tool_span_is_current_between_tool_use_and_tool_result(mocker, fake_redi
     runner = make_runner(mocker, fake_redis)
     runner.backend.send_message = stream
 
-    asyncio.run(runner._run_agent("c1", "p", [], None, None, None, "cli"))
+    asyncio.run(runner._run_agent("c1", "p", None, None, make_turn("cli")))
 
     spans_by_name = {s.name: s for s in exporter.get_finished_spans()}
     tool_span_id = spans_by_name["agent.tool"].context.span_id
@@ -940,7 +894,7 @@ def test_run_agent_tool_call_budget_exceeded(mocker, fake_redis):
     runner.backend.send_message = mock_stream
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], None, None, None, "cli")
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         # The budget message should have been stored
         budget_calls = [
             call
@@ -976,7 +930,7 @@ def test_run_agent_no_budget_when_disabled(mocker, fake_redis):
     runner.backend.send_message = mock_stream
 
     async def _run():
-        await runner._run_agent("c1", "prompt", [], None, None, None, "cli")
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         budget_calls = [
             call
             for call in mock_store.add_message.call_args_list
@@ -1034,7 +988,7 @@ def test_run_agent_emits_completion_log(runner, mocker, caplog):
     mocker.patch("web.runner.store")
 
     with caplog.at_level(logging.INFO, logger="web.runner"):
-        asyncio.run(runner._run_agent("c1", "prompt", [], None, None, None, "cli"))
+        asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
 
     matches = [r for r in caplog.records if r.message == "agent.run.completed"]
     assert len(matches) == 1
@@ -1056,7 +1010,7 @@ def test_run_agent_emits_tool_completion_log(runner, mocker, caplog):
     mocker.patch("web.runner.store")
 
     with caplog.at_level(logging.INFO, logger="web.runner"):
-        asyncio.run(runner._run_agent("c1", "prompt", [], None, None, None, "cli"))
+        asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
 
     tool_logs = [r for r in caplog.records if r.message == "agent.tool.completed"]
     assert len(tool_logs) == 1
@@ -1081,7 +1035,7 @@ def test_run_agent_emits_error_status_on_exception(runner, mocker, caplog):
     mocker.patch("web.runner.store")
 
     with caplog.at_level(logging.INFO, logger="web.runner"):
-        asyncio.run(runner._run_agent("c1", "prompt", [], None, None, None, "cli"))
+        asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
 
     matches = [r for r in caplog.records if r.message == "agent.run.completed"]
     assert len(matches) == 1
@@ -1186,7 +1140,7 @@ def test_run_agent_limit_event_stores_verbatim_and_alerts(runner, mocker, fake_r
 
     runner.backend.send_message = mock_stream
 
-    asyncio.run(runner._run_agent("c1", "prompt", [], None, None, None, "cli"))
+    asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
 
     stored = [c.args for c in mock_store.add_message.call_args_list if c.args[1] == "limit"]
     assert stored == [("c1", "limit", "Vous avez atteint la limite d'utilisation du modèle Claude.")]

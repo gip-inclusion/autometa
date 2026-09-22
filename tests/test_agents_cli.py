@@ -381,6 +381,24 @@ def test_send_message_restores_the_text_when_the_turn_actually_succeeded(stub_co
     assert any(m.type == "assistant" and quote in str(m.content) for m in messages)
 
 
+@pytest.mark.parametrize(
+    "after_quote",
+    [
+        f"{_emit_assistant('Je continue mon analyse.')}\nexit 1",
+        "kill -TERM $$",
+    ],
+)
+def test_a_quoted_limit_is_not_a_limit_when_the_agent_goes_on_or_is_cancelled(stub_config, after_quote):
+    """B3 : une vraie limite termine le processus en code positif. L'agent qui poursuit après la phrase,
+    ou l'annulation (SIGTERM), signent une citation — sinon la clé globale basculerait tout le monde."""
+    quote = "hit your limit · resets 5pm (UTC)"
+    stub_config(f"{_emit_assistant(quote)}\n{after_quote}")
+    messages = collect_messages(make_backend())
+
+    assert not any(m.type == "limit" for m in messages)
+    assert any(m.type == "assistant" and quote in str(m.content) for m in messages)
+
+
 def test_last_events_ring_buffer_caps_at_ten(stub_config, mocker):
     backend = make_backend()
     spy = mocker.spy(backend, "_capture_failure")
@@ -406,7 +424,8 @@ def test_ollama_backend_limit_message_uses_its_own_model_label(stub_config, mock
     from web.agents.cli_ollama import CLIOllamaBackend
 
     mocker.patch("web.agents.cli_ollama.config.OLLAMA_MODEL", "llama3")
-    stub_config(f"{_emit_assistant('hit your limit · resets 5pm (UTC)')}\nexit 1")
+    quota = 'API Error: 429 {"error": "you have reached your session usage limit, upgrade for higher limits"}'
+    stub_config(f"{_emit_assistant(quota)}\nexit 1")
     messages = collect_messages(CLIOllamaBackend())
     assert messages[-1].type == "limit"
     assert "du modèle llama3" in messages[-1].content

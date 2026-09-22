@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from web import llm, runner
+from web import engine_limits, llm, runner
 from web.llm_errors import LLMError
 from web.redis_conn import get_redis
 
@@ -30,11 +30,11 @@ def test_the_short_prompt_guard_reads_the_key_the_runner_writes():
     reset = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
 
     async def _steps(r):
-        assert llm.backend_is_limited("cli") is False
+        assert engine_limits.backend_is_limited("cli") is False
         await runner.mark_backend_limited("cli", reset)
-        assert llm.backend_is_limited("cli") is True
+        assert engine_limits.backend_is_limited("cli") is True
         await r.delete(runner.limit_key("cli"))
-        assert llm.backend_is_limited("cli") is False
+        assert engine_limits.backend_is_limited("cli") is False
 
     _play(_steps)
 

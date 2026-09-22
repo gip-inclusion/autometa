@@ -2,11 +2,7 @@
 
 import json
 
-TOOL_INPUT_CAP = 300
-TOOL_OUTPUT_CAP = 1000
 TOTAL_CAP = 30000
-# Why: truncation marker "… [tronqué, X caractères au total]" is ~38–50 chars depending on number of digits in X
-CLIP_MARKER_OVERHEAD = 50
 
 _KEPT_TYPES = ("user", "assistant", "tool_use", "tool_result")
 
@@ -32,13 +28,13 @@ def _render(msg) -> dict:
 
     if msg.type == "tool_use":
         tool = payload.get("tool") or "outil"
-        rendered = _clip(json.dumps(payload.get("input", {}), ensure_ascii=False), TOOL_INPUT_CAP)
+        rendered = _clip(json.dumps(payload.get("input", {}), ensure_ascii=False), 300)
         return {"role": "assistant", "content": f"[appel {tool}] {rendered}"}
 
     output = payload.get("output", msg.content)
     if not isinstance(output, str):
         output = json.dumps(output, ensure_ascii=False)
-    return {"role": "assistant", "content": f"[résultat] {_clip(output, TOOL_OUTPUT_CAP)}"}
+    return {"role": "assistant", "content": f"[résultat] {_clip(output, 1000)}"}
 
 
 def build_catchup(messages: list) -> list[dict]:
@@ -54,7 +50,8 @@ def build_catchup(messages: list) -> list[dict]:
             if not kept:
                 # Why: même politique que la sélection des entrées — sur une entrée unique
                 # surdimensionnée, c'est sa fin qui touche le tour à jouer.
-                tail = entry["content"][-(TOTAL_CAP - CLIP_MARKER_OVERHEAD) :]
+                # Why: 50 laisse la place au préfixe « [tronqué, N caractères au total] … » ajouté ci-dessous.
+                tail = entry["content"][-(TOTAL_CAP - 50) :]
                 kept.append({"role": entry["role"], "content": f"[tronqué, {size} caractères au total] …{tail}"})
             break
         kept.append(entry)

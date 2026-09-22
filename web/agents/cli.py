@@ -300,12 +300,18 @@ class CLIBackend(AgentBackend):
                             last_events.append(f"{agent_msg.type}: {str(agent_msg.content)[:200]}")
                             if len(last_events) > 10:
                                 last_events.pop(0)
+                            # Why: une vraie limite termine le processus. Si l'agent continue après
+                            # la phrase, il la citait : on la restitue comme texte normal.
+                            if held_limit is not None and agent_msg.type in ("assistant", "tool_use", "tool_result"):
+                                outcome["usage_limit_reset"] = None
+                                yield held_limit
+                                held_limit = None
                             if agent_msg.type == "assistant" and isinstance(agent_msg.content, str):
-                                if reset := usage_limit_reset(agent_msg.content):
+                                if reset := self._usage_limit_reset(agent_msg.content):
                                     outcome["usage_limit_reset"] = reset
-                                    # Why: mis de côté plutôt que jeté — le code de sortie, connu
-                                    # seulement à la fin, dit si c'était une vraie limite ou l'agent
-                                    # qui citait la phrase. On le restitue dans le second cas.
+                                    # Why: mis de côté plutôt que jeté — la suite du flux et le code de
+                                    # sortie disent si c'était une vraie limite ou l'agent qui citait la
+                                    # phrase. On le restitue dans le second cas.
                                     held_limit = agent_msg
                                     continue
                                 api_error = transient_api_error(agent_msg.content)
@@ -360,7 +366,9 @@ class CLIBackend(AgentBackend):
             outcome["stderr"] = stderr_str
             outcome["last_events"] = list(last_events)
 
-            if held_limit is not None and process.returncode == 0:
+            # Why: code 0, l'agent a fini normalement ; code négatif, c'est notre SIGTERM (annulation).
+            # Dans les deux cas la phrase n'était pas la limite du CLI, qui sort en code positif.
+            if held_limit is not None and process.returncode <= 0:
                 outcome["usage_limit_reset"] = None
                 yield held_limit
 
@@ -377,6 +385,9 @@ class CLIBackend(AgentBackend):
                     stderr_tail,
                     last_events,
                 )
+
+    def _usage_limit_reset(self, text: str) -> datetime | None:
+        return usage_limit_reset(text)
 
     def _failure_message(self, outcome: dict) -> AgentMessage:
         reset = outcome["usage_limit_reset"]

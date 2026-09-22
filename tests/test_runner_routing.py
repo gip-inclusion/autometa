@@ -15,22 +15,24 @@ def fake_redis():
 
 
 @pytest.mark.parametrize(
-    "fallback, blocked, expected",
+    "fallback, limited, expected",
     [
-        ("", False, "cli"),
-        ("", True, "cli"),
-        ("cli-ollama", False, "cli"),
-        ("cli-ollama", True, "cli-ollama"),
+        ("", [], "cli"),
+        ("", ["cli"], "cli"),
+        ("cli-ollama", [], "cli"),
+        ("cli-ollama", ["cli"], "cli-ollama"),
+        ("cli-ollama", ["cli", "cli-ollama"], "cli"),
     ],
 )
-def test_pick_backend(mocker, fake_redis, fallback, blocked, expected):
+def test_pick_backend(mocker, fake_redis, fallback, limited, expected):
+    """Quand les deux moteurs sont épuisés, le primaire répond par son message de limite."""
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", fallback)
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
 
     async def _run():
-        if blocked:
-            await fake_redis.set(runner.limit_key("cli"), "1")
+        for name in limited:
+            await fake_redis.set(runner.limit_key(name), "1")
         assert await runner.pick_backend() == expected
 
     asyncio.run(_run())
@@ -48,7 +50,7 @@ def test_pick_backend_skips_redis_without_fallback(mocker):
     spy.assert_not_called()
 
 
-@pytest.mark.parametrize("primary, fallback", [("cli", "ollama"), ("claude", "")])
+@pytest.mark.parametrize("primary, fallback", [("cli", "ollama"), ("claude", ""), ("cli", "cli")])
 def test_startup_refuses_an_unknown_backend_name(mocker, fake_redis, primary, fallback):
     """Le nom fautif doit faire échouer le déploiement, pas chaque tour de chaque conversation."""
     mocker.patch("web.runner.config.AGENT_BACKEND", primary)

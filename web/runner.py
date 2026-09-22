@@ -23,6 +23,7 @@ from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker, record_failure
 from lib.tool_taxonomy import classify_tool
 from web.catchup import build_catchup
+from web.engine_limits import limit_key
 
 from . import complexity, config, session_sync
 from .agents import get_agent
@@ -49,6 +50,16 @@ def schema_ready() -> bool:
 
 
 @dataclass
+class EngineTurn:
+    """Ce qu'un moteur reçoit pour un tour : sa session native et les tours d'autres moteurs qu'il a manqués."""
+
+    backend: str
+    session_id: str
+    history: list[dict]
+    question_id: int
+
+
+@dataclass
 class RunUsage:
     seen_ids: set[str] = field(default_factory=set)
     output_total: int = 0
@@ -67,9 +78,10 @@ class TaskRunner:
     async def startup(self):
         # Why: un nom de moteur invalide doit faire échouer le déploiement, pas chaque tour — sinon
         # la faute ne se révèle qu'au premier reroutage, en plein incident, conversation par conversation.
-        get_agent(config.AGENT_BACKEND)
-        if config.AGENT_FALLBACK_BACKEND:
-            get_agent(config.AGENT_FALLBACK_BACKEND)
+        if config.AGENT_FALLBACK_BACKEND == config.AGENT_BACKEND:
+            raise ValueError("AGENT_FALLBACK_BACKEND doit différer d'AGENT_BACKEND")
+        for name in engines():
+            get_agent(name)
         r = await get_redis()
         await self._recover_stuck(r)
         self._consumer_task = asyncio.create_task(self._consumer_loop())
@@ -131,10 +143,7 @@ class TaskRunner:
         return True
 
     async def _cancel_all_backends(self, conv_id: str) -> None:
-        names = {config.AGENT_BACKEND}
-        if config.AGENT_FALLBACK_BACKEND:
-            names.add(config.AGENT_FALLBACK_BACKEND)
-        for name in names:
+        for name in engines():
             await get_agent(name).cancel(conv_id)
 
     async def notify(self, conv_id: str):
@@ -184,24 +193,11 @@ class TaskRunner:
                 if not conv or not conv.needs_response:
                     continue
                 await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
-                backend_name = await pick_backend()
-                state = await asyncio.to_thread(store.get_engine_state, conv_id, backend_name)
-                sid = state["session_id"] or payload.get("session_id")
-                if sid:
-                    await asyncio.to_thread(session_sync.download_session, sid)
-                history = history_for_turn(conv_id, sid, payload["history"], state["seen_through"])
+                turn = await asyncio.to_thread(prepare_turn, conv_id, await pick_backend())
                 # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
                 trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
                 task = asyncio.create_task(
-                    self._run_agent(
-                        conv_id,
-                        payload["prompt"],
-                        history,
-                        payload.get("user_email"),
-                        trace_headers,
-                        sid,
-                        backend_name,
-                    )
+                    self._run_agent(conv_id, payload["prompt"], payload.get("user_email"), trace_headers, turn)
                 )
                 self._running[conv_id] = task
             except Exception:
@@ -351,55 +347,34 @@ class TaskRunner:
         self,
         conversation_id: str,
         prompt: str,
-        history: list[dict],
         user_email: str | None,
         trace_headers: dict | None,
-        session_id: str | None,
-        backend_name: str,
+        turn: EngineTurn,
     ):
         fallback = config.AGENT_FALLBACK_BACKEND
-        may_reroute = bool(fallback) and backend_name != fallback
 
         try:
+            may_reroute = bool(fallback) and turn.backend != fallback and not await is_limited(fallback)
             limit_reset, limit_message = await self._stream_turn(
-                conversation_id,
-                prompt,
-                history,
-                user_email,
-                trace_headers,
-                session_id,
-                backend_name,
-                release=not may_reroute,
+                conversation_id, prompt, user_email, trace_headers, turn, release=not may_reroute
             )
 
             if limit_reset is None or not may_reroute:
                 return
 
             try:
-                await mark_backend_limited(backend_name, limit_reset)
                 # Why: un reroutage est un événement d'exploitation, pas une trace de debug — c'est
                 # le seul signal qui dit à l'opérateur combien de conversations partent au secours.
                 logger.warning(
                     "agent.backend.rerouted",
                     extra={
                         "session.id": conversation_id,
-                        "agent.backend_from": backend_name,
+                        "agent.backend_from": turn.backend,
                         "agent.backend_to": fallback,
                         "agent.limit_reset": limit_reset,
                     },
                 )
-                state = await asyncio.to_thread(store.get_engine_state, conversation_id, fallback)
-                fallback_sid = state["session_id"] or str(uuid.uuid4())
-                if state["session_id"]:
-                    await asyncio.to_thread(session_sync.download_session, fallback_sid)
-                fallback_history = await asyncio.to_thread(
-                    history_for_turn,
-                    conversation_id,
-                    fallback_sid,
-                    history,
-                    state["seen_through"],
-                    not state["session_id"],
-                )
+                fallback_turn = await asyncio.to_thread(prepare_turn, conversation_id, fallback)
             except Exception:
                 # Why: la première passe a délibérément gardé la conversation ouverte pour le rejeu.
                 # Sans ce filet elle resterait bloquée jusqu'au redémarrage du worker : le heartbeat
@@ -414,16 +389,7 @@ class TaskRunner:
             if not self._owns_conversation(conversation_id):
                 return
 
-            await self._stream_turn(
-                conversation_id,
-                prompt,
-                fallback_history,
-                user_email,
-                trace_headers,
-                fallback_sid,
-                fallback,
-                release=True,
-            )
+            await self._stream_turn(conversation_id, prompt, user_email, trace_headers, fallback_turn, release=True)
         except Exception:
             # Why: une exception hors du finally de _stream_turn (nom de moteur inconnu, par exemple)
             # laisserait la conversation dans _running : le heartbeat rafraîchirait sa clé running:
@@ -436,14 +402,12 @@ class TaskRunner:
         self,
         conversation_id: str,
         prompt: str,
-        history: list[dict],
         user_email: str | None,
         trace_headers: dict | None,
-        session_id: str | None,
-        backend_name: str,
+        turn: EngineTurn,
         release: bool,
     ) -> tuple[str | None, str | None]:
-        backend = get_agent(backend_name)
+        backend = get_agent(turn.backend)
         parent_ctx = extract_trace_context(trace_headers or {})
 
         my_task = asyncio.current_task()
@@ -453,7 +417,6 @@ class TaskRunner:
         assistant_text_parts: list[str] = []
         assistant_msg_id: int | None = None
         all_assistant_texts: list[str] = []
-        last_message_id: int | None = None
         tool_spans = SpanStack()
         tool_call_count = 0
         tool_active_name: str | None = None
@@ -483,19 +446,19 @@ class TaskRunner:
         with tracer.start_as_current_span(
             "agent.run",
             context=parent_ctx,
-            attributes={"conversation_id": conversation_id, "agent_backend": backend_name},
+            attributes={"conversation_id": conversation_id, "agent_backend": turn.backend},
         ) as span:
             if user_email:
                 set_user_context(user_email)
-            sentry_sdk.set_tag("agent_backend", backend_name)
+            sentry_sdk.set_tag("agent_backend", turn.backend)
             conv_token = set_conversation_id(conversation_id)
 
             try:
                 async for event in backend.send_message(
                     conversation_id=conversation_id,
                     message=prompt,
-                    history=history,
-                    session_id=session_id,
+                    history=turn.history,
+                    session_id=turn.session_id,
                     user_email=user_email,
                 ):
                     if event.type == "assistant":
@@ -505,10 +468,9 @@ class TaskRunner:
                         if assistant_msg_id is None:
                             msg = store.add_message(conversation_id, "assistant", full_text)
                             assistant_msg_id = msg.id if msg else None
-                            last_message_id = msg.id if msg else last_message_id
                         else:
                             store.update_message(assistant_msg_id, full_text)
-                        _record_usage(conversation_id, event.raw, run_usage, backend_name)
+                        _record_usage(conversation_id, event.raw, run_usage, turn.backend)
                         await self.notify(conversation_id)
 
                     elif event.type in ("tool_use", "tool_result"):
@@ -552,9 +514,7 @@ class TaskRunner:
                             _close_tool_log()
                             tool_spans.pop()
                         content = _serialize_tool_event(event, conversation_id, user_email)
-                        stored = store.add_message(conversation_id, event.type, content)
-                        if stored:
-                            last_message_id = stored.id
+                        store.add_message(conversation_id, event.type, content)
                         await self.notify(conversation_id)
 
                     elif event.type == "system":
@@ -564,18 +524,21 @@ class TaskRunner:
                             store.add_message(conversation_id, "system", json.dumps(event.raw))
                             await self.notify(conversation_id)
                         if event.raw.get("type") == "result" and event.raw.get("usage"):
-                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage, backend_name)
+                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage, turn.backend)
 
                     elif event.type == "limit":
                         limit_reset = event.raw.get("reset")
                         limit_message = str(event.content)
                         agent_status = "error"
+                        # Why: la clé est posée même sans secours — elle épargne aux titres et tags
+                        # la série de retries d'un moteur épuisé.
+                        await mark_backend_limited(turn.backend, limit_reset)
                         # Why: l'alerte est déjà dédupliquée par fenêtre de reprise, et en régime
                         # nominal toutes les conversations sont reroutées — la garder sous `release`
                         # revient à ne jamais prévenir que le moteur primaire est épuisé.
                         await self._alert_usage_limit_once(limit_reset)
                         if release:
-                            store.add_message(conversation_id, "limit", limit_message)
+                            store.add_message(conversation_id, "limit", limit_notice(limit_message, limit_reset))
                             await self.notify(conversation_id)
 
                     elif event.type == "error":
@@ -617,13 +580,15 @@ class TaskRunner:
                 # means cancel already took ownership, or a direct call with no consumer slot).
                 slot = self._running.get(conversation_id)
                 if slot is my_task or slot is None:
-                    if agent_status == "ok" and last_message_id is not None:
-                        store.set_engine_state(
-                            conversation_id,
-                            backend_name,
-                            session_id=session_id,
-                            seen_through=last_message_id,
-                        )
+                    # Why: la session du moteur contient la question du tour, quelle que soit l'issue. Sur une
+                    # limite, la réponse viendra d'un autre moteur : le repère s'arrête juste avant la
+                    # question pour que le prochain rattrapage reparte d'elle.
+                    store.set_engine_state(
+                        conversation_id,
+                        turn.backend,
+                        session_id=turn.session_id,
+                        seen_through=turn.question_id if limit_reset is None else turn.question_id - 1,
+                    )
                     # Why: quand un rejeu suit, libérer ici fermerait le flux SSE avant que le
                     # moteur de secours ait répondu — seule la passe que personne ne reprend libère.
                     if release or limit_reset is None:
@@ -759,8 +724,14 @@ def _persist_failure(conv_id: str, title: str, marker: str, snippet: str, url: s
         logger.exception("Échec de la journalisation de l'erreur détectée pour %s", conv_id)
 
 
-def limit_key(backend: str) -> str:
-    return f"{PREFIX}:limit:{backend}"
+def engines() -> list[str]:
+    """Moteur primaire, puis moteur de secours s'il est configuré."""
+    return [config.AGENT_BACKEND, *filter(None, [config.AGENT_FALLBACK_BACKEND])]
+
+
+async def is_limited(backend: str) -> bool:
+    r = await get_redis()
+    return bool(await r.exists(limit_key(backend)))
 
 
 async def mark_backend_limited(backend: str, reset_iso: str | None) -> None:
@@ -772,66 +743,61 @@ async def mark_backend_limited(backend: str, reset_iso: str | None) -> None:
 
 
 async def pick_backend() -> str:
-    """Moteur à utiliser pour le prochain tour."""
-    primary = config.AGENT_BACKEND
-    if not config.AGENT_FALLBACK_BACKEND:
-        return primary
-    r = await get_redis()
-    if await r.exists(limit_key(primary)):
-        return config.AGENT_FALLBACK_BACKEND
+    """Moteur à utiliser pour le prochain tour : le secours seulement si le primaire est limité et lui non."""
+    primary, *fallback = engines()
+    if fallback and await is_limited(primary) and not await is_limited(fallback[0]):
+        return fallback[0]
     return primary
 
 
-def history_for_turn(
-    conv_id: str,
-    session_id: str | None,
-    default_history: list[dict],
-    seen_through: int | None = None,
-    session_is_new: bool = False,
-) -> list[dict]:
-    """Ce que le moteur doit rattraper : rien, l'intermède de l'autre moteur, ou tout le transcript."""
-    if not session_id:
-        return default_history
+def limit_notice(limit_message: str, reset_iso: str | None) -> str:
+    """Message de limite montré à l'utilisateur : celui du moteur, ou le constat que tous sont épuisés."""
+    if not config.AGENT_FALLBACK_BACKEND or not reset_iso:
+        return limit_message
+    resume = format_future_date(datetime.fromisoformat(reset_iso))
+    return (
+        "Le modèle principal et le modèle de secours ont tous deux atteint leur limite d'utilisation. "
+        f"L'accès sera rétabli {resume} (heure de Paris). Merci de patienter jusque-là avant de relancer votre demande."
+    )
 
-    session_present = session_sync.get_session_path(session_id).exists()
 
-    if session_present and seen_through is None:
-        return []
+def prepare_turn(conv_id: str, backend: str) -> EngineTurn:
+    """Session native du moteur et rattrapage des tours qu'il n'a pas vus, jusqu'à la question du tour."""
+    state = store.get_engine_state(conv_id, backend)
+    session_id = state["session_id"] or str(uuid.uuid4())
+    if state["session_id"]:
+        session_sync.download_session(session_id)
+    resumable = session_sync.get_session_path(session_id).exists()
+    seen = state["seen_through"] if resumable else None
+    messages = store.get_messages_since(conv_id, seen or 0)
+    questions = [m.id for m in messages if m.type == "user"]
 
-    conv = store.get_conversation(conv_id, include_messages=True)
-    if not conv:
-        return default_history
+    # Why: une session d'avant le multi-moteurs n'a pas de repère mais contient déjà tout le transcript.
+    if resumable and seen is None:
+        return EngineTurn(backend, session_id, [], questions[-1])
 
-    if session_present:
-        missed = sorted((m for m in conv.messages if m.id and m.id > seen_through), key=lambda m: m.id)
-        # Why: le message utilisateur du tour est déjà stocké quand le tour est soumis — sans ça il
-        # serait rendu dans le rattrapage *et* ajouté comme prompt, donc posé deux fois.
-        if missed and missed[-1].type == "user":
-            missed = missed[:-1]
-        return build_catchup(missed)
-
-    if not session_is_new:
+    if state["session_id"] and not resumable:
         logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
         sentry_sdk.capture_message(
             f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
         )
-    msgs = [m for m in conv.messages if m.type in ("user", "assistant")]
-    if msgs and msgs[-1].type == "user":
-        msgs = msgs[:-1]
-    # Why: amorcer une session sans repère envoie tout le transcript au moteur — donc à un tiers
-    # quand c'est le secours. Les mêmes plafonds que le rattrapage bornent cet égress, et sa taille
-    # est tracée parce que c'est le seul endroit où une conversation entière quitte le service.
-    history = build_catchup(msgs)
-    logger.warning(
-        "agent.session.bootstrap",
-        extra={
-            "session.id": conv_id,
-            "agent.session_new": session_is_new,
-            "agent.bootstrap_messages": len(history),
-            "agent.bootstrap_chars": sum(len(h["content"]) for h in history),
-        },
-    )
-    return history
+
+    # Why: ce qui suit la dernière question vue (sa réponse, « Interrompu », les alertes) est déjà dans la
+    # session ou n'est que du bruit — le rattrapage part de la question suivante, et s'arrête avant celle
+    # du tour, qui arrive comme prompt.
+    history = build_catchup([m for m in messages if questions[0] <= m.id < questions[-1]])
+    if history and not resumable:
+        # Why: amorcer une session envoie le transcript au moteur — donc à un tiers quand c'est le secours.
+        # Les plafonds du rattrapage bornent cet égress, et sa taille est tracée.
+        logger.warning(
+            "agent.session.bootstrap",
+            extra={
+                "session.id": conv_id,
+                "agent.bootstrap_messages": len(history),
+                "agent.bootstrap_chars": sum(len(h["content"]) for h in history),
+            },
+        )
+    return EngineTurn(backend, session_id, history, questions[-1])
 
 
 runner = TaskRunner()

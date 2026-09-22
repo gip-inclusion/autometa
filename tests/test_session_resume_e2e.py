@@ -64,6 +64,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
 
     mock_sync = mocker.patch("web.runner.session_sync")
     mock_sync.download_session = mocker.MagicMock(side_effect=sync_funcs["download_session"])
+    mock_sync.get_session_path = mocker.MagicMock(side_effect=sync_funcs["get_session_path"])
 
     mock_cli_sync = mocker.patch("web.agents.cli.session_sync")
     mock_cli_sync.upload_session = mocker.MagicMock(side_effect=sync_funcs["upload_session"])
@@ -100,10 +101,17 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
     mock_conv = mocker.MagicMock()
     mock_conv.needs_response = True
     mock_store.get_conversation.return_value = mock_conv
-    mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
+    # Why: la session du moteur primaire vient de conversations.session_id, que la route pose avant submit.
+    sessions = {}
+    mock_store.get_engine_state.side_effect = lambda conv_id, backend: {
+        "session_id": sessions.get(conv_id),
+        "seen_through": None,
+    }
+    mock_store.get_messages_since.return_value = [mocker.Mock(id=1, type="user")]
 
     runner = TaskRunner()
     runner._calls = calls
+    runner._sessions = sessions
     return runner
 
 
@@ -119,6 +127,8 @@ async def _run_consumer_cycle(runner, fake_redis, wait=0.5):
 def test_single_conversation_two_turns(runner_with_sessions, fake_redis, session_store):
     runner = runner_with_sessions
     session_id = "sess-conv1"
+
+    runner._sessions["conv1"] = session_id
 
     async def _run():
         await runner.submit("conv1", "What is IAE?", [], session_id=session_id)
@@ -145,6 +155,8 @@ def test_single_conversation_two_turns(runner_with_sessions, fake_redis, session
 def test_two_parallel_conversations(runner_with_sessions, fake_redis, session_store):
     runner = runner_with_sessions
 
+    runner._sessions.update({"conv-a": "sess-a", "conv-b": "sess-b"})
+
     async def _run():
         await runner.submit("conv-a", "Question A", [], session_id="sess-a")
         await runner.submit("conv-b", "Question B", [], session_id="sess-b")
@@ -169,6 +181,7 @@ def test_session_download_called_before_agent(runner_with_sessions, fake_redis, 
     session_id = "sess-existing"
     session_store[f"{session_id}.jsonl"] = b'{"type":"existing"}\n'
 
+    runner._sessions["conv1"] = session_id
     download_spy = mocker.patch("web.runner.session_sync").download_session
 
     async def _run():

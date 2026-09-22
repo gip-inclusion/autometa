@@ -1,14 +1,13 @@
-"""Le repère par moteur n'avance que sur un tour complet."""
+"""Le repère par moteur : la question du tour, ou juste avant elle quand la limite a coupé le tour."""
 
 import asyncio
-import itertools
 
 import fakeredis.aioredis
 import pytest
 
 from web import runner
 from web.agents.base import AgentMessage
-from web.runner import TaskRunner
+from web.runner import EngineTurn, TaskRunner
 
 
 def _stream(*msgs):
@@ -30,42 +29,62 @@ def _make(mocker, fake_redis, *events):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner._check_failure")
+    mocker.patch.object(TaskRunner, "_alert_usage_limit_once", new=mocker.AsyncMock())
     mocker.patch.object(runner.store, "update_conversation")
     mocker.patch.object(runner.store, "get_conversation", return_value=None)
-    # Why: des ids croissants distinguent le message qui alimente le repère de tous les autres —
-    # un id figé laisserait passer un repère nourri par la branche `system` ou `limit`.
-    mocker.patch.object(runner.store, "add_message", side_effect=(mocker.Mock(id=i) for i in itertools.count(10)))
+    mocker.patch.object(runner.store, "add_message", return_value=mocker.Mock(id=99))
     backend = mocker.MagicMock()
     backend.send_message = _stream(*events)
     mocker.patch("web.runner.get_agent", return_value=backend)
     return TaskRunner()
 
 
-def test_marker_advances_to_the_last_message_of_the_turn(mocker, fake_redis):
-    """Le repère suit le dernier message du transcript — pas le dernier `add_message` : un
-    événement `system` est stocké mais ne fait pas partie de ce que le moteur a vu."""
-    set_state = mocker.patch.object(runner.store, "set_engine_state")
-    r = _make(
-        mocker,
-        fake_redis,
-        AgentMessage(type="assistant", content="un"),
-        AgentMessage(type="tool_use", content={"tool": "Read", "input": {}}),
-        AgentMessage(type="tool_result", content={"output": "ok"}),
-        AgentMessage(type="assistant", content="deux"),
+@pytest.mark.parametrize(
+    "event",
+    [
+        AgentMessage(type="assistant", content="réponse"),
+        AgentMessage(type="error", content="boum"),
         AgentMessage(type="system", content="retry", raw={"subtype": "api_retry"}),
-    )
-
-    asyncio.run(r._run_agent("c1", "p", [], None, None, "sess-1", "cli"))
-
-    set_state.assert_called_once_with("c1", "cli", session_id="sess-1", seen_through=13)
-
-
-def test_marker_does_not_advance_when_the_turn_hits_a_limit(mocker, fake_redis):
+    ],
+)
+def test_the_marker_moves_to_the_question_whatever_the_outcome(mocker, fake_redis, event):
+    """B2 : la session du moteur contient la question dès qu'il l'a reçue — réussite, erreur ou
+    annulation, le prochain rattrapage ne doit pas la lui renvoyer."""
     set_state = mocker.patch.object(runner.store, "set_engine_state")
-    progress = AgentMessage(type="assistant", content="en cours")
-    limit = AgentMessage(type="limit", content="limite", raw={"reset": None})
-    r = _make(mocker, fake_redis, progress, limit)
+    r = _make(mocker, fake_redis, event)
 
-    asyncio.run(r._run_agent("c1", "p", [], None, None, "sess-1", "cli"))
+    asyncio.run(r._run_agent("c1", "p", None, None, EngineTurn("cli", "sess-1", [], 7)))
 
-    set_state.assert_not_called()
+    set_state.assert_called_once_with("c1", "cli", session_id="sess-1", seen_through=7)
+
+
+def test_a_limited_turn_stops_the_marker_just_before_its_question(mocker, fake_redis):
+    """B4 : même au tout premier tour, le primaire coupé par la limite garde un repère — à son retour
+    il rattrape la question et tout ce que le secours a répondu depuis."""
+    set_state = mocker.patch.object(runner.store, "set_engine_state")
+    mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
+    limit = AgentMessage(type="limit", content="limite", raw={"reset": "2026-09-08T20:00:00+00:00"})
+    r = _make(mocker, fake_redis, AgentMessage(type="assistant", content="en cours"), limit)
+
+    asyncio.run(r._run_agent("c1", "p", None, None, EngineTurn("cli", "sess-1", [], 7)))
+
+    set_state.assert_called_once_with("c1", "cli", session_id="sess-1", seen_through=6)
+
+
+def test_a_primary_back_from_its_limit_catches_up_on_the_fallback_turns(mocker):
+    """B4 de bout en bout : repère posé par la limite, puis rattrapage calculé à partir de lui."""
+    messages = [
+        mocker.Mock(id=7, type="user", content="Q1"),
+        mocker.Mock(id=8, type="assistant", content="R1 du secours"),
+        mocker.Mock(id=9, type="user", content="Q2"),
+    ]
+    mocker.patch.object(runner.store, "get_engine_state", return_value={"session_id": "sess-1", "seen_through": 6})
+    mocker.patch.object(
+        runner.store, "get_messages_since", side_effect=lambda c, after: [m for m in messages if m.id > after]
+    )
+    mocker.patch.object(runner.session_sync, "download_session")
+    mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: True))
+
+    turn = runner.prepare_turn("c1", "cli")
+
+    assert [e["content"] for e in turn.history] == ["Q1", "R1 du secours"]

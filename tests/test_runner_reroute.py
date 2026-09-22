@@ -1,14 +1,13 @@
 """Un tour coupé par la limite d'usage est rejoué une fois sur le moteur de secours."""
 
 import asyncio
-import uuid
 
 import fakeredis.aioredis
 import pytest
 
 from web import runner
 from web.agents.base import AgentMessage
-from web.runner import TaskRunner
+from web.runner import EngineTurn, TaskRunner
 
 RESET = "2026-09-08T20:00:00+00:00"
 
@@ -16,6 +15,10 @@ RESET = "2026-09-08T20:00:00+00:00"
 def _limit():
     # Why: _stream_turn vide event.raw après traitement — chaque test a besoin du sien.
     return AgentMessage(type="limit", content="limite", raw={"reset": RESET})
+
+
+def _turn(backend, session_id, question_id=3):
+    return EngineTurn(backend, session_id, [], question_id)
 
 
 def _stream(*msgs):
@@ -66,12 +69,12 @@ def _isolate(mocker, fake_redis):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner._check_failure")
-    mocker.patch("web.runner.history_for_turn", return_value=[])
+    mocker.patch("web.runner.prepare_turn", return_value=_turn("cli-ollama", "s2"))
     mocker.patch.object(runner.store, "update_conversation")
     mocker.patch.object(runner.store, "get_conversation", return_value=None)
     mocker.patch.object(runner.store, "add_message", return_value=mocker.Mock(id=1))
     mocker.patch.object(runner.store, "set_engine_state")
-    mocker.patch.object(runner.store, "get_engine_state", return_value={"session_id": "s2", "seen_through": 3})
+    mocker.patch.object(TaskRunner, "_alert_usage_limit_once", new=mocker.AsyncMock())
 
 
 def test_limit_reroutes_once_to_the_fallback(mocker):
@@ -84,23 +87,23 @@ def test_limit_reroutes_once_to_the_fallback(mocker):
         ],
     )
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     marked.assert_awaited_once_with("cli", RESET)
     assert [c.args[0] for c in agents.call_args_list] == ["cli", "cli-ollama"]
 
 
-def test_the_replay_resumes_the_fallback_session_and_its_catch_up(mocker):
+def test_the_replay_runs_the_turn_prepared_for_the_fallback(mocker):
+    """B1 : le rejeu passe par le même calcul de session que la boucle consumer, pour le secours."""
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     catchup = [{"role": "user", "content": "rattrapage"}]
-    mocker.patch("web.runner.history_for_turn", return_value=catchup)
+    mocker.patch("web.runner.prepare_turn", return_value=EngineTurn("cli-ollama", "s2", catchup, 3))
     sent = {}
     mocker.patch("web.runner.get_agent", side_effect=[_backend(mocker, _limit()), _recording_backend(mocker, sent)])
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
-    runner.history_for_turn.assert_called_once_with("c1", "s2", [], 3, False)
-    runner.session_sync.download_session.assert_called_once_with("s2")
+    runner.prepare_turn.assert_called_once_with("c1", "cli-ollama")
     assert sent["session_id"] == "s2"
     assert sent["history"] == catchup
 
@@ -109,7 +112,7 @@ def test_no_second_reroute_when_the_fallback_also_hits_a_limit(mocker):
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     agents = mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s2", "cli-ollama")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli-ollama", "s2"))
 
     assert agents.call_count == 1
 
@@ -119,19 +122,58 @@ def test_no_reroute_without_a_fallback_configured(mocker):
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     agents = mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     assert agents.call_count == 1
 
 
-@pytest.mark.parametrize("fallback,session_id,backend", [("", "s1", "cli"), ("cli-ollama", "s2", "cli-ollama")])
-def test_limit_message_is_written_when_no_reroute_happens(mocker, fallback, session_id, backend):
-    mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", fallback)
+def _limit_notices():
+    return [c.args[2] for c in runner.store.add_message.call_args_list if c.args[1] == "limit"]
+
+
+def test_without_fallback_the_engines_own_limit_message_is_shown(mocker):
+    mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", "")
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
 
-    _play(TaskRunner(), "c1", "p", [], None, None, session_id, backend)
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
-    assert any(c.args[1] == "limit" for c in runner.store.add_message.call_args_list)
+    assert _limit_notices() == ["limite"]
+
+
+def test_a_limited_fallback_ends_on_the_all_engines_limit_message(mocker):
+    """Claude, puis le secours, puis le constat qu'il n'y a plus de crédit nulle part."""
+    mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
+
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli-ollama", "s2"))
+
+    assert len(_limit_notices()) == 1
+    assert "modèle de secours" in _limit_notices()[0]
+
+
+def test_no_reroute_to_a_fallback_that_is_itself_limited(mocker, fake_redis):
+    agents = mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
+
+    async def _go():
+        await fake_redis.set(runner.limit_key("cli-ollama"), "1")
+        r = TaskRunner()
+        r._running["c1"] = asyncio.current_task()
+        await r._run_agent("c1", "p", None, None, _turn("cli", "s1"))
+
+    asyncio.run(_go())
+
+    assert agents.call_count == 1
+    assert "modèle de secours" in _limit_notices()[0]
+
+
+def test_every_limit_is_recorded_even_without_fallback(mocker):
+    """B7 : la clé protège aussi les titres et tags — sans elle, le garde-fou de web.llm reste muet."""
+    mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", "")
+    marked = mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
+    mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
+
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
+
+    marked.assert_awaited_once_with("cli", RESET)
 
 
 def test_no_limit_message_when_the_fallback_takes_over(mocker):
@@ -143,7 +185,7 @@ def test_no_limit_message_when_the_fallback_takes_over(mocker):
         side_effect=[_backend(mocker, _limit()), _backend(mocker, AgentMessage(type="assistant", content="repris"))],
     )
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     assert not any(c.args[1] == "limit" for c in runner.store.add_message.call_args_list)
 
@@ -153,7 +195,7 @@ def test_a_turn_routed_straight_to_the_fallback_stays_silent_too(mocker):
     Ces tours-là non plus ne signalent rien à l'utilisateur."""
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, AgentMessage(type="assistant", content="ok")))
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s2", "cli-ollama")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli-ollama", "s2"))
 
     assert not any(c.args[1] == "limit" for c in runner.store.add_message.call_args_list)
 
@@ -168,7 +210,7 @@ def test_each_reroute_is_journalised_for_the_operator(mocker):
     )
     warn = mocker.patch.object(runner.logger, "warning")
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     logged = [c for c in warn.call_args_list if c.args[0] == "agent.backend.rerouted"]
     assert len(logged) == 1
@@ -194,7 +236,7 @@ def test_the_conversation_stays_open_until_the_fallback_answers(mocker):
     second.send_message = fallback_stream
     mocker.patch("web.runner.get_agent", side_effect=[_backend(mocker, _limit()), second])
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     assert observed == {"done": 0, "released": 0}
     done.assert_awaited_once_with("c1")
@@ -204,25 +246,9 @@ def test_the_conversation_stays_open_until_the_fallback_answers(mocker):
 def test_a_successful_first_pass_still_advances_its_marker(mocker):
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, AgentMessage(type="assistant", content="ok")))
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
-    runner.store.set_engine_state.assert_called_once_with("c1", "cli", session_id="s1", seen_through=1)
-
-
-def test_the_first_replay_mints_a_session_and_replays_the_whole_transcript(mocker):
-    mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
-    mocker.patch.object(runner.store, "get_engine_state", return_value={"session_id": None, "seen_through": None})
-    transcript = [{"role": "user", "content": "tout"}]
-    mocker.patch("web.runner.history_for_turn", return_value=transcript)
-    sent = {}
-    mocker.patch("web.runner.get_agent", side_effect=[_backend(mocker, _limit()), _recording_backend(mocker, sent)])
-
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
-
-    runner.session_sync.download_session.assert_not_called()
-    assert uuid.UUID(sent["session_id"])
-    runner.history_for_turn.assert_called_once_with("c1", sent["session_id"], [], None, True)
-    assert sent["history"] == transcript
+    runner.store.set_engine_state.assert_called_once_with("c1", "cli", session_id="s1", seen_through=3)
 
 
 def test_the_usage_limit_alert_fires_even_when_the_fallback_takes_over(mocker):
@@ -235,7 +261,7 @@ def test_the_usage_limit_alert_fires_even_when_the_fallback_takes_over(mocker):
         side_effect=[_backend(mocker, _limit()), _backend(mocker, AgentMessage(type="assistant", content="repris"))],
     )
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     alert.assert_awaited_once_with(RESET)
 
@@ -255,7 +281,7 @@ def test_a_cancel_during_the_replay_window_stops_the_replay(mocker, fake_redis):
 
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock(side_effect=cancel_now))
 
-    _play(r, "c1", "p", [], None, None, "s1", "cli")
+    _play(r, "c1", "p", None, None, _turn("cli", "s1"))
 
     assert sent == {}
 
@@ -269,7 +295,7 @@ def test_an_unresolvable_backend_frees_the_conversation(mocker, fake_redis):
     async def _run():
         r._running["c1"] = asyncio.current_task()
         await fake_redis.set(f"{runner.PREFIX}:running:c1", "w1")
-        await r._run_agent("c1", "p", [], None, None, "s1", "cli")
+        await r._run_agent("c1", "p", None, None, _turn("cli", "s1"))
         return await fake_redis.exists(f"{runner.PREFIX}:running:c1")
 
     assert asyncio.run(_run()) == 0
@@ -281,13 +307,13 @@ def test_a_failed_replay_setup_still_releases_the_conversation(mocker, fake_redi
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     done = mocker.patch.object(TaskRunner, "notify_done", new=mocker.AsyncMock())
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
-    mocker.patch.object(runner.store, "get_engine_state", side_effect=RuntimeError("boum"))
+    mocker.patch("web.runner.prepare_turn", side_effect=RuntimeError("boum"))
     r = TaskRunner()
 
     async def _run():
         r._running["c1"] = asyncio.current_task()
         await fake_redis.set(f"{runner.PREFIX}:running:c1", "w1")
-        await r._run_agent("c1", "p", [], None, None, "s1", "cli")
+        await r._run_agent("c1", "p", None, None, _turn("cli", "s1"))
         return await fake_redis.exists(f"{runner.PREFIX}:running:c1")
 
     assert asyncio.run(_run()) == 0
@@ -300,13 +326,13 @@ def test_a_failed_replay_setup_still_releases_the_conversation(mocker, fake_redi
 def test_a_failing_recovery_still_hands_the_conversation_back_to_the_sweep(mocker):
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
-    mocker.patch.object(runner.store, "get_engine_state", side_effect=RuntimeError("postgres down"))
+    mocker.patch("web.runner.prepare_turn", side_effect=RuntimeError("postgres down"))
     mocker.patch.object(runner.store, "update_conversation", side_effect=RuntimeError("postgres down"))
     r = TaskRunner()
 
     async def _run():
         r._running["c1"] = asyncio.current_task()
-        await r._run_agent("c1", "p", [], None, None, "s1", "cli")
+        await r._run_agent("c1", "p", None, None, _turn("cli", "s1"))
 
     asyncio.run(_run())
 
@@ -320,11 +346,11 @@ def test_the_replay_is_abandoned_when_a_newer_run_takes_over(mocker):
 
     def take_over(*args):
         r._running["c1"] = mocker.Mock()
-        return {"session_id": "s2", "seen_through": 3}
+        return _turn("cli-ollama", "s2")
 
-    mocker.patch.object(runner.store, "get_engine_state", side_effect=take_over)
+    mocker.patch("web.runner.prepare_turn", side_effect=take_over)
 
-    _play(r, "c1", "p", [], None, None, "s1", "cli")
+    _play(r, "c1", "p", None, None, _turn("cli", "s1"))
 
     assert agents.call_count == 1
     runner.store.update_conversation.assert_not_called()
@@ -334,7 +360,7 @@ def test_a_successful_first_pass_still_releases_the_conversation(mocker):
     done = mocker.patch.object(TaskRunner, "notify_done", new=mocker.AsyncMock())
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, AgentMessage(type="assistant", content="ok")))
 
-    _play(TaskRunner(), "c1", "p", [], None, None, "s1", "cli")
+    _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     done.assert_awaited_once_with("c1")
     runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
