@@ -11,6 +11,8 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .data_inclusion import execute_sql as _di_execute_sql
+from .datadog import DatadogClient, by_count
+from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
@@ -289,6 +291,103 @@ def execute_dashboard_storage_query(
 
     # Why: SQLAlchemy/psycopg2 can raise a wide variety of errors; caller checks result.success.
     return _run_traced_query("dashboard_storage.query", attrs, _do)
+
+
+def failed(error: str) -> QueryResult:
+    return QueryResult(success=False, data=None, error=error)
+
+
+def _run_datadog(
+    span_name: str,
+    search: str,
+    caller: CallerType,
+    days: int,
+    window: Optional[tuple[str, str]],
+    timeout: int,
+    fn: Callable[[DatadogClient, str, str], Any],
+) -> QueryResult:
+    if not isinstance(search, str):
+        return failed(f"search doit être une chaîne, pas {type(search).__name__}")
+    attrs = {
+        "db.system": "datadog",
+        "caller": caller.value,
+        "datadog.window": str(window) if window else f"{days}d",
+        "db.statement.hash": _sql_hash(search),
+    }
+
+    def _do():
+        frm, to = window or rolling_window(days)
+        with DatadogClient(timeout=timeout) as client:
+            return fn(client, frm, to)
+
+    # Why: a 200 with an unexpected body raises KeyError/JSONDecodeError, not DatadogError; caller checks result.success.
+    return _run_traced_query(span_name, attrs, _do)
+
+
+def execute_datadog_query(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    group_by: Optional[list[str | dict]] = None,
+    compute: Optional[list[dict]] = None,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Aggregate Datadog logs over `window` or the last `days` days. Returns QueryResult, never raises."""
+
+    def aggregate(client: DatadogClient, frm: str, to: str) -> list[dict]:
+        facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+        return client.aggregate(search, frm, to, group_by=facets or None, compute=compute)
+
+    return _run_datadog(
+        "datadog.query", search=search, caller=caller, days=days, window=window, timeout=timeout, fn=aggregate
+    )
+
+
+def execute_datadog_count(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    distinct: Optional[str] = None,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Count Datadog log events, plus a facet's cardinality when `distinct` is given. Never raises."""
+    return _run_datadog(
+        "datadog.count",
+        search=search,
+        caller=caller,
+        days=days,
+        window=window,
+        timeout=timeout,
+        fn=lambda client, frm, to: client.count(search, frm, to, distinct=distinct),
+    )
+
+
+def execute_datadog_events(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    limit: int = 100,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Fetch up to `limit` raw Datadog log events of one service, newest first. Never raises."""
+    # Why: raw events carry PII (URLs, user ids, headers) and a dashboard may publish what it reads,
+    # so a sample is confined to a named service and bounded well under the cron time budget.
+    if isinstance(search, str) and "service:" not in search:
+        return failed("un échantillon d'événements exige un filtre service: dans search")
+    if limit > 10_000:
+        return failed(f"limit {limit} dépasse le plafond de 10000 événements")
+    return _run_datadog(
+        "datadog.events",
+        search=search,
+        caller=caller,
+        days=days,
+        window=window,
+        timeout=timeout,
+        fn=lambda client, frm, to: list(client.iter_events(search, frm, to, max_events=limit, sort="-timestamp")),
+    )
 
 
 def execute_query(

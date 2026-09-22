@@ -18,7 +18,8 @@ from lib.datadog import (
 
 
 def make_client(mocker, responses):
-    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    # Why: the shared limiter is per process and waits in real time; a zero window never throttles a test.
+    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test", limiter=RateLimiter(window=0))
     mocker.patch.object(client._session, "post", side_effect=responses)
     mocker.patch("lib.datadog.time.sleep")
     return client
@@ -41,6 +42,12 @@ def test_the_client_refuses_to_start_without_both_keys(mocker):
     mocker.patch.object(datadog.config, "DATADOG_APP_KEY", None)
     with pytest.raises(DatadogError, match="not set"):
         DatadogClient(api_key="factice", app_key=None, site="exemple.test")
+
+
+def test_clients_share_one_limiter_by_default():
+    build = lambda: DatadogClient(api_key="factice", app_key="factice", site="exemple.test")  # noqa: E731
+
+    assert build().limiter is build().limiter
 
 
 def test_the_limiter_lets_the_burst_through_then_holds(mocker):
@@ -144,3 +151,21 @@ def test_by_count_carries_the_measure_type_the_api_demands():
         "limit": 5,
         "sort": {"aggregation": "count", "order": "desc", "type": "measure"},
     }
+
+
+def test_iter_events_asks_only_for_the_events_it_will_keep(mocker):
+    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    post = mocker.patch.object(client, "_post", return_value={"data": [{"id": 1}], "meta": {}})
+
+    list(client.iter_events("q", "now-1d", "now", max_events=7, sort="-timestamp"))
+
+    assert post.call_args.args[1]["page"] == {"limit": 7}
+    assert post.call_args.args[1]["sort"] == "-timestamp"
+
+
+def test_iter_events_yields_nothing_for_a_zero_ceiling(mocker):
+    client = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    post = mocker.patch.object(client, "_post")
+
+    assert list(client.iter_events("q", "now-1d", "now", max_events=0)) == []
+    post.assert_not_called()

@@ -82,6 +82,36 @@ RESULT = QueryResult(success=True, data=[])
             {"sql": "SELECT 1", "timeout": 60},
         ),
         (
+            lambda: dashboard_api.query_datadog("service:dora status:error", 7, group_by=["@http.status_code"]),
+            "execute_datadog_query",
+            {
+                "search": "service:dora status:error",
+                "days": 7,
+                "group_by": ["@http.status_code"],
+                "compute": None,
+                "window": None,
+                "timeout": 60,
+            },
+        ),
+        (
+            lambda: dashboard_api.count_datadog(
+                "service:dora", distinct="@usr.id", window=("2026-08-01", "2026-09-01")
+            ),
+            "execute_datadog_count",
+            {
+                "search": "service:dora",
+                "days": 7,
+                "distinct": "@usr.id",
+                "window": ("2026-08-01", "2026-09-01"),
+                "timeout": 60,
+            },
+        ),
+        (
+            lambda: dashboard_api.sample_datadog("service:dora status:error", 3, limit=20),
+            "execute_datadog_events",
+            {"search": "service:dora status:error", "days": 3, "limit": 20, "window": None, "timeout": 60},
+        ),
+        (
             lambda: dashboard_api.query_autometa_tables("SELECT 1"),
             "execute_autometa_tables_query",
             {"sql": "SELECT 1", "timeout": 60},
@@ -99,3 +129,27 @@ def test_query_delegates_as_an_app_caller(mocker, call, delegate, expected):
     spy = mocker.patch(f"lib.query.{delegate}", autospec=True, return_value=RESULT)
     assert call() is RESULT
     assert spy.call_args.kwargs == {**expected, "caller": CallerType.APP}
+
+
+def test_by_count_is_re_exported_unchanged():
+    from lib.datadog import by_count
+
+    assert dashboard_api.by_count is by_count
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: dashboard_api.query_datadog(None),
+        lambda: dashboard_api.query_datadog("service:x", group_by=5),
+        lambda: dashboard_api.count_datadog("service:x", window="hier"),
+        lambda: dashboard_api.sample_datadog("service:x", window=("2026-09-01",)),
+    ],
+)
+def test_datadog_functions_turn_a_bad_argument_into_a_failed_result(mocker, call):
+    mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    result = call()
+
+    assert result.success is False
+    assert result.error
