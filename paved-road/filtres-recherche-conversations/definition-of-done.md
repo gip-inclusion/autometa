@@ -55,9 +55,10 @@ repli »] Quand je tape des mots dans la barre de recherche, je retrouve les con
 le contenu correspond au sens de ma recherche, même si les mots exacts ne figurent pas dans le
 titre, les plus proches d'abord.
 
-DOD-10 — [décision « repli »] Si la recherche par le sens ne trouve rien de pertinent, je
-récupère quand même les conversations qui contiennent mes mots exacts, plutôt qu'une liste
-vide.
+DOD-10 — [décision « repli »] [Révision 2026-09-23 : les mots exacts ne sont plus un simple
+repli, ils remontent toujours] Les conversations qui contiennent mes mots exacts (dans le titre
+ou un message) remontent toujours en tête des résultats, complétées par les plus proches par le
+sens — même quand la recherche par le sens a déjà trouvé d'autres conversations.
 
 DOD-11 — [du brief : « rend ça le plus simple possible »] Ma recherche par mots et mes filtres
 de catégories agissent ensemble : les résultats respectent à la fois le sens de ma recherche et
