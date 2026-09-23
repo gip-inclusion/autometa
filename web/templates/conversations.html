@@ -4,24 +4,20 @@
 
 {% block content %}
 <section class="section-content" id="section-rechercher">
-  <!-- Sticky section header with search -->
+  <!-- En-tête : titre, puis la recherche juste dessous ; les filtres suivent en tête du corps. -->
   <div class="section-header">
     <div class="container">
-      <div class="d-flex align-items-center gap-3">
-        <div class="me-auto">
-          <h1 class="mb-0">
-            <i class="ri-chat-3-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
-            Conversations
-          </h1>
-        </div>
-        <div class="accueil-search-wrapper">
-          <div class="accueil-search-input">
-            <i class="ri-search-line"></i>
-            <input type="text" id="rechercherSearchInput"
-                   placeholder="Rechercher..."
-                   autocomplete="off" value="{{ q }}"
-                   oninput="filterByText(this.value)">
-          </div>
+      <h1 class="mb-3">
+        <i class="ri-chat-3-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>
+        Conversations
+      </h1>
+      <div class="accueil-search-wrapper">
+        <div class="accueil-search-input">
+          <i class="ri-search-line"></i>
+          <input type="text" id="rechercherSearchInput"
+                 placeholder="Rechercher une conversation…"
+                 autocomplete="off" value="{{ q }}"
+                 oninput="filterByText(this.value)">
         </div>
       </div>
     </div>
