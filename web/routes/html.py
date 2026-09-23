@@ -302,11 +302,13 @@ def conversations(
     # Conversations
     if show_convos:
         if q:
-            ranked_ids = store.search_conversation_ids_by_embedding(
+            # Les mots exacts (titre ou message) remontent toujours en tête ; le sens complète
+            # avec les conversations proches qui n'emploient pas ces mots.
+            keyword_ids = store.search_conversation_ids_by_keyword(q, user_id=filter_user, limit=100)
+            semantic_ids = store.search_conversation_ids_by_embedding(
                 embed_query(q), user_id=filter_user, limit=100, max_distance=SEMANTIC_MAX_DISTANCE
             )
-            if not ranked_ids:
-                ranked_ids = store.search_conversation_ids_by_keyword(q, user_id=filter_user, limit=100)
+            ranked_ids = keyword_ids + [cid for cid in semantic_ids if cid not in keyword_ids]
             conversations_with_tags = store.list_ranked_conversations_with_tags(
                 ranked_ids, user_id=filter_user, tag_names=active_tags or None
             )

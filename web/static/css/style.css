@@ -1632,6 +1632,17 @@ body.has-sidebar {
   height: 100%;
 }
 
+/* Recherche sous le titre, en pleine largeur, et filtres collés juste dessous. */
+#section-rechercher .section-header .accueil-search-wrapper {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 720px;
+}
+
+#section-rechercher .section-body {
+  padding-top: 0;
+}
+
 .search-results {
   display: flex;
   flex-direction: column;

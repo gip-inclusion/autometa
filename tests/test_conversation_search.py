@@ -61,13 +61,15 @@ def test_dod_9_la_recherche_retrouve_par_le_sens(client, mocker):
     assert f"conv-{loin.id}" not in html
 
 
-def test_dod_10_repli_sur_les_mots_exacts_quand_le_sens_ne_trouve_rien(client, mocker):
-    conv = embedded_conversation("le conventionnement des employeurs", axis=1, title="Note zorglub")
-    mocker.patch("web.routes.html.embed_query", return_value=unit_vector(200))
+def test_dod_10_les_mots_exacts_remontent_toujours_meme_avec_des_resultats_par_le_sens(client, mocker):
+    titre = embedded_conversation("des structures et du conventionnement", axis=1, title="Tableau de bord emploi")
+    sens = embedded_conversation("les visites du portail", axis=0, title="Autre sujet")
+    mocker.patch("web.routes.html.embed_query", return_value=unit_vector(0))
 
-    html = client.get("/conversations?q=zorglub", headers=headers()).text
+    html = client.get("/conversations?q=emploi", headers=headers()).text
 
-    assert f"conv-{conv.id}" in html
+    assert f"conv-{titre.id}" in html
+    assert f"conv-{sens.id}" in html
 
 
 def test_dod_11_la_recherche_et_les_filtres_se_combinent(client, mocker):
