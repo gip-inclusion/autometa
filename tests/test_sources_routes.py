@@ -36,12 +36,12 @@ def test_pages_are_open_to_non_admins(client, path):
     "old,new",
     [
         ("/connaissances", "/knowledge"),
-        ("/connaissances/sites/emplois.md", "/knowledge/sites/emplois.md"),
+        ("/connaissances/sites/plateforme-ex-emplois.md", "/knowledge/sites/plateforme-ex-emplois.md"),
         # Fiche disparue : on retombe sur l'index plutôt que sur une page d'erreur.
         ("/connaissances/sources/disparue.md", "/knowledge"),
         ("/connaissances?section=sites", "/knowledge?section=sites"),
         # Ancien motif ?file= : la validation empêche une redirection ouverte.
-        ("/connaissances?file=sites/emplois.md", "/knowledge?file=sites/emplois.md"),
+        ("/connaissances?file=sites/plateforme-ex-emplois.md", "/knowledge?file=sites/plateforme-ex-emplois.md"),
     ],
 )
 def test_french_knowledge_urls_still_redirect(client, old, new):
@@ -63,7 +63,10 @@ HOSTILE_PATHS = [
 
 @pytest.mark.parametrize(
     "file,expected",
-    [("sites/emplois.md", "/knowledge/sites/emplois.md"), *[(p, "/knowledge") for p in HOSTILE_PATHS]],
+    [
+        ("sites/plateforme-ex-emplois.md", "/knowledge/sites/plateforme-ex-emplois.md"),
+        *[(p, "/knowledge") for p in HOSTILE_PATHS],
+    ],
 )
 def test_legacy_file_parameter_cannot_be_steered(client, file, expected):
     """L'ancien motif ?file= mène à une fiche ou à l'index, jamais ailleurs."""

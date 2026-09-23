@@ -7,7 +7,7 @@ def test_knowledge_listing_survives_a_hidden_parent_directory(tmp_path, monkeypa
     """Un dépôt qui vit sous un répertoire caché (worktree) ne doit pas vider la base de connaissances."""
     root = tmp_path / ".claude" / "worktrees" / "essai" / "knowledge"
     (root / "sites").mkdir(parents=True)
-    (root / "sites" / "emplois.md").write_text("# Emplois")
+    (root / "sites" / "plateforme-ex-emplois.md").write_text("# Plateforme de l'inclusion (ex-Emplois)")
     (root / ".cache").mkdir()
     (root / ".cache" / "ignore.md").write_text("# caché")
     monkeypatch.setattr(helpers, "KNOWLEDGE_ROOT", root)

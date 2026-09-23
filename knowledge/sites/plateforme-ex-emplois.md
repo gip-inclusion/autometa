@@ -1,11 +1,11 @@
-# Emplois
+# Plateforme de l'inclusion (ex-Emplois)
 
 - URL: https://plateforme.inclusion.gouv.fr (ancienne URL : https://emplois.inclusion.beta.gouv.fr)
 - Matomo site ID: 117
 - GitHub: https://github.com/gip-inclusion/les-emplois
-
-⚠️ Ne pas confondre avec le site **Plateforme** (ID Matomo 212, `inclusion.gouv.fr`, [plateforme.md](plateforme.md)) — le site vitrine institutionnel de la plateforme de l'inclusion : deux sites distincts malgré le nom proche.
 - Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
+
+⚠️ Ne pas confondre avec le **Site institutionnel** (ID Matomo 212, `inclusion.gouv.fr`, [site-institutionnel.md](site-institutionnel.md)) — le site vitrine de La plateforme de l'inclusion : deux sites distincts malgré le nom proche.
 
 ## Key Concepts: Two Dimensions of the IAE Workflow
 
