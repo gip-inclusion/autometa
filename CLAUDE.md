@@ -32,7 +32,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - **Prescripteurs** — Accompagnent les candidats. Les « prescripteurs habilités » peuvent réaliser des diagnostics et délivrer des pass.
 - **Employeurs** (SIAE) — Structures employant les titulaires de pass. Nécessitent un conventionnement annuel.
 
-**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (RDV-Insertion, Dora, Mon Récap, Les Emplois, Le Marché), la définition **opérationnelle du produit**.
+**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion [ex Emplois], RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
 
 Sources de données :
 
@@ -57,14 +57,16 @@ Sources de données :
 
 | Site | URL | ID Matomo | Fiche knowledge |
 |---|---|---|---|
-| Emplois | emplois.inclusion.beta.gouv.fr | 117 | emplois.md |
+| Plateforme | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
 | Marché | lemarche.inclusion.gouv.fr | 136 | marche.md |
 | Pilotage | pilotage.inclusion.gouv.fr | 146 | pilotage.md |
 | Communauté | communaute.inclusion.gouv.fr | 206 | communaute.md |
 | Dora | dora.inclusion.beta.gouv.fr | 211 | dora.md |
-| Plateforme | inclusion.gouv.fr | 212 | plateforme.md |
+| Site institutionnel | inclusion.gouv.fr | 212 | site-institutionnel.md |
 | RDV-Insertion | www.rdv-insertion.fr | 214 | rdv-insertion.md |
 | Mon Récap | mon-recap.inclusion.beta.gouv.fr | 217 | mon-recap.md |
+
+⚠️ **Plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)** — le site vitrine institutionnel de la plateforme de l'inclusion : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
 
 ## Chemins clés
 
@@ -83,12 +85,12 @@ Sources de données :
 
 | Site | Dépôt | Branche |
 |---|---|---|
-| Emplois | `gip-inclusion/les-emplois` | master |
-| Marché | `gip-inclusion/le-marche` | master |
-| Communauté | `gip-inclusion/la-communaute` | master |
-| Pilotage | `gip-inclusion/pilotage` | master |
-| Dora | `gip-inclusion/dora` | master |
+| Plateforme (ex-Emplois) | `gip-inclusion/les-emplois` | main |
+| Marché | `gip-inclusion/le-marche` | main |
+| Communauté | `gip-inclusion/la-communaute` | main |
+| Pilotage | `gip-inclusion/pilotage` | main |
+| Dora | `gip-inclusion/dora` | main |
 | data·inclusion | `gip-inclusion/data-inclusion` | main |
-| RDV-Insertion | `gip-inclusion/rdv-insertion` | master |
+| RDV-Insertion | `gip-inclusion/rdv-insertion` | main |
 
 Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.
