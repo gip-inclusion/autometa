@@ -94,3 +94,9 @@ Sources de données :
 | RDV-Insertion | `gip-inclusion/rdv-insertion` | main |
 
 Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.
+
+## Session Ledger
+
+| Date | Type | Summary | Lesson |
+|------|------|---------|--------|
+| 2026-09-18 | feat | verify_dashboard via paved road contract-first (branche alexis/feat/viz-quality-paved) : 14 DOD, 12 démontrés, lentille convergée en 3 passes | Dans un worktree git, le hook pre-commit échoue : GIT_INDEX_FILE absolu fait écrire tests/test_lint_baseline.py dans l'index réel — committer depuis un clone ordinaire hors /tmp. Un Chart.js/Plot vide dessine ses axes : juger les séries, pas les pixels. |

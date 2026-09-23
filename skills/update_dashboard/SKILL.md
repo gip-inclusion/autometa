@@ -99,6 +99,14 @@ L'`originating_user_email` (= premier auteur du TDB) est lu en DB par la fonctio
 - `1` — slug inconnu, mutex `--set-tags` ⇄ `--add-tags`/`--remove-tags`, ou autre erreur métier.
 - `2` — variables d'env manquantes (bug d'intégration).
 
+## Étape finale : vérifier avant de donner le lien
+
+Une fois les fichiers du TDB écrits (et `cron.py` lancé une première fois s'il existe), lancer le
+skill `verify_dashboard`. Tant que le verdict est échoué, corriger puis relancer — trois tentatives au
+plus. Ne donner le lien qu'après un verdict réussi, ou en listant à l'utilisateur les problèmes
+restants.
+Une modification qui ne touche que les métadonnées (titre, tags, archivage) ne se vérifie pas.
+
 ## Tags
 
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
