@@ -19,6 +19,7 @@ from web.helpers import (
     validate_conv_id,
     validate_knowledge_path,
 )
+from web.search_filters import build_search_facets
 
 logger = logging.getLogger(__name__)
 
@@ -278,16 +279,26 @@ def conversations(
     show_mine = show == "mine"
     show_reports = show in ("", "reports")
 
-    tag_params = tag
+    filter_user = user_email if show_mine else None
+
+    # Drop tags that no longer match any conversation or report, so a stale link cannot
+    # silently empty the list or leave a "ghost" filter marked active.
+    existing_names: set[str] = set()
+    if show_convos:
+        for used in store.get_used_conversation_tags_by_type(user_id=filter_user).values():
+            existing_names.update(t.name for t in used)
+    if show_reports:
+        for used in store.get_used_report_tags_by_type().values():
+            existing_names.update(t.name for t in used)
+    active_tags = [t for t in tag if t in existing_names]
 
     items = []
 
     # Conversations
     if show_convos:
-        filter_user = user_email if show_mine else None
         conversations_with_tags = store.list_conversations_with_tags(
             user_id=filter_user,
-            tag_names=tag_params if tag_params else None,
+            tag_names=active_tags or None,
             limit=100,
         )
         for conv, tags in conversations_with_tags:
@@ -332,7 +343,7 @@ def conversations(
     # Reports
     if show_reports:
         reports_with_tags = store.list_reports_with_tags(
-            tag_names=tag_params if tag_params else None,
+            tag_names=active_tags or None,
             limit=100,
         )
         for report, tags in reports_with_tags:
@@ -370,9 +381,8 @@ def conversations(
     # Merge tags from conversations and reports
     all_tags = {}
     if show_convos:
-        filter_user = user_email if show_mine else None
         conv_tags = store.get_used_conversation_tags_by_type(
-            active_tag_names=tag_params if tag_params else None,
+            active_tag_names=active_tags or None,
             user_id=filter_user,
         )
         for tag_type, tag_list in conv_tags.items():
@@ -394,6 +404,8 @@ def conversations(
     # Convert from {type: {name: Tag}} to {type: [Tag]}
     all_tags = {k: sorted(v.values(), key=lambda t: t.label) for k, v in all_tags.items()}
 
+    filter_facets = build_search_facets(all_tags)
+
     pinned_ids = store.get_pinned_ids()
 
     data = get_sidebar_data(user_email, request)
@@ -404,8 +416,8 @@ def conversations(
             "section": "conversations",
             "current_conv": None,
             "grouped_items": grouped_items,
-            "all_tags": all_tags,
-            "active_tags": tag_params,
+            "filter_facets": filter_facets,
+            "active_tags": active_tags,
             "pinned_ids": pinned_ids,
             "show": show,
             "q": q,
