@@ -271,7 +271,22 @@ docker compose --profile ollama up -d
 AGENT_BACKEND=cli-ollama make dev
 ```
 
-Variables Ollama configurables dans `.env` : `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_REQUEST_TIMEOUT`.
+Variables Ollama configurables dans `.env` : `OLLAMA_BASE_URL`, `OLLAMA_REMOTE_BASE_URL`,
+`OLLAMA_API_KEY`, `OLLAMA_MODEL`, `OLLAMA_SMALL_MODEL`, `OLLAMA_REQUEST_TIMEOUT`. La cible effective est l'instance locale
+tant qu'`OLLAMA_API_KEY` est vide, et Ollama Cloud dès qu'elle est renseignée.
+
+### Moteur de secours
+
+`AGENT_FALLBACK_BACKEND=cli-ollama` fait continuer les conversations sur Ollama quand la limite d'usage
+Claude est atteinte, jusqu'à l'heure de reprise annoncée. Si le secours épuise à son tour son quota,
+l'utilisateur reçoit un message de limite globale. Vide, la fonctionnalité est éteinte.
+
+Simuler une coupure (pour tester la bascule en staging) ou en lever une (faux positif) :
+
+```bash
+python -m web.engine_limits simulate cli --seconds 600   # ou : redis-cli SET autometa:limit:cli 1 EX 600
+python -m web.engine_limits clear cli                    # ou : redis-cli DEL autometa:limit:cli
+```
 
 ### Evals
 

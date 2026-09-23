@@ -26,6 +26,20 @@ def test_get_agent_unknown_raises(mocker):
         get_agent()
 
 
+def test_get_agent_accepts_explicit_backend():
+    from web.agents import get_agent
+    from web.agents.cli_ollama import CLIOllamaBackend
+
+    assert isinstance(get_agent("cli-ollama"), CLIOllamaBackend)
+
+
+def test_get_agent_reuses_instance_per_backend():
+    from web.agents import get_agent
+
+    assert get_agent("cli") is get_agent("cli")
+    assert get_agent("cli") is not get_agent("cli-ollama")
+
+
 @pytest.mark.parametrize(
     "backend,target",
     [

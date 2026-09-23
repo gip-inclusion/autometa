@@ -22,6 +22,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.api_signals import parse_api_signals
 from lib.failure_detection import extract_snippet, find_failure_marker, record_failure
 from lib.tool_taxonomy import classify_tool
+from web.catchup import build_catchup
+from web.engine_limits import limit_key
 
 from . import complexity, config, session_sync
 from .agents import get_agent
@@ -48,6 +50,16 @@ def schema_ready() -> bool:
 
 
 @dataclass
+class EngineTurn:
+    """Ce qu'un moteur reçoit pour un tour : sa session native et les tours d'autres moteurs qu'il a manqués."""
+
+    backend: str
+    session_id: str
+    history: list[dict]
+    question_id: int
+
+
+@dataclass
 class RunUsage:
     seen_ids: set[str] = field(default_factory=set)
     output_total: int = 0
@@ -56,7 +68,6 @@ class RunUsage:
 
 class TaskRunner:
     def __init__(self):
-        self.backend = get_agent()
         self._running: dict[str, asyncio.Task] = {}
         self._cancel_tasks: dict[str, asyncio.Task] = {}
         self._worker_id = uuid.uuid4().hex[:12]
@@ -65,6 +76,12 @@ class TaskRunner:
         self._sweep_task: asyncio.Task | None = None
 
     async def startup(self):
+        # Why: un nom de moteur invalide doit faire échouer le déploiement, pas chaque tour — sinon
+        # la faute ne se révèle qu'au premier reroutage, en plein incident, conversation par conversation.
+        if config.AGENT_FALLBACK_BACKEND == config.AGENT_BACKEND:
+            raise ValueError("AGENT_FALLBACK_BACKEND doit différer d'AGENT_BACKEND")
+        for name in engines():
+            get_agent(name)
         r = await get_redis()
         await self._recover_stuck(r)
         self._consumer_task = asyncio.create_task(self._consumer_loop())
@@ -119,11 +136,15 @@ class TaskRunner:
         store.update_conversation(conv_id, needs_response=False)
         await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
         if conv_id in self._running:
-            await self.backend.cancel(conv_id)
+            await self._cancel_all_backends(conv_id)
             self._running.pop(conv_id, None)
         store.add_message(conv_id, "assistant", "*Interrompu.*")
         await self._notify_done(conv_id)
         return True
+
+    async def _cancel_all_backends(self, conv_id: str) -> None:
+        for name in engines():
+            await get_agent(name).cancel(conv_id)
 
     async def notify(self, conv_id: str):
         r = await get_redis()
@@ -172,21 +193,11 @@ class TaskRunner:
                 if not conv or not conv.needs_response:
                     continue
                 await r.set(f"{PREFIX}:running:{conv_id}", self._worker_id, ex=300)
-                sid = payload.get("session_id")
-                if sid:
-                    await asyncio.to_thread(session_sync.download_session, sid)
-                history = history_for_turn(conv_id, sid, payload["history"])
+                turn = await asyncio.to_thread(prepare_turn, conv_id, await pick_backend())
                 # Why: "sentry_trace" was the pre-OTel key. Keep one release for rolling deploys.
                 trace_headers = payload.get("trace_headers") or payload.get("sentry_trace") or {}
                 task = asyncio.create_task(
-                    self._run_agent(
-                        conv_id,
-                        payload["prompt"],
-                        history,
-                        payload.get("user_email"),
-                        trace_headers,
-                        sid,
-                    )
+                    self._run_agent(conv_id, payload["prompt"], payload.get("user_email"), trace_headers, turn)
                 )
                 self._running[conv_id] = task
             except Exception:
@@ -249,6 +260,26 @@ class TaskRunner:
         except Exception:
             logger.exception("complexity alert failed (conv=%s)", conv_id)
 
+    def _owns_conversation(self, conv_id: str) -> bool:
+        """Cette tâche tient toujours le créneau : ni un cancel ni un run plus récent n'ont pris la main."""
+        return self._running.get(conv_id) is asyncio.current_task()
+
+    async def _abandon_conversation(self, conv_id: str, note: str | None) -> None:
+        """Rend la conversation au sweep : on lâche le créneau d'abord, on tente la libération ensuite."""
+        if not self._owns_conversation(conv_id):
+            return
+        # Why: sortir de _running d'abord — le heartbeat cesse alors de rafraîchir la clé running:,
+        # qui expire, et le sweep peut réclamer la conversation même si la libération échoue.
+        # L'ordre inverse dégraderait une reprise partielle en blocage définitif.
+        self._running.pop(conv_id, None)
+        try:
+            r = await get_redis()
+            await self._release_conversation(r, conv_id, note)
+        except Exception:
+            # Why: la libération tape sur les mêmes DB/Redis peut-être encore en panne ; ne jamais
+            # laisser l'échec s'échapper. Le sweep périodique réconcilie cette conversation plus tard.
+            logger.exception("release after failure failed (conv=%s)", conv_id)
+
     async def _release_conversation(self, r, conv_id, note):
         """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""
         store.update_conversation(conv_id, needs_response=False)
@@ -306,7 +337,7 @@ class TaskRunner:
         try:
             async for msg in pubsub.listen():
                 if msg["type"] == "message":
-                    await self.backend.cancel(conv_id)
+                    await self._cancel_all_backends(conv_id)
                     break
         finally:
             await pubsub.unsubscribe()
@@ -316,11 +347,67 @@ class TaskRunner:
         self,
         conversation_id: str,
         prompt: str,
-        history: list[dict],
         user_email: str | None,
-        trace_headers: dict | None = None,
-        session_id: str | None = None,
+        trace_headers: dict | None,
+        turn: EngineTurn,
     ):
+        fallback = config.AGENT_FALLBACK_BACKEND
+
+        try:
+            may_reroute = bool(fallback) and turn.backend != fallback and not await is_limited(fallback)
+            limit_reset, limit_message = await self._stream_turn(
+                conversation_id, prompt, user_email, trace_headers, turn, release=not may_reroute
+            )
+
+            if limit_reset is None or not may_reroute:
+                return
+
+            try:
+                # Why: un reroutage est un événement d'exploitation, pas une trace de debug — c'est
+                # le seul signal qui dit à l'opérateur combien de conversations partent au secours.
+                logger.warning(
+                    "agent.backend.rerouted",
+                    extra={
+                        "session.id": conversation_id,
+                        "agent.backend_from": turn.backend,
+                        "agent.backend_to": fallback,
+                        "agent.limit_reset": limit_reset,
+                    },
+                )
+                fallback_turn = await asyncio.to_thread(prepare_turn, conversation_id, fallback)
+            except Exception:
+                # Why: la première passe a délibérément gardé la conversation ouverte pour le rejeu.
+                # Sans ce filet elle resterait bloquée jusqu'au redémarrage du worker : le heartbeat
+                # rafraîchit la clé running: tant que _running la contient, donc le sweep l'ignore.
+                logger.exception("Fallback replay setup failed for %s", conversation_id)
+                sentry_sdk.capture_exception()
+                await self._abandon_conversation(conversation_id, limit_message)
+                return
+
+            # Why: gate strict — un cancel a sorti la conversation de _running et a déjà affiché
+            # « Interrompu » ; rejouer ici streamerait une réponse dans un tour abandonné.
+            if not self._owns_conversation(conversation_id):
+                return
+
+            await self._stream_turn(conversation_id, prompt, user_email, trace_headers, fallback_turn, release=True)
+        except Exception:
+            # Why: une exception hors du finally de _stream_turn (nom de moteur inconnu, par exemple)
+            # laisserait la conversation dans _running : le heartbeat rafraîchirait sa clé running:
+            # indéfiniment, le sweep l'ignorerait, et le créneau serait perdu jusqu'au redémarrage.
+            logger.exception("Agent task failed outside the stream for %s", conversation_id)
+            sentry_sdk.capture_exception()
+            await self._abandon_conversation(conversation_id, "*Une erreur s'est produite, merci de réessayer.*")
+
+    async def _stream_turn(
+        self,
+        conversation_id: str,
+        prompt: str,
+        user_email: str | None,
+        trace_headers: dict | None,
+        turn: EngineTurn,
+        release: bool,
+    ) -> tuple[str | None, str | None]:
+        backend = get_agent(turn.backend)
         parent_ctx = extract_trace_context(trace_headers or {})
 
         my_task = asyncio.current_task()
@@ -336,6 +423,8 @@ class TaskRunner:
         tool_active_start: float | None = None
         agent_start = time.perf_counter()
         agent_status = "ok"
+        limit_reset: str | None = None
+        limit_message: str | None = None
         run_usage = RunUsage()
 
         def _close_tool_log():
@@ -357,19 +446,19 @@ class TaskRunner:
         with tracer.start_as_current_span(
             "agent.run",
             context=parent_ctx,
-            attributes={"conversation_id": conversation_id, "agent_backend": config.AGENT_BACKEND},
+            attributes={"conversation_id": conversation_id, "agent_backend": turn.backend},
         ) as span:
             if user_email:
                 set_user_context(user_email)
-            sentry_sdk.set_tag("agent_backend", config.AGENT_BACKEND)
+            sentry_sdk.set_tag("agent_backend", turn.backend)
             conv_token = set_conversation_id(conversation_id)
 
             try:
-                async for event in self.backend.send_message(
+                async for event in backend.send_message(
                     conversation_id=conversation_id,
                     message=prompt,
-                    history=history,
-                    session_id=session_id,
+                    history=turn.history,
+                    session_id=turn.session_id,
                     user_email=user_email,
                 ):
                     if event.type == "assistant":
@@ -381,7 +470,7 @@ class TaskRunner:
                             assistant_msg_id = msg.id if msg else None
                         else:
                             store.update_message(assistant_msg_id, full_text)
-                        _record_usage(conversation_id, event.raw, run_usage)
+                        _record_usage(conversation_id, event.raw, run_usage, turn.backend)
                         await self.notify(conversation_id)
 
                     elif event.type in ("tool_use", "tool_result"):
@@ -400,7 +489,7 @@ class TaskRunner:
                                     category="agent",
                                     level="warning",
                                 )
-                                await self.backend.cancel(conversation_id)
+                                await backend.cancel(conversation_id)
                                 store.add_message(
                                     conversation_id,
                                     "assistant",
@@ -435,13 +524,22 @@ class TaskRunner:
                             store.add_message(conversation_id, "system", json.dumps(event.raw))
                             await self.notify(conversation_id)
                         if event.raw.get("type") == "result" and event.raw.get("usage"):
-                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage)
+                            _record_thinking_tail(conversation_id, event.raw["usage"], run_usage, turn.backend)
 
                     elif event.type == "limit":
-                        store.add_message(conversation_id, "limit", str(event.content))
-                        await self.notify(conversation_id)
-                        await self._alert_usage_limit_once(event.raw.get("reset"))
+                        limit_reset = event.raw.get("reset")
+                        limit_message = str(event.content)
                         agent_status = "error"
+                        # Why: la clé est posée même sans secours — elle épargne aux titres et tags
+                        # la série de retries d'un moteur épuisé.
+                        await mark_backend_limited(turn.backend, limit_reset)
+                        # Why: l'alerte est déjà dédupliquée par fenêtre de reprise, et en régime
+                        # nominal toutes les conversations sont reroutées — la garder sous `release`
+                        # revient à ne jamais prévenir que le moteur primaire est épuisé.
+                        await self._alert_usage_limit_once(limit_reset)
+                        if release:
+                            store.add_message(conversation_id, "limit", limit_notice(limit_message, limit_reset))
+                            await self.notify(conversation_id)
 
                     elif event.type == "error":
                         store.add_message(
@@ -482,11 +580,23 @@ class TaskRunner:
                 # means cancel already took ownership, or a direct call with no consumer slot).
                 slot = self._running.get(conversation_id)
                 if slot is my_task or slot is None:
-                    store.update_conversation(conversation_id, needs_response=False)
-                    await self.notify_done(conversation_id)
-                    self._running.pop(conversation_id, None)
-                    r = await get_redis()
-                    await r.delete(f"{PREFIX}:running:{conversation_id}")
+                    # Why: la session du moteur contient la question du tour, quelle que soit l'issue. Sur une
+                    # limite, la réponse viendra d'un autre moteur : le repère s'arrête juste avant la
+                    # question pour que le prochain rattrapage reparte d'elle.
+                    store.set_engine_state(
+                        conversation_id,
+                        turn.backend,
+                        session_id=turn.session_id,
+                        seen_through=turn.question_id if limit_reset is None else turn.question_id - 1,
+                    )
+                    # Why: quand un rejeu suit, libérer ici fermerait le flux SSE avant que le
+                    # moteur de secours ait répondu — seule la passe que personne ne reprend libère.
+                    if release or limit_reset is None:
+                        store.update_conversation(conversation_id, needs_response=False)
+                        await self.notify_done(conversation_id)
+                        self._running.pop(conversation_id, None)
+                        r = await get_redis()
+                        await r.delete(f"{PREFIX}:running:{conversation_id}")
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)
@@ -499,6 +609,8 @@ class TaskRunner:
                         "agent.status": agent_status,
                     },
                 )
+
+        return limit_reset, limit_message
 
 
 def _serialize_tool_event(event, conversation_id: str, user_email: str | None) -> str:
@@ -541,7 +653,7 @@ def _record_span_usage(usage: dict):
     span.set_attributes(attrs)
 
 
-def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) -> None:
+def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage, backend: str) -> None:
     msg = raw_event.get("message") or {}
     usage = msg.get("usage")
     if not usage:
@@ -559,7 +671,7 @@ def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) ->
             cli_message_id=cli_message_id,
             timestamp=utcnow(),
             model=model,
-            backend=config.AGENT_BACKEND,
+            backend=backend,
             usage=usage,
         )
         run_usage.output_total += usage.get("output_tokens", 0) or 0
@@ -569,7 +681,7 @@ def _record_usage(conversation_id: str, raw_event: dict, run_usage: RunUsage) ->
         logger.exception("Failed to record usage for %s", conversation_id)
 
 
-def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: RunUsage) -> None:
+def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: RunUsage, backend: str) -> None:
     total_output = result_usage.get("output_tokens", 0) or 0
     delta = total_output - run_usage.output_total
     if delta <= 0:
@@ -580,7 +692,7 @@ def _record_thinking_tail(conversation_id: str, result_usage: dict, run_usage: R
             cli_message_id=None,
             timestamp=utcnow(),
             model=run_usage.last_model,
-            backend=config.AGENT_BACKEND,
+            backend=backend,
             usage={"output_tokens": delta, "service_tier": result_usage.get("service_tier")},
             kind="thinking",
         )
@@ -612,24 +724,80 @@ def _persist_failure(conv_id: str, title: str, marker: str, snippet: str, url: s
         logger.exception("Échec de la journalisation de l'erreur détectée pour %s", conv_id)
 
 
-def history_for_turn(conv_id: str, session_id: str | None, default_history: list[dict]) -> list[dict]:
-    """Seed history: empty when the session file is present (resume works), full transcript when it is missing."""
-    if not session_id or session_sync.get_session_path(session_id).exists():
-        return default_history
+def engines() -> list[str]:
+    """Moteur primaire, puis moteur de secours s'il est configuré."""
+    return [config.AGENT_BACKEND, *filter(None, [config.AGENT_FALLBACK_BACKEND])]
 
-    logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
-    sentry_sdk.capture_message(
-        f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
+
+async def is_limited(backend: str) -> bool:
+    r = await get_redis()
+    return bool(await r.exists(limit_key(backend)))
+
+
+async def mark_backend_limited(backend: str, reset_iso: str | None) -> None:
+    """Marque un moteur comme bloqué jusqu'à son instant de reprise."""
+    if not reset_iso:
+        return
+    r = await get_redis()
+    await r.set(limit_key(backend), "1", exat=int(datetime.fromisoformat(reset_iso).timestamp()))
+
+
+async def pick_backend() -> str:
+    """Moteur à utiliser pour le prochain tour : le secours seulement si le primaire est limité et lui non."""
+    primary, *fallback = engines()
+    if fallback and await is_limited(primary) and not await is_limited(fallback[0]):
+        return fallback[0]
+    return primary
+
+
+def limit_notice(limit_message: str, reset_iso: str | None) -> str:
+    """Message de limite montré à l'utilisateur : celui du moteur, ou le constat que tous sont épuisés."""
+    if not config.AGENT_FALLBACK_BACKEND or not reset_iso:
+        return limit_message
+    resume = format_future_date(datetime.fromisoformat(reset_iso))
+    return (
+        "Le modèle principal et le modèle de secours ont tous deux atteint leur limite d'utilisation. "
+        f"L'accès sera rétabli {resume} (heure de Paris). Merci de patienter jusque-là avant de relancer votre demande."
     )
 
-    conv = store.get_conversation(conv_id, include_messages=True)
-    if not conv:
-        return default_history
 
-    msgs = [m for m in conv.messages if m.type in ("user", "assistant")]
-    if msgs and msgs[-1].type == "user":
-        msgs = msgs[:-1]
-    return [{"role": m.type, "content": m.content} for m in msgs]
+def prepare_turn(conv_id: str, backend: str) -> EngineTurn:
+    """Session native du moteur et rattrapage des tours qu'il n'a pas vus, jusqu'à la question du tour."""
+    state = store.get_engine_state(conv_id, backend)
+    session_id = state["session_id"] or str(uuid.uuid4())
+    if state["session_id"]:
+        session_sync.download_session(session_id)
+    resumable = session_sync.get_session_path(session_id).exists()
+    seen = state["seen_through"] if resumable else None
+    messages = store.get_messages_since(conv_id, seen or 0)
+    questions = [m.id for m in messages if m.type == "user"]
+
+    # Why: une session d'avant le multi-moteurs n'a pas de repère mais contient déjà tout le transcript.
+    if resumable and seen is None:
+        return EngineTurn(backend, session_id, [], questions[-1])
+
+    if state["session_id"] and not resumable:
+        logger.warning("Session file %s missing for %s — falling back to full history", session_id, conv_id)
+        sentry_sdk.capture_message(
+            f"Resume unavailable for conversation {conv_id}; using history fallback", level="warning"
+        )
+
+    # Why: ce qui suit la dernière question vue (sa réponse, « Interrompu », les alertes) est déjà dans la
+    # session ou n'est que du bruit — le rattrapage part de la question suivante, et s'arrête avant celle
+    # du tour, qui arrive comme prompt.
+    history = build_catchup([m for m in messages if questions[0] <= m.id < questions[-1]])
+    if history and not resumable:
+        # Why: amorcer une session envoie le transcript au moteur — donc à un tiers quand c'est le secours.
+        # Les plafonds du rattrapage bornent cet égress, et sa taille est tracée.
+        logger.warning(
+            "agent.session.bootstrap",
+            extra={
+                "session.id": conv_id,
+                "agent.bootstrap_messages": len(history),
+                "agent.bootstrap_chars": sum(len(h["content"]) for h in history),
+            },
+        )
+    return EngineTurn(backend, session_id, history, questions[-1])
 
 
 runner = TaskRunner()

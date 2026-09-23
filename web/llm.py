@@ -7,6 +7,7 @@ import logging
 import httpx
 
 from web import config
+from web.engine_limits import backend_is_limited
 from web.llm_call import llm_call
 from web.llm_errors import LLMError
 
@@ -29,6 +30,14 @@ def generate_text(
     timeout: float | None = None,
 ) -> str:
     backend = get_llm_backend()
+
+    # Why: sans ce garde-fou, chaque nouvelle conversation d'une fenêtre de limite consomme la
+    # série complète de retries du CLI (~174 s) pour un résultat toujours vide.
+    if backend_is_limited(backend):
+        if not config.AGENT_FALLBACK_BACKEND:
+            raise LLMError(f"Backend {backend} limité — prompt court abandonné")
+        # Why: le modèle demandé est celui du moteur limité, que le secours ne connaît pas.
+        backend, model = config.AGENT_FALLBACK_BACKEND, None
 
     if backend in ("ollama", "cli-ollama"):
         return ollama_generate(
@@ -68,7 +77,9 @@ def ollama_generate(
     }
 
     try:
-        response = httpx.post(url, json=payload, timeout=timeout)
+        # Why: une instance locale ignore le jeton ; Ollama Cloud répond 401 sans lui.
+        headers = {"Authorization": f"Bearer {config.OLLAMA_API_KEY}"} if config.OLLAMA_API_KEY else {}
+        response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         text = data.get("response", "")
