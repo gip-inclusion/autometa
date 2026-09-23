@@ -44,7 +44,17 @@
         ]
       }
     ],
-    "Stop": [
+    "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "f=.claude/hooks/remind_data_access.py; [ -f \"$CLAUDE_PROJECT_DIR/$f\" ] && f=\"$CLAUDE_PROJECT_DIR/$f\" || f=\"$HOME/$f\"; python3 \"$f\""
+            }
+          ]
+        }
+      ],
+      "Stop": [
       {
         "hooks": [
           {
