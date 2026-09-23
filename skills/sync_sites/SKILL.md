@@ -104,11 +104,11 @@ When documenting events, search for these patterns in codebases:
 
 | Site | Matomo ID | Doc |
 |------|-----------|-----|
-| emplois | 117 | knowledge/sites/emplois.md |
+| emplois | 117 | knowledge/sites/plateforme-ex-emplois.md |
 | pilotage | 146 | knowledge/sites/pilotage.md |
 | communaute | 206 | knowledge/sites/communaute.md |
 | dora | 211 | knowledge/sites/dora.md |
-| plateforme | 212 | knowledge/sites/plateforme.md |
+| plateforme | 212 | knowledge/sites/site-institutionnel.md |
 | rdv-insertion | 214 | knowledge/sites/rdv-insertion.md |
 | mon-recap | 217 | knowledge/sites/mon-recap.md |
 | marche | 136 | knowledge/sites/marche.md |

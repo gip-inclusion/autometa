@@ -16,7 +16,7 @@ Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données m
 ```
 .
 ├── knowledge/           # Base de connaissances (Markdown)
-│   ├── sites/           # Documentation par site (emplois.md, pilotage.md, etc.)
+│   ├── sites/           # Documentation par site (plateforme-ex-emplois.md, pilotage.md, etc.)
 │   ├── matomo/          # Référence API Matomo
 │   ├── metabase/        # Référence API et tables Metabase
 │   └── stats/           # Métriques et indicateurs dans Metabase

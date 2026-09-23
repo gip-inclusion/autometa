@@ -4,7 +4,7 @@ Ces documents constituent la mémoire de l'agent Autometa. Ils sont lus avant ch
 
 ## Quand sont-ils utilisés ?
 
-1. **Avant chaque requête** : l'agent lit le fichier du site concerné (ex: `sites/emplois.md`) pour connaître les dimensions, segments et événements disponibles.
+1. **Avant chaque requête** : l'agent lit le fichier du site concerné (ex: `sites/plateforme-ex-emplois.md`) pour connaître les dimensions, segments et événements disponibles.
 
 2. **Pour les requêtes API** : l'agent consulte `matomo/` ou `metabase/` pour la syntaxe exacte des méthodes.
 
@@ -20,7 +20,7 @@ Un fichier par site web. Contient :
 - Événements trackés
 - Baselines de trafic
 
-**Fichiers** : `emplois.md`, `dora.md`, `marche.md`, `communaute.md`, `pilotage.md`, `plateforme.md`, `rdv-insertion.md`, `mon-recap.md`
+**Fichiers** : `plateforme-ex-emplois.md`, `dora.md`, `marche.md`, `communaute.md`, `pilotage.md`, `site-institutionnel.md`, `rdv-insertion.md`, `mon-recap.md`
 
 ### `matomo/`
 Documentation technique de l'API Matomo :

@@ -23,12 +23,12 @@ Sources de données :
 
 | Site | URL | ID Matomo | Fiche knowledge |
 |---|---|---|---|
-| Emplois | emplois.inclusion.beta.gouv.fr | 117 | emplois.md |
+| Plateforme | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
 | Marché | lemarche.inclusion.gouv.fr | 136 | marche.md |
 | Pilotage | pilotage.inclusion.gouv.fr | 146 | pilotage.md |
 | Communauté | communaute.inclusion.gouv.fr | 206 | communaute.md |
 | Dora | dora.inclusion.beta.gouv.fr | 211 | dora.md |
-| Plateforme | inclusion.gouv.fr | 212 | plateforme.md |
+| Site institutionnel | inclusion.gouv.fr | 212 | site-institutionnel.md |
 | RDV-Insertion | www.rdv-insertion.fr | 214 | rdv-insertion.md |
 | Mon Récap | mon-recap.inclusion.beta.gouv.fr | 217 | mon-recap.md |
 
