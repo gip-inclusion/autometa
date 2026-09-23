@@ -29,152 +29,56 @@
 
   <!-- Main content area -->
   <div class="section-body">
-    <div id="filterContent" class="filter-list-container">
-    <!-- Filter sidebar -->
-    <aside class="filter-sidebar filter-sidebar-sticky-reset" id="filterSidebar">
-      <!-- Mobile filter bar -->
-      <div class="filter-bar-mobile">
-        <div class="filter-bar-mobile-row">
-          <button class="filter-toggle {% if not show %}active{% endif %}"
-                  onclick="setShow('')" data-show="">
-            Tout
-          </button>
-          <button class="filter-toggle {% if show == 'convos' %}active{% endif %}"
-                  onclick="setShow('convos')" data-show="convos">
-            <i class="ri-chat-3-line"></i> Conversations
-          </button>
-          <button class="filter-toggle {% if show == 'mine' %}active{% endif %}"
-                  onclick="setShow('mine')" data-show="mine">
-            <i class="ri-user-line"></i> Mes convos
-          </button>
-          <button class="filter-toggle {% if show == 'reports' %}active{% endif %}"
-                  onclick="setShow('reports')" data-show="reports">
-            <i class="ri-file-text-line"></i> Rapports
-          </button>
-        </div>
+    <div id="filterContent" class="search-results">
+    <!-- Barre de filtres, en haut, façon recherche -->
+    <div class="search-filter-bar" id="searchFilterBar">
+      <div class="rechercher-type-list">
+        <button class="rechercher-type-btn {% if not show %}active{% endif %}"
+                onclick="setShow('')" data-show="">
+          <i class="ri-apps-line"></i> Tout
+        </button>
+        <button class="rechercher-type-btn {% if show == 'convos' %}active{% endif %}"
+                onclick="setShow('convos')" data-show="convos">
+          <i class="ri-chat-3-line"></i> Conversations
+        </button>
+        <button class="rechercher-type-btn {% if show == 'mine' %}active{% endif %}"
+                onclick="setShow('mine')" data-show="mine">
+          <i class="ri-user-line"></i> Mes conversations
+        </button>
+        <button class="rechercher-type-btn {% if show == 'reports' %}active{% endif %}"
+                onclick="setShow('reports')" data-show="reports">
+          <i class="ri-file-text-line"></i> Rapports
+        </button>
+      </div>
 
-        <div class="filter-bar-mobile-row">
-          {% if all_tags.get('product') %}
-          {% set product_count = active_tags|select('in', all_tags.get('product', [])|map(attribute='name')|list)|list|length %}
-          <div class="filter-dropdown">
-            <button class="filter-dropdown-btn {% if product_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-              Produit{% if product_count %} <span class="filter-count">{{ product_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-            </button>
-            <div class="dropdown-menu filter-dropdown-menu">
-              {% for tag in all_tags.get('product', []) %}
-              <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-                <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                       onchange="toggleFilter('{{ tag.name }}', this)">
-                {{ tag.label }}
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
-
-          {% if all_tags.get('theme') %}
-          {% set theme_count = active_tags|select('in', all_tags.get('theme', [])|map(attribute='name')|list)|list|length %}
-          <div class="filter-dropdown">
-            <button class="filter-dropdown-btn {% if theme_count %}active{% endif %}" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-              Theme{% if theme_count %} <span class="filter-count">{{ theme_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-            </button>
-            <div class="dropdown-menu filter-dropdown-menu">
-              {% for tag in all_tags.get('theme', []) %}
-              <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-                <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                       onchange="toggleFilter('{{ tag.name }}', this)">
-                {{ tag.label }}
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
-
-          {% if active_tags or show %}
-          <button class="filter-reset" onclick="resetFilters()">
-            <i class="ri-close-line"></i> Effacer
-          </button>
-          {% endif %}
+      {% for facet in filter_facets %}
+      {% set facet_count = active_tags|select('in', facet.tags|map(attribute='name')|list)|list|length %}
+      <div class="filter-dropdown">
+        <button class="filter-dropdown-btn {% if facet_count %}active{% endif %}" type="button"
+                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+          {{ facet.label }}{% if facet_count %} <span class="filter-count">{{ facet_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+        </button>
+        <div class="dropdown-menu filter-dropdown-menu">
+          {% for tag in facet.tags %}
+          <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+            <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+                   onchange="toggleFilter('{{ tag.name }}', this)">
+            <span class="filter-label">{{ tag.label }}</span>
+            {% if tag.count is defined and tag.count is not none %}
+            <span class="filter-count">{{ tag.count }}</span>
+            {% endif %}
+          </label>
+          {% endfor %}
         </div>
       </div>
-
-      <!-- Desktop type selector -->
-      <div class="filter-section">
-        <div class="filter-section-title">Contenu</div>
-        <div class="rechercher-type-list">
-          <button class="rechercher-type-btn {% if not show %}active{% endif %}"
-                  onclick="setShow('')" data-show="">
-            <i class="ri-apps-line"></i> Tout
-          </button>
-          <button class="rechercher-type-btn {% if show == 'convos' %}active{% endif %}"
-                  onclick="setShow('convos')" data-show="convos">
-            <i class="ri-chat-3-line"></i> Conversations
-          </button>
-          <button class="rechercher-type-btn {% if show == 'mine' %}active{% endif %}"
-                  onclick="setShow('mine')" data-show="mine">
-            <i class="ri-user-line"></i> Mes conversations
-          </button>
-          <button class="rechercher-type-btn {% if show == 'reports' %}active{% endif %}"
-                  onclick="setShow('reports')" data-show="reports">
-            <i class="ri-file-text-line"></i> Rapports
-          </button>
-        </div>
-      </div>
-
-      {% if all_tags.get('product') and all_tags.get('product')|length > 0 %}
-      <div class="filter-section">
-        <div class="filter-section-title">Produit</div>
-        {% for tag in all_tags.get('product', []) %}
-        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                 onchange="toggleFilter('{{ tag.name }}', this)">
-          <span class="filter-label">{{ tag.label }}</span>
-          {% if tag.count is defined and tag.count is not none %}
-          <span class="filter-count">{{ tag.count }}</span>
-          {% endif %}
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if all_tags.get('theme') and all_tags.get('theme')|length > 0 %}
-      <div class="filter-section">
-        <div class="filter-section-title">Theme</div>
-        {% for tag in all_tags.get('theme', []) %}
-        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                 onchange="toggleFilter('{{ tag.name }}', this)">
-          <span class="filter-label">{{ tag.label }}</span>
-          {% if tag.count is defined and tag.count is not none %}
-          <span class="filter-count">{{ tag.count }}</span>
-          {% endif %}
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if all_tags.get('type_demande') and all_tags.get('type_demande')|length > 0 %}
-      <div class="filter-section">
-        <div class="filter-section-title">Type</div>
-        {% for tag in all_tags.get('type_demande', []) %}
-        <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-          <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                 onchange="toggleFilter('{{ tag.name }}', this)">
-          <span class="filter-label">{{ tag.label }}</span>
-          {% if tag.count is defined and tag.count is not none %}
-          <span class="filter-count">{{ tag.count }}</span>
-          {% endif %}
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
+      {% endfor %}
 
       {% if active_tags or show %}
-      <button class="filter-reset mt-3" onclick="resetFilters()">
+      <button class="filter-reset" onclick="resetFilters()">
         <i class="ri-close-line"></i> Effacer les filtres
       </button>
       {% endif %}
-    </aside>
+    </div>
 
     <div class="conversation-list-wrapper">
     <div class="conversation-list" id="searchResultsList">
@@ -348,8 +252,15 @@
       {% else %}
       <div class="empty-state" id="emptyState">
         <i class="ri-search-line ri-4x text-disabled mb-3"></i>
-        <p class="mb-0 text-muted">Aucun resultat</p>
-        <p class="small text-muted">{% if active_tags %}Aucun resultat pour ces filtres{% else %}Modifiez vos filtres pour voir des resultats{% endif %}</p>
+        <p class="mb-0 text-muted">Aucun résultat</p>
+        {% if active_tags %}
+        <p class="small text-muted">Aucune conversation ne correspond à ces filtres.</p>
+        <button class="filter-reset" onclick="resetFilters()">
+          <i class="ri-close-line"></i> Effacer les filtres
+        </button>
+        {% else %}
+        <p class="small text-muted">Modifiez votre recherche pour voir des résultats.</p>
+        {% endif %}
       </div>
       {% endif %}
     </div>
