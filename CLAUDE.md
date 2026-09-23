@@ -57,7 +57,7 @@ Sources de données :
 
 | Site | URL | ID Matomo | Fiche knowledge |
 |---|---|---|---|
-| Emplois | emplois.inclusion.beta.gouv.fr | 117 | emplois.md |
+| Emplois | plateforme.inclusion.gouv.fr | 117 | emplois.md |
 | Marché | lemarche.inclusion.gouv.fr | 136 | marche.md |
 | Pilotage | pilotage.inclusion.gouv.fr | 146 | pilotage.md |
 | Communauté | communaute.inclusion.gouv.fr | 206 | communaute.md |
@@ -65,6 +65,8 @@ Sources de données :
 | Plateforme | inclusion.gouv.fr | 212 | plateforme.md |
 | RDV-Insertion | www.rdv-insertion.fr | 214 | rdv-insertion.md |
 | Mon Récap | mon-recap.inclusion.beta.gouv.fr | 217 | mon-recap.md |
+
+⚠️ **Emplois (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le site **Plateforme (212, `inclusion.gouv.fr`)** — le site vitrine institutionnel de la plateforme de l'inclusion : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (emplois.md).
 
 ## Chemins clés
 

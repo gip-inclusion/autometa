@@ -1,5 +1,8 @@
 # Plateforme de l'inclusion
 
+Site vitrine institutionnel de la plateforme de l'inclusion. À ne pas confondre avec **Emplois**
+(ID Matomo 117, `plateforme.inclusion.gouv.fr`, [emplois.md](emplois.md)) malgré le nom proche.
+
 - URL : https://inclusion.gouv.fr
 - Matomo site ID : 212
 - Tag Manager : oui (container ID : SAGWfnKo)
