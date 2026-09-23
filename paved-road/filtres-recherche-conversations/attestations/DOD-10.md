@@ -1,6 +1,6 @@
 # DOD-10
 
-**Critère** — [décision « repli »] Si la recherche par le sens ne trouve rien de pertinent, je récupère quand même les conversations qui contiennent mes mots exacts, plutôt qu'une liste vide.
+**Critère** — [décision « repli »] [Révision 2026-09-23 : les mots exacts ne sont plus un simple repli, ils remontent toujours] Les conversations qui contiennent mes mots exacts (dans le titre ou un message) remontent toujours en tête des résultats, complétées par les plus proches par le sens — même quand la recherche par le sens a déjà trouvé d'autres conversations.
 **Commande** — `uv run --frozen pytest tests/test_conversation_search.py -k dod_10`
 **Code de sortie** — 0
 **Sortie** — 
@@ -16,24 +16,24 @@ collected 4 items / 3 deselected / 1 selected
 tests/test_conversation_search.py .                                      [100%]
 
 =============================== warnings summary ===============================
-tests/test_conversation_search.py::test_dod_10_repli_sur_les_mots_exacts_quand_le_sens_ne_trouve_rien
+tests/test_conversation_search.py::test_dod_10_les_mots_exacts_remontent_toujours_meme_avec_des_resultats_par_le_sens
   /home/lelia/Documents/PDI/Matometa/tests/conftest.py:133: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================== 1 passed, 3 deselected, 1 warning in 1.91s ==================
+================= 1 passed, 3 deselected, 1 warning in 12.92s ==================
 ```
 
 **Contenu prouvé**
 
 | Chemin | Empreinte d'arbre |
 |---|---|
-| `web` | `7a30eb219c6598bc9ec8e195223a6ff0746d39f5` |
+| `web` | `6cd58b74c91788ffa7261b163e9668c58a8c6cc7` |
 | `lib` | `a580a088ff4c75f87a9e28870302eb565ff9aa95` |
 | `scripts` | `a45951726895543020a4c2a42a465100e54867af` |
 | `skills` | `dd8aa7e4657f23ca6318affdd7d03b904dc21766` |
 | `alembic` | `f16ee5bae3fe5b0639825bd366dde9877bb77884` |
-| `tests` | `11ac17545e24028c5dca0712bedd82291a268504` |
+| `tests` | `5edd7586f3a0e5ec149869e86dbe0af5245b6adf` |
 | `browser` | `67359247a91488e0eb2275b40232d88e41cdbb0f` |
 
 **Verdict** — démontré.
