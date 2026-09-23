@@ -340,61 +340,18 @@ function resetFilters() {
   htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
 }
 
-function filterByText(query) {
-  const search = query.toLowerCase().trim();
-  const cards = document.querySelectorAll('.filterable-card');
-  let visibleCount = 0;
-
-  cards.forEach(card => {
-    const searchData = card.dataset.search || '';
-    const matches = !search || searchData.includes(search);
-    card.style.display = matches ? '' : 'none';
-    if (matches) visibleCount++;
-  });
-
-  // Show/hide empty state and groups
-  const emptyState = document.getElementById('emptyState');
-  const convGroups = document.querySelectorAll('.conv-group');
-  if (convGroups.length > 0) {
-    if (visibleCount === 0 && cards.length > 0) {
-      convGroups.forEach(g => g.style.display = 'none');
-      if (!emptyState) {
-        const list = document.getElementById('searchResultsList');
-        const div = document.createElement('div');
-        div.className = 'empty-state';
-        div.id = 'emptyState';
-        div.innerHTML = '<i class="ri-search-line ri-4x text-disabled mb-3"></i><p class="mb-0 text-muted">Aucun resultat</p>';
-        list.appendChild(div);
-      } else {
-        emptyState.style.display = '';
-      }
-    } else {
-      convGroups.forEach(g => g.style.display = '');
-      if (emptyState) emptyState.style.display = 'none';
-    }
-  }
-
-  // Update URL with search query (debounced)
+// La recherche par mots est traitée côté serveur (par le sens, avec repli mots exacts) :
+// on relance une requête filtrée, débattue le temps de la frappe.
+function filterByText() {
   clearTimeout(window._searchUrlTimer);
   window._searchUrlTimer = setTimeout(() => {
-    const url = new URL(window.location.href);
-    if (search) {
-      url.searchParams.set('q', search);
-    } else {
-      url.searchParams.delete('q');
-    }
-    history.replaceState({}, '', url.toString());
-  }, 500);
+    const url = buildFilterUrl();
+    history.pushState({}, '', url);
+    htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
+  }, 350);
 }
 
-// Auto-filter on load if q param present
-document.addEventListener('DOMContentLoaded', () => {
-  const q = new URLSearchParams(window.location.search).get('q');
-  if (q) filterByText(q);
-});
 document.body.addEventListener('htmx:afterSettle', () => {
-  const q = new URLSearchParams(window.location.search).get('q');
-  if (q) filterByText(q);
   // Refocus header search input after htmx swap
   const input = document.getElementById('rechercherSearchInput');
   if (input && document.getElementById('section-rechercher')) {
