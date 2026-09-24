@@ -231,6 +231,18 @@ class ConversationsMixin:
             rows = session.execute(stmt).all()
             return [conv_with_report_row(conv, report_id, report_title) for conv, report_id, report_title in rows]
 
+    def list_conversation_authors(self) -> list[dict]:
+        """Personnes ayant des conversations, avec leur nombre — les plus prolifiques d'abord."""
+        with get_db() as session:
+            stmt = (
+                select(ConvModel.user_id, func.count(ConvModel.id))
+                .where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
+                .where(ConvModel.user_id.is_not(None))
+                .group_by(ConvModel.user_id)
+                .order_by(func.count(ConvModel.id).desc(), ConvModel.user_id)
+            )
+            return [{"user_id": uid, "count": count} for uid, count in session.execute(stmt).all()]
+
     def flag_conversation(self, conv_id: str, user_id: str, reason: str) -> bool:
         with get_db() as session:
             c = session.get(ConvModel, conv_id)
