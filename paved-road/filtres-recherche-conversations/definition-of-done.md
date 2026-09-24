@@ -67,6 +67,11 @@ les filtres actifs.
 DOD-12 — [cas limite : recherche vide] Quand la barre de recherche est vide, je vois la liste
 complète ordonnée par date comme aujourd'hui, sans classement par pertinence.
 
+DOD-13 — [besoin en plus 2026-09-24 : filtrer par personne] Un filtre « Créé par » dans la barre
+liste les personnes qui ont des conversations, avec leur nombre ; en cocher une ou plusieurs
+restreint la liste aux conversations de ces personnes, et ce filtre se combine avec les catégories
+et la recherche.
+
 ## Sources lues
 
 - `web/templates/conversations.html` (R1) — menu de filtres actuel : colonne latérale de
