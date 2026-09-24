@@ -21,19 +21,19 @@ tests/test_conversation_search.py::test_dod_9_la_recherche_retrouve_par_le_sens
     from starlette.testclient import TestClient
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================== 1 passed, 3 deselected, 1 warning in 5.79s ==================
+================== 1 passed, 3 deselected, 1 warning in 2.12s ==================
 ```
 
 **Contenu prouvé**
 
 | Chemin | Empreinte d'arbre |
 |---|---|
-| `web` | `6cd58b74c91788ffa7261b163e9668c58a8c6cc7` |
+| `web` | `612fdda32d4dcf8f0cd87b297ca1f955091b39d0` |
 | `lib` | `a580a088ff4c75f87a9e28870302eb565ff9aa95` |
 | `scripts` | `a45951726895543020a4c2a42a465100e54867af` |
 | `skills` | `dd8aa7e4657f23ca6318affdd7d03b904dc21766` |
 | `alembic` | `f16ee5bae3fe5b0639825bd366dde9877bb77884` |
-| `tests` | `5edd7586f3a0e5ec149869e86dbe0af5245b6adf` |
+| `tests` | `03707af0df6129119c77136aa9f70fb4ce3d9f40` |
 | `browser` | `67359247a91488e0eb2275b40232d88e41cdbb0f` |
 
 **Verdict** — démontré.
