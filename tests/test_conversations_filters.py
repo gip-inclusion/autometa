@@ -61,6 +61,21 @@ def test_dod_6_filtre_actif_visible_coche_et_conserve_au_rechargement(client):
     assert 'class="filter-count"' in html
 
 
+def test_dod_13_filtre_par_personne(client):
+    make_tag("appli", "feature", "Application")
+    alice = tagged_conversation(["appli"], user_id="alice@example.com", title="Conv Alice")
+    bob = tagged_conversation(["appli"], user_id="bob@example.com", title="Conv Bob")
+
+    filtered = client.get("/conversations?author=alice@example.com", headers=headers()).text
+    assert "Créé par" in filtered
+    assert f"conv-{alice.id}" in filtered
+    assert f"conv-{bob.id}" not in filtered
+
+    combined = client.get("/conversations?author=bob@example.com&tag=appli", headers=headers()).text
+    assert f"conv-{bob.id}" in combined
+    assert f"conv-{alice.id}" not in combined
+
+
 def test_dod_7_message_et_effacement_quand_les_filtres_ne_donnent_rien(client):
     make_tag("appli", "feature", "Application")
     make_tag("siae", "audience", "SIAE")

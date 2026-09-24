@@ -207,12 +207,16 @@ class TagsMixin:
         user_id: Optional[str] = None,
         tag_names: Optional[list[str]] = None,
         limit: int = 100,
+        authors: Optional[list[str]] = None,
     ) -> list[tuple[Conversation, list[Tag]]]:
         with get_db() as session:
             stmt = select(ConvModel).where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
 
             if user_id:
                 stmt = stmt.where(ConvModel.user_id == user_id)
+
+            if authors:
+                stmt = stmt.where(ConvModel.user_id.in_(authors))
 
             if tag_names:
                 stmt = stmt.where(
@@ -274,7 +278,11 @@ class TagsMixin:
             return list(dict.fromkeys(cid for cid, _ in session.execute(stmt).all()))
 
     def list_ranked_conversations_with_tags(
-        self, order_ids: list[str], user_id: Optional[str] = None, tag_names: Optional[list[str]] = None
+        self,
+        order_ids: list[str],
+        user_id: Optional[str] = None,
+        tag_names: Optional[list[str]] = None,
+        authors: Optional[list[str]] = None,
     ) -> list[tuple[Conversation, list[Tag]]]:
         """Conversations parmi `order_ids`, filtrées par tags, rendues dans l'ordre donné, avec leurs tags."""
         if not order_ids:
@@ -286,6 +294,8 @@ class TagsMixin:
             )
             if user_id:
                 stmt = stmt.where(ConvModel.user_id == user_id)
+            if authors:
+                stmt = stmt.where(ConvModel.user_id.in_(authors))
             if tag_names:
                 stmt = stmt.where(
                     ConvModel.id.in_(matching_keys(session, ConvTagModel, ConvTagModel.conversation_id, tag_names))
