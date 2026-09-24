@@ -69,7 +69,27 @@
       </div>
       {% endfor %}
 
-      {% if active_tags or show %}
+      {% if authors %}
+      {% set author_count = active_authors|length %}
+      <div class="filter-dropdown">
+        <button class="filter-dropdown-btn {% if author_count %}active{% endif %}" type="button"
+                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+          Créé par{% if author_count %} <span class="filter-count">{{ author_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+        </button>
+        <div class="dropdown-menu filter-dropdown-menu">
+          {% for a in authors %}
+          <label class="filter-checkbox-item" data-author="{{ a.user_id }}">
+            <input type="checkbox" {% if a.user_id in active_authors %}checked{% endif %}
+                   onchange="toggleAuthor('{{ a.user_id }}', this)">
+            <span class="filter-label">{{ a.user_id.split('@')[0] }}</span>
+            <span class="filter-count">{{ a.count }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if active_tags or active_authors or show %}
       <button class="filter-reset" onclick="resetFilters()">
         <i class="ri-close-line"></i> Effacer les filtres
       </button>
@@ -270,6 +290,7 @@
 function buildFilterUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete('tag');
+  url.searchParams.delete('author');
   url.searchParams.delete('show');
   url.searchParams.delete('q');
 
@@ -287,6 +308,11 @@ function buildFilterUrl() {
     }
   });
   tags.forEach(tag => url.searchParams.append('tag', tag));
+
+  // Collect checked authors
+  document.querySelectorAll('.filter-checkbox-item[data-author] input[type="checkbox"]').forEach(cb => {
+    if (cb.checked) url.searchParams.append('author', cb.closest('label').dataset.author);
+  });
 
   // Preserve text search from header
   const searchInput = document.getElementById('rechercherSearchInput');
@@ -317,6 +343,15 @@ function toggleFilter(tagName, checkbox) {
   htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
 }
 
+function toggleAuthor(userId, checkbox) {
+  document.querySelectorAll(`.filter-checkbox-item[data-author="${userId}"] input[type="checkbox"]`).forEach(cb => {
+    cb.checked = checkbox.checked;
+  });
+  const url = buildFilterUrl();
+  history.pushState({}, '', url);
+  htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
+}
+
 function togglePin(url, method) {
   fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: method === 'POST' ? '{}' : undefined})
     .then(() => {
@@ -328,6 +363,7 @@ function togglePin(url, method) {
 function resetFilters() {
   const url = new URL(window.location.href);
   url.searchParams.delete('tag');
+  url.searchParams.delete('author');
   url.searchParams.delete('show');
   url.searchParams.delete('q');
   const searchInput = document.getElementById('rechercherSearchInput');

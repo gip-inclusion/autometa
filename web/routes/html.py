@@ -277,6 +277,7 @@ def conversations(
     show: str = Query(default=""),
     q: str = Query(default=""),
     tag: list[str] = Query(default=[]),
+    author: list[str] = Query(default=[]),
 ):
     """Universal conversation list (also reports). Renamed from /rechercher."""
     # Parse show param: single value, empty = all
@@ -297,6 +298,10 @@ def conversations(
             existing_names.update(t.name for t in used)
     active_tags = [t for t in tag if t in existing_names]
 
+    authors = store.list_conversation_authors() if show_convos else []
+    existing_authors = {a["user_id"] for a in authors}
+    active_authors = [a for a in author if a in existing_authors]
+
     items = []
 
     # Conversations
@@ -310,13 +315,14 @@ def conversations(
             )
             ranked_ids = keyword_ids + [cid for cid in semantic_ids if cid not in keyword_ids]
             conversations_with_tags = store.list_ranked_conversations_with_tags(
-                ranked_ids, user_id=filter_user, tag_names=active_tags or None
+                ranked_ids, user_id=filter_user, tag_names=active_tags or None, authors=active_authors or None
             )
         else:
             conversations_with_tags = store.list_conversations_with_tags(
                 user_id=filter_user,
                 tag_names=active_tags or None,
                 limit=100,
+                authors=active_authors or None,
             )
         for conv, tags in conversations_with_tags:
             if conv.title:
@@ -441,6 +447,8 @@ def conversations(
             "grouped_items": grouped_items,
             "filter_facets": filter_facets,
             "active_tags": active_tags,
+            "authors": authors,
+            "active_authors": active_authors,
             "pinned_ids": pinned_ids,
             "show": show,
             "q": q,
