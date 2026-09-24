@@ -1,7 +1,7 @@
-# DOD-11
+# DOD-13
 
-**Critère** — [du brief : « rend ça le plus simple possible »] Ma recherche par mots et mes filtres de catégories agissent ensemble : les résultats respectent à la fois le sens de ma recherche et les filtres actifs.
-**Commande** — `uv run --frozen pytest tests/test_conversation_search.py -k dod_11`
+**Critère** — [besoin en plus 2026-09-24 : filtrer par personne] Un filtre « Créé par » dans la barre liste les personnes qui ont des conversations, avec leur nombre ; en cocher une ou plusieurs restreint la liste aux conversations de ces personnes, et ce filtre se combine avec les catégories et la recherche.
+**Commande** — `uv run --frozen pytest tests/test_conversations_filters.py -k dod_13`
 **Code de sortie** — 0
 **Sortie** — 
 
@@ -11,17 +11,17 @@ platform linux -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0
 rootdir: /home/lelia/Documents/PDI/Matometa
 configfile: pytest.ini
 plugins: mock-3.15.1, cov-7.1.0, anyio-4.13.0, playwright-0.9.0, base-url-2.1.0
-collected 4 items / 3 deselected / 1 selected
+collected 5 items / 4 deselected / 1 selected
 
-tests/test_conversation_search.py .                                      [100%]
+tests/test_conversations_filters.py .                                    [100%]
 
 =============================== warnings summary ===============================
-tests/test_conversation_search.py::test_dod_11_la_recherche_et_les_filtres_se_combinent
+tests/test_conversations_filters.py::test_dod_13_filtre_par_personne
   /home/lelia/Documents/PDI/Matometa/tests/conftest.py:133: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================== 1 passed, 3 deselected, 1 warning in 4.48s ==================
+================== 1 passed, 4 deselected, 1 warning in 4.08s ==================
 ```
 
 **Contenu prouvé**
