@@ -51,10 +51,22 @@ def test_public_dashboards_buckets_read_deployment_env_var_names():
     assert config.PUBLIC_S3_BUCKET_PROD == "test-prod-bucket"
 
 
-def test_ollama_defaults_stay_local_until_a_key_is_given():
-    assert config.OLLAMA_REMOTE_BASE_URL == "https://ollama.com"
-    assert config.OLLAMA_MODEL == "glm-5.2"
-    assert config.OLLAMA_SMALL_MODEL == "gemma4:31b-cloud"
+def test_ollama_defaults_stay_local_until_a_key_is_given(monkeypatch):
+    # Why: un .env de dev peut surcharger ces variables ; on teste les valeurs par défaut livrées,
+    # donc on retire la surcharge et on neutralise le chargement du .env pendant le rechargement.
+    for var in ("OLLAMA_REMOTE_BASE_URL", "OLLAMA_MODEL", "OLLAMA_SMALL_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
+    import web.config as c
+
+    importlib.reload(c)
+    try:
+        assert c.OLLAMA_REMOTE_BASE_URL == "https://ollama.com"
+        assert c.OLLAMA_MODEL == "glm-5.2"
+        assert c.OLLAMA_SMALL_MODEL == "gemma4:31b-cloud"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(c)
 
 
 @pytest.mark.parametrize(
