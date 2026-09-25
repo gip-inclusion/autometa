@@ -76,6 +76,14 @@
         </li>
 
         <li class="nav-item">
+          <a href="/rapports/309" class="nav-link"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
+            <i class="ri-book-2-line" aria-hidden="true"></i>
+            <span>Guide data : comment requêter autometa</span>
+          </a>
+        </li>
+
+        <li class="nav-item">
           <a href="/conversations?show=reports" class="nav-link {% if active_reports %}active{% endif %}"{% if active_reports %} aria-current="page"{% endif %}
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-file-text-line" aria-hidden="true"></i>
@@ -155,6 +163,11 @@
           <li class="nav-item">
             <a href="/conversations?show=convos" class="nav-link {% if active_convos %}active{% endif %}"{% if active_convos %} aria-current="page"{% endif %}>
               <i class="ri-chat-3-line me-2"></i>Conversations
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/rapports/309" class="nav-link">
+              <i class="ri-book-2-line me-2"></i>Guide data : comment requêter autometa
             </a>
           </li>
           <li class="nav-item">
