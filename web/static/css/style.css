@@ -742,7 +742,7 @@ body.has-sidebar {
   max-width: 66rem;
   margin: 0 auto;
   padding: 1rem 1rem 0;
-  font-size: 0.875rem;
+  font-size: 1.75rem;
   color: var(--bs-gray-700);
 }
 

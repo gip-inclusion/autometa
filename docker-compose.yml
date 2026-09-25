@@ -21,9 +21,10 @@ services:
       retries: 15
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # quay.io/minio/minio a fermé les pulls anonymes le 24/09/2026 ; bitnamilegacy est le
+    # dernier miroir gratuit de la community edition (gelé depuis 2025-07, pas de licence requise).
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
     restart: unless-stopped
-    command: server /data
     environment:
       - MINIO_CONSOLE_ADDRESS=:9001
       - MINIO_ROOT_USER=autometa
@@ -32,7 +33,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 1s
@@ -40,11 +41,11 @@ services:
       retries: 3
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: bitnamilegacy/minio-client:2025.7.21-debian-12-r3
     restart: "no"
     environment:
       - MC_HOST_local=http://autometa:autometa@minio:9000
-    command: "mb --ignore-existing local/autometa"
+    command: "mc mb --ignore-existing local/autometa"
     depends_on:
       minio:
         condition: service_healthy
