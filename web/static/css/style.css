@@ -735,6 +735,39 @@ body.has-sidebar {
   }
 }
 
+.chat-guide-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 66rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 0;
+  font-size: 1.00rem;
+  color: var(--bs-gray-700);
+}
+
+.chat-guide-banner i {
+  color: var(--bs-primary);
+}
+
+@media (min-width: 768px) {
+  .chat-guide-banner {
+    padding: 1.25rem 2rem 0;
+  }
+}
+
+@media (min-width: 992px) {
+  .chat-guide-banner {
+    padding: 1.5rem 3rem 0;
+  }
+}
+
+@media (min-width: 1400px) {
+  .chat-guide-banner {
+    padding: 1.5rem 4rem 0;
+  }
+}
+
 /* Empty state */
 .empty-state {
   display: flex;
