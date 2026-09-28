@@ -2,7 +2,7 @@
 title: Sollicitation hebdomadaire de feedback sur Slack
 schedule: weekly
 timeout: 300
-batch: systeme
+batch: maintenance
 ---
 
 Envoie un DM Slack aux personnes ayant utilisé Autometa dans les sept derniers jours, avec un lien vers le formulaire Tally de retour d'expérience.

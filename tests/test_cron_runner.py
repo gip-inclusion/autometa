@@ -31,7 +31,7 @@ def make_task(slug, **overrides):
         "enabled": True,
         "timeout": 5,
         "schedule": "daily",
-        "batch": "systeme",
+        "batch": "maintenance",
         **overrides,
     }
 
@@ -75,7 +75,7 @@ def test_run_all_runs_every_task_and_records_a_failure_when_one_raises(mocker, e
     record_run = mocker.patch.object(cron, "record_run")
     prepare = mocker.patch.object(cron, "prepare_s3_workdir", side_effect=error)
 
-    results = cron.run_all(batch="systeme")
+    results = cron.run_all(batch="maintenance")
 
     assert prepare.call_count == 3
     assert [r["status"] for r in results] == ["failure"] * 3
@@ -323,11 +323,11 @@ def test_a_task_never_receives_the_scalingo_token(mocker, monkeypatch, tmp_path)
 
 @pytest.mark.parametrize(
     ("batch", "schedule", "crontab"),
-    [("externes", "daily", "0 2 * * *"), ("grist", "daily", "0 4 * * *"), ("systeme", "weekly", "0 6 * * 1")],
+    [("synchros", "daily", "0 2 * * *"), ("maintenance", "weekly", "0 6 * * 1")],
 )
 def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, crontab):
     # Why: déduire l'heure de la cadence faisait attendre à Sentry un check-in à 06:00 pour des
-    # tâches lancées à 02:00 et 04:00 — un missed check-in par jour et par tâche.
+    # tâches lancées à 02:00 — un missed check-in par jour et par tâche.
     config = cron.sentry_monitor_config({"schedule": schedule, "timeout": 300, "batch": batch})
 
     assert config["schedule"]["value"] == crontab
@@ -369,7 +369,7 @@ def test_an_enormous_exception_message_is_truncated_before_reaching_the_database
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=error)
     record_run = mocker.patch.object(cron, "record_run")
 
-    cron.run_all(batch="systeme")
+    cron.run_all(batch="maintenance")
 
     assert len(record_run.call_args.args[0]["output"]) <= cron.MAX_OUTPUT_SIZE
 
@@ -515,7 +515,7 @@ def test_system_tasks_still_run_when_the_database_is_unreachable(mocker, tmp_pat
     # test qui vide S3_BUCKET n'exerce que les court-circuits et promet une résilience absente.
     (tmp_path / "sys-task").mkdir()
     (tmp_path / "sys-task" / "cron.py").write_text("print('hello')")
-    (tmp_path / "sys-task" / "CRON.md").write_text("---\nbatch: systeme\n---\n")
+    (tmp_path / "sys-task" / "CRON.md").write_text("---\nbatch: maintenance\n---\n")
     mocker.patch.object(cron.config, "CRON_DIR", tmp_path)
     mocker.patch.object(cron.config, "S3_BUCKET", "bucket")
     mocker.patch.object(cron, "get_db", side_effect=OperationalError("stmt", {}, Exception("db down")))
@@ -524,7 +524,7 @@ def test_system_tasks_still_run_when_the_database_is_unreachable(mocker, tmp_pat
         cron, "execute_task", return_value={"slug": "sys-task", "status": "success", "duration_ms": 1, "output": ""}
     )
 
-    results = cron.run_all(batch="systeme")
+    results = cron.run_all(batch="maintenance")
 
     assert len(results) == 1
     assert execute.call_args.args[0]["slug"] == "sys-task"
@@ -547,7 +547,7 @@ def test_an_s3_outage_still_runs_the_system_tasks_and_alerts(mocker):
     )
     notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
 
-    results = cron.run_all(batch="systeme")
+    results = cron.run_all(batch="maintenance")
 
     assert [r["slug"] for r in results] == ["sys"]
     assert execute.call_count == 1
@@ -576,7 +576,7 @@ def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped
     record_run = mocker.patch.object(cron, "record_run")
     notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
 
-    cron.run_all(batch="systeme", budget=10)
+    cron.run_all(batch="maintenance", budget=10)
 
     assert execute.call_count == 1
     assert [call.args[0]["slug"] for call in record_run.call_args_list] == ["b", "c"]
@@ -600,9 +600,9 @@ def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker)
 
     mocker.patch.object(cron, "execute_task", side_effect=mid_batch)
 
-    cron.run_all(batch="systeme")
+    cron.run_all(batch="maintenance")
 
-    assert checkin.call_args_list[-1].kwargs["monitor_slug"] == "lot-systeme"
+    assert checkin.call_args_list[-1].kwargs["monitor_slug"] == "lot-maintenance"
     assert checkin.call_args_list[-1].kwargs["status"] == "ok"
     assert checkin.call_args_list[-1].kwargs["check_in_id"] == "cid"
 
@@ -617,7 +617,7 @@ def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker)
 )
 def test_a_batch_monitor_allows_the_time_the_batch_can_legitimately_take(budget, expected_minutes):
     tasks = [make_task("a", timeout=300), make_task("b", timeout=600), make_task("c", timeout=900, batch="xl")]
-    assert cron.batch_monitor_config("systeme", tasks, budget)["max_runtime"] == expected_minutes
+    assert cron.batch_monitor_config("maintenance", tasks, budget)["max_runtime"] == expected_minutes
 
 
 def test_a_batch_without_a_budget_runs_everything(mocker):
@@ -628,13 +628,13 @@ def test_a_batch_without_a_budget_runs_everything(mocker):
         cron, "execute_task", return_value={"slug": "x", "status": "success", "duration_ms": 1, "output": ""}
     )
 
-    cron.run_all(batch="systeme")
+    cron.run_all(batch="maintenance")
 
     assert execute.call_count == 2
 
 
 def test_the_cron_entry_point_initialises_sentry(monkeypatch, mocker):
-    monkeypatch.setattr("sys.argv", ["cron", "--dry-run", "--batch", "systeme"])
+    monkeypatch.setattr("sys.argv", ["cron", "--dry-run", "--batch", "maintenance"])
     mocker.patch.object(cron, "setup_logging")
     mocker.patch.object(cron, "run_all", return_value=[])
     init = mocker.patch.object(cron, "init_sentry")
@@ -682,15 +682,14 @@ def test_a_mode_runs_without_a_batch(monkeypatch, mocker, argv, mocked):
 
 
 @pytest.mark.parametrize(
-    ("slug", "batch"),
-    [("sync-sites", "externes"), ("sync-inventory", "externes"), ("sync-webinaires", "grist")],
+    "slug", ["sync-sites", "sync-inventory", "sync-webinaires", "sync-connectors", "sync-tags", "refresh-rpe"]
 )
-def test_the_sync_tasks_run_through_the_runner_in_their_own_batch(slug, batch):
-    # Why: le batch externes garde l'étalement de charge décidé en 9bb8255 — le replier dans
-    # le lot de 06:00 empilerait les appels Matomo et Metabase.
+def test_every_copy_of_an_external_source_runs_in_the_synchros_batch(slug):
+    # Why: le lot suit la nature du travail — les synchros tournent à 02:00, avant les tableaux de
+    # bord qu'elles alimentent, et à l'écart de la fenêtre de 06:00.
     tasks = {task["slug"]: task for task in repo_system_tasks()}
 
-    assert tasks[slug]["batch"] == batch
+    assert tasks[slug]["batch"] == "synchros"
 
 
 def test_declared_batches_and_scheduled_batches_are_the_same_set():

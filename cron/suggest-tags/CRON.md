@@ -2,7 +2,7 @@
 title: Rattraper les objets restés sans suggestion de tags
 schedule: weekly
 timeout: 900
-batch: systeme
+batch: maintenance
 ---
 
 Filet de rattrapage, **pas** un backfill. Le taguage normal se fait à la création : l'agent pose les tags des tableaux de bord et des rapports via les skills, et les conversations sont taguées par un appel court au modèle dès le premier message. Ce cron ne ramasse que ce qui est passé au travers — création sans tags, appel LLM en échec et jamais réessayé — par petits lots et sur un budget de temps.

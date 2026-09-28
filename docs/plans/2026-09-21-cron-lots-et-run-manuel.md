@@ -7,7 +7,7 @@ run manuel qui bloque le process web) de `docs/audits/2026-09-16-cron-jobs.md`.
 
 Un lot est une ligne de `cron.json`, donc un conteneur Scalingo éphémère qui exécute ses tâches en
 série puis s'éteint. Scalingo plafonne `cron.json` à **cinq lignes** ; la limite est relevable sur
-demande au support, mais ce design tient dans cinq.
+demande au support, mais ce design en utilise quatre.
 
 Deux propriétés du lot `default` posent problème. Il est le **fourre-tout** : toute tâche qui ne
 déclare rien y atterrit, tableaux de bord compris, dont le nombre grandit à chaque création. Et
@@ -23,15 +23,21 @@ plus requêtes SQL) pour un seul clic.
 
 ## Décisions
 
-### 1. Cinq lots nommés, plus aucun fourre-tout
+### 1. Un lot par nature de travail, plus aucun fourre-tout
 
-| Lot | Heure (UTC) | Contenu |
-|---|---|---|
-| `externes` | 02:00 | `sync-sites` puis `sync-inventory` |
-| `grist` | 04:00 | `sync-webinaires` |
-| `systeme` | 06:00 | les huit tâches du dépôt |
-| `tableaux` | 06:00 | les tableaux de bord cronnés et leurs publications |
-| `xl` | 06:00 | `generate-conversation-embeddings`, conteneur XL |
+La règle : le lot d'une tâche dit ce qu'elle fait, pas l'heure dont elle a hérité. Une première
+version gardait les créneaux historiques (un lot `grist` pour la seule `sync-webinaires`) ; elle
+a été abandonnée en revue, faute de critère lisible.
+
+| Lot | Heure (UTC) | Nature | Contenu |
+|---|---|---|---|
+| `synchros` | 02:00 | recopier une source externe dans nos tables | `sync-sites`, `sync-inventory`, `sync-webinaires`, `sync-connectors`, `sync-tags`, `refresh-rpe` |
+| `maintenance` | 06:00 | vérifier ou entretenir l'application | `check-s3-backups`, `cleanup-dashboards`, `facade-audit`, `slack-feedback`, `suggest-tags` |
+| `tableaux` | 06:00 | rafraîchir les tableaux de bord | les tableaux de bord cronnés et leurs publications |
+| `xl` | 06:00 | tâches trop lourdes pour un conteneur M | `generate-conversation-embeddings` |
+
+Les synchros passent avant les tableaux de bord qu'elles alimentent, et à l'écart de la fenêtre de
+06:00.
 
 `DEFAULT_BATCH` disparaît. Une tâche système dont le `CRON.md` ne déclare pas de `batch:` fait
 **échouer la découverte** au lieu d'atterrir quelque part en silence. Les tableaux de bord et les
@@ -41,11 +47,8 @@ Trois conteneurs tournent en parallèle à 06:00 au lieu d'un seul en série, et
 taille n'est pas bornée — le parc de tableaux de bord — n'allonge plus le conteneur qui vérifie les
 sauvegardes.
 
-Concession assumée : `sync-sites` et `sync-inventory` partagent la ligne de 02:00 et s'enchaînent.
-L'étalement décidé en `9bb8255` visait à ne pas empiler la charge Matomo et Metabase **sur la
-fenêtre de 06:00** ; les enchaîner de nuit, en série, respecte cette intention. Si le support
-Scalingo accorde une sixième ligne, les re-séparer ne coûte qu'une ligne de `cron.json` et un mot
-dans un `CRON.md` — aucun code.
+Les six synchros s'enchaînent en série dans un seul conteneur : 37 minutes de timeouts cumulés au
+pire, bien avant 06:00. Une quatrième ligne reste libre dans `cron.json`.
 
 ### 2. Budget de lot, déclaré là où vit le lot
 
@@ -64,8 +67,8 @@ ce qui est la même exigence que F1 et F2.
 
 ### 3. Pas de priorités
 
-L'audit propose d'ordonner les tâches par criticité. Une fois les tableaux de bord isolés, le lot
-`systeme` est borné à huit tâches qui durent 1 à 10 minutes au total. Un champ `priority:` serait de
+L'audit propose d'ordonner les tâches par criticité. Une fois les tableaux de bord isolés, les lots
+`synchros` et `maintenance` sont bornés par les fichiers du dépôt. Un champ `priority:` serait de
 l'ordonnancement pour un problème que la découpe fait disparaître. À écrire le jour où la mesure le
 réclame, pas avant.
 

@@ -53,7 +53,7 @@ _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.ite
 DASHBOARD_BATCH = "tableaux"
 # Heure UTC à laquelle cron.json démarre chaque lot. Sentry attend le check-in à cette heure-là :
 # la déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
-BATCH_HOURS = {"externes": 2, "grist": 4, "systeme": 6, "tableaux": 6, "xl": 6}
+BATCH_HOURS = {"synchros": 2, "maintenance": 6, "tableaux": 6, "xl": 6}
 FACADE_AUDIT_SCHEMA = "dashboard_storage"
 
 

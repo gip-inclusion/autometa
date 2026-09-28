@@ -2,7 +2,7 @@
 title: Check S3 backup
 schedule: daily
 timeout: 60
-batch: systeme
+batch: maintenance
 ---
 
 Vérifie que la Scaleway Function `s3-backup` a bien produit `matometa-backup/manifests/{today}.json` avec `ok: true`. Le manifest est écrit *en dernier* par le handler ; sa présence atteste que la passe est complète. Si le manifest manque ou rapporte un échec, le script raise — `web.cron` remonte `failure` à Sentry via `capture_checkin`.

@@ -181,7 +181,7 @@ def test_discover_system_tasks_come_first(interactive_dir, tmp_path, monkeypatch
     sys_dir = cron_dir / "sys-task"
     sys_dir.mkdir(parents=True)
     (sys_dir / "cron.py").write_text("pass")
-    (sys_dir / "CRON.md").write_text("---\ntitle: System Task\nschedule: weekly\nbatch: systeme\n---\n")
+    (sys_dir / "CRON.md").write_text("---\ntitle: System Task\nschedule: weekly\nbatch: maintenance\n---\n")
 
     create_interactive_app(interactive_dir, "app-task", cron_script="pass")
 
@@ -397,7 +397,7 @@ def test_set_cron_enabled_unknown_slug_returns_false(db_setup, tmp_path, monkeyp
     assert set_cron_enabled("no-such-dashboard", True) is False
 
 
-def _system_task_dir(tmp_path, monkeypatch, frontmatter="---\ntitle: Sys\ncron: true\nbatch: systeme\n---\n"):
+def _system_task_dir(tmp_path, monkeypatch, frontmatter="---\ntitle: Sys\ncron: true\nbatch: maintenance\n---\n"):
     cron_dir = tmp_path / "cron"
     (cron_dir / "sys-task").mkdir(parents=True)
     (cron_dir / "sys-task" / "CRON.md").write_text(frontmatter)
@@ -425,7 +425,7 @@ def test_set_cron_enabled_system_task_persists_in_db_not_in_the_image(db_setup, 
 def test_the_stored_state_of_a_system_task_wins_over_its_frontmatter(
     db_setup, tmp_path, monkeypatch, mocker, frontmatter_cron, stored, expected
 ):
-    _system_task_dir(tmp_path, monkeypatch, f"---\ntitle: Sys\ncron: {frontmatter_cron}\nbatch: systeme\n---\n")
+    _system_task_dir(tmp_path, monkeypatch, f"---\ntitle: Sys\ncron: {frontmatter_cron}\nbatch: maintenance\n---\n")
     mocker.patch.object(cron, "discover_from_s3", return_value=[])
     mocker.patch.object(cron, "discover_publications", return_value=[])
     if stored is not None:
@@ -594,7 +594,7 @@ def test_discover_s3_and_system_crons_merged(mocker, s3_cron_env):
     sys_dir = s3_cron_env["cron_dir"] / "sys-task"
     sys_dir.mkdir()
     (sys_dir / "cron.py").write_text("pass")
-    (sys_dir / "CRON.md").write_text("---\ntitle: System\nbatch: systeme\n---\n")
+    (sys_dir / "CRON.md").write_text("---\ntitle: System\nbatch: maintenance\n---\n")
 
     _seed_dashboard("s3-app")
     mocks = make_s3_mocks([mock_s3_app("s3-app")])
@@ -645,7 +645,7 @@ def test_run_all_does_not_rediscover_per_task(mocker, s3_cron_env):
     assert find_task.call_count == 0
 
 
-def _task(slug, batch="systeme"):
+def _task(slug, batch="maintenance"):
     return {
         "slug": slug,
         "enabled": True,
@@ -667,7 +667,7 @@ def test_run_all_only_runs_the_requested_batch(mocker):
         return_value={"slug": "regular-task", "status": "success", "duration_ms": 10, "output": ""},
     )
 
-    results = run_all(batch="systeme")
+    results = run_all(batch="maintenance")
 
     assert [result["slug"] for result in results] == ["regular-task"]
     execute.assert_called_once()
@@ -692,7 +692,7 @@ def test_run_all_names_the_skipped_batch_in_dry_run(mocker, caplog):
     mocker.patch("web.cron.discover_cron_tasks", return_value=[_task("heavy-task", batch="xl")])
 
     with caplog.at_level(logging.INFO, logger="web.cron"):
-        results = run_all(dry_run=True, batch="systeme")
+        results = run_all(dry_run=True, batch="maintenance")
 
     assert results == []
     assert "SKIP heavy-task (batch xl)" in caplog.text
@@ -838,7 +838,7 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
                 "timeout": 60,
                 "cron_path": "/x",
                 "tier": "app",
-                "batch": "systeme",
+                "batch": "maintenance",
             }
         ],
     )
@@ -849,7 +849,7 @@ def test_run_all_emits_task_log_with_typed_duration(mocker, caplog):
     )
 
     with caplog.at_level(logging.INFO, logger="web.cron"):
-        run_all(dry_run=False, batch="systeme")
+        run_all(dry_run=False, batch="maintenance")
 
     matches = [r for r in caplog.records if r.message == "cron.task"]
     assert len(matches) == 1

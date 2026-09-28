@@ -68,7 +68,7 @@ def test_system_crons_are_not_held_to_the_facade(mocker):
         "slug": "refresh-rpe",
         "cron_path": "cron/refresh-rpe/cron.py",
         "tier": "system",
-        "batch": "systeme",
+        "batch": "maintenance",
     }
     assert cron.facade_violations_by_slug([system_task]) == {}
 
