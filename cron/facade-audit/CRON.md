@@ -12,7 +12,7 @@ L'audit vivait dans `run_all()`, avant tout filtrage de batch : il téléchargea
 chaque TDB cronné sur S3 et postait la liste complète dans Slack **à chaque passe**, soit deux fois
 par jour puisque `cron.json` planifie `--batch default` et `--batch xl` à la même heure. Ici, l'audit
 tourne une fois par jour et n'alerte que quand l'ensemble des non conformes change : un canal où le
-même pavé revient tous les jours cesse d'être lu, et ce sont les échecs RPE et runner qui s'y noient.
+même pavé revient tous les jours cesse d'être lu, et ce sont les échecs des crons et du runner qui s'y noient.
 
 L'ensemble précédent est persisté dans `dashboard_storage.facade_audit_state`. Pendant l'exécution
 d'un cron de TDB, `run_all()` garde une simple trace de journal sur le `cron.py` déjà téléchargé.

@@ -1,7 +1,7 @@
 """Refuse un client de session HTTP construit sans timeout."""
 
 # S113 ne voit qu'un appel littéral sans timeout. Un httpx.Client() construit sans timeout puis
-# réutilisé lui échappe — la forme de lib/matomo.py, lib/metabase.py, lib/rpe.py, lib/webinaires.py
+# réutilisé lui échappe — la forme de lib/matomo.py, lib/metabase.py, lib/webinaires.py
 # et lib/zendesk.py. Le timeout du constructeur est le seul filet pour un appel ajouté plus tard
 # sans le repasser.
 

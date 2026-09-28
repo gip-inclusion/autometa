@@ -34,7 +34,7 @@ DOD-5 — Les liens déjà partagés vers la « version exportable » d'un rappo
 
 Aucun critère ne porte de chiffre : **R2** ne se déclenche pas.
 
-Aucune source de données métier (Zendesk, Metabase, Matomo, RPE) n'a été consultée : elles servent à
+Aucune source de données métier (Zendesk, Metabase, Matomo) n'a été consultée : elles servent à
 répondre à une question d'analyse, pas à spécifier une fonctionnalité d'Autometa.
 
 ## Questions ouvertes

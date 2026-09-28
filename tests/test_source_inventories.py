@@ -93,7 +93,7 @@ def test_catalog_error_never_carries_credentials(mocker):
     assert "://***@" in error
 
 
-@pytest.mark.parametrize("slug", ["s3", "slack", "rpe", "metabase-stats", "inexistante"])
+@pytest.mark.parametrize("slug", ["s3", "slack", "metabase-stats", "inexistante"])
 def test_sources_without_an_inventory_return_none(slug):
     assert inventory_for(slug) is None
 

@@ -428,8 +428,8 @@ def record_reported_slugs(slugs: list[str]) -> None:
         logger.warning("audit façade : état non enregistré, l'alerte repartira au prochain passage (%s)", e)
 
 
-# Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs RPE
-# et runner qui s'y noient. Seul un changement de la liste vaut une alerte.
+# Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs des crons
+# et du runner qui s'y noient. Seul un changement de la liste vaut une alerte.
 def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[str]]:
     """En observation : journalise, et n'alerte que quand l'ensemble des non conformes change."""
     found = facade_violations_by_slug(tasks)
