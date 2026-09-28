@@ -43,7 +43,7 @@ def _record_result(span: Span, result: "QueryResult") -> None:
         # Why: les lignes suivantes d'une erreur Postgres (« Failing row contains… ») recopient
         # les valeurs de la requête, données personnelles comprises.
         headline = result.error.partition("\n")[0]
-        span.set_status(Status(StatusCode.ERROR), headline[:200])
+        span.set_status(Status(StatusCode.ERROR, headline[:200]))
         span.set_attribute("error.message", headline[:500])
 
 

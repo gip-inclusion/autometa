@@ -394,6 +394,7 @@ def test_query_error_logs_and_traces_only_the_first_line_of_the_error(mocker, ca
     headline = 'ERROR: null value in column "webinar_id" violates not-null constraint'
     assert getattr(record, "query.error.message") == headline
     assert span.attributes["error.message"] == headline
+    assert span.status.description == headline
 
 
 def test_execute_dashboard_storage_query_calls_client(mocker):
