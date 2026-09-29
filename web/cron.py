@@ -32,7 +32,7 @@ from . import alerts, config, publications, s3
 from .database import get_db
 from .db import get_engine
 from .log import setup_logging
-from .models import CronRun, CronTaskState, Dashboard, DashboardPublication
+from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication
 from .publications import list_publications
 from .sentry import init_sentry
 
@@ -715,7 +715,7 @@ def run_task_and_publications(slug: str, trigger: str = "manual") -> list[dict]:
     return results
 
 
-def execute_task(task: dict, trigger: str = "scheduled") -> dict:
+def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | None = None) -> dict:
     """Run an already-discovered task; callers with the task dict skip re-discovery."""
     slug = task["slug"]
     monitor_slug = f"cron-{slug}"
@@ -732,9 +732,15 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     workdir = None
     pre_hashes: dict[str, str] = {}
 
+    previous_status = None
+    if trigger == "scheduled":
+        recent = get_app_runs(slug, limit=1)
+        previous_status = recent[0]["status"] if recent else None
+
     started_at = utcnow()
     start_time = time.monotonic()
     status = "failure"
+    run_id = open_run(slug, started_at, trigger, batch_run_id)
 
     # Why: transmission de l'environnement complet au sous-processus, pas une lecture de
     # configuration — seul SCALINGO_API_TOKEN est retiré. Il ouvre `POST /v1/apps/<app>/run`, donc
@@ -772,7 +778,10 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
             upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
         status = {0: "success", None: "timeout"}.get(returncode, "failure")
 
-    except (OSError, ClientError, BotoCoreError) as e:
+    except Exception as e:
+        # Why: une exception, quelle qu'elle soit, doit fermer la ligne `running` ouverte plus haut —
+        # sinon la tâche passerait pour tuée avec son conteneur.
+        logger.exception("cron %s crashed", sanitize_for_log(slug))
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
         finished_at = utcnow()
         status = "failure"
@@ -800,12 +809,7 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         "finished_at": finished_at,
     }
 
-    previous_status = None
-    if trigger == "scheduled":
-        recent = get_app_runs(slug, limit=1)
-        previous_status = recent[0]["status"] if recent else None
-
-    record_run(run_result, trigger)
+    record_run(run_result, trigger, run_id=run_id)
 
     if trigger == "scheduled":
         notify_cron_status_change(slug, status, previous_status, error)
@@ -860,23 +864,129 @@ def remove_workdir(workdir: Path) -> None:
         logger.warning("cron : répertoire de travail non supprimé (%s)", workdir)
 
 
-def record_run(result: dict, trigger: str):
+def open_run(slug: str, started_at: dt.datetime, trigger: str, batch_run_id: int | None) -> int | None:
+    """Ligne `running` écrite avant la tâche : un conteneur tué pendant son exécution la laisse ouverte."""
     try:
         with get_db() as session:
-            session.add(
-                CronRun(
-                    app_slug=result["slug"],
-                    started_at=result["started_at"],
-                    finished_at=result["finished_at"],
-                    status=result["status"],
-                    output=result["output"],
-                    duration_ms=result["duration_ms"],
-                    trigger=trigger,
-                )
+            run = CronRun(
+                app_slug=slug, started_at=started_at, status="running", trigger=trigger, batch_run_id=batch_run_id
             )
-    # Why: recording is best-effort; a DB error must not crash the cron runner.
+            session.add(run)
+            session.flush()
+            return run.id
     except Exception:
+        # Why: best-effort comme record_run ; sans ligne ouverte, record_run en insère une à la fin.
+        logger.exception("failed to open cron run")
+        return None
+
+
+def record_run(result: dict, trigger: str, run_id: int | None = None, batch_run_id: int | None = None):
+    fields = {
+        "finished_at": result["finished_at"],
+        "status": result["status"],
+        "output": result["output"],
+        "duration_ms": result["duration_ms"],
+    }
+    try:
+        with get_db() as session:
+            run = session.get(CronRun, run_id) if run_id else None
+            if run is None:
+                run = CronRun(
+                    app_slug=result["slug"], started_at=result["started_at"], trigger=trigger, batch_run_id=batch_run_id
+                )
+                session.add(run)
+            for name, value in fields.items():
+                setattr(run, name, value)
+    except Exception:
+        # Why: recording is best-effort; a DB error must not crash the cron runner.
         logger.exception("failed to record cron run")
+
+
+def open_batch_run(batch: str) -> int | None:
+    """Ouvre le passage d'un lot, après avoir déclaré interrompu le précédent s'il n'a jamais écrit sa fin."""
+    alert = None
+    try:
+        with get_db() as session:
+            last, before = (
+                session.scalars(
+                    select(CronBatchRun)
+                    .where(CronBatchRun.batch == batch)
+                    .order_by(CronBatchRun.started_at.desc(), CronBatchRun.id.desc())
+                    .limit(2)
+                ).all()
+                + [None, None]
+            )[:2]
+            if last and last.status == "running":
+                last.status = "interrupted"
+                orphans = session.scalars(
+                    select(CronRun).where(CronRun.batch_run_id == last.id, CronRun.status == "running")
+                ).all()
+                for run in orphans:
+                    run.status = "interrupted"
+                if not (before and before.status == "interrupted"):
+                    during = ", ".join(f"`{run.app_slug}`" for run in orphans) or "entre deux tâches"
+                    alert = (
+                        f":skull: *Lot `{batch}` interrompu* — démarré le {last.started_at:%d/%m à %H:%M} UTC, "
+                        f"conteneur arrêté pendant {during}. Pas d'autre alerte tant qu'il le reste."
+                    )
+            run = CronBatchRun(batch=batch, started_at=utcnow(), status="running")
+            session.add(run)
+            session.flush()
+            batch_run_id = run.id
+    except Exception:
+        # Why: best-effort — la base injoignable ne doit pas empêcher le lot de tourner.
+        logger.exception("failed to open cron batch run")
+        return None
+    if alert:
+        alerts.notify_alert_channel(alert)
+    return batch_run_id
+
+
+def close_batch_run(batch_run_id: int | None, status: str) -> None:
+    """Écrit la fin d'un lot, et annonce le rétablissement d'un lot jusque-là interrompu."""
+    if batch_run_id is None:
+        return
+    try:
+        with get_db() as session:
+            run = session.get(CronBatchRun, batch_run_id)
+            run.status = status
+            run.finished_at = utcnow()
+            previous = session.scalar(
+                select(CronBatchRun.status)
+                .where(CronBatchRun.batch == run.batch, CronBatchRun.id != run.id)
+                .order_by(CronBatchRun.started_at.desc(), CronBatchRun.id.desc())
+                .limit(1)
+            )
+            batch = run.batch
+    except Exception:
+        # Why: best-effort — l'écriture de la fin ne doit pas faire échouer un lot qui a tourné.
+        logger.exception("failed to close cron batch run")
+        return
+    if previous == "interrupted":
+        alerts.notify_alert_channel(f":large_green_circle: *Lot `{batch}` rétabli* — allé au bout sans interruption.")
+
+
+def displayed_status(run: dict, timeout: int) -> str:
+    """Une ligne `running` plus vieille que son délai maximal est celle d'un conteneur tué."""
+    if run["status"] == "running" and utcnow() - run["started_at"] > dt.timedelta(seconds=timeout):
+        return "interrupted"
+    return run["status"]
+
+
+def get_last_batch_runs() -> dict[str, dict]:
+    """Dernier passage de chaque lot."""
+    stmt = (
+        select(CronBatchRun.batch, CronBatchRun.started_at, CronBatchRun.finished_at, CronBatchRun.status)
+        .distinct(CronBatchRun.batch)
+        .order_by(CronBatchRun.batch, CronBatchRun.started_at.desc(), CronBatchRun.id.desc())
+    )
+    try:
+        with get_db() as session:
+            return {row.batch: row._asdict() for row in session.execute(stmt)}
+    except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller.
+        logger.exception("failed to read cron batch runs")
+        return {}
 
 
 def _run_to_dict(run: CronRun) -> dict:
@@ -912,8 +1022,8 @@ def get_last_runs(slug: str | None = None) -> dict[str, dict]:
     try:
         with get_db() as session:
             return {row.app_slug: row._asdict() for row in session.execute(stmt)}
-    # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller.
         logger.exception("failed to read cron runs")
         return {}
 
@@ -925,8 +1035,8 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
                 select(CronRun).where(CronRun.app_slug == slug).order_by(CronRun.started_at.desc()).limit(limit)
             ).all()
             return [_run_to_dict(row) for row in rows]
-    # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller.
         logger.exception("failed to read app runs")
         return []
 
@@ -959,6 +1069,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
     started = time.monotonic()
     dropped = []
     if not dry_run:
+        batch_run_id = open_batch_run(batch)
         monitor_config = batch_monitor_config(batch, tasks, budget)
         check_in_id = sentry_sdk.crons.api.capture_checkin(
             monitor_slug=f"lot-{batch}",
@@ -1004,12 +1115,13 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
                     "finished_at": now,
                 },
                 "scheduled",
+                batch_run_id=batch_run_id,
             )
             continue
 
         started_at = utcnow()
         try:
-            result = execute_task(task, trigger="scheduled")
+            result = execute_task(task, trigger="scheduled", batch_run_id=batch_run_id)
         except Exception as e:
             # Why: une tâche qui lève ne doit pas priver les suivantes du lot de leur exécution.
             logger.exception("cron %s crashed", sanitize_for_log(task["slug"]))
@@ -1032,6 +1144,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
         )
 
     if not dry_run:
+        close_batch_run(batch_run_id, "over_budget" if dropped else "finished")
         sentry_sdk.crons.api.capture_checkin(
             monitor_slug=f"lot-{batch}",
             status=sentry_sdk.crons.consts.MonitorStatus.ERROR if dropped else sentry_sdk.crons.consts.MonitorStatus.OK,

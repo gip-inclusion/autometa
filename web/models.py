@@ -272,10 +272,23 @@ class CronRun(Base):
     output: Mapped[str | None] = mapped_column(Text)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     trigger: Mapped[str] = mapped_column(Text, nullable=False, default="scheduled")
+    batch_run_id: Mapped[int | None] = mapped_column(ForeignKey("cron_batch_runs.id", ondelete="SET NULL"))
 
     # Why: get_last_runs lit le dernier run par slug (DISTINCT ON … started_at DESC) — un btree ASC
     # oblige Postgres à trier ; la migration a1b2c3d4e5f6 avait perdu ce DESC du schéma initial.
     __table_args__ = (Index("idx_cron_runs_slug_started", "app_slug", text("started_at DESC")),)
+
+
+class CronBatchRun(Base):
+    """Un passage d'un lot : resté `running`, c'est un conteneur tué avant d'avoir écrit sa fin."""
+
+    __tablename__ = "cron_batch_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class CronTaskState(Base):

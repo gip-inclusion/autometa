@@ -20,6 +20,13 @@ from web import cron
 S3_DOWN = ClientError({"Error": {"Code": "ServiceUnavailable", "Message": "x"}}, "ListObjectsV2")
 
 
+@pytest.fixture(autouse=True)
+def no_run_markers(mocker):
+    """Couloir unit : les marqueurs `running` du lot et des tâches ne touchent pas la base."""
+    mocker.patch.object(cron, "open_batch_run", return_value=None)
+    mocker.patch.object(cron, "open_run", return_value=None)
+
+
 def make_task(slug, **overrides):
     return {
         "slug": slug,
@@ -82,13 +89,14 @@ def test_run_all_runs_every_task_and_records_a_failure_when_one_raises(mocker, e
     assert [c.args[0]["slug"] for c in record_run.call_args_list] == ["a", "b", "c"]
 
 
-def test_execute_task_closes_the_sentry_checkin_when_it_raises(mocker):
+def test_execute_task_reports_a_failure_and_closes_the_sentry_checkin_when_it_raises(mocker):
     checkin = mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=RuntimeError("bug"))
+    mocker.patch.object(cron, "record_run")
 
-    with pytest.raises(RuntimeError):
-        cron.execute_task(make_task("a"), trigger="manual")
+    result = cron.execute_task(make_task("a"), trigger="manual")
 
+    assert result["status"] == "failure"
     assert checkin.call_args.kwargs["status"] == cron.sentry_sdk.crons.consts.MonitorStatus.ERROR
     assert checkin.call_args.kwargs["check_in_id"] == "cid"
 
@@ -566,7 +574,7 @@ def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped
     def fake_monotonic():
         return 99 if budget_consumed else 0
 
-    def fake_execute_task(task, trigger):
+    def fake_execute_task(task, trigger, batch_run_id):
         nonlocal budget_consumed
         budget_consumed = True
         return {"slug": "a", "status": "success", "duration_ms": 1, "output": ""}
@@ -594,7 +602,7 @@ def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker)
     mocker.patch.object(cron, "is_due", return_value=True)
     checkin = mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
 
-    def mid_batch(task, trigger):
+    def mid_batch(task, trigger, batch_run_id):
         assert [call.kwargs["status"] for call in checkin.call_args_list] == ["in_progress"]
         return {"slug": "a", "status": "success", "duration_ms": 1, "output": ""}
 

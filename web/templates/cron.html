@@ -22,6 +22,29 @@
         S3 est injoignable : seules les tâches système sont listées, les tableaux de bord manquent à l'appel.
       </div>
       {% endif %}
+      <table class="table table-sm mb-4" style="table-layout: auto;">
+        <thead>
+          <tr><th>Lot</th><th>Dernier passage</th><th>Démarré</th></tr>
+        </thead>
+        <tbody>
+          {% for item in batches %}
+          <tr>
+            <td>Lot <code>{{ item.batch }}</code></td>
+            <td>
+              {% set run = item.last_run %}
+              {% if not run %}<span class="badge bg-light text-muted">jamais exécuté</span>
+              {% elif run.status == 'finished' %}<span class="badge bg-success">terminé</span>
+              {% elif run.status == 'over_budget' %}<span class="badge bg-warning text-dark">budget dépassé</span>
+              {% elif run.status == 'running' %}<span class="badge bg-info text-dark">en cours</span>
+              {% else %}<span class="badge bg-danger">interrompu</span>
+              {% endif %}
+            </td>
+            <td>{% if item.last_run %}<span title="{{ item.last_run.started_at }}">{{ item.last_run.formatted_date }}</span>{% else %}-{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
       {% if tasks %}
       <table class="table table-sm" style="table-layout: auto;">
         <thead>
@@ -55,6 +78,10 @@
                 <span class="badge bg-warning text-dark">timeout</span>
                 {% elif task.last_run.status == 'skipped' %}
                 <span class="badge bg-light text-muted">non exécuté</span>
+                {% elif task.last_run.status == 'running' %}
+                <span class="badge bg-info text-dark">en cours</span>
+                {% elif task.last_run.status == 'interrupted' %}
+                <span class="badge bg-danger">interrompu</span>
                 {% else %}
                 <span class="badge bg-danger">échec</span>
                 {% endif %}
@@ -71,7 +98,7 @@
               {% endif %}
             </td>
             <td>
-              {% if task.last_run %}
+              {% if task.last_run and task.last_run.duration_ms is not none %}
               {{ "%.1f"|format(task.last_run.duration_ms / 1000) }}s
               {% else %}
               -
@@ -192,9 +219,13 @@ async function showLogs(slug) {
           ? '<span class="badge bg-warning text-dark">timeout</span>'
           : run.status === 'skipped'
             ? '<span class="badge bg-light text-muted">non exécuté</span>'
-            : '<span class="badge bg-danger">échec</span>';
+            : run.status === 'running'
+              ? '<span class="badge bg-info text-dark">en cours</span>'
+              : run.status === 'interrupted'
+                ? '<span class="badge bg-danger">interrompu</span>'
+                : '<span class="badge bg-danger">échec</span>';
 
-      const duration = (run.duration_ms / 1000).toFixed(1) + 's';
+      const duration = run.duration_ms === null ? '-' : (run.duration_ms / 1000).toFixed(1) + 's';
       const raw = run.started_at.endsWith('Z') || run.started_at.includes('+') ? run.started_at : run.started_at + 'Z';
       const date = new Date(raw).toLocaleString('fr-FR');
       const runId = 'log-output-' + run.id;

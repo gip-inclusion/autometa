@@ -10,10 +10,13 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from web import scalingo
 from web.cron import (
+    BATCH_HOURS,
     discover_cron_tasks,
     discover_system_tasks,
+    displayed_status,
     find_task,
     get_app_runs,
+    get_last_batch_runs,
     get_last_runs,
     read_cron_script,
     set_cron_enabled,
@@ -52,6 +55,17 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
         task["last_run"] = last_runs.get(task["slug"])
         if task["last_run"] and task["last_run"]["started_at"]:
             task["last_run"]["formatted_date"] = format_relative_date(task["last_run"]["started_at"])
+            task["last_run"]["status"] = displayed_status(task["last_run"], task["timeout"])
+
+    last_batch_runs = get_last_batch_runs()
+    batches = []
+    for batch in BATCH_HOURS:
+        run = last_batch_runs.get(batch)
+        if run:
+            # Why: chaque lot repart tous les jours ; encore ouvert au bout de 24 h, il ne se fermera plus.
+            run["status"] = displayed_status(run, 24 * 3600)
+            run["formatted_date"] = format_relative_date(run["started_at"])
+        batches.append({"batch": batch, "last_run": run})
 
     return templates.TemplateResponse(
         request,
@@ -59,6 +73,7 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
         {
             "section": "cron",
             "tasks": tasks,
+            "batches": batches,
             "s3_unavailable": s3_unavailable,
             **data,
         },
