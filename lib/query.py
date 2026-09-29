@@ -11,6 +11,8 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .data_inclusion import execute_sql as _di_execute_sql
+from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
+from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
@@ -289,6 +291,106 @@ def execute_dashboard_storage_query(
 
     # Why: SQLAlchemy/psycopg2 can raise a wide variety of errors; caller checks result.success.
     return _run_traced_query("dashboard_storage.query", attrs, _do)
+
+
+def _run_datadog(
+    span_name: str,
+    search: str,
+    caller: CallerType,
+    days: int,
+    window: Optional[tuple[str, str]],
+    timeout: int,
+    fn: Callable[[DatadogClient, str, str], Any],
+    extra_attrs: Optional[dict] = None,
+) -> QueryResult:
+    attrs = {
+        "db.system": "datadog",
+        "caller": caller.value,
+        "datadog.window": str(window) if window else f"{days}d",
+        "db.statement.hash": _sql_hash(str(search)),
+        **(extra_attrs or {}),
+    }
+
+    def _do():
+        if not isinstance(search, str):
+            raise DatadogError(f"search doit être une chaîne, pas {type(search).__name__}")
+        frm, to = window or rolling_window(days)
+        with DatadogClient(timeout=timeout) as client:
+            return fn(client, frm, to)
+
+    # Why: a 200 with an unexpected body raises KeyError/JSONDecodeError, not DatadogError; caller checks result.success.
+    return _run_traced_query(span_name, attrs, _do)
+
+
+def execute_datadog_query(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    group_by: Optional[list[str | dict]] = None,
+    compute: Optional[list[dict]] = None,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Aggregate Datadog logs over `window` or the last `days` days. Returns QueryResult, never raises."""
+
+    def aggregate(client: DatadogClient, frm: str, to: str) -> list[dict]:
+        facets = [by_count(facet) if isinstance(facet, str) else facet for facet in group_by or []]
+        return client.aggregate(search, frm, to, group_by=facets or None, compute=compute)
+
+    return _run_datadog(
+        "datadog.query", search=search, caller=caller, days=days, window=window, timeout=timeout, fn=aggregate
+    )
+
+
+def execute_datadog_count(
+    search: str,
+    caller: CallerType,
+    days: int = 7,
+    distinct: Optional[str] = None,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Count Datadog log events, plus a facet's cardinality when `distinct` is given. Never raises."""
+    return _run_datadog(
+        "datadog.count",
+        search=search,
+        caller=caller,
+        days=days,
+        window=window,
+        timeout=timeout,
+        fn=lambda client, frm, to: client.count(search, frm, to, distinct=distinct),
+    )
+
+
+def execute_datadog_events(
+    service: str,
+    caller: CallerType,
+    search: str = "",
+    days: int = 7,
+    limit: int = 100,
+    window: Optional[tuple[str, str]] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Fetch up to `limit` raw Datadog log events of one service, newest first. Never raises."""
+
+    # Why: raw events carry PII (URLs, user ids, headers) and a dashboard may publish what it reads,
+    # so a sample is confined to one named service and bounded well under the cron time budget.
+    def sample(client: DatadogClient, frm: str, to: str) -> list[dict]:
+        query = scoped_to_service(service, search)
+        if not isinstance(limit, int) or limit > 10_000:
+            raise DatadogError(f"limit {limit!r} invalide : un entier, 10000 événements au plus")
+        return list(client.iter_events(query, frm, to, max_events=limit, sort="-timestamp"))
+
+    return _run_datadog(
+        "datadog.events",
+        search=search,
+        caller=caller,
+        days=days,
+        window=window,
+        timeout=timeout,
+        fn=sample,
+        extra_attrs={"datadog.service": str(service)},
+    )
 
 
 def execute_query(
