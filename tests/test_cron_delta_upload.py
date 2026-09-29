@@ -3,6 +3,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from web.cron import prepare_s3_workdir, upload_s3_results
 
 
@@ -46,3 +48,15 @@ def test_upload_s3_results_uploads_new_files(mocker):
     upload_s3_results(store, "myapp/", "myapp", workdir, {})
 
     store.upload.assert_called_once_with("myapp/brand_new.txt", b"hello")
+
+
+def test_prepare_s3_workdir_removes_its_tempdir_when_a_download_fails(mocker):
+    store = mocker.MagicMock()
+    store.list_files.return_value = [{"path": "slug/cron.py"}]
+    store.download.side_effect = RuntimeError("S3 down")
+    mkdtemp = mocker.spy(tempfile, "mkdtemp")
+
+    with pytest.raises(RuntimeError):
+        prepare_s3_workdir(store, "slug/", "slug")
+
+    assert not Path(mkdtemp.spy_return).exists()

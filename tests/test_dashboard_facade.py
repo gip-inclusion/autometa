@@ -43,7 +43,7 @@ def test_template_only_imports_the_facade():
 
 
 def cron_task(slug):
-    return {"slug": slug, "cron_path": f"{slug}/cron.py", "source": "s3", "batch": cron.DEFAULT_BATCH}
+    return {"slug": slug, "cron_path": f"{slug}/cron.py", "source": "s3", "batch": cron.DASHBOARD_BATCH}
 
 
 @pytest.mark.parametrize(
@@ -68,7 +68,7 @@ def test_system_crons_are_not_held_to_the_facade(mocker):
         "slug": "refresh-rpe",
         "cron_path": "cron/refresh-rpe/cron.py",
         "tier": "system",
-        "batch": cron.DEFAULT_BATCH,
+        "batch": "maintenance",
     }
     assert cron.facade_violations_by_slug([system_task]) == {}
 
@@ -84,7 +84,7 @@ def test_scheduling_does_not_scan_s3_nor_alert(mocker):
         return_value=[{**cron_task("ko"), "enabled": True, "schedule": "daily", "timeout": 30}],
     )
 
-    assert len(cron.run_all()) == 1
+    assert len(cron.run_all(batch=cron.DASHBOARD_BATCH)) == 1
     execute.assert_called_once()
     notify.assert_not_called()
     read.assert_not_called()

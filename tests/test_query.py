@@ -372,6 +372,31 @@ def test_matomo_query_completion_log_includes_error(mocker, caplog):
     assert getattr(record, "query.error.message") == "boom"
 
 
+def test_query_error_logs_and_traces_only_the_first_line_of_the_error(mocker, caplog):
+    import logging
+
+    from lib.metabase import MetabaseError
+    from lib.query import CallerType, execute_metabase_query
+
+    exporter = _install_span_exporter(mocker)
+    mock_api = metabase_api_mock(mocker)
+    mock_api.execute_sql.side_effect = MetabaseError(
+        'ERROR: null value in column "webinar_id" violates not-null constraint\n'
+        "  Detail: Failing row contains (grist, null, julie@example.fr, Julie)."
+    )
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    with caplog.at_level(logging.INFO, logger="lib.query"):
+        execute_metabase_query(instance="datalake", caller=CallerType.APP, sql="INSERT 1", database_id=2)
+
+    [record] = [r for r in caplog.records if r.message == "metabase.query"]
+    span = exporter.get_finished_spans()[0]
+    headline = 'ERROR: null value in column "webinar_id" violates not-null constraint'
+    assert getattr(record, "query.error.message") == headline
+    assert span.attributes["error.message"] == headline
+    assert span.status.description == headline
+
+
 def test_execute_dashboard_storage_query_calls_client(mocker):
     from lib import query as q
 

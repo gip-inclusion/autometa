@@ -12,6 +12,7 @@ Zones :
 - `alembic/` — Migrations Alembic. Ne jamais modifier une migration existante, uniquement en ajouter.
 - `web/agents/base.py` — Interface des backends agent et construction du system prompt.
 - `docker-compose.yml`, `Dockerfile` — Infrastructure de déploiement. Impact sur la production.
+- `cron.json` — Planificateur Scalingo, au même titre que le `Dockerfile`. Une ligne fausse ou manquante supprime un lot entier de tâches en silence : le conteneur démarre, ne trouve rien à faire, et sort en succès.
 - `web/uploads.py` — Gestion des fichiers uploadés, scan antivirus. Surface de sécurité.
 - `.claude/settings.json` — Permissions et skills de l'agent. Impact sur les capacités en production.
 - `config/sources.yaml` — Credentials et URLs des sources de données.

@@ -1,11 +1,8 @@
 """Generate missing or outdated conversation message embeddings. Periodic."""
 
-import logging
-
 from web import config
 from web.conversation_embeddings.generate_conversation_embeddings import generate_embeddings
-
-logger = logging.getLogger(__name__)
+from web.cron_task import run
 
 
 def main() -> None:
@@ -16,5 +13,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    main()
+    run(main)

@@ -42,8 +42,11 @@ def _record_result(span: Span, result: "QueryResult") -> None:
     if row_count is not None:
         span.set_attribute("result.row_count", row_count)
     if result.error:
-        span.set_status(Status(StatusCode.ERROR), result.error[:200])
-        span.set_attribute("error.message", result.error[:500])
+        # Why: les lignes suivantes d'une erreur Postgres (« Failing row contains… ») recopient
+        # les valeurs de la requête, données personnelles comprises.
+        headline = result.error.partition("\n")[0]
+        span.set_status(Status(StatusCode.ERROR, headline[:200]))
+        span.set_attribute("error.message", headline[:500])
 
 
 class CallerType(str, Enum):
@@ -91,7 +94,7 @@ def _run_traced_query(
         if row_count is not None:
             log_attrs["query.row_count"] = row_count
         if result.error:
-            log_attrs["query.error.message"] = result.error[:200]
+            log_attrs["query.error.message"] = result.error.partition("\n")[0][:200]
         logger.info(span_name, extra=log_attrs)
         return result
 
