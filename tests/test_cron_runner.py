@@ -519,11 +519,11 @@ def test_a_task_that_floods_its_output_does_not_flood_the_logs(mocker, tmp_path,
 
 
 def test_a_manual_run_that_raises_still_records_a_failed_run(mocker):
-    mocker.patch.object(cron, "find_task", return_value=make_task("a"))
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a")])
     mocker.patch.object(cron, "execute_task", side_effect=RuntimeError("bug"))
     record_run = mocker.patch.object(cron, "record_run")
 
-    result = cron.run_cron_task("a", trigger="manual")
+    [result] = cron.run_task_and_publications("a", trigger="manual")
 
     assert result["status"] == "failure"
     assert record_run.call_args.args[0]["slug"] == "a"
@@ -532,82 +532,64 @@ def test_a_manual_run_that_raises_still_records_a_failed_run(mocker):
 def test_a_manual_run_records_a_failure_when_the_discovery_cannot_reach_s3(mocker):
     # Why: la découverte liste S3 ; hors de tout try, une secousse faisait exploser le conteneur
     # avec une traceback et aucune ligne en base — l'utilisateur n'aurait jamais rien vu revenir.
-    mocker.patch.object(cron, "find_task", side_effect=S3_DOWN)
+    mocker.patch.object(cron, "discover_cron_tasks", side_effect=S3_DOWN)
     record_run = mocker.patch.object(cron, "record_run")
 
-    result = cron.run_cron_task("tdb1", trigger="manual")
+    [result] = cron.run_task_and_publications("tdb1", "manual")
 
     assert result["status"] == "failure"
     assert record_run.call_args.args[0]["slug"] == "tdb1"
 
 
-def test_a_manual_run_of_a_dashboard_still_records_a_failure_when_s3_is_down(mocker):
-    mocker.patch.object(cron, "find_task", side_effect=S3_DOWN)
-    list_pubs = mocker.patch.object(cron, "list_publications")
-    record_run = mocker.patch.object(cron, "record_run")
-
-    results = cron.run_task_and_publications("tdb1")
-
-    assert [result["status"] for result in results] == ["failure"]
-    assert list_pubs.called is False
-    assert record_run.called
-
-
-def test_a_manual_run_of_a_dashboard_also_refreshes_its_eligible_publications(mocker):
-    mocker.patch.object(cron, "find_task", return_value=make_task("tdb1"))
-    mocker.patch.object(
-        cron,
-        "list_publications",
-        return_value=[
-            {"publication_id": "pub1", "snapshot_has_cron": True, "refresh_paused_at": None},
-            {"publication_id": "pub2", "snapshot_has_cron": False, "refresh_paused_at": None},
-            {"publication_id": "pub3", "snapshot_has_cron": True, "refresh_paused_at": "2026-01-01"},
-        ],
-    )
-    run = mocker.patch.object(cron, "run_cron_task", return_value={"slug": "x", "status": "success", "duration_ms": 1})
-
-    results = cron.run_task_and_publications("tdb1")
-
-    assert [call.args[0] for call in run.call_args_list] == ["tdb1", "tdb1-pub1"]
-    assert len(results) == 2
-
-
-def test_a_system_task_does_not_look_up_publications(mocker):
-    mocker.patch.object(cron, "find_task", return_value=make_task("sys", source=None))
-    list_pubs = mocker.patch.object(cron, "list_publications")
-    mocker.patch.object(cron, "run_cron_task", return_value={"slug": "sys", "status": "success", "duration_ms": 1})
-
-    results = cron.run_task_and_publications("sys")
-
-    assert list_pubs.called is False
-    assert len(results) == 1
-
-
-def test_a_publication_composite_does_not_recurse_into_its_own_publications(mocker):
-    mocker.patch.object(
-        cron, "find_task", return_value=make_task("tdb1-pub1", source="s3-publication", dashboard_slug="tdb1")
-    )
-    list_pubs = mocker.patch.object(cron, "list_publications")
-    mocker.patch.object(
-        cron, "run_cron_task", return_value={"slug": "tdb1-pub1", "status": "success", "duration_ms": 1}
+def publication(dashboard_slug, publication_id):
+    return make_task(
+        f"{dashboard_slug}-{publication_id}",
+        source="s3-publication",
+        tier="publication",
+        dashboard_slug=dashboard_slug,
+        publication_id=publication_id,
     )
 
-    results = cron.run_task_and_publications("tdb1-pub1")
 
-    assert list_pubs.called is False
-    assert len(results) == 1
+def executed_slugs(mocker, discovered, slug):
+    discover = mocker.patch.object(cron, "discover_cron_tasks", return_value=discovered)
+    execute = mocker.patch.object(
+        cron, "execute_task", side_effect=lambda task, trigger: {"slug": task["slug"], "status": "success"}
+    )
+    results = cron.run_task_and_publications(slug)
+    assert [r["slug"] for r in results] == [call.args[0]["slug"] for call in execute.call_args_list]
+    return [r["slug"] for r in results], discover.call_count
+
+
+def test_a_manual_run_of_a_dashboard_refreshes_its_publications_from_a_single_discovery(mocker):
+    discovered = [make_task("tdb1"), publication("tdb1", "pub1"), publication("tdb2", "pub9")]
+
+    slugs, discoveries = executed_slugs(mocker, discovered, "tdb1")
+
+    assert slugs == ["tdb1", "tdb1-pub1"]
+    assert discoveries == 1
+
+
+@pytest.mark.parametrize(
+    ("discovered", "slug"),
+    [
+        ([make_task("sys", source=None), publication("sys", "pub1")], "sys"),
+        ([publication("tdb1", "pub1")], "tdb1-pub1"),
+    ],
+    ids=["tache_systeme", "publication"],
+)
+def test_only_a_dashboard_brings_its_publications_along(mocker, discovered, slug):
+    assert executed_slugs(mocker, discovered, slug) == ([slug], 1)
 
 
 def test_an_unknown_slug_still_returns_one_failing_result(mocker):
-    mocker.patch.object(cron, "find_task", return_value=None)
-    run = mocker.patch.object(
-        cron, "run_cron_task", return_value={"slug": "ghost", "status": "failure", "duration_ms": 0}
-    )
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[])
+    execute = mocker.patch.object(cron, "execute_task")
 
     results = cron.run_task_and_publications("ghost")
 
-    assert results == [{"slug": "ghost", "status": "failure", "duration_ms": 0}]
-    run.assert_called_once_with("ghost", "manual")
+    assert [(r["slug"], r["status"]) for r in results] == [("ghost", "failure")]
+    execute.assert_not_called()
 
 
 def test_system_tasks_still_run_when_the_database_is_unreachable(mocker, tmp_path):
@@ -791,7 +773,7 @@ def test_the_cron_entry_point_refuses_to_run_with_no_mode_and_no_batch(monkeypat
     ("argv", "mocked"),
     [
         (["cron", "--list"], "discover_cron_tasks"),
-        (["cron", "--app", "sys-task"], "run_cron_task"),
+        (["cron", "--app", "sys-task"], "run_task_and_publications"),
         (["cron", "--facade-audit"], "facade_audit"),
     ],
 )
@@ -803,8 +785,8 @@ def test_a_mode_runs_without_a_batch(monkeypatch, mocker, argv, mocked):
     mocker.patch.object(cron, "facade_audit", return_value=[])
     mocker.patch.object(
         cron,
-        "run_cron_task",
-        return_value={"slug": "sys-task", "status": "success", "duration_ms": 1, "output": ""},
+        "run_task_and_publications",
+        return_value=[{"slug": "sys-task", "status": "success", "duration_ms": 1, "output": ""}],
     )
 
     cron.main()

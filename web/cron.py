@@ -14,7 +14,8 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import sentry_sdk
@@ -33,7 +34,6 @@ from .database import get_db
 from .db import get_engine
 from .log import setup_logging
 from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication
-from .publications import list_publications
 from .sentry import init_sentry
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
 MAX_LOGGED_LINES = 20_000
+# Why: sous les 10 connexions que botocore garde par client — au-delà, les appels attendraient une
+# connexion libre au lieu de partir en parallèle.
+S3_WORKERS = 8
 
 SCHEDULE_PRESETS = {
     "daily": "0 6 * * *",
@@ -381,15 +384,25 @@ def discover_cron_tasks() -> list[dict]:
     return tasks
 
 
-def find_task(slug: str) -> dict | None:
+def discover_by_slug() -> dict[str, dict]:
     # Why: discovery order (system → app → publication) means an app slug of shape
     # "{dashboard}-{6 chars}" would shadow a same-named publication composite. Risk is
     # near-zero (would require an app slug to collide with a real publication id);
     # documented here so future readers know first-match-wins is intentional.
+    tasks: dict[str, dict] = {}
     for task in discover_cron_tasks():
-        if task["slug"] == slug:
-            return task
-    return None
+        tasks.setdefault(task["slug"], task)
+    return tasks
+
+
+def find_task(slug: str) -> dict | None:
+    return discover_by_slug().get(slug)
+
+
+def s3_map(function: Callable, items: Iterable) -> list:
+    """Appels S3 en parallèle sur un pool borné ; la première exception remonte, comme en séquentiel."""
+    with ThreadPoolExecutor(max_workers=S3_WORKERS) as pool:
+        return list(pool.map(function, items))
 
 
 def read_cron_script(task: dict) -> str | None:
@@ -406,8 +419,8 @@ def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
     found = {}
     # Why: les crons système (config.CRON_DIR) sont du code applicatif, pas des tableaux de bord —
     # la façade ne les contraint pas.
-    for task in (t for t in tasks if t.get("source") in ("s3", "s3-publication")):
-        source = read_cron_script(task)
+    dashboards = [t for t in tasks if t.get("source") in ("s3", "s3-publication")]
+    for task, source in zip(dashboards, s3_map(read_cron_script, dashboards), strict=True):
         if source is None:
             continue
         try:
@@ -506,11 +519,14 @@ def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
     pre_hashes: dict[str, str] = {}
     try:
-        for entry in store.list_files(store_relative_prefix):
+        entries = [
+            entry
+            for entry in store.list_files(store_relative_prefix)
+            if entry["path"][len(store_relative_prefix) :] and ".." not in entry["path"][len(store_relative_prefix) :]
+        ]
+        contents = s3_map(store.download, [entry["path"] for entry in entries])
+        for entry, content in zip(entries, contents, strict=True):
             local_name = entry["path"][len(store_relative_prefix) :]
-            if not local_name or ".." in local_name:
-                continue
-            content = store.download(entry["path"])
             if content is not None:
                 local_file = (workdir / local_name).resolve()
                 try:
@@ -530,7 +546,8 @@ def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -
 def upload_s3_results(
     store: S3Store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]
 ):
-    uploaded = skipped = 0
+    changed = []
+    skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
         if not path.is_file():
@@ -544,13 +561,13 @@ def upload_s3_results(
         if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
             skipped += 1
             continue
-        store.upload(f"{store_relative_prefix}{rel}", content)
-        uploaded += 1
-    if uploaded:
+        changed.append((f"{store_relative_prefix}{rel}", content))
+    s3_map(lambda item: store.upload(*item), changed)
+    if changed:
         logger.info(
             "Cron upload %s: %d uploaded, %d unchanged",
             sanitize_for_log(label),
-            uploaded,
+            len(changed),
             skipped,
         )
 
@@ -693,16 +710,23 @@ def batch_monitor_config(batch: str, tasks: list[dict], budget: int | None) -> d
     }
 
 
-def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
-    """Resolve a task by slug and run it."""
+def run_task_and_publications(slug: str, trigger: str = "manual") -> list[dict]:
+    """Rejoue une tâche puis, si c'est un tableau de bord, ses publications — sur une seule découverte."""
     started_at = utcnow()
     try:
-        task = find_task(slug)
+        tasks = discover_by_slug()
     except (ClientError, BotoCoreError) as e:
         # Why: la découverte liste S3. Hors de tout try, une secousse tuait le conteneur sans
         # laisser la moindre ligne en base — un run lancé dont rien ne revient jamais.
         logger.exception("cron %s : découverte S3 impossible", sanitize_for_log(slug))
-        return record_unexpected_failure(slug, started_at, e, trigger)
+        return [record_unexpected_failure(slug, started_at, e, trigger)]
+    slugs = [slug]
+    if tasks.get(slug, {}).get("source") == "s3":
+        slugs += [pub for pub, task in tasks.items() if task.get("dashboard_slug") == slug]
+    return [run_discovered(each, tasks.get(each), trigger) for each in slugs]
+
+
+def run_discovered(slug: str, task: dict | None, trigger: str) -> dict:
     if not task:
         return {
             "slug": slug,
@@ -712,29 +736,13 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             "started_at": utcnow(),
             "finished_at": utcnow(),
         }
+    started_at = utcnow()
     try:
         return execute_task(task, trigger)
     except Exception as e:
         # Why: un run manuel qui lève doit laisser la même trace qu'un run planifié.
         logger.exception("cron %s crashed", sanitize_for_log(slug))
         return record_unexpected_failure(slug, started_at, e, trigger)
-
-
-def run_task_and_publications(slug: str, trigger: str = "manual") -> list[dict]:
-    """Rejoue une tâche puis, si c'est un tableau de bord, chacune de ses publications actives."""
-    try:
-        task = find_task(slug)
-    except ClientError, BotoCoreError:
-        # Why: run_cron_task retrouvera la même panne et l'enregistrera ; ici il s'agit seulement
-        # de ne pas chercher des publications qu'on ne saura de toute façon pas rattacher.
-        logger.exception("cron %s : découverte S3 impossible", sanitize_for_log(slug))
-        task = None
-    results = [run_cron_task(slug, trigger)]
-    if task and task.get("source") == "s3":
-        for pub in list_publications(slug, active_only=True):
-            if pub.get("snapshot_has_cron") and not pub.get("refresh_paused_at"):
-                results.append(run_cron_task(f"{slug}-{pub['publication_id']}", trigger))
-    return results
 
 
 def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | None = None) -> dict:

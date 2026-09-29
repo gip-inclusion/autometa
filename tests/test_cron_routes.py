@@ -85,7 +85,7 @@ def test_a_manual_run_is_delegated_to_a_dedicated_container(client, mocker):
     mocker.patch("web.routes.cron.find_task", return_value={"slug": "tdb1", "source": "s3"})
     mocker.patch("web.routes.cron.scalingo.is_configured", return_value=True)
     start = mocker.patch("web.routes.cron.scalingo.start_one_off", return_value="ctr-42")
-    execute = mocker.patch("web.cron.run_cron_task")
+    execute = mocker.patch("web.cron.run_task_and_publications")
 
     response = client.post("/api/cron/tdb1/run")
 
