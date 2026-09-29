@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 
 from web import cron, scalingo
 from web.db import get_db
+from web.helpers import format_future_date
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -84,7 +85,7 @@ def test_a_manual_run_is_delegated_to_a_dedicated_container(client, mocker):
     mocker.patch("web.routes.cron.find_task", return_value={"slug": "tdb1", "source": "s3"})
     mocker.patch("web.routes.cron.scalingo.is_configured", return_value=True)
     start = mocker.patch("web.routes.cron.scalingo.start_one_off", return_value="ctr-42")
-    execute = mocker.patch("web.cron.run_cron_task")
+    execute = mocker.patch("web.cron.run_task_and_publications")
 
     response = client.post("/api/cron/tdb1/run")
 
@@ -113,7 +114,15 @@ def test_a_manual_run_reports_a_refused_container(client, mocker):
 
 
 def test_cron_page_shows_the_latest_run_of_each_task(client, mocker):
-    task = {"slug": "nightly", "title": "Nightly", "tier": "system", "enabled": True, "schedule": "daily"}
+    task = {
+        "slug": "nightly",
+        "title": "Nightly",
+        "tier": "system",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "synchros",
+    }
     mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
     now = datetime.now(timezone.utc)
     earlier = now - timedelta(hours=1)
@@ -129,6 +138,64 @@ def test_cron_page_shows_the_latest_run_of_each_task(client, mocker):
     assert "(scheduled)" in response.text
     assert "2.5s" in response.text
     assert "(manual)" not in response.text
+
+
+def test_the_cron_page_shows_a_task_killed_mid_run_as_interrupted(client, mocker):
+    task = {
+        "slug": "tdb-x",
+        "title": "X",
+        "tier": "app",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "tableaux",
+    }
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+    with get_db() as session:
+        session.add(
+            cron.CronRun(
+                app_slug="tdb-x",
+                started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                status="running",
+                trigger="scheduled",
+            )
+        )
+
+    response = client.get("/cron")
+
+    assert "interrompu" in response.text
+
+
+def test_the_cron_page_shows_the_last_run_of_each_batch(client, mocker):
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[])
+    with get_db() as session:
+        session.add(
+            cron.CronBatchRun(
+                batch="tableaux", started_at=datetime.now(timezone.utc) - timedelta(hours=25), status="running"
+            )
+        )
+
+    response = client.get("/cron")
+
+    assert "Lot <code>tableaux</code>" in response.text
+    assert "interrompu" in response.text
+
+
+def test_the_cron_page_announces_the_next_run_at_the_hour_of_the_task_batch(client, mocker):
+    task = {
+        "slug": "sync-x",
+        "title": "X",
+        "tier": "system",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "synchros",
+    }
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+
+    response = client.get("/cron")
+
+    assert format_future_date(cron.next_cron_run("daily", "synchros")) in response.text
 
 
 def test_the_cron_page_survives_an_s3_outage(client, mocker):

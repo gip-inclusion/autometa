@@ -12,7 +12,7 @@ from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.taxonomy import FACETS_BY_NAME, apply_toggle, load_vocabulary, normalize_tag_name, ordered_facets
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
-from web.cron import cadence, get_last_runs, next_cron_run
+from web.cron import DASHBOARD_BATCH, cadence, get_last_runs, next_cron_run
 from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
@@ -208,7 +208,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
         if last_run and last_run["started_at"]:
             last_run["formatted_date"] = format_relative_date(last_run["started_at"])
         if dashboard["cron_enabled"]:
-            next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"]))
+            next_run_label = format_future_date(next_cron_run(dashboard["cron_schedule"], DASHBOARD_BATCH))
 
     is_pinned = ("app", slug) in store.get_pinned_ids()
     data = get_sidebar_data(user_email, request)

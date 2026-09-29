@@ -16,5 +16,5 @@ fois par jour puisque `cron.json` planifie aujourd'hui `synchros` (02:00), puis 
 n'alerte que quand l'ensemble des non conformes change : un canal où le même pavé revient tous les
 jours cesse d'être lu, et ce sont les échecs RPE et runner qui s'y noient.
 
-L'ensemble précédent est persisté dans `dashboard_storage.facade_audit_state`. Pendant l'exécution
+L'ensemble précédent est persisté dans la table applicative `facade_audit_state`. Pendant l'exécution
 d'un cron de TDB, `run_all()` garde une simple trace de journal sur le `cron.py` déjà téléchargé.
