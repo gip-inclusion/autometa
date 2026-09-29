@@ -567,6 +567,25 @@ def test_execute_datadog_query_maps_facets_on_the_explicit_window_path(mocker):
     assert aggregate.call_args.kwargs["group_by"] == [q.by_count("@a")]
 
 
+def test_execute_appli_monrecap_query_calls_client(mocker):
+    from lib import query as q
+
+    mocker.patch("web.config.MONRECAP_APPLI_DB_URL", "postgresql://u:p@db/monrecap")
+    client = mocker.patch(
+        "lib.query._pg_execute_sql",
+        return_value=mocker.MagicMock(columns=["x"], rows=[[1]], row_count=1),
+    )
+
+    result = q.execute_appli_monrecap_query(sql="SELECT :x", caller=q.CallerType.AGENT, params={"x": 1})
+
+    assert result.success is True
+    assert result.data == {"columns": ["x"], "rows": [[1]], "row_count": 1}
+    assert client.call_args.kwargs["source"] == "appli_monrecap"
+    assert client.call_args.kwargs["write"] is True
+    assert client.call_args.kwargs["params"] == {"x": 1}
+    assert client.call_args.kwargs["timeout"] == 60
+
+
 def test_execute_dora_staging_query_calls_client_read_only(mocker):
     from lib import query as q
 
@@ -589,6 +608,7 @@ def test_execute_dora_staging_query_calls_client_read_only(mocker):
     [
         ("DASHBOARD_STORAGE_DB_URL", "execute_dashboard_storage_query"),
         ("DORA_STAGING_DB_URL", "execute_dora_staging_query"),
+        ("MONRECAP_APPLI_DB_URL", "execute_appli_monrecap_query"),
     ],
 )
 def test_query_fails_without_dsn(mocker, setting, helper):

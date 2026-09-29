@@ -259,6 +259,9 @@ DORA_STAGING_DB_URL = (os.getenv("DORA_STAGING_DB_URL") or "").replace("postgres
 # DSN du rôle restreint au schéma dashboard_storage de la DB applicative (persistance des TDB)
 DASHBOARD_STORAGE_DB_URL = (os.getenv("DASHBOARD_STORAGE_DB_URL") or "").replace("postgres://", "postgresql://")
 
+# Base applicative de Mon Récap — accès explicite uniquement (lecture/écriture), jamais pour l'analyse.
+MONRECAP_APPLI_DB_URL = (os.getenv("MONRECAP_APPLI_DB") or "").replace("postgres://", "postgresql://")
+
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")
 MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "")
