@@ -6,6 +6,7 @@ import pytest
 
 from lib import dashboards
 from web import cron
+from web.models import Base, FacadeAuditState
 
 CONFORMING = "from lib.dashboard_api import query_matomo\n\nquery_matomo('inclusion', 'VisitsSummary.get')\n"
 OFFENDING = "from lib.query import execute_matomo_query\nfrom web.db import get_db\n"
@@ -257,9 +258,15 @@ def test_un_incident_db_ne_fait_pas_echouer_laudit(mocker, caplog):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[cron_task("ko")])
     mocker.patch.object(cron.alerts, "notify_alert_channel")
     mocker.patch.object(cron, "last_reported_slugs", return_value=None)
-    mocker.patch.object(cron, "get_engine", side_effect=cron.SQLAlchemyError("injoignable"))
+    mocker.patch.object(cron, "get_db", side_effect=cron.SQLAlchemyError("injoignable"))
 
     with caplog.at_level("WARNING"):
         assert cron.report_facade_violations(cron.discover_cron_tasks(), notify=True) == {"ko": ["lib.query", "web.db"]}
 
     assert "état" in caplog.text
+
+
+def test_letat_de_laudit_est_une_table_applicative_sous_alembic():
+    """Écrit par le code applicatif, pas par un TDB : hors du bac à sable `dashboard_storage`."""
+    assert FacadeAuditState.__table__.schema is None
+    assert Base.metadata.tables["facade_audit_state"] is FacadeAuditState.__table__

@@ -63,7 +63,7 @@ def db_setup(monkeypatch):
         session.execute(
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
-                uploaded_files, cron_runs, cron_task_states, pinned_items,
+                uploaded_files, cron_runs, cron_batch_runs, cron_task_states, pinned_items,
                 reports, conversations, tags,
                 dashboards
                 CASCADE;

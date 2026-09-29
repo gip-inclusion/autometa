@@ -301,6 +301,16 @@ class CronTaskState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class FacadeAuditState(Base):
+    """Dernier ensemble de TDB signalés hors façade : seule une variation relance l'alerte."""
+
+    __tablename__ = "facade_audit_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slugs: Mapped[list] = mapped_column(JSONB, nullable=False)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class PinnedItem(Base):
     __tablename__ = "pinned_items"
 

@@ -20,8 +20,7 @@ from pathlib import Path
 
 import sentry_sdk
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, Table, delete, func, select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -31,9 +30,8 @@ from web.s3 import S3Store
 
 from . import alerts, config, publications, s3
 from .database import get_db
-from .db import get_engine
 from .log import setup_logging
-from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication
+from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication, FacadeAuditState
 from .sentry import init_sentry
 
 logger = logging.getLogger(__name__)
@@ -57,7 +55,6 @@ DASHBOARD_BATCH = "tableaux"
 # (heure, minute) UTC auxquelles cron.json démarre chaque lot. Sentry attend le check-in à ce moment-là :
 # le déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
 BATCH_START = {"synchros": (2, 0), "maintenance": (6, 0), "tableaux": (6, 0), "xl": (6, 0)}
-FACADE_AUDIT_SCHEMA = "dashboard_storage"
 
 
 def cadence(schedule: str) -> str:
@@ -445,44 +442,22 @@ def log_facade_violations(slug: str, script: Path) -> None:
         logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(violations))
 
 
-_facade_metadata = MetaData(schema=FACADE_AUDIT_SCHEMA)
-facade_audit_state = Table(
-    "facade_audit_state",
-    _facade_metadata,
-    Column("id", Integer, primary_key=True),
-    Column("slugs", JSON),
-    Column("reported_at", DateTime(timezone=True)),
-)
-
-
 def last_reported_slugs() -> list[str] | None:
     """Ensemble signalé au dernier passage, ou None quand rien n'a encore été journalisé."""
     try:
-        eng = get_engine()
-        with eng.connect() as conn:
-            if not eng.dialect.has_table(conn, "facade_audit_state", schema=FACADE_AUDIT_SCHEMA):
-                return None
-            row = conn.execute(select(facade_audit_state).where(facade_audit_state.c.id == 1)).mappings().first()
+        with get_db() as session:
+            state = session.get(FacadeAuditState, 1)
+            return state.slugs if state else None
     except SQLAlchemyError as e:
         logger.warning("audit façade : lecture de l'état précédent impossible (%s)", e)
         return None
-    return row["slugs"] if row else None
 
 
 def record_reported_slugs(slugs: list[str]) -> None:
     """Un état non écrit ne fait que réémettre l'alerte demain : il ne doit pas faire échouer l'audit."""
     try:
-        eng = get_engine()
-        with eng.begin() as conn:
-            conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + FACADE_AUDIT_SCHEMA))
-        _facade_metadata.create_all(eng)
-        payload = {"id": 1, "slugs": slugs, "reported_at": utcnow()}
-        statement = pg_insert(facade_audit_state).values(payload)
-        statement = statement.on_conflict_do_update(
-            index_elements=["id"], set_={"slugs": slugs, "reported_at": utcnow()}
-        )
-        with eng.begin() as conn:
-            conn.execute(statement)
+        with get_db() as session:
+            session.merge(FacadeAuditState(id=1, slugs=slugs, reported_at=utcnow()))
     except SQLAlchemyError as e:
         logger.warning("audit façade : état non enregistré, l'alerte repartira au prochain passage (%s)", e)
 
@@ -1001,6 +976,19 @@ def displayed_status(run: dict, timeout: int) -> str:
     if run["status"] == "running" and utcnow() - run["started_at"] > dt.timedelta(seconds=timeout):
         return "interrupted"
     return run["status"]
+
+
+def purge_cron_history() -> None:
+    """Vide la sortie des runs de plus de 30 jours — c'est elle qui pèse — et supprime ce qui a plus d'un an."""
+    now = utcnow()
+    with get_db() as session:
+        session.execute(
+            update(CronRun)
+            .where(CronRun.started_at < now - dt.timedelta(days=30), CronRun.output.is_not(None))
+            .values(output=None)
+        )
+        session.execute(delete(CronRun).where(CronRun.started_at < now - dt.timedelta(days=365)))
+        session.execute(delete(CronBatchRun).where(CronBatchRun.started_at < now - dt.timedelta(days=365)))
 
 
 def get_last_batch_runs() -> dict[str, dict]:

@@ -5,7 +5,7 @@ import textwrap
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from web import cron
 from web.db import get_db
@@ -15,11 +15,16 @@ from web.models import CronBatchRun, CronRun
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 
-@pytest.fixture(autouse=True)
-def clean_tables():
-    yield
+def truncate_runs():
     with get_db() as session:
         session.execute(text("TRUNCATE TABLE cron_runs, cron_batch_runs CASCADE"))
+
+
+@pytest.fixture(autouse=True)
+def clean_tables():
+    truncate_runs()
+    yield
+    truncate_runs()
 
 
 def batch_statuses(batch):
@@ -233,3 +238,38 @@ def test_the_next_batch_runs_a_weekly_task_whose_monday_was_missed(mocker, tmp_p
     results = cron.run_all(batch="maintenance")
 
     assert [r["slug"] for r in results] == ["hebdo"]
+
+
+def test_the_history_purge_empties_old_outputs_then_drops_year_old_rows(mocker):
+    now = datetime(2026, 9, 29, 6, 0, tzinfo=timezone.utc)
+    mocker.patch.object(cron, "utcnow", return_value=now)
+    for slug, age in [("recent", 29), ("old", 31), ("ancient", 366)]:
+        cron.record_run(
+            {
+                "slug": slug,
+                "status": "success",
+                "output": "sortie",
+                "duration_ms": 1,
+                "started_at": now - timedelta(days=age),
+                "finished_at": now - timedelta(days=age),
+            },
+            "scheduled",
+        )
+    with get_db() as session:
+        session.add(CronBatchRun(batch="tableaux", started_at=now - timedelta(days=366), status="finished"))
+        session.add(CronBatchRun(batch="tableaux", started_at=now - timedelta(days=364), status="finished"))
+
+    cron.purge_cron_history()
+
+    with get_db() as session:
+        assert dict(session.execute(select(CronRun.app_slug, CronRun.output)).all()) == {
+            "recent": "sortie",
+            "old": None,
+        }
+        assert session.scalar(select(func.count()).select_from(CronBatchRun)) == 1
+
+
+def test_the_history_purge_runs_every_day_in_the_maintenance_batch():
+    tasks = {task["slug"]: task for task in cron.discover_from_dir(cron.config.CRON_DIR, "CRON.md", "system")}
+
+    assert (tasks["purge-cron-history"]["batch"], tasks["purge-cron-history"]["schedule"]) == ("maintenance", "daily")
