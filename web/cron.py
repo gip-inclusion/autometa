@@ -25,7 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lib import dashboard_api
-from web.helpers import now_local, sanitize_for_log, utcnow
+from web.helpers import sanitize_for_log, utcnow
 from web.s3 import S3Store
 
 from . import alerts, config, publications, s3
@@ -51,9 +51,9 @@ SCHEDULE_PRESETS = {
 _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.items()}
 
 DASHBOARD_BATCH = "tableaux"
-# Heure UTC à laquelle cron.json démarre chaque lot. Sentry attend le check-in à cette heure-là :
-# la déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
-BATCH_HOURS = {"synchros": 2, "maintenance": 6, "tableaux": 6, "xl": 6}
+# (heure, minute) UTC auxquelles cron.json démarre chaque lot. Sentry attend le check-in à ce moment-là :
+# le déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
+BATCH_START = {"synchros": (2, 0), "maintenance": (6, 0), "tableaux": (6, 0), "xl": (6, 0)}
 FACADE_AUDIT_SCHEMA = "dashboard_storage"
 
 
@@ -130,35 +130,55 @@ def get_batch(meta: dict) -> str | None:
     return meta.get("batch", "").strip().lower() or None
 
 
-def is_due(schedule: str) -> bool:
+def last_batch_start(batch: str, now: dt.datetime) -> dt.datetime:
+    """Dernier départ planifié du lot, en UTC comme cron.json."""
+    hour, minute = BATCH_START.get(batch, (6, 0))
+    start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return start if start <= now else start - dt.timedelta(days=1)
+
+
+def runs_on(schedule: str, day: dt.datetime) -> bool:
     reduced = cadence(schedule)
     if reduced == "weekly":
-        return now_local().weekday() == 0  # Monday
+        return day.weekday() == 0
     if reduced == "monthly":
-        return now_local().day == 1
+        return day.day == 1
     return True
 
 
-def next_cron_run(schedule: str, now=None):
-    """Prochain départ du lot `tableaux`, en UTC comme la planification Scalingo, selon la cadence."""
-    now = now or utcnow()
-    target = now.replace(hour=BATCH_HOURS["tableaux"], minute=0, second=0, microsecond=0)
-    reduced = cadence(schedule)
-    if reduced == "weekly":
-        days_ahead = (0 - target.weekday()) % 7
-        if days_ahead == 0 and now >= target:
-            days_ahead = 7
-        return target + dt.timedelta(days=days_ahead)
-    if reduced == "monthly":
-        first_this = target.replace(day=1)
-        if now < first_this:
-            return first_this
-        if target.month == 12:
-            return first_this.replace(year=target.year + 1, month=1)
-        return first_this.replace(month=target.month + 1)
-    if now >= target:
-        return target + dt.timedelta(days=1)
-    return target
+def is_due(schedule: str, batch: str) -> bool:
+    """Le jour qui compte est celui du départ du lot : un lot qui déborde après minuit reste celui de la veille."""
+    return runs_on(schedule, last_batch_start(batch, utcnow()))
+
+
+def missed_last_due(task: dict, batch: str) -> bool:
+    """Échéance hebdo ou mensuelle passée sans que la tâche ait réellement tourné depuis (lot tué, sauté)."""
+    due = last_batch_start(batch, utcnow())
+    while not runs_on(task["schedule"], due):
+        due -= dt.timedelta(days=1)
+    try:
+        with get_db() as session:
+            ran = session.scalar(
+                select(CronRun.id)
+                .where(
+                    CronRun.app_slug == task["slug"],
+                    CronRun.started_at >= due,
+                    CronRun.status.in_(("success", "failure", "timeout")),
+                )
+                .limit(1)
+            )
+    except SQLAlchemyError as e:
+        logger.warning("cron %s : historique illisible, pas de rattrapage (%s)", sanitize_for_log(task["slug"]), e)
+        return False
+    return ran is None
+
+
+def next_cron_run(schedule: str, batch: str, now=None):
+    """Prochain départ du lot de la tâche, selon sa cadence."""
+    start = last_batch_start(batch, now or utcnow()) + dt.timedelta(days=1)
+    while not runs_on(schedule, start):
+        start += dt.timedelta(days=1)
+    return start
 
 
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
@@ -647,8 +667,9 @@ def kill_process_group(pgid: int, process: subprocess.Popen) -> None:
 
 def sentry_monitor_config(task: dict) -> dict:
     """Build Sentry Crons monitor config from task metadata."""
-    minute, _, days = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))].split(" ", 2)
-    crontab = f"{minute} {BATCH_HOURS.get(task.get('batch'), 6)} {days}"
+    days = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))].split(" ", 2)[2]
+    hour, minute = BATCH_START.get(task.get("batch"), (6, 0))
+    crontab = f"{minute} {hour} {days}"
     return {
         "schedule": {"type": "crontab", "value": crontab},
         "checkin_margin": 30,
@@ -662,8 +683,9 @@ def batch_monitor_config(batch: str, tasks: list[dict], budget: int | None) -> d
     """Moniteur Sentry d'un lot : un conteneur tué laisse son check-in ouvert, que Sentry passe en échec."""
     timeouts = [task["timeout"] for task in tasks if task["batch"] == batch]
     runtime = min(sum(timeouts), budget + max(timeouts, default=0)) if budget else sum(timeouts)
+    hour, minute = BATCH_START.get(batch, (6, 0))
     return {
-        "schedule": {"type": "crontab", "value": f"0 {BATCH_HOURS.get(batch, 6)} * * *"},
+        "schedule": {"type": "crontab", "value": f"{minute} {hour} * * *"},
         "checkin_margin": 30,
         "max_runtime": runtime // 60 + 1,
         "failure_issue_threshold": 1,
@@ -1088,7 +1110,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
                 logger.info("SKIP %s (disabled)", task["slug"])
             continue
 
-        if not is_due(task["schedule"]):
+        if not (is_due(task["schedule"], batch) or missed_last_due(task, batch)):
             if dry_run:
                 logger.info("SKIP %s (schedule: %s, not due)", task["slug"], task["schedule"])
             continue

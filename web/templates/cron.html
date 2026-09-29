@@ -96,6 +96,7 @@
               {% else %}
               <span class="text-muted">-</span>
               {% endif %}
+              {% if task.enabled %}<div class="text-muted small">prochaine : {{ task.next_run }}</div>{% endif %}
             </td>
             <td>
               {% if task.last_run and task.last_run.duration_ms is not none %}

@@ -342,12 +342,63 @@ def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, crontab)
 
 
 def test_every_batch_starts_at_the_hour_cron_json_says():
-    # Why: BATCH_HOURS n'est vrai que tant qu'il recopie cron.json — sinon Sentry attend le
+    # Why: BATCH_START n'est vrai que tant qu'il recopie cron.json — sinon Sentry attend le
     # check-in à une heure où plus rien ne tourne.
     jobs = json.loads((Path(cron.config.BASE_DIR) / "cron.json").read_text())["jobs"]
-    scheduled = {scheduled_batch(job["command"]): int(job["command"].split()[1]) for job in jobs}
+    scheduled = {
+        scheduled_batch(job["command"]): (int(job["command"].split()[1]), int(job["command"].split()[0]))
+        for job in jobs
+    }
 
-    assert cron.BATCH_HOURS == scheduled
+    assert cron.BATCH_START == scheduled
+
+
+def test_a_task_checks_in_at_the_minute_its_batch_starts(monkeypatch):
+    monkeypatch.setitem(cron.BATCH_START, "synchros", (2, 30))
+
+    assert (
+        cron.sentry_monitor_config({"schedule": "daily", "timeout": 300, "batch": "synchros"})["schedule"]["value"]
+        == "30 2 * * *"
+    )
+    assert cron.batch_monitor_config("synchros", [], None)["schedule"]["value"] == "30 2 * * *"
+
+
+UTC = timezone.utc
+
+
+@pytest.mark.parametrize(
+    ("schedule", "batch", "now", "expected"),
+    [
+        ("daily", "synchros", datetime(2026, 9, 29, 2, 5, tzinfo=UTC), True),
+        ("weekly", "tableaux", datetime(2026, 9, 28, 6, 5, tzinfo=UTC), True),
+        ("weekly", "tableaux", datetime(2026, 9, 29, 6, 5, tzinfo=UTC), False),
+        # Why: dimanche 23:30 UTC, c'est déjà lundi à Paris — le lot de dimanche ne doit rien y voir.
+        ("weekly", "synchros", datetime(2026, 9, 27, 23, 30, tzinfo=UTC), False),
+        # Why: un lot parti lundi et qui déborde après minuit reste le lot du lundi.
+        ("weekly", "tableaux", datetime(2026, 9, 29, 0, 30, tzinfo=UTC), True),
+        ("monthly", "tableaux", datetime(2026, 10, 1, 6, 10, tzinfo=UTC), True),
+        ("monthly", "tableaux", datetime(2026, 10, 2, 0, 30, tzinfo=UTC), True),
+        ("monthly", "synchros", datetime(2026, 9, 30, 23, 0, tzinfo=UTC), False),
+    ],
+)
+def test_a_task_is_due_on_the_utc_day_its_batch_started(mocker, schedule, batch, now, expected):
+    mocker.patch.object(cron, "utcnow", return_value=now)
+
+    assert cron.is_due(schedule, batch) is expected
+
+
+@pytest.mark.parametrize(
+    ("schedule", "batch", "now", "expected"),
+    [
+        ("daily", "synchros", datetime(2026, 9, 28, 1, 0, tzinfo=UTC), datetime(2026, 9, 28, 2, 0, tzinfo=UTC)),
+        ("daily", "synchros", datetime(2026, 9, 28, 2, 0, tzinfo=UTC), datetime(2026, 9, 29, 2, 0, tzinfo=UTC)),
+        ("daily", "tableaux", datetime(2026, 9, 28, 3, 0, tzinfo=UTC), datetime(2026, 9, 28, 6, 0, tzinfo=UTC)),
+        ("weekly", "synchros", datetime(2026, 9, 28, 3, 0, tzinfo=UTC), datetime(2026, 10, 5, 2, 0, tzinfo=UTC)),
+        ("monthly", "synchros", datetime(2026, 12, 15, 3, 0, tzinfo=UTC), datetime(2027, 1, 1, 2, 0, tzinfo=UTC)),
+    ],
+)
+def test_the_next_run_starts_at_the_utc_hour_of_the_task_batch(schedule, batch, now, expected):
+    assert cron.next_cron_run(schedule, batch, now=now) == expected
 
 
 def test_a_task_emitting_non_utf8_bytes_does_not_derail_the_run(mocker, tmp_path):
@@ -594,7 +645,7 @@ def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped
 
 def test_next_cron_run_counts_in_utc_like_the_scalingo_schedule(mocker):
     mocker.patch.object(cron, "utcnow", return_value=datetime(2026, 7, 1, 5, 0, tzinfo=timezone.utc))
-    assert cron.next_cron_run("daily") == datetime(2026, 7, 1, 6, 0, tzinfo=timezone.utc)
+    assert cron.next_cron_run("daily", cron.DASHBOARD_BATCH) == datetime(2026, 7, 1, 6, 0, tzinfo=timezone.utc)
 
 
 def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker):

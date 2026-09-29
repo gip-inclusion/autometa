@@ -2,7 +2,7 @@
 
 import itertools
 import textwrap
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select, text
@@ -183,3 +183,53 @@ def test_a_running_row_older_than_its_timeout_reads_as_interrupted(age, expected
     run = {"status": "running", "started_at": utcnow() - age}
 
     assert cron.displayed_status(run, timeout=60) == expected
+
+
+def record_past_run(slug, status, started_at, trigger="scheduled"):
+    cron.record_run(
+        {
+            "slug": slug,
+            "status": status,
+            "output": "",
+            "duration_ms": 1,
+            "started_at": started_at,
+            "finished_at": started_at,
+        },
+        trigger,
+    )
+
+
+TUESDAY = datetime(2026, 9, 29, 6, 5, tzinfo=timezone.utc)
+MONDAY_BATCH = datetime(2026, 9, 28, 6, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("history", "expected"),
+    [
+        ([], True),
+        ([("interrupted", MONDAY_BATCH, "scheduled")], True),
+        ([("skipped", MONDAY_BATCH, "scheduled")], True),
+        ([("success", MONDAY_BATCH - timedelta(days=7), "scheduled")], True),
+        ([("success", MONDAY_BATCH, "scheduled")], False),
+        ([("failure", MONDAY_BATCH, "scheduled")], False),
+        ([("timeout", MONDAY_BATCH, "scheduled")], False),
+        ([("success", MONDAY_BATCH + timedelta(hours=5), "manual")], False),
+    ],
+)
+def test_a_weekly_task_catches_up_when_monday_never_really_ran_it(mocker, history, expected):
+    mocker.patch.object(cron, "utcnow", return_value=TUESDAY)
+    for status, started_at, trigger in history:
+        record_past_run("hebdo", status, started_at, trigger)
+
+    assert cron.missed_last_due({"slug": "hebdo", "schedule": "weekly"}, "tableaux") is expected
+
+
+def test_the_next_batch_runs_a_weekly_task_whose_monday_was_missed(mocker, tmp_path):
+    mocker.patch.object(cron, "utcnow", return_value=TUESDAY)
+    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
+    task = {**write_system_task(tmp_path, "hebdo", "print('ok')"), "schedule": "weekly"}
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[task])
+
+    results = cron.run_all(batch="maintenance")
+
+    assert [r["slug"] for r in results] == ["hebdo"]

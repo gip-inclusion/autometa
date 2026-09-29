@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 
 from web import cron, scalingo
 from web.db import get_db
+from web.helpers import format_future_date
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -120,6 +121,7 @@ def test_cron_page_shows_the_latest_run_of_each_task(client, mocker):
         "enabled": True,
         "schedule": "daily",
         "timeout": 60,
+        "batch": "synchros",
     }
     mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
     now = datetime.now(timezone.utc)
@@ -146,6 +148,7 @@ def test_the_cron_page_shows_a_task_killed_mid_run_as_interrupted(client, mocker
         "enabled": True,
         "schedule": "daily",
         "timeout": 60,
+        "batch": "tableaux",
     }
     mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
     with get_db() as session:
@@ -176,6 +179,23 @@ def test_the_cron_page_shows_the_last_run_of_each_batch(client, mocker):
 
     assert "Lot <code>tableaux</code>" in response.text
     assert "interrompu" in response.text
+
+
+def test_the_cron_page_announces_the_next_run_at_the_hour_of_the_task_batch(client, mocker):
+    task = {
+        "slug": "sync-x",
+        "title": "X",
+        "tier": "system",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "synchros",
+    }
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+
+    response = client.get("/cron")
+
+    assert format_future_date(cron.next_cron_run("daily", "synchros")) in response.text
 
 
 def test_the_cron_page_survives_an_s3_outage(client, mocker):

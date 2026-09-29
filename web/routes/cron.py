@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from web import scalingo
 from web.cron import (
-    BATCH_HOURS,
+    BATCH_START,
     discover_cron_tasks,
     discover_system_tasks,
     displayed_status,
@@ -18,11 +18,12 @@ from web.cron import (
     get_app_runs,
     get_last_batch_runs,
     get_last_runs,
+    next_cron_run,
     read_cron_script,
     set_cron_enabled,
 )
 from web.deps import get_current_user, templates
-from web.helpers import format_relative_date, sanitize_for_log
+from web.helpers import format_future_date, format_relative_date, sanitize_for_log
 
 from .html import get_sidebar_data
 
@@ -52,6 +53,7 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
     last_runs = get_last_runs()
 
     for task in tasks:
+        task["next_run"] = format_future_date(next_cron_run(task["schedule"], task["batch"]))
         task["last_run"] = last_runs.get(task["slug"])
         if task["last_run"] and task["last_run"]["started_at"]:
             task["last_run"]["formatted_date"] = format_relative_date(task["last_run"]["started_at"])
@@ -59,7 +61,7 @@ def cron_page(request: Request, user_email: str = Depends(get_current_user)):
 
     last_batch_runs = get_last_batch_runs()
     batches = []
-    for batch in BATCH_HOURS:
+    for batch in BATCH_START:
         run = last_batch_runs.get(batch)
         if run:
             # Why: chaque lot repart tous les jours ; encore ouvert au bout de 24 h, il ne se fermera plus.
