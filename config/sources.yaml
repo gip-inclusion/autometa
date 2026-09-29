@@ -120,7 +120,7 @@ dora_staging:
 
 # Base applicative de Mon Récap — accès explicite uniquement (lecture/écriture), jamais pour l'analyse
 appli_monrecap:
-  database_url: ${env.MONRECAP_APPLI_DB}
+  database_url: ${env.MONRECAP_APPLI_DB_URL}
 
 zendesk:
   _default: emplois
