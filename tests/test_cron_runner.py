@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -315,11 +316,13 @@ def test_a_task_never_receives_the_scalingo_token(mocker, monkeypatch, tmp_path)
     # arbitraires sur la production. Les cron.py de tableaux de bord sont écrits par l'agent et
     # stockés sur S3 : aucun diff ne les relit, ils ne doivent jamais le voir passer.
     monkeypatch.setenv("SCALINGO_API_TOKEN", "tk-secret")
+    monkeypatch.setenv("CRON_TEMOIN", "transmis")
     task = write_task(
         tmp_path,
         """
         import os
         print(os.environ.get("SCALINGO_API_TOKEN", "absent"))
+        print(os.environ.get("CRON_TEMOIN", "perdu"))
         """,
     )
 
@@ -327,18 +330,56 @@ def test_a_task_never_receives_the_scalingo_token(mocker, monkeypatch, tmp_path)
 
     assert "absent" in result["output"]
     assert "tk-secret" not in result["output"]
+    assert "transmis" in result["output"]
+
+
+def test_a_successful_task_takes_its_background_processes_down_with_it(tmp_path):
+    # Why: voulu — un processus de fond survivant tiendrait les tuyaux, et le conteneur avec eux.
+    # Une tâche n'a rien à laisser tourner après son retour, succès compris.
+    pid_file = tmp_path / "child.pid"
+    (tmp_path / "cron.py").write_text(
+        textwrap.dedent(
+            f"""
+            import subprocess
+            child = subprocess.Popen(['sleep', '40'])
+            open({str(pid_file)!r}, 'w').write(str(child.pid))
+            """
+        )
+    )
+
+    returncode, _, _ = cron.run_task_process(
+        [sys.executable, str(tmp_path / "cron.py")], str(tmp_path), env_for_subprocess(), 30, "sys"
+    )
+
+    assert returncode == 0
+    assert not process_alive(int(pid_file.read_text()))
+
+
+def process_alive(pid):
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        time.sleep(0.1)
+    return True
 
 
 @pytest.mark.parametrize(
-    ("batch", "schedule", "crontab"),
-    [("synchros", "daily", "0 2 * * *"), ("maintenance", "weekly", "0 6 * * 1")],
+    ("batch", "schedule", "timeout", "crontab", "max_runtime"),
+    [
+        ("synchros", "daily", 300, "0 2 * * *", 6),
+        ("maintenance", "daily", 300, "0 6 * * *", 6),
+        ("maintenance", "weekly", 600, "0 6 * * 1", 11),
+    ],
 )
-def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, crontab):
+def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, timeout, crontab, max_runtime):
     # Why: déduire l'heure de la cadence faisait attendre à Sentry un check-in à 06:00 pour des
     # tâches lancées à 02:00 — un missed check-in par jour et par tâche.
-    config = cron.sentry_monitor_config({"schedule": schedule, "timeout": 300, "batch": batch})
+    config = cron.sentry_monitor_config({"schedule": schedule, "timeout": timeout, "batch": batch})
 
     assert config["schedule"]["value"] == crontab
+    assert config["max_runtime"] == max_runtime
 
 
 def test_every_batch_starts_at_the_hour_cron_json_says():
@@ -598,7 +639,7 @@ def test_a_workdir_that_survives_its_removal_is_reported(mocker, tmp_path, caplo
     assert caplog.records
 
 
-def test_an_s3_outage_still_runs_the_system_tasks_and_alerts(mocker):
+def test_an_s3_outage_still_runs_the_system_tasks_without_alerting(mocker):
     mocker.patch.object(cron, "discover_cron_tasks", side_effect=S3_DOWN)
     mocker.patch.object(cron, "discover_system_tasks", return_value=[make_task("sys", source=None, tier="system")])
     execute = mocker.patch.object(
@@ -610,7 +651,23 @@ def test_an_s3_outage_still_runs_the_system_tasks_and_alerts(mocker):
 
     assert [r["slug"] for r in results] == ["sys"]
     assert execute.call_count == 1
-    assert notify.called
+    notify.assert_not_called()
+
+
+def test_an_s3_outage_alerts_once_from_the_dashboard_batch_which_runs_nothing(mocker):
+    # Why: les quatre conteneurs découvrent en même temps ; seul le lot des tableaux de bord perd
+    # tout, c'est donc lui seul qui parle — et il ne prétend pas faire tourner des tâches système.
+    mocker.patch.object(cron, "discover_cron_tasks", side_effect=S3_DOWN)
+    mocker.patch.object(cron, "discover_system_tasks", return_value=[make_task("sys", source=None, tier="system")])
+    execute = mocker.patch.object(cron, "execute_task")
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+
+    cron.run_all(batch=cron.DASHBOARD_BATCH)
+
+    execute.assert_not_called()
+    notify.assert_called_once()
+    assert f"`{cron.DASHBOARD_BATCH}`" in notify.call_args.args[0]
+    assert "système" not in notify.call_args.args[0]
 
 
 def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped(mocker):
@@ -701,6 +758,21 @@ def test_the_cron_entry_point_initialises_sentry(monkeypatch, mocker):
     cron.main()
 
     init.assert_called_once()
+
+
+@pytest.mark.parametrize("budget", ["0", "-5"])
+def test_the_cron_entry_point_refuses_a_budget_that_is_not_positive(monkeypatch, mocker, capsys, budget):
+    monkeypatch.setattr("sys.argv", ["cron", "--batch", "tableaux", "--budget", budget])
+    mocker.patch.object(cron, "setup_logging")
+    mocker.patch.object(cron, "init_sentry")
+    run_all = mocker.patch.object(cron, "run_all")
+
+    with pytest.raises(SystemExit) as exc_info:
+        cron.main()
+
+    assert exc_info.value.code != 0
+    assert "budget" in capsys.readouterr().err.lower()
+    run_all.assert_not_called()
 
 
 def test_the_cron_entry_point_refuses_to_run_with_no_mode_and_no_batch(monkeypatch, mocker, capsys):

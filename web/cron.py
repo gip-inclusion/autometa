@@ -1080,12 +1080,13 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
     except (ClientError, BotoCoreError, SQLAlchemyError) as e:
         # Why: la découverte des tableaux de bord lit S3 *et* la base ; une panne de l'une ou de
         # l'autre ne prive que les tableaux de bord. Les tâches système, elles, peuvent tourner —
-        # mais l'amputation du lot doit s'annoncer au lieu de passer pour un succès.
-        logger.exception("cron : découverte des tableaux de bord impossible, seules les tâches système tournent")
-        alerts.notify_alert_channel(
-            f":red_circle: *Découverte des crons amputée* — {e.__class__.__name__}. "
-            "Seules les tâches système tournent aujourd'hui ; aucun tableau de bord n'est rafraîchi."
-        )
+        # mais l'amputation doit s'annoncer, une seule fois : par le lot qui perd tout.
+        logger.exception("cron : découverte des tableaux de bord impossible (lot %s)", sanitize_for_log(batch))
+        if batch == DASHBOARD_BATCH:
+            alerts.notify_alert_channel(
+                f":red_circle: *Lot `{batch}` vide* — découverte impossible ({e.__class__.__name__}). "
+                "Aucun tableau de bord ni publication n'est rafraîchi aujourd'hui."
+            )
         tasks = discover_system_tasks()
     results = []
     started = time.monotonic()
@@ -1177,6 +1178,14 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
     return results
 
 
+def positive_seconds(value: str) -> int:
+    """Un budget nul ou négatif passerait pour « pas de budget » : on le refuse."""
+    seconds = int(value)
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("le budget doit être un nombre de secondes positif")
+    return seconds
+
+
 def main():
     setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
     init_sentry()
@@ -1186,7 +1195,7 @@ def main():
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
     parser.add_argument("--facade-audit", action="store_true", help="Count dashboards importing outside the facade")
-    parser.add_argument("--budget", type=int, help="Durée maximale du lot, en secondes")
+    parser.add_argument("--budget", type=positive_seconds, help="Durée maximale du lot, en secondes")
     args = parser.parse_args()
 
     if not (args.facade_audit or args.list or args.app or args.batch):
