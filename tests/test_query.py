@@ -642,3 +642,16 @@ def test_execute_query_unknown_source_lists_dashboard_storage():
 
     assert result.success is False
     assert "dashboard_storage" in result.error
+
+
+def test_execute_query_never_reaches_the_monrecap_app_db(mocker):
+    from lib import query as q
+
+    mocker.patch("web.config.MONRECAP_APPLI_DB_URL", "postgresql://u:p@db/monrecap")
+    client = mocker.patch("lib.query._pg_execute_sql")
+
+    result = q.execute_query(source="appli_monrecap", instance="", caller=q.CallerType.APP, sql="DELETE FROM users")
+
+    assert result.success is False
+    assert "Unknown source" in result.error
+    client.assert_not_called()
