@@ -1,6 +1,7 @@
 """Client Datadog Logs — lecture des logs applicatifs (lecture seule)."""
 
 import logging
+import re
 import threading
 import time
 from typing import Any, Iterator, Optional
@@ -169,6 +170,32 @@ class DatadogClient:
 def by_count(facet: str, limit: int = 50) -> dict:
     """Group_by trié par volume décroissant — sans `type: measure`, l'API rejette `aggregation` (400)."""
     return {"facet": facet, "limit": limit, "sort": {"aggregation": "count", "order": "desc", "type": "measure"}}
+
+
+def closes_every_group(search: str) -> bool:
+    """Vrai si chaque parenthèse hors guillemets et échappements se referme, sans en fermer une de trop."""
+    depth, quoted, escaped = 0, False, False
+    for char in search:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            quoted = not quoted
+        elif not quoted and char in "()":
+            depth += 1 if char == "(" else -1
+            if depth < 0:
+                return False
+    return depth == 0 and not quoted and not escaped
+
+
+def scoped_to_service(service: str, search: str) -> str:
+    """Restreint `search` à un service nommé : entre parenthèses, aucun OR ni `-` n'en élargit la portée."""
+    if not isinstance(service, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", service, re.IGNORECASE):
+        raise DatadogError(f"service {service!r} invalide : un nom exact, sans joker, espace ni opérateur")
+    if not isinstance(search, str) or not closes_every_group(search):
+        raise DatadogError("search doit être une chaîne aux parenthèses et guillemets équilibrés")
+    return f"service:{service} ({search})" if search.strip() else f"service:{service}"
 
 
 def window(days: int) -> tuple[str, str]:

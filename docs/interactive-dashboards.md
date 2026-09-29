@@ -168,8 +168,9 @@ ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
 window=None)` agrège les logs ; `count_datadog(search, days=7, distinct=None, window=None)` renvoie un
-`data` valant `{"count": n, "distinct": m}` (`distinct` à `None` sans facette) ; `sample_datadog(search,
-days=7, limit=100, window=None)` renvoie jusqu'à `limit` événements bruts, du plus récent au plus ancien.
+`data` valant `{"count": n, "distinct": m}` (`distinct` à `None` sans facette) ; `sample_datadog(service,
+search="", days=7, limit=100, window=None)` renvoie jusqu'à `limit` événements bruts du service `service`, du
+plus récent au plus ancien.
 Par défaut la fenêtre est glissante, `now-Nd → now`, refusée au-delà de 30 jours de rétention ; deux
 exécutions à des heures différentes ne comptent donc pas les mêmes événements. `window=("2026-08-01",
 "2026-09-01")` fixe des bornes absolues, transmises telles quelles à l'API et **non vérifiées** : une borne
@@ -177,10 +178,15 @@ antérieure à la rétention renvoie un total tronqué sans erreur. Un `str` dan
 triée par volume décroissant (50 valeurs) ; le helper `by_count(facette, limite)`, lui aussi exporté par la
 façade, produit la même chose avec une autre limite ; un `dict` est transmis tel quel. `data` de
 `query_datadog` est la liste brute des buckets Datadog : `[{"by": {facette: valeur}, "computes": {"c0": n,
-"c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`. Les événements de `sample_datadog` sont des logs bruts
-(URL, identifiants d'utilisateurs, en-têtes) : `search` doit porter un filtre `service:` et `limit` est plafonné à
-10 000, sinon le résultat est en échec sans appel à Datadog. Ne jamais les publier tels quels dans un `data.json`
-public.
+"c1": m}}]`, `c0`/`c1` suivant l'ordre de `compute`.
+
+Les logs portent des données personnelles (URL, identifiants d'utilisateurs, en-têtes), et un TDB peut publier ce
+qu'il lit. Les événements de `sample_datadog` sont des logs bruts : l'échantillon est restreint à un seul service,
+nommé exactement (sans joker ni opérateur), et `search` ne peut qu'affiner dans ce service ; `limit` est plafonné à
+10 000. Hors de ces bornes, le résultat est en échec sans appel à Datadog. Un `group_by` renvoie lui aussi des
+valeurs brutes : grouper par `@usr.id`, `@usr.email` ou `@http.url` liste les identifiants et les URL eux-mêmes.
+Ne jamais publier tels quels, dans un `data.json` public, des événements ni des valeurs de facette qui désignent
+une personne.
 
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.

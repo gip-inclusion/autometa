@@ -475,54 +475,81 @@ def test_execute_datadog_count_delegates_to_the_client(mocker):
     assert count.call_args.kwargs == {"distinct": "@usr.id"}
 
 
-def test_execute_datadog_events_materialises_the_capped_iterator(mocker):
+def test_execute_datadog_events_samples_the_service_newest_first(mocker):
     from lib import query as q
 
     client = mocker.patch("lib.query.DatadogClient", autospec=True)
     client.return_value.__enter__.return_value.iter_events.return_value = iter([{"id": 1}, {"id": 2}])
 
-    result = q.execute_datadog_events("service:dora", q.CallerType.APP, limit=2)
+    result = q.execute_datadog_events("dora", q.CallerType.APP, search="status:error OR @a:1", limit=2)
 
     assert result.data == [{"id": 1}, {"id": 2}]
     iter_events = client.return_value.__enter__.return_value.iter_events
-    assert iter_events.call_args.args == ("service:dora", "now-7d", "now")
+    assert iter_events.call_args.args == ("service:dora (status:error OR @a:1)", "now-7d", "now")
     assert iter_events.call_args.kwargs == {"max_events": 2, "sort": "-timestamp"}
 
 
 @pytest.mark.parametrize(
     "kwargs, message",
     [
-        ({"search": "@http.status_code:500"}, "service:"),
-        ({"search": "service:dora", "limit": 10_001}, "plafond"),
+        ({"service": "*"}, "service"),
+        ({"service": "dora*"}, "service"),
+        ({"service": ""}, "service"),
+        ({"service": None}, "service"),
+        ({"service": "dora OR x"}, "service"),
+        ({"service": "dora", "search": "a) OR (service:*"}, "parenthèses"),
+        ({"service": "dora", "limit": 10_001}, "10000"),
+        ({"service": "dora", "limit": None}, "10000"),
     ],
-    ids=["no service filter", "limit over the cap"],
+    ids=["wildcard", "prefix", "empty", "none", "operator", "breakout", "over the cap", "not an int"],
 )
-def test_execute_datadog_events_refuses_unbounded_samples_without_calling_datadog(mocker, kwargs, message):
+def test_execute_datadog_events_refuses_an_unconfined_sample_without_querying(mocker, kwargs, message):
     from lib import query as q
 
     client = mocker.patch("lib.query.DatadogClient", autospec=True)
 
     result = q.execute_datadog_events(caller=q.CallerType.APP, **kwargs)
 
-    assert (result.success, client.called) == (False, False)
+    assert (result.success, client.return_value.__enter__.return_value.iter_events.called) == (False, False)
     assert message in result.error
 
 
-@pytest.mark.parametrize("execute", ["execute_datadog_query", "execute_datadog_count", "execute_datadog_events"])
-def test_datadog_executors_turn_a_non_string_search_into_a_failed_result(execute):
+def test_execute_datadog_events_traces_a_refusal_like_any_failure(mocker, caplog):
     from lib import query as q
 
-    result = getattr(q, execute)(None, q.CallerType.APP)
+    mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    with caplog.at_level("INFO", logger="lib.query"):
+        q.execute_datadog_events("*", q.CallerType.APP)
+
+    record = next(r for r in caplog.records if r.getMessage() == "datadog.events")
+    assert (record.__dict__["query.success"], record.__dict__["datadog.service"]) == (False, "*")
+
+
+DATADOG_EXECUTORS = [
+    ("execute_datadog_query", {}),
+    ("execute_datadog_count", {}),
+    ("execute_datadog_events", {"service": "dora"}),
+]
+
+
+@pytest.mark.parametrize(("execute", "extra"), DATADOG_EXECUTORS)
+def test_datadog_executors_turn_a_non_string_search_into_a_failed_result(mocker, execute, extra):
+    from lib import query as q
+
+    mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    result = getattr(q, execute)(search=None, caller=q.CallerType.APP, **extra)
 
     assert result.success is False
     assert "chaîne" in result.error
 
 
-@pytest.mark.parametrize("execute", ["execute_datadog_query", "execute_datadog_count", "execute_datadog_events"])
-def test_datadog_executors_refuse_a_rolling_window_beyond_retention(execute):
+@pytest.mark.parametrize(("execute", "extra"), DATADOG_EXECUTORS)
+def test_datadog_executors_refuse_a_rolling_window_beyond_retention(execute, extra):
     from lib import query as q
 
-    result = getattr(q, execute)("service:dora", q.CallerType.APP, days=31)
+    result = getattr(q, execute)(search="status:error", caller=q.CallerType.APP, days=31, **extra)
 
     assert result.success is False
     assert "Rétention" in result.error

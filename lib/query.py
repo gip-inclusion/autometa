@@ -11,7 +11,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
 from .data_inclusion import execute_sql as _di_execute_sql
-from .datadog import DatadogClient, by_count
+from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
 from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
@@ -293,10 +293,6 @@ def execute_dashboard_storage_query(
     return _run_traced_query("dashboard_storage.query", attrs, _do)
 
 
-def failed(error: str) -> QueryResult:
-    return QueryResult(success=False, data=None, error=error)
-
-
 def _run_datadog(
     span_name: str,
     search: str,
@@ -305,17 +301,19 @@ def _run_datadog(
     window: Optional[tuple[str, str]],
     timeout: int,
     fn: Callable[[DatadogClient, str, str], Any],
+    extra_attrs: Optional[dict] = None,
 ) -> QueryResult:
-    if not isinstance(search, str):
-        return failed(f"search doit être une chaîne, pas {type(search).__name__}")
     attrs = {
         "db.system": "datadog",
         "caller": caller.value,
         "datadog.window": str(window) if window else f"{days}d",
-        "db.statement.hash": _sql_hash(search),
+        "db.statement.hash": _sql_hash(str(search)),
+        **(extra_attrs or {}),
     }
 
     def _do():
+        if not isinstance(search, str):
+            raise DatadogError(f"search doit être une chaîne, pas {type(search).__name__}")
         frm, to = window or rolling_window(days)
         with DatadogClient(timeout=timeout) as client:
             return fn(client, frm, to)
@@ -365,20 +363,24 @@ def execute_datadog_count(
 
 
 def execute_datadog_events(
-    search: str,
+    service: str,
     caller: CallerType,
+    search: str = "",
     days: int = 7,
     limit: int = 100,
     window: Optional[tuple[str, str]] = None,
     timeout: int = 60,
 ) -> QueryResult:
     """Fetch up to `limit` raw Datadog log events of one service, newest first. Never raises."""
+
     # Why: raw events carry PII (URLs, user ids, headers) and a dashboard may publish what it reads,
-    # so a sample is confined to a named service and bounded well under the cron time budget.
-    if isinstance(search, str) and "service:" not in search:
-        return failed("un échantillon d'événements exige un filtre service: dans search")
-    if limit > 10_000:
-        return failed(f"limit {limit} dépasse le plafond de 10000 événements")
+    # so a sample is confined to one named service and bounded well under the cron time budget.
+    def sample(client: DatadogClient, frm: str, to: str) -> list[dict]:
+        query = scoped_to_service(service, search)
+        if not isinstance(limit, int) or limit > 10_000:
+            raise DatadogError(f"limit {limit!r} invalide : un entier, 10000 événements au plus")
+        return list(client.iter_events(query, frm, to, max_events=limit, sort="-timestamp"))
+
     return _run_datadog(
         "datadog.events",
         search=search,
@@ -386,7 +388,8 @@ def execute_datadog_events(
         days=days,
         window=window,
         timeout=timeout,
-        fn=lambda client, frm, to: list(client.iter_events(search, frm, to, max_events=limit, sort="-timestamp")),
+        fn=sample,
+        extra_attrs={"datadog.service": str(service)},
     )
 
 

@@ -13,6 +13,7 @@ from lib.datadog import (
     RateLimiter,
     by_count,
     day_windows,
+    scoped_to_service,
     window,
 )
 
@@ -45,9 +46,10 @@ def test_the_client_refuses_to_start_without_both_keys(mocker):
 
 
 def test_clients_share_one_limiter_by_default():
-    build = lambda: DatadogClient(api_key="factice", app_key="factice", site="exemple.test")  # noqa: E731
+    first = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
+    second = DatadogClient(api_key="factice", app_key="factice", site="exemple.test")
 
-    assert build().limiter is build().limiter
+    assert first.limiter is second.limiter
 
 
 def test_the_limiter_lets_the_burst_through_then_holds(mocker):
@@ -169,3 +171,47 @@ def test_iter_events_yields_nothing_for_a_zero_ceiling(mocker):
 
     assert list(client.iter_events("q", "now-1d", "now", max_events=0)) == []
     post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("search", "expected"),
+    [
+        ("", "service:itou-prod"),
+        ("   ", "service:itou-prod"),
+        ("status:error OR @a:1", "service:itou-prod (status:error OR @a:1)"),
+        ("-service:itou-prod", "service:itou-prod (-service:itou-prod)"),
+        ("service:*", "service:itou-prod (service:*)"),
+        ("(status:error OR status:warn) @usr.id:*", "service:itou-prod ((status:error OR status:warn) @usr.id:*)"),
+        ('@msg:"a) OR (b"', 'service:itou-prod (@msg:"a) OR (b")'),
+        (r"@http.url:\/x\)", r"service:itou-prod (@http.url:\/x\))"),
+    ],
+    ids=["empty", "blank", "or", "negated service", "wildcard service", "nested", "quoted paren", "escaped paren"],
+)
+def test_scoped_to_service_keeps_every_operator_inside_the_service(search, expected):
+    """Tout `search` est mis entre parenthèses et ET-é au service : aucun OR ni `-` n'élargit la portée."""
+    assert scoped_to_service("itou-prod", search) == expected
+
+
+@pytest.mark.parametrize("service", ["*", "dora*", "dor?", "", "  ", None, 3, "dora OR x", "-dora", "a:b", "(dora)"])
+def test_scoped_to_service_refuses_anything_but_an_exact_service_name(service):
+    with pytest.raises(DatadogError, match="service"):
+        scoped_to_service(service, "status:error")
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        "a) OR (service:*",
+        "status:error)",
+        "(status:error",
+        '"(" ) OR (service:* ")"',
+        '@msg:"non fermé',
+        "status:error\\",
+        None,
+    ],
+    ids=["breakout", "stray close", "stray open", "quote-masked breakout", "open quote", "trailing escape", "none"],
+)
+def test_scoped_to_service_refuses_a_search_that_could_close_the_group(search):
+    """Une parenthèse fermante hors guillemets ferait sortir la suite de `search` du filtre de service."""
+    with pytest.raises(DatadogError, match="search"):
+        scoped_to_service("itou-prod", search)

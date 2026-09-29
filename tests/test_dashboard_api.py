@@ -3,6 +3,7 @@
 import pytest
 
 from lib import dashboard_api
+from lib.datadog import by_count
 from lib.query import CallerType, QueryResult
 
 FACADE_IMPORT = "from lib.dashboard_api import query_matomo\n"
@@ -107,9 +108,9 @@ RESULT = QueryResult(success=True, data=[])
             },
         ),
         (
-            lambda: dashboard_api.sample_datadog("service:dora status:error", 3, limit=20),
+            lambda: dashboard_api.sample_datadog("dora", "status:error", 3, limit=20),
             "execute_datadog_events",
-            {"search": "service:dora status:error", "days": 3, "limit": 20, "window": None, "timeout": 60},
+            {"service": "dora", "search": "status:error", "days": 3, "limit": 20, "window": None, "timeout": 60},
         ),
         (
             lambda: dashboard_api.query_autometa_tables("SELECT 1"),
@@ -132,8 +133,6 @@ def test_query_delegates_as_an_app_caller(mocker, call, delegate, expected):
 
 
 def test_by_count_is_re_exported_unchanged():
-    from lib.datadog import by_count
-
     assert dashboard_api.by_count is by_count
 
 
@@ -143,7 +142,9 @@ def test_by_count_is_re_exported_unchanged():
         lambda: dashboard_api.query_datadog(None),
         lambda: dashboard_api.query_datadog("service:x", group_by=5),
         lambda: dashboard_api.count_datadog("service:x", window="hier"),
-        lambda: dashboard_api.sample_datadog("service:x", window=("2026-09-01",)),
+        lambda: dashboard_api.sample_datadog("x", window=("2026-09-01",)),
+        lambda: dashboard_api.sample_datadog("x", limit=None),
+        lambda: dashboard_api.sample_datadog("service:*"),
     ],
 )
 def test_datadog_functions_turn_a_bad_argument_into_a_failed_result(mocker, call):

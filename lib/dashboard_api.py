@@ -82,15 +82,16 @@ def count_datadog(
 
 
 def sample_datadog(
-    search: str,
+    service: str,
+    search: str = "",
     days: int = 7,
     limit: int = 100,
     window: tuple[str, str] | None = None,
     timeout: int = 60,
 ) -> QueryResult:
-    """Renvoie jusqu'à `limit` événements Datadog bruts, du plus récent au plus ancien. Ne lève jamais."""
+    """Renvoie jusqu'à `limit` événements bruts du service `service`, du plus récent au plus ancien. Ne lève jamais."""
     return query.execute_datadog_events(
-        search=search, caller=CallerType.APP, days=days, limit=limit, window=window, timeout=timeout
+        service=service, caller=CallerType.APP, search=search, days=days, limit=limit, window=window, timeout=timeout
     )
 
 
