@@ -70,10 +70,10 @@ jobs:
         run: |
           docker run -d --name rustfs -p 9000:9000 \
             -e RUSTFS_ACCESS_KEY=autometa -e RUSTFS_SECRET_KEY=autometa \
-            rustfs/rustfs:latest
+            rustfs/rustfs:1.0.0
           until curl -sf http://localhost:9000/health; do sleep 1; done
           docker run --rm --network host -e AWS_ACCESS_KEY_ID=autometa -e AWS_SECRET_ACCESS_KEY=autometa \
-            -e AWS_DEFAULT_REGION=fr-par amazon/aws-cli:latest \
+            -e AWS_DEFAULT_REGION=fr-par amazon/aws-cli:2.37.6 \
             --endpoint-url http://localhost:9000 s3 mb s3://autometa
 
       - run: uv sync --group dev --frozen
