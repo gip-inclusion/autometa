@@ -54,7 +54,7 @@ def check_object_storage(settings):
     if not endpoint:
         return None
     try:
-        httpx.get(f"{endpoint}/minio/health/live", timeout=3)
+        httpx.get(f"{endpoint}/health", timeout=3)
     except httpx.RequestError:
         return f"Le stockage de fichiers ne répond pas sur {endpoint}. Lancez `make setup`."
     return None

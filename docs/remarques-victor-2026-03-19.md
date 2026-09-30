@@ -44,7 +44,7 @@ Parti pris fondamental : tout tourne dans un seul worker. Le ProcessManager et l
 | DB principale | PostgreSQL (`DATABASE_URL`, `psycopg2`), accès via `ConnectionWrapper` |
 | DB recherche | SQLite séparé (`notion_research.db`) avec embeddings |
 | Embeddings | Qwen3-Embedding-0.6B via DeepInfra, similarité via simsimd |
-| Stockage fichiers | S3 (MinIO local / Scalingo) avec fallback filesystem |
+| Stockage fichiers | S3 (RustFS local / Scalingo) avec fallback filesystem |
 | APIs externes | Matomo, Metabase (3 instances), Notion, Slack, GitHub, Livestorm, Grist |
 | Déploiement | Docker / Scalingo PaaS |
 | Python | 3.11, géré par uv |

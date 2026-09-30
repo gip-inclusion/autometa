@@ -65,15 +65,16 @@ jobs:
           docker exec -u root "${{ job.services.postgres.id }}" apt-get update
           docker exec -u root "${{ job.services.postgres.id }}" apt-get install -y --no-install-recommends postgresql-18-pgvector
 
-      # `services:` ne sait pas passer d'arguments à l'image ; MinIO exige `server /data`.
+      # `services:` ne sait pas passer d'arguments à l'image ; on lance donc RustFS à la main.
       - name: Stockage objet
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=autometa -e MINIO_ROOT_PASSWORD=autometa \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
-          until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done
-          docker run --rm --network host -e MC_HOST_local=http://autometa:autometa@localhost:9000 \
-            quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z mb --ignore-existing local/autometa
+          docker run -d --name rustfs -p 9000:9000 \
+            -e RUSTFS_ACCESS_KEY=autometa -e RUSTFS_SECRET_KEY=autometa \
+            rustfs/rustfs:latest
+          until curl -sf http://localhost:9000/health; do sleep 1; done
+          docker run --rm --network host -e AWS_ACCESS_KEY_ID=autometa -e AWS_SECRET_ACCESS_KEY=autometa \
+            -e AWS_DEFAULT_REGION=fr-par amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 s3 mb s3://autometa
 
       - run: uv sync --group dev --frozen
       - run: uv run playwright install --with-deps chromium

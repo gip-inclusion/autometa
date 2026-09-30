@@ -26,7 +26,7 @@ FastAPI multi-workers avec exécution d'agents distribuée via Redis. Chaque wor
 
 | Environnement | DB | File/SSE | Stockage |
 |---|---|---|---|
-| Local (docker-compose) | PostgreSQL | Redis | S3 (MinIO) |
+| Local (docker-compose) | PostgreSQL | Redis | S3 (RustFS) |
 | Scalingo | PostgreSQL addon | Redis addon | S3 (Scaleway) |
 
 PostgreSQL et Redis sont requis dans tous les environnements (`DATABASE_URL`, `REDIS_URL`).
