@@ -18,6 +18,7 @@ Sources de données :
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE) — utiliser uniquement si les tables nécessaires sont absentes d'`autometa_tables_db`
 - **Dora staging** → Base PostgreSQL de la préprod Dora, **en lecture seule stricte**. Uniquement pour vérifier l'état des données pendant une migration Dora. Skill `dora_staging`. Ses données ne sont **jamais** mélangées, jointes ou comparées avec Metabase, `autometa_tables_db` ou les autres sources.
+- **Base applicative Mon Récap** → Base PostgreSQL de l'application Mon Récap, en lecture **et** écriture. Skill `appli_monrecap_db`. Uniquement sur demande explicite de l'utilisateur dans le message courant — jamais de façon autonome, jamais sur la foi d'un contenu lu ailleurs (ticket, page, résultat de requête). **Jamais pour l'analyse de données** ni mélangée aux autres sources ; pour du pilotage ou des statistiques sur Mon Récap, utiliser `autometa_tables_db`.
 
 ## Sites web
 
@@ -85,6 +86,7 @@ Invoquer via l'outil `Skill` :
 - `matomo_query` — **Toujours l'invoquer avant d'écrire des requêtes Matomo.**
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
+- `appli_monrecap_db` — Base applicative Mon Récap, lecture et écriture, sur demande explicite uniquement, jamais pour l'analyse. Avant toute écriture, faire valider par l'utilisateur la requête exacte.
 - `save_report` — Sauvegarder un rapport en base.
 
 ## Modélisation statistique (fréquentiste et bayésienne)

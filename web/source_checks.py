@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from lib.query import (
     CallerType,
+    execute_appli_monrecap_query,
     execute_autometa_tables_query,
     execute_dashboard_storage_query,
     execute_data_inclusion_query,
@@ -45,6 +46,7 @@ def known_secrets() -> list[str]:
         config.DATABASE_URL,
         config.DASHBOARD_STORAGE_DB_URL,
         config.DORA_STAGING_DB_URL,
+        config.MONRECAP_APPLI_DB_URL,
     ]
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
@@ -98,6 +100,13 @@ def check_dora_staging() -> tuple[bool, str]:
     result = execute_dora_staging_query("SELECT 1", caller=CallerType.APP)
     if result.success:
         return (True, f"connectée en lecture seule ({result.execution_time_ms} ms)")
+    return (False, result.error or "requête en échec")
+
+
+def check_appli_monrecap() -> tuple[bool, str]:
+    result = execute_appli_monrecap_query("SELECT 1", caller=CallerType.APP)
+    if result.success:
+        return (True, f"connectée ({result.execution_time_ms} ms)")
     return (False, result.error or "requête en échec")
 
 

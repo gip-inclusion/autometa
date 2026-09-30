@@ -7,6 +7,7 @@ from lib.query import QueryResult as QueryOutcome
 from web import source_checks
 from web.source_checks import (
     check_app_db,
+    check_appli_monrecap,
     check_autometa_tables,
     check_dashboard_storage,
     check_data_inclusion,
@@ -111,8 +112,9 @@ def test_check_matomo_raises_on_http_error_so_the_caller_redacts_it(mocker):
     [
         (check_autometa_tables, "execute_autometa_tables_query", "connectée (12 ms)"),
         (check_data_inclusion, "execute_data_inclusion_query", "connectée (12 ms)"),
+        (check_appli_monrecap, "execute_appli_monrecap_query", "connectée (12 ms)"),
     ],
-    ids=["autometa_tables", "data_inclusion"],
+    ids=["autometa_tables", "data_inclusion", "appli_monrecap"],
 )
 def test_sql_probe_reports_success(mocker, probe, target, expected):
     mocker.patch.object(source_checks, target, return_value=QueryOutcome(success=True, data={}, execution_time_ms=12))
@@ -125,8 +127,9 @@ def test_sql_probe_reports_success(mocker, probe, target, expected):
         (check_autometa_tables, "execute_autometa_tables_query"),
         (check_data_inclusion, "execute_data_inclusion_query"),
         (check_dashboard_storage, "execute_dashboard_storage_query"),
+        (check_appli_monrecap, "execute_appli_monrecap_query"),
     ],
-    ids=["autometa_tables", "data_inclusion", "dashboard_storage"],
+    ids=["autometa_tables", "data_inclusion", "dashboard_storage", "appli_monrecap"],
 )
 def test_sql_probe_surfaces_the_error(mocker, probe, target):
     mocker.patch.object(
@@ -225,3 +228,9 @@ def test_the_dora_staging_url_is_a_known_secret(mocker):
     mocker.patch.object(source_checks.config, "DORA_STAGING_DB_URL", "dora-secret-value-123")
 
     assert "dora-secret-value-123" in source_checks.known_secrets()
+
+
+def test_the_appli_monrecap_url_is_a_known_secret(mocker):
+    mocker.patch.object(source_checks.config, "MONRECAP_APPLI_DB_URL", "monrecap-secret-value-123")
+
+    assert "monrecap-secret-value-123" in source_checks.known_secrets()
