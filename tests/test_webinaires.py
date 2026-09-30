@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+import lib.webinaires
 from lib.webinaires import (
     T_INSCRIPTIONS,
     T_WEBINAIRES,
@@ -287,3 +288,22 @@ def test_grist_sync_email_lowercased(mocker, conn, grist_client):
     emails = [r[0] for r in conn.execute(f"SELECT email FROM {T_INSCRIPTIONS} ORDER BY email").fetchall()]
     assert "pierre@example.fr" in emails
     assert "Pierre@Example.fr" not in emails
+
+
+@pytest.mark.parametrize("event_id", [None, ""])
+def test_grist_sync_skips_inscriptions_without_event_id(mocker, conn, grist_client, caplog, event_id):
+    orpheline = {"id": 104, "fields": {"event_id": event_id, "email": "orpheline@example.fr"}}
+
+    def mock_get(url, **kwargs):
+        if "Inscriptions" in url:
+            return mock_grist_response(mocker, [orpheline, *SAMPLE_INSCRIPTIONS])
+        return mock_grist_response(mocker, SAMPLE_WEBINAIRES)
+
+    grist_client._session.get.side_effect = mock_get
+    spy = mocker.spy(lib.webinaires, "batch_upsert")
+    _, registrations = sync_grist(conn, grist_client)
+
+    emails = [row[3] for row in spy.call_args_list[1].args[3]]
+    assert registrations == 3
+    assert sorted(emails) == ["julie@example.fr", "marie@example.fr", "pierre@example.fr"]
+    assert "1 inscriptions sans event_id ignorées" in caplog.text
