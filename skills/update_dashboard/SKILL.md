@@ -13,6 +13,8 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 
 ## Avant de lancer
 
+**TDB d'un autre utilisateur** : si le premier auteur du TDB (`dashboards.first_author_email`) diffère de l'utilisateur courant, l'avertir explicitement que ce TDB ne lui appartient pas et obtenir sa confirmation avant toute modification (métadonnées ou fichiers). Voir `AGENT.md`, « Ne pas détruire le travail d'autres utilisateurs ».
+
 **Toujours confirmer la cible avec l'utilisateur si le slug n'a pas été donné explicitement** (par URL ou nom exact). L'erreur classique est de modifier le mauvais TDB ou de recréer un doublon en croyant éditer.
 
 1. Lister les candidats actifs :
