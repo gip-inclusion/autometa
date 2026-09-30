@@ -259,6 +259,40 @@ def execute_dora_staging_query(
     return _run_traced_query("dora_staging.query", attrs, _do)
 
 
+def execute_appli_monrecap_query(
+    sql: str,
+    caller: CallerType,
+    params: Optional[dict] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Execute SQL on the Mon Récap application database (read/write, explicit calls only). Never raises."""
+    from web import config
+
+    attrs = {
+        "db.system": "postgresql",
+        "db.name": "appli_monrecap",
+        "caller": caller.value,
+        "db.statement.hash": _sql_hash(sql),
+    }
+
+    def _do():
+        if not config.MONRECAP_APPLI_DB_URL:
+            raise ValueError("MONRECAP_APPLI_DB_URL is not configured")
+        return _wrap_columns_rows(
+            _pg_execute_sql(
+                database_url=config.MONRECAP_APPLI_DB_URL,
+                sql=sql,
+                source="appli_monrecap",
+                params=params,
+                write=True,
+                timeout=timeout,
+            )
+        )
+
+    # Why: psycopg2 can raise a wide variety of errors; caller checks result.success.
+    return _run_traced_query("appli_monrecap.query", attrs, _do)
+
+
 def execute_dashboard_storage_query(
     sql: str,
     caller: CallerType,

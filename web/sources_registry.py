@@ -274,6 +274,20 @@ def all_sources() -> list[Source]:
             configured=lambda: bool(config.DORA_STAGING_DB_URL),
         ),
         Source(
+            slug="appli-monrecap",
+            name="Base applicative Mon Récap",
+            group=INTERNE,
+            blurb=(
+                "Base de l'application Mon Récap — accès explicite uniquement, en lecture et en écriture. "
+                "Jamais utilisée pour de l'analyse de données ni mélangée aux autres sources."
+            ),
+            icon="ri-database-2-line",
+            skill="appli_monrecap_db",
+            doc="skills/appli_monrecap_db/SKILL.md",
+            check=source_checks.check_appli_monrecap,
+            configured=lambda: bool(config.MONRECAP_APPLI_DB_URL),
+        ),
+        Source(
             slug="s3",
             name="S3",
             group=INTERNE,
