@@ -46,6 +46,8 @@ metabase:
   rdvi:
     url: https://rdv-service-public-metabase.osc-secnum-fr1.scalingo.io
     api_key: ${env.METABASE_RDVI_API_KEY}
+    # Format username:password — l'instance est derrière une authentification HTTP Basic
+    basic_auth: ${env.METABASE_RDVI_BASIC_AUTH}
     knowledge_path: knowledge/rdvi/
     dashboards: {}
 

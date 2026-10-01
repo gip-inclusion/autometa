@@ -95,6 +95,7 @@ def get_metabase(instance: str | None = None, database_id: int | None = None):
         api_key=config["api_key"],
         database_id=database_id,
         instance=instance_name,
+        basic_auth=config.get("basic_auth"),
     )
 
 

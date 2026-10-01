@@ -96,6 +96,7 @@ class MetabaseAPI:
         database_id: Optional[int] = None,
         instance: str = "stats",
         caller: str = "agent",
+        basic_auth: Optional[str] = None,
     ):
         self.url = url.rstrip("/")
         self.api_key = api_key
@@ -107,6 +108,7 @@ class MetabaseAPI:
         self._session = httpx.Client(
             transport=transport,
             headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+            auth=tuple(basic_auth.split(":", 1)) if basic_auth else None,
             timeout=httpx.Timeout(60, connect=10),
         )
 
