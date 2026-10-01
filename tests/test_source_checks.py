@@ -95,6 +95,17 @@ def test_check_metabase_instance(mocker, status, expected):
     assert check_metabase_instance("stats") == expected
 
 
+def test_check_metabase_instance_sends_the_configured_basic_auth(mocker):
+    mocker.patch.object(
+        source_checks, "get_source_config", return_value={"url": "https://mb.test", "basic_auth": "u:p"}
+    )
+    get = mocker.patch.object(httpx, "get", return_value=fake_response(200))
+
+    check_metabase_instance("rdvi")
+
+    assert get.call_args.kwargs["auth"] == ("u", "p")
+
+
 def test_check_matomo_returns_the_version(mocker):
     mocker.patch.object(httpx, "get", return_value=fake_response(200, {"value": "5.8.0"}))
     assert check_matomo() == (True, "v5.8.0")

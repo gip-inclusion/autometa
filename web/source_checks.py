@@ -51,7 +51,7 @@ def known_secrets() -> list[str]:
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
             cfg = load_config().get(source_type, {}).get(instance, {})
-            values += [cfg.get(key) for key in ("token", "api_key", "password")]
+            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth")]
     return [v for v in values if v and len(v) > 6 and not v.startswith("${env.")]
 
 
@@ -120,7 +120,8 @@ def check_data_inclusion() -> tuple[bool, str]:
 def check_metabase_instance(instance: str) -> tuple[bool, str]:
     cfg = get_source_config("metabase", instance)
     url = cfg["url"].rstrip("/") + "/api/health"
-    resp = httpx.get(url, timeout=PROBE_TIMEOUT_SEC)
+    basic_auth = cfg.get("basic_auth")
+    resp = httpx.get(url, auth=tuple(basic_auth.split(":", 1)) if basic_auth else None, timeout=PROBE_TIMEOUT_SEC)
     if resp.status_code == 200:
         return (True, "en bonne santé")
     return (False, f"HTTP {resp.status_code}")

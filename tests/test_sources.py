@@ -2,12 +2,14 @@
 
 import textwrap
 
+import httpx
 import pytest
 
 from lib import sources
 from lib.sources import (
     get_default_instance,
     get_matomo,
+    get_metabase,
     get_source_config,
     list_instances,
     load_config,
@@ -25,6 +27,10 @@ metabase:
   stats:
     url: https://mb.example.org
     api_key: ${env.TEST_MB_KEY}
+  protegee:
+    url: https://mb-protegee.example.org
+    api_key: ${env.TEST_MB_KEY}
+    basic_auth: ${env.TEST_MB_BASIC_AUTH}
 """
 
 
@@ -116,6 +122,28 @@ def test_get_matomo_strips_scheme_from_url(write_config, monkeypatch, mocker):
     get_matomo()
 
     api_cls.assert_called_once_with(url="stats.example.org", token="tok", instance="inclusion")
+
+
+@pytest.mark.parametrize(
+    "instance,expected",
+    [
+        ("stats", None),
+        # dXNlcjpwYTpzcw== = base64("user:pa:ss")
+        ("protegee", "Basic dXNlcjpwYTpzcw=="),
+    ],
+)
+def test_get_metabase_sends_basic_auth_only_when_configured(write_config, monkeypatch, mocker, instance, expected):
+    write_config()
+    monkeypatch.setenv("TEST_MB_KEY", "key")
+    monkeypatch.setenv("TEST_MB_BASIC_AUTH", "user:pa:ss")
+    send = mocker.patch.object(httpx.HTTPTransport, "handle_request", return_value=httpx.Response(200, json={}))
+
+    with get_metabase(instance) as api:
+        api.get_current_user()
+
+    request = send.call_args.args[0]
+    assert request.headers["X-API-KEY"] == "key"
+    assert request.headers.get("Authorization") == expected
 
 
 def test_list_instances_excludes_private_keys(write_config):

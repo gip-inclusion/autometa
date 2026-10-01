@@ -3,6 +3,7 @@
 **URL:** https://rdv-service-public-metabase.osc-secnum-fr1.scalingo.io
 **Instance name:** `rdvi`
 **API key env var:** `METABASE_RDVI_API_KEY`
+**HTTP Basic auth env var:** `METABASE_RDVI_BASIC_AUTH` (`username:password`)
 **API user:** `matometa` (id=35, non-admin)
 
 Related: [RDV-Insertion Matomo site](../sites/rdv-insertion.md) (site ID 214, tracks agent web UI).
