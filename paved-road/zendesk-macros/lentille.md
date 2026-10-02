@@ -23,8 +23,9 @@ plusieurs communes. Ce qui en a été fait :
   demande `usage_30d`.
 - **Garde : la liste, la lecture unitaire et la réponse du `PUT` doivent donner la même
   représentation** — vérifié le 2026-10-02 sur les 322 macros : liste et lecture unitaire sont
-  identiques champ à champ. L'aller-retour `PUT` est couvert par le test `external` du bac à sable,
-  à jouer avant la PR.
+  identiques champ à champ. L'aller-retour `PUT` (macro jetable inactive créée, remplacement appliqué
+  puis défait, comparée à l'identique, supprimée) a passé le 2026-10-02 contre le Zendesk de
+  production, avec l'accord du demandeur ; aucune macro de test ne reste.
 - **`description: null` (5 macros) réécrite en `""` à l'application** — conservé : invisible, la
   lecture normalise les deux en `""`, la garde compare des valeurs normalisées.
 - **Une entité HTML contenant le motif est remplacée dedans (« 39 » dans `&#39;`)** — conservé :
@@ -44,3 +45,8 @@ plusieurs communes. Ce qui en a été fait :
   exacte sur le texte.
 - **Excès sans critère** (`priority`, `type` dans les libellés, `&`, `<`, `>` dans les équivalences
   d'affichage) — conservé : coût nul, même règle que les espaces et guillemets de DOD-20.
+
+Seconde passe (Fable), 2026-10-02 : aucun bloqueur. Deux remarques traitées : `markup_hits` n'est
+plus annoncé quand `include_markup=True` remplace justement ces occurrences ; l'aller-retour réel est
+consigné ci-dessus. Troisième remarque conservée : le test réel supprime sa macro jetable par l'API
+brute, seul chemin de suppression du dépôt, réservé au nettoyage du test comme pour les articles.
