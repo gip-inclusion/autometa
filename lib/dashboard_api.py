@@ -28,7 +28,7 @@ __all__ = [
     "sample_datadog",
 ]
 
-VERSION = 2
+VERSION = 1
 
 
 def list_variants(slug: str | None = None) -> list[dict]:
