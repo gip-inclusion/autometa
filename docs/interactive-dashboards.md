@@ -49,6 +49,14 @@ Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill génère le sca
 
 Les deux skills lisent `AUTOMETA_CONVERSATION_ID` et `AUTOMETA_USER_EMAIL` injectés automatiquement dans l'environnement par le runtime agent.
 
+### `verify_dashboard` (vérification avant partage)
+
+Une fois les fichiers du TDB écrits, le skill l'affiche dans un navigateur sans écran et rend un
+verdict réussi / échoué : erreurs JavaScript, fichiers non chargés, graphiques vides ou manquants,
+valeurs cassées à l'écran, mise en page qui déborde. L'agent corrige jusqu'au verdict réussi — trois
+tentatives au plus — et, à défaut, donne le lien en listant les problèmes restants. Détail :
+`skills/verify_dashboard/SKILL.md`.
+
 ## Stack
 
 - **Vanilla JS** — pas de React, Vue ou autre framework.

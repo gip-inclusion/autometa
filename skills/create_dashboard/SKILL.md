@@ -84,6 +84,13 @@ Si l'une manque, le script échoue avec code retour non nul.
 - `1` — slug invalide, slug déjà pris, ou autre erreur métier.
 - `2` — variables d'env manquantes (bug d'intégration).
 
+## Étape finale : vérifier avant de donner le lien
+
+Une fois les fichiers du TDB écrits (et `cron.py` lancé une première fois s'il existe), lancer le
+skill `verify_dashboard`. Tant que le verdict est échoué, corriger puis relancer — trois tentatives au
+plus. Ne donner le lien qu'après un verdict réussi, ou en listant à l'utilisateur les problèmes
+restants.
+
 ## Conventions de codage
 
 Avant d'écrire le code du TDB (HTML/JS/cron.py), lire `docs/interactive-dashboards.md` pour respecter les conventions (vanilla JS, pas de framework, palette DSFR, structure des fichiers, modes `cron.py` vs `/api/query`).
