@@ -60,7 +60,7 @@ matomo:
   _default: inclusion
 
   inclusion:
-    url: https://matomo.inclusion.beta.gouv.fr
+    url: https://matomo.inclusion.gouv.fr
     token: ${env.MATOMO_API_KEY}
 
 tag_manager:

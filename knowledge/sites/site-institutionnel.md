@@ -70,7 +70,7 @@ Les events sont trackés via **Matomo Tag Manager** (pas de tracking dans le cod
 | Reseau Sociaux | 12 | 7 | Clics sur les liens réseaux sociaux |
 | Newsletter | 1 | 1 | Clics sur le bouton d'inscription newsletter |
 
-**Source des données :** [Voir dans Matomo](https://matomo.inclusion.beta.gouv.fr/index.php?module=CoreHome&action=index&idSite=212&period=month&date=2025-12-01#?idSite=212&period=month&date=2025-12-01&segment=&category=General_Actions&subcategory=Events_Events) | `Events.getCategory?idSite=212&period=month&date=2025-12-01`
+**Source des données :** [Voir dans Matomo](https://matomo.inclusion.gouv.fr/index.php?module=CoreHome&action=index&idSite=212&period=month&date=2025-12-01#?idSite=212&period=month&date=2025-12-01&segment=&category=General_Actions&subcategory=Events_Events) | `Events.getCategory?idSite=212&period=month&date=2025-12-01`
 
 ### Notes
 
