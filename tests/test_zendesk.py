@@ -795,10 +795,11 @@ def test_dod_1_list_macros_reads_every_page_with_thirty_day_usage(api_no_signal,
 
 def test_get_macro_parses_payload_with_admin_url(api_no_signal, mocker):
     payload = macro_payload(5, restriction={"type": "Group", "id": 3, "ids": [3]})
-    mocker.patch.object(
+    request = mocker.patch.object(
         api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"macro": payload})
     )
     macro = api_no_signal.get_macro(5)
+    assert request.call_args.kwargs["params"] == {"include": "usage_30d"}
     assert (macro.id, macro.title, macro.description, macro.restriction, macro.raw) == (
         5,
         "Candidat::Relance",
@@ -821,7 +822,7 @@ def test_update_macro_sends_fields_and_returns_the_stored_macro(api_no_signal, m
     assert macro.active is False
 
 
-def test_dod_10_create_macro_is_inactive_unless_told_otherwise(api_no_signal, mocker):
+def test_dod_10_create_macro_is_always_inactive(api_no_signal, mocker):
     request = mocker.patch.object(
         api_no_signal._client,
         "request",

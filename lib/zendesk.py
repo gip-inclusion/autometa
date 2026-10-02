@@ -409,15 +409,15 @@ class ZendeskAPI:
         return [macro_from_payload(m) for m in self._iter_pages("macros.json", "macros", {"include": "usage_30d"})]
 
     def get_macro(self, macro_id: int) -> Macro:
-        return macro_from_payload(self._get(f"macros/{macro_id}.json")["macro"])
+        return macro_from_payload(self._get(f"macros/{macro_id}.json", {"include": "usage_30d"})["macro"])
 
     def update_macro(self, macro_id: int, **fields: Any) -> Macro:
         """Rewrite macro fields (title, description, active, actions — the whole list); returns the stored macro."""
         return macro_from_payload(self._request("PUT", f"macros/{macro_id}.json", json={"macro": fields})["macro"])
 
-    def create_macro(self, title: str, actions: list[dict], description: str = "", active: bool = False) -> Macro:
-        """Create a macro, inactive unless told otherwise."""
-        macro = {"title": title, "actions": actions, "description": description, "active": active}
+    def create_macro(self, title: str, actions: list[dict], description: str = "") -> Macro:
+        """Create an inactive macro; activating it goes through a changeset."""
+        macro = {"title": title, "actions": actions, "description": description, "active": False}
         return macro_from_payload(self._request("POST", "macros.json", json={"macro": macro})["macro"])
 
     def lookup(self, resource: str, item_id: int | str) -> Optional[dict]:

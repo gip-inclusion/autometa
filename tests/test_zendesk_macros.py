@@ -149,11 +149,31 @@ def test_dod_2_describe_names_every_action_and_marks_deleted_references():
     ]
 
 
-def test_dod_2_unrestricted_macro_and_deleted_ticket_field():
-    target = macro(8, actions=[{"field": "custom_fields_99", "value": "x"}])
-    described = zm.describe(FakeZendesk([target]), target)
+def test_dod_2_unrestricted_macro_deleted_ticket_field_and_list_values():
+    target = macro(
+        8,
+        actions=[
+            {"field": "custom_fields_99", "value": "x"},
+            {"field": "custom_fields_77", "value": ["employeur_siae", "autre"]},
+            {"field": "side_conversation_slack", "value": ["<p>Hello</p>", "canal", "text/html"]},
+        ],
+    )
+    api = FakeZendesk(
+        [target],
+        lookups={
+            ("ticket_fields", 77): {
+                "title": "Type demandeur",
+                "custom_field_options": [{"value": "employeur_siae", "name": "Employeur::SIAE"}],
+            }
+        },
+    )
+    described = zm.describe(api, target)
     assert described["restricted_to"] is None
-    assert described["actions"] == [{"label": "Champ inconnu (#99)", "value": "x"}]
+    assert described["actions"] == [
+        {"label": "Champ inconnu (#99)", "value": "x"},
+        {"label": "Type demandeur", "value": ["Employeur::SIAE", "autre"]},
+        {"label": "side_conversation_slack", "value": ["<p>Hello</p>", "canal", "text/html"]},
+    ]
 
 
 def test_dod_3_replace_lists_changed_macros_by_paragraph_and_writes_nothing(store):
@@ -233,6 +253,12 @@ def test_dod_5_a_transform_editing_actions_in_place_is_still_seen_as_a_change(st
     assert [e["id"] for e in result["articles"]] == [1]
     assert len(api.macros[1].actions) == 2
     assert len(store.json(f"changesets/{result['id']}/before.json.gz")["1"]["actions"]) == 2
+
+
+def test_dod_5_a_transform_adding_a_field_it_cannot_show_is_refused(store):
+    with pytest.raises(ValueError, match="exactement les champs"):
+        zm.plan([macro(1)], lambda f: {**f, "restriction": {"type": "Group", "id": 1}}, "restreindre")
+    assert store.files == {}
 
 
 def test_dod_6_unapproved_plan_stays_inert_and_is_still_listed_later(store):
@@ -457,7 +483,7 @@ def test_dod_18_export_macros_dumps_raw_payloads_gzipped_with_a_link(store):
 
 def test_dod_19_replace_tag_swaps_whole_tags_without_duplicates(store):
     api = FakeZendesk([
-        macro(1, actions=[{"field": "current_tags", "value": "nia-ntt ntt relance"}]),
+        macro(1, actions=[{"field": "current_tags", "value": "nia-ntt ntt relance relance pdi"}]),
         macro(2, actions=[{"field": "set_tags", "value": "ntt pdi"}, {"field": "remove_tags", "value": "ntt"}]),
         macro(3, actions=[{"field": "current_tags", "value": "nia-ntt"}, {"field": "subject", "value": "ntt"}]),
     ])
@@ -466,7 +492,7 @@ def test_dod_19_replace_tag_swaps_whole_tags_without_duplicates(store):
 
     after = store.json(f"changesets/{result['id']}/after.json.gz")
     assert list(after) == ["1", "2"]
-    assert after["1"]["actions"] == [{"field": "current_tags", "value": "nia-ntt pdi relance"}]
+    assert after["1"]["actions"] == [{"field": "current_tags", "value": "nia-ntt pdi relance relance"}]
     assert after["2"]["actions"] == [{"field": "set_tags", "value": "pdi"}, {"field": "remove_tags", "value": "pdi"}]
     assert result["params"] == {"tag": "ntt", "replacement": "pdi"}
 
