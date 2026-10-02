@@ -45,7 +45,7 @@ def test_registry_covers_the_four_groups():
 
 @pytest.mark.parametrize(
     "slug",
-    ["autometa-tables-db", "zendesk", "grist", "rpe", "s3", "tally"],
+    ["autometa-tables-db", "zendesk", "grist", "s3", "tally"],
 )
 def test_sources_absent_from_the_old_home_grid_are_declared(slug):
     """DOD-2 : le registre déclare les sources qu'un listing de knowledge/ taisait."""
@@ -62,7 +62,7 @@ def test_declared_doc_resolves_to_an_existing_document(source):
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        ("---\nname: rpe\n---\n# RPE\ncorps", "# RPE\ncorps"),
+        ("---\nname: x\n---\n# Titre\ncorps", "# Titre\ncorps"),
         ("# Sans en-tête\ncorps", "# Sans en-tête\ncorps"),
         ("---\nen-tête jamais fermé\n# Titre", "---\nen-tête jamais fermé\n# Titre"),
         ("---\nname: x\n---\ncorps avec --- au milieu\n", "corps avec --- au milieu\n"),

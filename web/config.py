@@ -53,17 +53,6 @@ ALLOWED_TOOLS = os.getenv(
 # Outils toujours bloqués (même sous --dangerously-skip-permissions). AskUserQuestion ne s'affiche pas dans notre UI.
 DISALLOWED_TOOLS = os.getenv("DISALLOWED_TOOLS", "AskUserQuestion")
 
-# Compte « public » du tableau de bord public RPE (France Travail) — valeur publique (présente en clair dans l'URL
-# du TDB) mais fournie par l'environnement, jamais de défaut en dur (cf. rules/code.md, gitleaks).
-RPE_PUBLIC_PASS = os.getenv("RPE_PUBLIC_PASS", "")
-
-# Signatures GWT du tableau de bord RPE — valeurs fragiles, jamais en dur dans le code (cf. spec rpe-resilience).
-# permutation/strong_name sont re-scrapés par le cron ; les deux policy tokens sont des graines (auto-décantage différé).
-RPE_PERMUTATION = os.getenv("RPE_PERMUTATION", "")
-RPE_STRONG_NAME = os.getenv("RPE_STRONG_NAME", "")
-RPE_POLICY_LOGIN = os.getenv("RPE_POLICY_LOGIN", "")
-RPE_POLICY_DASH = os.getenv("RPE_POLICY_DASH", "")
-
 # Ollama (moteur de secours). qwen3-coder-next a été retiré le 2026-07-15.
 OLLAMA_REMOTE_BASE_URL = os.getenv("OLLAMA_REMOTE_BASE_URL", "https://ollama.com")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "glm-5.2")

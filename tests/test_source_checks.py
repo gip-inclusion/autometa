@@ -17,7 +17,6 @@ from web.source_checks import (
     check_matomo,
     check_metabase_instance,
     check_notion,
-    check_rpe,
     check_s3,
     check_slack,
     check_tally,
@@ -161,38 +160,6 @@ def test_check_dashboard_storage_counts_tables(mocker):
 @pytest.mark.integration
 def test_check_app_db_against_a_real_database():
     assert check_app_db() == (True, "connectée")
-
-
-def test_check_rpe_summarizes_passing_contract(mocker):
-    mocker.patch(
-        "web.source_checks.doctor",
-        return_value={
-            "ok": True,
-            "checks": [
-                {"check": "tls", "ok": True, "reason": "TLS OK"},
-                {"check": "getcuberesult", "ok": True, "reason": "19 valeurs"},
-            ],
-        },
-    )
-    ok, detail = check_rpe()
-    assert ok is True
-    assert detail == "tls · getcuberesult OK"
-
-
-def test_check_rpe_surfaces_first_failing_check(mocker):
-    mocker.patch(
-        "web.source_checks.doctor",
-        return_value={
-            "ok": False,
-            "checks": [
-                {"check": "tls", "ok": True, "reason": "TLS OK"},
-                {"check": "login", "ok": False, "reason": "login refusé"},
-            ],
-        },
-    )
-    ok, detail = check_rpe()
-    assert ok is False
-    assert detail == "login : login refusé"
 
 
 FAUX = "valeur-factice-de-test"  # gitleaks:allow

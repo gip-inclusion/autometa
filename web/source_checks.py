@@ -15,7 +15,6 @@ from lib.query import (
     execute_dora_staging_query,
     get_matomo,
 )
-from lib.rpe import doctor
 from lib.sources import get_source_config, list_instances, load_config
 
 from . import config, s3
@@ -40,7 +39,6 @@ def known_secrets() -> list[str]:
         config.TALLY_API_KEY,
         config.DATADOG_API_KEY,
         config.DATADOG_APP_KEY,
-        config.RPE_PUBLIC_PASS,
         config.AUTOMETA_TABLES_DATABASE_URL,
         config.DATA_INCLUSION_DATABASE_URL,
         config.DATABASE_URL,
@@ -136,15 +134,6 @@ def check_matomo() -> tuple[bool, str]:
     )
     resp.raise_for_status()
     return (True, "v" + resp.json().get("value", "?")[:40])
-
-
-def check_rpe() -> tuple[bool, str]:
-    report = doctor(timeout=PROBE_TIMEOUT_SEC)
-    checks = report.get("checks", [])
-    if report.get("ok"):
-        return (True, " · ".join(c["check"] for c in checks) + " OK")
-    failed = next((c for c in checks if not c["ok"]), None)
-    return (False, f"{failed['check']} : {failed['reason']}" if failed else "échec")
 
 
 def check_notion() -> tuple[bool, str]:
