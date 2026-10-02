@@ -171,7 +171,7 @@ def replace(
 
     if macros is None:
         macros = api.list_macros()
-    markup_hits = {m.id: hits for m in macros if (hits := protected_hits(m))}
+    markup_hits = {} if include_markup else {m.id: hits for m in macros if (hits := protected_hits(m))}
     params = {"pattern": pattern, "replacement": replacement, "regex": regex, "include_markup": include_markup}
     return plan(macros, transform, label or f"remplacer {pattern}", params, markup_hits=markup_hits)
 
