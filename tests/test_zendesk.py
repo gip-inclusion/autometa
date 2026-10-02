@@ -10,6 +10,7 @@ from lib.zendesk import (
     ZendeskAPI,
     ZendeskError,
     article_id_from_url,
+    macro_id_from_url,
     parse_retry_after,
 )
 
@@ -759,3 +760,133 @@ def test_empty_response_body_yields_empty_dict(api_no_signal, mocker):
     resp.content = b""
     mocker.patch.object(api_no_signal._client, "request", return_value=resp)
     assert api_no_signal._request("DELETE", "help_center/articles/1.json") == {}
+
+
+def macro_payload(macro_id=1, title="Candidat::Relance", **extra):
+    return {
+        "url": f"https://emplois.zendesk.com/api/v2/macros/{macro_id}.json",
+        "id": macro_id,
+        "title": title,
+        "active": True,
+        "updated_at": "2026-10-02T10:00:00Z",
+        "description": None,
+        "actions": [{"field": "comment_value_html", "value": "<p>Bonjour</p>"}],
+        "restriction": None,
+        **extra,
+    }
+
+
+def test_dod_1_list_macros_reads_every_page_with_thirty_day_usage(api_no_signal, mocker):
+    base = api_no_signal.base_url
+    pages = [
+        {"macros": [macro_payload(1, usage_30d=7)], "next_page": f"{base}/macros.json?include=usage_30d&page=2"},
+        {"macros": [macro_payload(2, active=False)], "next_page": None},
+    ]
+    request = mocker.patch.object(
+        api_no_signal._client, "request", side_effect=[_mock_response(mocker, json_data=p) for p in pages]
+    )
+
+    macros = api_no_signal.list_macros()
+
+    assert [(m.id, m.active, m.usage_30d) for m in macros] == [(1, True, 7), (2, False, None)]
+    assert request.call_args_list[0].kwargs["params"] == {"per_page": 100, "include": "usage_30d"}
+    assert request.call_args_list[1].args[1].endswith("macros.json?include=usage_30d&page=2")
+
+
+def test_get_macro_parses_payload_with_admin_url(api_no_signal, mocker):
+    payload = macro_payload(5, restriction={"type": "Group", "id": 3, "ids": [3]})
+    mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"macro": payload})
+    )
+    macro = api_no_signal.get_macro(5)
+    assert (macro.id, macro.title, macro.description, macro.restriction, macro.raw) == (
+        5,
+        "Candidat::Relance",
+        "",
+        {"type": "Group", "id": 3, "ids": [3]},
+        payload,
+    )
+    assert macro.html_url == "https://emplois.zendesk.com/admin/workspaces/agent-workspace/macros/5"
+
+
+def test_update_macro_sends_fields_and_returns_the_stored_macro(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        return_value=_mock_response(mocker, json_data={"macro": macro_payload(5, active=False)}),
+    )
+    macro = api_no_signal.update_macro(5, active=False, title="T")
+    assert (request.call_args.args[0], request.call_args.args[1].endswith("macros/5.json")) == ("PUT", True)
+    assert request.call_args.kwargs["json"] == {"macro": {"active": False, "title": "T"}}
+    assert macro.active is False
+
+
+def test_dod_10_create_macro_is_inactive_unless_told_otherwise(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        return_value=_mock_response(mocker, json_data={"macro": macro_payload(9, active=False)}),
+    )
+    actions = [{"field": "comment_value_html", "value": "<p>Bonjour</p>"}]
+
+    macro = api_no_signal.create_macro("Candidat::Nouvelle", actions)
+
+    assert (request.call_args.args[0], request.call_args.args[1].endswith("/macros.json")) == ("POST", True)
+    assert request.call_args.kwargs["json"] == {
+        "macro": {"title": "Candidat::Nouvelle", "actions": actions, "description": "", "active": False}
+    }
+    assert macro.active is False
+
+
+@pytest.mark.parametrize(
+    "ref, expected",
+    [
+        (
+            "https://plateforme-inclusion.zendesk.com/admin/workspaces/agent-workspace/macros/44386173005457",
+            44386173005457,
+        ),
+        ("https://x.zendesk.com/api/v2/macros/123.json", 123),
+        ("44386173005457", 44386173005457),
+        (987, 987),
+    ],
+)
+def test_dod_13_macro_id_from_url(ref, expected):
+    assert macro_id_from_url(ref) == expected
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "https://aide.emplois.inclusion.beta.gouv.fr/hc/fr/articles/50749099598481",
+        "https://x.zendesk.com/agent/tickets/12",
+    ],
+)
+def test_dod_13_macro_id_from_url_rejects_other_urls(ref):
+    with pytest.raises(ValueError):
+        macro_id_from_url(ref)
+
+
+def test_dod_13_unknown_or_deleted_macro_raises_404(api_no_signal, mocker):
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, status_code=404))
+    with pytest.raises(ZendeskError) as exc:
+        api_no_signal.get_macro(1)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "status, payload, expected",
+    [(200, {"group": {"id": 3, "name": "Support"}}, {"id": 3, "name": "Support"}), (404, None, None)],
+    ids=["found", "deleted"],
+)
+def test_dod_2_lookup_returns_the_object_or_none_once_deleted(api_no_signal, mocker, status, payload, expected):
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, status_code=status, json_data=payload)
+    )
+    assert api_no_signal.lookup("groups", 3) == expected
+    assert request.call_args.args[1].endswith("groups/3.json")
+
+
+def test_lookup_reraises_other_errors(api_no_signal, mocker):
+    mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, status_code=500))
+    with pytest.raises(ZendeskError):
+        api_no_signal.lookup("groups", 3)
