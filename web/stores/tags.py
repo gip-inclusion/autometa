@@ -2,13 +2,15 @@
 
 from typing import Optional
 
-from sqlalchemy import and_, case, distinct, func, or_, select
+from sqlalchemy import and_, case, distinct, func, or_, select, text
 
 from lib.taxonomy import expand_implications, invert_implications, load_implications
+from web import config
 from web.db import get_db
 from web.helpers import utcnow
 from web.models import Conversation as ConvModel
 from web.models import ConversationTag as ConvTagModel
+from web.models import Message as MsgModel
 from web.models import Report as ReportModel
 from web.models import ReportTag as ReportTagModel
 from web.models import Tag as TagModel
@@ -205,12 +207,16 @@ class TagsMixin:
         user_id: Optional[str] = None,
         tag_names: Optional[list[str]] = None,
         limit: int = 100,
+        authors: Optional[list[str]] = None,
     ) -> list[tuple[Conversation, list[Tag]]]:
         with get_db() as session:
             stmt = select(ConvModel).where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
 
             if user_id:
                 stmt = stmt.where(ConvModel.user_id == user_id)
+
+            if authors:
+                stmt = stmt.where(ConvModel.user_id.in_(authors))
 
             if tag_names:
                 stmt = stmt.where(
@@ -224,6 +230,80 @@ class TagsMixin:
 
             # Why: the legacy SQL joined reports with `AND r.id IS NULL`, which never matches — kept as no report.
             return [(conv_with_report_row(c, None, None), tags_by_conv.get(c.id, [])) for c in convs]
+
+    def search_conversation_ids_by_embedding(
+        self,
+        query_embedding: list[float],
+        user_id: Optional[str] = None,
+        limit: int = 100,
+        max_distance: Optional[float] = None,
+    ) -> list[str]:
+        """Ids de conversations les plus proches du sens de la requête, les plus proches d'abord."""
+        qvec = "[" + ",".join(str(float(v)) for v in query_embedding) + "]"
+        with get_db() as session:
+            rows = session.execute(
+                text("""
+                    select e.conversation_id as cid,
+                           min(e.embedding <=> cast(:qvec as vector)) as distance
+                    from conversation_message_embeddings e
+                    join conversations c on c.id = e.conversation_id
+                    where e.embedding_model = :model
+                      and (c.conv_type = 'exploration' or c.conv_type is null)
+                      and (:user_id is null or c.user_id = :user_id)
+                    group by e.conversation_id
+                    order by distance asc
+                    limit :limit
+                """),
+                {"qvec": qvec, "model": config.EMBEDDING_MODEL, "user_id": user_id, "limit": limit},
+            ).all()
+        if max_distance is not None:
+            return [row.cid for row in rows if row.distance <= max_distance]
+        return [row.cid for row in rows]
+
+    def search_conversation_ids_by_keyword(
+        self, query: str, user_id: Optional[str] = None, limit: int = 100
+    ) -> list[str]:
+        """Ids de conversations dont le titre ou un message contient les mots exacts."""
+        like = f"%{query}%"
+        with get_db() as session:
+            stmt = (
+                select(ConvModel.id, ConvModel.updated_at)
+                .outerjoin(MsgModel, MsgModel.conversation_id == ConvModel.id)
+                .where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
+                .where(or_(ConvModel.title.ilike(like), MsgModel.content.ilike(like)))
+            )
+            if user_id:
+                stmt = stmt.where(ConvModel.user_id == user_id)
+            stmt = stmt.order_by(ConvModel.updated_at.desc()).limit(limit)
+            return list(dict.fromkeys(cid for cid, _ in session.execute(stmt).all()))
+
+    def list_ranked_conversations_with_tags(
+        self,
+        order_ids: list[str],
+        user_id: Optional[str] = None,
+        tag_names: Optional[list[str]] = None,
+        authors: Optional[list[str]] = None,
+    ) -> list[tuple[Conversation, list[Tag]]]:
+        """Conversations parmi `order_ids`, filtrées par tags, rendues dans l'ordre donné, avec leurs tags."""
+        if not order_ids:
+            return []
+        with get_db() as session:
+            stmt = select(ConvModel).where(
+                ConvModel.id.in_(order_ids),
+                or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)),
+            )
+            if user_id:
+                stmt = stmt.where(ConvModel.user_id == user_id)
+            if authors:
+                stmt = stmt.where(ConvModel.user_id.in_(authors))
+            if tag_names:
+                stmt = stmt.where(
+                    ConvModel.id.in_(matching_keys(session, ConvTagModel, ConvTagModel.conversation_id, tag_names))
+                )
+            by_id = {c.id: c for c in session.scalars(stmt).all()}
+            ordered = [by_id[cid] for cid in order_ids if cid in by_id]
+            tags_by_conv = self._batch_fetch_conv_tags(session, [c.id for c in ordered])
+            return [(conv_with_report_row(c, None, None), tags_by_conv.get(c.id, [])) for c in ordered]
 
     def list_reports_with_tags(
         self,

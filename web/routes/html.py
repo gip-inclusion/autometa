@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 
 from web import helpers
 from web.config import ADMIN_USERS
+from web.conversation_embeddings.query_embedding import embed_query
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import (
@@ -19,6 +20,11 @@ from web.helpers import (
     validate_conv_id,
     validate_knowledge_path,
 )
+from web.search_filters import build_search_facets
+
+# Why: distance cosinus (0 = identique, 1 = orthogonal) au-delà de laquelle un message n'est plus
+# jugé pertinent pour la requête ; en deçà de résultats, on se replie sur les mots exacts.
+SEMANTIC_MAX_DISTANCE = 0.75
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +277,7 @@ def conversations(
     show: str = Query(default=""),
     q: str = Query(default=""),
     tag: list[str] = Query(default=[]),
+    author: list[str] = Query(default=[]),
 ):
     """Universal conversation list (also reports). Renamed from /rechercher."""
     # Parse show param: single value, empty = all
@@ -278,18 +285,45 @@ def conversations(
     show_mine = show == "mine"
     show_reports = show in ("", "reports")
 
-    tag_params = tag
+    filter_user = user_email if show_mine else None
+
+    # Drop tags that no longer match any conversation or report, so a stale link cannot
+    # silently empty the list or leave a "ghost" filter marked active.
+    existing_names: set[str] = set()
+    if show_convos:
+        for used in store.get_used_conversation_tags_by_type(user_id=filter_user).values():
+            existing_names.update(t.name for t in used)
+    if show_reports:
+        for used in store.get_used_report_tags_by_type().values():
+            existing_names.update(t.name for t in used)
+    active_tags = [t for t in tag if t in existing_names]
+
+    authors = store.list_conversation_authors() if show_convos else []
+    existing_authors = {a["user_id"] for a in authors}
+    active_authors = [a for a in author if a in existing_authors]
 
     items = []
 
     # Conversations
     if show_convos:
-        filter_user = user_email if show_mine else None
-        conversations_with_tags = store.list_conversations_with_tags(
-            user_id=filter_user,
-            tag_names=tag_params if tag_params else None,
-            limit=100,
-        )
+        if q:
+            # Les mots exacts (titre ou message) remontent toujours en tête ; le sens complète
+            # avec les conversations proches qui n'emploient pas ces mots.
+            keyword_ids = store.search_conversation_ids_by_keyword(q, user_id=filter_user, limit=100)
+            semantic_ids = store.search_conversation_ids_by_embedding(
+                embed_query(q), user_id=filter_user, limit=100, max_distance=SEMANTIC_MAX_DISTANCE
+            )
+            ranked_ids = keyword_ids + [cid for cid in semantic_ids if cid not in keyword_ids]
+            conversations_with_tags = store.list_ranked_conversations_with_tags(
+                ranked_ids, user_id=filter_user, tag_names=active_tags or None, authors=active_authors or None
+            )
+        else:
+            conversations_with_tags = store.list_conversations_with_tags(
+                user_id=filter_user,
+                tag_names=active_tags or None,
+                limit=100,
+                authors=active_authors or None,
+            )
         for conv, tags in conversations_with_tags:
             if conv.title:
                 conv.title = humanize_title(conv.title)
@@ -332,10 +366,12 @@ def conversations(
     # Reports
     if show_reports:
         reports_with_tags = store.list_reports_with_tags(
-            tag_names=tag_params if tag_params else None,
+            tag_names=active_tags or None,
             limit=100,
         )
         for report, tags in reports_with_tags:
+            if q and q.lower() not in report.title.lower():
+                continue
             report.tag_objects = tags
             items.append({
                 "type": "report",
@@ -358,21 +394,24 @@ def conversations(
                 ),
             })
 
-    # Sort by date descending, undated items last
-    dated = [i for i in items if i["sort_date"] is not None]
-    undated = [i for i in items if i["sort_date"] is None]
-    dated.sort(key=lambda x: x["sort_date"], reverse=True)
-    items = dated + undated
+    if q:
+        # Une recherche classe par pertinence : on garde l'ordre rendu, sans tri ni regroupement par date.
+        grouped_items = {"Résultats les plus proches": items} if items else {}
+    else:
+        # Sort by date descending, undated items last
+        dated = [i for i in items if i["sort_date"] is not None]
+        undated = [i for i in items if i["sort_date"] is None]
+        dated.sort(key=lambda x: x["sort_date"], reverse=True)
+        items = dated + undated
 
-    # Group by date
-    grouped_items = group_items_by_date(items)
+        # Group by date
+        grouped_items = group_items_by_date(items)
 
     # Merge tags from conversations and reports
     all_tags = {}
     if show_convos:
-        filter_user = user_email if show_mine else None
         conv_tags = store.get_used_conversation_tags_by_type(
-            active_tag_names=tag_params if tag_params else None,
+            active_tag_names=active_tags or None,
             user_id=filter_user,
         )
         for tag_type, tag_list in conv_tags.items():
@@ -394,6 +433,8 @@ def conversations(
     # Convert from {type: {name: Tag}} to {type: [Tag]}
     all_tags = {k: sorted(v.values(), key=lambda t: t.label) for k, v in all_tags.items()}
 
+    filter_facets = build_search_facets(all_tags)
+
     pinned_ids = store.get_pinned_ids()
 
     data = get_sidebar_data(user_email, request)
@@ -404,8 +445,10 @@ def conversations(
             "section": "conversations",
             "current_conv": None,
             "grouped_items": grouped_items,
-            "all_tags": all_tags,
-            "active_tags": tag_params,
+            "filter_facets": filter_facets,
+            "active_tags": active_tags,
+            "authors": authors,
+            "active_authors": active_authors,
             "pinned_ids": pinned_ids,
             "show": show,
             "q": q,
