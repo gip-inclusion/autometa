@@ -34,7 +34,7 @@ def build_ui_url(
     subcategory: str,
     segment: Optional[str] = None,
 ) -> str:
-    base = "https://matomo.inclusion.beta.gouv.fr/index.php"
+    base = "https://matomo.inclusion.gouv.fr/index.php"
 
     main_params = {
         "module": "CoreHome",
