@@ -132,6 +132,8 @@ cs.apply(zd, result["id"]) ; cs.revert(zd, result["id"])
 
 « Changer le statut » ne s'applique qu'aux macros qui posent déjà un statut : ne pas en ajouter un aux autres sans le dire. Si un nom de statut, de groupe ou d'agent désigne plusieurs éléments ou aucun, lister les candidats au lieu de choisir.
 
+Une transformation rend exactement ces quatre champs : la restriction (groupe ou agent) n'est pas modifiable par un changeset. Le manifeste liste les éléments touchés sous la clé `articles` quel que soit `kind` : pour un changeset de macros, ce sont des macros.
+
 Une macro **supprimée** entre-temps est sautée (« supprimé entre-temps ») à l'application comme au retour arrière, et n'est jamais recréée.
 
 ### Créer
@@ -139,7 +141,7 @@ Une macro **supprimée** entre-temps est sautée (« supprimé entre-temps ») �
 Sans changeset, mais **toujours après confirmation en clair** du titre et des actions exacts dans le message précédent de l'utilisateur. Une macro naît inactive ; l'activer passe ensuite par un changeset.
 
 ```python
-zd.create_macro(title, actions, description="")   # active=False par défaut
+zd.create_macro(title, actions, description="")   # toujours inactive
 ```
 
 **Ne jamais supprimer une macro** : pour la retirer, la désactiver par un changeset (réversible).

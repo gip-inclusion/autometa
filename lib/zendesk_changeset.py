@@ -130,6 +130,8 @@ def plan_items(
     for item in items:
         old = content(item)
         new = transform(copy.deepcopy(editable(old)))
+        if new.keys() != editable(old).keys():
+            raise ValueError(f"la transformation doit rendre exactement les champs {sorted(editable(old))}")
         if new == editable(old):
             continue
         before[str(item.id)] = old
