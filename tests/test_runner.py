@@ -601,7 +601,7 @@ def test_run_agent_unregisters_the_run_even_when_cleanup_notification_fails(runn
     async def _run():
         await fake_redis.set("autometa:running:c1", "w")
         runner._running["c1"] = asyncio.current_task()
-        await runner._run_agent("c1", "prompt", [], None, None)
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         assert "c1" not in runner._running
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
         assert await fake_redis.exists("autometa:running:c1") == 0
@@ -616,7 +616,7 @@ def test_run_agent_closes_the_stream_and_frees_the_slot_when_the_db_is_down(runn
     async def _run():
         await fake_redis.set("autometa:running:c1", "w")
         runner._running["c1"] = asyncio.current_task()
-        await runner._run_agent("c1", "prompt", [], None, None)
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         assert "c1" not in runner._running
         assert await runner.is_done("c1")
         assert await fake_redis.exists("autometa:running:c1") == 0
@@ -636,7 +636,7 @@ def test_run_agent_keeps_the_slot_held_until_the_running_key_is_gone(runner, moc
 
     async def _run():
         runner._running["c1"] = asyncio.current_task()
-        await runner._run_agent("c1", "prompt", [], None, None)
+        await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         assert seen == [True]
         assert "c1" not in runner._running
 
