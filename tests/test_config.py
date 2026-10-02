@@ -26,23 +26,6 @@ def test_app_name_reads_scalingo_app_or_falls_back_to_the_environment(monkeypatc
     importlib.reload(c)
 
 
-def test_rpe_signature_env_vars(monkeypatch):
-    monkeypatch.setenv("RPE_PERMUTATION", "PERM")
-    monkeypatch.setenv("RPE_STRONG_NAME", "STRONG")
-    monkeypatch.setenv("RPE_POLICY_LOGIN", "PLOG")
-    monkeypatch.setenv("RPE_POLICY_DASH", "PDASH")
-    import web.config as c
-
-    importlib.reload(c)
-    assert (c.RPE_PERMUTATION, c.RPE_STRONG_NAME, c.RPE_POLICY_LOGIN, c.RPE_POLICY_DASH) == (
-        "PERM",
-        "STRONG",
-        "PLOG",
-        "PDASH",
-    )
-    importlib.reload(c)
-
-
 def test_public_dashboards_buckets_read_deployment_env_var_names():
     # Why: the public buckets are provisioned under PUBLIC_DASHBOARDS_BUCKET_<ENV>
     # (conftest sets those names); a divergent key silently resolves to None and

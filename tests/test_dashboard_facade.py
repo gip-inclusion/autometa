@@ -65,8 +65,8 @@ def test_facade_violations_by_slug(mocker, sources, expected):
 def test_system_crons_are_not_held_to_the_facade(mocker):
     mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
     system_task = {
-        "slug": "refresh-rpe",
-        "cron_path": "cron/refresh-rpe/cron.py",
+        "slug": "facade-audit",
+        "cron_path": "cron/facade-audit/cron.py",
         "tier": "system",
         "batch": cron.DEFAULT_BATCH,
     }

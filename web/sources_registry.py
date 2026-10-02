@@ -121,21 +121,6 @@ def all_sources() -> list[Source]:
         ),
         *metabase_sources(),
         Source(
-            slug="rpe",
-            doc="skills/rpe/SKILL.md",
-            name="RPE (France Travail)",
-            group=METIER,
-            blurb=(
-                "Indicateurs agrégés du Réseau pour l'emploi : emploi, formation, recrutement, RSA, "
-                "par territoire et par mois. Tout le réseau, pas seulement nos services."
-            ),
-            icon="ri-government-line",
-            skill="rpe",
-            check=source_checks.check_rpe,
-            configured=lambda: bool(config.RPE_PUBLIC_PASS),
-            inventory=partial(last_cron_success, "refresh-rpe"),
-        ),
-        Source(
             slug="matomo",
             doc="knowledge/matomo/README.md",
             name="Matomo",
