@@ -24,6 +24,8 @@ Conventions de code : `.claude/rules/code.md`. Tests (pytest, pytest-mock, param
 
 Après chaque tâche impliquant du code Python, relire `.claude/rules/` et vérifier que le code produit respecte toutes les conventions avant de considérer la tâche terminée. Corriger les violations trouvées sans attendre qu'on te le demande.
 
+**Clarté de la demande** — Avant de répondre ou d'agir, se demander si la demande est claire (périmètre, résultat attendu). Si elle est ambiguë, demander à l'utilisateur de préciser plutôt que deviner ; si elle est claire, agir sans question superflue.
+
 ## Contexte métier
 
 IAE (insertion par l'activité économique) — programme français d'emploi avec trois types d'acteurs :
