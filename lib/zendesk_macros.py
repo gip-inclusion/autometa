@@ -10,7 +10,7 @@ from .zendesk import Macro, ZendeskAPI
 __all__ = ["category", "by_category", "describe", "plan", "replace", "replace_tag", "export"]
 
 NO_CATEGORY = "Sans catégorie"
-TEXT_FIELDS = ("subject", "comment_value", "comment_value_html")
+TEXT_FIELDS = ("subject", "comment_value_html")
 # Why: Zendesk's editor stores what an agent sees as a space or a quote under several encodings.
 DISPLAYED_AS = {
     " ": (" ", "\xa0", "&nbsp;", "&#160;"),
@@ -82,6 +82,8 @@ def describe_action(api: ZendeskAPI, action: dict) -> dict:
         if not ticket_field:
             return {"label": f"Champ inconnu (#{field_id})", "value": value}
         options = {o["value"]: o["name"] for o in ticket_field.get("custom_field_options", [])}
+        if isinstance(value, list):
+            return {"label": ticket_field["title"], "value": [options.get(v, v) for v in value]}
         return {"label": ticket_field["title"], "value": options.get(value, value)}
     label = LABELS.get(field, field)
     if field == "status":
@@ -182,10 +184,14 @@ def replace_tag(
         raise ValueError("étiquette vide ou contenant une espace")
 
     def swap(value: str) -> str:
-        tags = value.split()
-        if tag not in tags:
+        if tag not in value.split():
             return value
-        return " ".join(dict.fromkeys(replacement if t == tag else t for t in tags))
+        tags: list[str] = []
+        for t in value.split():
+            t = replacement if t == tag else t
+            if t != replacement or replacement not in tags:
+                tags.append(t)
+        return " ".join(tags)
 
     def transform(fields: dict) -> dict:
         actions = [{**a, "value": swap(a["value"])} if a["field"].endswith("_tags") else a for a in fields["actions"]]
