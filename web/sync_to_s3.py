@@ -2,6 +2,7 @@
 
 import logging
 import mimetypes
+import re
 import threading
 import time
 from pathlib import Path
@@ -14,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 watcher_thread = None
 stop_event = threading.Event()
+
+# Why: les écritures atomiques passent par un `<fichier>.tmp.<pid>.<id>` renommé aussitôt ; vu
+# pendant sa courte vie, il partait sur S3 où rien ne le supprime, puis dans les publications.
+UNSYNCED = re.compile(r"\.tmp\.\d+\.[0-9a-f]+$|(^|/)__pycache__/")
 
 
 def start_sync_watcher():
@@ -77,9 +82,11 @@ def watch_loop():
 
 
 def _sync_file(local_path: Path):
+    relative_path = str(local_path.relative_to(config.INTERACTIVE_DIR))
+    if UNSYNCED.search(relative_path):
+        return
     start = time.perf_counter()
     try:
-        relative_path = str(local_path.relative_to(config.INTERACTIVE_DIR))
         content = local_path.read_bytes()
         content_type, _ = mimetypes.guess_type(local_path.name)
 
