@@ -440,6 +440,7 @@ def test_dod_16_markup_and_placeholders_are_replaced_only_on_explicit_request(st
     after = store.json(f"changesets/{result['id']}/after.json.gz")
     assert reply_of(after["1"]) == '<a href="/Nova">{{dc.Nova}} Nova</a>'
     assert result["params"]["include_markup"] is True
+    assert result["markup_hits"] == {}
 
 
 def test_dod_17_a_changeset_targets_macros_or_articles_never_both(store):
