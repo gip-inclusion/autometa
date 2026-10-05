@@ -107,6 +107,7 @@ def test_execute_task_records_success_when_the_publication_refresh_fails(mocker,
     (tmp_path / "cron.py").write_text("print('ok')")
     mocker.patch.object(cron, "prepare_s3_workdir", return_value=(tmp_path, {}))
     mocker.patch.object(cron, "upload_s3_results")
+    mocker.patch.object(cron.publications, "exposure_problems", return_value=[])
     mocker.patch.object(cron.publications, "refresh", side_effect=OperationalError("stmt", {}, Exception("db")))
     record_run = mocker.patch.object(cron, "record_run")
     task = make_task("tdb-pub1", source="s3-publication", dashboard_slug="tdb", publication_id="pub1")

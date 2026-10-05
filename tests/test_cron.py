@@ -1169,15 +1169,13 @@ def test_dod_6_s3_run_receives_its_dashboard_slug(mocker, s3_cron_env):
     app = mock_s3_app("s3-variants", cron_script=script)
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    result = run_cron_task("s3-variants", trigger="manual")
+    result = run_one("s3-variants", trigger="manual")
     assert result["status"] == "success"
     assert "slug=s3-variants" in result["output"]
 
 
 def test_dod_6_publication_run_receives_the_dashboard_slug_not_the_composite(client, mocker):
     import subprocess as sp
-
-    from web.cron import run_cron_task
 
     _seed_dashboard_and_publication("pub-variants", "pubv01")
     mocker.patch("web.cron.s3.publications.download", return_value=b"print('ok')")
@@ -1187,7 +1185,7 @@ def test_dod_6_publication_run_receives_the_dashboard_slug_not_the_composite(cli
     completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
     run = mocker.patch("web.cron.subprocess.run", return_value=completed)
 
-    run_cron_task("pub-variants-pubv01", trigger="manual")
+    run_one("pub-variants-pubv01", trigger="manual")
 
     assert run.call_args.kwargs["env"]["AUTOMETA_DASHBOARD_SLUG"] == "pub-variants"
 
@@ -1196,7 +1194,6 @@ def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token
     import subprocess as sp
 
     from lib.variants import add_variant
-    from web.cron import run_cron_task
 
     _seed_dashboard_and_publication("pub-leak", "leak01")
     token = add_variant("pub-leak", "67", "Bas-Rhin")["token"]
@@ -1213,7 +1210,7 @@ def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token
 
     mocker.patch("web.cron.subprocess.run", side_effect=run_and_write)
 
-    result = run_cron_task("pub-leak-leak01", trigger="manual")
+    result = run_one("pub-leak-leak01", trigger="manual")
 
     assert result["status"] == "success"
     sync.assert_not_called()
@@ -1231,14 +1228,12 @@ def test_dod_15_only_a_partial_run_keeps_the_files_it_wrote(mocker, s3_cron_env,
     app = mock_s3_app("s3-partial", cron_script=script)
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    assert run_cron_task("s3-partial", trigger="manual")["status"] == "failure"
+    assert run_one("s3-partial", trigger="manual")["status"] == "failure"
     assert ("s3-partial/data.json" in mocks["_all_files"]) is kept
 
 
 def test_dod_15_a_partial_publication_run_still_refreshes(client, mocker):
     import subprocess as sp
-
-    from web.cron import run_cron_task
 
     _seed_dashboard_and_publication("pub-partial", "part01")
     mocker.patch("web.cron.s3.publications.download", return_value=b"print('ok')")
@@ -1249,5 +1244,5 @@ def test_dod_15_a_partial_publication_run_still_refreshes(client, mocker):
     completed = sp.CompletedProcess(args=[], returncode=3, stdout="partiel", stderr="")
     mocker.patch("web.cron.subprocess.run", return_value=completed)
 
-    assert run_cron_task("pub-partial-part01", trigger="manual")["status"] == "failure"
+    assert run_one("pub-partial-part01", trigger="manual")["status"] == "failure"
     assert sync.called
