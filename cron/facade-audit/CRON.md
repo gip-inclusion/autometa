@@ -12,7 +12,7 @@ façade par construction, et sa migration est un chantier, pas un incident.
 L'audit vivait dans `run_all()`, avant tout filtrage de batch : il téléchargeait le `cron.py` de
 chaque TDB cronné sur S3 et postait la liste complète dans Slack **à chaque passe**, soit plusieurs
 fois par jour puisque `cron.json` planifie aujourd'hui `synchros` (02:00), puis `maintenance`,
-`tableaux` et `xl` à la même heure (06:00). Ici, l'audit tourne une fois par jour et
+`tableaux-internes`, `tableaux-publies` et `xl` à la même heure (06:00). Ici, l'audit tourne une fois par jour et
 n'alerte que quand l'ensemble des non conformes change : un canal où le même pavé revient tous les
 jours cesse d'être lu, et ce sont les échecs RPE et runner qui s'y noient.
 

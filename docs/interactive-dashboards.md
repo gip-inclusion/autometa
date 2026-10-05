@@ -196,15 +196,18 @@ Le cron est activé/désactivé (`cron_enabled`) depuis l'UI `/cron`. À disting
 #### Lancement
 
 ```bash
-python -m web.cron --batch tableaux   # le lot des tableaux de bord
+python -m web.cron --batch tableaux-internes   # le lot des tableaux de bord
+python -m web.cron --batch tableaux-publies    # le lot des publications
 python -m web.cron --app slug         # un seul dashboard, hors cadence
 python -m web.cron --list             # lister les cron découverts
-python -m web.cron --dry-run --batch tableaux   # montrer sans exécuter
+python -m web.cron --dry-run --batch tableaux-internes   # montrer sans exécuter
 ```
 
-Chaque lot est une ligne de `cron.json`, donc un conteneur. Les tableaux de bord tournent tous dans
-le lot `tableaux`, le seul dont la taille n'est bornée par aucun fichier du dépôt : il porte pour
-cela un budget de temps.
+Chaque lot est une ligne de `cron.json`, donc un conteneur. Les tableaux de bord tournent dans le
+lot `tableaux-internes`, le seul dont la taille n'est bornée par aucun fichier du dépôt : il porte
+pour cela un budget de temps. Les publications, partagées en externe, tournent à part dans
+`tableaux-publies` : sans budget, elles ne sont jamais sautées, et chaque échec alerte Slack, pas
+seulement le premier.
 
 **Le budget borne le démarrage d'une tâche, pas sa fin.** Passé le budget, le lot cesse d'en lancer
 de nouvelles et enregistre les restantes en `skipped` ; mais celle qui a démarré juste avant la

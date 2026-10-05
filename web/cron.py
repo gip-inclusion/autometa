@@ -50,10 +50,13 @@ SCHEDULE_PRESETS = {
 }
 _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.items()}
 
-DASHBOARD_BATCH = "tableaux"
+DASHBOARD_BATCH = "tableaux-internes"
+# Why: partagées en externe, les publications ont leur propre lot, sans budget — une publication
+# cassée doit se voir chaque jour, pas être sautée parce qu'un TDB interne a mangé le temps.
+PUBLICATION_BATCH = "tableaux-publies"
 # Heure UTC à laquelle cron.json démarre chaque lot. Sentry attend le check-in à cette heure-là :
 # la déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
-BATCH_HOURS = {"synchros": 2, "maintenance": 6, "tableaux": 6, "xl": 6}
+BATCH_HOURS = {"synchros": 2, "maintenance": 6, "tableaux-internes": 6, "tableaux-publies": 6, "xl": 6}
 FACADE_AUDIT_SCHEMA = "dashboard_storage"
 
 
@@ -140,9 +143,9 @@ def is_due(schedule: str) -> bool:
 
 
 def next_cron_run(schedule: str, now=None):
-    """Prochain départ du lot `tableaux`, en UTC comme la planification Scalingo, selon la cadence."""
+    """Prochain départ des lots de tableaux de bord, en UTC comme la planification Scalingo, selon la cadence."""
     now = now or utcnow()
-    target = now.replace(hour=BATCH_HOURS["tableaux"], minute=0, second=0, microsecond=0)
+    target = now.replace(hour=BATCH_HOURS[DASHBOARD_BATCH], minute=0, second=0, microsecond=0)
     reduced = cadence(schedule)
     if reduced == "weekly":
         days_ahead = (0 - target.weekday()) % 7
@@ -316,7 +319,7 @@ def discover_publications() -> list[dict]:
             "enabled": enabled,
             "timeout": timeout,
             "schedule": schedule,
-            "batch": DASHBOARD_BATCH,
+            "batch": PUBLICATION_BATCH,
             "publication_id": pub_id,
             "dashboard_slug": slug,
         })
@@ -808,7 +811,7 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     record_run(run_result, trigger)
 
     if trigger == "scheduled":
-        notify_cron_status_change(slug, status, previous_status, error)
+        notify_cron_status_change(slug, status, previous_status, error, repeat=source == "s3-publication")
 
     if source == "s3-publication" and status == "success":
         try:
@@ -818,9 +821,11 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     return run_result
 
 
-def notify_cron_status_change(slug: str, status: str, previous_status: str | None, error: str) -> None:
-    """Post a Slack alert when a cron newly breaks or recovers."""
-    broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
+def notify_cron_status_change(
+    slug: str, status: str, previous_status: str | None, error: str, *, repeat: bool = False
+) -> None:
+    """Post a Slack alert when a cron breaks (every run if `repeat`, else only newly) or recovers."""
+    broke = status in BROKEN_STATUSES and (repeat or previous_status not in BROKEN_STATUSES)
     recovered = status == "success" and previous_status in BROKEN_STATUSES
     if not (broke or recovered):
         return

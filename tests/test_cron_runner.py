@@ -45,7 +45,7 @@ def test_a_system_task_without_a_declared_batch_fails_discovery(tmp_path):
         cron.discover_from_dir(tmp_path, "CRON.md", "system")
 
 
-def test_dashboards_and_publications_land_in_the_dashboard_batch(mocker):
+def test_dashboards_land_in_the_dashboard_batch(mocker):
     mocker.patch.object(cron.config, "S3_BUCKET", "bucket")
     session = mocker.MagicMock()
     session.execute.return_value.all.return_value = [("tdb1", "T1", True, 300, "0 6 * * *")]
@@ -106,6 +106,21 @@ def test_execute_task_records_success_when_the_publication_refresh_fails(mocker,
 
     assert result["status"] == "success"
     assert record_run.call_args.args[0]["status"] == "success"
+
+
+@pytest.mark.parametrize(("source", "repeat"), [("s3", False), ("s3-publication", True)])
+def test_execute_task_repeats_failure_alerts_only_for_publications(mocker, tmp_path, source, repeat):
+    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
+    (tmp_path / "cron.py").write_text("import sys; sys.exit(1)")
+    mocker.patch.object(cron, "prepare_s3_workdir", return_value=(tmp_path, {}))
+    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "record_run")
+    notify = mocker.patch.object(cron, "notify_cron_status_change")
+    task = make_task("tdb-pub1", source=source, dashboard_slug="tdb", publication_id="pub1")
+
+    cron.execute_task(task)
+
+    assert notify.call_args.kwargs["repeat"] is repeat
 
 
 def test_combine_output_keeps_the_stderr_tail_when_stdout_is_huge():
@@ -696,12 +711,13 @@ def test_declared_batches_and_scheduled_batches_are_the_same_set():
     # Why: dans un sens, une faute de frappe dans `batch:` donne une tâche découverte, activée, due
     # — et jamais exécutée. Dans l'autre, une faute de frappe dans cron.json démarre chaque jour un
     # conteneur qui ne trouve aucune tâche, imprime « 0 succeeded, 0 failed » et sort en 0. Le lot
-    # des tableaux de bord n'est déclaré par aucun CRON.md, seulement par DASHBOARD_BATCH : sans lui
+    # des tableaux de bord n'est déclaré par aucun CRON.md, seulement par DASHBOARD_BATCH (et
+    # PUBLICATION_BATCH pour les publications) : sans eux
     # ici, sa ligne pourrait disparaître de cron.json sans qu'aucun test ne bronche.
     jobs = json.loads((Path(cron.config.BASE_DIR) / "cron.json").read_text())["jobs"]
     scheduled = {scheduled_batch(job["command"]) for job in jobs if "--batch" in job["command"]}
 
-    declared = {task["batch"] for task in repo_system_tasks()} | {cron.DASHBOARD_BATCH}
+    declared = {task["batch"] for task in repo_system_tasks()} | {cron.DASHBOARD_BATCH, cron.PUBLICATION_BATCH}
     assert declared == scheduled
 
 
