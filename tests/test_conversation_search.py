@@ -11,6 +11,7 @@ from web.models import ConversationMessageEmbedding, Tag
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 ALICE = "alice@example.com"
+BOB = "bob@example.com"
 
 
 def headers(email=ALICE):
@@ -93,3 +94,42 @@ def test_dod_12_recherche_vide_liste_complete_sans_classement(client, mocker):
 
     assert f"conv-{conv.id}" in html
     spy.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("params", "visible", "cachee"),
+    [
+        ("show=mine", ALICE, BOB),
+        (f"author={BOB}", BOB, ALICE),
+    ],
+)
+def test_la_recherche_respecte_mes_conversations_et_le_filtre_createur(client, mocker, params, visible, cachee):
+    convs = {user: embedded_conversation("les pass IAE", axis=0, title="Pass", user_id=user) for user in (ALICE, BOB)}
+    mocker.patch("web.routes.html.embed_query", return_value=unit_vector(0))
+
+    html = client.get(f"/conversations?q=pass&{params}", headers=headers()).text
+
+    assert f"conv-{convs[visible].id}" in html
+    assert f"conv-{convs[cachee].id}" not in html
+
+
+def test_recherche_sans_aucun_resultat(client, mocker):
+    conv = embedded_conversation("le conventionnement", axis=1, title="Convention")
+    mocker.patch("web.routes.html.embed_query", return_value=unit_vector(0))
+
+    html = client.get("/conversations?q=introuvable", headers=headers()).text
+
+    assert f"conv-{conv.id}" not in html
+
+
+def test_la_recherche_filtre_aussi_les_rapports_par_titre(client, mocker):
+    make_tag("dora", "product", "Dora")
+    trouve = store.create_report(title="Rapport pass IAE", content="# Pass", user_id=ALICE)
+    ecarte = store.create_report(title="Rapport convention", content="# Convention", user_id=ALICE)
+    store.set_report_tags(ecarte.id, ["dora"])
+    mocker.patch("web.routes.html.embed_query", return_value=unit_vector(0))
+
+    html = client.get("/conversations?q=pass", headers=headers()).text
+
+    assert trouve.title in html
+    assert ecarte.title not in html

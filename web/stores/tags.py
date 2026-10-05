@@ -234,9 +234,9 @@ class TagsMixin:
     def search_conversation_ids_by_embedding(
         self,
         query_embedding: list[float],
+        max_distance: float,
         user_id: Optional[str] = None,
         limit: int = 100,
-        max_distance: Optional[float] = None,
     ) -> list[str]:
         """Ids de conversations les plus proches du sens de la requête, les plus proches d'abord."""
         qvec = "[" + ",".join(str(float(v)) for v in query_embedding) + "]"
@@ -256,9 +256,7 @@ class TagsMixin:
                 """),
                 {"qvec": qvec, "model": config.EMBEDDING_MODEL, "user_id": user_id, "limit": limit},
             ).all()
-        if max_distance is not None:
-            return [row.cid for row in rows if row.distance <= max_distance]
-        return [row.cid for row in rows]
+        return [row.cid for row in rows if row.distance <= max_distance]
 
     def search_conversation_ids_by_keyword(
         self, query: str, user_id: Optional[str] = None, limit: int = 100
