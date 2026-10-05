@@ -5,9 +5,11 @@ import sqlite3
 import pytest
 
 import lib.webinaires
+from lib.query import QueryResult
 from lib.webinaires import (
     T_INSCRIPTIONS,
     T_WEBINAIRES,
+    DatalakeWriter,
     GristClient,
     batch_upsert,
     grist_duration_to_minutes,
@@ -307,3 +309,17 @@ def test_grist_sync_skips_inscriptions_without_event_id(mocker, conn, grist_clie
     assert registrations == 3
     assert sorted(emails) == ["julie@example.fr", "marie@example.fr", "pierre@example.fr"]
     assert "1 inscriptions sans event_id ignorées" in caplog.text
+
+
+def test_datalake_error_keeps_the_inserted_values_out_of_the_exception(mocker):
+    mocker.patch(
+        "lib.webinaires.execute_metabase_query",
+        return_value=QueryResult(
+            success=False,
+            data=None,
+            error='ERROR: null value in column "webinar_id"\n  Detail: Failing row contains (julie@example.fr).',
+        ),
+    )
+    with pytest.raises(RuntimeError) as raised:
+        DatalakeWriter().execute(mocker.sentinel.sql)
+    assert "julie@example.fr" not in str(raised.value)

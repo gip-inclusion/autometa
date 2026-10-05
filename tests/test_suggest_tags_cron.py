@@ -1,15 +1,8 @@
-"""Le cron suggest-tags résume ses lots sur Slack et signale une panne comme telle."""
-
-import importlib.util
-from pathlib import Path
+"""Le rattrapage des suggestions de tags résume ses lots sur Slack et signale une panne comme telle."""
 
 import pytest
 
-spec = importlib.util.spec_from_file_location(
-    "suggest_tags_cron", Path(__file__).resolve().parent.parent / "cron" / "suggest-tags" / "cron.py"
-)
-cron = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cron)
+from lib import tag_suggestions
 
 
 def outcome(processed=0, failed=0, deferred=0, error=None):
@@ -27,18 +20,18 @@ def outcome(processed=0, failed=0, deferred=0, error=None):
     ids=["healthy", "total-failure", "refused"],
 )
 def test_a_batch_where_everything_failed_is_flagged_like_an_outage(mocker, results, expected_start):
-    mocker.patch.object(cron, "run", side_effect=results)
-    notify = mocker.patch.object(cron, "notify_alert_channel")
+    mocker.patch.object(tag_suggestions, "run", side_effect=results)
+    notify = mocker.patch.object(tag_suggestions, "notify_alert_channel")
 
-    cron.main()
+    tag_suggestions.catch_up()
 
     assert notify.call_args.args[0].startswith(expected_start)
 
 
 def test_a_quiet_run_stays_silent(mocker):
-    mocker.patch.object(cron, "run", return_value=outcome())
-    notify = mocker.patch.object(cron, "notify_alert_channel")
+    mocker.patch.object(tag_suggestions, "run", return_value=outcome())
+    notify = mocker.patch.object(tag_suggestions, "notify_alert_channel")
 
-    cron.main()
+    tag_suggestions.catch_up()
 
     notify.assert_not_called()

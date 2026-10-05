@@ -216,7 +216,7 @@ def test_slack_feedback_main_calls_setup_logging(mocker):
 
 def test_cron_main_calls_setup_logging(mocker):
     setup = mocker.patch("web.cron.setup_logging")
-    mocker.patch("sys.argv", ["cron", "--list"])
+    mocker.patch("sys.argv", ["cron", "--list", "--batch", "maintenance"])
     mocker.patch("web.cron.discover_cron_tasks", return_value=[])
     from web.cron import main
 

@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select
 from lib import notion
 from lib.taxonomy import FACETS_BY_NAME, normalize_tag_name
 from web import config
+from web.alerts import notify_alert_channel
 from web.db import get_db
 from web.models import ConversationTag, DashboardTag, ReportTag, Tag, TagImplication, TagSyncState
 
@@ -279,3 +280,20 @@ def sync_state() -> dict:
             "error": state.last_error,
             "term_count": state.term_count,
         }
+
+
+def main() -> None:
+    """Synchronise les tags depuis Notion et n'annonce sur Slack que ce qui demande une action."""
+    result = sync_tags()
+
+    if result.error:
+        notify_alert_channel(f":warning: Synchro tags Notion refusée — {result.error}")
+    elif result.rejected:
+        lines = "\n".join(f"• {reason}" for reason in result.rejected)
+        notify_alert_channel(f":warning: Synchro tags Notion — {len(result.rejected)} ligne(s) rejetée(s) :\n{lines}")
+
+    pending = pending_terms()
+    if pending:
+        lines = "\n".join(f"• `{t['name']}` ({t['facet']}) — {t['usages']} usage(s)" for t in pending)
+        link = f"\n<{config.NOTION_TAGS_DB}|Ouvrir la base des tags>" if config.NOTION_TAGS_DB else ""
+        notify_alert_channel(f":label: {len(pending)} terme(s) proposé(s) à valider :\n{lines}{link}")

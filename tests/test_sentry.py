@@ -7,6 +7,9 @@ import fakeredis.aioredis
 import pytest
 import sentry_sdk
 
+from web.runner import TaskRunner
+from web.sentry import _before_send, _before_send_transaction, init_sentry, set_user_context
+
 
 @pytest.fixture(autouse=True)
 def reset_sentry():
@@ -19,8 +22,6 @@ def reset_sentry():
 
 def test_init_sentry_noop_without_dsn(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "")
-    from web.sentry import init_sentry
-
     init_sentry()
     assert not sentry_sdk.get_client().is_active()
 
@@ -29,8 +30,6 @@ def test_init_sentry_activates_with_dsn(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://examplePublicKey@o0.ingest.sentry.io/0")
     monkeypatch.setattr("web.config.SENTRY_ENVIRONMENT", "prod")
     monkeypatch.setattr("web.config.SENTRY_TRACES_SAMPLE_RATE", 1.0)
-    from web.sentry import init_sentry
-
     init_sentry()
     client = sentry_sdk.get_client()
     assert client.is_active()
@@ -38,8 +37,6 @@ def test_init_sentry_activates_with_dsn(monkeypatch):
 
 
 def test_set_user_context():
-    from web.sentry import set_user_context
-
     set_user_context("alice@example.com")
     scope = sentry_sdk.get_isolation_scope()
     assert (scope._user or {}).get("email") == "alice@example.com"
@@ -47,8 +44,6 @@ def test_set_user_context():
 
 def test_before_send_scrubs_headers(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
-    from web.sentry import _before_send
-
     event = {
         "request": {
             "headers": {
@@ -72,8 +67,6 @@ def test_before_send_scrubs_headers(monkeypatch):
 
 def test_before_send_drops_when_no_dsn(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "")
-    from web.sentry import _before_send
-
     assert _before_send({"request": {}}, {}) is None
 
 
@@ -88,8 +81,6 @@ def test_before_send_drops_when_no_dsn(monkeypatch):
 )
 def test_before_send_scrubs_secret_patterns_from_extras(monkeypatch, raw, expected_marker):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
-    from web.sentry import _before_send
-
     event = {"extra": {"stderr": raw, "last_events": [raw, "harmless line"]}}
     result = _before_send(event, {})
     assert result is not None
@@ -101,8 +92,6 @@ def test_before_send_scrubs_secret_patterns_from_extras(monkeypatch, raw, expect
 
 def test_before_send_preserves_non_secret_extras(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
-    from web.sentry import _before_send
-
     event = {"extra": {"conversation_id": "conv-42", "exit_code": 1, "stderr": "regular log output"}}
     result = _before_send(event, {})
     assert result["extra"]["conversation_id"] == "conv-42"
@@ -112,8 +101,6 @@ def test_before_send_preserves_non_secret_extras(monkeypatch):
 
 def test_before_send_transaction_scrubs_span_attributes(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "https://fake@sentry.io/0")
-    from web.sentry import _before_send_transaction
-
     event = {
         "contexts": {"trace": {"data": {"stderr": "Authorization: Bearer leaked.jwt.token"}}},
         "spans": [{"data": {"stderr": "error: token=abc-secret-value-12345"}}, {"data": None}],
@@ -125,23 +112,7 @@ def test_before_send_transaction_scrubs_span_attributes(monkeypatch):
 
 def test_before_send_transaction_drops_when_no_dsn(monkeypatch):
     monkeypatch.setattr("web.config.SENTRY_DSN", "")
-    from web.sentry import _before_send_transaction
-
     assert _before_send_transaction({"spans": []}, {}) is None
-
-
-def test_cron_sentry_monitor_config():
-    from web.cron import _sentry_monitor_config
-
-    daily_task = {"schedule": "daily", "timeout": 300}
-    cfg = _sentry_monitor_config(daily_task)
-    assert cfg["schedule"]["value"] == "0 6 * * *"
-    assert cfg["max_runtime"] == 6
-
-    weekly_task = {"schedule": "weekly", "timeout": 600}
-    cfg = _sentry_monitor_config(weekly_task)
-    assert cfg["schedule"]["value"] == "0 6 * * 1"
-    assert cfg["max_runtime"] == 11
 
 
 def test_runner_submit_includes_trace_headers(mocker):
@@ -149,8 +120,6 @@ def test_runner_submit_includes_trace_headers(mocker):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.get_agent")
     mocker.patch("web.runner.inject_trace_headers", return_value={"sentry-trace": "abc-123"})
-
-    from web.runner import TaskRunner
 
     runner = TaskRunner()
 

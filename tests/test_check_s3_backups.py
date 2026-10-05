@@ -1,18 +1,13 @@
 """Tests for the check-s3-backups cron: it is the only alert that a backup pass completed."""
 
 import datetime
-import importlib.util
 import json
 import logging
-from pathlib import Path
 
 import pytest
 from botocore.exceptions import ClientError
 
-_CRON_PATH = Path(__file__).parent.parent / "cron" / "check-s3-backups" / "cron.py"
-_spec = importlib.util.spec_from_file_location("check_s3_backups", _CRON_PATH)
-check_s3_backups = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(check_s3_backups)
+from web import backup_check as check_s3_backups
 
 MANIFEST = {"ok": True, "objects": 14385, "bytes": 5480696576, "target": "matometa-backup/mirror/"}
 
@@ -41,7 +36,7 @@ class FakeBody:
 def run_with(mocker, client):
     mocker.patch.object(check_s3_backups.config, "BACKUP_S3_BUCKET", "matometa-backup")
     mocker.patch.object(check_s3_backups.s3_module, "make_client", return_value=client)
-    check_s3_backups.main()
+    check_s3_backups.check_mirror_manifest()
 
 
 def test_success_log_names_the_mirror_once(mocker, caplog):
@@ -81,5 +76,5 @@ def test_propagates_unexpected_s3_errors(mocker):
 def test_skips_when_no_backup_bucket_is_configured(mocker):
     mocker.patch.object(check_s3_backups.config, "BACKUP_S3_BUCKET", None)
     make_client = mocker.patch.object(check_s3_backups.s3_module, "make_client")
-    check_s3_backups.main()
+    check_s3_backups.check_mirror_manifest()
     make_client.assert_not_called()
