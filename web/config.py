@@ -53,17 +53,6 @@ ALLOWED_TOOLS = os.getenv(
 # Outils toujours bloqués (même sous --dangerously-skip-permissions). AskUserQuestion ne s'affiche pas dans notre UI.
 DISALLOWED_TOOLS = os.getenv("DISALLOWED_TOOLS", "AskUserQuestion")
 
-# Compte « public » du tableau de bord public RPE (France Travail) — valeur publique (présente en clair dans l'URL
-# du TDB) mais fournie par l'environnement, jamais de défaut en dur (cf. rules/code.md, gitleaks).
-RPE_PUBLIC_PASS = os.getenv("RPE_PUBLIC_PASS", "")
-
-# Signatures GWT du tableau de bord RPE — valeurs fragiles, jamais en dur dans le code (cf. spec rpe-resilience).
-# permutation/strong_name sont re-scrapés par le cron ; les deux policy tokens sont des graines (auto-décantage différé).
-RPE_PERMUTATION = os.getenv("RPE_PERMUTATION", "")
-RPE_STRONG_NAME = os.getenv("RPE_STRONG_NAME", "")
-RPE_POLICY_LOGIN = os.getenv("RPE_POLICY_LOGIN", "")
-RPE_POLICY_DASH = os.getenv("RPE_POLICY_DASH", "")
-
 # Ollama (moteur de secours). qwen3-coder-next a été retiré le 2026-07-15.
 OLLAMA_REMOTE_BASE_URL = os.getenv("OLLAMA_REMOTE_BASE_URL", "https://ollama.com")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "glm-5.2")
@@ -265,6 +254,9 @@ DORA_STAGING_DB_URL = (os.getenv("DORA_STAGING_DB_URL") or "").replace("postgres
 
 # DSN du rôle restreint au schéma dashboard_storage de la DB applicative (persistance des TDB)
 DASHBOARD_STORAGE_DB_URL = (os.getenv("DASHBOARD_STORAGE_DB_URL") or "").replace("postgres://", "postgresql://")
+
+# Base applicative de Mon Récap — accès explicite uniquement (lecture/écriture), jamais pour l'analyse.
+MONRECAP_APPLI_DB_URL = (os.getenv("MONRECAP_APPLI_DB_URL") or "").replace("postgres://", "postgresql://")
 
 # Matomo Tag Manager (frontend instrumentation). Both must be set; otherwise no snippet is injected.
 MATOMO_TRACKING_URL = os.getenv("MATOMO_TRACKING_URL", "")

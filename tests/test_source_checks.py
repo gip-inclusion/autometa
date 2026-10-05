@@ -7,6 +7,7 @@ from lib.query import QueryResult as QueryOutcome
 from web import source_checks
 from web.source_checks import (
     check_app_db,
+    check_appli_monrecap,
     check_autometa_tables,
     check_dashboard_storage,
     check_data_inclusion,
@@ -16,7 +17,6 @@ from web.source_checks import (
     check_matomo,
     check_metabase_instance,
     check_notion,
-    check_rpe,
     check_s3,
     check_slack,
     check_tally,
@@ -94,6 +94,17 @@ def test_check_metabase_instance(mocker, status, expected):
     assert check_metabase_instance("stats") == expected
 
 
+def test_check_metabase_instance_sends_the_configured_basic_auth(mocker):
+    mocker.patch.object(
+        source_checks, "get_source_config", return_value={"url": "https://mb.test", "basic_auth": "u:p"}
+    )
+    get = mocker.patch.object(httpx, "get", return_value=fake_response(200))
+
+    check_metabase_instance("rdvi")
+
+    assert get.call_args.kwargs["auth"] == ("u", "p")
+
+
 def test_check_matomo_returns_the_version(mocker):
     mocker.patch.object(httpx, "get", return_value=fake_response(200, {"value": "5.8.0"}))
     assert check_matomo() == (True, "v5.8.0")
@@ -111,8 +122,9 @@ def test_check_matomo_raises_on_http_error_so_the_caller_redacts_it(mocker):
     [
         (check_autometa_tables, "execute_autometa_tables_query", "connectée (12 ms)"),
         (check_data_inclusion, "execute_data_inclusion_query", "connectée (12 ms)"),
+        (check_appli_monrecap, "execute_appli_monrecap_query", "connectée (12 ms)"),
     ],
-    ids=["autometa_tables", "data_inclusion"],
+    ids=["autometa_tables", "data_inclusion", "appli_monrecap"],
 )
 def test_sql_probe_reports_success(mocker, probe, target, expected):
     mocker.patch.object(source_checks, target, return_value=QueryOutcome(success=True, data={}, execution_time_ms=12))
@@ -125,8 +137,9 @@ def test_sql_probe_reports_success(mocker, probe, target, expected):
         (check_autometa_tables, "execute_autometa_tables_query"),
         (check_data_inclusion, "execute_data_inclusion_query"),
         (check_dashboard_storage, "execute_dashboard_storage_query"),
+        (check_appli_monrecap, "execute_appli_monrecap_query"),
     ],
-    ids=["autometa_tables", "data_inclusion", "dashboard_storage"],
+    ids=["autometa_tables", "data_inclusion", "dashboard_storage", "appli_monrecap"],
 )
 def test_sql_probe_surfaces_the_error(mocker, probe, target):
     mocker.patch.object(
@@ -147,38 +160,6 @@ def test_check_dashboard_storage_counts_tables(mocker):
 @pytest.mark.integration
 def test_check_app_db_against_a_real_database():
     assert check_app_db() == (True, "connectée")
-
-
-def test_check_rpe_summarizes_passing_contract(mocker):
-    mocker.patch(
-        "web.source_checks.doctor",
-        return_value={
-            "ok": True,
-            "checks": [
-                {"check": "tls", "ok": True, "reason": "TLS OK"},
-                {"check": "getcuberesult", "ok": True, "reason": "19 valeurs"},
-            ],
-        },
-    )
-    ok, detail = check_rpe()
-    assert ok is True
-    assert detail == "tls · getcuberesult OK"
-
-
-def test_check_rpe_surfaces_first_failing_check(mocker):
-    mocker.patch(
-        "web.source_checks.doctor",
-        return_value={
-            "ok": False,
-            "checks": [
-                {"check": "tls", "ok": True, "reason": "TLS OK"},
-                {"check": "login", "ok": False, "reason": "login refusé"},
-            ],
-        },
-    )
-    ok, detail = check_rpe()
-    assert ok is False
-    assert detail == "login : login refusé"
 
 
 FAUX = "valeur-factice-de-test"  # gitleaks:allow
@@ -225,3 +206,9 @@ def test_the_dora_staging_url_is_a_known_secret(mocker):
     mocker.patch.object(source_checks.config, "DORA_STAGING_DB_URL", "dora-secret-value-123")
 
     assert "dora-secret-value-123" in source_checks.known_secrets()
+
+
+def test_the_appli_monrecap_url_is_a_known_secret(mocker):
+    mocker.patch.object(source_checks.config, "MONRECAP_APPLI_DB_URL", "monrecap-secret-value-123")
+
+    assert "monrecap-secret-value-123" in source_checks.known_secrets()

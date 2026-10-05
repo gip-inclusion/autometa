@@ -100,7 +100,7 @@ _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
 (function() {
   var d = document, g = d.createElement('script'), s = d.getElementsByTagName('script')[0];
   g.async = true;
-  g.src = 'https://matomo.inclusion.beta.gouv.fr/js/container_TvNd7LvK.js';
+  g.src = 'https://matomo.inclusion.gouv.fr/js/container_TvNd7LvK.js';
   s.parentNode.insertBefore(g, s);
 })();
 </script>

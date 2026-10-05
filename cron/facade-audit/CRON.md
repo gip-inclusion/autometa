@@ -14,7 +14,7 @@ chaque TDB cronné sur S3 et postait la liste complète dans Slack **à chaque p
 fois par jour puisque `cron.json` planifie aujourd'hui `synchros` (02:00), puis `maintenance`,
 `tableaux-internes`, `tableaux-publies` et `xl` à la même heure (06:00). Ici, l'audit tourne une fois par jour et
 n'alerte que quand l'ensemble des non conformes change : un canal où le même pavé revient tous les
-jours cesse d'être lu, et ce sont les échecs RPE et runner qui s'y noient.
+jours cesse d'être lu, et ce sont les échecs des crons et du runner qui s'y noient.
 
 L'ensemble précédent est persisté dans `dashboard_storage.facade_audit_state`. Pendant l'exécution
 d'un cron de TDB, `run_all()` garde une simple trace de journal sur le `cron.py` déjà téléchargé.

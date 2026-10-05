@@ -8,13 +8,13 @@ from sqlalchemy import text
 
 from lib.query import (
     CallerType,
+    execute_appli_monrecap_query,
     execute_autometa_tables_query,
     execute_dashboard_storage_query,
     execute_data_inclusion_query,
     execute_dora_staging_query,
     get_matomo,
 )
-from lib.rpe import doctor
 from lib.sources import get_source_config, list_instances, load_config
 
 from . import config, s3
@@ -39,17 +39,17 @@ def known_secrets() -> list[str]:
         config.TALLY_API_KEY,
         config.DATADOG_API_KEY,
         config.DATADOG_APP_KEY,
-        config.RPE_PUBLIC_PASS,
         config.AUTOMETA_TABLES_DATABASE_URL,
         config.DATA_INCLUSION_DATABASE_URL,
         config.DATABASE_URL,
         config.DASHBOARD_STORAGE_DB_URL,
         config.DORA_STAGING_DB_URL,
+        config.MONRECAP_APPLI_DB_URL,
     ]
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
             cfg = load_config().get(source_type, {}).get(instance, {})
-            values += [cfg.get(key) for key in ("token", "api_key", "password")]
+            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth")]
     return [v for v in values if v and len(v) > 6 and not v.startswith("${env.")]
 
 
@@ -101,6 +101,13 @@ def check_dora_staging() -> tuple[bool, str]:
     return (False, result.error or "requête en échec")
 
 
+def check_appli_monrecap() -> tuple[bool, str]:
+    result = execute_appli_monrecap_query("SELECT 1", caller=CallerType.APP)
+    if result.success:
+        return (True, f"connectée ({result.execution_time_ms} ms)")
+    return (False, result.error or "requête en échec")
+
+
 def check_data_inclusion() -> tuple[bool, str]:
     result = execute_data_inclusion_query("SELECT 1", caller=CallerType.APP)
     if result.success:
@@ -111,7 +118,8 @@ def check_data_inclusion() -> tuple[bool, str]:
 def check_metabase_instance(instance: str) -> tuple[bool, str]:
     cfg = get_source_config("metabase", instance)
     url = cfg["url"].rstrip("/") + "/api/health"
-    resp = httpx.get(url, timeout=PROBE_TIMEOUT_SEC)
+    basic_auth = cfg.get("basic_auth")
+    resp = httpx.get(url, auth=tuple(basic_auth.split(":", 1)) if basic_auth else None, timeout=PROBE_TIMEOUT_SEC)
     if resp.status_code == 200:
         return (True, "en bonne santé")
     return (False, f"HTTP {resp.status_code}")
@@ -126,15 +134,6 @@ def check_matomo() -> tuple[bool, str]:
     )
     resp.raise_for_status()
     return (True, "v" + resp.json().get("value", "?")[:40])
-
-
-def check_rpe() -> tuple[bool, str]:
-    report = doctor(timeout=PROBE_TIMEOUT_SEC)
-    checks = report.get("checks", [])
-    if report.get("ok"):
-        return (True, " · ".join(c["check"] for c in checks) + " OK")
-    failed = next((c for c in checks if not c["ok"]), None)
-    return (False, f"{failed['check']} : {failed['reason']}" if failed else "échec")
 
 
 def check_notion() -> tuple[bool, str]:

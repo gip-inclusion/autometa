@@ -1,6 +1,6 @@
 # Intégration Tally
 
-Document de conception. Tally (tally.so) est un outil de formulaires/sondages. Les instances Autometa disposent d'une clé API vers leur compte Tally. Objectif : utiliser les réponses de formulaires comme **source de données** pour l'analyse et les tableaux de bord, au même titre que Matomo, Metabase ou RPE.
+Document de conception. Tally (tally.so) est un outil de formulaires/sondages. Les instances Autometa disposent d'une clé API vers leur compte Tally. Objectif : utiliser les réponses de formulaires comme **source de données** pour l'analyse et les tableaux de bord, au même titre que Matomo, ou Metabase.
 
 Ce document décrit le **quoi** et le **pourquoi**, par phases. Le code reste la référence d'implémentation.
 
@@ -9,9 +9,9 @@ Ce document décrit le **quoi** et le **pourquoi**, par phases. Le code reste la
 | Sujet | Décision |
 |---|---|
 | Modélisation de la source | **Source unique** (une clé, pas d'instances), comme `livestorm`. Le workspace est un **argument runtime**, pas une instance. |
-| Pattern client | Comme `lib/rpe.py` : un `TallyClient` utilisé **directement** par le skill ; signaux émis dans le client. Pas de façade `lib.query` (réservée aux sources SQL/Matomo/Metabase). |
+| Pattern client | Comme `lib/zendesk.py` : un `TallyClient` utilisé **directement** par le skill ; signaux émis dans le client. Pas de façade `lib.query` (réservée aux sources SQL/Matomo/Metabase). |
 | Première étape | Skill **lecteur**, lecture seule, **sans persistance**. |
-| Schéma de cache (phase 2) | `dashboard_storage` (comme `lib/rpe.py`), accessible aux TDB via `/api/query`. |
+| Schéma de cache (phase 2) | `dashboard_storage` (comme `web/cron.py`, `facade_audit_state`), accessible aux TDB via `/api/query`. |
 | Architecture de cache (phase 2) | Deux colonnes stables (`raw_json` + snapshot de schéma) + **vues** par formulaire. Pas de table EAV physique. |
 | Synchronisation (phase 2) | Cron régulier **ou** rafraîchissement paresseux avant requête. Allowlist de formulaires. |
 | Écriture de formulaires (`PATCH`) | Phase ultérieure, sous garde explicite. |
@@ -36,7 +36,7 @@ Conséquence : le rayon d'action de la clé est « tout ce que ce compte peut li
 
 ## Architecture cible et réutilisation
 
-L'analogue le plus proche existe déjà : `lib/rpe.py` (API externe → client dédié → skill direct) et `lib/webinaires.py` (sync d'un outil de formulaires tiers → DB). `livestorm` fournit le patron d'une source à simple clé API.
+L'analogue le plus proche existe déjà : `lib/zendesk.py` (API externe → client dédié → skill direct) et `lib/webinaires.py` (sync d'un outil de formulaires tiers → DB). `livestorm` fournit le patron d'une source à simple clé API.
 
 | Préoccupation | Réutilisation | Note |
 |---|---|---|
@@ -44,9 +44,9 @@ L'analogue le plus proche existe déjà : `lib/rpe.py` (API externe → client d
 | Config / clé | `livestorm` | Bloc `tally:` dans `config/sources.yaml`, `TALLY_API_KEY` lu via `web/config.py`. |
 | Observabilité | `lib/api_signals.py` | `emit_api_signal(source="tally", …)` émis dans le client (n'imprime qu'en contexte conversation agent). |
 | Selftest | `_check_livestorm` | `_check_tally` ping `GET /forms?limit=1`, enregistré dans `_check_specs`. |
-| Cache (phase 2) | `lib/rpe.py` (`dashboard_storage`) | Tables hors Alembic, `MetaData(schema="dashboard_storage")` + `create_all`. |
-| Sync cron (phase 2) | `cron/refresh-rpe/` | `cron/sync-tally/` appelant `lib.tally.sync()`. |
-| Skill | `skills/rpe/` | `skills/tally/` (`SKILL.md` + `scripts/query.py`), importe `TallyClient` directement. |
+| Cache (phase 2) | `web/cron.py` (`facade_audit_state`, `dashboard_storage`) | Tables hors Alembic, `MetaData(schema="dashboard_storage")` + `create_all`. |
+| Sync cron (phase 2) | `cron/sync-connectors/` | `cron/sync-tally/` appelant `lib.tally.sync()`. |
+| Skill | `skills/zendesk/` | `skills/tally/` (`SKILL.md` + `scripts/query.py`), importe `TallyClient` directement. |
 
 ## Phase 1 — Skill lecteur (lecture seule, sans persistance)
 

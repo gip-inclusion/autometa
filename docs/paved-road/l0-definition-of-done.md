@@ -190,7 +190,7 @@ sa décision est traçable — chaque source lue s'explique par une règle décl
 lesquelles.
 
 Distinction préalable, souvent confondue : les **sources de données métier** (Zendesk, Metabase,
-RPE, Matomo) servent à répondre à une question d'analyse, **jamais** à spécifier une fonctionnalité
+Matomo) servent à répondre à une question d'analyse, **jamais** à spécifier une fonctionnalité
 d'Autometa. Les tickets Zendesk parlent des Emplois de l'Inclusion, pas de ce logiciel.
 
 | Règle | Déclencheur | Ce qu'elle évite |

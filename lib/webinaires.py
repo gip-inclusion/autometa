@@ -238,11 +238,15 @@ def sync_grist(conn, client: GristClient):
     logger.info("%d inscriptions", len(inscriptions))
 
     inscription_rows = []
+    sans_event_id = 0
     for rec in inscriptions:
         f = rec["fields"]
         email = f.get("email")
+        if not email:
+            continue
         event_id = f.get("event_id")
-        if not email or not event_id:
+        if not event_id:
+            sans_event_id += 1
             continue
 
         inscription_rows.append((
@@ -258,6 +262,9 @@ def sync_grist(conn, client: GristClient):
             ts_to_iso(f.get("date_inscription")),
             now,
         ))
+
+    if sans_event_id:
+        logger.warning("%d inscriptions sans event_id ignorées", sans_event_id)
 
     batch_upsert(
         conn,

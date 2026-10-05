@@ -20,33 +20,34 @@ services:
       timeout: 3s
       retries: 15
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+  rustfs:
+    image: rustfs/rustfs:1.0.0
     restart: unless-stopped
-    command: server /data
     environment:
-      - MINIO_CONSOLE_ADDRESS=:9001
-      - MINIO_ROOT_USER=autometa
-      - MINIO_ROOT_PASSWORD=autometa
+      - RUSTFS_ACCESS_KEY=autometa
+      - RUSTFS_SECRET_KEY=autometa
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - rustfs_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 1s
       timeout: 3s
-      retries: 3
+      retries: 15
 
-  minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+  rustfs-init:
+    image: amazon/aws-cli:2.37.6
     restart: "no"
     environment:
-      - MC_HOST_local=http://autometa:autometa@minio:9000
-    command: "mb --ignore-existing local/autometa"
+      - AWS_ACCESS_KEY_ID=autometa
+      - AWS_SECRET_ACCESS_KEY=autometa
+      - AWS_DEFAULT_REGION=fr-par
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket autometa || aws --endpoint-url http://rustfs:9000 s3 mb s3://autometa"]
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
 
   redis:
@@ -70,5 +71,5 @@ services:
 
 volumes:
   pgdata:
-  minio_data:
+  rustfs_data:
   ollama_data:

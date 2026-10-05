@@ -696,9 +696,7 @@ def test_a_mode_runs_without_a_batch(monkeypatch, mocker, argv, mocked):
     assert getattr(cron, mocked).called
 
 
-@pytest.mark.parametrize(
-    "slug", ["sync-sites", "sync-inventory", "sync-webinaires", "sync-connectors", "sync-tags", "refresh-rpe"]
-)
+@pytest.mark.parametrize("slug", ["sync-sites", "sync-inventory", "sync-webinaires", "sync-connectors", "sync-tags"])
 def test_every_copy_of_an_external_source_runs_in_the_synchros_batch(slug):
     # Why: le lot suit la nature du travail — les synchros tournent à 02:00, avant les tableaux de
     # bord qu'elles alimentent, et à l'écart de la fenêtre de 06:00.

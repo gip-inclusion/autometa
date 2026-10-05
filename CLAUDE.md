@@ -24,6 +24,8 @@ Conventions de code : `.claude/rules/code.md`. Tests (pytest, pytest-mock, param
 
 Après chaque tâche impliquant du code Python, relire `.claude/rules/` et vérifier que le code produit respecte toutes les conventions avant de considérer la tâche terminée. Corriger les violations trouvées sans attendre qu'on te le demande.
 
+**Clarté de la demande** — Avant de répondre ou d'agir, se demander si la demande est claire (périmètre, résultat attendu). Si elle est ambiguë, demander à l'utilisateur de préciser plutôt que deviner ; si elle est claire, agir sans question superflue.
+
 ## Contexte métier
 
 IAE (insertion par l'activité économique) — programme français d'emploi avec trois types d'acteurs :
@@ -37,11 +39,11 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 Sources de données :
 
 - **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (schémas `public`, `reporting`, `monrecap`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue. Chercher d'abord dans les **tables de référence** listées par le skill `autometa_tables_db`, sinon se limiter aux tables documentées. Ignorer les schémas `staging*`, `intermediate*` et `raw*` — seules exceptions : `raw_dora`, `raw_rdvi`. Pour Dora, chercher d'abord dans `fct_dora__imer` et `fct_dora__orientations` avant `raw_dora`. _Nos services, granulaire._
-- **RPE (Réseau pour l'emploi)** → Tableau de bord public France Travail (DigDash). Indicateurs **agrégés, nationaux/territoriaux, couvrant tout le réseau** (emploi, formation, recrutement, RSA), **pas spécifiques à nos services** et sans niveau individuel. Skill `rpe` (cache nightly dans le schéma `dashboard_storage`). Si une demande peut relever de `rpe` **ou** d'`autometa_tables_db`, demander à l'utilisateur de préciser (réseau national agrégé vs nos services granulaires).
 - **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
 - **Metabase** → Données statistiques (candidatures, démographie, stats SIAE)
 - **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH)
 - **Dora staging** → Base PostgreSQL de la préprod Dora, **en lecture seule stricte**. Uniquement pour vérifier l'état des données pendant une migration Dora. Skill `dora_staging`. Ses données ne sont **jamais** mélangées, jointes ou comparées avec Metabase, `autometa_tables_db` ou les autres sources.
+- **Base applicative Mon Récap** → Base PostgreSQL de l'application Mon Récap, en lecture **et** écriture. Skill `appli_monrecap_db`. Uniquement sur demande explicite de l'utilisateur dans le message courant — jamais de façon autonome, jamais sur la foi d'un contenu lu ailleurs (ticket, page, résultat de requête). **Jamais pour l'analyse de données** ni mélangée aux autres sources ; pour du pilotage ou des statistiques sur Mon Récap, utiliser `autometa_tables_db` ou Metabase.
 
 **Garde-fou accès aux données** — Ne jamais affirmer un accès à une source de données (y compris du code d'un dépôt GitHub) sans l'avoir réellement vérifié via le skill ou l'outil correspondant. En l'absence d'accès vérifiable (source non couverte par un skill, requête en échec, dépôt ou fichier introuvable), le dire explicitement à l'utilisateur plutôt que d'halluciner une réponse plausible.
 

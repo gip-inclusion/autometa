@@ -46,6 +46,8 @@ metabase:
   rdvi:
     url: https://rdv-service-public-metabase.osc-secnum-fr1.scalingo.io
     api_key: ${env.METABASE_RDVI_API_KEY}
+    # Format username:password — l'instance est derrière une authentification HTTP Basic
+    basic_auth: ${env.METABASE_RDVI_BASIC_AUTH}
     knowledge_path: knowledge/rdvi/
     dashboards: {}
 
@@ -58,7 +60,7 @@ matomo:
   _default: inclusion
 
   inclusion:
-    url: https://matomo.inclusion.beta.gouv.fr
+    url: https://matomo.inclusion.gouv.fr
     token: ${env.MATOMO_API_KEY}
 
 tag_manager:
@@ -117,6 +119,10 @@ autometa_tables_db:
 # Lecture seule stricte — jamais d'écriture, jamais mélangée aux autres sources
 dora_staging:
   database_url: ${env.DORA_STAGING_DB_URL}
+
+# Base applicative de Mon Récap — accès explicite uniquement (lecture/écriture), jamais pour l'analyse
+appli_monrecap:
+  database_url: ${env.MONRECAP_APPLI_DB_URL}
 
 zendesk:
   _default: emplois
