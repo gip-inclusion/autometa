@@ -171,13 +171,15 @@ def test_the_cron_page_shows_the_last_run_of_each_batch(client, mocker):
     with get_db() as session:
         session.add(
             cron.CronBatchRun(
-                batch="tableaux", started_at=datetime.now(timezone.utc) - timedelta(hours=25), status="running"
+                batch=cron.DASHBOARD_BATCH,
+                started_at=datetime.now(timezone.utc) - timedelta(hours=25),
+                status="running",
             )
         )
 
     response = client.get("/cron")
 
-    assert "Lot <code>tableaux</code>" in response.text
+    assert f"Lot <code>{cron.DASHBOARD_BATCH}</code>" in response.text
     assert "interrompu" in response.text
 
 
