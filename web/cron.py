@@ -14,26 +14,24 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import sentry_sdk
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, Table, delete, func, select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lib import dashboard_api
-from web.helpers import now_local, sanitize_for_log, utcnow
+from web.helpers import sanitize_for_log, utcnow
 from web.s3 import S3Store
 
 from . import alerts, config, publications, s3
 from .database import get_db
-from .db import get_engine
 from .log import setup_logging
-from .models import CronRun, CronTaskState, Dashboard, DashboardPublication
-from .publications import list_publications
+from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication, FacadeAuditState
 from .sentry import init_sentry
 
 logger = logging.getLogger(__name__)
@@ -42,6 +40,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE = 50_000
 MAX_LOGGED_LINES = 20_000
+# Why: sous les 10 connexions que botocore garde par client — au-delà, les appels attendraient une
+# connexion libre au lieu de partir en parallèle.
+S3_WORKERS = 8
 
 SCHEDULE_PRESETS = {
     "daily": "0 6 * * *",
@@ -54,10 +55,15 @@ DASHBOARD_BATCH = "tableaux-internes"
 # Why: partagées en externe, les publications ont leur propre lot, sans budget — une publication
 # cassée doit se voir chaque jour, pas être sautée parce qu'un TDB interne a mangé le temps.
 PUBLICATION_BATCH = "tableaux-publies"
-# Heure UTC à laquelle cron.json démarre chaque lot. Sentry attend le check-in à cette heure-là :
-# la déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
-BATCH_HOURS = {"synchros": 2, "maintenance": 6, "tableaux-internes": 6, "tableaux-publies": 6, "xl": 6}
-FACADE_AUDIT_SCHEMA = "dashboard_storage"
+# (heure, minute) UTC auxquelles cron.json démarre chaque lot. Sentry attend le check-in à ce moment-là :
+# le déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
+BATCH_START = {
+    "synchros": (2, 0),
+    "maintenance": (6, 0),
+    "tableaux-internes": (6, 0),
+    "tableaux-publies": (6, 0),
+    "xl": (6, 0),
+}
 
 
 def cadence(schedule: str) -> str:
@@ -133,35 +139,55 @@ def get_batch(meta: dict) -> str | None:
     return meta.get("batch", "").strip().lower() or None
 
 
-def is_due(schedule: str) -> bool:
+def last_batch_start(batch: str, now: dt.datetime) -> dt.datetime:
+    """Dernier départ planifié du lot, en UTC comme cron.json."""
+    hour, minute = BATCH_START.get(batch, (6, 0))
+    start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return start if start <= now else start - dt.timedelta(days=1)
+
+
+def runs_on(schedule: str, day: dt.datetime) -> bool:
     reduced = cadence(schedule)
     if reduced == "weekly":
-        return now_local().weekday() == 0  # Monday
+        return day.weekday() == 0
     if reduced == "monthly":
-        return now_local().day == 1
+        return day.day == 1
     return True
 
 
-def next_cron_run(schedule: str, now=None):
-    """Prochain départ des lots de tableaux de bord, en UTC comme la planification Scalingo, selon la cadence."""
-    now = now or utcnow()
-    target = now.replace(hour=BATCH_HOURS[DASHBOARD_BATCH], minute=0, second=0, microsecond=0)
-    reduced = cadence(schedule)
-    if reduced == "weekly":
-        days_ahead = (0 - target.weekday()) % 7
-        if days_ahead == 0 and now >= target:
-            days_ahead = 7
-        return target + dt.timedelta(days=days_ahead)
-    if reduced == "monthly":
-        first_this = target.replace(day=1)
-        if now < first_this:
-            return first_this
-        if target.month == 12:
-            return first_this.replace(year=target.year + 1, month=1)
-        return first_this.replace(month=target.month + 1)
-    if now >= target:
-        return target + dt.timedelta(days=1)
-    return target
+def is_due(schedule: str, batch: str) -> bool:
+    """Le jour qui compte est celui du départ du lot : un lot qui déborde après minuit reste celui de la veille."""
+    return runs_on(schedule, last_batch_start(batch, utcnow()))
+
+
+def missed_last_due(task: dict, batch: str) -> bool:
+    """Échéance hebdo ou mensuelle passée sans que la tâche ait réellement tourné depuis (lot tué, sauté)."""
+    due = last_batch_start(batch, utcnow())
+    while not runs_on(task["schedule"], due):
+        due -= dt.timedelta(days=1)
+    try:
+        with get_db() as session:
+            ran = session.scalar(
+                select(CronRun.id)
+                .where(
+                    CronRun.app_slug == task["slug"],
+                    CronRun.started_at >= due,
+                    CronRun.status.in_(("success", "failure", "timeout")),
+                )
+                .limit(1)
+            )
+    except SQLAlchemyError as e:
+        logger.warning("cron %s : historique illisible, pas de rattrapage (%s)", sanitize_for_log(task["slug"]), e)
+        return False
+    return ran is None
+
+
+def next_cron_run(schedule: str, batch: str, now=None):
+    """Prochain départ du lot de la tâche, selon sa cadence."""
+    start = last_batch_start(batch, now or utcnow()) + dt.timedelta(days=1)
+    while not runs_on(schedule, start):
+        start += dt.timedelta(days=1)
+    return start
 
 
 def set_cron_enabled(app_slug: str, enabled: bool) -> bool:
@@ -364,15 +390,25 @@ def discover_cron_tasks() -> list[dict]:
     return tasks
 
 
-def find_task(slug: str) -> dict | None:
+def discover_by_slug() -> dict[str, dict]:
     # Why: discovery order (system → app → publication) means an app slug of shape
     # "{dashboard}-{6 chars}" would shadow a same-named publication composite. Risk is
     # near-zero (would require an app slug to collide with a real publication id);
     # documented here so future readers know first-match-wins is intentional.
+    tasks: dict[str, dict] = {}
     for task in discover_cron_tasks():
-        if task["slug"] == slug:
-            return task
-    return None
+        tasks.setdefault(task["slug"], task)
+    return tasks
+
+
+def find_task(slug: str) -> dict | None:
+    return discover_by_slug().get(slug)
+
+
+def s3_map(function: Callable, items: Iterable) -> list:
+    """Appels S3 en parallèle sur un pool borné ; la première exception remonte, comme en séquentiel."""
+    with ThreadPoolExecutor(max_workers=S3_WORKERS) as pool:
+        return list(pool.map(function, items))
 
 
 def read_cron_script(task: dict) -> str | None:
@@ -389,8 +425,8 @@ def facade_violations_by_slug(tasks: list[dict]) -> dict[str, list[str]]:
     found = {}
     # Why: les crons système (config.CRON_DIR) sont du code applicatif, pas des tableaux de bord —
     # la façade ne les contraint pas.
-    for task in (t for t in tasks if t.get("source") in ("s3", "s3-publication")):
-        source = read_cron_script(task)
+    dashboards = [t for t in tasks if t.get("source") in ("s3", "s3-publication")]
+    for task, source in zip(dashboards, s3_map(read_cron_script, dashboards), strict=True):
         if source is None:
             continue
         try:
@@ -415,44 +451,22 @@ def log_facade_violations(slug: str, script: Path) -> None:
         logger.warning("cron %s imports outside the facade: %s", sanitize_for_log(slug), ", ".join(violations))
 
 
-_facade_metadata = MetaData(schema=FACADE_AUDIT_SCHEMA)
-facade_audit_state = Table(
-    "facade_audit_state",
-    _facade_metadata,
-    Column("id", Integer, primary_key=True),
-    Column("slugs", JSON),
-    Column("reported_at", DateTime(timezone=True)),
-)
-
-
 def last_reported_slugs() -> list[str] | None:
     """Ensemble signalé au dernier passage, ou None quand rien n'a encore été journalisé."""
     try:
-        eng = get_engine()
-        with eng.connect() as conn:
-            if not eng.dialect.has_table(conn, "facade_audit_state", schema=FACADE_AUDIT_SCHEMA):
-                return None
-            row = conn.execute(select(facade_audit_state).where(facade_audit_state.c.id == 1)).mappings().first()
+        with get_db() as session:
+            state = session.get(FacadeAuditState, 1)
+            return state.slugs if state else None
     except SQLAlchemyError as e:
         logger.warning("audit façade : lecture de l'état précédent impossible (%s)", e)
         return None
-    return row["slugs"] if row else None
 
 
 def record_reported_slugs(slugs: list[str]) -> None:
     """Un état non écrit ne fait que réémettre l'alerte demain : il ne doit pas faire échouer l'audit."""
     try:
-        eng = get_engine()
-        with eng.begin() as conn:
-            conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + FACADE_AUDIT_SCHEMA))
-        _facade_metadata.create_all(eng)
-        payload = {"id": 1, "slugs": slugs, "reported_at": utcnow()}
-        statement = pg_insert(facade_audit_state).values(payload)
-        statement = statement.on_conflict_do_update(
-            index_elements=["id"], set_={"slugs": slugs, "reported_at": utcnow()}
-        )
-        with eng.begin() as conn:
-            conn.execute(statement)
+        with get_db() as session:
+            session.merge(FacadeAuditState(id=1, slugs=slugs, reported_at=utcnow()))
     except SQLAlchemyError as e:
         logger.warning("audit façade : état non enregistré, l'alerte repartira au prochain passage (%s)", e)
 
@@ -489,11 +503,14 @@ def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
     pre_hashes: dict[str, str] = {}
     try:
-        for entry in store.list_files(store_relative_prefix):
+        entries = [
+            entry
+            for entry in store.list_files(store_relative_prefix)
+            if entry["path"][len(store_relative_prefix) :] and ".." not in entry["path"][len(store_relative_prefix) :]
+        ]
+        contents = s3_map(store.download, [entry["path"] for entry in entries])
+        for entry, content in zip(entries, contents, strict=True):
             local_name = entry["path"][len(store_relative_prefix) :]
-            if not local_name or ".." in local_name:
-                continue
-            content = store.download(entry["path"])
             if content is not None:
                 local_file = (workdir / local_name).resolve()
                 try:
@@ -513,7 +530,8 @@ def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -
 def upload_s3_results(
     store: S3Store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]
 ):
-    uploaded = skipped = 0
+    changed = []
+    skipped = 0
     workdir_resolved = workdir.resolve()
     for path in workdir.rglob("*"):
         if not path.is_file():
@@ -527,13 +545,13 @@ def upload_s3_results(
         if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
             skipped += 1
             continue
-        store.upload(f"{store_relative_prefix}{rel}", content)
-        uploaded += 1
-    if uploaded:
+        changed.append((f"{store_relative_prefix}{rel}", content))
+    s3_map(lambda item: store.upload(*item), changed)
+    if changed:
         logger.info(
             "Cron upload %s: %d uploaded, %d unchanged",
             sanitize_for_log(label),
-            uploaded,
+            len(changed),
             skipped,
         )
 
@@ -650,8 +668,9 @@ def kill_process_group(pgid: int, process: subprocess.Popen) -> None:
 
 def sentry_monitor_config(task: dict) -> dict:
     """Build Sentry Crons monitor config from task metadata."""
-    minute, _, days = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))].split(" ", 2)
-    crontab = f"{minute} {BATCH_HOURS.get(task.get('batch'), 6)} {days}"
+    days = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))].split(" ", 2)[2]
+    hour, minute = BATCH_START.get(task.get("batch"), (6, 0))
+    crontab = f"{minute} {hour} {days}"
     return {
         "schedule": {"type": "crontab", "value": crontab},
         "checkin_margin": 30,
@@ -665,8 +684,9 @@ def batch_monitor_config(batch: str, tasks: list[dict], budget: int | None) -> d
     """Moniteur Sentry d'un lot : un conteneur tué laisse son check-in ouvert, que Sentry passe en échec."""
     timeouts = [task["timeout"] for task in tasks if task["batch"] == batch]
     runtime = min(sum(timeouts), budget + max(timeouts, default=0)) if budget else sum(timeouts)
+    hour, minute = BATCH_START.get(batch, (6, 0))
     return {
-        "schedule": {"type": "crontab", "value": f"0 {BATCH_HOURS.get(batch, 6)} * * *"},
+        "schedule": {"type": "crontab", "value": f"{minute} {hour} * * *"},
         "checkin_margin": 30,
         "max_runtime": runtime // 60 + 1,
         "failure_issue_threshold": 1,
@@ -674,16 +694,23 @@ def batch_monitor_config(batch: str, tasks: list[dict], budget: int | None) -> d
     }
 
 
-def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
-    """Resolve a task by slug and run it."""
+def run_task_and_publications(slug: str, trigger: str = "manual") -> list[dict]:
+    """Rejoue une tâche puis, si c'est un tableau de bord, ses publications — sur une seule découverte."""
     started_at = utcnow()
     try:
-        task = find_task(slug)
+        tasks = discover_by_slug()
     except (ClientError, BotoCoreError) as e:
         # Why: la découverte liste S3. Hors de tout try, une secousse tuait le conteneur sans
         # laisser la moindre ligne en base — un run lancé dont rien ne revient jamais.
         logger.exception("cron %s : découverte S3 impossible", sanitize_for_log(slug))
-        return record_unexpected_failure(slug, started_at, e, trigger)
+        return [record_unexpected_failure(slug, started_at, e, trigger)]
+    slugs = [slug]
+    if tasks.get(slug, {}).get("source") == "s3":
+        slugs += [pub for pub, task in tasks.items() if task.get("dashboard_slug") == slug]
+    return [run_discovered(each, tasks.get(each), trigger) for each in slugs]
+
+
+def run_discovered(slug: str, task: dict | None, trigger: str) -> dict:
     if not task:
         return {
             "slug": slug,
@@ -693,6 +720,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
             "started_at": utcnow(),
             "finished_at": utcnow(),
         }
+    started_at = utcnow()
     try:
         return execute_task(task, trigger)
     except Exception as e:
@@ -701,24 +729,7 @@ def run_cron_task(slug: str, trigger: str = "scheduled") -> dict:
         return record_unexpected_failure(slug, started_at, e, trigger)
 
 
-def run_task_and_publications(slug: str, trigger: str = "manual") -> list[dict]:
-    """Rejoue une tâche puis, si c'est un tableau de bord, chacune de ses publications actives."""
-    try:
-        task = find_task(slug)
-    except ClientError, BotoCoreError:
-        # Why: run_cron_task retrouvera la même panne et l'enregistrera ; ici il s'agit seulement
-        # de ne pas chercher des publications qu'on ne saura de toute façon pas rattacher.
-        logger.exception("cron %s : découverte S3 impossible", sanitize_for_log(slug))
-        task = None
-    results = [run_cron_task(slug, trigger)]
-    if task and task.get("source") == "s3":
-        for pub in list_publications(slug, active_only=True):
-            if pub.get("snapshot_has_cron") and not pub.get("refresh_paused_at"):
-                results.append(run_cron_task(f"{slug}-{pub['publication_id']}", trigger))
-    return results
-
-
-def execute_task(task: dict, trigger: str = "scheduled") -> dict:
+def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | None = None) -> dict:
     """Run an already-discovered task; callers with the task dict skip re-discovery."""
     slug = task["slug"]
     monitor_slug = f"cron-{slug}"
@@ -735,9 +746,15 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
     workdir = None
     pre_hashes: dict[str, str] = {}
 
+    previous_status = None
+    if trigger == "scheduled":
+        recent = get_app_runs(slug, limit=1)
+        previous_status = recent[0]["status"] if recent else None
+
     started_at = utcnow()
     start_time = time.monotonic()
     status = "failure"
+    run_id = open_run(slug, started_at, trigger, batch_run_id)
 
     # Why: transmission de l'environnement complet au sous-processus, pas une lecture de
     # configuration — seul SCALINGO_API_TOKEN est retiré. Il ouvre `POST /v1/apps/<app>/run`, donc
@@ -775,7 +792,10 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
             upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
         status = {0: "success", None: "timeout"}.get(returncode, "failure")
 
-    except (OSError, ClientError, BotoCoreError) as e:
+    except Exception as e:
+        # Why: une exception, quelle qu'elle soit, doit fermer la ligne `running` ouverte plus haut —
+        # sinon la tâche passerait pour tuée avec son conteneur.
+        logger.exception("cron %s crashed", sanitize_for_log(slug))
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
         finished_at = utcnow()
         status = "failure"
@@ -803,12 +823,7 @@ def execute_task(task: dict, trigger: str = "scheduled") -> dict:
         "finished_at": finished_at,
     }
 
-    previous_status = None
-    if trigger == "scheduled":
-        recent = get_app_runs(slug, limit=1)
-        previous_status = recent[0]["status"] if recent else None
-
-    record_run(run_result, trigger)
+    record_run(run_result, trigger, run_id=run_id)
 
     if trigger == "scheduled":
         notify_cron_status_change(slug, status, previous_status, error, repeat=source == "s3-publication")
@@ -865,23 +880,142 @@ def remove_workdir(workdir: Path) -> None:
         logger.warning("cron : répertoire de travail non supprimé (%s)", workdir)
 
 
-def record_run(result: dict, trigger: str):
+def open_run(slug: str, started_at: dt.datetime, trigger: str, batch_run_id: int | None) -> int | None:
+    """Ligne `running` écrite avant la tâche : un conteneur tué pendant son exécution la laisse ouverte."""
     try:
         with get_db() as session:
-            session.add(
-                CronRun(
-                    app_slug=result["slug"],
-                    started_at=result["started_at"],
-                    finished_at=result["finished_at"],
-                    status=result["status"],
-                    output=result["output"],
-                    duration_ms=result["duration_ms"],
-                    trigger=trigger,
-                )
+            run = CronRun(
+                app_slug=slug, started_at=started_at, status="running", trigger=trigger, batch_run_id=batch_run_id
             )
-    # Why: recording is best-effort; a DB error must not crash the cron runner.
+            session.add(run)
+            session.flush()
+            return run.id
     except Exception:
+        # Why: best-effort comme record_run ; sans ligne ouverte, record_run en insère une à la fin.
+        logger.exception("failed to open cron run")
+        return None
+
+
+def record_run(result: dict, trigger: str, run_id: int | None = None, batch_run_id: int | None = None):
+    fields = {
+        "finished_at": result["finished_at"],
+        "status": result["status"],
+        "output": result["output"],
+        "duration_ms": result["duration_ms"],
+    }
+    try:
+        with get_db() as session:
+            run = session.get(CronRun, run_id) if run_id else None
+            if run is None:
+                run = CronRun(
+                    app_slug=result["slug"], started_at=result["started_at"], trigger=trigger, batch_run_id=batch_run_id
+                )
+                session.add(run)
+            for name, value in fields.items():
+                setattr(run, name, value)
+    except Exception:
+        # Why: recording is best-effort; a DB error must not crash the cron runner.
         logger.exception("failed to record cron run")
+
+
+def open_batch_run(batch: str) -> int | None:
+    """Ouvre le passage d'un lot, après avoir déclaré interrompu le précédent s'il n'a jamais écrit sa fin."""
+    alert = None
+    try:
+        with get_db() as session:
+            last, before = (
+                session.scalars(
+                    select(CronBatchRun)
+                    .where(CronBatchRun.batch == batch)
+                    .order_by(CronBatchRun.started_at.desc(), CronBatchRun.id.desc())
+                    .limit(2)
+                ).all()
+                + [None, None]
+            )[:2]
+            if last and last.status == "running":
+                last.status = "interrupted"
+                orphans = session.scalars(
+                    select(CronRun).where(CronRun.batch_run_id == last.id, CronRun.status == "running")
+                ).all()
+                for run in orphans:
+                    run.status = "interrupted"
+                if not (before and before.status == "interrupted"):
+                    during = ", ".join(f"`{run.app_slug}`" for run in orphans) or "entre deux tâches"
+                    alert = (
+                        f":skull: *Lot `{batch}` interrompu* — démarré le {last.started_at:%d/%m à %H:%M} UTC, "
+                        f"conteneur arrêté pendant {during}. Pas d'autre alerte tant qu'il le reste."
+                    )
+            run = CronBatchRun(batch=batch, started_at=utcnow(), status="running")
+            session.add(run)
+            session.flush()
+            batch_run_id = run.id
+    except Exception:
+        # Why: best-effort — la base injoignable ne doit pas empêcher le lot de tourner.
+        logger.exception("failed to open cron batch run")
+        return None
+    if alert:
+        alerts.notify_alert_channel(alert)
+    return batch_run_id
+
+
+def close_batch_run(batch_run_id: int | None, status: str) -> None:
+    """Écrit la fin d'un lot, et annonce le rétablissement d'un lot jusque-là interrompu."""
+    if batch_run_id is None:
+        return
+    try:
+        with get_db() as session:
+            run = session.get(CronBatchRun, batch_run_id)
+            run.status = status
+            run.finished_at = utcnow()
+            previous = session.scalar(
+                select(CronBatchRun.status)
+                .where(CronBatchRun.batch == run.batch, CronBatchRun.id != run.id)
+                .order_by(CronBatchRun.started_at.desc(), CronBatchRun.id.desc())
+                .limit(1)
+            )
+            batch = run.batch
+    except Exception:
+        # Why: best-effort — l'écriture de la fin ne doit pas faire échouer un lot qui a tourné.
+        logger.exception("failed to close cron batch run")
+        return
+    if previous == "interrupted":
+        alerts.notify_alert_channel(f":large_green_circle: *Lot `{batch}` rétabli* — allé au bout sans interruption.")
+
+
+def displayed_status(run: dict, timeout: int) -> str:
+    """Une ligne `running` plus vieille que son délai maximal est celle d'un conteneur tué."""
+    if run["status"] == "running" and utcnow() - run["started_at"] > dt.timedelta(seconds=timeout):
+        return "interrupted"
+    return run["status"]
+
+
+def purge_cron_history() -> None:
+    """Vide la sortie des runs de plus de 30 jours — c'est elle qui pèse — et supprime ce qui a plus d'un an."""
+    now = utcnow()
+    with get_db() as session:
+        session.execute(
+            update(CronRun)
+            .where(CronRun.started_at < now - dt.timedelta(days=30), CronRun.output.is_not(None))
+            .values(output=None)
+        )
+        session.execute(delete(CronRun).where(CronRun.started_at < now - dt.timedelta(days=365)))
+        session.execute(delete(CronBatchRun).where(CronBatchRun.started_at < now - dt.timedelta(days=365)))
+
+
+def get_last_batch_runs() -> dict[str, dict]:
+    """Dernier passage de chaque lot."""
+    stmt = (
+        select(CronBatchRun.batch, CronBatchRun.started_at, CronBatchRun.finished_at, CronBatchRun.status)
+        .distinct(CronBatchRun.batch)
+        .order_by(CronBatchRun.batch, CronBatchRun.started_at.desc(), CronBatchRun.id.desc())
+    )
+    try:
+        with get_db() as session:
+            return {row.batch: row._asdict() for row in session.execute(stmt)}
+    except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller.
+        logger.exception("failed to read cron batch runs")
+        return {}
 
 
 def _run_to_dict(run: CronRun) -> dict:
@@ -917,8 +1051,8 @@ def get_last_runs(slug: str | None = None) -> dict[str, dict]:
     try:
         with get_db() as session:
             return {row.app_slug: row._asdict() for row in session.execute(stmt)}
-    # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller.
         logger.exception("failed to read cron runs")
         return {}
 
@@ -930,8 +1064,8 @@ def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
                 select(CronRun).where(CronRun.app_slug == slug).order_by(CronRun.started_at.desc()).limit(limit)
             ).all()
             return [_run_to_dict(row) for row in rows]
-    # Why: reading history is best-effort; a DB error must not crash the caller.
     except Exception:
+        # Why: reading history is best-effort; a DB error must not crash the caller.
         logger.exception("failed to read app runs")
         return []
 
@@ -953,17 +1087,19 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
     except (ClientError, BotoCoreError, SQLAlchemyError) as e:
         # Why: la découverte des tableaux de bord lit S3 *et* la base ; une panne de l'une ou de
         # l'autre ne prive que les tableaux de bord. Les tâches système, elles, peuvent tourner —
-        # mais l'amputation du lot doit s'annoncer au lieu de passer pour un succès.
-        logger.exception("cron : découverte des tableaux de bord impossible, seules les tâches système tournent")
-        alerts.notify_alert_channel(
-            f":red_circle: *Découverte des crons amputée* — {e.__class__.__name__}. "
-            "Seules les tâches système tournent aujourd'hui ; aucun tableau de bord n'est rafraîchi."
-        )
+        # mais l'amputation doit s'annoncer, une seule fois : par le lot qui perd tout.
+        logger.exception("cron : découverte des tableaux de bord impossible (lot %s)", sanitize_for_log(batch))
+        if batch == DASHBOARD_BATCH:
+            alerts.notify_alert_channel(
+                f":red_circle: *Lot `{batch}` vide* — découverte impossible ({e.__class__.__name__}). "
+                "Aucun tableau de bord ni publication n'est rafraîchi aujourd'hui."
+            )
         tasks = discover_system_tasks()
     results = []
     started = time.monotonic()
     dropped = []
     if not dry_run:
+        batch_run_id = open_batch_run(batch)
         monitor_config = batch_monitor_config(batch, tasks, budget)
         check_in_id = sentry_sdk.crons.api.capture_checkin(
             monitor_slug=f"lot-{batch}",
@@ -982,7 +1118,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
                 logger.info("SKIP %s (disabled)", task["slug"])
             continue
 
-        if not is_due(task["schedule"]):
+        if not (is_due(task["schedule"], batch) or missed_last_due(task, batch)):
             if dry_run:
                 logger.info("SKIP %s (schedule: %s, not due)", task["slug"], task["schedule"])
             continue
@@ -1009,12 +1145,13 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
                     "finished_at": now,
                 },
                 "scheduled",
+                batch_run_id=batch_run_id,
             )
             continue
 
         started_at = utcnow()
         try:
-            result = execute_task(task, trigger="scheduled")
+            result = execute_task(task, trigger="scheduled", batch_run_id=batch_run_id)
         except Exception as e:
             # Why: une tâche qui lève ne doit pas priver les suivantes du lot de leur exécution.
             logger.exception("cron %s crashed", sanitize_for_log(task["slug"]))
@@ -1037,6 +1174,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
         )
 
     if not dry_run:
+        close_batch_run(batch_run_id, "over_budget" if dropped else "finished")
         sentry_sdk.crons.api.capture_checkin(
             monitor_slug=f"lot-{batch}",
             status=sentry_sdk.crons.consts.MonitorStatus.ERROR if dropped else sentry_sdk.crons.consts.MonitorStatus.OK,
@@ -1045,6 +1183,14 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
             monitor_config=monitor_config,
         )
     return results
+
+
+def positive_seconds(value: str) -> int:
+    """Un budget nul ou négatif passerait pour « pas de budget » : on le refuse."""
+    seconds = int(value)
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("le budget doit être un nombre de secondes positif")
+    return seconds
 
 
 def main():
@@ -1056,7 +1202,7 @@ def main():
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
     parser.add_argument("--facade-audit", action="store_true", help="Count dashboards importing outside the facade")
-    parser.add_argument("--budget", type=int, help="Durée maximale du lot, en secondes")
+    parser.add_argument("--budget", type=positive_seconds, help="Durée maximale du lot, en secondes")
     args = parser.parse_args()
 
     if not (args.facade_audit or args.list or args.app or args.batch):

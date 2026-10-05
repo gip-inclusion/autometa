@@ -29,13 +29,17 @@ from web.cron import (
     notify_cron_status_change,
     parse_frontmatter,
     run_all,
-    run_cron_task,
+    run_task_and_publications,
     set_cron_enabled,
 )
 from web.database import get_db
 from web.models import CronRun, CronTaskState, Dashboard, DashboardPublication
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
+
+def run_one(slug, trigger="scheduled"):
+    return run_task_and_publications(slug, trigger)[0]
 
 
 @pytest.fixture
@@ -59,7 +63,7 @@ def db_setup(monkeypatch):
         session.execute(
             text("""
             TRUNCATE TABLE messages, conversation_tags, report_tags,
-                uploaded_files, cron_runs, cron_task_states, pinned_items,
+                uploaded_files, cron_runs, cron_batch_runs, cron_task_states, pinned_items,
                 reports, conversations, tags,
                 dashboards
                 CASCADE;
@@ -196,7 +200,7 @@ def test_discover_system_tasks_come_first(interactive_dir, tmp_path, monkeypatch
 
 def test_run_cron_success(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "good-app", cron_script="print('hello world')")
-    result = run_cron_task("good-app", trigger="manual")
+    result = run_one("good-app", trigger="manual")
     assert result["status"] == "success"
     assert "hello world" in result["output"]
     assert result["duration_ms"] >= 0
@@ -204,7 +208,7 @@ def test_run_cron_success(interactive_dir, db_setup):
 
 def test_run_cron_failure_exit_code(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
-    result = run_cron_task("bad-app", trigger="manual")
+    result = run_one("bad-app", trigger="manual")
     assert result["status"] == "failure"
 
 
@@ -214,12 +218,12 @@ def test_run_cron_stderr_captured(interactive_dir, db_setup):
         "stderr-app",
         cron_script="import sys; print('err', file=sys.stderr)",
     )
-    result = run_cron_task("stderr-app", trigger="manual")
+    result = run_one("stderr-app", trigger="manual")
     assert "err" in result["output"]
 
 
 def test_run_cron_nonexistent_app(interactive_dir, db_setup):
-    result = run_cron_task("no-such-app")
+    result = run_one("no-such-app")
     assert result["status"] == "failure"
     assert "not found" in result["output"]
 
@@ -231,7 +235,7 @@ def test_run_cron_writes_data_file(interactive_dir, db_setup):
             json.dump({"updated": True}, f)
     """)
     create_interactive_app(interactive_dir, "writer-app", cron_script=script)
-    result = run_cron_task("writer-app")
+    result = run_one("writer-app")
     assert result["status"] == "success"
 
     data_file = interactive_dir / "writer-app" / "data.json"
@@ -246,13 +250,13 @@ def test_run_cron_timeout(interactive_dir, db_setup):
         cron_script="import time; time.sleep(10)",
         app_md=f"---\ntitle: Slow\ntimeout: 1\nbatch: {cron.DASHBOARD_BATCH}\n---\n",
     )
-    result = run_cron_task("slow-app")
+    result = run_one("slow-app")
     assert result["status"] == "timeout"
 
 
 def test_run_cron_records_in_database(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "db-app", cron_script="print('ok')")
-    run_cron_task("db-app", trigger="manual")
+    run_one("db-app", trigger="manual")
 
     with get_db() as session:
         row = (
@@ -275,7 +279,7 @@ def test_run_cron_pythonpath_includes_project_root(interactive_dir, db_setup):
         print(sys.path)
     """)
     create_interactive_app(interactive_dir, "path-app", cron_script=script)
-    result = run_cron_task("path-app")
+    result = run_one("path-app")
     assert result["status"] == "success"
     assert str(config.BASE_DIR) in result["output"]
 
@@ -287,9 +291,9 @@ def test_get_last_runs_empty(interactive_dir, db_setup):
 def test_get_last_runs_returns_latest_per_slug(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "multi-app", cron_script="print('run')")
     create_interactive_app(interactive_dir, "other-app", cron_script="print('other')")
-    run_cron_task("multi-app")
-    run_cron_task("other-app")
-    latest = run_cron_task("multi-app")
+    run_one("multi-app")
+    run_one("other-app")
+    latest = run_one("multi-app")
 
     runs = get_last_runs()
     assert set(runs) == {"multi-app", "other-app"}
@@ -321,8 +325,8 @@ def test_the_cron_runs_index_serves_the_latest_run_order(db_setup):
 def test_get_last_runs_filters_by_slug(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "multi-app", cron_script="print('run')")
     create_interactive_app(interactive_dir, "other-app", cron_script="print('other')")
-    run_cron_task("multi-app")
-    run_cron_task("other-app")
+    run_one("multi-app")
+    run_one("other-app")
 
     runs = get_last_runs(slug="other-app")
     assert set(runs) == {"other-app"}
@@ -336,7 +340,7 @@ def test_get_app_runs_empty(interactive_dir, db_setup):
 
 def test_get_app_runs_returns_runs(interactive_dir, db_setup):
     create_interactive_app(interactive_dir, "log-app", cron_script="print('logged')")
-    run_cron_task("log-app")
+    run_one("log-app")
     runs = get_app_runs("log-app")
     assert len(runs) == 1
     assert runs[0]["status"] == "success"
@@ -713,7 +717,7 @@ def test_run_s3_executes_script(mocker, s3_cron_env):
     app = mock_s3_app("s3-runner", cron_script="print('s3 hello')")
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    result = run_cron_task("s3-runner", trigger="manual")
+    result = run_one("s3-runner", trigger="manual")
     assert result["status"] == "success"
     assert "s3 hello" in result["output"]
 
@@ -723,7 +727,7 @@ def test_run_s3_script_failure(mocker, s3_cron_env):
     app = mock_s3_app("s3-fail", cron_script="import sys; sys.exit(1)")
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    result = run_cron_task("s3-fail", trigger="manual")
+    result = run_one("s3-fail", trigger="manual")
     assert result["status"] == "failure"
 
 
@@ -738,7 +742,7 @@ def test_run_s3_script_uploads_output(mocker, s3_cron_env):
     app = mock_s3_app("s3-writer", cron_script=script)
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    result = run_cron_task("s3-writer", trigger="manual")
+    result = run_one("s3-writer", trigger="manual")
     assert result["status"] == "success"
     assert "s3-writer/data.json" in mocks["_all_files"]
     uploaded = json.loads(mocks["_all_files"]["s3-writer/data.json"])
@@ -754,7 +758,7 @@ def test_run_s3_script_has_pythonpath(mocker, s3_cron_env):
     app = mock_s3_app("s3-path", cron_script=script)
     mocks = make_s3_mocks([app])
     _patch_s3_full(mocker, mocks)
-    result = run_cron_task("s3-path", trigger="manual")
+    result = run_one("s3-path", trigger="manual")
     assert result["status"] == "success"
     assert str(config.BASE_DIR) in result["output"]
 
@@ -816,7 +820,7 @@ def test_run_cron_scheduled_failure_triggers_alert(interactive_dir, db_setup, mo
     create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
     notify = mocker.patch("web.cron.notify_cron_status_change")
 
-    run_cron_task("bad-app", trigger="scheduled")
+    run_one("bad-app", trigger="scheduled")
 
     notify.assert_called_once()
     slug, status, previous, _output = notify.call_args[0]
@@ -829,7 +833,7 @@ def test_run_cron_manual_run_does_not_alert(interactive_dir, db_setup, mocker):
     create_interactive_app(interactive_dir, "bad-app", cron_script="import sys; sys.exit(1)")
     notify = mocker.patch("web.cron.notify_cron_status_change")
 
-    run_cron_task("bad-app", trigger="manual")
+    run_one("bad-app", trigger="manual")
 
     notify.assert_not_called()
 
@@ -1007,10 +1011,8 @@ def test_discover_publications_inherits_disabled_cron_from_parent(client):
     assert tasks[0]["enabled"] is False
 
 
-def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocker):
+def test_a_publication_run_dispatches_its_source_and_refreshes(client, mocker):
     """Subprocess rc=0 → upload to snapshot + publications.refresh() → last_refresh_status=success."""
-    from web.cron import run_cron_task
-
     _seed_dashboard_and_publication("dispatch-tdb", "disp01")
     mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: D\n---\n")
     mocker.patch("web.cron.s3.publications.list_files", return_value=[])
@@ -1020,7 +1022,7 @@ def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocke
 
     mocker.patch("web.cron.run_task_process", return_value=(0, "ok", ""))
 
-    result = run_cron_task("dispatch-tdb-disp01", trigger="manual")
+    result = run_one("dispatch-tdb-disp01", trigger="manual")
     assert result["status"] == "success"
     assert sync.called
     with get_db() as session:
@@ -1028,16 +1030,14 @@ def test_run_cron_task_dispatches_publication_source_and_refreshes(client, mocke
         assert row.last_refresh_status == "success"
 
 
-def test_run_cron_task_publication_no_refresh_on_subprocess_failure(client, mocker):
-    from web.cron import run_cron_task
-
+def test_a_publication_run_does_not_refresh_on_subprocess_failure(client, mocker):
     _seed_dashboard_and_publication("fail-tdb", "fail01")
     mocker.patch("web.cron.s3.publications.download", return_value=b"---\ntitle: F\n---\n")
     mocker.patch("web.cron.s3.publications.list_files", return_value=[])
     sync = mocker.patch("web.publications.s3.sync_prefix")
     mocker.patch("web.cron.run_task_process", return_value=(1, "boom", ""))
 
-    result = run_cron_task("fail-tdb-fail01", trigger="manual")
+    result = run_one("fail-tdb-fail01", trigger="manual")
     assert result["status"] == "failure"
     sync.assert_not_called()
     with get_db() as session:
@@ -1045,11 +1045,10 @@ def test_run_cron_task_publication_no_refresh_on_subprocess_failure(client, mock
         assert row.last_refresh_status is None
 
 
-def test_run_cron_task_publication_two_states_independent(client, mocker):
+def test_a_publication_run_keeps_the_two_states_independent(client, mocker):
     """Cron succeeds, public re-push fails → cron_runs.status='success' AND last_refresh_status='failure'."""
     from botocore.exceptions import ClientError
 
-    from web.cron import run_cron_task
     from web.models import CronRun
 
     _seed_dashboard_and_publication("two-tdb", "two001")
@@ -1060,7 +1059,7 @@ def test_run_cron_task_publication_two_states_independent(client, mocker):
     notify = mocker.patch("web.publications.alerts.notify_alert_channel")
     mocker.patch("web.cron.run_task_process", return_value=(0, "ok", ""))
 
-    result = run_cron_task("two-tdb-two001", trigger="manual")
+    result = run_one("two-tdb-two001", trigger="manual")
     assert result["status"] == "success"
     with get_db() as session:
         run = session.scalar(select(CronRun).where(CronRun.app_slug == "two-tdb-two001").order_by(CronRun.id.desc()))
@@ -1098,21 +1097,31 @@ def test_backfill_cron_metadata_from_app_md(db_setup):
 
 @pytest.mark.parametrize("day,expected", [(1, True), (2, False), (15, False), (28, False)])
 def test_is_due_monthly(mocker, day, expected):
-    mocker.patch("web.cron.now_local", return_value=datetime(2026, 6, day, 7, 0))
-    assert is_due("0 6 1 * *") is expected
+    mocker.patch("web.cron.utcnow", return_value=datetime(2026, 6, day, 7, 0, tzinfo=timezone.utc))
+    assert is_due("0 6 1 * *", cron.DASHBOARD_BATCH) is expected
 
 
 def test_next_cron_run_monthly():
     # the 1st, before 6h -> today at 6h
-    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 1, 5, 0)) == datetime(2026, 6, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", cron.DASHBOARD_BATCH, now=datetime(2026, 6, 1, 5, 0)) == datetime(
+        2026, 6, 1, 6, 0
+    )
     # the 1st, at/after 6h -> first of NEXT month at 6h (job already fired today)
-    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 1, 7, 0)) == datetime(2026, 7, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", cron.DASHBOARD_BATCH, now=datetime(2026, 6, 1, 7, 0)) == datetime(
+        2026, 7, 1, 6, 0
+    )
     # mid-month -> first of next month at 6h
-    assert next_cron_run("0 6 1 * *", now=datetime(2026, 6, 7, 8, 0)) == datetime(2026, 7, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", cron.DASHBOARD_BATCH, now=datetime(2026, 6, 7, 8, 0)) == datetime(
+        2026, 7, 1, 6, 0
+    )
     # December rolls over to January next year
-    assert next_cron_run("0 6 1 * *", now=datetime(2026, 12, 15, 8, 0)) == datetime(2027, 1, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", cron.DASHBOARD_BATCH, now=datetime(2026, 12, 15, 8, 0)) == datetime(
+        2027, 1, 1, 6, 0
+    )
     # December 1st, after 6h -> January 1st next year at 6h
-    assert next_cron_run("0 6 1 * *", now=datetime(2026, 12, 1, 7, 0)) == datetime(2027, 1, 1, 6, 0)
+    assert next_cron_run("0 6 1 * *", cron.DASHBOARD_BATCH, now=datetime(2026, 12, 1, 7, 0)) == datetime(
+        2027, 1, 1, 6, 0
+    )
 
 
 @pytest.mark.parametrize(

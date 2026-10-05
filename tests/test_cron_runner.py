@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,13 @@ from sqlalchemy.exc import OperationalError
 from web import cron
 
 S3_DOWN = ClientError({"Error": {"Code": "ServiceUnavailable", "Message": "x"}}, "ListObjectsV2")
+
+
+@pytest.fixture(autouse=True)
+def no_run_markers(mocker):
+    """Couloir unit : les marqueurs `running` du lot et des tâches ne touchent pas la base."""
+    mocker.patch.object(cron, "open_batch_run", return_value=None)
+    mocker.patch.object(cron, "open_run", return_value=None)
 
 
 def make_task(slug, **overrides):
@@ -82,13 +90,14 @@ def test_run_all_runs_every_task_and_records_a_failure_when_one_raises(mocker, e
     assert [c.args[0]["slug"] for c in record_run.call_args_list] == ["a", "b", "c"]
 
 
-def test_execute_task_closes_the_sentry_checkin_when_it_raises(mocker):
+def test_execute_task_reports_a_failure_and_closes_the_sentry_checkin_when_it_raises(mocker):
     checkin = mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=RuntimeError("bug"))
+    mocker.patch.object(cron, "record_run")
 
-    with pytest.raises(RuntimeError):
-        cron.execute_task(make_task("a"), trigger="manual")
+    result = cron.execute_task(make_task("a"), trigger="manual")
 
+    assert result["status"] == "failure"
     assert checkin.call_args.kwargs["status"] == cron.sentry_sdk.crons.consts.MonitorStatus.ERROR
     assert checkin.call_args.kwargs["check_in_id"] == "cid"
 
@@ -322,11 +331,13 @@ def test_a_task_never_receives_the_scalingo_token(mocker, monkeypatch, tmp_path)
     # arbitraires sur la production. Les cron.py de tableaux de bord sont écrits par l'agent et
     # stockés sur S3 : aucun diff ne les relit, ils ne doivent jamais le voir passer.
     monkeypatch.setenv("SCALINGO_API_TOKEN", "tk-secret")
+    monkeypatch.setenv("CRON_TEMOIN", "transmis")
     task = write_task(
         tmp_path,
         """
         import os
         print(os.environ.get("SCALINGO_API_TOKEN", "absent"))
+        print(os.environ.get("CRON_TEMOIN", "perdu"))
         """,
     )
 
@@ -334,27 +345,116 @@ def test_a_task_never_receives_the_scalingo_token(mocker, monkeypatch, tmp_path)
 
     assert "absent" in result["output"]
     assert "tk-secret" not in result["output"]
+    assert "transmis" in result["output"]
+
+
+def test_a_successful_task_takes_its_background_processes_down_with_it(tmp_path):
+    # Why: voulu — un processus de fond survivant tiendrait les tuyaux, et le conteneur avec eux.
+    # Une tâche n'a rien à laisser tourner après son retour, succès compris.
+    pid_file = tmp_path / "child.pid"
+    (tmp_path / "cron.py").write_text(
+        textwrap.dedent(
+            f"""
+            import subprocess
+            child = subprocess.Popen(['sleep', '40'])
+            open({str(pid_file)!r}, 'w').write(str(child.pid))
+            """
+        )
+    )
+
+    returncode, _, _ = cron.run_task_process(
+        [sys.executable, str(tmp_path / "cron.py")], str(tmp_path), env_for_subprocess(), 30, "sys"
+    )
+
+    assert returncode == 0
+    assert not process_alive(int(pid_file.read_text()))
+
+
+def process_alive(pid):
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        time.sleep(0.1)
+    return True
 
 
 @pytest.mark.parametrize(
-    ("batch", "schedule", "crontab"),
-    [("synchros", "daily", "0 2 * * *"), ("maintenance", "weekly", "0 6 * * 1")],
+    ("batch", "schedule", "timeout", "crontab", "max_runtime"),
+    [
+        ("synchros", "daily", 300, "0 2 * * *", 6),
+        ("maintenance", "daily", 300, "0 6 * * *", 6),
+        ("maintenance", "weekly", 600, "0 6 * * 1", 11),
+    ],
 )
-def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, crontab):
+def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, timeout, crontab, max_runtime):
     # Why: déduire l'heure de la cadence faisait attendre à Sentry un check-in à 06:00 pour des
     # tâches lancées à 02:00 — un missed check-in par jour et par tâche.
-    config = cron.sentry_monitor_config({"schedule": schedule, "timeout": 300, "batch": batch})
+    config = cron.sentry_monitor_config({"schedule": schedule, "timeout": timeout, "batch": batch})
 
     assert config["schedule"]["value"] == crontab
+    assert config["max_runtime"] == max_runtime
 
 
 def test_every_batch_starts_at_the_hour_cron_json_says():
-    # Why: BATCH_HOURS n'est vrai que tant qu'il recopie cron.json — sinon Sentry attend le
+    # Why: BATCH_START n'est vrai que tant qu'il recopie cron.json — sinon Sentry attend le
     # check-in à une heure où plus rien ne tourne.
     jobs = json.loads((Path(cron.config.BASE_DIR) / "cron.json").read_text())["jobs"]
-    scheduled = {scheduled_batch(job["command"]): int(job["command"].split()[1]) for job in jobs}
+    scheduled = {
+        scheduled_batch(job["command"]): (int(job["command"].split()[1]), int(job["command"].split()[0]))
+        for job in jobs
+    }
 
-    assert cron.BATCH_HOURS == scheduled
+    assert cron.BATCH_START == scheduled
+
+
+def test_a_task_checks_in_at_the_minute_its_batch_starts(monkeypatch):
+    monkeypatch.setitem(cron.BATCH_START, "synchros", (2, 30))
+
+    assert (
+        cron.sentry_monitor_config({"schedule": "daily", "timeout": 300, "batch": "synchros"})["schedule"]["value"]
+        == "30 2 * * *"
+    )
+    assert cron.batch_monitor_config("synchros", [], None)["schedule"]["value"] == "30 2 * * *"
+
+
+UTC = timezone.utc
+
+
+@pytest.mark.parametrize(
+    ("schedule", "batch", "now", "expected"),
+    [
+        ("daily", "synchros", datetime(2026, 9, 29, 2, 5, tzinfo=UTC), True),
+        ("weekly", "tableaux", datetime(2026, 9, 28, 6, 5, tzinfo=UTC), True),
+        ("weekly", "tableaux", datetime(2026, 9, 29, 6, 5, tzinfo=UTC), False),
+        # Why: dimanche 23:30 UTC, c'est déjà lundi à Paris — le lot de dimanche ne doit rien y voir.
+        ("weekly", "synchros", datetime(2026, 9, 27, 23, 30, tzinfo=UTC), False),
+        # Why: un lot parti lundi et qui déborde après minuit reste le lot du lundi.
+        ("weekly", "tableaux", datetime(2026, 9, 29, 0, 30, tzinfo=UTC), True),
+        ("monthly", "tableaux", datetime(2026, 10, 1, 6, 10, tzinfo=UTC), True),
+        ("monthly", "tableaux", datetime(2026, 10, 2, 0, 30, tzinfo=UTC), True),
+        ("monthly", "synchros", datetime(2026, 9, 30, 23, 0, tzinfo=UTC), False),
+    ],
+)
+def test_a_task_is_due_on_the_utc_day_its_batch_started(mocker, schedule, batch, now, expected):
+    mocker.patch.object(cron, "utcnow", return_value=now)
+
+    assert cron.is_due(schedule, batch) is expected
+
+
+@pytest.mark.parametrize(
+    ("schedule", "batch", "now", "expected"),
+    [
+        ("daily", "synchros", datetime(2026, 9, 28, 1, 0, tzinfo=UTC), datetime(2026, 9, 28, 2, 0, tzinfo=UTC)),
+        ("daily", "synchros", datetime(2026, 9, 28, 2, 0, tzinfo=UTC), datetime(2026, 9, 29, 2, 0, tzinfo=UTC)),
+        ("daily", "tableaux", datetime(2026, 9, 28, 3, 0, tzinfo=UTC), datetime(2026, 9, 28, 6, 0, tzinfo=UTC)),
+        ("weekly", "synchros", datetime(2026, 9, 28, 3, 0, tzinfo=UTC), datetime(2026, 10, 5, 2, 0, tzinfo=UTC)),
+        ("monthly", "synchros", datetime(2026, 12, 15, 3, 0, tzinfo=UTC), datetime(2027, 1, 1, 2, 0, tzinfo=UTC)),
+    ],
+)
+def test_the_next_run_starts_at_the_utc_hour_of_the_task_batch(schedule, batch, now, expected):
+    assert cron.next_cron_run(schedule, batch, now=now) == expected
 
 
 def test_a_task_emitting_non_utf8_bytes_does_not_derail_the_run(mocker, tmp_path):
@@ -434,11 +534,11 @@ def test_a_task_that_floods_its_output_does_not_flood_the_logs(mocker, tmp_path,
 
 
 def test_a_manual_run_that_raises_still_records_a_failed_run(mocker):
-    mocker.patch.object(cron, "find_task", return_value=make_task("a"))
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a")])
     mocker.patch.object(cron, "execute_task", side_effect=RuntimeError("bug"))
     record_run = mocker.patch.object(cron, "record_run")
 
-    result = cron.run_cron_task("a", trigger="manual")
+    [result] = cron.run_task_and_publications("a", trigger="manual")
 
     assert result["status"] == "failure"
     assert record_run.call_args.args[0]["slug"] == "a"
@@ -447,82 +547,64 @@ def test_a_manual_run_that_raises_still_records_a_failed_run(mocker):
 def test_a_manual_run_records_a_failure_when_the_discovery_cannot_reach_s3(mocker):
     # Why: la découverte liste S3 ; hors de tout try, une secousse faisait exploser le conteneur
     # avec une traceback et aucune ligne en base — l'utilisateur n'aurait jamais rien vu revenir.
-    mocker.patch.object(cron, "find_task", side_effect=S3_DOWN)
+    mocker.patch.object(cron, "discover_cron_tasks", side_effect=S3_DOWN)
     record_run = mocker.patch.object(cron, "record_run")
 
-    result = cron.run_cron_task("tdb1", trigger="manual")
+    [result] = cron.run_task_and_publications("tdb1", "manual")
 
     assert result["status"] == "failure"
     assert record_run.call_args.args[0]["slug"] == "tdb1"
 
 
-def test_a_manual_run_of_a_dashboard_still_records_a_failure_when_s3_is_down(mocker):
-    mocker.patch.object(cron, "find_task", side_effect=S3_DOWN)
-    list_pubs = mocker.patch.object(cron, "list_publications")
-    record_run = mocker.patch.object(cron, "record_run")
-
-    results = cron.run_task_and_publications("tdb1")
-
-    assert [result["status"] for result in results] == ["failure"]
-    assert list_pubs.called is False
-    assert record_run.called
-
-
-def test_a_manual_run_of_a_dashboard_also_refreshes_its_eligible_publications(mocker):
-    mocker.patch.object(cron, "find_task", return_value=make_task("tdb1"))
-    mocker.patch.object(
-        cron,
-        "list_publications",
-        return_value=[
-            {"publication_id": "pub1", "snapshot_has_cron": True, "refresh_paused_at": None},
-            {"publication_id": "pub2", "snapshot_has_cron": False, "refresh_paused_at": None},
-            {"publication_id": "pub3", "snapshot_has_cron": True, "refresh_paused_at": "2026-01-01"},
-        ],
-    )
-    run = mocker.patch.object(cron, "run_cron_task", return_value={"slug": "x", "status": "success", "duration_ms": 1})
-
-    results = cron.run_task_and_publications("tdb1")
-
-    assert [call.args[0] for call in run.call_args_list] == ["tdb1", "tdb1-pub1"]
-    assert len(results) == 2
-
-
-def test_a_system_task_does_not_look_up_publications(mocker):
-    mocker.patch.object(cron, "find_task", return_value=make_task("sys", source=None))
-    list_pubs = mocker.patch.object(cron, "list_publications")
-    mocker.patch.object(cron, "run_cron_task", return_value={"slug": "sys", "status": "success", "duration_ms": 1})
-
-    results = cron.run_task_and_publications("sys")
-
-    assert list_pubs.called is False
-    assert len(results) == 1
-
-
-def test_a_publication_composite_does_not_recurse_into_its_own_publications(mocker):
-    mocker.patch.object(
-        cron, "find_task", return_value=make_task("tdb1-pub1", source="s3-publication", dashboard_slug="tdb1")
-    )
-    list_pubs = mocker.patch.object(cron, "list_publications")
-    mocker.patch.object(
-        cron, "run_cron_task", return_value={"slug": "tdb1-pub1", "status": "success", "duration_ms": 1}
+def publication(dashboard_slug, publication_id):
+    return make_task(
+        f"{dashboard_slug}-{publication_id}",
+        source="s3-publication",
+        tier="publication",
+        dashboard_slug=dashboard_slug,
+        publication_id=publication_id,
     )
 
-    results = cron.run_task_and_publications("tdb1-pub1")
 
-    assert list_pubs.called is False
-    assert len(results) == 1
+def executed_slugs(mocker, discovered, slug):
+    discover = mocker.patch.object(cron, "discover_cron_tasks", return_value=discovered)
+    execute = mocker.patch.object(
+        cron, "execute_task", side_effect=lambda task, trigger: {"slug": task["slug"], "status": "success"}
+    )
+    results = cron.run_task_and_publications(slug)
+    assert [r["slug"] for r in results] == [call.args[0]["slug"] for call in execute.call_args_list]
+    return [r["slug"] for r in results], discover.call_count
+
+
+def test_a_manual_run_of_a_dashboard_refreshes_its_publications_from_a_single_discovery(mocker):
+    discovered = [make_task("tdb1"), publication("tdb1", "pub1"), publication("tdb2", "pub9")]
+
+    slugs, discoveries = executed_slugs(mocker, discovered, "tdb1")
+
+    assert slugs == ["tdb1", "tdb1-pub1"]
+    assert discoveries == 1
+
+
+@pytest.mark.parametrize(
+    ("discovered", "slug"),
+    [
+        ([make_task("sys", source=None), publication("sys", "pub1")], "sys"),
+        ([publication("tdb1", "pub1")], "tdb1-pub1"),
+    ],
+    ids=["tache_systeme", "publication"],
+)
+def test_only_a_dashboard_brings_its_publications_along(mocker, discovered, slug):
+    assert executed_slugs(mocker, discovered, slug) == ([slug], 1)
 
 
 def test_an_unknown_slug_still_returns_one_failing_result(mocker):
-    mocker.patch.object(cron, "find_task", return_value=None)
-    run = mocker.patch.object(
-        cron, "run_cron_task", return_value={"slug": "ghost", "status": "failure", "duration_ms": 0}
-    )
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[])
+    execute = mocker.patch.object(cron, "execute_task")
 
     results = cron.run_task_and_publications("ghost")
 
-    assert results == [{"slug": "ghost", "status": "failure", "duration_ms": 0}]
-    run.assert_called_once_with("ghost", "manual")
+    assert [(r["slug"], r["status"]) for r in results] == [("ghost", "failure")]
+    execute.assert_not_called()
 
 
 def test_system_tasks_still_run_when_the_database_is_unreachable(mocker, tmp_path):
@@ -554,7 +636,7 @@ def test_a_workdir_that_survives_its_removal_is_reported(mocker, tmp_path, caplo
     assert caplog.records
 
 
-def test_an_s3_outage_still_runs_the_system_tasks_and_alerts(mocker):
+def test_an_s3_outage_still_runs_the_system_tasks_without_alerting(mocker):
     mocker.patch.object(cron, "discover_cron_tasks", side_effect=S3_DOWN)
     mocker.patch.object(cron, "discover_system_tasks", return_value=[make_task("sys", source=None, tier="system")])
     execute = mocker.patch.object(
@@ -566,7 +648,23 @@ def test_an_s3_outage_still_runs_the_system_tasks_and_alerts(mocker):
 
     assert [r["slug"] for r in results] == ["sys"]
     assert execute.call_count == 1
-    assert notify.called
+    notify.assert_not_called()
+
+
+def test_an_s3_outage_alerts_once_from_the_dashboard_batch_which_runs_nothing(mocker):
+    # Why: les quatre conteneurs découvrent en même temps ; seul le lot des tableaux de bord perd
+    # tout, c'est donc lui seul qui parle — et il ne prétend pas faire tourner des tâches système.
+    mocker.patch.object(cron, "discover_cron_tasks", side_effect=S3_DOWN)
+    mocker.patch.object(cron, "discover_system_tasks", return_value=[make_task("sys", source=None, tier="system")])
+    execute = mocker.patch.object(cron, "execute_task")
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+
+    cron.run_all(batch=cron.DASHBOARD_BATCH)
+
+    execute.assert_not_called()
+    notify.assert_called_once()
+    assert f"`{cron.DASHBOARD_BATCH}`" in notify.call_args.args[0]
+    assert "système" not in notify.call_args.args[0]
 
 
 def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped(mocker):
@@ -581,7 +679,7 @@ def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped
     def fake_monotonic():
         return 99 if budget_consumed else 0
 
-    def fake_execute_task(task, trigger):
+    def fake_execute_task(task, trigger, batch_run_id):
         nonlocal budget_consumed
         budget_consumed = True
         return {"slug": "a", "status": "success", "duration_ms": 1, "output": ""}
@@ -601,7 +699,7 @@ def test_a_batch_over_its_budget_stops_launching_and_says_which_tasks_it_dropped
 
 def test_next_cron_run_counts_in_utc_like_the_scalingo_schedule(mocker):
     mocker.patch.object(cron, "utcnow", return_value=datetime(2026, 7, 1, 5, 0, tzinfo=timezone.utc))
-    assert cron.next_cron_run("daily") == datetime(2026, 7, 1, 6, 0, tzinfo=timezone.utc)
+    assert cron.next_cron_run("daily", cron.DASHBOARD_BATCH) == datetime(2026, 7, 1, 6, 0, tzinfo=timezone.utc)
 
 
 def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker):
@@ -609,7 +707,7 @@ def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker)
     mocker.patch.object(cron, "is_due", return_value=True)
     checkin = mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
 
-    def mid_batch(task, trigger):
+    def mid_batch(task, trigger, batch_run_id):
         assert [call.kwargs["status"] for call in checkin.call_args_list] == ["in_progress"]
         return {"slug": "a", "status": "success", "duration_ms": 1, "output": ""}
 
@@ -659,6 +757,21 @@ def test_the_cron_entry_point_initialises_sentry(monkeypatch, mocker):
     init.assert_called_once()
 
 
+@pytest.mark.parametrize("budget", ["0", "-5"])
+def test_the_cron_entry_point_refuses_a_budget_that_is_not_positive(monkeypatch, mocker, capsys, budget):
+    monkeypatch.setattr("sys.argv", ["cron", "--batch", "tableaux", "--budget", budget])
+    mocker.patch.object(cron, "setup_logging")
+    mocker.patch.object(cron, "init_sentry")
+    run_all = mocker.patch.object(cron, "run_all")
+
+    with pytest.raises(SystemExit) as exc_info:
+        cron.main()
+
+    assert exc_info.value.code != 0
+    assert "budget" in capsys.readouterr().err.lower()
+    run_all.assert_not_called()
+
+
 def test_the_cron_entry_point_refuses_to_run_with_no_mode_and_no_batch(monkeypatch, mocker, capsys):
     monkeypatch.setattr("sys.argv", ["cron"])
     mocker.patch.object(cron, "setup_logging")
@@ -675,7 +788,7 @@ def test_the_cron_entry_point_refuses_to_run_with_no_mode_and_no_batch(monkeypat
     ("argv", "mocked"),
     [
         (["cron", "--list"], "discover_cron_tasks"),
-        (["cron", "--app", "sys-task"], "run_cron_task"),
+        (["cron", "--app", "sys-task"], "run_task_and_publications"),
         (["cron", "--facade-audit"], "facade_audit"),
     ],
 )
@@ -687,8 +800,8 @@ def test_a_mode_runs_without_a_batch(monkeypatch, mocker, argv, mocked):
     mocker.patch.object(cron, "facade_audit", return_value=[])
     mocker.patch.object(
         cron,
-        "run_cron_task",
-        return_value={"slug": "sys-task", "status": "success", "duration_ms": 1, "output": ""},
+        "run_task_and_publications",
+        return_value=[{"slug": "sys-task", "status": "success", "duration_ms": 1, "output": ""}],
     )
 
     cron.main()
