@@ -51,10 +51,19 @@ SCHEDULE_PRESETS = {
 }
 _CRONTAB_TO_CADENCE = {crontab: token for token, crontab in SCHEDULE_PRESETS.items()}
 
-DASHBOARD_BATCH = "tableaux"
+DASHBOARD_BATCH = "tableaux-internes"
+# Why: partagées en externe, les publications ont leur propre lot, sans budget — une publication
+# cassée doit se voir chaque jour, pas être sautée parce qu'un TDB interne a mangé le temps.
+PUBLICATION_BATCH = "tableaux-publies"
 # (heure, minute) UTC auxquelles cron.json démarre chaque lot. Sentry attend le check-in à ce moment-là :
 # le déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
-BATCH_START = {"synchros": (2, 0), "maintenance": (6, 0), "tableaux": (6, 0), "xl": (6, 0)}
+BATCH_START = {
+    "synchros": (2, 0),
+    "maintenance": (6, 0),
+    "tableaux-internes": (6, 0),
+    "tableaux-publies": (6, 0),
+    "xl": (6, 0),
+}
 
 
 def cadence(schedule: str) -> str:
@@ -336,7 +345,7 @@ def discover_publications() -> list[dict]:
             "enabled": enabled,
             "timeout": timeout,
             "schedule": schedule,
-            "batch": DASHBOARD_BATCH,
+            "batch": PUBLICATION_BATCH,
             "publication_id": pub_id,
             "dashboard_slug": slug,
         })
@@ -462,8 +471,8 @@ def record_reported_slugs(slugs: list[str]) -> None:
         logger.warning("audit façade : état non enregistré, l'alerte repartira au prochain passage (%s)", e)
 
 
-# Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs RPE
-# et runner qui s'y noient. Seul un changement de la liste vaut une alerte.
+# Why: un canal où le même message revient tous les jours cesse d'être lu, et ce sont les échecs des crons
+# et du runner qui s'y noient. Seul un changement de la liste vaut une alerte.
 def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[str]]:
     """En observation : journalise, et n'alerte que quand l'ensemble des non conformes change."""
     found = facade_violations_by_slug(tasks)
@@ -817,7 +826,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     record_run(run_result, trigger, run_id=run_id)
 
     if trigger == "scheduled":
-        notify_cron_status_change(slug, status, previous_status, error)
+        notify_cron_status_change(slug, status, previous_status, error, repeat=source == "s3-publication")
 
     if source == "s3-publication" and status == "success":
         try:
@@ -827,9 +836,11 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     return run_result
 
 
-def notify_cron_status_change(slug: str, status: str, previous_status: str | None, error: str) -> None:
-    """Post a Slack alert when a cron newly breaks or recovers."""
-    broke = status in BROKEN_STATUSES and previous_status not in BROKEN_STATUSES
+def notify_cron_status_change(
+    slug: str, status: str, previous_status: str | None, error: str, *, repeat: bool = False
+) -> None:
+    """Post a Slack alert when a cron breaks (every run if `repeat`, else only newly) or recovers."""
+    broke = status in BROKEN_STATUSES and (repeat or previous_status not in BROKEN_STATUSES)
     recovered = status == "success" and previous_status in BROKEN_STATUSES
     if not (broke or recovered):
         return

@@ -416,6 +416,201 @@ def test_execute_dashboard_storage_query_calls_client(mocker):
     assert client.call_args.kwargs["timeout"] == 60
 
 
+def test_execute_datadog_query_aggregates_over_the_window(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.aggregate.return_value = [{"by": {"a": 1}, "computes": {"c0": 3}}]
+
+    result = q.execute_datadog_query(
+        "service:dora", q.CallerType.APP, days=7, group_by=["@a", {"facet": "@b", "limit": 3}]
+    )
+
+    assert result.success is True
+    assert result.data == [{"by": {"a": 1}, "computes": {"c0": 3}}]
+    assert client.call_args.kwargs == {"timeout": 60}
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "now-7d", "now")
+    assert aggregate.call_args.kwargs == {
+        "group_by": [q.by_count("@a"), {"facet": "@b", "limit": 3}],
+        "compute": None,
+    }
+
+
+def test_execute_datadog_query_reports_a_client_error_as_a_failed_result(mocker):
+    from lib import query as q
+    from lib.datadog import DatadogError
+
+    mocker.patch("lib.query.DatadogClient", side_effect=DatadogError("DATADOG_API_KEY / DATADOG_APP_KEY not set"))
+
+    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=7)
+
+    assert result.success is False
+    assert "DATADOG_API_KEY" in result.error
+
+
+def test_execute_datadog_query_survives_an_unexpected_response_body(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.aggregate.side_effect = KeyError("data")
+
+    result = q.execute_datadog_query("service:dora", q.CallerType.APP, days=7)
+
+    assert result.success is False
+    assert "data" in result.error
+
+
+def test_execute_datadog_query_forwards_compute_and_timeout(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    compute = [{"aggregation": "cardinality", "metric": "@usr.id"}]
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, days=30, compute=compute, timeout=120)
+
+    assert client.call_args.kwargs == {"timeout": 120}
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "now-30d", "now")
+    assert aggregate.call_args.kwargs == {"group_by": None, "compute": compute}
+
+
+def test_execute_datadog_query_prefers_an_explicit_window_over_days(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, days=90, window=("2026-08-01", "2026-09-01"))
+
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "2026-08-01", "2026-09-01")
+
+
+def test_execute_datadog_count_delegates_to_the_client(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.count.return_value = {"count": 5, "distinct": 2}
+
+    result = q.execute_datadog_count("service:dora", q.CallerType.APP, days=3, distinct="@usr.id")
+
+    assert result.data == {"count": 5, "distinct": 2}
+    count = client.return_value.__enter__.return_value.count
+    assert count.call_args.args == ("service:dora", "now-3d", "now")
+    assert count.call_args.kwargs == {"distinct": "@usr.id"}
+
+
+def test_execute_datadog_events_samples_the_service_newest_first(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+    client.return_value.__enter__.return_value.iter_events.return_value = iter([{"id": 1}, {"id": 2}])
+
+    result = q.execute_datadog_events("dora", q.CallerType.APP, search="status:error OR @a:1", limit=2)
+
+    assert result.data == [{"id": 1}, {"id": 2}]
+    iter_events = client.return_value.__enter__.return_value.iter_events
+    assert iter_events.call_args.args == ("service:dora (status:error OR @a:1)", "now-7d", "now")
+    assert iter_events.call_args.kwargs == {"max_events": 2, "sort": "-timestamp"}
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"service": "*"}, "service"),
+        ({"service": "dora*"}, "service"),
+        ({"service": ""}, "service"),
+        ({"service": None}, "service"),
+        ({"service": "dora OR x"}, "service"),
+        ({"service": "dora", "search": "a) OR (service:*"}, "parenthèses"),
+        ({"service": "dora", "limit": 10_001}, "10000"),
+        ({"service": "dora", "limit": None}, "10000"),
+    ],
+    ids=["wildcard", "prefix", "empty", "none", "operator", "breakout", "over the cap", "not an int"],
+)
+def test_execute_datadog_events_refuses_an_unconfined_sample_without_querying(mocker, kwargs, message):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    result = q.execute_datadog_events(caller=q.CallerType.APP, **kwargs)
+
+    assert (result.success, client.return_value.__enter__.return_value.iter_events.called) == (False, False)
+    assert message in result.error
+
+
+def test_execute_datadog_events_traces_a_refusal_like_any_failure(mocker, caplog):
+    from lib import query as q
+
+    mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    with caplog.at_level("INFO", logger="lib.query"):
+        q.execute_datadog_events("*", q.CallerType.APP)
+
+    record = next(r for r in caplog.records if r.getMessage() == "datadog.events")
+    assert (record.__dict__["query.success"], record.__dict__["datadog.service"]) == (False, "*")
+
+
+DATADOG_EXECUTORS = [
+    ("execute_datadog_query", {}),
+    ("execute_datadog_count", {}),
+    ("execute_datadog_events", {"service": "dora"}),
+]
+
+
+@pytest.mark.parametrize(("execute", "extra"), DATADOG_EXECUTORS)
+def test_datadog_executors_turn_a_non_string_search_into_a_failed_result(mocker, execute, extra):
+    from lib import query as q
+
+    mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    result = getattr(q, execute)(search=None, caller=q.CallerType.APP, **extra)
+
+    assert result.success is False
+    assert "chaîne" in result.error
+
+
+@pytest.mark.parametrize(("execute", "extra"), DATADOG_EXECUTORS)
+def test_datadog_executors_refuse_a_rolling_window_beyond_retention(execute, extra):
+    from lib import query as q
+
+    result = getattr(q, execute)(search="status:error", caller=q.CallerType.APP, days=31, **extra)
+
+    assert result.success is False
+    assert "Rétention" in result.error
+
+
+def test_execute_datadog_query_maps_facets_on_the_explicit_window_path(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.DatadogClient", autospec=True)
+
+    q.execute_datadog_query("service:dora", q.CallerType.APP, group_by=["@a"], window=("2026-08-01", "2026-09-01"))
+
+    aggregate = client.return_value.__enter__.return_value.aggregate
+    assert aggregate.call_args.args == ("service:dora", "2026-08-01", "2026-09-01")
+    assert aggregate.call_args.kwargs["group_by"] == [q.by_count("@a")]
+
+
+def test_execute_appli_monrecap_query_calls_client(mocker):
+    from lib import query as q
+
+    mocker.patch("web.config.MONRECAP_APPLI_DB_URL", "postgresql://u:p@db/monrecap")
+    client = mocker.patch(
+        "lib.query._pg_execute_sql",
+        return_value=mocker.MagicMock(columns=["x"], rows=[[1]], row_count=1),
+    )
+
+    result = q.execute_appli_monrecap_query(sql="SELECT :x", caller=q.CallerType.AGENT, params={"x": 1})
+
+    assert result.success is True
+    assert result.data == {"columns": ["x"], "rows": [[1]], "row_count": 1}
+    assert client.call_args.kwargs["source"] == "appli_monrecap"
+    assert client.call_args.kwargs["write"] is True
+    assert client.call_args.kwargs["params"] == {"x": 1}
+    assert client.call_args.kwargs["timeout"] == 60
+
+
 def test_execute_dora_staging_query_calls_client_read_only(mocker):
     from lib import query as q
 
@@ -438,6 +633,7 @@ def test_execute_dora_staging_query_calls_client_read_only(mocker):
     [
         ("DASHBOARD_STORAGE_DB_URL", "execute_dashboard_storage_query"),
         ("DORA_STAGING_DB_URL", "execute_dora_staging_query"),
+        ("MONRECAP_APPLI_DB_URL", "execute_appli_monrecap_query"),
     ],
 )
 def test_query_fails_without_dsn(mocker, setting, helper):
@@ -471,3 +667,16 @@ def test_execute_query_unknown_source_lists_dashboard_storage():
 
     assert result.success is False
     assert "dashboard_storage" in result.error
+
+
+def test_execute_query_never_reaches_the_monrecap_app_db(mocker):
+    from lib import query as q
+
+    mocker.patch("web.config.MONRECAP_APPLI_DB_URL", "postgresql://u:p@db/monrecap")
+    client = mocker.patch("lib.query._pg_execute_sql")
+
+    result = q.execute_query(source="appli_monrecap", instance="", caller=q.CallerType.APP, sql="DELETE FROM users")
+
+    assert result.success is False
+    assert "Unknown source" in result.error
+    client.assert_not_called()

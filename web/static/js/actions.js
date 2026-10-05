@@ -537,6 +537,19 @@ function attachPillListeners(pill, idx) {
 }
 
 /**
+ * Plain-text output of a tool result, without API signal lines
+ */
+function toolOutputText(toolResult) {
+  let out = toolResult.output;
+  if (out?.output !== undefined) out = out.output;
+  if (Array.isArray(out)) out = out.map((block) => block.text ?? '').join('\n');
+  else if (typeof out === 'object') out = JSON.stringify(out, null, 2);
+  return String(out ?? '')
+    .replace(/\[(?:AUTOMETA|MATOMETA):API:\{.*?\}\]\n?/g, '')
+    .trim();
+}
+
+/**
  * Format the expanded content of a pill
  */
 function formatPillContent(toolUse, toolResult) {
@@ -596,6 +609,7 @@ function formatPillContent(toolUse, toolResult) {
       if (b === 'description') return 1;
       return 0;
     });
+    if (toolResult?.api_calls?.length > 0) entries.push(['résultat', toolOutputText(toolResult)]);
     for (const [key, value] of entries) {
       // Skip file_path if we already show a knowledge link
       if (key === 'file_path' && hasKnowledgeLink) continue;
@@ -608,7 +622,7 @@ function formatPillContent(toolUse, toolResult) {
       // Expand button before the value when truncated
       let expandBtnHtml = '';
       if (needsTruncation) {
-        const isCode = key === 'command' || key === 'query' || key === 'content';
+        const isCode = key === 'command' || key === 'query' || key === 'content' || key === 'résultat';
         const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode);
         expandBtnHtml = `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
           <i class="ri-expand-diagonal-line"></i> Voir tout

@@ -12,8 +12,8 @@ BASE ?= main
 setup:
 	uv sync --group dev
 	test -f .env || cp .env.example .env
-	docker compose up -d --wait db redis minio
-	docker compose up -d minio-init
+	docker compose up -d --wait db redis rustfs
+	docker compose up -d rustfs-init
 	uv run --frozen alembic upgrade head
 	@$(MAKE) --no-print-directory hooks
 	@$(MAKE) --no-print-directory install-hooks

@@ -1,6 +1,5 @@
 """Test Matomo web UI URLs to find correct category/subcategory mappings."""
 
-import json
 import re
 import subprocess
 import urllib.parse
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from lib.matomo_ui import UI_MAPPING
+from lib.sources import get_matomo
 
 
 def load_cookie() -> str:
@@ -34,7 +34,7 @@ def build_ui_url(
     subcategory: str,
     segment: Optional[str] = None,
 ) -> str:
-    base = "https://matomo.inclusion.beta.gouv.fr/index.php"
+    base = f"https://{get_matomo().url}/index.php"
 
     main_params = {
         "module": "CoreHome",
@@ -145,23 +145,7 @@ def discover_categories(site_id: int = 117) -> dict[str, list[tuple[str, str]]]:
 
     Returns dict: {category_id: [(subcategory_id, subcategory_name), ...]}
     """
-    # Load API credentials
-    env_path = Path(__file__).parent.parent.parent.parent / ".env"
-    env = {}
-    with open(env_path) as f:
-        for line in f:
-            if "=" in line and not line.startswith("#"):
-                k, v = line.strip().split("=", 1)
-                env[k] = v
-
-    url = env["MATOMO_URL"]
-    token = env["MATOMO_API_KEY"]
-
-    api_url = f"https://{url}/?module=API&method=API.getWidgetMetadata&idSite={site_id}&format=JSON&token_auth={token}"
-
-    cmd = ["curl", "-s", api_url]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    data = json.loads(result.stdout)
+    data = get_matomo().request("API.getWidgetMetadata", timeout=30, idSite=site_id)
 
     # Collect category -> subcategory mappings
     mappings = {}

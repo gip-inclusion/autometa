@@ -75,7 +75,7 @@ Le fichier `CLAUDE.md` contient le system prompt. Sections clés :
 ### Prérequis
 
 - Python 3.14+ et [uv](https://docs.astral.sh/uv/)
-- Docker, en marche : PostgreSQL, Redis et MinIO tournent en conteneurs
+- Docker, en marche : PostgreSQL, Redis et RustFS tournent en conteneurs
 - Node.js 20+ : la CLI Claude Code, et Biome — seul filet du front
 - Clés API : `MATOMO_TOKEN`, `METABASE_USER`, `METABASE_PASSWORD`
 

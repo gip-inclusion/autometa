@@ -785,6 +785,23 @@ def test_cron_alert_fires_only_on_status_change(mocker, status, previous, should
     assert notify.called == should_notify
 
 
+@pytest.mark.parametrize(
+    ("status", "previous", "should_notify"),
+    [
+        ("failure", "failure", True),
+        ("timeout", "failure", True),
+        ("success", "failure", True),
+        ("success", "success", False),
+    ],
+)
+def test_cron_alert_repeats_every_failure_when_asked(mocker, status, previous, should_notify):
+    notify = mocker.patch("web.cron.alerts.notify_alert_channel")
+
+    notify_cron_status_change("tdb-pub1", status, previous, "some output", repeat=True)
+
+    assert notify.called == should_notify
+
+
 def test_cron_alert_message_distinguishes_break_and_recovery(mocker):
     notify = mocker.patch("web.cron.alerts.notify_alert_channel")
 
@@ -980,6 +997,7 @@ def test_discover_publications_task_dict_shape(client, mocker):
     assert task["cron_path"] == "shape-tdb/shape1/cron.py"
     assert task["dashboard_slug"] == "shape-tdb"
     assert task["publication_id"] == "shape1"
+    assert task["batch"] == cron.PUBLICATION_BATCH
     assert task["schedule"] == "weekly"
     assert task["timeout"] == 600
     assert task["enabled"] is True

@@ -5,8 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from lib.rpe import TIMEOUT, http_client
-
 _spec = importlib.util.spec_from_file_location(
     "check_http_timeouts", Path(__file__).parent.parent / "scripts" / "check_http_timeouts.py"
 )
@@ -66,9 +64,3 @@ def test_main_reports_the_offending_line(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(_module, "ROOTS", (tmp_path,))
     assert _module.main() == 1
     assert "a.py:1" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize(("override", "expected"), [(None, TIMEOUT), (7, 7)])
-def test_rpe_client_carries_a_read_timeout(override, expected):
-    with http_client(timeout=override) as client:
-        assert client.timeout.read == expected
