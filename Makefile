@@ -81,7 +81,7 @@ audit:
 	uv run --frozen pip-audit -r /tmp/requirements.txt $(PIP_AUDIT_IGNORES)
 
 test:
-	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short \
+	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short -n auto \
 		-p no:cacheprovider -m "not integration and not e2e and not external and not browser"
 
 # Les seuils vivent dans gates.toml, couvert par CODEOWNERS : abaisser un plancher reste un acte visible.
