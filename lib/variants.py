@@ -14,8 +14,8 @@ from web import config, s3
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication, DashboardVariant
 
-KEY_RE = re.compile(r"^[a-z0-9-]{1,64}$")
-TOKEN_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+# Why: un UUID a aussi la forme d'une clé — une seule forme valide les jetons des deux modes.
+KEY_RE = re.compile(r"[a-z0-9-]{1,64}")
 
 
 def data_path(token: str) -> str:
@@ -44,7 +44,7 @@ def list_variants(slug: str) -> list[dict]:
 
 def validate_variant(key: str, label: str) -> str:
     """Refuse une clé ou un libellé hors format ; renvoie le libellé nettoyé."""
-    if not KEY_RE.match(key):
+    if not KEY_RE.fullmatch(key):
         raise ValueError(f"clé invalide : {key!r} (lettres minuscules, chiffres et tirets, 1 à 64 caractères)")
     label = label.strip()
     if not label:
@@ -52,11 +52,25 @@ def validate_variant(key: str, label: str) -> str:
     return label
 
 
+def obfuscate_tokens(slug: str) -> None:
+    """Les déclinaisons du tableau recevront un UUID pour jeton ; refusé dès qu'il en a déjà."""
+    with get_db() as session:
+        dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
+        if dashboard is None:
+            raise DashboardNotFound(slug)
+        if dashboard.obfuscate_variants:
+            return
+        if session.scalar(select(DashboardVariant.id).where(DashboardVariant.dashboard_slug == slug).limit(1)):
+            raise ValueError("le tableau a déjà des déclinaisons : leurs liens partagés casseraient")
+        dashboard.obfuscate_variants = True
+
+
 def add_variant(slug: str, key: str, label: str) -> dict:
-    """Déclare une déclinaison ; le jeton est généré ici et ne change plus."""
+    """Déclare une déclinaison ; son jeton, la clé ou un UUID selon le tableau, ne change plus."""
     label = validate_variant(key, label)
     with get_db() as session:
-        if session.scalar(select(Dashboard.slug).where(Dashboard.slug == slug)) is None:
+        obfuscated = session.scalar(select(Dashboard.obfuscate_variants).where(Dashboard.slug == slug))
+        if obfuscated is None:
             raise DashboardNotFound(slug)
         existing = session.scalar(
             select(DashboardVariant).where(DashboardVariant.dashboard_slug == slug, DashboardVariant.key == key)
@@ -67,7 +81,7 @@ def add_variant(slug: str, key: str, label: str) -> dict:
             dashboard_slug=slug,
             key=key,
             label=label,
-            token=str(uuid.uuid4()),
+            token=str(uuid.uuid4()) if obfuscated else key,
             created_at=datetime.now(timezone.utc),
         )
         session.add(variant)
@@ -108,10 +122,11 @@ def remove_variant(slug: str, key: str) -> bool:
 
 
 def exposed_tokens(files: Iterable[tuple[str, bytes]], variants: list[dict]) -> list[str]:
-    """Fichiers dont le contenu contient un jeton — le nom de fichier ne compte pas."""
-    if not variants:
+    """Fichiers dont le contenu contient un jeton obfusqué — le nom de fichier ne compte pas."""
+    # Why: un jeton égal à sa clé est lisible par construction, il n'a rien à cacher.
+    key_by_token = {v["token"].encode(): v["key"] for v in variants if v["token"] != v["key"]}
+    if not key_by_token:
         return []
-    key_by_token = {v["token"].encode(): v["key"] for v in variants}
     pattern = re.compile(b"|".join(re.escape(token) for token in key_by_token))
     problems = []
     for name, content in files:

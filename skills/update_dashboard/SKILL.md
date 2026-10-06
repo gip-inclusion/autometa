@@ -81,7 +81,8 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | `--cron-timeout N` | Timeout d'un run cron en secondes ; modifie `cron_timeout` en DB |
 | `--archive` | Passe `is_archived=true` |
 | `--unarchive` | Passe `is_archived=false` |
-| `--add-variant CLÉ=LIBELLÉ` | Déclare une déclinaison (répétable). Clé en `[a-z0-9-]`, 1 à 64 caractères ; libellé obligatoire. Le jeton du lien est généré et ne change plus. Clé déjà déclarée → refus. |
+| `--add-variant CLÉ=LIBELLÉ` | Déclare une déclinaison (répétable). Clé en `[a-z0-9-]`, 1 à 64 caractères ; libellé obligatoire. Le jeton du lien est la clé, ou un UUID si le tableau est obfusqué ; il ne change plus. Clé déjà déclarée → refus. |
+| `--obfuscate-variants` | Jetons UUID (liens non devinables) pour les déclinaisons du tableau. Seulement à la demande de l'utilisateur, avant la première déclinaison : refusé dès qu'il en a une. Combinable avec `--add-variant` dans le même appel. |
 | `--remove-variant CLÉ` | Retire une déclinaison (répétable) et supprime son fichier de données interne. Un lien public déjà en ligne reste servi jusqu'au prochain rafraîchissement de la publication, donc sans borne tant que ce rafraîchissement est en pause ; la sortie le signale. |
 
 Avec `--add-variant` ou `--remove-variant`, la sortie porte en plus `variants` : la liste à jour

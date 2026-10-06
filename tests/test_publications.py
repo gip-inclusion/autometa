@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from lib.variants import add_variant
+from lib.variants import add_variant, obfuscate_tokens
 from web import config, publications
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
@@ -200,6 +200,7 @@ def _s3_folder(mocker, files: dict[str, bytes]):
 
 def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker):
     _make_dashboard("pub-exposed")
+    obfuscate_tokens("pub-exposed")
     token = add_variant("pub-exposed", "67", "Bas-Rhin")["token"]
     _s3_folder(mocker, {"pub-exposed/app.js": f"const MAP = {{'67': '{token}'}};".encode()})
     copy = mocker.patch("web.publications.s3.copy_prefix", return_value=1)
@@ -214,6 +215,7 @@ def test_dod_20_publish_is_refused_when_a_file_carries_a_token(client, mocker):
 
 def test_dod_20_publish_passes_when_tokens_only_name_files(client, mocker):
     _make_dashboard("pub-clean")
+    obfuscate_tokens("pub-clean")
     token = add_variant("pub-clean", "67", "Bas-Rhin")["token"]
     _s3_folder(mocker, {f"pub-clean/data/{token}.json": b'{"metadata": {"key": "67"}}'})
     mocker.patch("web.publications.s3.copy_prefix", return_value=1)

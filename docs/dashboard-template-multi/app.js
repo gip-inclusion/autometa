@@ -1,4 +1,4 @@
-const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const TOKEN_RE = /^[a-z0-9-]{1,64}$/;
 
 function show(id) {
     for (const el of ['invalid-link', 'no-data', 'loading', 'content']) {

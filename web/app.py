@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib import failure_detection
-from lib.variants import TOKEN_RE, list_variants
+from lib.variants import KEY_RE, list_variants
 
 from . import config, memory_introspect, sync_to_s3
 from . import s3 as s3_module
@@ -159,7 +159,7 @@ def serve_interactive(request: Request, filename: str = ""):
         # Why: seul un jeton bien formé suit la redirection — la chaîne de requête n'est jamais
         # recopiée telle quelle.
         token = request.query_params.get("q", "")
-        query = f"?q={token}" if TOKEN_RE.fullmatch(token) else ""
+        query = f"?q={token}" if KEY_RE.fullmatch(token) else ""
         return RedirectResponse(f"/interactive/{filename}/{query}", status_code=301)
 
     mime_type, _ = mimetypes.guess_type(filename)

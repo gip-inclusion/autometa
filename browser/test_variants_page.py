@@ -24,6 +24,9 @@ def served(tmp_path_factory):
             if src.is_file():
                 shutil.copy(src, root / src.name)
     (root / "data").mkdir()
+    (root / "data" / "67.json").write_text(
+        json.dumps({"metadata": {"generated_at": "2026-09-14", "key": "67", "label": "Bas-Rhin"}})
+    )
     (root / "data" / f"{TOKEN}.json").write_text(
         json.dumps({
             "metadata": {"generated_at": "2026-09-14", "key": "117", "label": "Emplois"},
@@ -55,8 +58,8 @@ def test_dod_1_a_declared_token_shows_that_variant_alone(served, tracked: Page):
 
 @pytest.mark.parametrize(
     "query",
-    ["", "?q=", "?q=zzzzzzzz-0000-4000-8000-000000000211", f"?q={ORPHAN_TOKEN}"],
-    ids=["no-q", "empty-q", "not-a-uuid", "unknown-token"],
+    ["", "?q=", "?q=Bas-Rhin", f"?q={ORPHAN_TOKEN}"],
+    ids=["no-q", "empty-q", "not-a-key", "unknown-token"],
 )
 def test_dod_2_without_a_valid_token_the_page_is_a_dead_end(served, tracked: Page, query):
     tracked.goto(f"{served}/index.html{query}")
@@ -70,7 +73,11 @@ def test_dod_2_without_a_valid_token_the_page_is_a_dead_end(served, tracked: Pag
     assert tracked.locator("a[href*='?q=']").count() == 0
 
 
-@pytest.mark.parametrize("query", ["?q=../index.html", "?q=abc", "?q=data/x"], ids=["traversal", "short", "path"])
+@pytest.mark.parametrize(
+    "query",
+    ["?q=../index.html", "?q=bas_rhin", f"?q={'a' * 65}", "?q=data/x"],
+    ids=["traversal", "underscore", "too-long", "path"],
+)
 def test_dod_13_a_malformed_token_triggers_no_request(served, tracked: Page, query):
     data_requests = []
     tracked.on("request", lambda request: data_requests.append(request.url) if "/data/" in request.url else None)
@@ -79,6 +86,13 @@ def test_dod_13_a_malformed_token_triggers_no_request(served, tracked: Page, que
 
     expect(tracked.locator("#invalid-link")).to_be_visible()
     assert data_requests == []
+
+
+def test_dod_13_a_readable_key_is_a_valid_token(served, tracked: Page):
+    tracked.goto(f"{served}/index.html?q=67")
+
+    expect(tracked.locator("#variant-label")).to_have_text("Bas-Rhin")
+    expect(tracked.locator("#invalid-link")).to_be_hidden()
 
 
 def test_dod_14_a_valid_token_without_data_file_says_so(served, tracked: Page):

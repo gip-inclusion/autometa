@@ -166,3 +166,30 @@ def test_dod_12_every_add_variant_pair_is_checked_before_any_is_declared(runtime
     assert exc.value.code == 1
     assert "Bad Key" in capsys.readouterr().err
     add.assert_not_called()
+
+
+def test_dod_4_obfuscate_variants_applies_before_the_declarations(runtime, monkeypatch, mocker):
+    cli = _load("update_dashboard")
+    _updated(mocker, cli)
+    calls = mocker.Mock()
+    mocker.patch.object(cli, "obfuscate_tokens", calls.obfuscate)
+    mocker.patch.object(cli, "add_variant", calls.add)
+    mocker.patch.object(cli, "list_variants", return_value=[])
+
+    _run(cli, ["--slug", "multi", "--obfuscate-variants", "--add-variant", "67=Bas-Rhin"], monkeypatch)
+
+    assert calls.mock_calls == [mocker.call.obfuscate("multi"), mocker.call.add("multi", "67", "Bas-Rhin")]
+
+
+def test_dod_4_obfuscation_refused_is_reported_with_exit_1(runtime, monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    _updated(mocker, cli)
+    mocker.patch.object(cli, "obfuscate_tokens", side_effect=ValueError("le tableau a déjà des déclinaisons"))
+    add = mocker.patch.object(cli, "add_variant")
+
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "multi", "--obfuscate-variants"], monkeypatch)
+
+    assert exc.value.code == 1
+    assert "déjà des déclinaisons" in capsys.readouterr().err
+    add.assert_not_called()

@@ -5,7 +5,7 @@ import json
 import sys
 
 from lib.dashboards import DashboardNotFound, update_dashboard
-from lib.variants import add_variant, list_variants, remove_variant, validate_variant
+from lib.variants import add_variant, list_variants, obfuscate_tokens, remove_variant, validate_variant
 from web import config
 from web.publications import list_publications
 
@@ -64,7 +64,12 @@ def main() -> None:
         action="append",
         default=[],
         metavar="CLÉ=LIBELLÉ",
-        help="Déclare une déclinaison (répétable) ; le jeton du lien est généré",
+        help="Déclare une déclinaison (répétable) ; le jeton du lien est la clé, ou un UUID si obfusqué",
+    )
+    parser.add_argument(
+        "--obfuscate-variants",
+        action="store_true",
+        help="Jetons UUID pour les déclinaisons de ce tableau ; refusé s'il en a déjà",
     )
     parser.add_argument(
         "--remove-variant", action="append", default=[], metavar="CLÉ", help="Retire une déclinaison (répétable)"
@@ -109,6 +114,8 @@ def main() -> None:
             if key in declared:
                 raise ValueError(f"déclinaison déjà déclarée : {key}")
             declared.add(key)
+        if args.obfuscate_variants:
+            obfuscate_tokens(args.slug)
         for key, label in args.add_variant:
             add_variant(args.slug, key, label)
         removed = [key for key in args.remove_variant if remove_variant(args.slug, key)]

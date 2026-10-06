@@ -261,7 +261,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "current_conv": None,
             "dashboard": dashboard,
             "variants": (declared := variants_with_links(slug, dashboard_publications)),
-            "page_leak_warning": page_leak_warning(slug) if declared else None,
+            "page_leak_warning": page_leak_warning(slug) if declared and dashboard["obfuscate_variants"] else None,
             "publications": dashboard_publications,
             "can_publish": can_publish,
             "dashboard_drifted": dashboard_drifted,
