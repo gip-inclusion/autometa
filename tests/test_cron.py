@@ -1175,24 +1175,19 @@ def test_dod_6_s3_run_receives_its_dashboard_slug(mocker, s3_cron_env):
 
 
 def test_dod_6_publication_run_receives_the_dashboard_slug_not_the_composite(client, mocker):
-    import subprocess as sp
-
     _seed_dashboard_and_publication("pub-variants", "pubv01")
     mocker.patch("web.cron.s3.publications.download", return_value=b"print('ok')")
     mocker.patch("web.cron.s3.publications.list_files", return_value=[])
     mocker.patch("web.cron.s3.publications.upload", return_value=True)
     mocker.patch("web.publications.s3.sync_prefix", return_value=1)
-    completed = sp.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
-    run = mocker.patch("web.cron.subprocess.run", return_value=completed)
+    run = mocker.patch("web.cron.run_task_process", return_value=(0, "ok", ""))
 
     run_one("pub-variants-pubv01", trigger="manual")
 
-    assert run.call_args.kwargs["env"]["AUTOMETA_DASHBOARD_SLUG"] == "pub-variants"
+    assert run.call_args.args[2]["AUTOMETA_DASHBOARD_SLUG"] == "pub-variants"
 
 
 def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token(client, mocker):
-    import subprocess as sp
-
     from lib.variants import add_variant
 
     _seed_dashboard_and_publication("pub-leak", "leak01")
@@ -1204,11 +1199,11 @@ def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token
     sync = mocker.patch("web.publications.s3.sync_prefix")
     mocker.patch("web.publications.alerts.notify_alert_channel")
 
-    def run_and_write(args, **kwargs):
-        (Path(kwargs["cwd"]) / "data.json").write_text("{}")
-        return sp.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+    def run_and_write(command, cwd, env, timeout, slug):
+        (Path(cwd) / "data.json").write_text("{}")
+        return 0, "ok", ""
 
-    mocker.patch("web.cron.subprocess.run", side_effect=run_and_write)
+    mocker.patch("web.cron.run_task_process", side_effect=run_and_write)
 
     result = run_one("pub-leak-leak01", trigger="manual")
 
@@ -1233,16 +1228,13 @@ def test_dod_15_only_a_partial_run_keeps_the_files_it_wrote(mocker, s3_cron_env,
 
 
 def test_dod_15_a_partial_publication_run_still_refreshes(client, mocker):
-    import subprocess as sp
-
     _seed_dashboard_and_publication("pub-partial", "part01")
     mocker.patch("web.cron.s3.publications.download", return_value=b"print('ok')")
     mocker.patch("web.cron.s3.publications.list_files", return_value=[])
     mocker.patch("web.cron.s3.publications.upload", return_value=True)
     sync = mocker.patch("web.publications.s3.sync_prefix", return_value=1)
     mocker.patch("web.publications.alerts.notify_alert_channel")
-    completed = sp.CompletedProcess(args=[], returncode=3, stdout="partiel", stderr="")
-    mocker.patch("web.cron.subprocess.run", return_value=completed)
+    mocker.patch("web.cron.run_task_process", return_value=(3, "partiel", ""))
 
     assert run_one("pub-partial-part01", trigger="manual")["status"] == "failure"
     assert sync.called
