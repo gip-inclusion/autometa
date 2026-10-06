@@ -27,6 +27,12 @@ DOD-4 — [du brief : « mapping between facet and uuid is stored in our work db
   d'un tableau de bord (clé, libellé, jeton) sont enregistrées en base. Le jeton est généré par
   l'outil, jamais choisi à la main, et reste le même d'un rafraîchissement à l'autre : un lien
   partagé continue de fonctionner après le passage du cron et après une republication.
+  Révision 2026-10-02 — par défaut, le jeton d'une déclinaison est sa clé (`?q=78`, `data/78.json`) ;
+  il est un UUID généré par l'outil seulement quand le tableau le demande (`update_dashboard
+  --obfuscate-variants`), et alors pour toutes ses déclinaisons. Changer ce mode sur un tableau qui a
+  déjà des déclinaisons est refusé : les liens partagés casseraient. Le jeton reste stable dans les
+  deux modes. Motif : un nom de fichier lisible suffit tant que le lien n'a pas à être secret.
+  Revalidé le 2026-10-02.
 
 DOD-5 — [du brief : « links to every db, and json with mapping is accessible on the
   dashboard/xxxxxx/edit page »] La page d'édition liste chaque déclinaison avec son libellé, son
@@ -70,6 +76,10 @@ DOD-12 — [lentille gap-hunter : entrée hors limites] La clé d'une déclinais
 DOD-13 — [lentille gap-hunter : valeur hors limites] La page valide la forme du jeton avant toute
   requête : un `?q` vide, qui n'a pas la forme d'un UUID, ou qui contient `/` ou `..`, affiche
   « ce lien n'est pas valide » sans qu'aucune requête ne parte.
+  Révision 2026-10-02 — la forme valide d'un `?q` est celle d'une clé (lettres minuscules, chiffres
+  et tirets, 1 à 64 caractères), qui couvre aussi un UUID ; vide, autre forme, `/` ou `..` : « ce
+  lien n'est pas valide », sans requête. Motif : le jeton est la clé par défaut (DOD-4).
+  Revalidé le 2026-10-02.
 
 DOD-14 — [lentille gap-hunter : état absent] Jeton valide mais fichier de données absent : la page
   affiche « les données de cette déclinaison ne sont pas encore disponibles », message distinct du
@@ -96,6 +106,9 @@ DOD-19 — [lentille gap-hunter : fuite du jeton ; précision du demandeur] Mato
   de l'URL réelle : la clé et le libellé sont écrits par le cron dans le fichier de données, le
   jeton n'y figure jamais. Le jeton ne sort pas de l'URL : ni dans l'URL suivie par Matomo, ni
   dans le titre de l'onglet, ni dans le nom des fichiers exportés.
+  Révision 2026-10-02 — l'URL suivie par Matomo reste `/interactive/{slug}/{clé}/` ; les garanties
+  « le jeton n'y figure jamais » ne concernent que les tableaux obfusqués : sans obfuscation, le
+  jeton est la clé (DOD-4). Revalidé le 2026-10-02.
 
 DOD-20 — [précision du demandeur : la liste ou le mapping ne doit pas être dans le code du TDB]
   Publier ou rafraîchir la publication d'un tableau multi-sources est refusé, avec la raison
@@ -103,6 +116,8 @@ DOD-20 — [précision du demandeur : la liste ou le mapping ne doit pas être d
   tableau (page, script, fichier de données ou autre). Le seul emplacement admis d'un jeton est le
   nom du fichier `data/{jeton}.json`. Une liste de clés ou de libellés dans le code n'est pas
   refusée : seul le jeton ouvre l'accès.
+  Révision 2026-10-02 — le refus ne s'applique qu'aux tableaux obfusqués : sans obfuscation, la clé
+  est publique par construction (DOD-4). Revalidé le 2026-10-02.
 
 ## Sources lues
 
