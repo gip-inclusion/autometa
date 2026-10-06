@@ -191,6 +191,7 @@ class Dashboard(Base):
     cron_schedule: Mapped[str] = mapped_column(Text, nullable=False, server_default="0 6 * * *")
     cron_timeout: Mapped[int] = mapped_column(Integer, nullable=False, server_default="300")
     cron_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    obfuscate_variants: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -219,10 +220,7 @@ class DashboardVariant(Base):
     token: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("dashboard_slug", "key", name="uq_dashboard_variants_slug_key"),
-        UniqueConstraint("token", name="uq_dashboard_variants_token"),
-    )
+    __table_args__ = (UniqueConstraint("dashboard_slug", "key", name="uq_dashboard_variants_slug_key"),)
 
 
 class DashboardPublication(Base):

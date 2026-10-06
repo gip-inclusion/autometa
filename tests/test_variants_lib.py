@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lib.dashboards import DashboardNotFound, update_dashboard
-from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, remove_variant
+from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, obfuscate_tokens, remove_variant
 from web import config as cfg
 from web.db import get_db
 from web.db import test_transaction as _test_tx
@@ -52,12 +52,34 @@ def _make_dashboard(slug):
 @pytest.mark.integration
 @pytest.mark.usefixtures("_db", "isolated")
 class TestDeclaration:
-    def test_dod_4_token_is_generated_and_stable(self):
+    def test_dod_4_the_token_is_the_key_by_default(self):
         _make_dashboard("multi")
+        variant = add_variant("multi", "67", "Bas-Rhin")
+        assert variant["token"] == "67"
+        assert variant["path"] == "data/67.json"
+        assert variant["url"] == "/interactive/multi/?q=67"
+
+    def test_dod_4_an_obfuscated_dashboard_gets_a_generated_and_stable_token(self):
+        _make_dashboard("multi")
+        obfuscate_tokens("multi")
         variant = add_variant("multi", "67", "Bas-Rhin")
         assert UUID_RE.match(variant["token"])
         assert variant["path"] == f"data/{variant['token']}.json"
         assert list_variants("multi")[0]["token"] == variant["token"]
+
+    def test_dod_4_obfuscating_a_dashboard_that_has_variants_is_refused(self):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        with pytest.raises(ValueError, match="déclinaisons"):
+            obfuscate_tokens("multi")
+        assert [v["token"] for v in list_variants("multi")] == ["67"]
+
+    def test_dod_4_two_dashboards_may_declare_the_same_key(self):
+        _make_dashboard("multi")
+        _make_dashboard("autre")
+        add_variant("multi", "67", "Bas-Rhin")
+        add_variant("autre", "67", "Bas-Rhin")
+        assert [v["token"] for v in list_variants("autre")] == ["67"]
 
     def test_dod_4_unknown_dashboard_is_refused(self):
         with pytest.raises(DashboardNotFound):
@@ -214,3 +236,9 @@ def test_dod_20_exposed_tokens_is_empty_when_only_file_names_carry_tokens(tmp_pa
     (tmp_path / "data" / f"{token}.json").write_bytes(b'{"metadata": {"key": "67"}}')
 
     assert exposed_tokens(folder_files(tmp_path), [{"key": "67", "token": token}]) == []
+
+
+def test_dod_20_exposed_tokens_ignores_a_readable_token(tmp_path):
+    (tmp_path / "app.js").write_text("const KEYS = ['67'];")
+
+    assert exposed_tokens(folder_files(tmp_path), [{"key": "67", "token": "67"}]) == []

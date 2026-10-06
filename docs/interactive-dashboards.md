@@ -265,15 +265,16 @@ territoire : un seul dossier, un seul `cron.py`, un fichier de données par déc
 Ce qui le définit :
 
 - **Déclinaisons déclarées**, jamais devinées : `update_dashboard --add-variant clé=libellé`. Chaque
-  déclinaison reçoit un **jeton** (UUID) généré par l'outil et stable. La table `dashboard_variants`
-  fait foi ; un TDB devient multi-sources dès qu'une déclinaison lui est déclarée.
+  déclinaison reçoit un **jeton** stable : sa clé (`?q=78`, `data/78.json`), ou un UUID généré par
+  l'outil si le tableau est **obfusqué** (`update_dashboard --obfuscate-variants`, seulement à la
+  demande, avant la première déclinaison). La table `dashboard_variants` fait foi ; un TDB devient
+  multi-sources dès qu'une déclinaison lui est déclarée.
 - **Un lien par déclinaison** : `/interactive/{slug}/?q=<jeton>`. La page lit `?q`, vérifie la forme
   du jeton avant toute requête, charge `data/<jeton>.json`, et n'affiche que cette déclinaison. Sans
-  `?q` ou avec un jeton mal formé : « Ce lien n'est pas valide ». Jeton bien formé sans fichier :
+  `?q` ou avec un jeton qui n'a pas la forme d'une clé : « Ce lien n'est pas valide ». Jeton bien formé sans fichier :
   « Ce lien n'est pas valide, ou les données ne sont pas encore disponibles » — la page ne peut pas
   distinguer un jeton inconnu d'une déclinaison pas encore calculée, faute de liste. Jamais de
-  sélecteur, jamais de lien vers une autre déclinaison — c'est le nom du fichier, et lui seul, qui
-  ouvre l'accès.
+  sélecteur, jamais de lien vers une autre déclinaison.
 - **Dans l'application**, `/interactive/{slug}/` sans `?q` affiche l'index des déclinaisons et un
   lien vers la page d'édition. Cet index est rendu par le serveur : la publication, qui copie les
   fichiers du dossier, ne l'emporte pas.
@@ -282,16 +283,16 @@ Ce qui le définit :
   d'autre. Une déclinaison qui échoue n'empêche pas les autres : son fichier précédent est conservé
   et le run se termine en échec en nommant les clés fautives — code de sortie **3**, que le runner
   reconnaît comme un run partiel : les fichiers écrits sont conservés, le run est marqué en échec. Le fichier porte `metadata.key` et
-  `metadata.label`, jamais son propre jeton.
+  `metadata.label` ; obfusqué, jamais son propre jeton.
 - **Matomo** enregistre la page sous `/interactive/{slug}/<clé>/`, pas sous le jeton : la page
   charge le conteneur Tag Manager **après** avoir posé `setCustomUrl`, et désactive Heatmap Session
   Recording, dont la requête de configuration porte l'URL réelle. La page déclare aussi
   `referrer: no-referrer`. Le gabarit `docs/dashboard-template-multi/` fait tout cela.
-- **Le nom du fichier est le secret** : la confidentialité des déclinaisons repose sur le fait que
+- **Obfusqué, le nom du fichier est le secret** : la confidentialité des déclinaisons repose sur le fait que
   personne ne peut lister le bucket public. C'est le cas : `ListObjects` anonyme répond `AccessDenied`
   sur les deux buckets Scaleway (vérifié le 2026-09-16), et les domaines `statistiques.inclusion.gouv.fr`
   répondent la page d'accueil à toute requête de listing. Ce prérequis vaut pour tout nouveau bucket.
-- **La publication et chaque rafraîchissement refusent** un dossier dont un fichier (page, script,
+- **Obfusqué, la publication et chaque rafraîchissement refusent** un dossier dont un fichier (page, script,
   données…) contient un jeton déclaré : raison `variant-token-exposed`, fichier nommé sur la page
   d'édition. Une liste de clés ou de libellés dans le code n'est pas un problème.
 
@@ -299,7 +300,7 @@ La page d'édition liste chaque déclinaison (clé, libellé, lien interne, lien
 active, présence du fichier de données) et expose le mapping en JSON
 (`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne et sa
 copie dans chaque snapshot publié ; le lien public répond encore jusqu'au rafraîchissement suivant,
-qui élague la copie publique — sans borne si ce rafraîchissement est en pause, ce que la commande signale. Un TDB converti (créé avant ce mode) qui déclare des déclinaisons est
+qui élague la copie publique — sans borne si ce rafraîchissement est en pause, ce que la commande signale. Un TDB converti (créé avant ce mode), obfusqué, qui déclare des déclinaisons est
 signalé sur la page d'édition tant que sa page charge Matomo avant de lire `?q` ou ne déclare pas
 `referrer: no-referrer`.
 

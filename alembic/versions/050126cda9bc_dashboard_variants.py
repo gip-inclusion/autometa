@@ -1,4 +1,4 @@
-"""Déclinaisons d'un tableau de bord : clé, libellé et jeton, une ligne par déclinaison."""
+"""Déclinaisons d'un tableau de bord : clé, libellé et jeton, une ligne par déclinaison ; jetons obfusqués ou non."""
 
 from typing import Sequence, Union
 
@@ -24,9 +24,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["dashboard_slug"], ["dashboards.slug"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("dashboard_slug", "key", name="uq_dashboard_variants_slug_key"),
-        sa.UniqueConstraint("token", name="uq_dashboard_variants_token"),
+    )
+    op.add_column(
+        "dashboards",
+        sa.Column("obfuscate_variants", sa.Boolean(), server_default=sa.text("false"), nullable=False),
     )
 
 
 def downgrade() -> None:
+    op.drop_column("dashboards", "obfuscate_variants")
     op.drop_table("dashboard_variants")

@@ -113,10 +113,11 @@ def test_dod_3_index_without_q_lists_variants_and_links_to_edit_page(mocker):
     ("query", "location"),
     [
         ("?q=00000000-0000-4000-8000-000000000067", "/interactive/multi/?q=00000000-0000-4000-8000-000000000067"),
-        ("?q=nimportequoi", "/interactive/multi/"),
+        ("?q=67", "/interactive/multi/?q=67"),
+        ("?q=Bas_Rhin", "/interactive/multi/"),
         ("?q=00000000-0000-4000-8000-000000000067%0A", "/interactive/multi/"),
     ],
-    ids=["valid-token-kept", "junk-token-dropped", "trailing-newline-dropped"],
+    ids=["valid-token-kept", "readable-key-kept", "junk-token-dropped", "trailing-newline-dropped"],
 )
 def test_dod_1_redirect_to_the_trailing_slash_keeps_only_a_well_formed_token(mocker, query, location):
     mocker.patch("web.s3.interactive.exists", return_value=True)

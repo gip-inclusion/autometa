@@ -27,20 +27,23 @@ Un TDB **multi-sources** sert plusieurs **déclinaisons** (un département, une 
 avec le même écran et les mêmes calculs : un seul dossier, un seul `cron.py`, et un fichier de
 données par déclinaison, `data/<jeton>.json`. Chaque déclinaison a son propre lien,
 `/interactive/{slug}/?q=<jeton>` ; sans jeton valide la page est un cul-de-sac, et rien dans le
-dossier ne les énumère. C'est ce qui remplace la duplication d'un TDB par territoire.
+dossier ne les énumère. Le jeton est la clé (`?q=78`), ou un UUID quand le tableau est obfusqué. C'est ce qui remplace la duplication d'un TDB par territoire.
 
 **Quand le proposer** : dès que la demande vise plusieurs territoires, structures ou entités sur un
 même écran (« un tableau par département », « le même TDB pour chaque CCAS », « une version par
 GT »), ou qu'un TDB existant est demandé « pour un autre territoire ». Dans ce cas :
 
 1. Dire à l'utilisateur ce que change ce mode : un seul TDB, des liens distincts non listés, les
-   déclinaisons déclarées une à une, la publication qui refuse tout fichier exposant un jeton.
+   déclinaisons déclarées une à une, des liens lisibles (`?q=78`) sauf si l'utilisateur veut des
+   liens non devinables.
 2. **Attendre son accord explicite** avant de créer avec `--multi-source`. Un silence ou une
    demande ambiguë n'est pas un accord : créer alors un TDB classique, ou reposer la question.
-3. Après création, déclarer les déclinaisons avec `update_dashboard --add-variant clé=libellé`, puis
+3. Après création, si l'utilisateur veut des liens non devinables, `update_dashboard
+   --obfuscate-variants` **avant** la première déclinaison (refusé ensuite). Puis déclarer les
+   déclinaisons avec `update_dashboard --add-variant clé=libellé`, puis
    adapter `cron.py` : une requête en une seule passe pour toutes les clés, puis un fichier par
-   déclinaison déclarée via `list_variants()`. Jamais de fichier de liste, jamais le jeton dans le
-   contenu d'un fichier.
+   déclinaison déclarée via `list_variants()`. Jamais de fichier de liste ; obfusqué, jamais le
+   jeton dans le contenu d'un fichier.
 
 Un TDB déjà enregistré bascule en multi-sources dès qu'une déclinaison lui est déclarée : pas
 besoin de le recréer. Lire `docs/interactive-dashboards.md` § Mode multi-sources avant d'écrire le
