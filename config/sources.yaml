@@ -138,6 +138,9 @@ livestorm:
 tally:
   api_key: ${env.TALLY_API_KEY}
 
+airtable:
+  api_key: ${env.AIRTABLE_TOKEN}
+
 grist:
   webinaires:
     api_key: ${env.GRIST_API_KEY}

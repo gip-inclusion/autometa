@@ -163,7 +163,7 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog`, `count_datadog`, `sample_datadog` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
@@ -192,6 +192,10 @@ Elle expose aussi `list_variants()` : les déclinaisons déclarées du tableau d
 tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'après
 `AUTOMETA_DASHBOARD_SLUG`, posé par le runner de cron. Pour un lancement à la main, passer le slug :
 `list_variants("mon-tdb")`. Voir § Mode multi-sources.
+
+`query_airtable(base_id, table, view=None, fields=None, formula=None)` lit les enregistrements d'une table ou
+d'une vue Airtable (pagination complète) ; `data` est la liste brute des enregistrements `{id, createdTime,
+fields}`. Ils portent des données personnelles (emails, téléphones) : ne publier que les champs nécessaires.
 
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.

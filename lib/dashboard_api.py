@@ -19,6 +19,7 @@ __all__ = [
     "count_datadog",
     "facade_violations",
     "list_variants",
+    "query_airtable",
     "query_autometa_tables",
     "query_data_inclusion",
     "query_datadog",
@@ -108,6 +109,20 @@ def sample_datadog(
 def query_autometa_tables(sql: str, timeout: int = 60) -> QueryResult:
     """Interroge autometa_tables_db. Renvoie un QueryResult, ne lève jamais."""
     return query.execute_autometa_tables_query(sql=sql, caller=CallerType.APP, timeout=timeout)
+
+
+def query_airtable(
+    base_id: str,
+    table: str,
+    view: str | None = None,
+    fields: list[str] | None = None,
+    formula: str | None = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Lit les enregistrements d'une table ou d'une vue Airtable. Renvoie un QueryResult, ne lève jamais."""
+    return query.execute_airtable_query(
+        base_id=base_id, table=table, caller=CallerType.APP, view=view, fields=fields, formula=formula, timeout=timeout
+    )
 
 
 def query_storage(sql: str, params: dict | None = None, timeout: int = 60) -> QueryResult:

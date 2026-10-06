@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
+from .airtable import AirtableClient
 from .data_inclusion import execute_sql as _di_execute_sql
 from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
 from .datadog import window as rolling_window
@@ -428,6 +429,31 @@ def execute_datadog_events(
         fn=sample,
         extra_attrs={"datadog.service": str(service)},
     )
+
+
+def execute_airtable_query(
+    base_id: str,
+    table: str,
+    caller: CallerType,
+    view: Optional[str] = None,
+    fields: Optional[list[str]] = None,
+    formula: Optional[str] = None,
+    timeout: int = 60,
+) -> QueryResult:
+    """Read the records of an Airtable table or view. Returns QueryResult, never raises."""
+    attrs = {
+        "db.system": "airtable",
+        "caller": caller.value,
+        "airtable.base": str(base_id),
+        "airtable.table": str(table),
+    }
+
+    def _do():
+        with AirtableClient(timeout=timeout) as client:
+            return client.list_records(base_id, table, view=view, fields=fields, formula=formula)
+
+    # Why: a 200 with an unexpected body raises JSONDecodeError/AttributeError, not AirtableError; caller checks result.success.
+    return _run_traced_query("airtable.query", attrs, _do)
 
 
 def execute_query(
