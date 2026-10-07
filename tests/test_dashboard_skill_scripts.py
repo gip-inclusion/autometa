@@ -194,7 +194,31 @@ def test_dod_4_a_mode_switch_warns_that_the_old_links_stop_working(runtime, monk
 
     output = json.loads(capsys.readouterr().out)
     assert output["variants"] == [{"key": "67"}, {"key": "68"}]
-    assert "anciens liens" in output["notices"][0]
+    assert output["notices"] == [
+        "Jetons changés pour 2 déclinaison(s) : les anciens liens ne fonctionnent plus, leurs fichiers de "
+        "données ont suivi."
+    ]
+
+
+def test_dod_4_a_mode_switch_names_each_publication_to_refresh(runtime, monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    _updated(mocker, cli)
+    mocker.patch.object(cli, "set_obfuscation", return_value=["67"])
+    mocker.patch.object(cli, "list_variants", return_value=[{"key": "67"}])
+    mocker.patch.object(
+        cli,
+        "list_publications",
+        return_value=[
+            {"publication_id": "live01", "url": "https://pub/live01", "refresh_paused_at": None},
+            {"publication_id": "paus01", "url": "https://pub/paus01", "refresh_paused_at": "2026-10-01"},
+        ],
+    )
+
+    _run(cli, ["--slug", "multi", "--obfuscate-variants", "true"], monkeypatch)
+
+    notice = json.loads(capsys.readouterr().out)["notices"][0]
+    assert "publish_dashboard refresh --publication-id live01 (https://pub/live01)" in notice
+    assert "en pause, donc sans borne : paus01 (https://pub/paus01)" in notice
 
 
 def test_dod_4_a_failed_mode_switch_is_reported_with_exit_1(runtime, monkeypatch, mocker, capsys):
@@ -209,3 +233,16 @@ def test_dod_4_a_failed_mode_switch_is_reported_with_exit_1(runtime, monkeypatch
     assert exc.value.code == 1
     assert "aucun jeton n'a changé" in capsys.readouterr().err
     add.assert_not_called()
+
+
+@pytest.mark.parametrize(("status", "code"), [("success", 0), ("failure", 1), (None, 1)])
+def test_dod_4_publish_dashboard_refresh_reports_the_sync(monkeypatch, mocker, capsys, status, code):
+    cli = _load("publish_dashboard")
+    refresh = mocker.patch.object(cli.publications, "refresh", return_value=status)
+    monkeypatch.setattr("sys.argv", ["x", "refresh", "--publication-id", "live01"])
+
+    assert cli.main() == code
+
+    refresh.assert_called_once_with("live01")
+    out, err = capsys.readouterr()
+    assert (json.loads(out) == {"refreshed": "live01"}) if code == 0 else ("live01" in err)

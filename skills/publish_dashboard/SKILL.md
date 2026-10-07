@@ -1,6 +1,6 @@
 ---
 name: publish_dashboard
-description: Publish (staging ou production), dépublier, ou lister les publications d'un tableau de bord. MUST be invoked whenever the user wants to make a dashboard public, change its public version, take a published version offline, or check what's published — garantit que le snapshot immuable, la ligne `dashboard_publications`, et le push/clear du bucket public passent TOUS par `web.publications` (jamais de S3 brut).
+description: Publish (staging ou production), dépublier, rafraîchir, ou lister les publications d'un tableau de bord. MUST be invoked whenever the user wants to make a dashboard public, change its public version, take a published version offline, or check what's published — garantit que le snapshot immuable, la ligne `dashboard_publications`, et le push/clear du bucket public passent TOUS par `web.publications` (jamais de S3 brut).
 ---
 
 # Publish Dashboard Skill
@@ -15,6 +15,7 @@ Ne jamais pousser des fichiers directement sur S3 et ne jamais insérer / modifi
 
 - **Publier** : demander confirmation du `slug` ET de l'environnement (`staging` ou `production`). La production est servie sur `statistiques.inclusion.gouv.fr/dashboards/{slug}` et écrase la version prod précédente (qui passe en `unpublished_at`).
 - **Dépublier** : demander confirmation du `publication_id` (court, 6 caractères). Si l'utilisateur ne le connaît pas, lancer d'abord `list --slug <slug>` et présenter les options actives.
+- **Rafraîchir** : recopie le snapshot d'une publication vers son lien public, sans changer d'URL. À proposer après un changement de mode des jetons (`update_dashboard --obfuscate-variants`), jamais lancé sans l'accord de l'utilisateur. Refusé si la publication est dépubliée ou son rafraîchissement en pause.
 - **Lister** : pas de confirmation nécessaire — c'est une lecture.
 
 Ne jamais inventer un slug ou un `publication_id`. Si plusieurs publications correspondent (cas typique du staging avec plusieurs versions actives), les présenter avant de dépublier.
@@ -45,6 +46,10 @@ Ces vérifications sont systématiques et serveur — ne pas tenter de les conto
 .venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py list \
     --slug mon-tdb
 
+# Rafraîchir le lien public d'une publication
+.venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py refresh \
+    --publication-id vxgbu3
+
 # Dépublier une version précise
 .venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py unpublish \
     --publication-id vxgbu3
@@ -64,7 +69,7 @@ JSON sur stdout. Exemple `publish` :
 }
 ```
 
-`list` renvoie un tableau JSON dans le même format. `unpublish` renvoie `{"unpublished": "<id>"}`.
+`list` renvoie un tableau JSON dans le même format. `unpublish` renvoie `{"unpublished": "<id>"}`, `refresh` `{"refreshed": "<id>"}`.
 
 ## Variables d'environnement
 
@@ -77,5 +82,5 @@ Les variables `PUBLIC_DASHBOARDS_BUCKET_*` et `PUBLIC_DASHBOARDS_URL_*` doivent 
 ## Codes de retour
 
 - `0` — succès, JSON sur stdout.
-- `1` — `PublicationBlocked` (TDB inconnu, archivé, utilise l'API query, snapshot vide), ou `publication_id` introuvable / déjà dépubliée.
+- `1` — `PublicationBlocked` (TDB inconnu, archivé, utilise l'API query, snapshot vide), `publication_id` introuvable / déjà dépubliée, ou rafraîchissement en pause ou en échec.
 - `2` — `AUTOMETA_USER_EMAIL` manquant (bug d'intégration), ou argument invalide.

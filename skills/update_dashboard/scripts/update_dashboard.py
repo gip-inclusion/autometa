@@ -122,13 +122,25 @@ def main() -> None:
         for key in set(args.remove_variant) - set(removed):
             print(f"Warning: déclinaison inconnue, rien retiré : {key}", file=sys.stderr)
         notices = []
+        active = list_publications(args.slug) if retokenized or removed else []
         if retokenized:
+            live = ", ".join(
+                f"publish_dashboard refresh --publication-id {p['publication_id']} ({p['url']})"
+                for p in active
+                if not p["refresh_paused_at"]
+            )
+            paused = ", ".join(f"{p['publication_id']} ({p['url']})" for p in active if p["refresh_paused_at"])
             notices.append(
                 f"Jetons changés pour {len(retokenized)} déclinaison(s) : les anciens liens ne fonctionnent plus, "
-                "leurs fichiers de données ont suivi. Le lien public de chaque publication suit au prochain "
-                "rafraîchissement."
+                "leurs fichiers de données ont suivi."
+                + (
+                    f" Le lien public garde l'ancien jeton jusqu'au prochain rafraîchissement — à proposer : {live}."
+                    if live
+                    else ""
+                )
+                + (f" Rafraîchissement en pause, donc sans borne : {paused}." if paused else "")
             )
-        if removed and (active := list_publications(args.slug)):
+        if removed and active:
             urls = ", ".join(p["url"] for p in active)
             paused = ", ".join(p["url"] for p in active if p["refresh_paused_at"])
             notices.append(
