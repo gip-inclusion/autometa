@@ -211,7 +211,7 @@ def all_sources() -> list[Source]:
             icon="ri-customer-service-2-line",
             skill="zendesk",
             check=source_checks.check_zendesk,
-            configured=partial(yaml_configured, "zendesk", "emplois", "subdomain", "email", "token"),
+            configured=partial(yaml_configured, "zendesk", "emplois", "subdomain", "client_id", "client_secret"),
         ),
         Source(
             slug="slack",

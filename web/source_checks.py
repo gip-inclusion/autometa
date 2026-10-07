@@ -16,6 +16,7 @@ from lib.query import (
     get_matomo,
 )
 from lib.sources import get_source_config, list_instances, load_config
+from lib.zendesk import ClientCredentialsAuth
 
 from . import config, s3
 from .db import get_db
@@ -49,7 +50,7 @@ def known_secrets() -> list[str]:
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
             cfg = load_config().get(source_type, {}).get(instance, {})
-            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth")]
+            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth", "client_secret")]
     return [v for v in values if v and len(v) > 6 and not v.startswith("${env.")]
 
 
@@ -201,7 +202,9 @@ def check_zendesk() -> tuple[bool, str]:
     cfg = get_source_config("zendesk")
     resp = httpx.get(
         f"https://{cfg['subdomain']}.zendesk.com/api/v2/views/count.json",
-        auth=(f"{cfg['email']}/token", cfg["token"]),
+        auth=ClientCredentialsAuth(
+            f"https://{cfg['subdomain']}.zendesk.com/oauth/tokens", cfg["client_id"], cfg["client_secret"]
+        ),
         timeout=PROBE_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
