@@ -175,7 +175,7 @@ class ClientCredentialsAuth(httpx.Auth):
         self.expires_at = 0.0
 
     def auth_flow(self, request: httpx.Request) -> Iterator[httpx.Request]:
-        if self.token is None or time.monotonic() >= self.expires_at:
+        if time.monotonic() >= self.expires_at:
             yield from self.fetch_token()
         request.headers["Authorization"] = f"Bearer {self.token}"
         response = yield request
@@ -191,7 +191,9 @@ class ClientCredentialsAuth(httpx.Auth):
             "client_secret": self.client_secret,
             "scope": "read write",
         }
-        response = yield httpx.Request("POST", self.token_url, json=payload)
+        # Why: httpx applies the client timeout only to the request it was sent, not to those auth_flow yields.
+        timeout = httpx.Timeout(_DEFAULT_TIMEOUT).as_dict()
+        response = yield httpx.Request("POST", self.token_url, json=payload, extensions={"timeout": timeout})
         if not response.is_success:
             raise ZendeskError(response.status_code, response.text[:200])
         data = response.json()

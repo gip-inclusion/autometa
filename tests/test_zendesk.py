@@ -97,6 +97,23 @@ def test_oauth_refetches_token_and_retries_once_on_401():
     assert calls[3].headers["Authorization"] == "Bearer t2"
 
 
+def test_oauth_token_request_carries_the_timeout():
+    client, calls = oauth_client([200])
+
+    client.get("https://x.zendesk.com/api/v2/a")
+
+    assert calls[0].extensions["timeout"] == httpx.Timeout(30).as_dict()
+
+
+def test_oauth_returns_second_401_without_looping():
+    client, calls = oauth_client([401, 401])
+
+    response = client.get("https://x.zendesk.com/api/v2/a")
+
+    assert response.status_code == 401
+    assert len(calls) == 4
+
+
 def test_oauth_token_refusal_raises_zendesk_error():
     client, _ = oauth_client([], token_status=401)
 
