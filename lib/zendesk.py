@@ -81,6 +81,45 @@ def article_id_from_url(url: str) -> int:
 
 
 @dataclass
+class Macro:
+    id: int
+    title: str
+    description: str
+    active: bool
+    actions: list[dict]
+    updated_at: str
+    html_url: str
+    restriction: Optional[dict] = None
+    usage_30d: Optional[int] = None
+    raw: dict = field(default_factory=dict, repr=False)
+
+
+def macro_from_payload(data: dict) -> Macro:
+    return Macro(
+        id=data["id"],
+        title=data.get("title") or "",
+        description=data.get("description") or "",
+        active=data.get("active", True),
+        actions=data.get("actions", []),
+        updated_at=data["updated_at"],
+        html_url=re.sub(
+            r"/api/v2/macros/(\d+)\.json$", r"/admin/workspaces/agent-workspace/macros/\1", data.get("url") or ""
+        ),
+        restriction=data.get("restriction"),
+        usage_30d=data.get("usage_30d"),
+        raw=data,
+    )
+
+
+def macro_id_from_url(ref: str | int) -> int:
+    """Macro id from an admin or API URL such as .../macros/123, or from a bare id."""
+    match = re.fullmatch(r"\s*(\d+)\s*", str(ref)) or re.search(r"/macros/(\d+)", str(ref))
+    if not match:
+        raise ValueError(f"no macro id in {ref}")
+    return int(match.group(1))
+
+
+@dataclass
 class TicketResult:
     ticket_id: int
     ticket: Optional[ZendeskTicket] = None
@@ -124,7 +163,7 @@ def parse_retry_after(value: Optional[str], default: int = 60) -> int:
 
 
 class ZendeskAPI:
-    """Zendesk REST API client with built-in rate limiting: tickets read-only, Guide read-write."""
+    """Zendesk REST API client with built-in rate limiting: tickets read-only, Guide and macros read-write."""
 
     def __init__(
         self,
@@ -364,3 +403,29 @@ class ZendeskAPI:
     def create_category(self, name: str, description: str = "", locale: str = "fr") -> dict:
         category = {"name": name, "description": description, "locale": locale}
         return self._request("POST", "help_center/categories.json", json={"category": category})["category"]
+
+    def list_macros(self) -> list[Macro]:
+        """Every macro, active or not, with its 30-day usage count — four requests for the whole account."""
+        return [macro_from_payload(m) for m in self._iter_pages("macros.json", "macros", {"include": "usage_30d"})]
+
+    def get_macro(self, macro_id: int) -> Macro:
+        return macro_from_payload(self._get(f"macros/{macro_id}.json", {"include": "usage_30d"})["macro"])
+
+    def update_macro(self, macro_id: int, **fields: Any) -> Macro:
+        """Rewrite macro fields (title, description, active, actions — the whole list); returns the stored macro."""
+        return macro_from_payload(self._request("PUT", f"macros/{macro_id}.json", json={"macro": fields})["macro"])
+
+    def create_macro(self, title: str, actions: list[dict], description: str = "") -> Macro:
+        """Create an inactive macro; activating it goes through a changeset."""
+        macro = {"title": title, "actions": actions, "description": description, "active": False}
+        return macro_from_payload(self._request("POST", "macros.json", json={"macro": macro})["macro"])
+
+    def lookup(self, resource: str, item_id: int | str) -> Optional[dict]:
+        """One account object (groups, users, ticket_fields, brands, ticket_forms, custom_statuses); None once deleted."""
+        try:
+            data = self._get(f"{resource}/{item_id}.json")
+        except ZendeskError as exc:
+            if exc.status_code != 404:
+                raise
+            return None
+        return next(iter(data.values()))
