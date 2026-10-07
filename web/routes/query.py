@@ -32,9 +32,13 @@ def validate_query_request(data: dict) -> str | None:
         return "source is required"
     if data["source"] in ("metabase", "matomo") and not data.get("instance"):
         return "instance is required for metabase and matomo sources"
-    if data["source"] in ("data_inclusion", "autometa_tables_db", "dashboard_storage", "matometa_db") and not data.get(
-        "sql"
-    ):
+    if data["source"] in (
+        "data_inclusion",
+        "autometa_tables_db",
+        "dashboard_storage",
+        "matometa_db",
+        "appli_monrecap",
+    ) and not data.get("sql"):
         return "sql is required for this source"
     return None
 
@@ -59,7 +63,8 @@ async def query(request: Request):
     Execute a query against Metabase or Matomo.
 
     Request body (JSON):
-        source: "metabase", "matomo", "data_inclusion", "autometa_tables_db" or "dashboard_storage" ("matometa_db" is a legacy alias)
+        source: "metabase", "matomo", "data_inclusion", "autometa_tables_db", "dashboard_storage"
+            ("matometa_db" is a legacy alias) or "appli_monrecap"
         instance: Instance name — required for metabase/matomo only
         caller: "app" or "agent"
 

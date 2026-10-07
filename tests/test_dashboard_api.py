@@ -122,6 +122,11 @@ RESULT = QueryResult(success=True, data=[])
             "execute_dashboard_storage_query",
             {"sql": "SELECT 1 WHERE x = :x", "params": {"x": 2}, "timeout": 60},
         ),
+        (
+            lambda: dashboard_api.query_appli_monrecap("UPDATE t SET a = :a", {"a": 1}, timeout=30),
+            "execute_appli_monrecap_query",
+            {"sql": "UPDATE t SET a = :a", "params": {"a": 1}, "timeout": 30},
+        ),
     ],
 )
 def test_query_delegates_as_an_app_caller(mocker, call, delegate, expected):
@@ -130,6 +135,10 @@ def test_query_delegates_as_an_app_caller(mocker, call, delegate, expected):
     spy = mocker.patch(f"lib.query.{delegate}", autospec=True, return_value=RESULT)
     assert call() is RESULT
     assert spy.call_args.kwargs == {**expected, "caller": CallerType.APP}
+
+
+def test_query_appli_monrecap_is_exported():
+    assert "query_appli_monrecap" in dashboard_api.__all__
 
 
 def test_by_count_is_re_exported_unchanged():
