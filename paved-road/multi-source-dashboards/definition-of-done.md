@@ -40,6 +40,9 @@ DOD-4 — [du brief : « mapping between facet and uuid is stored in our work db
   n'est à relancer. Les liens partagés de l'ancien mode cessent de fonctionner, ce que la commande
   signale. Si une copie échoue, aucun jeton ne change. Motif : refuser obligeait à retirer puis
   redéclarer chaque déclinaison. Revalidé le 2026-10-07.
+  La commande nomme aussi chaque publication active : son lien public garde l'ancien jeton jusqu'à
+  son prochain rafraîchissement, sans borne si celui-ci est en pause. L'agent propose de la
+  rafraîchir (`publish_dashboard refresh`) mais ne le fait pas d'office.
 
 DOD-5 — [du brief : « links to every db, and json with mapping is accessible on the
   dashboard/xxxxxx/edit page »] La page d'édition liste chaque déclinaison avec son libellé, son
