@@ -193,6 +193,22 @@ def test_pause_refresh_is_idempotent(client, mocker):
     assert publications.resume_refresh("zzz999") is False  # unknown
 
 
+def test_dod_4_refresh_reports_whether_the_public_copy_was_synced(client, mocker):
+    _make_dashboard("pub-refresh")
+    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
+    sync = mocker.patch("web.publications.s3.sync_prefix", return_value=1)
+    pid = publications.publish("pub-refresh", "staging", "bob@x")["publication_id"]
+    sync.reset_mock()
+
+    assert publications.refresh(pid) == "success"
+    sync.assert_called_once()
+
+    publications.pause_refresh(pid)
+    assert publications.refresh(pid) is None
+    assert publications.refresh("zzz999") is None
+    sync.assert_called_once()
+
+
 def _s3_folder(mocker, files: dict[str, bytes]):
     mocker.patch("web.s3.interactive.list_files", return_value=[{"path": key} for key in files])
     mocker.patch("web.s3.interactive.download", side_effect=files.get)

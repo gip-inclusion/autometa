@@ -36,6 +36,17 @@ def cmd_unpublish(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refresh(args: argparse.Namespace) -> int:
+    status = publications.refresh(args.publication_id)
+    if status != "success":
+        print(
+            json.dumps({"error": status or "not_refreshable", "publication_id": args.publication_id}), file=sys.stderr
+        )
+        return 1
+    print(json.dumps({"refreshed": args.publication_id}))
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     rows = publications.list_publications(args.slug, active_only=not args.all)
     print(json.dumps([_serialize(r) for r in rows], indent=2, ensure_ascii=False))
@@ -43,7 +54,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Publish, unpublish, or list dashboard publications.")
+    parser = argparse.ArgumentParser(description="Publish, unpublish, refresh, or list dashboard publications.")
     sub = parser.add_subparsers(dest="action", required=True)
 
     p = sub.add_parser("publish", help="Publish a dashboard to staging or production")
@@ -54,6 +65,10 @@ def main() -> int:
     u = sub.add_parser("unpublish", help="Unpublish a dashboard by publication_id")
     u.add_argument("--publication-id", required=True)
     u.set_defaults(func=cmd_unpublish)
+
+    r = sub.add_parser("refresh", help="Re-sync a publication's snapshot to its public link")
+    r.add_argument("--publication-id", required=True)
+    r.set_defaults(func=cmd_refresh)
 
     lst = sub.add_parser("list", help="List a dashboard's publications")
     lst.add_argument("--slug", required=True)

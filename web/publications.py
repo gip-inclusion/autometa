@@ -256,8 +256,8 @@ def _notify_refresh_status_change(pub: DashboardPublication, previous_status: st
     alerts.notify_alert_channel(message)
 
 
-def refresh(publication_id: str, blocked_by: list[str] | None = None) -> None:
-    """Re-sync a publication's snapshot to its public bucket; update refresh state; alert on transition."""
+def refresh(publication_id: str, blocked_by: list[str] | None = None) -> str | None:
+    """Re-sync a snapshot to its public bucket; the refresh status, or None if unknown, unpublished or paused."""
     with get_db() as session:
         # Why: SELECT filters out unpublished/paused publications, but `s3.sync_prefix` is not
         # transactional with the DB. A concurrent unpublish between this SELECT and the sync can
@@ -271,7 +271,7 @@ def refresh(publication_id: str, blocked_by: list[str] | None = None) -> None:
             )
         )
         if pub is None:
-            return
+            return None
         previous_status = pub.last_refresh_status
         if blocked_by:
             pub.last_refresh_status = "failure"
@@ -280,7 +280,7 @@ def refresh(publication_id: str, blocked_by: list[str] | None = None) -> None:
                 "refresh slug=%s id=%s status=blocked", sanitize_for_log(pub.dashboard_slug), pub.publication_id
             )
             _notify_refresh_status_change(pub, previous_status)
-            return
+            return pub.last_refresh_status
         try:
             s3.sync_prefix(
                 f"publications/{pub.dashboard_slug}/{pub.publication_id}/",
@@ -300,3 +300,4 @@ def refresh(publication_id: str, blocked_by: list[str] | None = None) -> None:
             pub.last_refresh_status,
         )
         _notify_refresh_status_change(pub, previous_status)
+        return pub.last_refresh_status
