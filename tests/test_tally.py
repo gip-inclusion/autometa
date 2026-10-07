@@ -5,17 +5,18 @@ from lib.tally import TallyClient, TallyError, workspaces_summary
 from web.source_checks import check_tally
 
 
-def make_client(mocker, api_key="tly-test"):
-    client = TallyClient(api_key=api_key)
+def make_client(mocker, handler=lambda request: httpx.Response(200, json={})):
     mocker.patch("lib.tally.emit_api_signal")
-    return client
+    mocker.patch("lib.tally.httpx.HTTPTransport", return_value=httpx.MockTransport(handler))
+    return TallyClient(api_key="tly-test")
 
 
-def json_resp(mocker, payload, status=200):
-    resp = mocker.MagicMock(status_code=status)
-    resp.json.return_value = payload
-    resp.raise_for_status.return_value = None
-    return resp
+def recording(sent, payload):
+    def handler(request):
+        sent.append(request)
+        return httpx.Response(200, json=payload)
+
+    return handler
 
 
 def test_missing_api_key_raises(mocker):
@@ -25,33 +26,30 @@ def test_missing_api_key_raises(mocker):
 
 
 def test_get_returns_json_and_emits_signal(mocker):
-    client = make_client(mocker)
+    sent = []
+    client = make_client(mocker, recording(sent, {"items": [{"id": "f1"}]}))
     emit = mocker.patch("lib.tally.emit_api_signal")
-    mocker.patch.object(client._session, "get", return_value=json_resp(mocker, {"items": [{"id": "f1"}]}))
 
     data = client.list_forms()
 
     assert data == {"items": [{"id": "f1"}]}
+    assert sent[0].headers["Authorization"] == "Bearer tly-test"
     emit.assert_called_once()
     assert emit.call_args.kwargs["source"] == "tally"
 
 
 def test_http_error_raises_tally_error(mocker):
-    client = make_client(mocker)
-    resp = mocker.MagicMock()
-    resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-        "forbidden",
-        request=httpx.Request("GET", "https://api.tally.so/forms"),
-        response=httpx.Response(403, request=httpx.Request("GET", "https://api.tally.so/forms")),
-    )
-    mocker.patch.object(client._session, "get", return_value=resp)
+    client = make_client(mocker, lambda request: httpx.Response(403))
     with pytest.raises(TallyError, match="403"):
         client.list_forms()
 
 
+def raise_connect_error(request):
+    raise httpx.ConnectError("boom", request=request)
+
+
 def test_request_error_raises_tally_error(mocker):
-    client = make_client(mocker)
-    mocker.patch.object(client._session, "get", side_effect=httpx.ConnectError("boom"))
+    client = make_client(mocker, raise_connect_error)
     with pytest.raises(TallyError):
         client.get_form("f1")
 
@@ -69,10 +67,11 @@ def test_request_error_raises_tally_error(mocker):
     ],
 )
 def test_list_submissions_param_mapping(mocker, kwargs, expected):
-    client = make_client(mocker)
-    get = mocker.patch.object(client, "_get", return_value={})
+    sent = []
+    client = make_client(mocker, recording(sent, {}))
     client.list_submissions("f1", **kwargs)
-    get.assert_called_once_with("/forms/f1/submissions", params=expected)
+    assert sent[0].url.path == "/forms/f1/submissions"
+    assert dict(sent[0].url.params) == {k: str(v) for k, v in expected.items()}
 
 
 def test_iter_submissions_follows_has_more(mocker):
@@ -100,11 +99,11 @@ def test_iter_submissions_caps_pages(mocker):
 
 
 def test_list_workspaces_calls_endpoint(mocker):
-    client = make_client(mocker)
-    get = mocker.patch.object(client, "_get", return_value={"items": [{"id": "w1", "name": "GPS"}]})
+    sent = []
+    client = make_client(mocker, recording(sent, {"items": [{"id": "w1", "name": "GPS"}]}))
 
     assert client.list_workspaces() == {"items": [{"id": "w1", "name": "GPS"}]}
-    get.assert_called_once_with("/workspaces")
+    assert [r.url.path for r in sent] == ["/workspaces"]
 
 
 def test_workspaces_summary_keeps_name_and_member_count(mocker):
@@ -140,8 +139,8 @@ def test_check_tally_http_error(mocker):
 
 def test_client_context_manager_closes_session(mocker):
     client = make_client(mocker)
-    mocker.patch.object(client._session, "close")
 
     with client as entered:
         assert entered is client
-    client._session.close.assert_called_once()
+    with pytest.raises(RuntimeError, match="closed"):
+        client.list_forms()
