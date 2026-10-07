@@ -48,6 +48,10 @@ class AirtableClient:
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
         try:
             resp = self._session.get(path, params=params)
+            if resp.status_code == 429:
+                # Why: au-delà de 5 req/s, Airtable bloque le jeton 30 s ; une seule reprise après la pénalité.
+                time.sleep(30)
+                resp = self._session.get(path, params=params)
             resp.raise_for_status()
             data = resp.json()
         except httpx.HTTPStatusError as e:

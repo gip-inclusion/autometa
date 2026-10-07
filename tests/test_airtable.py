@@ -28,7 +28,7 @@ def json_resp(mocker, payload):
 
 def http_error(mocker, status):
     request = httpx.Request("GET", "https://api.airtable.com/v0/app1/tbl1")
-    resp = mocker.MagicMock()
+    resp = mocker.MagicMock(status_code=status)
     resp.raise_for_status.side_effect = httpx.HTTPStatusError(
         "error", request=request, response=httpx.Response(status, request=request)
     )
@@ -61,6 +61,18 @@ def test_http_error_raises_airtable_error_without_token(mocker, status):
     with pytest.raises(AirtableError, match=str(status)) as exc:
         client.list_records("app1", "tbl1")
     assert "pat-test" not in str(exc.value)
+
+
+def test_rate_limit_waits_out_the_penalty_then_retries_once(mocker):
+    client = make_client(mocker)
+    sleep = mocker.patch("lib.airtable.time.sleep")
+    get = mocker.patch.object(
+        client._session, "get", side_effect=[http_error(mocker, 429), json_resp(mocker, {"records": [{"id": "a"}]})]
+    )
+
+    assert client.list_records("app1", "tbl1") == [{"id": "a"}]
+    assert get.call_count == 2
+    sleep.assert_called_once_with(30)
 
 
 def test_forbidden_explains_missing_scope(mocker):
