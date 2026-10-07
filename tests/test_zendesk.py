@@ -1,3 +1,4 @@
+import json
 import logging
 
 import httpx
@@ -6,6 +7,7 @@ import pytest
 from lib import sources
 from lib.pii import NIR_PLACEHOLDER
 from lib.zendesk import (
+    ClientCredentialsAuth,
     TicketResult,
     ZendeskAPI,
     ZendeskError,
@@ -29,7 +31,7 @@ def _mock_response(mocker, *, status_code=200, json_data=None, headers=None, url
 @pytest.fixture
 def api(mocker):
     mocker.patch("lib.zendesk.time.sleep")
-    return ZendeskAPI(subdomain="emplois", email="bot@example.com", token="tk")
+    return ZendeskAPI(subdomain="emplois", client_id="cid", client_secret="sec")
 
 
 @pytest.fixture
@@ -38,10 +40,70 @@ def api_no_signal(api, mocker):
     return api
 
 
-def test_init_builds_base_url_and_basic_auth(api):
+def test_init_builds_base_url_and_oauth(api):
     assert api.base_url == "https://emplois.zendesk.com/api/v2"
-    assert api._client.auth is not None
+    assert api._client.auth.token_url == "https://emplois.zendesk.com/oauth/tokens"
     assert api.instance == "emplois"
+
+
+def oauth_client(api_statuses, token_status=200, expires_in=3600):
+    """An httpx client on a fake Zendesk: numbered tokens, API answers popped from api_statuses."""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if request.url.path == "/oauth/tokens":
+            issued = sum(c.url.path == "/oauth/tokens" for c in calls)
+            return httpx.Response(token_status, json={"access_token": f"t{issued}", "expires_in": expires_in})
+        return httpx.Response(api_statuses.pop(0), json={})
+
+    auth = ClientCredentialsAuth("https://x.zendesk.com/oauth/tokens", "cid", "sec")
+    return httpx.Client(transport=httpx.MockTransport(handler), auth=auth, timeout=5), calls
+
+
+def test_oauth_fetches_token_once_and_sends_bearer():
+    client, calls = oauth_client([200, 200])
+
+    client.get("https://x.zendesk.com/api/v2/a")
+    client.get("https://x.zendesk.com/api/v2/b")
+
+    assert [c.url.path for c in calls] == ["/oauth/tokens", "/api/v2/a", "/api/v2/b"]
+    assert json.loads(calls[0].content) == {
+        "grant_type": "client_credentials",
+        "client_id": "cid",
+        "client_secret": "sec",
+        "scope": "read write",
+    }
+    assert calls[2].headers["Authorization"] == "Bearer t1"
+
+
+def test_oauth_refetches_expired_token():
+    client, calls = oauth_client([200, 200], expires_in=0)
+
+    client.get("https://x.zendesk.com/api/v2/a")
+    client.get("https://x.zendesk.com/api/v2/b")
+
+    assert [c.url.path for c in calls] == ["/oauth/tokens", "/api/v2/a", "/oauth/tokens", "/api/v2/b"]
+    assert calls[3].headers["Authorization"] == "Bearer t2"
+
+
+def test_oauth_refetches_token_and_retries_once_on_401():
+    client, calls = oauth_client([401, 200])
+
+    response = client.get("https://x.zendesk.com/api/v2/a")
+
+    assert response.status_code == 200
+    assert [c.url.path for c in calls] == ["/oauth/tokens", "/api/v2/a", "/oauth/tokens", "/api/v2/a"]
+    assert calls[3].headers["Authorization"] == "Bearer t2"
+
+
+def test_oauth_token_refusal_raises_zendesk_error():
+    client, _ = oauth_client([], token_status=401)
+
+    with pytest.raises(ZendeskError) as exc:
+        client.get("https://x.zendesk.com/api/v2/a")
+
+    assert exc.value.status_code == 401
 
 
 def test_close_releases_underlying_client(api, mocker):
@@ -52,7 +114,7 @@ def test_close_releases_underlying_client(api, mocker):
 
 def test_context_manager_closes_client(mocker):
     mocker.patch("lib.zendesk.time.sleep")
-    with ZendeskAPI(subdomain="x", email="e", token="t") as zd:
+    with ZendeskAPI(subdomain="x", client_id="c", client_secret="s") as zd:
         spy = mocker.spy(zd._client, "close")
     assert spy.call_count == 1
 
@@ -338,7 +400,7 @@ def test_get_zendesk_factory_reads_config(mocker):
     mocker.patch.object(
         sources,
         "get_source_config",
-        return_value={"subdomain": "emplois", "email": "bot@x.com", "token": "tk"},
+        return_value={"subdomain": "emplois", "client_id": "cid", "client_secret": "sec"},
     )
     mocker.patch.object(sources, "get_default_instance", return_value="emplois")
 
@@ -354,7 +416,7 @@ def test_get_zendesk_factory_honours_explicit_instance(mocker):
     mocker.patch.object(
         sources,
         "get_source_config",
-        return_value={"subdomain": "autre", "email": "bot@x.com", "token": "tk"},
+        return_value={"subdomain": "autre", "client_id": "cid", "client_secret": "sec"},
     )
     default = mocker.patch.object(sources, "get_default_instance")
 
@@ -588,7 +650,7 @@ def test_comments_are_redacted_by_default(api_no_signal, mocker):
 def test_redaction_can_be_disabled_explicitly(mocker):
     mocker.patch("lib.zendesk.time.sleep")
     mocker.patch("lib.zendesk.emit_api_signal")
-    api = ZendeskAPI(subdomain="x", email="e", token="t", redact=False)
+    api = ZendeskAPI(subdomain="x", client_id="c", client_secret="s", redact=False)
     payload = _ticket_payload(1)
     payload["ticket"]["subject"] = f"dossier {_nir()}"
     mocker.patch.object(api._client, "request", return_value=_mock_response(mocker, json_data=payload))
