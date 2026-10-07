@@ -266,8 +266,10 @@ Ce qui le définit :
 
 - **Déclinaisons déclarées**, jamais devinées : `update_dashboard --add-variant clé=libellé`. Chaque
   déclinaison reçoit un **jeton** stable : sa clé (`?q=78`, `data/78.json`), ou un UUID généré par
-  l'outil si le tableau est **obfusqué** (`update_dashboard --obfuscate-variants`, seulement à la
-  demande, avant la première déclinaison). La table `dashboard_variants` fait foi ; un TDB devient
+  l'outil si le tableau est **obfusqué** (`update_dashboard --obfuscate-variants true|false`,
+  seulement à la demande). Changer de mode est permis à tout moment : chaque déclinaison reçoit le
+  jeton du nouveau mode, son fichier de données est renommé (interne et snapshots publiés), et les
+  liens de l'ancien mode cessent de fonctionner. La table `dashboard_variants` fait foi ; un TDB devient
   multi-sources dès qu'une déclinaison lui est déclarée.
 - **Un lien par déclinaison** : `/interactive/{slug}/?q=<jeton>`. La page lit `?q`, vérifie la forme
   du jeton avant toute requête, charge `data/<jeton>.json`, et n'affiche que cette déclinaison. Sans

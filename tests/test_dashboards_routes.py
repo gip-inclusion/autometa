@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pytest
 from sqlalchemy import select
 
-from lib.variants import add_variant, obfuscate_tokens
+from lib.variants import add_variant, set_obfuscation
 from web.config import ADMIN_USERS
 from web.database import store
 from web.db import get_db
@@ -877,7 +877,7 @@ def test_dod_18_detail_shows_the_count_and_a_filter_above_twenty(client, mocker,
 
 def test_dod_20_publish_endpoint_names_the_file_that_exposes_a_token(client, mocker):
     _make_dashboard("route-exposed")
-    obfuscate_tokens("route-exposed")
+    set_obfuscation("route-exposed", True)
     token = add_variant("route-exposed", "67", "Bas-Rhin")["token"]
     mocker.patch("web.s3.interactive.list_files", return_value=[{"path": "route-exposed/index.html"}])
     mocker.patch("web.s3.interactive.download", return_value=f"<a href='?q={token}'>Bas-Rhin</a>".encode())
@@ -930,7 +930,7 @@ def test_dod_19_detail_warns_when_the_page_of_a_converted_dashboard_can_leak_the
     client, mocker, index_html, warned
 ):
     _make_dashboard("converted")
-    obfuscate_tokens("converted")
+    set_obfuscation("converted", True)
     add_variant("converted", "67", "Bas-Rhin")
     _with_data_files(mocker, "converted", [])
     mocker.patch("web.routes.dashboards.s3.interactive.download", return_value=index_html)

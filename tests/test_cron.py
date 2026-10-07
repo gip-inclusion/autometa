@@ -1188,10 +1188,10 @@ def test_dod_6_publication_run_receives_the_dashboard_slug_not_the_composite(cli
 
 
 def test_dod_20_publication_refresh_is_refused_when_the_snapshot_exposes_a_token(client, mocker):
-    from lib.variants import add_variant, obfuscate_tokens
+    from lib.variants import add_variant, set_obfuscation
 
     _seed_dashboard_and_publication("pub-leak", "leak01")
-    obfuscate_tokens("pub-leak")
+    set_obfuscation("pub-leak", True)
     token = add_variant("pub-leak", "67", "Bas-Rhin")["token"]
     files = {"pub-leak/leak01/cron.py": b"print('ok')", "pub-leak/leak01/app.js": f"const T = '{token}';".encode()}
     mocker.patch("web.cron.s3.publications.list_files", return_value=[{"path": key} for key in files])

@@ -39,7 +39,8 @@ GT »), ou qu'un TDB existant est demandé « pour un autre territoire ». Dans 
 2. **Attendre son accord explicite** avant de créer avec `--multi-source`. Un silence ou une
    demande ambiguë n'est pas un accord : créer alors un TDB classique, ou reposer la question.
 3. Après création, si l'utilisateur veut des liens non devinables, `update_dashboard
-   --obfuscate-variants` **avant** la première déclinaison (refusé ensuite). Puis déclarer les
+   --obfuscate-variants true`, de préférence avant la première déclinaison : basculer plus tard
+   change les liens déjà partagés. Puis déclarer les
    déclinaisons avec `update_dashboard --add-variant clé=libellé`, puis
    adapter `cron.py` : une requête en une seule passe pour toutes les clés, puis un fichier par
    déclinaison déclarée via `list_variants()`. Jamais de fichier de liste ; obfusqué, jamais le

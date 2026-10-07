@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lib.dashboards import DashboardNotFound, update_dashboard
-from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, obfuscate_tokens, remove_variant
+from lib.variants import add_variant, exposed_tokens, folder_files, list_variants, remove_variant, set_obfuscation
 from web import config as cfg
 from web.db import get_db
 from web.db import test_transaction as _test_tx
@@ -26,6 +26,32 @@ def isolated(tmp_path, monkeypatch):
     with _test_tx():
         yield interactive_dir
     shutil.rmtree(interactive_dir, ignore_errors=True)
+
+
+def _fake_store(mocker, store, files):
+    """Patche un store S3 sur un dict chemin → contenu, renvoyé pour les assertions."""
+    target = f"web.s3.{store}"
+    mocker.patch(
+        f"{target}.list_files", side_effect=lambda prefix, **_: [{"path": p} for p in files if p.startswith(prefix)]
+    )
+    mocker.patch(f"{target}.download", side_effect=files.get)
+    mocker.patch(f"{target}.upload", side_effect=lambda path, content, *_: files.update({path: content}) or True)
+    mocker.patch(f"{target}.delete", side_effect=lambda path: files.pop(path, None) is not None)
+    return files
+
+
+def _publish(slug, publication_id, unpublished_at=None):
+    with get_db() as session:
+        session.add(
+            DashboardPublication(
+                dashboard_slug=slug,
+                publication_id=publication_id,
+                environment="staging",
+                published_by="bob@x",
+                published_at=datetime.now(timezone.utc),
+                unpublished_at=unpublished_at,
+            )
+        )
 
 
 def _make_dashboard(slug):
@@ -61,18 +87,83 @@ class TestDeclaration:
 
     def test_dod_4_an_obfuscated_dashboard_gets_a_generated_and_stable_token(self):
         _make_dashboard("multi")
-        obfuscate_tokens("multi")
+        set_obfuscation("multi", True)
         variant = add_variant("multi", "67", "Bas-Rhin")
         assert UUID_RE.match(variant["token"])
         assert variant["path"] == f"data/{variant['token']}.json"
         assert list_variants("multi")[0]["token"] == variant["token"]
 
-    def test_dod_4_obfuscating_a_dashboard_that_has_variants_is_refused(self):
+    def test_dod_4_switching_the_mode_retokenizes_variants_and_moves_their_files(self, isolated, mocker):
         _make_dashboard("multi")
         add_variant("multi", "67", "Bas-Rhin")
-        with pytest.raises(ValueError, match="déclinaisons"):
-            obfuscate_tokens("multi")
+        add_variant("multi", "68", "Haut-Rhin")
+        files = _fake_store(mocker, "interactive", {"multi/data/67.json": b"bas-rhin", "multi/index.html": b"<html>"})
+        _fake_store(mocker, "publications", {})
+        (isolated / "multi" / "data").mkdir(parents=True)
+        (isolated / "multi" / "data" / "67.json").write_bytes(b"bas-rhin")
+
+        assert set_obfuscation("multi", True) == ["67", "68"]
+
+        token = {v["key"]: v["token"] for v in list_variants("multi")}
+        assert UUID_RE.match(token["67"]) and UUID_RE.match(token["68"])
+        assert files == {f"multi/data/{token['67']}.json": b"bas-rhin", "multi/index.html": b"<html>"}
+        assert [p.name for p in (isolated / "multi" / "data").iterdir()] == [f"{token['67']}.json"]
+
+        assert set_obfuscation("multi", False) == ["67", "68"]
+
+        assert [v["token"] for v in list_variants("multi")] == ["67", "68"]
+        assert files == {"multi/data/67.json": b"bas-rhin", "multi/index.html": b"<html>"}
+
+    def test_dod_4_setting_the_current_mode_changes_nothing(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        upload = mocker.patch("web.s3.interactive.upload")
+
+        assert set_obfuscation("multi", False) == []
+
+        upload.assert_not_called()
+
+    def test_dod_4_switching_the_mode_moves_the_file_in_every_active_snapshot(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        _publish("multi", "live01")
+        _publish("multi", "old001", unpublished_at=datetime.now(timezone.utc))
+        _fake_store(mocker, "interactive", {})
+        snapshots = _fake_store(
+            mocker, "publications", {"multi/live01/data/67.json": b"live", "multi/old001/data/67.json": b"old"}
+        )
+
+        set_obfuscation("multi", True)
+
+        token = list_variants("multi")[0]["token"]
+        assert snapshots == {f"multi/live01/data/{token}.json": b"live", "multi/old001/data/67.json": b"old"}
+
+    def test_dod_4_a_failed_copy_changes_no_token(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        files = _fake_store(mocker, "interactive", {"multi/data/67.json": b"bas-rhin"})
+        _fake_store(mocker, "publications", {})
+        mocker.patch("web.s3.interactive.upload", return_value=False)
+
+        with pytest.raises(ValueError, match="aucun jeton n'a changé"):
+            set_obfuscation("multi", True)
+
         assert [v["token"] for v in list_variants("multi")] == ["67"]
+        assert files == {"multi/data/67.json": b"bas-rhin"}
+        add_variant("multi", "68", "Haut-Rhin")
+        assert list_variants("multi")[1]["token"] == "68"
+
+    def test_dod_4_an_old_file_left_behind_is_named(self, mocker):
+        _make_dashboard("multi")
+        add_variant("multi", "67", "Bas-Rhin")
+        _fake_store(mocker, "interactive", {"multi/data/67.json": b"bas-rhin"})
+        _fake_store(mocker, "publications", {})
+        mocker.patch("web.s3.interactive.delete", return_value=False)
+
+        with pytest.raises(ValueError, match="multi/data/67.json"):
+            set_obfuscation("multi", True)
+
+        assert UUID_RE.match(list_variants("multi")[0]["token"])
 
     def test_dod_4_two_dashboards_may_declare_the_same_key(self):
         _make_dashboard("multi")
