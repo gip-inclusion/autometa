@@ -105,25 +105,6 @@ tag_manager:
       container_id: 9eafCVJv
       staging: true
 
-data_inclusion:
-  datawarehouse:
-    database_url: ${env.DATA_INCLUSION_DATABASE_URL}
-    ssh_host: ${env.DATA_INCLUSION_SSH_HOST}
-    ssh_user: ${env.DATA_INCLUSION_SSH_USER}
-    ssh_key: ${env.DATA_INCLUSION_SSH_KEY}
-    knowledge_path: knowledge/data_inclusion/
-
-autometa_tables_db:
-  database_url: ${env.AUTOMETA_TABLES_DATABASE_URL}
-
-# Lecture seule stricte — jamais d'écriture, jamais mélangée aux autres sources
-dora_staging:
-  database_url: ${env.DORA_STAGING_DB_URL}
-
-# Base applicative de Mon Récap — accès explicite uniquement (lecture/écriture), jamais pour l'analyse
-appli_monrecap:
-  database_url: ${env.MONRECAP_APPLI_DB_URL}
-
 zendesk:
   _default: emplois
 
@@ -131,14 +112,3 @@ zendesk:
     subdomain: ${env.ZENDESK_SUBDOMAIN}
     email: ${env.ZENDESK_EMAIL}
     token: ${env.ZENDESK_API_TOKEN}
-
-livestorm:
-  api_key: ${env.LIVESTORM_API_KEY}
-
-tally:
-  api_key: ${env.TALLY_API_KEY}
-
-grist:
-  webinaires:
-    api_key: ${env.GRIST_API_KEY}
-    doc_id: ${env.GRIST_WEBINAIRES_DOC_ID}

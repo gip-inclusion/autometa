@@ -41,7 +41,7 @@ L'analogue le plus proche existe déjà : `lib/zendesk.py` (API externe → clie
 | Préoccupation | Réutilisation | Note |
 |---|---|---|
 | Client HTTP | `lib/matomo.py`, `GristClient` | `httpx.Client(transport=HTTPTransport(retries=2))`, `timeout=` explicite, header Bearer. |
-| Config / clé | `livestorm` | Bloc `tally:` dans `config/sources.yaml`, `TALLY_API_KEY` lu via `web/config.py`. |
+| Config / clé | `livestorm` | `TALLY_API_KEY` lu via `web/config.py`. |
 | Observabilité | `lib/api_signals.py` | `emit_api_signal(source="tally", …)` émis dans le client (n'imprime qu'en contexte conversation agent). |
 | Selftest | `_check_livestorm` | `_check_tally` ping `GET /forms?limit=1`, enregistré dans `_check_specs`. |
 | Cache (phase 2) | `web/cron.py` (`facade_audit_state`, `dashboard_storage`) | Tables hors Alembic, `MetaData(schema="dashboard_storage")` + `create_all`. |
@@ -147,7 +147,7 @@ Optimisation de latence, **pas** un remplacement du poller (backfill et réconci
 | Fichier | Phase | Rôle |
 |---|---|---|
 | `lib/tally.py` | 1 | Client `httpx` (+ phase 2 : logique de sync). |
-| `config/sources.yaml` (bloc `tally`) + `web/config.py` (`TALLY_API_KEY`) | 1 | Clé API. |
+| `web/config.py` (`TALLY_API_KEY`) | 1 | Clé API. |
 | `web/selftest.py` (`_check_tally`) | 1 | Sonde de connectivité. |
 | `skills/tally/SKILL.md` + `scripts/query.py` | 1 | Skill lecteur. |
 | Tables `dashboard_storage` (`tally_*`) | 2 | Cache + snapshot + sync_meta + sync_log. |
