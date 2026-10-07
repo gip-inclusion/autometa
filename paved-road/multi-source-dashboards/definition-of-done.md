@@ -33,6 +33,13 @@ DOD-4 — [du brief : « mapping between facet and uuid is stored in our work db
   déjà des déclinaisons est refusé : les liens partagés casseraient. Le jeton reste stable dans les
   deux modes. Motif : un nom de fichier lisible suffit tant que le lien n'a pas à être secret.
   Revalidé le 2026-10-02.
+  Révision 2026-10-07 — quiconque peut modifier le tableau peut activer ou désactiver l'obfuscation
+  à tout moment, déclinaisons déjà déclarées comprises (`update_dashboard --obfuscate-variants
+  true|false`). Chaque déclinaison reçoit alors le jeton du nouveau mode, et son fichier de données
+  le suit, en interne comme dans chaque snapshot publié : aucun contenu n'est perdu et aucun cron
+  n'est à relancer. Les liens partagés de l'ancien mode cessent de fonctionner, ce que la commande
+  signale. Si une copie échoue, aucun jeton ne change. Motif : refuser obligeait à retirer puis
+  redéclarer chaque déclinaison. Revalidé le 2026-10-07.
 
 DOD-5 — [du brief : « links to every db, and json with mapping is accessible on the
   dashboard/xxxxxx/edit page »] La page d'édition liste chaque déclinaison avec son libellé, son
