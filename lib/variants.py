@@ -77,7 +77,7 @@ def set_obfuscation(slug: str, obfuscate: bool) -> list[str]:
         # Why: copier partout avant de changer un seul jeton — une copie ratée laisse le tableau
         # entier dans l'ancien mode, liens et fichiers intacts.
         copied = []
-        for store, prefix in data_locations(session, slug):
+        for store, prefix in data_locations(session, slug) if variants else []:
             present = {f["path"] for f in store.list_files(f"{prefix}data/", raise_errors=True)}
             for v in variants:
                 old = f"{prefix}{data_path(v.token)}"

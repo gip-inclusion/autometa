@@ -114,6 +114,15 @@ class TestDeclaration:
         assert [v["token"] for v in list_variants("multi")] == ["67", "68"]
         assert files == {"multi/data/67.json": b"bas-rhin", "multi/index.html": b"<html>"}
 
+    def test_dod_4_switching_a_dashboard_without_variants_does_not_touch_s3(self, mocker):
+        _make_dashboard("multi")
+        list_files = mocker.patch("web.s3.interactive.list_files")
+
+        assert set_obfuscation("multi", True) == []
+
+        list_files.assert_not_called()
+        assert UUID_RE.match(add_variant("multi", "67", "Bas-Rhin")["token"])
+
     def test_dod_4_setting_the_current_mode_changes_nothing(self, mocker):
         _make_dashboard("multi")
         add_variant("multi", "67", "Bas-Rhin")
