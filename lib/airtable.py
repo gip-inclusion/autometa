@@ -3,6 +3,7 @@
 import logging
 import time
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -77,7 +78,7 @@ class AirtableClient:
         for page in range(max_pages):
             if page:
                 time.sleep(PAGE_INTERVAL_S)
-            data = self._get(f"/{base_id}/{table}", params=params)
+            data = self._get(f"/{base_id}/{quote(table, safe='')}", params=params)
             records += data.get("records", [])
             if "offset" not in data:
                 return records

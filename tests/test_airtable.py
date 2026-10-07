@@ -97,6 +97,24 @@ def test_list_records_param_mapping(mocker, kwargs, expected):
     get.assert_called_once_with("/app1/tbl1", params=expected)
 
 
+@pytest.mark.parametrize(
+    "table,path",
+    [
+        ("tbl1", "/app1/tbl1"),
+        ("Devis clients", "/app1/Devis%20clients"),
+        ("Devis #2", "/app1/Devis%20%232"),
+        ("Devis/Commandes", "/app1/Devis%2FCommandes"),
+    ],
+)
+def test_list_records_encodes_table_name_in_path(mocker, table, path):
+    client = make_client(mocker)
+    get = mocker.patch.object(client, "_get", return_value={"records": []})
+
+    client.list_records("app1", table)
+
+    assert get.call_args.args[0] == path
+
+
 def test_list_records_follows_offset_and_paces_requests(mocker):
     client = make_client(mocker)
     sleep = mocker.patch("lib.airtable.time.sleep")
