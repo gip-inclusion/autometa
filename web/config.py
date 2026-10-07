@@ -206,6 +206,9 @@ LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 # Tally API (form submissions as a data source)
 TALLY_API_KEY = os.getenv("TALLY_API_KEY")
 
+# Airtable API — lecture seule (suivi des commandes et devis Mon Récap)
+AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
+
 # Datadog Logs API — lecture des logs applicatifs (site EU). Rétention 30 jours.
 DATADOG_API_KEY = os.getenv("DATADOG_API_KEY")
 DATADOG_APP_KEY = os.getenv("DATADOG_APP_KEY")
