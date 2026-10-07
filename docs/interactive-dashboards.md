@@ -322,6 +322,7 @@ const result = await query({
 **Autres sources SQL** (`sql` obligatoire) : `data_inclusion`, `autometa_tables_db`, `dashboard_storage` et `appli_monrecap`.
 La source `appli_monrecap` (façade : `query_appli_monrecap`) lit et écrit dans la base applicative Mon Récap, en production.
 L'endpoint ne restreint pas les sources par dashboard : réserver cette source aux TDB qui en ont explicitement besoin.
+Créer ou modifier un TDB qui l'utilise exige une confirmation écrite préalable de l'utilisateur (skill `appli_monrecap_db`).
 
 #### Persistance dashboard_storage
 
