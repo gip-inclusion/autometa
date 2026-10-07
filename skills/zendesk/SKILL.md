@@ -9,7 +9,7 @@ Trois périmètres sur la même instance : les **tickets** (lecture seule), la *
 
 ## Configuration
 
-Variables d'environnement (cf. `.env.example`) : `ZENDESK_SUBDOMAIN`, `ZENDESK_EMAIL`, `ZENDESK_API_TOKEN` (Admin Center → Apps → API). Instance par défaut `emplois`, définie dans `config/sources.yaml`.
+Variables d'environnement (cf. `.env.example`) : `ZENDESK_SUBDOMAIN`, `ZENDESK_CLIENT_ID`, `ZENDESK_CLIENT_SECRET` (client OAuth confidentiel, Admin Center → Apps et intégrations → API → Clients OAuth ; l'API agit avec les droits de l'utilisateur qui l'a créé). Instance par défaut `emplois`, définie dans `config/sources.yaml`.
 
 ```python
 from lib.sources import get_zendesk

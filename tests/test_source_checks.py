@@ -38,8 +38,8 @@ def stub_credentials(mocker):
         side_effect=lambda source_type, instance=None: {
             "url": "https://exemple.test",
             "subdomain": "exemple",
-            "email": "essai@exemple.test",
-            "token": "factice",
+            "client_id": "essai",
+            "client_secret": "factice",
         },
     )
     mocker.patch.object(
