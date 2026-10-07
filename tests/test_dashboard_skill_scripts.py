@@ -168,28 +168,44 @@ def test_dod_12_every_add_variant_pair_is_checked_before_any_is_declared(runtime
     add.assert_not_called()
 
 
-def test_dod_4_obfuscate_variants_applies_before_the_declarations(runtime, monkeypatch, mocker):
+@pytest.mark.parametrize(("value", "obfuscate"), [("true", True), ("false", False)])
+def test_dod_4_obfuscate_variants_applies_before_the_declarations(runtime, monkeypatch, mocker, value, obfuscate):
     cli = _load("update_dashboard")
     _updated(mocker, cli)
     calls = mocker.Mock()
-    mocker.patch.object(cli, "obfuscate_tokens", calls.obfuscate)
+    calls.obfuscate.return_value = []
+    mocker.patch.object(cli, "set_obfuscation", calls.obfuscate)
     mocker.patch.object(cli, "add_variant", calls.add)
     mocker.patch.object(cli, "list_variants", return_value=[])
 
-    _run(cli, ["--slug", "multi", "--obfuscate-variants", "--add-variant", "67=Bas-Rhin"], monkeypatch)
+    _run(cli, ["--slug", "multi", "--obfuscate-variants", value, "--add-variant", "67=Bas-Rhin"], monkeypatch)
 
-    assert calls.mock_calls == [mocker.call.obfuscate("multi"), mocker.call.add("multi", "67", "Bas-Rhin")]
+    assert calls.mock_calls == [mocker.call.obfuscate("multi", obfuscate), mocker.call.add("multi", "67", "Bas-Rhin")]
 
 
-def test_dod_4_obfuscation_refused_is_reported_with_exit_1(runtime, monkeypatch, mocker, capsys):
+def test_dod_4_a_mode_switch_warns_that_the_old_links_stop_working(runtime, monkeypatch, mocker, capsys):
     cli = _load("update_dashboard")
     _updated(mocker, cli)
-    mocker.patch.object(cli, "obfuscate_tokens", side_effect=ValueError("le tableau a déjà des déclinaisons"))
+    mocker.patch.object(cli, "set_obfuscation", return_value=["67", "68"])
+    mocker.patch.object(cli, "list_variants", return_value=[{"key": "67"}, {"key": "68"}])
+    mocker.patch.object(cli, "list_publications", return_value=[])
+
+    _run(cli, ["--slug", "multi", "--obfuscate-variants", "true"], monkeypatch)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["variants"] == [{"key": "67"}, {"key": "68"}]
+    assert "anciens liens" in output["notices"][0]
+
+
+def test_dod_4_a_failed_mode_switch_is_reported_with_exit_1(runtime, monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    _updated(mocker, cli)
+    mocker.patch.object(cli, "set_obfuscation", side_effect=ValueError("copie échouée, aucun jeton n'a changé"))
     add = mocker.patch.object(cli, "add_variant")
 
     with pytest.raises(SystemExit) as exc:
-        _run(cli, ["--slug", "multi", "--obfuscate-variants"], monkeypatch)
+        _run(cli, ["--slug", "multi", "--obfuscate-variants", "true"], monkeypatch)
 
     assert exc.value.code == 1
-    assert "déjà des déclinaisons" in capsys.readouterr().err
+    assert "aucun jeton n'a changé" in capsys.readouterr().err
     add.assert_not_called()

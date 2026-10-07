@@ -5,7 +5,7 @@ import json
 import sys
 
 from lib.dashboards import DashboardNotFound, update_dashboard
-from lib.variants import add_variant, list_variants, obfuscate_tokens, remove_variant, validate_variant
+from lib.variants import add_variant, list_variants, remove_variant, set_obfuscation, validate_variant
 from web import config
 from web.publications import list_publications
 
@@ -68,8 +68,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--obfuscate-variants",
-        action="store_true",
-        help="Jetons UUID pour les déclinaisons de ce tableau ; refusé s'il en a déjà",
+        type=_bool_arg,
+        default=None,
+        help="true : jetons UUID, false : jeton = clé ; les déclinaisons existantes changent de jeton",
     )
     parser.add_argument(
         "--remove-variant", action="append", default=[], metavar="CLÉ", help="Retire une déclinaison (répétable)"
@@ -114,14 +115,19 @@ def main() -> None:
             if key in declared:
                 raise ValueError(f"déclinaison déjà déclarée : {key}")
             declared.add(key)
-        if args.obfuscate_variants:
-            obfuscate_tokens(args.slug)
+        retokenized = [] if args.obfuscate_variants is None else set_obfuscation(args.slug, args.obfuscate_variants)
         for key, label in args.add_variant:
             add_variant(args.slug, key, label)
         removed = [key for key in args.remove_variant if remove_variant(args.slug, key)]
         for key in set(args.remove_variant) - set(removed):
             print(f"Warning: déclinaison inconnue, rien retiré : {key}", file=sys.stderr)
         notices = []
+        if retokenized:
+            notices.append(
+                f"Jetons changés pour {len(retokenized)} déclinaison(s) : les anciens liens ne fonctionnent plus, "
+                "leurs fichiers de données ont suivi. Le lien public de chaque publication suit au prochain "
+                "rafraîchissement."
+            )
         if removed and (active := list_publications(args.slug)):
             urls = ", ".join(p["url"] for p in active)
             paused = ", ".join(p["url"] for p in active if p["refresh_paused_at"])
@@ -130,7 +136,8 @@ def main() -> None:
                 f"prochain rafraîchissement de la publication ({urls})."
                 + (f" Rafraîchissement en pause, donc sans borne, sur : {paused}." if paused else "")
             )
-            print(f"Notice: {notices[0]}", file=sys.stderr)
+        for notice in notices:
+            print(f"Notice: {notice}", file=sys.stderr)
     except DashboardNotFound as exc:
         print(f"Error: dashboard not found: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -146,7 +153,7 @@ def main() -> None:
         "directory": f"data/interactive/{result.slug}",
         "conventions_doc_path": "docs/interactive-dashboards.md",
     }
-    if args.add_variant or args.remove_variant:
+    if args.add_variant or args.remove_variant or retokenized:
         output["variants"] = list_variants(args.slug)
         output["notices"] = notices
     print(json.dumps(output))

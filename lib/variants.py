@@ -52,21 +52,57 @@ def validate_variant(key: str, label: str) -> str:
     return label
 
 
-def obfuscate_tokens(slug: str) -> None:
-    """Les déclinaisons du tableau recevront un UUID pour jeton ; refusé dès qu'il en a déjà."""
+def data_locations(session, slug: str) -> list[tuple[s3.S3Store, str]]:
+    """Le dossier interne du tableau, puis le snapshot de chaque publication active."""
+    active = session.scalars(
+        select(DashboardPublication.publication_id).where(
+            DashboardPublication.dashboard_slug == slug, DashboardPublication.unpublished_at.is_(None)
+        )
+    )
+    return [(s3.interactive, f"{slug}/"), *((s3.publications, f"{slug}/{pid}/") for pid in active)]
+
+
+def set_obfuscation(slug: str, obfuscate: bool) -> list[str]:
+    """Bascule le mode des jetons : chaque déclinaison change de jeton, son fichier le suit ; renvoie les clés."""
     with get_db() as session:
         dashboard = session.scalar(select(Dashboard).where(Dashboard.slug == slug))
         if dashboard is None:
             raise DashboardNotFound(slug)
-        if dashboard.obfuscate_variants:
-            return
-        if session.scalar(select(DashboardVariant.id).where(DashboardVariant.dashboard_slug == slug).limit(1)):
-            raise ValueError("le tableau a déjà des déclinaisons : leurs liens partagés casseraient")
-        dashboard.obfuscate_variants = True
+        if dashboard.obfuscate_variants == obfuscate:
+            return []
+        variants = session.scalars(
+            select(DashboardVariant).where(DashboardVariant.dashboard_slug == slug).order_by(DashboardVariant.key)
+        ).all()
+        tokens = {v.key: str(uuid.uuid4()) if obfuscate else v.key for v in variants}
+        # Why: copier partout avant de changer un seul jeton — une copie ratée laisse le tableau
+        # entier dans l'ancien mode, liens et fichiers intacts.
+        copied = []
+        for store, prefix in data_locations(session, slug):
+            present = {f["path"] for f in store.list_files(f"{prefix}data/", raise_errors=True)}
+            for v in variants:
+                old = f"{prefix}{data_path(v.token)}"
+                if old not in present:
+                    continue
+                content = store.download(old)
+                if content is None or not store.upload(f"{prefix}{data_path(tokens[v.key])}", content):
+                    raise ValueError(f"copie S3 échouée, aucun jeton n'a changé : {old}")
+                copied.append((store, old))
+        local = config.INTERACTIVE_DIR / slug
+        renames = [(local / data_path(v.token), local / data_path(tokens[v.key])) for v in variants]
+        for v in variants:
+            v.token = tokens[v.key]
+        dashboard.obfuscate_variants = obfuscate
+    for old, new in renames:
+        if old.exists():
+            old.rename(new)
+    leftovers = [path for store, path in copied if not store.delete(path)]
+    if leftovers:
+        raise ValueError(f"jetons changés, mais fichiers de l'ancien mode non supprimés : {', '.join(leftovers)}")
+    return list(tokens)
 
 
 def add_variant(slug: str, key: str, label: str) -> dict:
-    """Déclare une déclinaison ; son jeton, la clé ou un UUID selon le tableau, ne change plus."""
+    """Déclare une déclinaison ; son jeton est la clé, ou un UUID sur un tableau obfusqué."""
     label = validate_variant(key, label)
     with get_db() as session:
         obfuscated = session.scalar(select(Dashboard.obfuscate_variants).where(Dashboard.slug == slug))
@@ -105,16 +141,9 @@ def remove_variant(slug: str, key: str) -> bool:
         path = data_path(variant.token)
         # Why: les fichiers d'abord, la ligne ensuite — une ligne disparue avec un fichier encore en
         # ligne laisserait un lien vivant qu'aucun contrôle ne verrait plus.
-        if not s3.interactive.delete(f"{slug}/{path}"):
-            raise ValueError(f"fichier S3 non supprimé, déclinaison conservée : {slug}/{path}")
-        active = session.scalars(
-            select(DashboardPublication.publication_id).where(
-                DashboardPublication.dashboard_slug == slug, DashboardPublication.unpublished_at.is_(None)
-            )
-        )
-        for publication_id in active:
-            if not s3.publications.delete(f"{slug}/{publication_id}/{path}"):
-                raise ValueError(f"fichier S3 non supprimé, déclinaison conservée : {slug}/{publication_id}/{path}")
+        for store, prefix in data_locations(session, slug):
+            if not store.delete(f"{prefix}{path}"):
+                raise ValueError(f"fichier S3 non supprimé, déclinaison conservée : {prefix}{path}")
         (config.INTERACTIVE_DIR / slug / path).unlink(missing_ok=True)
         session.delete(variant)
         session.flush()

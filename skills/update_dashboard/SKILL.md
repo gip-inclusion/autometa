@@ -82,10 +82,10 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | `--archive` | Passe `is_archived=true` |
 | `--unarchive` | Passe `is_archived=false` |
 | `--add-variant CLÉ=LIBELLÉ` | Déclare une déclinaison (répétable). Clé en `[a-z0-9-]`, 1 à 64 caractères ; libellé obligatoire. Le jeton du lien est la clé, ou un UUID si le tableau est obfusqué ; il ne change plus. Clé déjà déclarée → refus. |
-| `--obfuscate-variants` | Jetons UUID (liens non devinables) pour les déclinaisons du tableau. Seulement à la demande de l'utilisateur, avant la première déclinaison : refusé dès qu'il en a une. Combinable avec `--add-variant` dans le même appel. |
+| `--obfuscate-variants true\|false` | `true` : jetons UUID (liens non devinables) ; `false` : le jeton est la clé. Seulement à la demande de l'utilisateur, à tout moment : les déclinaisons existantes changent de jeton et leurs fichiers de données sont renommés, en interne et dans chaque snapshot publié. Aucun contenu n'est perdu, ce n'est donc pas une opération S3 destructive au sens d'`AGENT.md` ; en revanche les liens déjà partagés cessent de fonctionner — le dire à l'utilisateur avant d'agir. Combinable avec `--add-variant` dans le même appel. |
 | `--remove-variant CLÉ` | Retire une déclinaison (répétable) et supprime son fichier de données interne. Un lien public déjà en ligne reste servi jusqu'au prochain rafraîchissement de la publication, donc sans borne tant que ce rafraîchissement est en pause ; la sortie le signale. |
 
-Avec `--add-variant` ou `--remove-variant`, la sortie porte en plus `variants` : la liste à jour
+Avec `--add-variant`, `--remove-variant` ou un changement de mode, la sortie porte en plus `variants` : la liste à jour
 (clé, libellé, jeton, chemin `data/<jeton>.json`, lien interne). Déclarer une déclinaison sur un TDB
 classique suffit à le rendre multi-sources : l'index interne et la page d'édition suivent, sans
 recréation. Le code du TDB (page qui lit `?q`, cron qui écrit un fichier par déclinaison) reste à
