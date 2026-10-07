@@ -189,7 +189,7 @@ class ClientCredentialsAuth(httpx.Auth):
             "grant_type": "client_credentials",
             "client_id": self.client_id,
             "client_secret": self.client_secret,
-            "scope": "read write",
+            "scope": "read hc:write macros:write",
         }
         # Why: httpx applies the client timeout only to the request it was sent, not to those auth_flow yields.
         timeout = httpx.Timeout(_DEFAULT_TIMEOUT).as_dict()

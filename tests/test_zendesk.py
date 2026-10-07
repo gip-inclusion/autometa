@@ -72,7 +72,7 @@ def test_oauth_fetches_token_once_and_sends_bearer():
         "grant_type": "client_credentials",
         "client_id": "cid",
         "client_secret": "sec",
-        "scope": "read write",
+        "scope": "read hc:write macros:write",
     }
     assert calls[2].headers["Authorization"] == "Bearer t1"
 
