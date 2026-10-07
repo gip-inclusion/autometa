@@ -148,7 +148,7 @@ data/interactive/mon-dashboard/
 └── data.json    ← écrit par cron.py
 ```
 
-Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il importe `lib.dashboard_api` — et rien d'autre du dépôt — pour interroger Matomo, Metabase, data·inclusion, autometa_tables_db, Datadog et `dashboard_storage`. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
+Le script tourne comme un processus Python standard avec `PYTHONPATH` pointé sur la racine du projet. Il importe `lib.dashboard_api` — et rien d'autre du dépôt — pour interroger Matomo, Metabase, data·inclusion, autometa_tables_db, Datadog, `dashboard_storage` et la base applicative Mon Récap. Son working directory est le dossier du dashboard, donc `open('data.json', 'w')` écrit au bon endroit.
 
 **Un `cron.py` ne tourne que si le TDB est enregistré** avec `has_cron` : le système de cron découvre les tâches via la table `dashboards`, pas en scannant les dossiers. Un dossier non enregistré n'est jamais exécuté.
 
@@ -163,7 +163,7 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog`, `count_datadog`, `sample_datadog` et `query_storage`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+`query_datadog`, `count_datadog`, `sample_datadog`, `query_storage` et `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
@@ -318,6 +318,10 @@ const result = await query({
 ```
 
 **Instances disponibles :** voir `config/sources.yaml`. Les instances Metabase et Matomo y sont listées.
+
+**Autres sources SQL** (`sql` obligatoire) : `data_inclusion`, `autometa_tables_db`, `dashboard_storage` et `appli_monrecap`.
+La source `appli_monrecap` (façade : `query_appli_monrecap`) lit et écrit dans la base applicative Mon Récap, en production.
+L'endpoint ne restreint pas les sources par dashboard : réserver cette source aux TDB qui en ont explicitement besoin.
 
 #### Persistance dashboard_storage
 

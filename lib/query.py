@@ -472,8 +472,10 @@ def execute_query(
             caller=caller,
             timeout=timeout,
         )
+    if source == "appli_monrecap":
+        return execute_appli_monrecap_query(sql=sql or "", caller=caller, params=params, timeout=timeout)
     return QueryResult(
         success=False,
         data=None,
-        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', or 'dashboard_storage'.",
+        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', 'dashboard_storage', or 'appli_monrecap'.",
     )
