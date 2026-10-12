@@ -4,7 +4,7 @@ verifie_le: 2026-09-11
 ---
 # Dora
 
-- URL: https://dora.inclusion.beta.gouv.fr
+- URL: https://dora.inclusion.gouv.fr (ancienne adresse `dora.inclusion.beta.gouv.fr`, encore présente dans les segments ci-dessous)
 - Matomo site ID: 211
 - Tag Manager: yes (container ID: `1y35glgB`)
 - GitHub: https://github.com/gip-inclusion/dora

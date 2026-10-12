@@ -17,7 +17,7 @@ AUTHORITATIVE_SECTIONS = (
     ("AGENT.md", "Sources de données"),
     ("skills/autometa_tables_db/SKILL.md", "Règles de sélection des tables"),
 )
-DATABASE_SOURCES = ("autometa_tables_db", "data_inclusion", "dora_staging", "appli_monrecap")
+DATABASE_SOURCES = ("autometa_tables_db", "data_inclusion", "dora_staging", "appli_monrecap", "appli_monrecap_db")
 STALE_AFTER_DAYS = 180
 
 FENCE = re.compile(r"^```(\w*)\s*$")
@@ -27,7 +27,7 @@ REPO_PATH = re.compile(
 )
 LINK = re.compile(r"\]\((?!https?:|#|mailto:)([^)\s#]+)")
 IMPORT = re.compile(r"\bfrom\s+((?:lib|web)(?:\.\w+)+)\s+import\s+\(?([\w\s,]+)")
-METABASE_INSTANCE = re.compile(r"(?:get_metabase\(\s*|metabase\w*\([^)]*?\binstance\s*=\s*)[\"'](\w+)[\"']")
+METABASE_INSTANCE = re.compile(r"(?:get_metabase\(\s*|metabase\w*\([^)]*?\binstance\s*=\s*)[\"'](\w+)[\"']", re.S)
 TABLE_REF = re.compile(
     r"\b(?:from|join)\s+((?:\"[^\"]+\"|\w+)(?:\.(?:\"[^\"]+\"|\w+))?)(?![\w.\"])(?!\s*\()(?:\s+(?:as\s+)?(\w+))?", re.I
 )
@@ -238,7 +238,25 @@ def site_conflicts(root: Path) -> list[Finding]:
                     if other and other is not site:
                         findings.append(Finding(shown, number, f"« {name} » associé à {inside.strip()}, "
                                                 f"qui désigne {other.names[0]} ({other.matomo_id})"))  # fmt: skip
+            findings += [
+                Finding(shown, number, f"adresse {stale} pour {site.names[0]}, le tableau des sites dit {site.url}")
+                for site in registry
+                if (stale := other_host(site.url))
+                and re.search(rf"(?<![\w.-]){re.escape(stale)}(?![\w-])", without_code(line))
+            ]
     return findings
+
+
+def other_host(url: str) -> str | None:
+    """L'autre forme, avec ou sans `beta.`, d'une adresse en .gouv.fr — celle que le tableau ne retient pas."""
+    if not url.endswith(".gouv.fr"):
+        return None
+    return url.replace(".beta.gouv.fr", ".gouv.fr") if ".beta." in url else url.replace(".gouv.fr", ".beta.gouv.fr")
+
+
+def without_code(line: str) -> str:
+    """Le code en ligne cite des données (définitions de segments, motifs) : seule la prose affirme."""
+    return re.sub(r"`[^`]*`", "", line)
 
 
 def cited_site(text: str, registry: list[Site]) -> Site | None:
@@ -272,11 +290,13 @@ def row_conflicts(shown, number, row, by_name, by_id, containers) -> list[Findin
 def unknown_metabase_instances(root: Path) -> list[Finding]:
     instances = set(sources_config(root)["metabase"])
     return [
-        Finding(rel(root, doc), number, f"instance Metabase inconnue : {name}")
+        Finding(
+            rel(root, doc), text.count("\n", 0, match.start()) + 1, f"instance Metabase inconnue : {match.group(1)}"
+        )
         for doc in documents(root)
-        for number, line in enumerate(doc.read_text().splitlines(), 1)
-        for name in METABASE_INSTANCE.findall(line)
-        if name not in instances
+        for text in [doc.read_text()]
+        for match in METABASE_INSTANCE.finditer(text)
+        if match.group(1) not in instances
     ]
 
 

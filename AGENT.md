@@ -36,7 +36,7 @@ Les consignes viennent de plusieurs endroits : ce fichier, `CLAUDE.md`, les skil
 4. la fiche de `knowledge/` — d'autant moins fiable que sa date `verifie_le` est ancienne ;
 5. `CLAUDE.md`, écrit pour les développeurs.
 
-Ne jamais trancher en silence : quand la contradiction a changé la requête ou la réponse, le signaler à l'utilisateur dans la réponse, en nommant les deux consignes et celle qui a été suivie.
+Ne jamais trancher en silence : signaler la contradiction à l'utilisateur dans la réponse, en nommant les deux consignes et celle qui a été suivie.
 
 ## Sites web
 
@@ -209,16 +209,16 @@ En Docker, le répertoire de travail est `/app`.
 
 ## Dépôts GitHub
 
-| Site | Dépôt | Branche |
+| Site | Dépôt | Branche par défaut |
 |---|---|---|
 | Plateforme (ex-Emplois) | `gip-inclusion/les-emplois` | main |
 | Marché | `gip-inclusion/le-marche` | main |
 | Communauté | `gip-inclusion/la-communaute` | main |
-| Pilotage | `gip-inclusion/pilotage` | main |
+| Pilotage | `gip-inclusion/pilotage` | staging |
 | Dora | `gip-inclusion/dora` | main |
 | data·inclusion | `gip-inclusion/data-inclusion` | main |
-| RDV-Insertion | `gip-inclusion/rdv-insertion` | main |
+| RDV-Insertion | `gip-inclusion/rdv-insertion` | staging |
 
-Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont `staging` pour branche par défaut.
+Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12).
 
 Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.

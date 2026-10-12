@@ -79,7 +79,7 @@ Top values from dimension 2:
 | 6  | Afficher les coordonnees          | event_action    | Clic afficher les coordonnees - fiche commerciale |
 | 7  | Telecharger la liste              | event_action    | Clic telecharger la liste - valoriser achats |
 | 8  | Recherche                         | event_action    | Clic rechercher - Moteur recherche           |
-| 9  | Consultation tableau de bord      | url             | https://lemarche.inclusion.beta.gouv.fr/besoins/ |
+| 9  | Consultation tableau de bord      | url             | `https://lemarche.inclusion.beta.gouv.fr/besoins/` |
 
 ## Matomo Events
 
@@ -185,7 +185,7 @@ Tracked link interactions:
 | https://lemarche.inclusion.gouv.fr/besoins/ajouter/ | 143 | 132 |
 | Dépôt de besoin - Step 1 | 135 | 67 |
 | /profil/prestataires/rechercher/ | 116 | 91 |
-| https://inclusion.beta.gouv.fr/ | 105 | 99 |
+| `https://inclusion.beta.gouv.fr/` | 105 | 99 |
 | /prestataires/ | 102 | 101 |
 | Dépôt de besoin - Step 3 | 83 | 41 |
 | https://lemarche.inclusion.gouv.fr/accounts/signup/ | 73 | 56 |

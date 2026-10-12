@@ -4,7 +4,7 @@ verifie_le: 2026-09-11
 ---
 # Pilotage
 
-- URL : https://pilotage.inclusion.gouv.fr
+- URL : https://pilotage.inclusion.beta.gouv.fr
 - ID site Matomo : 146
 - GitHub : https://github.com/gip-inclusion/pilotage
 
