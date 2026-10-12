@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-03-05
+---
 # Support Emplois de l'Inclusion
 
 Données du support utilisateurs des Emplois de l'Inclusion, issues de **Zendesk**.

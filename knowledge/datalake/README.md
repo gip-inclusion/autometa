@@ -1,3 +1,7 @@
+---
+source: metabase:datalake
+verifie_le: 2026-06-17
+---
 # Datalake Metabase Instance
 
 **URL:** https://datalake.inclusion.beta.gouv.fr
@@ -8,10 +12,14 @@ Cross-product analytics for la Plateforme de l'inclusion. Contains aggregated us
 ## Usage
 
 ```python
-from lib.sources import get_metabase
+from lib.query import CallerType, execute_metabase_query
 
-api = get_metabase("datalake")
-result = api.execute_sql("SELECT * FROM pdi_base_unique_tous_les_pros LIMIT 10", database_id=2)
+result = execute_metabase_query(
+    instance="datalake",
+    caller=CallerType.AGENT,
+    sql="SELECT * FROM pdi_base_unique_tous_les_pros LIMIT 10",
+    database_id=2,
+)
 ```
 
 ## Databases

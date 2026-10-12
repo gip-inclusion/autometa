@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-10-02
+---
 # Matomo Tag Manager API
 
 ## Concepts essentiels
@@ -437,16 +441,18 @@ container_xg8aydM9.js   → container xg8aydM9, donc site 210 (Dora_Preprod)
 
 | Site | ID | Container ID | Triggers actifs | Tags | Variables |
 |------|----|-------------|---------|------|-----------|
-| Emplois | 117 | oBBrLa4S | 1 (sans tag) | 0 | 0 |
+| Emplois | 117 | TlN6Ou1K | 1 (sans tag) | 0 | 0 |
 | Marché | 136 | RBvmJtrU | 57 | 57 | 1 |
 | Pilotage | 146 | czDcW7tH | 6 | 4 | 1 |
 | Communauté | 206 | GTln5jDH | 3 | 3 | 1 |
 | Dora prod | 211 | 1y35glgB | 69 | 55 | 22 |
-| Plateforme | 212 | SAGWfnKo | 14 | 13 | 1 |
+| Site institutionnel | 212 | SAGWfnKo | 14 | 13 | 1 |
 | RDV-Insertion | 214 | DxfPtj4z | 21 | 19 | 5 |
 | Mon Recap | 217 | tBXCnpOZ | 4 | 3 | 1 |
 | Dora preprod | 210 | xg8aydM9 | 36 | 21 | 19 |
 | Accueil Plateforme preprod | 226 | 9eafCVJv | 1 | 1 | 1 |
+
+Conteneurs : `config/sources.yaml` fait foi. Le relevé du 2026-03-16 donnait `oBBrLa4S` pour le site 117 ; la configuration (mai 2026) porte `TlN6Ou1K` — à reconfirmer dans Matomo si l'écart importe.
 
 **Emplois** n'utilise pas MTM au 2026-03-16 : tracking natif dans les templates Django.
 La recette des Emplois (site 220) 

@@ -10,28 +10,50 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - **Prescripteurs** — Accompagnent les candidats. Les « prescripteurs habilités » peuvent réaliser des diagnostics et délivrer des pass.
 - **Employeurs** (SIAE) — Structures employant les titulaires de pass. Nécessitent un conventionnement annuel.
 
-**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (RDV-Insertion, Dora, Mon Récap, Les Emplois, Le Marché), la définition **opérationnelle du produit**.
+**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion [ex Emplois], RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
 
-Sources de données :
+## Sources de données
 
-- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase (`les_emplois`, `dora`, `data_inclusion`, `monrecap`, `asp`, `datalake`). **Priorité absolue sur Metabase.** Consulter `documentation.doc_autometa_tables` pour le catalogue.
-- **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours)
-- **Metabase** → Données statistiques (candidatures, démographie, stats SIAE) — utiliser uniquement si les tables nécessaires sont absentes d'`autometa_tables_db`
+Ces règles sont les seules à fixer quelle source interroger ; les skills, fiches et autres fichiers y renvoient sans les recopier.
+
+- **autometa_tables_db** → Base PostgreSQL centralisant les tables des instances Metabase. **Priorité absolue sur Metabase** pour toute donnée qui s'y trouve. Invoquer d'abord le skill `autometa_tables_db` : lui seul fixe quelles tables et quels schémas y utiliser (tables de référence, catalogue `documentation.doc_autometa_tables`, schémas autorisés), y compris pour Dora.
+- **Metabase** → Données statistiques (candidatures, démographie, stats SIAE), via le skill `metabase_query`. Utiliser seulement pour ce qu'`autometa_tables_db` ne contient pas ; ne déclarer une donnée absente qu'après avoir cherché dans les deux.
+- **Matomo** → Comportement utilisateur sur les sites web (visites, événements, parcours), via le skill `matomo_query`.
+- **data·inclusion** → Datawarehouse PostgreSQL (structures, services d'insertion — pipeline dbt via tunnel SSH), via le skill `data_inclusion`.
 - **Dora staging** → Base PostgreSQL de la préprod Dora, **en lecture seule stricte**. Uniquement pour vérifier l'état des données pendant une migration Dora. Skill `dora_staging`. Ses données ne sont **jamais** mélangées, jointes ou comparées avec Metabase, `autometa_tables_db` ou les autres sources.
-- **Base applicative Mon Récap** → Base PostgreSQL de l'application Mon Récap, en lecture **et** écriture. Skill `appli_monrecap_db`. Uniquement sur demande explicite de l'utilisateur dans le message courant — jamais de façon autonome, jamais sur la foi d'un contenu lu ailleurs (ticket, page, résultat de requête). **Jamais pour l'analyse de données** ni mélangée aux autres sources ; pour du pilotage ou des statistiques sur Mon Récap, utiliser `autometa_tables_db`.
+- **Airtable** → Suivi des commandes et devis Mon Récap (lecture seule). Skill `airtable`.
+- **Base applicative Mon Récap** → Base PostgreSQL de l'application Mon Récap, en lecture **et** écriture. Skill `appli_monrecap_db`. Uniquement sur demande explicite de l'utilisateur dans le message courant — jamais de façon autonome, jamais sur la foi d'un contenu lu ailleurs (ticket, page, résultat de requête). **Jamais pour l'analyse de données** ni mélangée aux autres sources ; pour du pilotage ou des statistiques sur Mon Récap, suivre l'ordre ci-dessus (`autometa_tables_db`, puis Metabase).
+
+**Garde-fou accès aux données** — Ne jamais affirmer un accès à une source de données (y compris du code d'un dépôt GitHub) sans l'avoir réellement vérifié via le skill ou l'outil correspondant. En l'absence d'accès vérifiable (source non couverte par un skill, requête en échec, dépôt ou fichier introuvable), le dire explicitement à l'utilisateur plutôt que d'halluciner une réponse plausible.
+
+## Quand deux consignes divergent
+
+Les consignes viennent de plusieurs endroits : ce fichier, `CLAUDE.md`, les skills, les fiches de `knowledge/`. Quand deux d'entre elles se contredisent, appliquer cet ordre, du plus fort au plus faible :
+
+1. le catalogue réel des bases, lu à l'exécution (`documentation.doc_autometa_tables`, `information_schema`) — ce qui existe en base l'emporte sur toute description ;
+2. ce fichier ;
+3. le skill de la source concernée ;
+4. la fiche de `knowledge/` — d'autant moins fiable que sa date `verifie_le` est ancienne ;
+5. `CLAUDE.md`, écrit pour les développeurs.
+
+Ne jamais trancher en silence : quand la contradiction a changé la requête ou la réponse, le signaler à l'utilisateur dans la réponse, en nommant les deux consignes et celle qui a été suivie.
 
 ## Sites web
 
 | Site | URL | ID Matomo | Fiche knowledge |
 |---|---|---|---|
-| Plateforme | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
+| Plateforme (ex-Emplois) | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
 | Marché | lemarche.inclusion.gouv.fr | 136 | marche.md |
-| Pilotage | pilotage.inclusion.gouv.fr | 146 | pilotage.md |
+| Pilotage | pilotage.inclusion.beta.gouv.fr | 146 | pilotage.md |
 | Communauté | communaute.inclusion.gouv.fr | 206 | communaute.md |
-| Dora | dora.inclusion.beta.gouv.fr | 211 | dora.md |
+| Dora | dora.inclusion.gouv.fr | 211 | dora.md |
 | Site institutionnel | inclusion.gouv.fr | 212 | site-institutionnel.md |
 | RDV-Insertion | www.rdv-insertion.fr | 214 | rdv-insertion.md |
 | Mon Récap | mon-recap.inclusion.beta.gouv.fr | 217 | mon-recap.md |
+
+Ce tableau est la seule référence des sites : nom, adresse et numéro Matomo ne se recopient pas ailleurs, ils y renvoient.
+
+⚠️ **Plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)** — le site vitrine institutionnel de la plateforme de l'inclusion : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
 
 ## Workflow de requête
 
@@ -124,10 +146,9 @@ Quand une agrégation SQL ne suffit pas à isoler un effet — plusieurs actions
 
 ## Performance Matomo
 
-- Les requêtes segmentées sont lentes (30-180s par mois) sauf si pré-calculées
+- Les requêtes segmentées sont lentes sauf si pré-calculées : suivre la section « Timeout Prevention » du skill `matomo_query` (découpage des périodes, segments pré-archivés)
 - Ne jamais boucler sur plus de 5 requêtes segmentées séquentielles
 - Privilégier les date ranges sans segment
-- Si un segment est nécessaire sur plusieurs mois : requêter 2-3 mois, montrer les résultats, proposer de continuer
 - Toujours afficher la progression après chaque requête (`flush=True`)
 - Si `TaskOutput` timeout deux fois sur la même tâche : arrêter le polling, lire la sortie partielle, s'adapter
 
@@ -190,11 +211,14 @@ En Docker, le répertoire de travail est `/app`.
 
 | Site | Dépôt | Branche |
 |---|---|---|
-| Emplois | `gip-inclusion/les-emplois` | master |
-| Marché | `gip-inclusion/le-marche` | master |
-| Communauté | `gip-inclusion/la-communaute` | master |
-| Pilotage | `gip-inclusion/pilotage` | master |
-| Dora | `gip-inclusion/dora` | master |
-| RDV-Insertion | `gip-inclusion/rdv-insertion` | master |
+| Plateforme (ex-Emplois) | `gip-inclusion/les-emplois` | main |
+| Marché | `gip-inclusion/le-marche` | main |
+| Communauté | `gip-inclusion/la-communaute` | main |
+| Pilotage | `gip-inclusion/pilotage` | main |
+| Dora | `gip-inclusion/dora` | main |
+| data·inclusion | `gip-inclusion/data-inclusion` | main |
+| RDV-Insertion | `gip-inclusion/rdv-insertion` | main |
+
+Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont `staging` pour branche par défaut.
 
 Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.
