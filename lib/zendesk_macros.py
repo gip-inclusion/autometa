@@ -10,7 +10,7 @@ from .zendesk import Macro, ZendeskAPI
 __all__ = ["category", "by_category", "describe", "plan", "replace", "replace_tag", "export"]
 
 NO_CATEGORY = "Sans catégorie"
-TEXT_FIELDS = ("subject", "comment_value_html")
+TEXT_FIELDS = ("subject", "comment_value", "comment_value_html")
 # Why: Zendesk's editor stores what an agent sees as a space or a quote under several encodings.
 DISPLAYED_AS = {
     " ": (" ", "\xa0", "&nbsp;", "&#160;"),
@@ -89,7 +89,7 @@ def describe_action(api: ZendeskAPI, action: dict) -> dict:
     if field == "status":
         return {"label": label, "value": STATUSES.get(value, value)}
     if field == "comment_mode_is_public":
-        return {"label": label, "value": "oui" if value == "true" else "non"}
+        return {"label": label, "value": "oui" if str(value).lower() == "true" else "non"}
     if field in REFERENCES and value in SPECIAL_VALUES:
         return {"label": label, "value": SPECIAL_VALUES[value]}
     if field in REFERENCES:
@@ -125,6 +125,15 @@ def plan(
     return cs.plan_items("macros", macros, transform, label, params, **notes)
 
 
+def text_of(value: str | list) -> str:
+    """The text of an action value; list values like ["channel:all", text] carry it last."""
+    return value[-1] if isinstance(value, list) else value
+
+
+def with_text(value: str | list, edit: Callable[[str], str]) -> str | list:
+    return [*value[:-1], edit(value[-1])] if isinstance(value, list) else edit(value)
+
+
 def as_displayed(pattern: str) -> str:
     """Regex matching the literal pattern however Zendesk encoded its spaces, quotes and brackets."""
     return "".join(
@@ -156,7 +165,8 @@ def replace(
 
     def transform(fields: dict) -> dict:
         actions = [
-            {**a, "value": replace_text(a["value"])} if a["field"] in TEXT_FIELDS else a for a in fields["actions"]
+            {**a, "value": with_text(a["value"], replace_text)} if a["field"] in TEXT_FIELDS else a
+            for a in fields["actions"]
         ]
         return {
             **fields,
@@ -166,7 +176,10 @@ def replace(
         }
 
     def protected_hits(macro: Macro) -> int:
-        texts = [a["value"] for a in macro.actions if a["field"] in TEXT_FIELDS] + [macro.title, macro.description]
+        texts = [text_of(a["value"]) for a in macro.actions if a["field"] in TEXT_FIELDS] + [
+            macro.title,
+            macro.description,
+        ]
         return sum(len(compiled.findall(seg)) for text in texts for seg in cs.split_markup(text, protected)[1::2])
 
     if macros is None:
@@ -183,15 +196,16 @@ def replace_tag(
     if not tag or not replacement or " " in tag + replacement:
         raise ValueError("étiquette vide ou contenant une espace")
 
-    def swap(value: str) -> str:
-        if tag not in value.split():
+    def swap(value: str | list) -> str | list:
+        current = value if isinstance(value, list) else value.split()
+        if tag not in current:
             return value
         tags: list[str] = []
-        for t in value.split():
+        for t in current:
             t = replacement if t == tag else t
             if t != replacement or replacement not in tags:
                 tags.append(t)
-        return " ".join(tags)
+        return tags if isinstance(value, list) else " ".join(tags)
 
     def transform(fields: dict) -> dict:
         actions = [{**a, "value": swap(a["value"])} if a["field"].endswith("_tags") else a for a in fields["actions"]]
