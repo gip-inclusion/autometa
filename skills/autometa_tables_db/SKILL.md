@@ -1,13 +1,13 @@
 ---
 name: autometa_tables_db
-description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase. À invoquer avant toute requête Metabase.
+description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
 ---
 
 # autometa_tables_db
 
-Base PostgreSQL contenant les tables exportées depuis les différentes bases de données. À utiliser **en priorité** avant toute requête Metabase.
+Base PostgreSQL contenant les tables exportées depuis les différentes bases de données.
 
-## Règle de priorité
+## Ordre des sources
 
 L'ordre entre cette base et Metabase est fixé par `AGENT.md` (section « Sources de données ») ; ce skill ne le recopie pas. Dans cette base, commencer par le catalogue `documentation.doc_autometa_tables` (voir plus bas), puis appliquer les règles de sélection des tables.
 

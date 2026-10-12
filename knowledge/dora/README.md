@@ -10,7 +10,7 @@ verifie_le: 2026-10-12
 
 ## Route de requête
 
-Une question Dora se traite d'abord dans `autometa_tables_db`, selon le skill `autometa_tables_db`, qui en désigne les tables de référence Dora (`fct_dora__imer`, `fct_dora__orientations`). Cette fiche documente le **Metabase Dora** (instance `dora`, base 2) : c'est le repli, quand ces tables ne couvrent pas le besoin, et il s'annonce à l'utilisateur.
+Une question Dora se traite d'abord dans `autometa_tables_db`, selon le skill `autometa_tables_db`, qui en désigne les tables de référence Dora (`fct_dora__imer`, `fct_dora__orientations`) et, pour le détail, les tables brutes du schéma `raw_dora`. Cette fiche documente le **Metabase Dora** (instance `dora`, base 2) : c'est le dernier repli, quand `autometa_tables_db` ne couvre pas le besoin, et il s'annonce à l'utilisateur. Le calcul de l'iMER à la main décrit plus bas vise les tables du Metabase Dora ; si `raw_dora` en porte des copies (noms de tables à confirmer dans le catalogue), les y interroger évite de quitter `autometa_tables_db`.
 
 Le périmètre de `fct_dora__imer` n'est documenté nulle part dans le dépôt (composantes de l'iMER retenues, connectés et anonymes) : à confirmer dans `documentation.doc_autometa_tables` avant de comparer ses chiffres à ceux de cette fiche.
 
@@ -744,5 +744,5 @@ ORDER BY total_orientations DESC
 ## Related Resources
 
 - Site knowledge: `knowledge/sites/dora.md` (Matomo tracking, events, funnels)
-- Dora website: https://dora.inclusion.beta.gouv.fr
+- Dora website: https://dora.inclusion.gouv.fr
 - GitHub: https://github.com/gip-inclusion/dora

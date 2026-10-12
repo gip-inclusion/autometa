@@ -114,6 +114,8 @@ def test_dod_1_une_reference_existante_passe(tmp_path):
          "conteneur oBBrLa4S pour le site 117, config/sources.yaml dit TlN6Ou1K"),
         ({}, {**SOURCES, "tag_manager": {"sites": [{"name": "Plateforme", "matomo_id": 212, "container_id": "x"}]}},
          "« Plateforme » porte le site 212, le tableau des sites lui donne le 117"),
+        ({"knowledge/a.md": knowledge("- URL : https://plateforme.inclusion.beta.gouv.fr")}, None,
+         "adresse plateforme.inclusion.beta.gouv.fr pour Plateforme, le tableau des sites dit plateforme.inclusion.gouv.fr"),
     ],
 )  # fmt: skip
 def test_dod_2_un_site_contredisant_le_tableau_des_sites_est_refuse(tmp_path, files, sources, expected):
@@ -121,10 +123,20 @@ def test_dod_2_un_site_contredisant_le_tableau_des_sites_est_refuse(tmp_path, fi
     assert expected in messages(knowledge_lint.site_conflicts(root))
 
 
-def test_dod_2_une_instance_metabase_inconnue_est_refusee(tmp_path):
-    body = '```python\nexecute_metabase_query(instance="pilotage", sql=sql)\n```'
-    root = make_repo(tmp_path, {"knowledge/a.md": knowledge(body)})
-    assert "instance Metabase inconnue : pilotage" in messages(knowledge_lint.unknown_metabase_instances(root))
+@pytest.mark.parametrize(
+    "call",
+    ['execute_metabase_query(instance="pilotage", sql=sql)', 'execute_metabase_query(\n    instance="pilotage",\n)'],
+)
+def test_dod_2_une_instance_metabase_inconnue_est_refusee(tmp_path, call):
+    root = make_repo(tmp_path, {"knowledge/a.md": knowledge(f"```python\n{call}\n```")})
+    assert [str(f) for f in knowledge_lint.unknown_metabase_instances(root)] == [
+        "knowledge/a.md:6 — instance Metabase inconnue : pilotage"
+    ]
+
+
+def test_dod_2_une_ancienne_adresse_citee_comme_donnee_passe(tmp_path):
+    body = "| Page | Visites |\n|---|---|\n| `https://plateforme.inclusion.beta.gouv.fr/` | 12 |"
+    assert knowledge_lint.site_conflicts(make_repo(tmp_path, {"knowledge/a.md": knowledge(body)})) == []
 
 
 def test_dod_2_un_site_conforme_passe(tmp_path):
@@ -165,6 +177,14 @@ def test_dod_4_une_regle_recopiee_ailleurs_est_refusee_et_ses_deux_endroits_nomm
     found = knowledge_lint.copied_rules(root)
     assert {f.path for f in found} == {"knowledge/a.md", "CLAUDE.md"}
     assert all("recopie la règle de AGENT.md:5" in f.message for f in found)
+
+
+def test_dod_4_une_regle_de_choix_des_tables_recopiee_est_refusee(tmp_path):
+    copy = "Ne jamais requêter une table qui ne figure ni parmi les tables de référence ni dans le catalogue."
+    found = knowledge_lint.copied_rules(make_repo(tmp_path, {"knowledge/a.md": knowledge(copy)}))
+    assert [str(f) for f in found] == [
+        "knowledge/a.md:5 — recopie la règle de skills/autometa_tables_db/SKILL.md:8, qui doit rester seule — y renvoyer"
+    ]
 
 
 def test_dod_4_un_renvoi_vers_la_regle_passe(tmp_path):
