@@ -27,7 +27,7 @@ REPO_PATH = re.compile(
 )
 LINK = re.compile(r"\]\((?!https?:|#|mailto:)([^)\s#]+)")
 IMPORT = re.compile(r"\bfrom\s+((?:lib|web)(?:\.\w+)+)\s+import\s+\(?([\w\s,]+)")
-METABASE_INSTANCE = re.compile(r"(?:get_metabase\(\s*|metabase\w*\([^)]*?\binstance\s*=\s*)[\"'](\w+)[\"']", re.S)
+METABASE_INSTANCE = re.compile(r"(?:get_metabase\(\s*|metabase\w*\([^)]*?\binstance\s*=\s*)[\"'](\w+)[\"']")
 TABLE_REF = re.compile(
     r"\b(?:from|join)\s+((?:\"[^\"]+\"|\w+)(?:\.(?:\"[^\"]+\"|\w+))?)(?![\w.\"])(?!\s*\()(?:\s+(?:as\s+)?(\w+))?", re.I
 )
