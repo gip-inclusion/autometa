@@ -1,8 +1,18 @@
+---
+source: metabase:dora
+verifie_le: 2026-10-12
+---
 # Dora Metabase
 
 - **URL:** https://metabase.dora.inclusion.gouv.fr
 - **Database:** `dora-analytics` (PostgreSQL)
 - **Instance name:** `dora`
+
+## Route de requête
+
+Une question Dora se traite d'abord dans `autometa_tables_db`, selon le skill `autometa_tables_db`, qui en désigne les tables de référence Dora (`fct_dora__imer`, `fct_dora__orientations`). Cette fiche documente le **Metabase Dora** (instance `dora`, base 2) : c'est le repli, quand ces tables ne couvrent pas le besoin, et il s'annonce à l'utilisateur.
+
+Le périmètre de `fct_dora__imer` n'est documenté nulle part dans le dépôt (composantes de l'iMER retenues, connectés et anonymes) : à confirmer dans `documentation.doc_autometa_tables` avant de comparer ses chiffres à ceux de cette fiche.
 
 ## Qu'est-ce que Dora ?
 Dora is a directory of social services for support professionals — it covers social barriers in general (housing, mobility, health, etc.), for any public in difficulty, not specifically the IAE public.
@@ -30,40 +40,19 @@ To get full access, the API key needs to be added to a group with collection per
 
 ## Querying Dora Metabase
 
-### IMPORTANT: Always specify database_id=2
+### Base 2
 
-When using `execute_metabase_query()`, you MUST include `database_id=2`:
-
-```python
-from lib.query import execute_metabase_query, CallerType
-
-# CORRECT
-result = execute_metabase_query(
-    instance='dora',
-    caller=CallerType.AGENT,
-    sql="SELECT COUNT(*) FROM structures_structure",
-    database_id=2,  # REQUIRED!
-)
-
-# WRONG - will error "Either sql+database_id or card_id must be provided"
-result = execute_metabase_query(
-    instance='dora',
-    caller=CallerType.AGENT,
-    sql="SELECT COUNT(*) FROM structures_structure",
-    # missing database_id!
-)
-```
-
-### Simpler: Use get_metabase() helper
-
-The helper handles database_id automatically:
+`database_id` vaut 2 par défaut pour toutes les instances (`lib/metabase.py`) ; le passer explicitement reste sans risque.
 
 ```python
-from lib.query import get_metabase
+from lib.query import CallerType, execute_metabase_query
 
-api = get_metabase(instance='dora')
-result = api.execute_sql("SELECT COUNT(*) FROM structures_structure")
-print(result.rows[0][0])
+result = execute_metabase_query(
+    instance="dora",
+    caller=CallerType.AGENT,
+    sql="SELECT COUNT(*) FROM structures_structure",
+    database_id=2,
+)
 ```
 
 ### Case-sensitive table names
@@ -99,12 +88,14 @@ User (50,947)
 
 **Service:** A specific offering from a structure. Has categories/themes, location, criteria, and can accept orientations. Services are searchable by location + theme + subtheme.
 
-**Orientation:** A formal request from a prescriber to orient a beneficiary towards a service. Statuses:
-- `VALIDEE` (5,020) - Accepted
-- `EXPIREE` (4,907) - Expired without response
-- `REFUSEE` (709) - Rejected
+**Orientation:** A formal request from a prescriber to orient a beneficiary towards a service. Statuses, as defined by Dora (`OrientationStatus`, `back/dora/orientations/models.py`):
+- `VALIDÉE` (5,020) - Accepted
+- `EXPIRÉE` (4,907) - Expired without response
+- `REFUSÉE` (709) - Rejected
 - `OUVERTE` (367) - Open/pending
-- `MODERATION_*` - In moderation
+- `MODÉRATION_EN_COURS`, `MODÉRATION_REJETÉE` - In moderation
+
+Counts from January 2026. An earlier version of this file wrote the statuses without accents; the Dora model uses accents. À confirmer dans la base analytique (`SELECT DISTINCT status FROM orientations_orientation`) avant de filtrer sur un statut.
 
 > **IMPORTANT:** Orientations are only ONE component of the broader **iMER** indicator.
 > When a user asks about Dora's impact or activity, always present iMER (not just
@@ -124,10 +115,9 @@ User (50,947)
 measure service impact. It captures ALL meaningful interactions between users and
 services/structures — not just formal orientations.
 
-> **CRITICAL: When a user asks about Dora activity, usage, or impact, ALWAYS use iMER
-> as the primary indicator.** Orientations alone undercount actual usage by a factor
-> of ~11x. Always clarify this distinction to the user and ask which indicator they
-> need before querying.
+> **When a user asks about Dora activity, usage, or impact, present iMER as the primary
+> indicator by default**, and state the distinction with orientations, which alone
+> undercount actual usage by a factor of ~11x.
 
 #### Orientations vs iMER
 
@@ -137,7 +127,8 @@ services/structures — not just formal orientations.
 | **iMER** | All meaningful intent signals | 128,799 | Measuring Dora's overall impact and usage (**preferred**) |
 
 Orientations represent only **9%** of total iMER. The remaining 91% are mobilisations
-(interest clicks) and structure info views (contact page consultations — phone, email).
+(see « What records a mobilisation » below) and structure info views (contact page
+consultations — phone, email).
 
 #### The 5 components of iMER
 
@@ -145,11 +136,23 @@ As of Jan 2026 — 128,799 total:
 
 | # | Component | Source table | Count | % | Description |
 |---|-----------|-------------|------:|--:|-------------|
-| 1 | Mobilisations (connected) | `stats_mobilisationevent` | 32,537 | 25% | "Je suis intéressé" clicks by logged-in users |
+| 1 | Mobilisations (connected) | `stats_mobilisationevent` | 32,537 | 25% | Mobilisations by logged-in users |
 | 2 | Orientations | `orientations_orientation` | 11,533 | 9% | Formal orientation requests |
 | 3 | Structure info views (connected) | `stats_structureinfosview` | 6,275 | 5% | Contact page views by logged-in users |
-| 4 | Mobilisations (anonymous) | `stats_mobilisationevent` | 29,697 | 23% | "Je suis intéressé" clicks by anonymous visitors |
+| 4 | Mobilisations (anonymous) | `stats_mobilisationevent` | 29,697 | 23% | Mobilisations by anonymous visitors |
 | 5 | Structure info views (anonymous) | `stats_structureinfosview` | 48,757 | 38% | Contact page views by anonymous visitors |
+
+#### What records a mobilisation
+
+Dora has no « interest » button. A `MobilisationEvent` (table `stats_mobilisationevent`) is recorded by
+`trackMobilisation` (`front/src/lib/utils/stats.ts` in `gip-inclusion/dora`) when:
+
+- a logged-in user clicks « Orienter votre bénéficiaire » (or « Faire une demande ») in the « Mobiliser ce service » box of a service page;
+- a logged-in user lands on the orientation form after logging in;
+- someone, logged in or not, displays the coordonnées of a service whose contact details are public (« tracking comme MER » in `orienter/contact-info.svelte`);
+- someone follows an external mobilisation link (column `external_link`).
+
+The service page guards against recording the same mobilisation twice. Services coming from data·inclusion record a `DiMobilisationEvent` instead (table `stats_dimobilisationevent`, not counted in the components above). Verified against Dora `main` @ `6e82bc9` on 2026-10-12; the counts above predate that check.
 
 **Why structure info views matter:** `stats_structureinfosview` tracks when a user
 accesses a structure's contact information (phone number, email, address). This is a
@@ -284,7 +287,7 @@ AND siv.is_logged = TRUE;  -- or FALSE for anonymous
     - Mobilisations: 62,234 (connected + anonymous)
     - Structure info views: 55,032 (connected + anonymous)
     - Orientations: 11,533
-4. Orientation validated (5,020 VALIDEE)
+4. Orientation validated (5,020 VALIDÉE)
 
 ### Content Freshness
 
@@ -719,7 +722,7 @@ ORDER BY mobilisations DESC
 
 ### Orientation validation rate by organization type
 ```sql
--- Validation rate (VALIDEE / total) by organization cluster
+-- Validation rate (VALIDÉE / total) by organization cluster
 SELECT
     CASE
         WHEN s.typology = 'FT' THEN 'France Travail'
@@ -728,8 +731,8 @@ SELECT
         ELSE 'Autres'
     END as cluster,
     COUNT(*) as total_orientations,
-    COUNT(*) FILTER (WHERE o.status = 'VALIDEE') as validated,
-    ROUND(100.0 * COUNT(*) FILTER (WHERE o.status = 'VALIDEE') / COUNT(*), 1) as validation_rate
+    COUNT(*) FILTER (WHERE o.status = 'VALIDÉE') as validated,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE o.status = 'VALIDÉE') / COUNT(*), 1) as validation_rate
 FROM orientations_orientation o
 JOIN structures_structuremember sm ON o.prescriber_id = sm.user_id
 JOIN structures_structure s ON sm.structure_id = s.id

@@ -1,0 +1,14 @@
+# Affirmations reconnues fausses : `make test` refuse qu'elles réapparaissent dans une fiche, un skill ou
+# les consignes (lib/knowledge_lint.py). Une entrée = un motif (expression régulière, casse ignorée), la
+# raison, et la source qui l'a établie.
+
+- motif: suis intéressé
+  raison: >-
+    Dora n'a pas de bouton « Je suis intéressé ». Une mobilisation (stats_mobilisationevent) est enregistrée
+    par trackMobilisation : orienter un bénéficiaire, afficher les coordonnées d'un service, suivre un lien
+    de mobilisation externe — voir knowledge/dora/README.md.
+  source: gip-inclusion/dora@6e82bc9, front/src/lib/utils/stats.ts (vérifié le 2026-10-12)
+
+- motif: raw\.githubusercontent\.com/gip-inclusion/[\w.-]+/master/
+  raison: les branches master des dépôts gip-inclusion ont été renommées en main
+  source: API GitHub, default_branch et redirection 301 de master (vérifié le 2026-10-12)
