@@ -176,6 +176,33 @@ def test_dod_2_unrestricted_macro_deleted_ticket_field_and_list_values():
     ]
 
 
+@pytest.mark.parametrize(
+    "value, expected", [("true", "oui"), (True, "oui"), ("True", "oui"), ("false", "non"), (False, "non")]
+)
+def test_dod_2_public_reply_is_read_whatever_its_encoding(value, expected):
+    action = {"field": "comment_mode_is_public", "value": value}
+
+    assert zm.describe_action(FakeZendesk(), action) == {"label": "Réponse publique", "value": expected}
+
+
+def test_dod_3_replace_reaches_plain_text_replies_and_list_values(store):
+    api = FakeZendesk([
+        macro(1, actions=[{"field": "comment_value", "value": "Bonjour, Dora est un service."}]),
+        macro(
+            2, actions=[{"field": "comment_value", "value": ["channel:all", 'Accès Dora : <a href="/Dora">lien</a>']}]
+        ),
+    ])
+
+    result = zm.replace(api, "Dora", "Nova")
+
+    after = store.json(f"changesets/{result['id']}/after.json.gz")
+    assert after["1"]["actions"] == [{"field": "comment_value", "value": "Bonjour, Nova est un service."}]
+    assert after["2"]["actions"] == [
+        {"field": "comment_value", "value": ["channel:all", 'Accès Nova : <a href="/Dora">lien</a>']}
+    ]
+    assert result["markup_hits"] == {2: 1}
+
+
 def test_dod_3_replace_lists_changed_macros_by_paragraph_and_writes_nothing(store):
     api = FakeZendesk([
         macro(1),
@@ -496,6 +523,15 @@ def test_dod_19_replace_tag_swaps_whole_tags_without_duplicates(store):
     assert after["1"]["actions"] == [{"field": "current_tags", "value": "nia-ntt pdi relance relance"}]
     assert after["2"]["actions"] == [{"field": "set_tags", "value": "pdi"}, {"field": "remove_tags", "value": "pdi"}]
     assert result["params"] == {"tag": "ntt", "replacement": "pdi"}
+
+
+def test_dod_19_replace_tag_handles_list_values(store):
+    api = FakeZendesk([macro(1, actions=[{"field": "set_tags", "value": ["ntt", "pdi", "relance"]}])])
+
+    result = zm.replace_tag(api, "ntt", "pdi")
+
+    after = store.json(f"changesets/{result['id']}/after.json.gz")
+    assert after["1"]["actions"] == [{"field": "set_tags", "value": ["pdi", "relance"]}]
 
 
 @pytest.mark.parametrize("old, new", [("ntt", "deux mots"), ("deux mots", "ntt"), ("", "pdi"), ("ntt", "")])
