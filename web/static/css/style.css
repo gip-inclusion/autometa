@@ -249,7 +249,6 @@ body.has-sidebar {
   #section-rapports,
   #section-rechercher,
   #section-dashboards {
-    height: calc(100vh - 56px);
     height: calc(100dvh - 56px);
   }
 
