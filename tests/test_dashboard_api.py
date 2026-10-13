@@ -3,6 +3,7 @@
 import pytest
 
 from lib import dashboard_api
+from lib.airtable import AirtableError
 from lib.datadog import by_count
 from lib.query import CallerType, QueryResult
 
@@ -118,6 +119,11 @@ RESULT = QueryResult(success=True, data=[])
             {"sql": "SELECT 1", "timeout": 60},
         ),
         (
+            lambda: dashboard_api.query_airtable("app1", "tbl1", view="viw1", fields=["Nom"]),
+            "execute_airtable_query",
+            {"base_id": "app1", "table": "tbl1", "view": "viw1", "fields": ["Nom"], "formula": None, "timeout": 60},
+        ),
+        (
             lambda: dashboard_api.query_storage("SELECT 1 WHERE x = :x", {"x": 2}),
             "execute_dashboard_storage_query",
             {"sql": "SELECT 1 WHERE x = :x", "params": {"x": 2}, "timeout": 60},
@@ -163,3 +169,49 @@ def test_datadog_functions_turn_a_bad_argument_into_a_failed_result(mocker, call
 
     assert result.success is False
     assert result.error
+
+
+def test_dod_6_list_variants_targets_the_running_dashboard(mocker):
+    mocker.patch("web.config.dashboard_slug", return_value="multi")
+    declared = [
+        {"key": "67", "label": "Bas-Rhin", "token": "t", "path": "data/t.json", "url": "/interactive/multi/?q=t"}
+    ]
+    spy = mocker.patch("lib.variants.list_variants", autospec=True, return_value=declared)
+
+    assert dashboard_api.list_variants() == declared
+    assert spy.call_args.args == ("multi",)
+
+
+def test_dod_6_list_variants_accepts_an_explicit_slug_for_local_runs(mocker):
+    mocker.patch("web.config.dashboard_slug", return_value=None)
+    spy = mocker.patch("lib.variants.list_variants", autospec=True, return_value=[])
+
+    assert dashboard_api.list_variants("multi") == []
+    assert spy.call_args.args == ("multi",)
+
+
+def test_dod_6_list_variants_without_a_dashboard_is_refused(mocker):
+    mocker.patch("web.config.dashboard_slug", return_value=None)
+    with pytest.raises(RuntimeError, match="AUTOMETA_DASHBOARD_SLUG"):
+        dashboard_api.list_variants()
+
+
+def test_query_airtable_is_exported():
+    assert "query_airtable" in dashboard_api.__all__
+
+
+@pytest.mark.parametrize(
+    ("client", "error"),
+    [
+        ({"side_effect": AirtableError("AIRTABLE_TOKEN not set")}, "AIRTABLE_TOKEN not set"),
+        ({"return_value.__enter__.return_value.list_records.side_effect": AirtableError("HTTP 403")}, "HTTP 403"),
+    ],
+    ids=["missing-token", "http-error"],
+)
+def test_query_airtable_turns_a_client_failure_into_a_failed_result(mocker, client, error):
+    mocker.patch("lib.query.AirtableClient", **client)
+
+    result = dashboard_api.query_airtable("app1", "tbl1")
+
+    assert result.success is False
+    assert result.error == error

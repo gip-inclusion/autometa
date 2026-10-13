@@ -163,7 +163,7 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog`, `count_datadog`, `sample_datadog`, `query_storage` et `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_storage` et `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
@@ -187,6 +187,15 @@ nommé exactement (sans joker ni opérateur), et `search` ne peut qu'affiner dan
 valeurs brutes : grouper par `@usr.id`, `@usr.email` ou `@http.url` liste les identifiants et les URL eux-mêmes.
 Ne jamais publier tels quels, dans un `data.json` public, des événements ni des valeurs de facette qui désignent
 une personne.
+
+Elle expose aussi `list_variants()` : les déclinaisons déclarées du tableau de bord dont le cron
+tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'après
+`AUTOMETA_DASHBOARD_SLUG`, posé par le runner de cron. Pour un lancement à la main, passer le slug :
+`list_variants("mon-tdb")`. Voir § Mode multi-sources.
+
+`query_airtable(base_id, table, view=None, fields=None, formula=None)` lit les enregistrements d'une table ou
+d'une vue Airtable (pagination complète) ; `data` est la liste brute des enregistrements `{id, createdTime,
+fields}`. Ils portent des données personnelles (emails, téléphones) : ne publier que les champs nécessaires.
 
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.
@@ -221,16 +230,23 @@ Le cron est activé/désactivé (`cron_enabled`) depuis l'UI `/cron`. À disting
 #### Lancement
 
 ```bash
-python -m web.cron              # tous les cron activés
-python -m web.cron --app slug   # un seul dashboard
-python -m web.cron --list       # lister les cron découverts
-python -m web.cron --dry-run    # montrer sans exécuter
+python -m web.cron --batch tableaux-internes   # le lot des tableaux de bord
+python -m web.cron --batch tableaux-publies    # le lot des publications
+python -m web.cron --app slug         # un seul dashboard, hors cadence
+python -m web.cron --list             # lister les cron découverts
+python -m web.cron --dry-run --batch tableaux-internes   # montrer sans exécuter
 ```
 
-Sur la VM actuelle, entrée crontab système :
-```
-0 6 * * * cd /path/to/autometa && .venv/bin/python -m web.cron
-```
+Chaque lot est une ligne de `cron.json`, donc un conteneur. Les tableaux de bord tournent dans le
+lot `tableaux-internes`, le seul dont la taille n'est bornée par aucun fichier du dépôt : il porte
+pour cela un budget de temps. Les publications, partagées en externe, tournent à part dans
+`tableaux-publies` : sans budget, elles ne sont jamais sautées, et chaque échec alerte Slack, pas
+seulement le premier.
+
+**Le budget borne le démarrage d'une tâche, pas sa fin.** Passé le budget, le lot cesse d'en lancer
+de nouvelles et enregistre les restantes en `skipped` ; mais celle qui a démarré juste avant la
+limite va jusqu'au bout de son propre timeout. La durée réelle du lot peut donc atteindre le budget
+plus le timeout du dernier tableau de bord lancé.
 
 #### Contraintes
 
@@ -243,6 +259,59 @@ Sur la VM actuelle, entrée crontab système :
 #### UI
 
 `/cron` liste tous les dashboards éligibles, leur dernier statut, et permet de déclencher ou toggler manuellement.
+
+### Mode multi-sources : une déclinaison par lien
+
+Un tableau de bord **multi-sources** sert plusieurs **déclinaisons** (un département, une structure,
+un réseau…) avec le même écran et les mêmes calculs. Il remplace la duplication d'un TDB par
+territoire : un seul dossier, un seul `cron.py`, un fichier de données par déclinaison.
+
+Ce qui le définit :
+
+- **Déclinaisons déclarées**, jamais devinées : `update_dashboard --add-variant clé=libellé`. Chaque
+  déclinaison reçoit un **jeton** stable : sa clé (`?q=78`, `data/78.json`), ou un UUID généré par
+  l'outil si le tableau est **obfusqué** (`update_dashboard --obfuscate-variants true|false`,
+  seulement à la demande). Changer de mode est permis à tout moment : chaque déclinaison reçoit le
+  jeton du nouveau mode, son fichier de données est renommé (interne et snapshots publiés), et les
+  liens de l'ancien mode cessent de fonctionner. La table `dashboard_variants` fait foi ; un TDB devient
+  multi-sources dès qu'une déclinaison lui est déclarée.
+- **Un lien par déclinaison** : `/interactive/{slug}/?q=<jeton>`. La page lit `?q`, vérifie la forme
+  du jeton avant toute requête, charge `data/<jeton>.json`, et n'affiche que cette déclinaison. Sans
+  `?q` ou avec un jeton qui n'a pas la forme d'une clé : « Ce lien n'est pas valide ». Jeton bien formé sans fichier :
+  « Ce lien n'est pas valide, ou les données ne sont pas encore disponibles » — la page ne peut pas
+  distinguer un jeton inconnu d'une déclinaison pas encore calculée, faute de liste. Jamais de
+  sélecteur, jamais de lien vers une autre déclinaison.
+- **Dans l'application**, `/interactive/{slug}/` sans `?q` affiche l'index des déclinaisons et un
+  lien vers la page d'édition. Cet index est rendu par le serveur : la publication, qui copie les
+  fichiers du dossier, ne l'emporte pas.
+- **Le cron** obtient ses déclinaisons par la façade, `list_variants()`, interroge la source **une
+  seule fois** pour toutes les clés, puis écrit un fichier par déclinaison déclarée — et rien
+  d'autre. Une déclinaison qui échoue n'empêche pas les autres : son fichier précédent est conservé
+  et le run se termine en échec en nommant les clés fautives — code de sortie **3**, que le runner
+  reconnaît comme un run partiel : les fichiers écrits sont conservés, le run est marqué en échec. Le fichier porte `metadata.key` et
+  `metadata.label` ; obfusqué, jamais son propre jeton.
+- **Matomo** enregistre la page sous `/interactive/{slug}/<clé>/`, pas sous le jeton : la page
+  charge le conteneur Tag Manager **après** avoir posé `setCustomUrl`, et désactive Heatmap Session
+  Recording, dont la requête de configuration porte l'URL réelle. La page déclare aussi
+  `referrer: no-referrer`. Le gabarit `docs/dashboard-template-multi/` fait tout cela.
+- **Obfusqué, le nom du fichier est le secret** : la confidentialité des déclinaisons repose sur le fait que
+  personne ne peut lister le bucket public. C'est le cas : `ListObjects` anonyme répond `AccessDenied`
+  sur les deux buckets Scaleway (vérifié le 2026-09-16), et les domaines `statistiques.inclusion.gouv.fr`
+  répondent la page d'accueil à toute requête de listing. Ce prérequis vaut pour tout nouveau bucket.
+- **Obfusqué, la publication et chaque rafraîchissement refusent** un dossier dont un fichier (page, script,
+  données…) contient un jeton déclaré : raison `variant-token-exposed`, fichier nommé sur la page
+  d'édition. Une liste de clés ou de libellés dans le code n'est pas un problème.
+
+La page d'édition liste chaque déclinaison (clé, libellé, lien interne, lien public par publication
+active, présence du fichier de données) et expose le mapping en JSON
+(`/api/dashboards/{slug}/variants`). Retirer une déclinaison supprime son fichier interne et sa
+copie dans chaque snapshot publié ; le lien public répond encore jusqu'au rafraîchissement suivant,
+qui élague la copie publique — sans borne si ce rafraîchissement est en pause, ce que la commande signale. Un TDB converti (créé avant ce mode), obfusqué, qui déclare des déclinaisons est
+signalé sur la page d'édition tant que sa page charge Matomo avant de lire `?q` ou ne déclare pas
+`referrer: no-referrer`.
+
+Création : `create_dashboard --multi-source`, **après accord explicite de l'utilisateur** (cf. le
+skill). Le scaffold pose le gabarit de base puis `docs/dashboard-template-multi/` par-dessus.
 
 ### Modes non publiables
 

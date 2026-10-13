@@ -468,3 +468,20 @@ def test_create_on_existing_folder_suggests_adopt(isolated):
     (isolated / "preexisting").mkdir()
     with pytest.raises(ValueError, match="--adopt"):
         _create("preexisting")
+
+
+def test_dod_9_multi_source_scaffold_overlays_the_multi_template(isolated):
+    _create("multi", has_cron=True, multi_source=True)
+    slug_dir = isolated / "multi"
+    assert (slug_dir / "data").is_dir()
+    assert 'name="referrer" content="no-referrer"' in (slug_dir / "index.html").read_text()
+    assert "list_variants" in (slug_dir / "cron.py").read_text()
+    assert "URLSearchParams" in (slug_dir / "app.js").read_text()
+    assert (slug_dir / "style.css").exists()
+
+
+def test_dod_9_default_scaffold_is_unchanged(isolated):
+    _create("mono", has_cron=True)
+    slug_dir = isolated / "mono"
+    assert not (slug_dir / "data").exists()
+    assert "list_variants" not in (slug_dir / "cron.py").read_text()

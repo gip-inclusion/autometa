@@ -37,7 +37,9 @@ def fetch_saved_segments(api: MatomoAPI, site_id: int) -> list[dict]:
         segments = api._request("SegmentEditor.getAll", {"idSite": site_id})
         if not isinstance(segments, list):
             return []
-        return [{"name": s.get("name"), "definition": s.get("definition")} for s in segments]
+        # Why: Matomo accepte deux segments du même nom (un par auteur) ; la table est clée sur le nom.
+        by_name = {s.get("name"): s.get("definition") for s in segments}
+        return [{"name": name, "definition": definition} for name, definition in by_name.items()]
     except MatomoError:
         return []
 

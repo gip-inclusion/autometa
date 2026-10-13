@@ -3,12 +3,15 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from botocore.exceptions import ClientError
 
-from web import cron
+from web import cron, scalingo
 from web.db import get_db
-from web.models import Dashboard, DashboardPublication
+from web.helpers import format_future_date
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
+
+S3_DOWN = ClientError({"Error": {"Code": "ServiceUnavailable", "Message": "x"}}, "ListObjectsV2")
 
 
 @pytest.mark.parametrize(
@@ -69,139 +72,57 @@ def test_read_cron_script_s3(mocker):
     assert cron.read_cron_script({"source": "s3", "cron_path": "x/cron.py"}) == "print('s3')"
 
 
-def _make_dashboard_and_pub(slug, *, pubs=()):
-    now = datetime.now(timezone.utc)
-    with get_db() as session:
-        session.add(
-            Dashboard(
-                slug=slug,
-                title=slug,
-                description="d",
-                website="emplois",
-                category="c",
-                first_author_email="alice@x",
-                is_archived=False,
-                has_api_access=False,
-                has_cron=True,
-                has_persistence=False,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-        for pub_id, snapshot_has_cron, unpublished, paused in pubs:
-            session.add(
-                DashboardPublication(
-                    dashboard_slug=slug,
-                    publication_id=pub_id,
-                    environment="staging",
-                    published_by="bob@x",
-                    published_at=now,
-                    snapshot_has_cron=snapshot_has_cron,
-                    unpublished_at=now if unpublished else None,
-                    refresh_paused_at=now if paused else None,
-                )
-            )
+def test_a_manual_run_of_an_unknown_task_returns_404(client, mocker):
+    mocker.patch("web.routes.cron.find_task", return_value=None)
+
+    response = client.post("/api/cron/ghost/run")
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "Task not found"}
 
 
-def _fake_run(slug, trigger):
-    return {"slug": slug, "status": "success", "duration_ms": 10, "output": "ok"}
+def test_a_manual_run_is_delegated_to_a_dedicated_container(client, mocker):
+    mocker.patch("web.routes.cron.find_task", return_value={"slug": "tdb1", "source": "s3"})
+    mocker.patch("web.routes.cron.scalingo.is_configured", return_value=True)
+    start = mocker.patch("web.routes.cron.scalingo.start_one_off", return_value="ctr-42")
+    execute = mocker.patch("web.cron.run_task_and_publications")
+
+    response = client.post("/api/cron/tdb1/run")
+
+    assert response.status_code == 202
+    assert response.json()["container"] == "ctr-42"
+    assert start.call_args.args[0] == "python -m web.cron --app tdb1"
+    execute.assert_not_called()
 
 
-def test_run_endpoint_fans_out_to_active_cron_publications(client, mocker):
-    _make_dashboard_and_pub(
-        "fanout",
-        pubs=[
-            ("pubapa", True, False, False),
-            ("pubapb", False, False, False),
-        ],
-    )
-    mocker.patch(
-        "web.routes.cron.find_task",
-        return_value={"slug": "fanout", "source": "s3", "title": "Fanout", "cron_path": "fanout/cron.py"},
-    )
-    run = mocker.patch("web.routes.cron.run_cron_task", side_effect=_fake_run)
+def test_a_manual_run_says_so_when_scalingo_is_not_configured(client, mocker):
+    mocker.patch("web.routes.cron.find_task", return_value={"slug": "tdb1", "source": "s3"})
+    mocker.patch("web.routes.cron.scalingo.is_configured", return_value=False)
 
-    r = client.post("/api/cron/fanout/run")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["slug"] == "fanout"
-    assert run.call_args_list[0].args == ("fanout",)
-    fanned_slugs = [call.args[0] for call in run.call_args_list[1:]]
-    assert fanned_slugs == ["fanout-pubapa"]
-    assert body["publications"] == [{"slug": "fanout-pubapa", "status": "success", "duration_ms": 10}]
+    response = client.post("/api/cron/tdb1/run")
+
+    assert response.status_code == 503
+    assert "ligne de commande" in response.json()["error"]
 
 
-def test_run_endpoint_skips_paused_and_unpublished(client, mocker):
-    _make_dashboard_and_pub(
-        "skipper",
-        pubs=[
-            ("pubska", True, False, True),
-            ("pubskb", True, True, False),
-            ("pubskc", True, False, False),
-        ],
-    )
-    mocker.patch(
-        "web.routes.cron.find_task",
-        return_value={"slug": "skipper", "source": "s3", "title": "Skipper", "cron_path": "skipper/cron.py"},
-    )
-    mocker.patch("web.routes.cron.run_cron_task", side_effect=_fake_run)
+def test_a_manual_run_reports_a_refused_container(client, mocker):
+    mocker.patch("web.routes.cron.find_task", return_value={"slug": "tdb1", "source": "s3"})
+    mocker.patch("web.routes.cron.scalingo.is_configured", return_value=True)
+    mocker.patch("web.routes.cron.scalingo.start_one_off", side_effect=scalingo.ScalingoError("refus"))
 
-    r = client.post("/api/cron/skipper/run")
-    assert r.status_code == 200
-    body = r.json()
-    fanned = [p["slug"] for p in body["publications"]]
-    assert fanned == ["skipper-pubskc"]
-
-
-def test_run_endpoint_fans_out_even_when_working_copy_fails(client, mocker):
-    _make_dashboard_and_pub(
-        "failover",
-        pubs=[("pubfaa", True, False, False)],
-    )
-    mocker.patch(
-        "web.routes.cron.find_task",
-        return_value={"slug": "failover", "source": "s3", "title": "Failover", "cron_path": "failover/cron.py"},
-    )
-
-    def fake_run(slug, trigger):
-        if slug == "failover":
-            return {"slug": slug, "status": "failure", "duration_ms": 5, "output": "boom"}
-        return {"slug": slug, "status": "success", "duration_ms": 10, "output": "ok"}
-
-    mocker.patch("web.routes.cron.run_cron_task", side_effect=fake_run)
-
-    r = client.post("/api/cron/failover/run")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "failure"
-    assert body["publications"] == [{"slug": "failover-pubfaa", "status": "success", "duration_ms": 10}]
-
-
-def test_run_endpoint_no_fanout_for_publication_composite(client, mocker):
-    """Triggering a publication directly (composite slug) runs only that publication."""
-    _make_dashboard_and_pub("composite", pubs=[("pubcoa", True, False, False)])
-    mocker.patch(
-        "web.routes.cron.find_task",
-        return_value={
-            "slug": "composite-pubcoa",
-            "source": "s3-publication",
-            "title": "Composite",
-            "cron_path": "composite/pubcoa/cron.py",
-            "publication_id": "pubcoa",
-            "dashboard_slug": "composite",
-        },
-    )
-    run = mocker.patch("web.routes.cron.run_cron_task", side_effect=_fake_run)
-
-    r = client.post("/api/cron/composite-pubcoa/run")
-    assert r.status_code == 200
-    body = r.json()
-    assert run.call_count == 1
-    assert body["publications"] == []
+    assert client.post("/api/cron/tdb1/run").status_code == 502
 
 
 def test_cron_page_shows_the_latest_run_of_each_task(client, mocker):
-    task = {"slug": "nightly", "title": "Nightly", "tier": "system", "enabled": True, "schedule": "daily"}
+    task = {
+        "slug": "nightly",
+        "title": "Nightly",
+        "tier": "system",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "synchros",
+    }
     mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
     now = datetime.now(timezone.utc)
     earlier = now - timedelta(hours=1)
@@ -217,3 +138,104 @@ def test_cron_page_shows_the_latest_run_of_each_task(client, mocker):
     assert "(scheduled)" in response.text
     assert "2.5s" in response.text
     assert "(manual)" not in response.text
+
+
+def test_the_cron_page_shows_a_task_killed_mid_run_as_interrupted(client, mocker):
+    task = {
+        "slug": "tdb-x",
+        "title": "X",
+        "tier": "app",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "tableaux",
+    }
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+    with get_db() as session:
+        session.add(
+            cron.CronRun(
+                app_slug="tdb-x",
+                started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                status="running",
+                trigger="scheduled",
+            )
+        )
+
+    response = client.get("/cron")
+
+    assert "interrompu" in response.text
+
+
+def test_the_cron_page_shows_the_last_run_of_each_batch(client, mocker):
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[])
+    with get_db() as session:
+        session.add(
+            cron.CronBatchRun(
+                batch=cron.DASHBOARD_BATCH,
+                started_at=datetime.now(timezone.utc) - timedelta(hours=25),
+                status="running",
+            )
+        )
+
+    response = client.get("/cron")
+
+    assert f"Lot <code>{cron.DASHBOARD_BATCH}</code>" in response.text
+    assert "interrompu" in response.text
+
+
+def test_the_cron_page_announces_the_next_run_at_the_hour_of_the_task_batch(client, mocker):
+    task = {
+        "slug": "sync-x",
+        "title": "X",
+        "tier": "system",
+        "enabled": True,
+        "schedule": "daily",
+        "timeout": 60,
+        "batch": "synchros",
+    }
+    mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+
+    response = client.get("/cron")
+
+    assert format_future_date(cron.next_cron_run("daily", "synchros")) in response.text
+
+
+def test_the_cron_page_survives_an_s3_outage(client, mocker):
+    mocker.patch("web.routes.cron.discover_cron_tasks", side_effect=S3_DOWN)
+    mocker.patch(
+        "web.routes.cron.discover_system_tasks",
+        return_value=[
+            {
+                "slug": "sys-task",
+                "title": "Sys",
+                "tier": "system",
+                "enabled": True,
+                "schedule": "daily",
+                "timeout": 60,
+                "batch": "default",
+                "cron_path": "/x",
+                "path": "/x",
+            }
+        ],
+    )
+
+    response = client.get("/cron")
+
+    assert response.status_code == 200
+    assert "sys-task" in response.text
+    assert "S3" in response.text
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("post", "/api/cron/tdb1/run"), ("get", "/api/cron/tdb1/script")],
+)
+def test_a_route_degrades_instead_of_crashing_when_the_discovery_cannot_reach_s3(client, mocker, method, path):
+    # Why: résoudre un slug liste S3. Une secousse rendait un 500 avec traceback là où la page
+    # /cron sait déjà se replier — le mode d'échec muet que cette branche referme.
+    mocker.patch("web.routes.cron.find_task", side_effect=S3_DOWN)
+
+    response = getattr(client, method)(path)
+
+    assert response.status_code == 503
+    assert "S3" in response.json()["error"]

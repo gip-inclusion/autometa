@@ -183,6 +183,13 @@ NOTION_TAGS_DB = os.getenv("NOTION_TAGS_DB")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
+# Scalingo — lancement d'un conteneur one-off pour les runs manuels de cron.
+SCALINGO_API_TOKEN = os.getenv("SCALINGO_API_TOKEN", "")
+# Why: Scalingo injecte `APP` dans chaque conteneur — la lire évite de recopier un nom d'app par
+# environnement, donc de lancer un conteneur de staging dans la production.
+SCALINGO_APP_NAME = os.getenv("SCALINGO_APP_NAME") or os.getenv("APP", "")
+SCALINGO_API_URL = os.getenv("SCALINGO_API_URL", "https://api.osc-fr1.scalingo.com")
+
 # autometa-jobs — autonomous agent job runner (orchestrator)
 AUTOMETA_JOBS_URL = os.getenv("AUTOMETA_JOBS_URL", "").rstrip("/")
 AUTOMETA_JOBS_API_KEY = os.getenv("AUTOMETA_JOBS_API_KEY", "")
@@ -198,6 +205,9 @@ LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 
 # Tally API (form submissions as a data source)
 TALLY_API_KEY = os.getenv("TALLY_API_KEY")
+
+# Airtable API — lecture seule (suivi des commandes et devis Mon Récap)
+AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
 
 # Datadog Logs API — lecture des logs applicatifs (site EU). Rétention 30 jours.
 DATADOG_API_KEY = os.getenv("DATADOG_API_KEY")
@@ -269,3 +279,8 @@ def agent_conversation_id() -> str | None:
 def agent_user_email() -> str | None:
     """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_USER_EMAIL")
+
+
+def dashboard_slug() -> str | None:
+    """Slug du tableau de bord dont le cron tourne, injecté par web/cron.py:execute_task()."""
+    return os.getenv("AUTOMETA_DASHBOARD_SLUG")

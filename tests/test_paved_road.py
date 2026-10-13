@@ -177,6 +177,23 @@ def test_dashboard_health_reports_no_median_without_durations(app):
         assert paved_road.dashboard_health(session, SINCE)[0]["median_duration_ms"] is None
 
 
+@pytest.mark.integration
+def test_dashboard_health_leaves_skipped_runs_out_of_the_indicators(app):
+    # Why: un run `skipped` n'a jamais démarré. Le compter ferait grimper mécaniquement le taux de
+    # réussite d'un lot amputé, et sa durée nulle écraserait la durée médiane de la semaine.
+    with get_db() as session:
+        for status, duration in [("success", 400), ("skipped", 0), ("skipped", 0)]:
+            session.add(
+                CronRun(app_slug="tdb", started_at=NOW - timedelta(days=1), status=status, duration_ms=duration)
+            )
+
+    with get_db() as session:
+        weeks = paved_road.dashboard_health(session, SINCE)
+
+    assert weeks[-1]["runs"] == 1
+    assert weeks[-1]["median_duration_ms"] == 400
+
+
 def test_github_pages_stops_on_a_short_page(mocker):
     pages = [[{"n": n} for n in range(100)], [{"n": 100}]]
     github_get = mocker.patch.object(paved_road, "github_get", side_effect=pages)

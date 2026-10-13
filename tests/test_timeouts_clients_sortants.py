@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from lib.airtable import AirtableClient
 from lib.sources import get_matomo, get_metabase
 from lib.tally import TallyClient
 from lib.webinaires import GristClient
@@ -32,6 +33,7 @@ CLIENTS_HTTPX = [
     ("matomo", make_matomo, httpx.Timeout(180, connect=10)),
     ("metabase", make_metabase, httpx.Timeout(60, connect=10)),
     ("tally", lambda _mocker: TallyClient(api_key="cle"), httpx.Timeout(30)),
+    ("airtable", lambda _mocker: AirtableClient(token="cle"), httpx.Timeout(30, connect=10)),
     ("grist", lambda _mocker: GristClient(api_key="cle", doc_id="doc"), httpx.Timeout(30, connect=10)),
 ]
 

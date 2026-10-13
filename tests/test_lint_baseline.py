@@ -15,6 +15,13 @@ _spec.loader.exec_module(_module)
 GELE = {"web/routes/reports.py:S608": 3, "lib/query.py:BLE001": 1}
 
 
+@pytest.fixture(autouse=True)
+def isolated_git(monkeypatch):
+    """Sous un hook git, GIT_INDEX_FILE ferait écrire les dépôts jetables dans l'index du vrai dépôt."""
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.mark.parametrize(
     ("mesure", "attendu"),
     [

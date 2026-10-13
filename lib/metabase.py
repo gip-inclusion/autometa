@@ -75,6 +75,17 @@ class MetabaseError(Exception):
     pass
 
 
+def error_detail(resp: httpx.Response) -> str:
+    """Champ `error` d'un corps d'erreur Metabase, le corps brut à défaut."""
+    # Why: le corps JSON tient sur une ligne et recopie le SQL envoyé, valeurs comprises ;
+    # seul son champ `error` garde le détail Postgres sur des lignes séparables.
+    try:
+        body = resp.json()
+    except ValueError:
+        return resp.text
+    return (body.get("error") if isinstance(body, dict) else None) or resp.text
+
+
 class MetabaseAPI:
     """
     Client for querying the Metabase API.
@@ -165,7 +176,7 @@ class MetabaseAPI:
                     time.sleep(backoff)
                     continue
                 if status is not None:
-                    raise MetabaseError(f"HTTP {status}: {e.response.text}") from e
+                    raise MetabaseError(f"HTTP {status}: {error_detail(e.response)}") from e
                 raise MetabaseError(str(e)) from e
 
     def _parse_result(self, data: dict) -> QueryResult:

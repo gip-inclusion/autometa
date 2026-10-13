@@ -72,7 +72,9 @@ class DatalakeWriter:
             # INSERT/UPDATE/DDL execute but Metabase complains about no ResultSet
             if result.error and "ResultSet" in result.error:
                 return _ResultProxy(None)
-            raise RuntimeError(f"Datalake query failed: {result.error}")
+            # Why: la suite du message Postgres (« Failing row contains… ») recopie les valeurs
+            # insérées, e-mails et noms d'inscrits compris ; seule la première ligne peut partir en log.
+            raise RuntimeError(f"Datalake query failed: {result.error.partition('\n')[0]}")
         return _ResultProxy(result.data)
 
     def commit(self):

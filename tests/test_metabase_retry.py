@@ -80,6 +80,25 @@ def test_no_retry_on_non_gateway_status(mocker, status):
     assert api._session.request.call_count == 1
 
 
+def test_http_error_keeps_metabase_error_field_not_the_body_echoing_the_sql(mocker):
+    # Why: le corps d'un 400 Metabase tient sur une ligne et recopie le SQL envoyé, valeurs
+    # insérées comprises ; les journaux ne gardent que la première ligne de l'erreur.
+    api = make_api(mocker)
+    body = {
+        "error": 'ERROR: null value in column "email" violates not-null constraint\n  Detail: Failing row contains (x)',
+        "via": [{"ex-data": {"sql": ["INSERT INTO t VALUES ('personne@exemple.fr')"]}}],
+    }
+    api._session.request = mocker.Mock(return_value=response(400, json_body=body))
+
+    with pytest.raises(MetabaseError) as excinfo:
+        api.execute_sql("INSERT INTO t VALUES ('personne@exemple.fr')")
+
+    assert "personne@exemple.fr" not in str(excinfo.value)
+    assert str(excinfo.value).partition("\n")[0] == (
+        'HTTP 400: ERROR: null value in column "email" violates not-null constraint'
+    )
+
+
 def test_retries_on_request_error_then_succeeds(mocker):
     api = make_api(mocker)
     req = httpx.Request("POST", "http://mb.test/api/dataset")
