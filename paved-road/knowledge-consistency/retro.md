@@ -38,3 +38,15 @@ incomplète). Le fichier le plus lu était le moins relu.
 Limites laissées ouvertes, écrites dans la PR : paraphrase courte d'une règle (lentille
 `knowledge-drift`), fonction citée en prose, tables citées hors bloc SQL, contrôle des tables en
 attente des instantanés du catalogue (PR suivante).
+
+## Intégration des instantanés du catalogue — 2026-10-13
+
+Les deux instantanés extraits en production (`autometa_tables_db`, `metabase_dora`) sont versionnés.
+Confronté au vrai catalogue, le contrôle a dû changer trois choses, chacune rougie avant d'être
+corrigée : la comparaison se fait casse comprise (`int_iMER`, `monrecap.Contacts` existent tels
+quels ; replier la casse produisait de fausses alertes sur les tables de référence) ; les tables
+documentées mais absentes de l'instantané (archives Metabase, `int_`, `_v0`) sont invérifiables et
+sautées ; les commentaires SQL et `information_schema` ne sont plus lus comme des tables. Il a trouvé
+deux vraies références mortes dans la fiche Dora, toutes deux corrigées. Limite : un identifiant en
+casse mixte écrit sans guillemets dans un bloc SQL passe le contrôle alors que PostgreSQL le replie
+en minuscules — aucun cas dans le dépôt aujourd'hui.
