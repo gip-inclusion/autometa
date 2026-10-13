@@ -585,7 +585,9 @@ def drain_task_stream(pipe, slug: str, stream: str) -> str:
         if lines <= MAX_LOGGED_LINES:
             logger.info(
                 "%s",
-                sanitize_for_log(line),
+                # Why: ces lignes partent dans Datadog ; une erreur SQL y recopie les valeurs de la ligne
+                # en cause. La sortie gardée en base, d'accès restreint, reste complète.
+                re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?<=Failing row contains )\(.*\)", "***", sanitize_for_log(line)),
                 extra={"cron.task.name": sanitize_for_log(slug), "cron.task.stream": stream},
             )
         kept.append(line)

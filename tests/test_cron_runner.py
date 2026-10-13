@@ -200,6 +200,24 @@ def test_execute_task_logs_each_line_of_the_task_output(mocker, tmp_path, caplog
     assert result["status"] == "success"
 
 
+@pytest.mark.parametrize(
+    ("printed", "logged"),
+    [
+        ("contact: prenom.nom@inclusion.gouv.fr", "contact: ***"),
+        ("DETAIL:  Failing row contains (42, Dupont, null).", "DETAIL:  Failing row contains ***."),
+        ("12 lignes synchronisées", "12 lignes synchronisées"),
+    ],
+)
+def test_execute_task_masks_values_before_logging_them(mocker, tmp_path, caplog, printed, logged):
+    task = write_task(tmp_path, f"print({printed!r})")
+
+    with caplog.at_level(logging.INFO, logger="web.cron"):
+        result = run_task_offline(mocker, task)
+
+    assert logged in [r.getMessage() for r in caplog.records]
+    assert printed in result["output"]
+
+
 def test_execute_task_logs_progress_before_a_timeout_kills_the_task(mocker, tmp_path, caplog):
     task = write_task(
         tmp_path,
