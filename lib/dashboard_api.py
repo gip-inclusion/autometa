@@ -20,6 +20,7 @@ __all__ = [
     "facade_violations",
     "list_variants",
     "query_airtable",
+    "query_appli_monrecap",
     "query_autometa_tables",
     "query_data_inclusion",
     "query_datadog",
@@ -128,3 +129,8 @@ def query_airtable(
 def query_storage(sql: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
     """Lit et écrit dans le schéma dashboard_storage. Renvoie un QueryResult, ne lève jamais."""
     return query.execute_dashboard_storage_query(sql=sql, caller=CallerType.APP, params=params, timeout=timeout)
+
+
+def query_appli_monrecap(sql: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
+    """Lit et écrit dans la base applicative Mon Récap. Renvoie un QueryResult, ne lève jamais."""
+    return query.execute_appli_monrecap_query(sql=sql, caller=CallerType.APP, params=params, timeout=timeout)
