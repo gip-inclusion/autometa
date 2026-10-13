@@ -57,14 +57,11 @@ result = execute_metabase_query(
 
 ### Case-sensitive table names
 
-The `int_iMER` table name is case-sensitive in PostgreSQL. Use quotes:
+The `int_iMER` table name is case-sensitive in PostgreSQL. Use quotes — without them, PostgreSQL
+looks for `int_imer` and fails with "relation does not exist":
 
 ```sql
--- CORRECT
 SELECT * FROM public_intermediate."int_iMER" LIMIT 10
-
--- WRONG - will error "relation does not exist"
-SELECT * FROM public_intermediate.int_imer LIMIT 10
 ```
 
 ## Domain Model
@@ -693,31 +690,35 @@ ORDER BY cluster, kind
 
 ### Conversion rates by category (mobilisation → orientation)
 ```sql
--- Calculate conversion rate from mobilisation to orientation by service category
+-- int_iMER has no category column: join the service categories, as in the category filter above.
+-- A service with several categories counts once in each.
 WITH mobs AS (
-    SELECT
-        i.service_categories,  -- comma-separated list
-        COUNT(*) as mobilisations
-    FROM public_intermediate."int_iMER" i
-    WHERE i.kind = 'mobilisation' AND i.date >= '2025-01-01'
+    SELECT sc.label AS categorie, COUNT(DISTINCT me.id) AS mobilisations
+    FROM stats_mobilisationevent me
+    JOIN services_service_categories ssc ON me.service_id = ssc.service_id
+    JOIN services_servicecategory sc ON ssc.servicecategory_id = sc.id
+    WHERE me.date >= '2025-01-01'
+    AND me.user_id IS NOT NULL
+    AND me.is_staff = FALSE
+    AND me.user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur')
     GROUP BY 1
 ),
 orients AS (
-    SELECT
-        i.service_categories,
-        COUNT(*) as orientations
-    FROM public_intermediate."int_iMER" i
-    WHERE i.kind = 'orientation' AND i.date >= '2025-01-01'
+    SELECT sc.label AS categorie, COUNT(DISTINCT o.id) AS orientations
+    FROM orientations_orientation o
+    JOIN services_service_categories ssc ON o.service_id = ssc.service_id
+    JOIN services_servicecategory sc ON ssc.servicecategory_id = sc.id
+    WHERE o.creation_date >= '2025-01-01'
     GROUP BY 1
 )
 SELECT
-    COALESCE(m.service_categories, o.service_categories) as categories,
-    COALESCE(m.mobilisations, 0) as mobilisations,
-    COALESCE(o.orientations, 0) as orientations,
-    ROUND(100.0 * COALESCE(o.orientations, 0) / NULLIF(COALESCE(m.mobilisations, 0), 0), 1) as conversion_rate
-FROM mobs m
-FULL OUTER JOIN orients o ON m.service_categories = o.service_categories
-ORDER BY mobilisations DESC
+    categorie,
+    COALESCE(mobilisations, 0) AS mobilisations,
+    COALESCE(orientations, 0) AS orientations,
+    ROUND(100.0 * COALESCE(orientations, 0) / NULLIF(mobilisations, 0), 1) AS conversion_rate
+FROM mobs
+FULL OUTER JOIN orients USING (categorie)
+ORDER BY mobilisations DESC NULLS LAST
 ```
 
 ### Orientation validation rate by organization type

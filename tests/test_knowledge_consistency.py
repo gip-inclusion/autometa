@@ -53,9 +53,11 @@ SOURCES = {
         ]
     },
 }
-CATALOG = {"source": "autometa_tables_db", "extracted_at": "2026-10-12", "documented_tables": [], "tables": {
+CATALOG = {"source": "autometa_tables_db", "extracted_at": "2026-10-12", "documented_tables": ["int_archive"], "tables": {
     "public.candidats": ["id", "date_inscription"],
     "raw_dora.stats_mobilisationevent": ["id", "user_id"],
+    "public_intermediate.int_iMER": ["kind", "date"],
+    "monrecap.Contacts": ["id"],
 }}  # fmt: skip
 
 
@@ -277,6 +279,8 @@ def test_dod_8_le_repli_metabase_connait_toutes_les_instances():
         ("SELECT c.nom FROM candidats c", "colonne absente du catalogue : c.nom"),
         ("SELECT me.id FROM raw_dora.stats_mobilisationevent me JOIN fantome f ON f.id = me.id",
          "table absente du catalogue : fantome"),
+        ("SELECT * FROM public_intermediate.int_imer", "table absente du catalogue : public_intermediate.int_imer"),
+        ('SELECT i.Kind FROM public_intermediate."int_iMER" i', "colonne absente du catalogue : i.Kind"),
     ],
 )  # fmt: skip
 def test_dod_9_une_table_ou_colonne_absente_du_catalogue_est_nommee(tmp_path, sql, expected):
@@ -288,11 +292,18 @@ def test_dod_9_une_table_ou_colonne_absente_du_catalogue_est_nommee(tmp_path, sq
     assert [(f.path, f.line, f.message) for f in found] == [("knowledge/a.md", 6, expected)]
 
 
-def test_dod_9_une_requete_conforme_au_catalogue_passe(tmp_path):
-    sql = (
+@pytest.mark.parametrize(
+    "sql",
+    [
         "WITH recents AS (SELECT id FROM candidats)\n"
-        "SELECT c.id, EXTRACT(YEAR FROM c.date_inscription) FROM public.candidats AS c JOIN recents r ON r.id = c.id"
-    )
+        "SELECT c.id, EXTRACT(YEAR FROM c.date_inscription) FROM public.candidats AS c JOIN recents r ON r.id = c.id",
+        'SELECT i.kind FROM public_intermediate."int_iMER" i',
+        "SELECT * FROM int_archive",
+        "-- compte les candidats from la base\nSELECT * FROM candidats",
+        "SELECT table_name FROM information_schema.tables",
+    ],
+)
+def test_dod_9_une_requete_conforme_au_catalogue_passe(tmp_path, sql):
     files = {
         "knowledge/a.md": knowledge(f"```sql\n{sql}\n```", source="autometa_tables_db"),
         "knowledge/catalog/autometa_tables_db.json": json.dumps(CATALOG),
@@ -306,6 +317,16 @@ def test_dod_9_une_table_de_reference_absente_du_catalogue_est_nommee(tmp_path):
     assert [str(f) for f in knowledge_lint.catalog_problems(root)] == [
         "skills/autometa_tables_db/SKILL.md:14 — table de référence absente du catalogue : candidats"
     ]
+
+
+@pytest.mark.parametrize(("cited", "expected"), [("`Contacts`", []), ("`contacts`", ["contacts"])])
+def test_dod_9_la_casse_des_tables_de_reference_compte(tmp_path, cited, expected):
+    files = {
+        "skills/autometa_tables_db/SKILL.md": SKILL.replace("`candidats`", cited),
+        "knowledge/catalog/autometa_tables_db.json": json.dumps(CATALOG),
+    }
+    found = knowledge_lint.catalog_problems(make_repo(tmp_path, files))
+    assert [f.message.rsplit(" ", 1)[1] for f in found] == expected
 
 
 def test_dod_9_les_sources_du_depot_sans_instantane_sont_signalees():
