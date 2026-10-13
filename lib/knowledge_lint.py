@@ -32,7 +32,7 @@ TABLE_REF = re.compile(
     r"\b(?:from|join)\s+((?:\"[^\"]+\"|\w+)(?:\.(?:\"[^\"]+\"|\w+))?)(?![\w.\"])(?!\s*\()(?:\s+(?:as\s+)?(\w+))?", re.I
 )
 CTE = re.compile(r"(?:\bwith|,)\s+(\w+)\s+as\s*\(", re.I)
-EXTRACT_CALL = re.compile(r"\b(?:extract|substring|trim)\s*\([^)]*\)", re.I)
+EXTRACT_CALL = re.compile(r"\b(?:extract|substring|trim)\s*\([^)]*\)|--[^\n]*", re.I)
 COLUMN_REF = re.compile(r"\b(\w+)\.(\"[^\"]+\"|\w+)")
 BACKTICK = re.compile(r"`([^`]+)`")
 SQL_KEYWORDS = {
@@ -402,27 +402,25 @@ def uncatalogued(root: Path) -> list[Finding]:
     ]
 
 
-def identifier(raw: str) -> str:
-    return raw[1:-1] if raw.startswith('"') else raw.lower()
-
-
 def lookup(catalog: dict[str, list[str]], reference: str) -> list[str] | None:
-    """Colonnes d'une table du catalogue, qualifiée ou non ; None si elle n'existe nulle part."""
-    parts = [identifier(p) for p in re.findall(r"\"[^\"]+\"|\w+", reference)]
+    """Colonnes d'une table du catalogue, qualifiée ou non, casse comprise ; None si elle n'existe nulle part."""
+    parts = [p.strip('"') for p in re.findall(r"\"[^\"]+\"|\w+", reference)]
     if len(parts) == 2:
         return catalog.get(".".join(parts))
     matches = [columns for key, columns in catalog.items() if key.split(".", 1)[1] == parts[0]]
     return [c for columns in matches for c in columns] if matches else None
 
 
-def sql_problems(block: str, catalog: dict[str, list[str]]) -> list[tuple[int, str]]:
+def sql_problems(block: str, catalog: dict[str, list[str]], unverifiable: set[str]) -> list[tuple[int, str]]:
     block = EXTRACT_CALL.sub("", block)
-    ctes = {name.lower() for name in CTE.findall(block)}
+    skipped = set(CTE.findall(block)) | unverifiable
     problems, aliases = [], {}
     for match in TABLE_REF.finditer(block):
         reference, alias = match.group(1), match.group(2)
         line = block.count("\n", 0, match.start())
-        if identifier(reference) in ctes or re.search(r"[<>{}]", reference):
+        if reference.split(".")[-1].strip('"') in skipped or re.search(
+            r"[<>{}]|^(information_schema|pg_catalog)\.", reference
+        ):
             continue
         columns = lookup(catalog, reference)
         if columns is None:
@@ -433,36 +431,42 @@ def sql_problems(block: str, catalog: dict[str, list[str]]) -> list[tuple[int, s
             aliases[alias.lower()] = columns
     for match in COLUMN_REF.finditer(block):
         columns = aliases.get(match.group(1).lower())
-        if columns is not None and identifier(match.group(2)) not in columns:
+        if columns is not None and match.group(2).strip('"') not in columns:
             line = block.count("\n", 0, match.start())
             problems.append((line, f"colonne absente du catalogue : {match.group(0)}"))
     return problems
 
 
-def load_catalog(root: Path, sources: list[str]) -> dict[str, list[str]] | None:
-    """Union des catalogues des sources de bases d'une fiche ; None si l'un d'eux manque."""
+def load_catalog(root: Path, sources: list[str]) -> tuple[dict[str, list[str]], set[str]] | None:
+    """Tables des catalogues d'une fiche, et tables documentées mais hors catalogue ; None si un catalogue manque."""
     databases = [s for s in sources if is_database(s)]
     if not databases or not all(catalog_path(root, s).is_file() for s in databases):
         return None
-    return {k: v for s in databases for k, v in json.loads(catalog_path(root, s).read_text())["tables"].items()}
+    snapshots = [json.loads(catalog_path(root, s).read_text()) for s in databases]
+    tables = {k: v for snapshot in snapshots for k, v in snapshot["tables"].items()}
+    names = {key.split(".", 1)[1] for key in tables}
+    # Why: archives Metabase, tables int_ et _v0 documentées mais hors des schémas lisibles — invérifiables.
+    return tables, {t for snapshot in snapshots for t in snapshot["documented_tables"]} - names
 
 
 def catalog_problems(root: Path) -> list[Finding]:
     """Tables et colonnes citées absentes de l'instantané du catalogue de la source de la fiche."""
     findings = []
     for doc in documents(root):
-        catalog = load_catalog(root, doc_sources(root, doc))
-        if catalog is None:
+        loaded = load_catalog(root, doc_sources(root, doc))
+        if loaded is None:
             continue
+        catalog, unverifiable = loaded
         text, shown = doc.read_text(), rel(root, doc)
         for language, start, block in code_blocks(text):
             if language == "sql":
                 findings += [
-                    Finding(shown, start + offset, message) for offset, message in sql_problems(block, catalog)
+                    Finding(shown, start + offset, message)
+                    for offset, message in sql_problems(block, catalog, unverifiable)
                 ]
         for number, line in section(text, "Tables de référence"):
             for name in BACKTICK.findall(line):
-                if re.fullmatch(r"[\w.\"]+", name) and lookup(catalog, name) is None:
+                if re.fullmatch(r"[\w.\"]+", name) and name not in unverifiable and lookup(catalog, name) is None:
                     findings.append(Finding(shown, number, f"table de référence absente du catalogue : {name}"))
     return findings
 
