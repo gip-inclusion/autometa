@@ -60,8 +60,8 @@ def macro(macro_id, title="Candidat::Relance", reply=REPLY, active=True, actions
     )
 
 
-def reply_of(fields):
-    return next(a["value"] for a in fields["actions"] if a["field"] == "comment_value_html")
+def reply_of(fields, field="comment_value_html"):
+    return next(a["value"] for a in fields["actions"] if a["field"] == field)
 
 
 @pytest.fixture
@@ -570,16 +570,22 @@ def test_dod_20_encoded_quotes_and_apostrophes_match_typed_ones(store):
 
 
 @pytest.mark.external
-def test_sandbox_roundtrip(store):
+@pytest.mark.parametrize(
+    "field, reply",
+    [
+        ("comment_value_html", "<p>Le Pass&nbsp;IAE de Dora.</p><p>{{ticket.id}}</p>"),
+        ("comment_value", ["channel:all", "Le Pass IAE de Dora. {{ticket.id}}"]),
+    ],
+)
+def test_sandbox_roundtrip(store, field, reply):
     """Plan → apply → revert on a throwaway inactive macro in production Zendesk (S3 in memory)."""
     api = get_zendesk()
-    reply = "<p>Le Pass&nbsp;IAE de Dora.</p><p>{{ticket.id}}</p>"
-    created = api.create_macro("[test changeset — à supprimer]", [{"field": "comment_value_html", "value": reply}])
+    created = api.create_macro("[test changeset — à supprimer]", [{"field": field, "value": reply}])
     try:
         before = cs.content(api.get_macro(created.id))
         result = zm.replace(api, "Pass IAE de Dora", "pass IAE de Nova", macros=[api.get_macro(created.id)])
         assert cs.apply(api, result["id"])["written"] == 1
-        assert "Nova" in reply_of(cs.content(api.get_macro(created.id)))
+        assert "Nova" in zm.text_of(reply_of(cs.content(api.get_macro(created.id)), field))
         assert cs.revert(api, result["id"])["written"] == 1
         assert cs.editable(cs.content(api.get_macro(created.id))) == cs.editable(before)
     finally:
