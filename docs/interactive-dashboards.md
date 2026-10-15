@@ -533,7 +533,9 @@ pas corriger est signalée à l'utilisateur, sans bloquer la livraison du TDB.
 .venv/bin/python skills/verify_dashboard/scripts/verify_dashboard.py mon-dashboard --expect-charts 3
 ```
 
-Le navigateur s'installe avec `make browsers` en local ; il est inclus dans l'image Docker.
+Le navigateur s'installe avec `make browsers` en local ; sur Scalingo (prod, staging, review apps),
+`bin/post_compile` l'installe au build, avec ses bibliothèques système déclarées dans l'`Aptfile` ;
+il est aussi inclus dans l'image Docker.
 
 ## Modification
 
