@@ -7,27 +7,27 @@
 
 ```
 ============================= test session starts ==============================
-platform darwin -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0
-rootdir: /Users/louije/Development/gip/Autometa
+platform linux -- Python 3.14.8, pytest-9.0.3, pluggy-1.6.0
+rootdir: /home/yannick/work/itou/autometa
 configfile: pytest.ini
-plugins: mock-3.15.1, cov-7.1.0, playwright-0.9.0, xdist-3.8.0, base-url-2.1.0, anyio-4.13.0
-collected 116 items / 115 deselected / 1 selected
+plugins: cov-7.1.0, mock-3.15.1, playwright-0.9.0, base-url-2.1.0, anyio-4.13.0
+collected 124 items / 123 deselected / 1 selected
 
 tests/test_zendesk_macros.py .                                           [100%]
 
-====================== 1 passed, 115 deselected in 0.28s =======================
+====================== 1 passed, 123 deselected in 0.26s =======================
 ```
 
 **Contenu prouvé**
 
 | Chemin | Empreinte d'arbre |
 |---|---|
-| `web` | `b7391855da3bbea4c00cb70de11b61d485cc85a2` |
-| `lib` | `9f7ed7fa3214535fcb9a6568b737e2579b2f7808` |
+| `web` | `025f36cf58659e483324d1a6cfc73a6df9549b0a` |
+| `lib` | `2b466b0abc4699b2de0eb914fd7580ef49d5c9be` |
 | `scripts` | `1db5541ee291f83cc7f58352cd6e10d88881ebf6` |
-| `skills` | `36ae3d5414a51e5371fabf7e9f9d50ab4601ef9e` |
-| `alembic` | `16587a72a81f00cbce480dac027c318a1a0e28f5` |
-| `tests` | `eb76c0695bb8db958fe2c75ce6c57b57d2ae1918` |
-| `browser` | `950c17e55519f3edc196b8d02673c268eb2932c0` |
+| `skills` | `631a31cf0b909e7d79879f83c83dc383add9aa5a` |
+| `alembic` | `4199ab20c8200527287a4d1328e495721ee59ab2` |
+| `tests` | `172f90e291036b1318c23c94d3d2456d4afca77a` |
+| `browser` | `3838fcc50ff5c25b4f975d5d2bdbc060a2ca9cca` |
 
 **Verdict** — démontré.
