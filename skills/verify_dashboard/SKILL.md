@@ -22,7 +22,7 @@ l'application) : aucune application servie ni session n'est nécessaire.
 | Argument | Description |
 |---|---|
 | `target` | Slug du TDB (dossier `data/interactive/{slug}/`), chemin d'un dossier, ou URL `http(s)://` |
-| `--expect-charts` | Nombre minimal de graphiques qui doivent être rendus. **Toujours le passer** : c'est le nombre de graphiques que le TDB est censé afficher |
+| `--expect-charts` | Nombre minimal de graphiques présents dans la page. **Toujours le passer** : c'est le nombre total de graphiques du TDB, onglets inactifs compris |
 | `--screenshot` | Chemin de la capture pleine page (défaut `/tmp/verify_dashboard/{slug}.png`) |
 
 Sortie sur stdout (JSON) :
@@ -47,12 +47,14 @@ Sortie sur stdout (JSON) :
 |---|---|---|
 | `console`, `pageerror` | Erreur console, exception JS non rattrapée | |
 | `request` | Script, style, `data.json`… en échec (HTTP ≥ 400 ou réseau) | Police, image ; appel `/api/…` (non vérifiable hors application servie) |
-| `chart` | `<canvas>`/`<svg>` visible de taille nulle ou sans aucun tracé ; moins de graphiques que `--expect-charts` ; Chart.js : libellé `undefined`/`NaN`, série sans aucune valeur | Aucun graphique détecté |
+| `chart` | `<canvas>`/`<svg>` visible de taille nulle ou sans aucun tracé ; moins de graphiques (visibles ou masqués) que `--expect-charts` ; Chart.js : libellé `undefined`/`NaN`, série sans aucune valeur | Aucun graphique détecté |
 | `layout` | Débordement horizontal (viewport 1280 px) ; page sans texte | `#generated-at` non renseigné |
 | `error_text` | `undefined`, `NaN`, `[object Object]`, traceback visibles ; bloc `#error`/`.error`/`[role=alert]` affiché | |
 
-Les graphiques masqués (onglet inactif) et les pictogrammes SVG ne sont pas comptés. Le tag manager
-Matomo est bloqué pendant l'audit : il ne compte pas de fausse visite.
+Les graphiques masqués (onglet inactif) sont comptés et leurs données Chart.js contrôlées, mais ni leur
+taille ni leur tracé ne sont jugés : seul l'onglet affiché au chargement l'est. Les pictogrammes SVG
+(32 px au plus) ne sont pas comptés. Le tag manager Matomo est bloqué pendant l'audit : il ne compte
+pas de fausse visite.
 
 ## Codes de retour et conduite à tenir
 
@@ -63,7 +65,8 @@ Matomo est bloqué pendant l'audit : il ne compte pas de fausse visite.
   à l'utilisateur** avec la liste des issues restantes. Le contrôle informe, il ne bloque ni la
   création ni l'enregistrement du TDB.
 - `2` — audit impossible (TDB sans `index.html`, navigateur absent). Le dire à l'utilisateur ; ne pas
-  présenter le TDB comme vérifié.
+  présenter le TDB comme vérifié. Sur Scalingo, le navigateur est installé au build par
+  `bin/post_compile` (bibliothèques système via l'`Aptfile`) : son absence signale un build en échec.
 
 ## Limites
 

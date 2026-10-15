@@ -27,17 +27,21 @@ COSMETIC_RESOURCES = {"font", "image", "media"}
 
 VISIBLE_ERRORS = re.compile(r"\bundefined\b|\bNaN\b|\[object Object\]|Traceback \(most recent call last\)")
 
-# Un <svg> de 32 px au plus est un pictogramme, pas un graphique.
+# Un graphique d'onglet inactif est compté sans être mesuré : masqué, il n'a ni taille ni pixels.
+# Un <svg> de 32 px au plus est un pictogramme ; masqué, seuls ses attributs width/height en disent la taille.
 CHARTS_JS = """() => [...document.querySelectorAll('canvas, svg')]
-  .filter(el => !el.parentElement.closest('svg') && el.checkVisibility())
+  .filter(el => !el.parentElement.closest('svg'))
   .map(el => {
-    const {width, height} = el.getBoundingClientRect();
+    const visible = el.checkVisibility();
+    const {width, height} = visible
+      ? el.getBoundingClientRect()
+      : {width: Number(el.getAttribute('width')) || 0, height: Number(el.getAttribute('height')) || 0};
     let painted = true;
-    if (el.tagName === 'CANVAS') {
+    if (visible && el.tagName === 'CANVAS') {
       const ctx = el.width && el.height ? el.getContext('2d', {willReadFrequently: true}) : null;
       if (ctx) painted = ctx.getImageData(0, 0, el.width, el.height).data.some((v, i) => i % 4 === 3 && v > 0);
       else painted = !!el.width && !!el.height && !!(el.getContext('webgl2') || el.getContext('webgl'));
-    } else {
+    } else if (visible) {
       painted = el.querySelector('path, rect, circle, ellipse, line, polyline, polygon, text, image') !== null;
     }
     const chart = el.tagName === 'CANVAS' ? window.Chart?.getChart?.(el) : undefined;
@@ -51,9 +55,11 @@ CHARTS_JS = """() => [...document.querySelectorAll('canvas, svg')]
         .filter(d => !(d.data ?? []).some(v => Number.isFinite(Number(value(v))) && value(v) !== null))
         .forEach(d => broken.push(`série « ${d.label ?? '?'} » sans aucune valeur`));
     }
-    return {tag: el.tagName.toLowerCase(), id: el.id, width, height, painted, broken};
+    return {tag: el.tagName.toLowerCase(), id: el.id, visible, width, height, painted, broken};
   })
-  .filter(c => !(c.tag === 'svg' && c.width * c.height > 0 && c.width <= 32 && c.height <= 32))"""
+  .filter(c => c.tag === 'canvas' || (c.visible
+    ? !(c.width * c.height > 0 && c.width <= 32 && c.height <= 32)
+    : c.width > 32 && c.height > 32))"""
 
 LAYOUT_JS = """() => ({
   overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -135,7 +141,7 @@ def chart_issues(charts: list[dict], expected: int) -> list[dict]:
     issues = []
     for chart in charts:
         name = f"<{chart['tag']}{' #' + chart['id'] if chart['id'] else ''}>"
-        if chart["width"] < 2 or chart["height"] < 2:
+        if chart["visible"] and (chart["width"] < 2 or chart["height"] < 2):
             issues.append(
                 issue("chart", f"{name} visible mais de taille nulle ({chart['width']:.0f}×{chart['height']:.0f})")
             )
@@ -143,7 +149,7 @@ def chart_issues(charts: list[dict], expected: int) -> list[dict]:
             issues.append(issue("chart", f"{name} rendu vide : aucun tracé"))
         issues += [issue("chart", f"{name} Chart.js : {problem}") for problem in chart["broken"]]
     if len(charts) < expected:
-        issues.append(issue("chart", f"{len(charts)} graphique(s) rendu(s), {expected} attendu(s)"))
+        issues.append(issue("chart", f"{len(charts)} graphique(s) dans la page, {expected} attendu(s)"))
     elif not charts:
         issues.append(issue("chart", "aucun graphique détecté", "warning"))
     return issues

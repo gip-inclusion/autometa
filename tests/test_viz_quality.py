@@ -18,7 +18,16 @@ _spec.loader.exec_module(cli)
 
 
 def chart(**overrides) -> dict:
-    return {"tag": "canvas", "id": "c", "width": 600, "height": 300, "painted": True, "broken": [], **overrides}
+    return {
+        "tag": "canvas",
+        "id": "c",
+        "visible": True,
+        "width": 600,
+        "height": 300,
+        "painted": True,
+        "broken": [],
+        **overrides,
+    }
 
 
 def layout(**overrides) -> dict:
@@ -38,8 +47,19 @@ def severities(issues: list[dict]) -> list[tuple[str, str]]:
         ([chart(broken=["libellé undefined/NaN"])], 0, [("chart", "error")]),
         ([chart()], 2, [("chart", "error")]),
         ([], 0, [("chart", "warning")]),
+        ([chart(), chart(), chart(), chart(visible=False, width=0, height=0)], 4, []),
+        ([chart(visible=False, width=0, height=0, broken=["libellé undefined/NaN"])], 1, [("chart", "error")]),
     ],
-    ids=["ok", "zero-size", "blank", "chartjs-broken", "missing-chart", "no-chart-expected"],
+    ids=[
+        "ok",
+        "zero-size",
+        "blank",
+        "chartjs-broken",
+        "missing-chart",
+        "no-chart-expected",
+        "inactive-tab-counted",
+        "inactive-tab-chartjs-broken",
+    ],
 )
 def test_chart_issues(charts, expected, found):
     assert severities(viz_quality.chart_issues(charts, expected)) == found

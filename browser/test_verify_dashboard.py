@@ -43,6 +43,23 @@ fetch('donnees.json').then(r => r.json()).then(data => render(data));
 """
 
 
+TABS_INDEX = """<!DOCTYPE html>
+<html lang="fr">
+<body>
+  <h1>Candidatures</h1>
+  <svg width="16" height="16" hidden><path d="M0 0h16v16H0z"/></svg>
+  <section id="actif">
+    <canvas width="300" height="150"></canvas><canvas width="300" height="150"></canvas>
+    <canvas width="300" height="150"></canvas>
+  </section>
+  <section id="inactif" hidden><canvas width="300" height="150"></canvas></section>
+  <script>
+    document.querySelectorAll('canvas').forEach(c => c.getContext('2d').fillRect(10, 10, 100, 100));
+  </script>
+</body>
+</html>"""
+
+
 def dashboard(root: Path, app_js: str) -> Path:
     directory = root / "interactive" / "tdb-test"
     directory.mkdir(parents=True)
@@ -79,3 +96,13 @@ def test_a_broken_dashboard_fails_and_names_each_defect(tmp_path):
     assert "error layout: débordement horizontal" in report
     assert "error chart: <canvas #bars> rendu vide" in report
     assert "error chart: <svg #line> rendu vide" in report
+
+
+def test_a_chart_in_an_inactive_tab_is_counted_without_failing_the_dashboard(tmp_path):
+    directory = tmp_path / "interactive" / "tdb-onglets"
+    directory.mkdir(parents=True)
+    (directory / "index.html").write_text(TABS_INDEX)
+
+    result = verify(str(directory), expected_charts=4)
+
+    assert (result["passed"], result["charts"], result["issues"]) == (True, 4, [])
