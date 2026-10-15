@@ -15,6 +15,14 @@ _spec.loader.exec_module(_module)
 GELE = {"web/routes/reports.py:S608": 3, "lib/query.py:BLE001": 1}
 
 
+@pytest.fixture(autouse=True)
+def isolate_from_calling_git(monkeypatch):
+    # Why: lancé par le hook pre-commit, git exporte GIT_INDEX_FILE ; les `git add` des dépôts de test
+    # écriraient alors dans l'index du vrai dépôt et y glisseraient leurs fichiers.
+    monkeypatch.delenv("GIT_INDEX_FILE", raising=False)
+    monkeypatch.delenv("GIT_DIR", raising=False)
+
+
 @pytest.mark.parametrize(
     ("mesure", "attendu"),
     [
