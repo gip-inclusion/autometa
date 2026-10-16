@@ -43,34 +43,73 @@ def test_dod_2_a_javascript_error_fails_and_is_quoted(message):
     assert any(message in m for m in errors(judge(make_observation(errors=[message]))))
 
 
-def test_dod_2_console_errors_are_kept_but_network_echoes_are_not(mocker):
+@pytest.mark.parametrize(
+    ("kind", "text", "kept"),
+    [
+        ("error", "boom", True),
+        ("warning", "dépréciée", False),
+        ("error", "Failed to load resource: 404 (Not Found)", False),
+        (
+            "error",
+            "Access to font at 'https://inclusion.gouv.fr/static/dsfr/dist/fonts/Marianne-Bold.woff2' from origin "
+            "'http://127.0.0.1:33801' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header",
+            False,
+        ),
+    ],
+)
+def test_dod_2_console_errors_are_kept_but_network_echoes_are_not(mocker, kind, text, kept):
     collected = []
 
-    dashboard_quality.on_console(collected, mocker.Mock(type="error", text="boom"))
-    dashboard_quality.on_console(collected, mocker.Mock(type="warning", text="dépréciée"))
-    dashboard_quality.on_console(collected, mocker.Mock(type="error", text="Failed to load resource: 404 (Not Found)"))
+    dashboard_quality.on_console(collected, mocker.Mock(type=kind, text=text))
 
-    assert collected == ["boom"]
+    assert collected == ([text] if kept else [])
 
 
 @pytest.mark.parametrize("url", ["http://127.0.0.1:1/interactive/tdb/data.json", "https://cdn.x/chart.js"])
 def test_dod_3_a_missing_file_fails_and_is_named(url):
-    issues = judge(make_observation(failed_requests=[{"url": url, "reason": "HTTP 404"}]))
+    issues = judge(make_observation(failed_requests=[{"url": url, "reason": "HTTP 404", "type": "script"}]))
 
     assert any(url in m for m in errors(issues))
 
 
 def test_dod_3_failed_responses_and_requests_are_recorded(mocker):
     failed = []
+    fetch = mocker.Mock(resource_type="fetch")
 
-    dashboard_quality.on_response(failed, mocker.Mock(url="http://h/data.json", status=404))
-    dashboard_quality.on_response(failed, mocker.Mock(url="http://h/app.js", status=200))
-    dashboard_quality.on_request_failed(failed, mocker.Mock(url="https://cdn.x/d3.js", failure="net::ERR_FAILED"))
+    dashboard_quality.on_response(failed, mocker.Mock(url="http://h/data.json", status=404, request=fetch))
+    dashboard_quality.on_response(failed, mocker.Mock(url="http://h/app.js", status=200, request=fetch))
+    dashboard_quality.on_request_failed(
+        failed, mocker.Mock(url="https://cdn.x/d3.js", failure="net::ERR_FAILED", resource_type="script")
+    )
 
     assert failed == [
-        {"url": "http://h/data.json", "reason": "HTTP 404"},
-        {"url": "https://cdn.x/d3.js", "reason": "net::ERR_FAILED"},
+        {"url": "http://h/data.json", "reason": "HTTP 404", "type": "fetch"},
+        {"url": "https://cdn.x/d3.js", "reason": "net::ERR_FAILED", "type": "script"},
     ]
+
+
+@pytest.mark.parametrize(
+    ("resource_type", "severity"),
+    [
+        ("font", "warning"),
+        ("image", "warning"),
+        ("media", "warning"),
+        ("script", "error"),
+        ("stylesheet", "error"),
+        ("fetch", "error"),
+    ],
+)
+def test_dod_3_a_missing_font_image_or_media_is_a_warning_anything_else_an_error(mocker, resource_type, severity):
+    failed = []
+
+    dashboard_quality.on_request_failed(
+        failed, mocker.Mock(url="https://cdn.x/f", failure="net::ERR_FAILED", resource_type=resource_type)
+    )
+    dashboard_quality.on_response(
+        failed, mocker.Mock(url="http://h/f", status=404, request=mocker.Mock(resource_type=resource_type))
+    )
+
+    assert [i["severity"] for i in judge(make_observation(failed_requests=failed))] == [severity, severity]
 
 
 def test_dod_4_a_chart_without_any_mark_fails():
@@ -109,7 +148,7 @@ def test_dod_8_the_tracking_script_is_never_a_problem(mocker):
 
 
 def test_dod_9_live_data_is_a_warning_not_a_failure():
-    live = {"url": "http://127.0.0.1:1/api/query", "reason": "HTTP 404"}
+    live = {"url": "http://127.0.0.1:1/api/query", "reason": "HTTP 404", "type": "fetch"}
 
     issues = judge(make_observation(failed_requests=[live]))
 
