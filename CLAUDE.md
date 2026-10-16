@@ -13,6 +13,7 @@ make hooks     # Installe le hook git pre-commit (lint + suite unit)
 make lint      # ruff check + format check
 make format    # Auto-format
 make migrate   # Migrations Alembic
+make catalog   # Régénère les instantanés knowledge/catalog/ depuis les bases (identifiants requis)
 make lint-js   # Biome sur web/static (JS et CSS) — le front n'a aucun test
 make paved-road-status  # État du parcours, verdict de chaque critère
 make ci        # lint + lint-js + security + migrations + test-cov + diff-cover

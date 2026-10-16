@@ -73,6 +73,15 @@ Données de participation aux webinaires (Livestorm historique + Grist actuel) :
 
 5. **Vérifié à chaque PR** (`lib/knowledge_lint.py`, `make test`) : chemins, modules et fonctions cités ; sites conformes au tableau de `AGENT.md` ; règles non recopiées ; affirmations réfutées (`refutations.yaml`) ; tables et colonnes des blocs SQL contre l'instantané du catalogue de la source (`catalog/`), quand il existe.
 
+   **Instantanés du catalogue** (`catalog/`) : un fichier par source de type base, la liste de ses tables et colonnes réelles à une date (`extracted_at`). Quand le contrôle signale « table absente du catalogue » pour une table qui existe bien en base, ou qu'un instantané a plus de six mois, le régénérer puis committer le diff avec la PR :
+
+   ```bash
+   make catalog                          # toutes les sources (autometa_tables_db, metabase:dora)
+   make catalog SOURCES=metabase:dora    # une seule ; appel direct : uv run python scripts/refresh_catalog.py metabase:dora
+   ```
+
+   Il faut les identifiants de la source dans `.env` (`AUTOMETA_TABLES_DATABASE_URL`, `METABASE_DORA_API_KEY`) ; une source injoignable est signalée et son instantané laissé tel quel. Les archives Metabase nouvellement apparues ne sont pas ajoutées aux tables documentées : leurs noms peuvent contenir des noms de personnes et le dépôt est public.
+
 6. **Un sujet par fichier** : ne pas mélanger plusieurs sites ou modules.
 
 7. **Markdown simple** : titres, listes, tableaux, blocs de code. Pas de HTML.
