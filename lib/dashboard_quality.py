@@ -22,19 +22,36 @@ TRACKING_HOST = "matomo.inclusion.beta.gouv.fr"
 
 BROKEN_VALUES = re.compile(r"\b(?:NaN|undefined|null)\b|\[object Object\]")
 
-# Chart.js et Plot dessinent leurs axes même sans donnée : on juge leurs séries, pas leurs pixels. Ne sont pas des
-# graphiques : un <svg> de 32 px au plus (pictogramme), la légende de couleur de Plot (`-ramp`), un élément masqué.
+# Why: Chromium recopie en console chaque requête en échec ou refusée par CORS, déjà relevée avec son adresse.
+NETWORK_ECHO = re.compile(r"^(?:Failed to load resource|Access to .+ blocked by CORS policy)")
+
+# Une police, une image ou un média manquant dégrade l'aspect ; un script, un style ou data.json manquant casse le TDB.
+COSMETIC_RESOURCES = {"font", "image", "media"}
+
+# Chart.js, Plot et les axes D3 se dessinent même sans donnée : on juge les séries, pas les pixels. Chart.js : la valeur
+# calculée sur l'axe des valeurs, quel que soit `indexAxis` ou `parsing` — une barre null n'est pas `skip`, et un
+# camembert lit null comme 0, sans part. Ne sont pas des graphiques : un <svg> de 32 px au plus (pictogramme), la
+# légende de couleur de Plot (`-ramp`), un élément masqué.
 OBSERVE_JS = """() => {
   const shown = el => el !== null && el.checkVisibility() ? el.innerText.trim() : '';
-  const value = v => (v !== null && typeof v === 'object' ? v.y : v);
   const painted = el => {
     if (el.tagName === 'svg' && [...el.classList].some(c => c.startsWith('plot'))) {
       return [...el.querySelectorAll('g[aria-label]')]
         .some(g => !/axis|grid|frame/.test(g.getAttribute('aria-label')) && g.childElementCount > 0);
     }
-    if (el.tagName === 'svg') return el.querySelector('path, rect, circle, ellipse, line, polyline, polygon, text, image') !== null;
+    if (el.tagName === 'svg') {
+      return el.querySelector(':is(path, rect, circle, ellipse, line, polyline, polygon, text, image):not(.tick *, .domain)') !== null;
+    }
     const chart = window.Chart?.getChart?.(el);
-    if (chart) return chart.data.datasets.some(d => (d.data ?? []).some(v => value(v) !== null && Number.isFinite(Number(value(v)))));
+    if (chart) {
+      return chart.data.datasets.some((_, i) => {
+        const meta = chart.getDatasetMeta(i);
+        return meta.data.some((point, j) => {
+          const parsed = meta.controller.getParsed(j);
+          return !point.skip && (meta.vScale ? Number.isFinite(parsed[meta.vScale.axis]) : parsed > 0);
+        });
+      });
+    }
     if (!el.width || !el.height) return false;
     const ctx = el.getContext('2d');
     try {
@@ -90,19 +107,22 @@ def serve(directory: Path) -> Iterator[str]:
 
 
 def on_console(errors: list[str], message) -> None:
-    # Why: Chromium recopie en console chaque requête en échec, déjà relevée avec son adresse.
-    if message.type == "error" and not message.text.startswith("Failed to load resource"):
+    if message.type == "error" and not NETWORK_ECHO.match(message.text):
         errors.append(message.text)
 
 
 def on_response(failed: list[dict], response) -> None:
     if response.status >= 400:
-        failed.append({"url": response.url, "reason": f"HTTP {response.status}"})
+        failed.append({
+            "url": response.url,
+            "reason": f"HTTP {response.status}",
+            "type": response.request.resource_type,
+        })
 
 
 def on_request_failed(failed: list[dict], request) -> None:
     if urlsplit(request.url).hostname != TRACKING_HOST:
-        failed.append({"url": request.url, "reason": request.failure})
+        failed.append({"url": request.url, "reason": request.failure, "type": request.resource_type})
 
 
 def observe(page: Page, url: str) -> dict:
@@ -132,7 +152,8 @@ def judge(observation: dict, expected_charts: int = 0) -> list[dict]:
         if urlsplit(failed["url"]).path.startswith("/api/"):
             issues.append(issue(f"données en direct non vérifiées : {failed['url']}", "warning"))
         else:
-            issues.append(issue(f"fichier non chargé : {failed['url']} ({failed['reason']})"))
+            severity = "warning" if failed["type"] in COSMETIC_RESOURCES else "error"
+            issues.append(issue(f"fichier non chargé : {failed['url']} ({failed['reason']})", severity))
     charts = observation["charts"]
     issues += [issue(f"graphique {c['name']} affiché sans aucun tracé") for c in charts if not c["painted"]]
     if len(charts) < expected_charts:

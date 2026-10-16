@@ -50,8 +50,10 @@ Sortie sur stdout (JSON) :
 - un dossier sans `index.html`.
 
 Ne font **pas** échouer : le tag manager Matomo (bloqué pendant la vérification, pour ne pas compter
-de fausse visite) et les appels `/api/…` des TDB en données live, impossibles hors de l'application —
-ils sortent en avertissement « données en direct non vérifiées ».
+de fausse visite) ; une police, une image ou un média non chargé — avertissement « fichier non chargé »,
+c'est le cas des polices Marianne du gabarit, refusées hors de inclusion.gouv.fr ; les appels `/api/…`
+des TDB en données live, impossibles hors de l'application — avertissement « données en direct non
+vérifiées ».
 
 ## Conduite à tenir
 
