@@ -48,6 +48,9 @@ dependencies = [
     "statsmodels>=0.15.0",
     "linearmodels>=7.0",
     "bambi>=0.21.0",
+    # Vérification visuelle des tableaux de bord par l'agent (skill verify_dashboard) : rendu sans
+    # écran en production, donc dépendance d'exécution. Le navigateur s'installe dans le Dockerfile.
+    "playwright>=1.62.0",
 ]
 
 [project.scripts]

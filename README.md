@@ -178,7 +178,8 @@ git push scalingo main
 
 **Fichiers de configuration :**
 - `Procfile` : uvicorn derrière oauth2-proxy
-- `.buildpacks` : Python + oauth2-proxy
+- `.buildpacks` : apt (bibliothèques de l'`Aptfile`) + Python + oauth2-proxy
+- `bin/post_compile` : installe le CLI Claude Code et le Chromium de `verify_dashboard`
 - `.python-version` : version Python
 - `pyproject.toml` / `uv.lock` : dépendances (uv)
 
