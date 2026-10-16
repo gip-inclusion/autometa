@@ -14,12 +14,24 @@ from skills.verify_dashboard.scripts import verify_dashboard
 PAGE_STATE = {"charts": [], "text": "x", "overflow": 0, "error": "", "loading": ""}
 
 
+def make_chart(**overrides) -> dict:
+    return {
+        "name": "canvas #evolution",
+        "width": 600,
+        "height": 300,
+        "painted": True,
+        "empty_series": [],
+        "labels": ["jan", "fév", "Candidatures"],
+        **overrides,
+    }
+
+
 def make_observation(**overrides) -> dict:
     return {
         "errors": [],
         "failed_requests": [],
         "timed_out": False,
-        "charts": [{"name": "canvas #evolution", "width": 600, "height": 300, "painted": True}],
+        "charts": [make_chart()],
         "text": "Candidatures par mois\n1 204 candidatures",
         "overflow": 0,
         "error": "",
@@ -114,13 +126,36 @@ def test_dod_3_a_missing_font_image_or_media_is_a_warning_anything_else_an_error
 
 
 def test_dod_4_a_chart_without_any_mark_fails():
-    blank = {"name": "canvas #vide", "width": 600, "height": 300, "painted": False}
+    blank = make_chart(name="canvas #vide", painted=False)
 
     assert any("canvas #vide" in m for m in errors(judge(make_observation(charts=[blank]))))
 
 
+@pytest.mark.parametrize(
+    ("chart", "expected"),
+    [
+        (make_chart(empty_series=["2025"]), ["graphique canvas #evolution : série « 2025 » sans aucune valeur"]),
+        (
+            make_chart(labels=["jan", "undefined", "undefined"]),
+            ["graphique canvas #evolution : libellé cassé « undefined »"],
+        ),
+        (
+            make_chart(labels=["NaN", "null"]),
+            [
+                "graphique canvas #evolution : libellé cassé « NaN »",
+                "graphique canvas #evolution : libellé cassé « null »",
+            ],
+        ),
+        (make_chart(labels=["Taux de nullité", "Undefined behaviour"]), []),
+    ],
+    ids=["empty-series", "undefined-label", "nan-and-null-labels", "whole-words-only"],
+)
+def test_dod_5_a_chartjs_series_or_label_drawn_in_the_canvas_is_judged(chart, expected):
+    assert errors(judge(make_observation(charts=[chart]))) == expected
+
+
 def test_dod_4_fewer_charts_than_expected_fails():
-    assert any("1 graphique(s) affiché(s), 3 attendu(s)" in m for m in errors(judge(make_observation(), 3)))
+    assert any("1 graphique(s) dans la page, 3 attendu(s)" in m for m in errors(judge(make_observation(), 3)))
 
 
 @pytest.mark.parametrize("value", ["NaN", "undefined", "null", "[object Object]"])
