@@ -402,6 +402,17 @@ def uncatalogued(root: Path) -> list[Finding]:
     ]
 
 
+def stale_catalogs(root: Path, today: date) -> list[Finding]:
+    """Instantanés du catalogue extraits il y a plus de six mois — signalés, jamais bloquants."""
+    findings = []
+    for path in sorted((root / "knowledge" / "catalog").glob("*.json")):
+        extracted = date.fromisoformat(json.loads(path.read_text())["extracted_at"])
+        if (today - extracted).days > STALE_AFTER_DAYS:
+            findings.append(Finding(rel(root, path), 1, f"extrait le {extracted}, il y a plus de "
+                                    f"{STALE_AFTER_DAYS} jours — régénérer : make catalog"))  # fmt: skip
+    return findings
+
+
 def lookup(catalog: dict[str, list[str]], reference: str) -> list[str] | None:
     """Colonnes d'une table du catalogue, qualifiée ou non, casse comprise ; None si elle n'existe nulle part."""
     parts = [p.strip('"') for p in re.findall(r"\"[^\"]+\"|\w+", reference)]

@@ -1,6 +1,6 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report e2e diff-cover lint format security audit ci \
-        migrate check-migrations paved-road-baseline lint-js browsers
+        migrate check-migrations paved-road-baseline lint-js browsers catalog
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
 PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -40,6 +40,11 @@ hooks:
 
 migrate:
 	uv run --frozen alembic upgrade head
+
+# Régénère les instantanés knowledge/catalog/*.json depuis les bases (identifiants de .env requis).
+# Une source précise : make catalog SOURCES=metabase:dora
+catalog:
+	uv run --frozen python scripts/refresh_catalog.py $(SOURCES)
 
 check-migrations:
 	uv run --frozen alembic check

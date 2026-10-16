@@ -330,9 +330,21 @@ def test_dod_9_la_casse_des_tables_de_reference_compte(tmp_path, cited, expected
 
 
 def test_dod_9_les_sources_du_depot_sans_instantane_sont_signalees():
-    for finding in knowledge_lint.uncatalogued(REPO):
+    for finding in knowledge_lint.uncatalogued(REPO) + knowledge_lint.stale_catalogs(REPO, date.today()):
         warnings.warn(str(finding), stacklevel=1)
-    assert knowledge_lint.catalog_problems(REPO) == [], messages(knowledge_lint.catalog_problems(REPO))
+    found = knowledge_lint.catalog_problems(REPO)
+    assert found == [], f"{messages(found)}\nTable réelle absente de l'instantané : régénérer avec `make catalog`."
+
+
+def test_dod_9_un_instantane_ancien_est_signale_sans_bloquer(tmp_path):
+    catalog = {**CATALOG, "extracted_at": "2026-01-02"}
+    root = make_repo(tmp_path, {"knowledge/catalog/autometa_tables_db.json": json.dumps(catalog)})
+    assert [str(f) for f in knowledge_lint.stale_catalogs(root, TODAY)] == [
+        "knowledge/catalog/autometa_tables_db.json:1 — extrait le 2026-01-02, il y a plus de 180 jours "
+        "— régénérer : make catalog"
+    ]
+    assert knowledge_lint.stale_catalogs(root, date(2026, 6, 1)) == []
+    assert knowledge_lint.findings(root) == []
 
 
 def test_dod_9_sans_instantane_la_source_est_signalee_et_ses_tables_non_controlees(tmp_path):
