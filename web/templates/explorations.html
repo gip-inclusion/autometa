@@ -33,15 +33,15 @@
                 · <span title="Tokens utilisés: {{ current_conv.usage_input_tokens or 0 }} entrée, {{ current_conv.usage_output_tokens or 0 }} sortie"><i class="ri-coin-line"></i> <span id="tokenCount">{{ "{:,}".format(total_tokens) }}</span> tokens</span>
               </span>
               {% if not is_shared %}
-              <button type="button" class="conv-action-btn" id="editTitleBtn"><i class="ri-pencil-line"></i> Renommer</button>
-              <button type="button" class="conv-action-btn d-none" id="autoTitleBtn"><i class="ri-magic-line"></i> Générer titre</button>
+              <button type="button" class="conv-action-btn" id="editTitleBtn"><i class="ri-pencil-line"></i> <span>Renommer</span></button>
+              <button type="button" class="conv-action-btn d-none" id="autoTitleBtn"><i class="ri-magic-line"></i> <span>Générer titre</span></button>
               {% endif %}
-              <button type="button" class="conv-action-btn" id="forkConvBtn"><i class="ri-git-branch-line"></i> Dupliquer</button>
+              <button type="button" class="conv-action-btn" id="forkConvBtn"><i class="ri-git-branch-line"></i> <span>Dupliquer</span></button>
               {% if is_admin %}
                 {% if current_conv.pinned_at %}
-              <button type="button" class="conv-action-btn" id="unpinConvBtn"><i class="ri-unpin-line"></i> Désépingler</button>
+              <button type="button" class="conv-action-btn" id="unpinConvBtn"><i class="ri-unpin-line"></i> <span>Désépingler</span></button>
                 {% else %}
-              <button type="button" class="conv-action-btn" id="pinConvBtn"><i class="ri-pushpin-line"></i> Épingler</button>
+              <button type="button" class="conv-action-btn" id="pinConvBtn"><i class="ri-pushpin-line"></i> <span>Épingler</span></button>
                 {% endif %}
               {% endif %}
               {% with item_type = 'conversation', item_id = current_conv.id, btn_class = 'conv-action-btn' %}{% include "_favorite_button.html" %}{% endwith %}
@@ -50,7 +50,7 @@
             {% endif %}
           </p>
           <div class="conv-title-display" id="convTitleDisplay">
-            <h1 class="mb-0"><i class="ri-compass-discover-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>{% if current_conv %}{{ current_conv.title or 'Sans titre' }}{% elif is_new %}Posez vos questions sur les données{% endif %}</h1>
+            <h1 class="mb-0"><i class="ri-compass-discover-line ri-2x text-primary me-2 conv-header-icon" style="vertical-align: middle;"></i>{% if current_conv %}{{ current_conv.title or 'Sans titre' }}{% elif is_new %}Posez vos questions sur les données{% endif %}</h1>
           </div>
           {% if current_conv and not is_shared %}
           <div class="conv-title-edit d-none" id="convTitleEdit">
@@ -73,7 +73,7 @@
         </button>
         {% endif %}
         <a href="https://tally.so/r/9qdZvp{% if user_email %}?email={{ user_email }}{% endif %}" target="_blank" rel="noopener" class="feedback-badge">
-          <i class="ri-feedback-line"></i> Donnez votre avis
+          <i class="ri-feedback-line"></i> <span>Donnez votre avis</span>
         </a>
       </div>
     </div>
