@@ -61,6 +61,10 @@ vérifiées ».
 - **Échoué** (code `1`) : corriger chaque problème de sévérité `error`, puis relancer — **trois
   tentatives au plus**. Si des problèmes restent, donner le lien **en les listant** à l'utilisateur ;
   ne jamais présenter le TDB comme vérifié.
+- **Audit impossible** (code `2`, aucun JSON, raison sur stderr) : le navigateur n'a pas pu tourner.
+  Ne pas toucher au TDB ni consommer de tentative ; donner le lien en disant qu'il n'a **pas** été
+  vérifié. Sur Scalingo, le navigateur est installé au build par `bin/post_compile` : son absence
+  signale un build à reprendre.
 - **Avertissement « données en direct non vérifiées »** : hors de l'application, la page n'a pas ses
   données live, et les erreurs qui en découlent (graphique vide, bloc d'erreur, erreur JavaScript
   sur la réponse) sont attendues. Corriger le reste, ne pas consommer de tentative sur celles-là, et

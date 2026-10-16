@@ -57,6 +57,10 @@ valeurs cassées à l'écran, mise en page qui déborde. L'agent corrige jusqu'a
 tentatives au plus — et, à défaut, donne le lien en listant les problèmes restants. Détail :
 `skills/verify_dashboard/SKILL.md`.
 
+Le navigateur s'installe avec `make browsers` en local ; sur Scalingo (prod, staging, review apps),
+`bin/post_compile` l'installe au build, avec ses bibliothèques système déclarées dans l'`Aptfile` ;
+il est aussi inclus dans l'image Docker.
+
 ## Stack
 
 - **Vanilla JS** — pas de React, Vue ou autre framework.
