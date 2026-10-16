@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from lib import dashboard_quality
@@ -252,3 +253,17 @@ def test_dod_1_the_command_prints_the_verdict_and_exits_on_it(mocker, capsys, pa
     assert exit_info.value.code == exit_code
     assert json.loads(capsys.readouterr().out) == result
     verify_mock.assert_called_once_with("mon-tdb", 2)
+
+
+def test_dod_14_a_browser_that_cannot_run_exits_2_without_a_verdict(mocker, capsys):
+    error = PlaywrightError("BrowserType.launch: Executable doesn't exist at /app/.playwright/chromium_headless_shell")
+    mocker.patch.object(verify_dashboard, "verify", side_effect=error)
+    mocker.patch("sys.argv", ["verify_dashboard.py", "mon-tdb"])
+
+    with pytest.raises(SystemExit) as exit_info:
+        verify_dashboard.main()
+
+    output = capsys.readouterr()
+    assert exit_info.value.code == 2
+    assert output.out == ""
+    assert "audit impossible, aucun verdict : BrowserType.launch: Executable doesn't exist" in output.err
