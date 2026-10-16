@@ -149,23 +149,37 @@ BLANK_SVG = "graphique svg #repartition affiché sans aucun tracé"
 @pytest.mark.parametrize(
     ("app_js", "errors"),
     [
-        (chartjs("{type: 'bar', data: {labels: ['jan', 'fév'], datasets: [{data: [120, 150]}]}}"), []),
+        (chartjs("{type: 'bar', data: {labels: ['jan', 'fév'], datasets: [{label: 'Total', data: [120, 150]}]}}"), []),
         (
             chartjs(
                 "{type: 'bar', options: {indexAxis: 'y'},"
-                " data: {datasets: [{data: [{x: 120, y: 'Paris'}, {x: 80, y: 'Lyon'}]}]}}"
+                " data: {datasets: [{label: 'Total', data: [{x: 120, y: 'Paris'}, {x: 80, y: 'Lyon'}]}]}}"
             ),
             [],
         ),
         (
             chartjs(
                 "{type: 'bar', options: {parsing: {xAxisKey: 'mois', yAxisKey: 'total'}},"
-                " data: {datasets: [{data: [{mois: 'jan', total: 12}, {mois: 'fév', total: 30}]}]}}"
+                " data: {datasets: [{label: 'Total', data: [{mois: 'jan', total: 12}, {mois: 'fév', total: 30}]}]}}"
             ),
             [],
         ),
         (chartjs("{type: 'pie', data: {labels: ['a', 'b'], datasets: [{data: [3, 5]}]}}"), []),
-        (chartjs("{type: 'bar', data: {labels: ['a', 'b'], datasets: [{data: [null, NaN]}]}}"), [BLANK_CANVAS]),
+        (
+            chartjs("{type: 'bar', data: {labels: ['a', 'b'], datasets: [{label: 'Total', data: [null, NaN]}]}}"),
+            [BLANK_CANVAS],
+        ),
+        (
+            chartjs("{type: 'bar', data: {labels: ['jan', 'fév'], datasets: [{data: [120, 150]}]}}"),
+            ["graphique canvas #evolution : libellé cassé « undefined »"],
+        ),
+        (
+            chartjs(
+                "{type: 'bar', data: {labels: ['jan', 'fév'],"
+                " datasets: [{label: '2024', data: [120, 150]}, {label: '2025', data: [null, null]}]}}"
+            ),
+            ["graphique canvas #evolution : série « 2025 » sans aucune valeur"],
+        ),
         (chartjs("{type: 'pie', data: {labels: ['a', 'b'], datasets: [{data: [null, NaN]}]}}"), [BLANK_CANVAS]),
         (D3_AXES + D3_BARS, []),
         (D3_AXES, [BLANK_SVG]),
@@ -177,6 +191,8 @@ BLANK_SVG = "graphique svg #repartition affiché sans aucun tracé"
         "chartjs-keyed",
         "chartjs-pie",
         "chartjs-null-nan",
+        "chartjs-unlabelled-dataset",
+        "chartjs-empty-series",
         "chartjs-pie-null-nan",
         "d3-axes-and-bars",
         "d3-axes-only",
@@ -198,7 +214,29 @@ def test_dod_13_a_plot_colour_legend_is_neither_a_chart_nor_an_empty_one(page: P
     directory = make_dashboard(tmp_path, app_js=APP_JS + PLOT_LEGEND)
 
     assert errors_seen(page, directory, expected_charts=1) == []
-    assert errors_seen(page, directory, expected_charts=2) == ["1 graphique(s) affiché(s), 2 attendu(s)"]
+    assert errors_seen(page, directory, expected_charts=2) == ["1 graphique(s) dans la page, 2 attendu(s)"]
+
+
+def tabs(inactive_data: str) -> str:
+    return f"""document.body.insertAdjacentHTML('beforeend', `<svg width="16" height="16" hidden><path d="M0 0h16v16H0z"/></svg>
+<section id="actif"><canvas id="a"></canvas><canvas id="b"></canvas></section>
+<section id="inactif" hidden><canvas id="c"></canvas></section>`);
+for (const [id, data] of [['a', [120, 150]], ['b', [80, 60]], ['c', {inactive_data}]]) {{
+  new Chart(document.getElementById(id), {{type: 'bar', data: {{labels: ['jan', 'fév'], datasets: [{{label: 'Total', data}}]}}}});
+}}"""
+
+
+@pytest.mark.parametrize(
+    ("inactive_data", "errors"),
+    [("[90, 40]", []), ("[null, NaN]", ["graphique canvas #c affiché sans aucun tracé"])],
+    ids=["healthy", "inactive-chart-empty"],
+)
+def test_dod_13_a_chart_in_an_inactive_tab_is_counted_and_its_series_judged(
+    offline_libraries: Page, tmp_path, inactive_data, errors
+):
+    directory = make_dashboard(tmp_path, app_js=tabs(inactive_data), index=CHART_INDEX)
+
+    assert errors_seen(offline_libraries, directory, expected_charts=3) == errors
 
 
 def test_dod_8_the_tracking_script_is_blocked_and_not_reported(page: Page, tmp_path):

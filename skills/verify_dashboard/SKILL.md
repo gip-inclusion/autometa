@@ -23,7 +23,7 @@ touche que les métadonnées (titre, tags, archivage) ne se vérifie pas.
 | Argument | Description |
 |---|---|
 | `target` | Slug du TDB (dossier `data/interactive/{slug}/`) ou chemin d'un dossier |
-| `--expect-charts` | Nombre de graphiques que le TDB doit afficher **au premier affichage** (ceux d'un onglet inactif ne comptent pas). Le passer dès que le TDB en a ; sans lui, aucun minimum n'est exigé |
+| `--expect-charts` | Nombre total de graphiques du TDB, **onglets inactifs compris**. Le passer dès que le TDB en a ; sans lui, aucun minimum n'est exigé |
 
 Sortie sur stdout (JSON) :
 
@@ -43,11 +43,16 @@ Sortie sur stdout (JSON) :
 - une erreur JavaScript ou une erreur écrite dans la console ;
 - un fichier du TDB (données, script, feuille de style, CDN…) qui ne se charge pas ;
 - un graphique visible sans aucun tracé, ou moins de graphiques que `--expect-charts` ;
+- un graphique Chart.js dont une série n'a aucune valeur, ou dont un libellé (axe, légende) vaut
+  `undefined`, `NaN` ou `null` — un jeu de données sans `label` s'affiche « undefined » en légende ;
 - `NaN`, `undefined`, `null` ou `[object Object]` affichés dans la page ;
 - un débordement horizontal sur un écran de 1280 px, ou une page sans texte ;
 - le bloc `#error` affiché, ou `#loading` encore visible ;
 - une page qui n'a pas fini de charger en 30 s ;
 - un dossier sans `index.html`.
+
+Un graphique d'un onglet inactif est compté et ses séries Chart.js sont contrôlées, mais ni sa taille
+ni son tracé ne sont jugés : seul l'onglet affiché au chargement l'est.
 
 Ne font **pas** échouer : le tag manager Matomo (bloqué pendant la vérification, pour ne pas compter
 de fausse visite) ; une police, une image ou un média non chargé — avertissement « fichier non chargé »,

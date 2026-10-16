@@ -12,7 +12,9 @@ from lib.dashboard_quality import verify
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render a dashboard headless and report its visual issues.")
     parser.add_argument("target", help="Dashboard slug (data/interactive/{slug}/) or folder path")
-    parser.add_argument("--expect-charts", type=int, default=0, help="Minimum number of charts that must be drawn")
+    parser.add_argument(
+        "--expect-charts", type=int, default=0, help="Minimum number of charts in the page, inactive tabs included"
+    )
     args = parser.parse_args()
 
     try:

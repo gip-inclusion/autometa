@@ -30,10 +30,19 @@ COSMETIC_RESOURCES = {"font", "image", "media"}
 
 # Chart.js, Plot et les axes D3 se dessinent même sans donnée : on juge les séries, pas les pixels. Chart.js : la valeur
 # calculée sur l'axe des valeurs, quel que soit `indexAxis` ou `parsing` — une barre null n'est pas `skip`, et un
-# camembert lit null comme 0, sans part. Ne sont pas des graphiques : un <svg> de 32 px au plus (pictogramme), la
-# légende de couleur de Plot (`-ramp`), un élément masqué.
+# camembert lit null comme 0, sans part. Un libellé absent est dessiné « undefined » dans le canvas, hors de tout
+# texte de la page. Un graphique d'onglet inactif est compté et ses séries jugées, mais ni sa taille ni ses pixels :
+# masqué, seuls ses attributs width/height en disent la taille. Ne sont pas des graphiques : un <svg> de 32 px au plus
+# (pictogramme), la légende de couleur de Plot (`-ramp`).
 OBSERVE_JS = """() => {
   const shown = el => el !== null && el.checkVisibility() ? el.innerText.trim() : '';
+  const seriesDrawn = (chart, i) => {
+    const meta = chart.getDatasetMeta(i);
+    return meta.data.some((point, j) => {
+      const parsed = meta.controller.getParsed(j);
+      return !point.skip && (meta.vScale ? Number.isFinite(parsed[meta.vScale.axis]) : parsed > 0);
+    });
+  };
   const painted = el => {
     if (el.tagName === 'svg' && [...el.classList].some(c => c.startsWith('plot'))) {
       return [...el.querySelectorAll('g[aria-label]')]
@@ -41,16 +50,6 @@ OBSERVE_JS = """() => {
     }
     if (el.tagName === 'svg') {
       return el.querySelector(':is(path, rect, circle, ellipse, line, polyline, polygon, text, image):not(.tick *, .domain)') !== null;
-    }
-    const chart = window.Chart?.getChart?.(el);
-    if (chart) {
-      return chart.data.datasets.some((_, i) => {
-        const meta = chart.getDatasetMeta(i);
-        return meta.data.some((point, j) => {
-          const parsed = meta.controller.getParsed(j);
-          return !point.skip && (meta.vScale ? Number.isFinite(parsed[meta.vScale.axis]) : parsed > 0);
-        });
-      });
     }
     if (!el.width || !el.height) return false;
     const ctx = el.getContext('2d');
@@ -61,11 +60,28 @@ OBSERVE_JS = """() => {
     }
   };
   const charts = [...document.querySelectorAll('canvas, svg')]
-    .filter(el => !el.parentElement.closest('svg') && el.checkVisibility())
+    .filter(el => !el.parentElement.closest('svg'))
     .filter(el => ![...el.classList].some(c => c.endsWith('-ramp')))
     .map(el => {
-      const {width, height} = el.getBoundingClientRect();
-      return {name: el.tagName.toLowerCase() + (el.id ? ' #' + el.id : ''), width, height, painted: painted(el)};
+      const visible = el.checkVisibility();
+      const {width, height} = visible
+        ? el.getBoundingClientRect()
+        : {width: Number(el.getAttribute('width')) || 0, height: Number(el.getAttribute('height')) || 0};
+      const name = el.tagName.toLowerCase() + (el.id ? ' #' + el.id : '');
+      const chart = window.Chart?.getChart?.(el);
+      if (!chart) return {name, width, height, painted: !visible || painted(el), empty_series: [], labels: []};
+      const drawn = chart.data.datasets.map((_, i) => seriesDrawn(chart, i));
+      const legend = chart.options.plugins?.legend?.display !== false ? chart.legend?.legendItems ?? [] : [];
+      return {
+        name,
+        width,
+        height,
+        painted: drawn.includes(true),
+        empty_series: drawn.includes(true)
+          ? chart.data.datasets.flatMap((d, i) => (drawn[i] ? [] : [String(d.label ?? `n° ${i + 1}`)]))
+          : [],
+        labels: [...(chart.data.labels ?? []), ...legend.map(item => item.text)].map(String),
+      };
     })
     .filter(c => c.name.startsWith('canvas') || c.width > 32 || c.height > 32);
   return {
@@ -155,9 +171,16 @@ def judge(observation: dict, expected_charts: int = 0) -> list[dict]:
             severity = "warning" if failed["type"] in COSMETIC_RESOURCES else "error"
             issues.append(issue(f"fichier non chargé : {failed['url']} ({failed['reason']})", severity))
     charts = observation["charts"]
-    issues += [issue(f"graphique {c['name']} affiché sans aucun tracé") for c in charts if not c["painted"]]
+    for c in charts:
+        if not c["painted"]:
+            issues.append(issue(f"graphique {c['name']} affiché sans aucun tracé"))
+        issues += [issue(f"graphique {c['name']} : série « {s} » sans aucune valeur") for s in c["empty_series"]]
+        issues += [
+            issue(f"graphique {c['name']} : libellé cassé « {value} »")
+            for value in sorted(set(BROKEN_VALUES.findall("\n".join(c["labels"]))))
+        ]
     if len(charts) < expected_charts:
-        issues.append(issue(f"{len(charts)} graphique(s) affiché(s), {expected_charts} attendu(s)"))
+        issues.append(issue(f"{len(charts)} graphique(s) dans la page, {expected_charts} attendu(s)"))
     for value, count in Counter(BROKEN_VALUES.findall(observation["text"])).items():
         issues.append(issue(f"valeur cassée affichée : « {value} »" + (f" (×{count})" if count > 1 else "")))
     if observation["overflow"] > 1:
