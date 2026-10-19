@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib import failure_detection
 from lib.variants import KEY_RE, list_variants
 
-from . import config, memory_introspect, sync_to_s3
+from . import config, csp, memory_introspect, sync_to_s3
 from . import s3 as s3_module
 from .deps import templates
 from .helpers import sanitize_for_log
@@ -89,6 +89,7 @@ app = FastAPI(lifespan=lifespan)
 instrument_app(app)
 
 app.middleware("http")(request_id_middleware)
+app.middleware("http")(csp.report_only_middleware)
 
 
 @app.middleware("http")
@@ -203,6 +204,7 @@ from .selftest import router as selftest_router  # noqa: E402
 app.include_router(selftest_router)
 app.include_router(benchmark_router)
 app.include_router(query.router)
+app.include_router(csp.router)
 app.include_router(auth.router)
 app.include_router(knowledge.router)
 app.include_router(reports.api_router)
