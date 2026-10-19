@@ -89,7 +89,7 @@ app = FastAPI(lifespan=lifespan)
 instrument_app(app)
 
 app.middleware("http")(request_id_middleware)
-app.middleware("http")(csp.report_only_middleware)
+app.middleware("http")(csp.csp_middleware)
 
 
 @app.middleware("http")

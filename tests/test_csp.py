@@ -1,4 +1,4 @@
-"""CSP des pages de TDB en observation, et collecte des violations."""
+"""CSP bloquante des pages de TDB, et collecte des violations."""
 
 import json
 import logging
@@ -15,7 +15,7 @@ def csp_report(**fields):
     return json.dumps({"csp-report": fields})
 
 
-def test_interactive_page_carries_report_only_policy(mocker):
+def test_interactive_page_carries_blocking_policy(mocker):
     mocker.patch("web.app.list_variants", return_value=[])
     mocker.patch("web.s3.interactive.stream", return_value=iter([b"<html>ok</html>"]))
     mocker.patch("web.config.S3_ENDPOINT", "https://s3.fr-par.scw.cloud")
@@ -23,8 +23,8 @@ def test_interactive_page_carries_report_only_policy(mocker):
 
     response = client.get("/interactive/app/index.html")
 
-    policy = response.headers["Content-Security-Policy-Report-Only"]
-    assert "Content-Security-Policy" not in response.headers
+    policy = response.headers["Content-Security-Policy"]
+    assert "Content-Security-Policy-Report-Only" not in response.headers
     assert policy == (
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://unpkg.com https://d3js.org"
         " https://matomo.inclusion.gouv.fr https://autometa.s3.fr-par.scw.cloud;"
@@ -41,7 +41,7 @@ def test_policy_omits_s3_when_endpoint_or_bucket_is_unset(endpoint, bucket, mock
 
     response = client.get("/interactive/app/missing.html")
 
-    assert response.headers["Content-Security-Policy-Report-Only"].startswith(
+    assert response.headers["Content-Security-Policy"].startswith(
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://unpkg.com https://d3js.org"
         " https://matomo.inclusion.gouv.fr; "
     )
@@ -50,7 +50,7 @@ def test_policy_omits_s3_when_endpoint_or_bucket_is_unset(endpoint, bucket, mock
 def test_application_pages_carry_no_policy():
     response = client.get("/api/auth/status")
 
-    assert "Content-Security-Policy-Report-Only" not in response.headers
+    assert "Content-Security-Policy" not in response.headers
 
 
 def test_violation_is_logged_without_query_string(caplog):

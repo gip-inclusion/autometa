@@ -1,4 +1,4 @@
-"""Consigne de sécurité (CSP) des pages de TDB, en observation : signale sans bloquer."""
+"""Consigne de sécurité (CSP) des pages de TDB : bloque les scripts hors liste et les signale."""
 
 import json
 import logging
@@ -37,10 +37,10 @@ def policy() -> str:
     return f"script-src {' '.join(sources)}; object-src 'none'; base-uri 'self'; report-uri {REPORT_PATH}"
 
 
-async def report_only_middleware(request: Request, call_next):
+async def csp_middleware(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/interactive/"):
-        response.headers["Content-Security-Policy-Report-Only"] = policy()
+        response.headers["Content-Security-Policy"] = policy()
     return response
 
 
