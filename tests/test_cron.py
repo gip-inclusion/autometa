@@ -901,7 +901,7 @@ def test_main_passes_the_batch_to_run_all(monkeypatch, mocker):
 
     cron.main()
 
-    run.assert_called_once_with(dry_run=True, batch="xl", budget=None)
+    run.assert_called_once_with(dry_run=True, batch="xl", budget=None, workers=1)
 
 
 def test_main_requires_a_batch(monkeypatch, mocker):
