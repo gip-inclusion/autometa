@@ -24,7 +24,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from lib import facade_imports, variants
+from lib import facade_imports, script_hosts, variants
 from web.helpers import sanitize_for_log, utcnow
 from web.s3 import S3Store
 
@@ -1096,6 +1096,21 @@ def facade_audit() -> list[str]:
     return lines
 
 
+def script_hosts_audit() -> list[str]:
+    """Pages des TDB actifs qui chargent un script que la CSP refuse : chacune est une page cassée."""
+    with get_db() as session:
+        slugs = session.scalars(select(Dashboard.slug).where(~Dashboard.is_archived)).all()
+    listings = s3_map(lambda slug: s3.interactive.list_files(f"{slug}/"), slugs)
+    pages = [f["path"] for files in listings for f in files if f["path"].lower().endswith((".html", ".htm"))]
+    found = {}
+    for path, content in zip(pages, s3_map(s3.interactive.download, pages), strict=True):
+        if content and (blocked := script_hosts.script_host_violations(content.decode(errors="replace"))):
+            found[path] = blocked
+    lines = [f"{len(slugs)} tableaux de bord actifs, {len(found)} pages chargent un script hors des sites autorisés."]
+    lines += [f"  {path:50s} {', '.join(blocked)}" for path, blocked in sorted(found.items())]
+    return lines
+
+
 def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> list[dict]:
     """Run the enabled tasks of one batch that are due today, within an optional time budget."""
     try:
@@ -1218,14 +1233,15 @@ def main():
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
     parser.add_argument("--facade-audit", action="store_true", help="Count dashboards importing outside the facade")
+    parser.add_argument("--script-audit", action="store_true", help="List dashboard pages loading a forbidden script")
     parser.add_argument("--budget", type=positive_seconds, help="Durée maximale du lot, en secondes")
     args = parser.parse_args()
 
-    if not (args.facade_audit or args.list or args.app or args.batch):
-        parser.error("--batch is required unless --list, --app or --facade-audit is given")
+    if not (args.facade_audit or args.script_audit or args.list or args.app or args.batch):
+        parser.error("--batch is required unless --list, --app, --facade-audit or --script-audit is given")
 
-    if args.facade_audit:
-        for line in facade_audit():
+    if args.facade_audit or args.script_audit:
+        for line in facade_audit() if args.facade_audit else script_hosts_audit():
             print(line)
         return
 

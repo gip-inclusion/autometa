@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response
 
+from lib import script_hosts
+
 from . import config
 from .deps import get_current_user
 from .helpers import sanitize_for_log
@@ -16,17 +18,8 @@ logger = logging.getLogger(__name__)
 
 REPORT_PATH = "/api/csp-report"
 
-# Why: sites mesurés le 19/10 sur les index.html des TDB actifs (docs/audits/sujets/09), sauf la
-# page GitHub personnelle d'annuairepro. jsDelivr limité à /npm/ : /gh/ sert n'importe quel dépôt.
-# 'unsafe-inline' : 137 TDB sur 139 ont du script en ligne, le lot vise le code chargé d'ailleurs.
-SCRIPT_SOURCES = (
-    "'self'",
-    "'unsafe-inline'",
-    "https://cdn.jsdelivr.net/npm/",
-    "https://unpkg.com",
-    "https://d3js.org",
-    "https://matomo.inclusion.gouv.fr",
-)
+# Why: 137 TDB sur 139 ont du script en ligne ; le lot vise le code chargé d'ailleurs (sujet 09, Q3).
+SCRIPT_SOURCES = ("'self'", "'unsafe-inline'", *script_hosts.ALLOWED)
 
 
 def policy() -> str:
