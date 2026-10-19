@@ -163,7 +163,9 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_storage` et `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_github`, `query_notion`,
+`query_tally`, `query_zendesk`, `search_zendesk_tickets`, `list_dashboards`, `query_storage` et
+`query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
@@ -197,6 +199,18 @@ tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'aprè
 d'une vue Airtable (pagination complète) ; `data` est la liste brute des enregistrements `{id, createdTime,
 fields}`. Ils portent des données personnelles (emails, téléphones) : ne publier que les champs nécessaires.
 
+GitHub, Notion, Tally et Zendesk sont en **lecture seule**. `query_github(path, params=None)` fait un GET sur
+l'API REST GitHub (`path` relatif à `api.github.com`, `data` = le JSON brut). `query_notion(database_id,
+filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au format de l'API Notion.
+`query_tally(form_id, filter=None)` renvoie `{questions, submissions}` d'un formulaire. `query_zendesk(path,
+params=None)` fait un GET sur l'API Zendesk (`path` relatif à `/api/v2`, ou URL `next_page` complète) et
+renvoie le JSON **brut, non caviardé** ; `search_zendesk_tickets(search, sort_by=None, sort_order=None,
+max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. Tickets et
+réponses Tally portent des données personnelles : ne publier que des agrégats.
+
+`list_dashboards()` renvoie le catalogue des TDB actifs (slug, titre, description, site, catégorie, cron,
+dates) et de leurs publications en ligne (environnement, date), sans auteur.
+
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.
 
@@ -205,6 +219,12 @@ fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne 
 TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
 renommage. Le cron d'audit signale les non conformes sur le canal Slack d'alerte, seulement quand la
 liste change — en observation, sans refuser la planification.
+
+**Une PR ne retire pas en silence ce qu'un TDB utilise.** Chaque matin, le même cron publie dans le bucket
+public de production l'inventaire des symboles du dépôt qu'utilisent les fichiers Python des TDB cronnés,
+façade comprise, avec les slugs qui les utilisent. La CI le confronte à l'arbre de la PR
+(`python -m web.facade_manifest`) : un symbole disparu fait échouer le job et nomme les TDB touchés. Un
+inventaire illisible ou vieux de plus de trois jours ne fait qu'avertir.
 
 Si un besoin n'est pas couvert, élargir la façade (avec son test) plutôt que la contourner : c'est
 là tout l'intérêt, un changement de contrat devient un acte visible.
