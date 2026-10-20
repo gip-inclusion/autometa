@@ -16,7 +16,12 @@ cli = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cli)
 
 TODAY = date(2026, 10, 16)
-COLUMNS = [["public.structures", '["id", "nom"]'], ["monrecap.Contacts", '["id"]'], ["public.candidats", '["id"]']]
+COLUMNS = [
+    ["public.structures", '["id", "nom"]'],
+    ["monrecap.Contacts", '["id"]'],
+    ["public.candidats", '["id"]'],
+    ["public.nom_prenom__mbarchiv__3", '["id"]'],
+]
 DOCUMENTED = [["candidats"], ["int_imer"], ["vue__mbarchiv__1"], ["nom_prenom__mbarchiv__2"]]
 
 
@@ -36,6 +41,12 @@ def test_l_instantane_regenere_est_trie_et_date_du_jour(mocker):
         "documented_tables": ["candidats", "int_imer", "vue__mbarchiv__1"],
         "tables": {"monrecap.Contacts": ["id"], "public.candidats": ["id"], "public.structures": ["id", "nom"]},
     }
+
+
+def test_une_archive_deja_relue_reste_dans_les_tables(mocker):
+    mocker.patch.object(cli, "execute_autometa_tables_query", side_effect=answering(COLUMNS, DOCUMENTED))
+    found = cli.snapshot("autometa_tables_db", {"tables": {"public.nom_prenom__mbarchiv__3": []}}, TODAY)
+    assert "public.nom_prenom__mbarchiv__3" in found["tables"]
 
 
 def test_une_source_metabase_garde_ses_tables_documentees(mocker):

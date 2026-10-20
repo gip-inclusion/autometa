@@ -3,6 +3,7 @@
 import json
 import re
 import warnings
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -125,6 +126,16 @@ def test_dod_2_un_site_contredisant_le_tableau_des_sites_est_refuse(tmp_path, fi
     assert expected in messages(knowledge_lint.site_conflicts(root))
 
 
+def test_dod_2_un_conteneur_mal_nomme_pointe_sa_ligne_de_config(tmp_path):
+    config = yaml.safe_dump({k: v for k, v in SOURCES.items() if k != "tag_manager"}) + (
+        "tag_manager:\n  sites:\n    - name: Plateforme\n      matomo_id: 212\n      container_id: x\n"
+    )
+    found = knowledge_lint.site_conflicts(make_repo(tmp_path, {"config/sources.yaml": config}))
+    assert [(f.path, f.line) for f in found] == [
+        ("config/sources.yaml", config.splitlines().index("    - name: Plateforme") + 1)
+    ]
+
+
 @pytest.mark.parametrize(
     "call",
     ['execute_metabase_query(instance="pilotage", sql=sql)', 'execute_metabase_query(\n    instance="pilotage",\n)'],
@@ -142,7 +153,7 @@ def test_dod_2_une_ancienne_adresse_citee_comme_donnee_passe(tmp_path):
 
 
 def test_dod_2_un_site_conforme_passe(tmp_path):
-    body = "| Site | ID Matomo |\n|---|---|\n| Emplois | 117 |\n\nLe Site institutionnel (212) est distinct."
+    body = "| Site | ID Matomo |\n|---|---|\n| Emplois | 117 |\n\nLe Site institutionnel (212) est distinct de Dora (212 services)."
     root = make_repo(tmp_path, {"knowledge/a.md": knowledge(body)})
     assert knowledge_lint.site_conflicts(root) == []
 
@@ -210,6 +221,16 @@ def test_dod_5_une_affirmation_refutee_ne_revient_pas(tmp_path):
     ]
 
 
+def test_dod_5_une_affirmation_refutee_dans_certains_fichiers_n_y_est_cherchee_que_la(tmp_path):
+    refutations = yaml.safe_dump([{"motif": "master", "raison": "renommée en main", "fichiers": ["AGENT.md"]}])
+    files = {
+        "knowledge/refutations.yaml": refutations,
+        "AGENT.md": f"{AGENT}\nBranche master.\n",
+        "knowledge/a.md": knowledge("Branche master."),
+    }
+    assert [f.path for f in knowledge_lint.refuted_claims(make_repo(tmp_path, files))] == ["AGENT.md"]
+
+
 def test_dod_5_la_fiche_dora_decrit_les_vraies_mobilisations():
     dora = (REPO / "knowledge/dora/README.md").read_text()
     assert knowledge_lint.refuted_claims(REPO) == [], messages(knowledge_lint.refuted_claims(REPO))
@@ -249,20 +270,6 @@ def test_dod_7_l_ordre_de_priorite_est_ecrit_une_seule_fois_dans_les_consignes()
 
 def test_dod_8_le_depot_ne_porte_plus_aucune_incoherence_detectable():
     assert knowledge_lint.findings(REPO) == [], messages(knowledge_lint.findings(REPO))
-
-
-@pytest.mark.parametrize(
-    "path,forbidden",
-    [
-        ("AGENT.md", re.compile(r"\|\s*master\s*\|")),
-        ("knowledge/dora/README.md", re.compile(r"'VALIDEE'|'REFUSEE'|'EXPIREE'")),
-        ("knowledge/datalake/README.md", re.compile(r"execute_sql\([^)]*database_id")),
-        ("skills/sync_metabase/SKILL.md", re.compile(r"--sqlite|cards\.db")),
-        ("skills/sync_sites/SKILL.md", re.compile(r"Update the knowledge base documents|Updates markdown files")),
-    ],
-)
-def test_dod_8_les_incoherences_relevees_sont_corrigees(path, forbidden):
-    assert not forbidden.search((REPO / path).read_text())
 
 
 def test_dod_8_le_repli_metabase_connait_toutes_les_instances():
@@ -330,7 +337,10 @@ def test_dod_9_la_casse_des_tables_de_reference_compte(tmp_path, cited, expected
 
 
 def test_dod_9_les_sources_du_depot_sans_instantane_sont_signalees():
-    for finding in knowledge_lint.uncatalogued(REPO) + knowledge_lint.stale_catalogs(REPO, date.today()):
+    missing = Counter(f.message for f in knowledge_lint.uncatalogued(REPO))
+    for message, count in missing.items():
+        warnings.warn(f"{message} ({count} documents)", stacklevel=1)
+    for finding in knowledge_lint.stale_catalogs(REPO, date.today()):
         warnings.warn(str(finding), stacklevel=1)
     found = knowledge_lint.catalog_problems(REPO)
     assert found == [], f"{messages(found)}\nTable réelle absente de l'instantané : régénérer avec `make catalog`."
