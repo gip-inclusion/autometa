@@ -128,6 +128,11 @@ def get_running(user_email: str = Depends(get_current_user)):
 
 @router.get("/{conv_id}/dashboards")
 def conversation_dashboards(conv_id: str, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
     return {"drifted": drifted_dashboards_for_conversation(conv_id)}
 
 
