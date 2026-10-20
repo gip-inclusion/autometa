@@ -16,6 +16,47 @@ function isValidConversationId(id) {
   return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
+/**
+ * Alert the user that a published dashboard they edited in this conversation needs republishing.
+ */
+async function showRepublishAlert(convId) {
+  if (!isValidConversationId(convId)) return;
+  const chatOutput = document.getElementById('chatOutput');
+  if (!chatOutput) return;
+
+  let drifted;
+  try {
+    const res = await fetch(`/api/conversations/${convId}/dashboards`);
+    if (!res.ok) return;
+    drifted = (await res.json()).drifted;
+  } catch (_) {
+    return;
+  }
+  if (!drifted || drifted.length === 0) return;
+
+  document.getElementById('republish-alert')?.remove();
+  const block = document.createElement('div');
+  block.id = 'republish-alert';
+  block.className = 'alert alert-warning mt-3';
+
+  const intro = document.createElement('p');
+  intro.className = 'mb-2';
+  intro.textContent =
+    drifted.length === 1
+      ? 'Ce tableau de bord est publié : republiez-le pour que vos changements soient visibles en ligne.'
+      : 'Ces tableaux de bord sont publiés : republiez-les pour que vos changements soient visibles en ligne.';
+  block.appendChild(intro);
+
+  for (const tdb of drifted) {
+    const link = document.createElement('a');
+    link.href = `/dashboards/${encodeURIComponent(tdb.slug)}/edit`;
+    link.className = 'd-block';
+    link.textContent = `Republier « ${tdb.title} »`;
+    block.appendChild(link);
+  }
+  chatOutput.appendChild(block);
+}
+
 let eventSource = null;
 let eventSourceConversationId = null; // Track which conversation the eventSource belongs to
 let retryCount = 0;
@@ -244,6 +285,8 @@ function startStream(afterMsgId = 0) {
     reconcileSidebarSpinners();
 
     signalRunFinished();
+
+    showRepublishAlert(currentConversationId);
   });
 
   // Connection lost — just reconnect. The server handles liveness logic.
