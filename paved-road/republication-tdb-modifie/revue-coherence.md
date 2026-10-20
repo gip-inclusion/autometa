@@ -27,3 +27,17 @@ publication existants (`test_publish_endpoint_creates_publication`).
   message « Publication indisponible » coexistent. Choix assumé : l'alerte informe du retard, le
   message explique pourquoi on ne peut pas agir. DOD-7 est satisfait (bouton absent + message
   présent).
+
+## Second passage — révision DOD-10 et DOD-11 (alerte dans la conversation)
+
+Lentille relancée sur le diff complet (DOD-1 à DOD-11). Verdict : **rien à signaler** sur la
+cohérence au contrat. Les onze critères sont réalisés, tracés, et testés (unit + intégration +
+navigateur). Aucun excès de périmètre.
+
+La lentille a soulevé, hors de son champ, une **remarque de sécurité** : la route
+`GET /api/conversations/{conv_id}/dashboards` était authentifiée mais ne vérifiait pas la propriété
+de la conversation — un tiers pouvait, en devinant un identifiant, lire les titres des tableaux
+dérivés d'une conversation d'autrui. Corrigé : la route applique désormais `can_mutate_conversation`
+(même règle propriétaire que `POST /messages` et les routes de fichiers) — 404 si la conversation
+n'existe pas, 403 si elle ne lui appartient pas. Couvert par deux tests de permission. C'est un
+invariant de sécurité, pas un critère du contrat.

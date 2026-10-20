@@ -65,6 +65,17 @@ def test_dod_10_conversation_signale_un_tableau_publie_modifie_depuis(client):
     assert drifted[0]["title"] == "conv-drift"
 
 
+def test_conversation_dashboards_denied_to_non_owner(client):
+    conv = store.create_conversation(user_id="owner@x")
+    r = client.get(f"/api/conversations/{conv.id}/dashboards", headers=_headers("intruder@x"))
+    assert r.status_code == 403
+
+
+def test_conversation_dashboards_unknown_conversation_is_404(client):
+    r = client.get("/api/conversations/does-not-exist/dashboards", headers=_headers())
+    assert r.status_code == 404
+
+
 @pytest.mark.parametrize("setup", ["no_publication", "up_to_date"])
 def test_dod_11_conversation_sans_tableau_publie_ou_a_jour_ne_signale_rien(client, setup):
     conv = store.create_conversation(user_id=ADMIN)
