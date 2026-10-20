@@ -24,6 +24,7 @@ from web.publications import (
     BLOCKED_CODES,
     ENVIRONMENTS,
     PublicationBlocked,
+    drifted_environments,
     list_active_publications,
     list_publications,
     pause_refresh,
@@ -224,15 +225,9 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     dashboard_publications = list_publications(slug)
     can_publish = not (dashboard["has_api_access"] or dashboard["has_persistence"])
 
-    last_published_at = max(
-        (p["published_at"] for p in dashboard_publications if p.get("published_at")),
-        default=None,
-    )
-    dashboard_drifted = (
-        last_published_at is not None
-        and dashboard.get("updated") is not None
-        and dashboard["updated"] > last_published_at
-    )
+    drifted = drifted_environments(dashboard_publications, dashboard.get("updated"))
+    dashboard_drifted = bool(drifted)
+    drift_has_production = "production" in drifted
     has_active_production = any(p["environment"] == "production" for p in dashboard_publications)
     relative_updated = dashboard["formatted_date"]
 
@@ -265,6 +260,8 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
             "publications": dashboard_publications,
             "can_publish": can_publish,
             "dashboard_drifted": dashboard_drifted,
+            "drifted_environments": drifted,
+            "drift_has_production": drift_has_production,
             "has_active_production": has_active_production,
             "relative_updated": relative_updated,
             "cron_cadence": cron_cadence,
