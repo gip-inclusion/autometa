@@ -17,6 +17,7 @@ AUTHORITATIVE_SECTIONS = (
     ("AGENT.md", "Sources de données"),
     ("skills/autometa_tables_db/SKILL.md", "Règles de sélection des tables"),
 )
+# Why: une fiche déclare la clé de config/sources.yaml, un skill porte son propre nom — les deux désignent la base.
 DATABASE_SOURCES = ("autometa_tables_db", "data_inclusion", "dora_staging", "appli_monrecap", "appli_monrecap_db")
 STALE_AFTER_DAYS = 180
 
@@ -60,6 +61,7 @@ class Site:
 
 def documents(root: Path) -> list[Path]:
     """Ce que l'agent lit comme consigne ou connaissance."""
+    # Why: le skill pdf est un skill tiers sous licence propriétaire, recopié tel quel — on ne le corrige pas.
     skills = [p for p in sorted(root.glob("skills/*/SKILL.md")) if p.parent.name != "pdf"]
     return (
         [root / name for name in ("AGENT.md", "CLAUDE.md") if (root / name).is_file()] + skills + knowledge_files(root)
@@ -213,14 +215,17 @@ def site_conflicts(root: Path) -> list[Finding]:
     by_name = {name.lower(): site for site in registry for name in site.names}
     by_id = {site.matomo_id: site for site in registry}
     tag_manager = sources_config(root).get("tag_manager", {}).get("sites", [])
+    config_lines = (root / "config" / "sources.yaml").read_text().splitlines()
     containers = {entry["matomo_id"]: entry["container_id"] for entry in tag_manager}
     findings = []
     for entry in tag_manager:
         site = by_id.get(entry["matomo_id"])
         owner = by_name.get(entry["name"].lower())
         if site and owner and owner is not site:
+            declared = rf"[-\s]*name:\s*{re.escape(entry['name'])}"
+            number = next((n for n, line in enumerate(config_lines, 1) if re.fullmatch(declared, line)), 0)
             findings.append(
-                Finding("config/sources.yaml", 0, f"« {entry['name']} » porte le site {entry['matomo_id']}, "
+                Finding("config/sources.yaml", number, f"« {entry['name']} » porte le site {entry['matomo_id']}, "
                         f"le tableau des sites lui donne le {owner.matomo_id}")
             )  # fmt: skip
     for doc in documents(root):
@@ -261,14 +266,21 @@ def without_code(line: str) -> str:
 
 def cited_site(text: str, registry: list[Site]) -> Site | None:
     for site in registry:
-        if re.search(rf"(?<![\d.]){site.matomo_id}(?!\d)", text) or re.search(
+        if re.search(rf"(?<![\d.]){site.matomo_id}(?!\d)(?!\s+[^\W\d_])", text) or re.search(
             rf"(?<![\w.-]){re.escape(site.url)}(?![\w-])", text
         ):
             return site
     return None
 
 
-def row_conflicts(shown, number, row, by_name, by_id, containers) -> list[Finding]:
+def row_conflicts(
+    shown: str,
+    number: int,
+    row: dict[str, str],
+    by_name: dict[str, Site],
+    by_id: dict[int, Site],
+    containers: dict[int, str],
+) -> list[Finding]:
     name_col = next((c for c in row if c.lower() in ("site", "nom", "name")), None)
     id_col = next((c for c in row if re.search(r"\bid\b|idsite", c, re.I)), None)
     if not name_col or not id_col or not plain(row[id_col]).isdigit():
@@ -363,16 +375,17 @@ def copied_rules(root: Path) -> list[Finding]:
 
 
 def refuted_claims(root: Path) -> list[Finding]:
-    """Une affirmation reconnue fausse ne revient pas dans une fiche."""
+    """Une affirmation reconnue fausse ne revient pas, partout ou dans les seuls fichiers de son entrée."""
     path = root / "knowledge" / "refutations.yaml"
     if not path.is_file():
         return []
     entries = yaml.safe_load(path.read_text())
     return [
         Finding(rel(root, doc), number, f"affirmation réfutée « {entry['motif']} » : {entry['raison']}")
-        for doc in documents(root)
-        for number, line in enumerate(doc.read_text().splitlines(), 1)
         for entry in entries
+        for doc in documents(root)
+        if rel(root, doc) in entry.get("fichiers", [rel(root, doc)])
+        for number, line in enumerate(doc.read_text().splitlines(), 1)
         if re.search(entry["motif"], line, re.I)
     ]
 
@@ -385,7 +398,7 @@ def is_database(source: str) -> bool:
     return source in DATABASE_SOURCES or source.startswith("metabase:")
 
 
-def doc_sources(root: Path, doc: Path) -> list[str]:
+def doc_sources(doc: Path) -> list[str]:
     meta = front_matter(doc.read_text())
     if doc.name == "SKILL.md":
         return [meta["name"]] if meta and meta.get("name") in DATABASE_SOURCES else []
@@ -397,7 +410,7 @@ def uncatalogued(root: Path) -> list[Finding]:
     return [
         Finding(rel(root, doc), 1, f"tables non vérifiées : aucun instantané {rel(root, catalog_path(root, s))}")
         for doc in documents(root)
-        for s in doc_sources(root, doc)
+        for s in doc_sources(doc)
         if is_database(s) and not catalog_path(root, s).is_file()
     ]
 
@@ -464,7 +477,7 @@ def catalog_problems(root: Path) -> list[Finding]:
     """Tables et colonnes citées absentes de l'instantané du catalogue de la source de la fiche."""
     findings = []
     for doc in documents(root):
-        loaded = load_catalog(root, doc_sources(root, doc))
+        loaded = load_catalog(root, doc_sources(doc))
         if loaded is None:
             continue
         catalog, unverifiable = loaded
