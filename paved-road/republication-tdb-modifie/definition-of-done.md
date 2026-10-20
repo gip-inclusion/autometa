@@ -44,6 +44,17 @@ DOD-9 — [garde-fou : ne pas confondre avec « rafraîchir »] « Rafraîchir l
 en ligne ne fait pas disparaître la suggestion de republier : rafraîchir ne remet pas mes
 changements en ligne.
 
+DOD-10 — [Révision 2026-10-20, du brief : « quand je suis dans une conversation en train de faire
+des modif sur un tableau de bord publié, il faut que j'aie une alerte sur le fait que je dois
+republier »] Quand, dans une conversation, l'assistant vient de modifier un tableau de bord que
+j'ai déjà publié, une alerte apparaît dans la conversation : elle m'indique que mes changements ne
+seront visibles en ligne qu'après republication et m'offre un accès direct pour aller republier le
+tableau concerné.
+
+DOD-11 — [Révision 2026-10-20, garde-fou de DOD-10] Cette alerte de conversation n'apparaît que
+lorsqu'il y a lieu : une conversation sans tableau publié, ou dont le tableau en ligne est déjà à
+jour, n'affiche aucune alerte.
+
 ## Sources lues
 
 - `web/templates/dashboard_detail.html` (R1) — l'écran de gestion d'un tableau de bord : bloc
@@ -58,13 +69,22 @@ changements en ligne.
 - `web/models.py` (R1) — `Dashboard.updated_at`, `DashboardPublication.published_at`,
   `environment`, `unpublished_at`.
 - `skills/publish_dashboard/` (R5) — opérations publish / unpublish / refresh / list.
+- `web/templates/explorations.html`, `web/routes/html.py` (R1, révision) — la vue conversation ;
+  aujourd'hui elle ne montre rien sur les tableaux qu'elle a créés ou modifiés.
+- `web/models.py` `Dashboard.created_in_conversation_id` (R1, révision) — le seul lien
+  conversation → tableau, côté base ; aucune API ne l'expose encore.
+- `web/static/js/stream.js` (R1, révision) — fin de streaming, point d'accroche pour vérifier la
+  dérive après que l'assistant a fini de modifier le tableau.
 
 ## Questions ouvertes
 
-Aucune. Deux décisions tranchées par la demandeuse : un unique bouton global qui republie toutes
-les versions en retard d'un coup (DOD-2) ; confirmation requise avant de republier la version
-publique (DOD-3).
+Aucune. Décisions tranchées par la demandeuse : un unique bouton global qui republie toutes les
+versions en retard d'un coup (DOD-2) ; confirmation requise avant de republier la version publique
+(DOD-3) ; alerte de republication aussi dans la conversation, livrée dans la même PR (DOD-10,
+DOD-11), renvoyant vers l'écran de gestion pour republier plutôt que de dupliquer le bouton et sa
+confirmation.
 
 ## Validation
 
 Validé par Annaelle Garcia le 2026-10-19.
+Révision du 2026-10-20 (ajout DOD-10 et DOD-11) validée par Annaelle Garcia le 2026-10-20.
