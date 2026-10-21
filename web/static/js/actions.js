@@ -15,7 +15,7 @@ let actionsFilterMode = localStorage.getItem('actionsFilterMode') || 'data';
 
 // TOC (table of contents) state
 let tocEntries = []; // Array of {headingElement, text, element}
-let currentSidebarTab = localStorage.getItem('sidebarTab') || 'toc';
+let currentSidebarTab = localStorage.getItem('sidebarTab') === 'actions' ? 'actions' : 'toc';
 
 // Progress indicator state
 let progressIndicator = null;
