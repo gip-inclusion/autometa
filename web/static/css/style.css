@@ -222,6 +222,7 @@ body.has-sidebar {
 /* Explorations uses grid: header / body / chat-bar */
 #section-explorations {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   height: 100vh;
 }
@@ -248,7 +249,12 @@ body.has-sidebar {
   #section-rapports,
   #section-rechercher,
   #section-dashboards {
-    height: calc(100vh - 56px);
+    height: calc(100dvh - 56px);
+  }
+
+  /* iOS Safari zooms on focus when an input's font-size is below 16px */
+  .app-main :is(input, textarea, select) {
+    font-size: 1rem;
   }
 }
 
@@ -378,6 +384,7 @@ body.has-sidebar {
 /* The wrapper IS the rounded rectangle border — holds pending files + input row */
 .chat-input-wrapper {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border: 2px solid #dee2e6;
@@ -1329,11 +1336,13 @@ body.has-sidebar {
 
   /* On accueil & rechercher, hide h1 text — icon + search bar are enough */
   #section-accueil .section-header h1,
-  #section-rechercher .section-header h1 {
+  #section-rechercher .section-header h1,
+  #section-dashboards .section-header h1 {
     font-size: 0;
   }
   #section-accueil .section-header h1 i,
-  #section-rechercher .section-header h1 i {
+  #section-rechercher .section-header h1 i,
+  #section-dashboards .section-header h1 i {
     font-size: 1.5rem;
   }
 
@@ -1354,7 +1363,62 @@ body.has-sidebar {
 
   .chat-input {
     padding: 0.75rem 1rem;
-    font-size: 0.875rem;
+  }
+
+  .conv-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  #tokenDisplay {
+    display: none;
+  }
+
+  .conv-action-btn {
+    margin-left: 0;
+  }
+
+  /* Icon-only on mobile, label kept for screen readers */
+  .conv-action-btn span,
+  .feedback-badge span,
+  #section-dashboards .section-header .btn span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .feedback-badge {
+    padding: 0.4rem;
+  }
+
+  .conv-title-display h1 {
+    font-size: 1.1rem;
+  }
+
+  /* Wide tables and long URLs scroll or wrap instead of being clipped */
+  .event-assistant table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .event-assistant {
+    overflow-wrap: break-word;
+  }
+
+  .search-filter-bar .rechercher-type-list {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .search-filter-bar .rechercher-type-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .chat-send-btn,
@@ -3579,6 +3643,27 @@ body.has-sidebar {
 .accueil-button span {
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+.accueil-button-primary,
+.accueil-button-primary:hover,
+.accueil-button-primary i {
+  background: var(--bs-primary);
+  color: white;
+}
+
+@media (max-width: 767.98px) {
+  .accueil-button-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accueil-button {
+    padding: 0.875rem 0.5rem;
+  }
+
+  .accueil-button-primary {
+    grid-column: 1 / -1;
+  }
 }
 
 .accueil-button small {

@@ -54,6 +54,12 @@ def test_accueil_grid_drops_technical_tools_keeps_rapports(client):
     assert 'href="/dashboards" class="accueil-button"' in html
 
 
+def test_accueil_grid_offers_new_conversation(client):
+    html = client.get("/", headers=headers()).text
+
+    assert 'href="/explorations/new" class="accueil-button accueil-button-primary"' in html
+
+
 @pytest.mark.parametrize(
     ("url", "active_href", "inactive_href"),
     [
