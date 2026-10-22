@@ -16,6 +16,7 @@ from web import config, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
+from web.conversation_embeddings.query_embedding import embed_query, is_embedding_model_ready
 from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
@@ -228,6 +229,26 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
             "stream": f"/api/conversations/{conv_id}/stream",
         },
     }
+
+
+@router.get("/{conv_id}/similar")
+def similar_conversations(conv_id: str, user_email: str = Depends(get_current_user)):
+    """Return similar conversations ordered by proximity to the first user message."""
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+
+    first_message = next((msg.content for msg in conv.messages if msg.type == "user"), "")
+    if not first_message.strip() or not is_embedding_model_ready():
+        return {"conversations": []}
+
+    ids = store.search_conversation_ids_by_embedding(
+        embed_query(first_message),
+        max_distance=config.SIMILAR_CONVERSATIONS_MAX_DISTANCE,
+        limit=3,
+    )
+    conversations = store.get_conversations_by_ids(ids)
+    return {"conversations": [{"id": cid, "title": conversations[cid].title} for cid in ids]}
 
 
 @router.delete("/{conv_id}")
