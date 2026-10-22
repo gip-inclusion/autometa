@@ -27,7 +27,7 @@ def no_run_markers(mocker):
     """Couloir unit : les marqueurs `running` du lot et des tâches ne touchent pas la base."""
     mocker.patch.object(cron, "open_batch_run", return_value=None)
     mocker.patch.object(cron, "open_run", return_value=None)
-    mocker.patch.object(cron, "get_last_runs", return_value={})
+    mocker.patch.object(cron, "last_success_durations", return_value={})
 
 
 def make_task(slug, **overrides):
@@ -925,18 +925,11 @@ def test_a_single_lane_runs_the_longest_tasks_first():
 
 
 @pytest.mark.parametrize("workers", [1, 3])
-@pytest.mark.parametrize(
-    "last_runs",
-    [
-        {"return_value": {"c": {"duration_ms": 120_000}, "d": {"duration_ms": None}}},
-        {"side_effect": OperationalError("stmt", {}, Exception("db down"))},
-    ],
-)
-def test_a_parallel_batch_records_every_task_even_when_one_raises(mocker, workers, last_runs):
+def test_a_parallel_batch_records_every_task_even_when_one_raises(mocker, workers):
     tasks = [make_task(slug, source=None) for slug in "abcde"]
     mocker.patch.object(cron, "discover_cron_tasks", return_value=tasks)
     mocker.patch.object(cron, "is_due", return_value=True)
-    mocker.patch.object(cron, "get_last_runs", **last_runs)
+    mocker.patch.object(cron, "last_success_durations", return_value={"c": 120_000, "d": 0})
 
     def execute(task, trigger, batch_run_id):
         if task["slug"] == "b":

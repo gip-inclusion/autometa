@@ -1073,6 +1073,24 @@ def get_last_runs(slug: str | None = None) -> dict[str, dict]:
         return {}
 
 
+# Why: un passage sauté pour budget (0 ms) ou un échec rapide reclasserait léger un TDB lourd,
+# qui pourrait alors tourner à côté de deux autres lourds.
+def last_success_durations() -> dict[str, int]:
+    """Durée du dernier passage réussi de chaque tâche."""
+    stmt = (
+        select(CronRun.app_slug, CronRun.duration_ms)
+        .where(CronRun.status == "success")
+        .distinct(CronRun.app_slug)
+        .order_by(CronRun.app_slug, CronRun.started_at.desc(), CronRun.id.desc())
+    )
+    try:
+        with get_db() as session:
+            return {slug: duration or 0 for slug, duration in session.execute(stmt)}
+    except SQLAlchemyError as e:
+        logger.warning("cron : durées des passages illisibles, lot sans couloir lourd (%s)", e)
+        return {}
+
+
 def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
     try:
         with get_db() as session:
@@ -1271,13 +1289,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None, wor
         results.append(result)
 
     if due:
-        try:
-            durations = {slug: last["duration_ms"] or 0 for slug, last in get_last_runs().items()}
-        except SQLAlchemyError as e:
-            # Why: comme l'ouverture du lot, la lecture des durées ne doit pas priver le lot de ses tâches.
-            logger.warning("cron : durées des passages illisibles, lot %s sans couloir lourd (%s)", batch, e)
-            durations = {}
-        run_in_lanes(due, durations, workers, run)
+        run_in_lanes(due, last_success_durations(), workers, run)
 
     if dropped:
         logger.warning("cron : lot %s amputé de %d tâche(s)", sanitize_for_log(batch), len(dropped))
