@@ -26,6 +26,8 @@ services:
     environment:
       - RUSTFS_ACCESS_KEY=autometa
       - RUSTFS_SECRET_KEY=autometa
+      # Why: le client S3 adresse le bucket dans l'hôte, comme en prod (web/s3.py).
+      - RUSTFS_SERVER_DOMAINS=localhost
     ports:
       - "9000:9000"
       - "9001:9001"

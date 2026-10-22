@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from lib import facade_imports
+from lib import facade_imports, script_hosts
 from lib.dashboard_errors import DashboardNotFound
 from lib.taxonomy import normalize_tags
 from web import config
@@ -69,13 +69,18 @@ class DashboardUpdateResult:
     fields_changed: list[str]
 
 
-def facade_problems(slug: str) -> list[str]:
-    """Fichiers Python d'un TDB qui importent autre chose que la façade — un énoncé, pas un refus."""
+def dashboard_dir(slug: str) -> Path:
+    """Le dossier d'un TDB, pour un slug valide seulement."""
     # Why: un appelant peut passer un slug non validé. La défense appartient donc à la fonction qui
     # construit le chemin, sinon un `../` sort du répertoire des tableaux de bord.
     if not _SLUG_RE.match(slug) or not 1 <= len(slug) <= 100:
         raise ValueError(f"Invalid slug: {slug!r}")
-    slug_dir = config.INTERACTIVE_DIR / slug
+    return config.INTERACTIVE_DIR / slug
+
+
+def facade_problems(slug: str) -> list[str]:
+    """Fichiers Python d'un TDB qui importent autre chose que la façade — un énoncé, pas un refus."""
+    slug_dir = dashboard_dir(slug)
     problems = []
     for path in sorted(slug_dir.rglob("*.py")):
         name = path.relative_to(slug_dir)
@@ -95,6 +100,27 @@ def check_facade_compliance(slug: str) -> None:
             "Imports hors de la façade des tableaux de bord :\n  "
             + "\n  ".join(problems)
             + f"\nSeul `{facade_imports.FACADE}` est autorisé — voir docs/interactive-dashboards.md."
+        )
+
+
+def script_host_problems(slug: str) -> list[str]:
+    """Pages d'un TDB qui chargent un script d'un site hors liste — un énoncé, pas un refus."""
+    slug_dir = dashboard_dir(slug)
+    problems = []
+    for path in sorted(p for p in slug_dir.rglob("*") if p.suffix.lower() in script_hosts.CHECKED_SUFFIXES):
+        if blocked := script_hosts.script_host_violations(path.read_text(errors="replace")):
+            problems.append(f"{path.relative_to(slug_dir)} charge {', '.join(blocked)}")
+    return problems
+
+
+def check_script_hosts(slug: str) -> None:
+    """Refuse un TDB dont une page charge un script que le navigateur refuserait (CSP)."""
+    if problems := script_host_problems(slug):
+        raise ValueError(
+            "Scripts chargés hors des sites autorisés :\n  "
+            + "\n  ".join(problems)
+            + f"\nSites autorisés : {', '.join(script_hosts.ALLOWED)} ou le dossier du TDB"
+            " — voir docs/interactive-dashboards.md."
         )
 
 
@@ -275,6 +301,7 @@ def adopt_dashboard(
     if not (config.INTERACTIVE_DIR / slug).is_dir():
         raise ValueError(f"No existing folder to adopt: {config.INTERACTIVE_DIR / slug}")
     check_facade_compliance(slug)
+    check_script_hosts(slug)
 
     with get_db() as session:
         if session.scalar(select(Dashboard).where(Dashboard.slug == slug)) is not None:

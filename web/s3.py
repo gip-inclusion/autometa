@@ -27,6 +27,8 @@ def make_client():
             connect_timeout=5,
             read_timeout=10,
             retries={"max_attempts": 2, "mode": "standard"},
+            # Why: le bucket dans l'hôte laisse la CSP des TDB autoriser ce seul bucket (web/csp.py).
+            s3={"addressing_style": "virtual"},
         ),
     )
 
