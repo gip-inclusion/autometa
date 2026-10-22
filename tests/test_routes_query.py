@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from lib.query import QueryResult
 from web.config import CORS_ALLOWED_ORIGINS
 from web.routes import query as query_route
-from web.routes.query import coerce_timeout, cors_headers, validate_query_request
+from web.routes.query import coerce_timeout, cors_headers, dashboard_slug, validate_query_request
 
 
 def _client():
@@ -103,3 +103,36 @@ def test_validate_query_request(data, expected):
 )
 def test_coerce_timeout(value, expected):
     assert coerce_timeout(value) == expected
+
+
+@pytest.mark.parametrize(("invalid_request", "status"), [(True, 400), (False, 502)])
+def test_query_failure_status_and_log_name_the_calling_dashboard(mocker, caplog, invalid_request, status):
+    mocker.patch.object(
+        query_route,
+        "execute_query",
+        return_value=QueryResult(success=False, data=None, error="boom", invalid_request=invalid_request),
+    )
+
+    response = _client().post(
+        "/api/query",
+        json={"source": "dashboard_storage", "sql": "SELECT 1"},
+        headers={"Referer": "https://autometa.example/interactive/mon-tdb/index.html?x=1"},
+    )
+
+    assert response.status_code == status
+    record = next(r for r in caplog.records if r.getMessage() == "api.query.failed")
+    assert getattr(record, "dashboard.slug") == "mon-tdb"
+    assert getattr(record, "query.source") == "dashboard_storage"
+
+
+@pytest.mark.parametrize(
+    ("referer", "expected"),
+    [
+        ("https://autometa.example/interactive/mon-tdb/", "mon-tdb"),
+        ("https://statistiques.inclusion.gouv.fr/dashboards/doubs-gt/index.html", "doubs-gt"),
+        ("https://autometa.example/", None),
+        (None, None),
+    ],
+)
+def test_dashboard_slug(referer, expected):
+    assert dashboard_slug(referer) == expected

@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
+from sqlalchemy.exc import ProgrammingError
 
 from .airtable import AirtableClient
 from .data_inclusion import execute_sql as _di_execute_sql
@@ -66,6 +67,7 @@ class QueryResult:
     data: Any
     error: Optional[str] = None
     execution_time_ms: int = 0
+    invalid_request: bool = False
 
 
 def _run_traced_query(
@@ -83,7 +85,12 @@ def _run_traced_query(
             result = QueryResult(success=True, data=data, execution_time_ms=int((time.time() - start) * 1000))
         except catches as e:
             result = QueryResult(
-                success=False, data=None, error=str(e), execution_time_ms=int((time.time() - start) * 1000)
+                success=False,
+                data=None,
+                error=str(e),
+                execution_time_ms=int((time.time() - start) * 1000),
+                # Why: SQL invalide, table ou schéma absent, droit manquant — la faute est à la requête, pas à la source.
+                invalid_request=isinstance(e, ProgrammingError),
             )
         _record_result(span, result)
         log_attrs: dict[str, Any] = {
@@ -507,4 +514,5 @@ def execute_query(
         success=False,
         data=None,
         error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', 'dashboard_storage', or 'appli_monrecap'.",
+        invalid_request=True,
     )

@@ -1,6 +1,7 @@
 """Tests for lib/query.py — the public query API."""
 
 import pytest
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 
 def test_query_module_imports():
@@ -679,3 +680,28 @@ def test_execute_query_unknown_source_lists_dashboard_storage():
 
     assert result.success is False
     assert "dashboard_storage" in result.error
+
+
+@pytest.mark.parametrize(
+    ("error", "invalid_request"),
+    [
+        (ProgrammingError("SELECT * FROM absente", {}, Exception("relation does not exist")), True),
+        (OperationalError("SELECT 1", {}, Exception("server closed the connection")), False),
+    ],
+)
+def test_sql_error_flags_invalid_request_only_when_the_query_is_at_fault(mocker, error, invalid_request):
+    from lib import query as q
+
+    mocker.patch("web.config.DASHBOARD_STORAGE_DB_URL", "postgresql://u:p@db/app")
+    mocker.patch("lib.query._pg_execute_sql", side_effect=error)
+
+    result = q.execute_dashboard_storage_query(sql="SELECT 1", caller=q.CallerType.APP)
+
+    assert result.success is False
+    assert result.invalid_request is invalid_request
+
+
+def test_execute_query_unknown_source_is_an_invalid_request():
+    from lib import query as q
+
+    assert q.execute_query(source="nope", instance="", caller=q.CallerType.APP).invalid_request is True
