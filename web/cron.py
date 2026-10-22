@@ -20,7 +20,7 @@ from pathlib import Path
 
 import sentry_sdk
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -1073,6 +1073,24 @@ def get_last_runs(slug: str | None = None) -> dict[str, dict]:
         return {}
 
 
+# Why: un passage sauté pour budget (0 ms) ou un échec rapide reclasserait léger un TDB lourd,
+# qui pourrait alors tourner à côté de deux autres lourds.
+def last_success_durations() -> dict[str, int]:
+    """Durée du dernier passage réussi de chaque tâche."""
+    stmt = (
+        select(CronRun.app_slug, CronRun.duration_ms)
+        .where(CronRun.status == "success")
+        .distinct(CronRun.app_slug)
+        .order_by(CronRun.app_slug, CronRun.started_at.desc(), CronRun.id.desc())
+    )
+    try:
+        with get_db() as session:
+            return {slug: duration or 0 for slug, duration in session.execute(stmt)}
+    except SQLAlchemyError as e:
+        logger.warning("cron : durées des passages illisibles, lot sans couloir lourd (%s)", e)
+        return {}
+
+
 def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
     try:
         with get_db() as session:
@@ -1096,7 +1114,91 @@ def facade_audit() -> list[str]:
     return lines
 
 
-def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> list[dict]:
+def run_in_lanes(tasks: list[dict], durations: dict[str, int], workers: int, run: Callable[[dict], None]) -> None:
+    """Les tâches lourdes passent dans deux couloirs au plus ; chaque guichet libre prend la tâche suivante."""
+    ordered = sorted(tasks, key=lambda task: durations.get(task["slug"], 0), reverse=True)
+    # Why: une tâche de plus d'une minute la veille charge assez sa source (Metabase, bases) pour
+    # qu'on n'en lance jamais plus de deux à la fois — l'équipe s'en sert déjà dès 8 h.
+    split = sum(durations.get(task["slug"], 0) > 60_000 for task in tasks)
+    heavy, light = collections.deque(ordered[:split]), collections.deque(ordered[split:])
+
+    def drain(*queues: collections.deque) -> None:
+        for queue in queues:
+            while True:
+                try:
+                    task = queue.popleft()
+                except IndexError:
+                    break
+                run(task)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        heavy_lanes = min(2, workers)
+        lanes = [pool.submit(drain, heavy, light) for _ in range(heavy_lanes)]
+        lanes += [pool.submit(drain, light) for _ in range(workers - heavy_lanes)]
+        for lane in lanes:
+            lane.result()
+
+
+def error_kind(result: dict) -> str:
+    """Type d'erreur d'un run en échec : le nom de la dernière exception de sa sortie, sinon son statut."""
+    if result["status"] == "timeout":
+        return "timeout"
+    names = re.findall(r"^([\w.]*(?:Error|Exception|Timeout))\b", result.get("output") or "", re.MULTILINE)
+    return names[-1] if names else "sortie en erreur"
+
+
+def failing_since(slugs: list[str]) -> dict[str, dt.datetime]:
+    """Premier échec de la série en cours de chaque tâche, c'est-à-dire depuis son dernier succès."""
+    last_success = (
+        select(CronRun.app_slug, func.max(CronRun.started_at).label("at"))
+        .where(CronRun.app_slug.in_(slugs), CronRun.status == "success")
+        .group_by(CronRun.app_slug)
+        .subquery()
+    )
+    stmt = (
+        select(CronRun.app_slug, func.min(CronRun.started_at))
+        .outerjoin(last_success, last_success.c.app_slug == CronRun.app_slug)
+        .where(
+            CronRun.app_slug.in_(slugs),
+            CronRun.status.in_(BROKEN_STATUSES),
+            or_(last_success.c.at.is_(None), CronRun.started_at > last_success.c.at),
+        )
+        .group_by(CronRun.app_slug)
+    )
+    try:
+        with get_db() as session:
+            return dict(session.execute(stmt).all())
+    except SQLAlchemyError as e:
+        logger.warning("cron : historique des échecs illisible, récapitulatif sans ancienneté (%s)", e)
+        return {}
+
+
+# Why: une alerte au premier échec, puis plus rien, laissait une vingtaine de TDB en panne sans
+# suivi. Un message par matin redonne la liste entière, avec la durée du lot pour en suivre la marge.
+def notify_batch_summary(batch: str, results: list[dict], elapsed: float, budget: int | None, workers: int) -> None:
+    """Récapitulatif du lot : durée, marge, et chaque tâche en échec avec son ancienneté et son type d'erreur."""
+    failed = [result for result in results if result["status"] in BROKEN_STATUSES]
+    since = failing_since([result["slug"] for result in failed])
+    usage = f" ({elapsed / budget:.0%} du budget de {budget // 60} min)" if budget else ""
+    message = (
+        f":clipboard: *Lot `{batch}`* — {len(results)} tâche(s) en {elapsed / 60:.0f} min{usage}, "
+        f"{workers} guichet(s).\n"
+    )
+    if not failed:
+        alerts.notify_alert_channel(message + ":white_check_mark: Aucune en échec.")
+        return
+    failed.sort(key=lambda result: since.get(result["slug"], result["started_at"]))
+    listing = "\n".join(
+        f"• `{result['slug']}` — {error_kind(result)}, "
+        f"depuis le {since.get(result['slug'], result['started_at']):%d/%m}"
+        for result in failed
+    )
+    if config.BASE_URL:
+        listing += f"\n<{config.BASE_URL}/cron|Voir les crons>"
+    alerts.notify_alert_channel(f"{message}:red_circle: {len(failed)} en échec :\n{listing}")
+
+
+def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None, workers: int = 1) -> list[dict]:
     """Run the enabled tasks of one batch that are due today, within an optional time budget."""
     try:
         tasks = discover_cron_tasks()
@@ -1112,6 +1214,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
             )
         tasks = discover_system_tasks()
     results = []
+    due = []
     started = time.monotonic()
     dropped = []
     if not dry_run:
@@ -1148,6 +1251,9 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
             )
             continue
 
+        due.append(task)
+
+    def run(task: dict) -> None:
         if budget and time.monotonic() - started >= budget:
             dropped.append(task["slug"])
             now = utcnow()
@@ -1163,7 +1269,7 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
                 "scheduled",
                 batch_run_id=batch_run_id,
             )
-            continue
+            return
 
         started_at = utcnow()
         try:
@@ -1182,12 +1288,18 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
         )
         results.append(result)
 
+    if due:
+        run_in_lanes(due, last_success_durations(), workers, run)
+
     if dropped:
         logger.warning("cron : lot %s amputé de %d tâche(s)", sanitize_for_log(batch), len(dropped))
         alerts.notify_alert_channel(
             f":hourglass: *Lot `{batch}` au-delà de son budget de {budget}s* — "
             f"{len(dropped)} tâche(s) non exécutée(s) : " + ", ".join(f"`{slug}`" for slug in dropped)
         )
+
+    if batch == DASHBOARD_BATCH and results:
+        notify_batch_summary(batch, results, time.monotonic() - started, budget, workers)
 
     if not dry_run:
         close_batch_run(batch_run_id, "over_budget" if dropped else "finished")
@@ -1201,12 +1313,12 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None) -> 
     return results
 
 
-def positive_seconds(value: str) -> int:
-    """Un budget nul ou négatif passerait pour « pas de budget » : on le refuse."""
-    seconds = int(value)
-    if seconds <= 0:
-        raise argparse.ArgumentTypeError("le budget doit être un nombre de secondes positif")
-    return seconds
+def positive_int(value: str) -> int:
+    """Un budget ou un nombre de guichets nul passerait pour « sans limite » ou ne lancerait rien : on le refuse."""
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("doit être un entier positif")
+    return number
 
 
 def main():
@@ -1218,7 +1330,8 @@ def main():
     parser.add_argument("--list", action="store_true", help="List all discovered cron tasks")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
     parser.add_argument("--facade-audit", action="store_true", help="Count dashboards importing outside the facade")
-    parser.add_argument("--budget", type=positive_seconds, help="Durée maximale du lot, en secondes")
+    parser.add_argument("--budget", type=positive_int, help="Durée maximale du lot, en secondes")
+    parser.add_argument("--workers", type=positive_int, default=1, help="Tâches du lot exécutées en même temps")
     args = parser.parse_args()
 
     if not (args.facade_audit or args.list or args.app or args.batch):
@@ -1250,7 +1363,7 @@ def main():
         return
 
     print("Running all cron tasks...")
-    results = run_all(dry_run=args.dry_run, batch=args.batch, budget=args.budget)
+    results = run_all(dry_run=args.dry_run, batch=args.batch, budget=args.budget, workers=args.workers)
     if not args.dry_run:
         ok = sum(1 for r in results if r["status"] == "success")
         fail = len(results) - ok
