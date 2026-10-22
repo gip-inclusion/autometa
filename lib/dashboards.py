@@ -107,7 +107,7 @@ def script_host_problems(slug: str) -> list[str]:
     """Pages d'un TDB qui chargent un script d'un site hors liste — un énoncé, pas un refus."""
     slug_dir = dashboard_dir(slug)
     problems = []
-    for path in sorted(p for p in slug_dir.rglob("*") if p.suffix.lower() in (".html", ".htm")):
+    for path in sorted(p for p in slug_dir.rglob("*") if p.suffix.lower() in script_hosts.CHECKED_SUFFIXES):
         if blocked := script_hosts.script_host_violations(path.read_text(errors="replace")):
             problems.append(f"{path.relative_to(slug_dir)} charge {', '.join(blocked)}")
     return problems

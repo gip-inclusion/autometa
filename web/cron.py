@@ -1101,7 +1101,9 @@ def script_hosts_audit() -> list[str]:
     with get_db() as session:
         slugs = session.scalars(select(Dashboard.slug).where(~Dashboard.is_archived)).all()
     listings = s3_map(lambda slug: s3.interactive.list_files(f"{slug}/"), slugs)
-    pages = [f["path"] for files in listings for f in files if f["path"].lower().endswith((".html", ".htm"))]
+    pages = [
+        f["path"] for files in listings for f in files if f["path"].lower().endswith(script_hosts.CHECKED_SUFFIXES)
+    ]
     found = {}
     for path, content in zip(pages, s3_map(s3.interactive.download, pages), strict=True):
         if content and (blocked := script_hosts.script_host_violations(content.decode(errors="replace"))):

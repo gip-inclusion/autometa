@@ -36,6 +36,12 @@ OFFENDING_PAGE = '<script src="https://gestaltfabrik.github.io/fluo-proto/static
         ('<script src="https://unpkg.com.evil.example/x.js"></script>', ["https://unpkg.com.evil.example/x.js"]),
         ('<script src="http://unpkg.com/x.js"></script>', ["http://unpkg.com/x.js"]),
         ('<SCRIPT type="module" SRC="data:text/javascript,alert(1)"></SCRIPT>', ["data:text/javascript,alert(1)"]),
+        ('<script type="module">import * as d3 from "https://esm.sh/d3";</script>', ["https://esm.sh/d3"]),
+        ("const L = await import('https://esm.sh/leaflet');", ["https://esm.sh/leaflet"]),
+        ('import "https://esm.sh/htmx.org";', ["https://esm.sh/htmx.org"]),
+        ('export { scaleLinear } from "https://esm.sh/d3-scale";', ["https://esm.sh/d3-scale"]),
+        ('import { chart } from "./chart.js";\nimport("https://cdn.jsdelivr.net/npm/d3@7/+esm");', []),
+        ("Données issues from 'France Travail'.", []),
     ],
 )
 def test_script_host_violations(html, blocked):
@@ -62,7 +68,14 @@ def dashboard_files(mocker, tmp_path, files):
 @pytest.mark.parametrize(
     ("files", "problems"),
     [
-        ({"index.html": ALLOWED_PAGE, "app.js": OFFENDING_PAGE}, []),
+        (
+            {"index.html": ALLOWED_PAGE, "app.js": 'import { chart } from "./chart.js";', "data.json": OFFENDING_PAGE},
+            [],
+        ),
+        (
+            {"index.html": ALLOWED_PAGE, "app.js": 'import * as d3 from "https://esm.sh/d3";'},
+            ["app.js charge https://esm.sh/d3"],
+        ),
         (
             {"index.html": ALLOWED_PAGE, "marseille/profil.HTML": OFFENDING_PAGE},
             [
@@ -113,7 +126,12 @@ def active_dashboard(_db):
 @pytest.mark.integration
 @pytest.mark.usefixtures("active_dashboard")
 def test_script_hosts_audit_lists_active_dashboard_pages_loading_a_forbidden_script(mocker):
-    pages = {"audit-ko/index.html": ALLOWED_PAGE, "audit-ko/nice/index.html": OFFENDING_PAGE, "audit-ko/app.js": ""}
+    pages = {
+        "audit-ko/index.html": ALLOWED_PAGE,
+        "audit-ko/nice/index.html": OFFENDING_PAGE,
+        "audit-ko/app.js": "",
+        "audit-ko/data.json": OFFENDING_PAGE,
+    }
     mocker.patch.object(
         cron.s3.interactive,
         "list_files",

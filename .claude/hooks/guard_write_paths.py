@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from lib.facade_imports import FACADE, facade_violations  # noqa: E402
-from lib.script_hosts import ALLOWED, script_host_violations  # noqa: E402
+from lib.script_hosts import ALLOWED, CHECKED_SUFFIXES, script_host_violations  # noqa: E402
 from web.environment import Environment  # noqa: E402
 
 BLOCK_BAD_ENV_MSG = (
@@ -115,7 +115,7 @@ def facade_verdict(path, code, repo_root):
 
 def script_hosts_verdict(path, code, repo_root):
     """Refuse une page de tableau de bord qui charge un script hors des sites autorisés — quel que soit l'environnement."""
-    if not in_dashboard(path, repo_root) or not path.lower().endswith((".html", ".htm")):
+    if not in_dashboard(path, repo_root) or not path.lower().endswith(CHECKED_SUFFIXES):
         return None
     if violations := script_host_violations(code):
         return BLOCK_SCRIPT_HOSTS_MSG.format(violations=", ".join(violations), allowed=", ".join(ALLOWED))
