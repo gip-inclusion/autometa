@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ def no_run_markers(mocker):
     """Couloir unit : les marqueurs `running` du lot et des tâches ne touchent pas la base."""
     mocker.patch.object(cron, "open_batch_run", return_value=None)
     mocker.patch.object(cron, "open_run", return_value=None)
+    mocker.patch.object(cron, "last_success_durations", return_value={})
 
 
 def make_task(slug, **overrides):
@@ -198,6 +200,24 @@ def test_execute_task_logs_each_line_of_the_task_output(mocker, tmp_path, caplog
     assert logged.get("ligne stdout") == "stdout"
     assert logged.get("ligne stderr") == "stderr"
     assert result["status"] == "success"
+
+
+@pytest.mark.parametrize(
+    ("printed", "logged"),
+    [
+        ("contact: prenom.nom@inclusion.gouv.fr", "contact: ***"),
+        ("DETAIL:  Failing row contains (42, Dupont, null).", "DETAIL:  Failing row contains ***."),
+        ("12 lignes synchronisées", "12 lignes synchronisées"),
+    ],
+)
+def test_execute_task_masks_values_before_logging_them(mocker, tmp_path, caplog, printed, logged):
+    task = write_task(tmp_path, f"print({printed!r})")
+
+    with caplog.at_level(logging.INFO, logger="web.cron"):
+        result = run_task_offline(mocker, task)
+
+    assert logged in [r.getMessage() for r in caplog.records]
+    assert printed in result["output"]
 
 
 def test_execute_task_logs_progress_before_a_timeout_kills_the_task(mocker, tmp_path, caplog):
@@ -758,9 +778,12 @@ def test_the_cron_entry_point_initialises_sentry(monkeypatch, mocker):
     init.assert_called_once()
 
 
-@pytest.mark.parametrize("budget", ["0", "-5"])
-def test_the_cron_entry_point_refuses_a_budget_that_is_not_positive(monkeypatch, mocker, capsys, budget):
-    monkeypatch.setattr("sys.argv", ["cron", "--batch", "tableaux", "--budget", budget])
+@pytest.mark.parametrize("option", ["--budget", "--workers"])
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_the_cron_entry_point_refuses_a_budget_or_workers_that_is_not_positive(
+    monkeypatch, mocker, capsys, option, value
+):
+    monkeypatch.setattr("sys.argv", ["cron", "--batch", "tableaux", option, value])
     mocker.patch.object(cron, "setup_logging")
     mocker.patch.object(cron, "init_sentry")
     run_all = mocker.patch.object(cron, "run_all")
@@ -769,7 +792,7 @@ def test_the_cron_entry_point_refuses_a_budget_that_is_not_positive(monkeypatch,
         cron.main()
 
     assert exc_info.value.code != 0
-    assert "budget" in capsys.readouterr().err.lower()
+    assert option in capsys.readouterr().err
     run_all.assert_not_called()
 
 
@@ -857,3 +880,130 @@ def test_every_system_task_goes_through_the_shared_entry_point():
 
         assert "run" in imported, task["slug"]
         assert "run" in called, task["slug"]
+
+
+def test_two_heavy_tasks_at_most_run_together_while_another_lane_runs_light_ones():
+    durations = {"lourd-1": 300_000, "lourd-2": 200_000, "lourd-3": 120_000, "leger": 1_000}
+    light_ran = threading.Event()
+    two_heavy = threading.Event()
+    lock = threading.Lock()
+    heavy_running = []
+    peaks = []
+    ran = []
+
+    def run(task):
+        slug = task["slug"]
+        ran.append(slug)
+        if slug == "leger":
+            light_ran.set()
+            return
+        with lock:
+            heavy_running.append(slug)
+            peaks.append(len(heavy_running))
+            if len(heavy_running) == 2:
+                two_heavy.set()
+        # Why: les deux premiers lourds s'attendent puis attendent le léger — avec un seul couloir
+        # lourd, ou si le troisième guichet prenait un lourd, l'attente expirerait.
+        assert two_heavy.wait(timeout=5)
+        assert light_ran.wait(timeout=5)
+        with lock:
+            heavy_running.remove(slug)
+
+    cron.run_in_lanes([make_task(slug) for slug in durations], durations, 3, run)
+
+    assert sorted(ran) == sorted(durations)
+    assert max(peaks) == 2
+
+
+def test_a_single_lane_runs_the_longest_tasks_first():
+    durations = {"court": 1_000, "lourd": 90_000, "moyen": 30_000}
+    ran = []
+
+    cron.run_in_lanes([make_task(slug) for slug in ["court", "inconnu", "lourd", "moyen"]], durations, 1, ran.append)
+
+    assert [task["slug"] for task in ran] == ["lourd", "moyen", "court", "inconnu"]
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_a_parallel_batch_records_every_task_even_when_one_raises(mocker, workers):
+    tasks = [make_task(slug, source=None) for slug in "abcde"]
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=tasks)
+    mocker.patch.object(cron, "is_due", return_value=True)
+    mocker.patch.object(cron, "last_success_durations", return_value={"c": 120_000, "d": 0})
+
+    def execute(task, trigger, batch_run_id):
+        if task["slug"] == "b":
+            raise RuntimeError("bug")
+        return {"slug": task["slug"], "status": "success", "duration_ms": 1, "output": ""}
+
+    mocker.patch.object(cron, "execute_task", side_effect=execute)
+    record_run = mocker.patch.object(cron, "record_run")
+
+    results = cron.run_all(batch="maintenance", workers=workers)
+
+    assert sorted(r["slug"] for r in results) == list("abcde")
+    assert [c.args[0]["slug"] for c in record_run.call_args_list] == ["b"]
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        ({"status": "timeout", "output": "KeyError: 'x'"}, "timeout"),
+        ({"status": "failure", "output": "Traceback\n  File x\nKeyError: 'x'\n"}, "KeyError"),
+        ({"status": "failure", "output": "ValueError: a\nhttpx.ReadTimeout: b"}, "httpx.ReadTimeout"),
+        ({"status": "failure", "output": "Aucune donnée"}, "sortie en erreur"),
+        ({"status": "failure", "output": None}, "sortie en erreur"),
+    ],
+)
+def test_the_error_kind_is_the_last_exception_of_the_output(result, expected):
+    assert cron.error_kind(result) == expected
+
+
+def summary_result(slug, status, output="", started_at=datetime(2026, 10, 19, 6, 5, tzinfo=timezone.utc)):
+    return {"slug": slug, "status": status, "output": output, "duration_ms": 1, "started_at": started_at}
+
+
+@pytest.mark.parametrize(
+    ("results", "expected", "absent"),
+    [
+        (
+            [summary_result("ok", "success")],
+            ["`tableaux-internes`", "1 tâche(s) en 30 min (50% du budget de 60 min), 2 guichet(s)", "Aucune en échec"],
+            ["`ok`"],
+        ),
+        (
+            [
+                summary_result("ok", "success"),
+                summary_result("recent", "timeout"),
+                summary_result("ancien", "failure", "Traceback\nKeyError: 'x'"),
+            ],
+            ["2 en échec", "• `ancien` — KeyError, depuis le 02/10\n• `recent` — timeout, depuis le 19/10"],
+            ["`ok`"],
+        ),
+    ],
+)
+def test_the_batch_summary_lists_every_failing_task_oldest_first(mocker, results, expected, absent):
+    mocker.patch.object(
+        cron, "failing_since", return_value={"ancien": datetime(2026, 10, 2, 6, 0, tzinfo=timezone.utc)}
+    )
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+
+    cron.notify_batch_summary(cron.DASHBOARD_BATCH, results, 1800, 3600, 2)
+
+    message = notify.call_args.args[0]
+    assert all(part in message for part in expected), message
+    assert not any(part in message for part in absent), message
+
+
+@pytest.mark.parametrize(("batch", "summaries"), [(cron.DASHBOARD_BATCH, 1), ("maintenance", 0)])
+def test_only_the_dashboard_batch_sends_its_morning_summary(mocker, batch, summaries):
+    mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a", source=None, batch=batch)])
+    mocker.patch.object(cron, "is_due", return_value=True)
+    mocker.patch.object(
+        cron, "execute_task", return_value={"slug": "a", "status": "success", "duration_ms": 1, "output": ""}
+    )
+    summary = mocker.patch.object(cron, "notify_batch_summary")
+
+    cron.run_all(batch=batch, budget=3600, workers=2)
+
+    assert summary.call_count == summaries

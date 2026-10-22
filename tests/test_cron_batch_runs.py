@@ -273,3 +273,20 @@ def test_the_history_purge_runs_every_day_in_the_maintenance_batch():
     tasks = {task["slug"]: task for task in cron.discover_from_dir(cron.config.CRON_DIR, "CRON.md", "system")}
 
     assert (tasks["purge-cron-history"]["batch"], tasks["purge-cron-history"]["schedule"]) == ("maintenance", "daily")
+
+
+def test_a_failing_task_has_failed_since_the_first_failure_after_its_last_success():
+    day = datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc)
+    history = {
+        "retombe": ["failure", "success", "failure", "timeout"],
+        "jamais-ok": ["failure", "interrupted", "failure"],
+        "retabli": ["failure", "success"],
+    }
+    for slug, statuses in history.items():
+        for offset, status in enumerate(statuses):
+            record_past_run(slug, status, day + timedelta(days=offset))
+
+    assert cron.failing_since(list(history)) == {
+        "retombe": day + timedelta(days=2),
+        "jamais-ok": day,
+    }
