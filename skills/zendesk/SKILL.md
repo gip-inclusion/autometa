@@ -1,11 +1,11 @@
 ---
 name: zendesk
-description: Zendesk du support Emplois de l'Inclusion — lire les tickets (lecture seule) et lire ou modifier la base de connaissance (Guide) avec relecture et validation avant toute écriture. (project)
+description: Zendesk du support Emplois de l'Inclusion — lire les tickets (lecture seule), lire ou modifier la base de connaissance (Guide) et les macros, avec relecture et validation avant toute écriture. (project)
 ---
 
 # Zendesk
 
-Deux périmètres sur la même instance : les **tickets** (lecture seule) et la **base de connaissance** publiée sur aide.emplois.inclusion.beta.gouv.fr (lecture et écriture encadrée).
+Trois périmètres sur la même instance : les **tickets** (lecture seule), la **base de connaissance** publiée sur aide.emplois.inclusion.beta.gouv.fr et les **macros** du support (lecture et écriture encadrée).
 
 ## Configuration
 
@@ -57,7 +57,7 @@ result = cs.plan([article], transform, "ajout encart contact")
 
 cs.apply(zd, result["id"])    # → {"written": 98, "skipped": [...], "errors": [...]}
 cs.revert(zd, changeset_id)   # restaure l'état d'avant, même garde
-cs.show(changeset_id) ; cs.list_changesets()
+cs.show(changeset_id) ; cs.list_changesets()    # chaque manifeste porte kind : articles ou macros
 ```
 
 **Ce que `replace` ne touche pas, et le dit** : les occurrences dans les balises HTML (adresses de liens, images, attributs, classes) ne sont remplacées qu'avec `include_markup=True`. Renommer Dora ne doit pas réécrire `dora.inclusion.gouv.fr`. `markup_hits` donne le compte par article : le mentionner dans la relecture, et ne passer `include_markup=True` que sur demande explicite de l'utilisateur. `structure_hits` nomme les rubriques et catégories dont le nom contient le motif : elles ne sont jamais modifiées par un changeset, proposer `update` à la main si l'utilisateur le souhaite.
@@ -94,6 +94,58 @@ zd.create_category(name, description="")
 
 Le contenu des articles est public : pas d'anonymisation NIR, le HTML est réécrit tel quel.
 
+## Macros
+
+Une macro : titre `Catégorie::Sous-catégorie::Nom`, description, état actif ou inactif, liste d'actions `{field, value}` (texte de réponse `comment_value_html`, statut, étiquettes, assignation, champs personnalisés…). Inactive, elle n'apparaît plus aux agents.
+
+### Lire
+
+```python
+from lib import zendesk_macros as zm
+from lib.zendesk import macro_id_from_url
+
+macros = zd.list_macros()                    # toutes, actives et inactives, avec usage_30d — 4 requêtes
+zm.by_category(macros)                       # {catégorie: [Macro]}, « Sans catégorie » en dernier
+macro = zd.get_macro(macro_id_from_url(url_ou_id))   # URL d'admin, URL d'API ou identifiant
+zm.describe(zd, macro)                       # actions en clair : noms de statuts, groupes, agents, champs
+zm.export(zd)                                # dump complet gzippé sur S3, URL présignée
+```
+
+La catégorie est le premier segment du titre, comparée exactement : « Prolongation » n'est pas « Prolongations ». Présenter une liste rangée par catégorie, actives et inactives distinguées, avec l'usage sur 30 jours. Une adresse qui n'est pas celle d'une macro (article, ticket) lève `ValueError` ; une macro inconnue ou supprimée lève `ZendeskError` 404 : le dire, ne pas chercher une voisine.
+
+### Modifier : changeset obligatoire
+
+Toute modification d'une macro existante — texte, état, actions — passe par un changeset, avec **le même déroulé imposé que pour les articles** (relecture, validation dans un message ultérieur, `cs.apply`, `cs.revert`, reprise, garde). Jamais `update_macro` en direct.
+
+```python
+result = zm.replace(zd, "Dora", "Nova")                  # titre, description, sujet, texte de réponse
+result = zm.replace_tag(zd, "ntt", "pdi")                # étiquette entière, sans doublon
+
+# Toute autre transformation, sur une ou plusieurs macros : {title, description, active, actions} → idem
+cible = [m for m in zd.list_macros() if zm.category(m.title) == "Prolongation"]
+result = zm.plan(cible, lambda f: {**f, "active": False}, "désactiver Prolongation")
+
+cs.apply(zd, result["id"]) ; cs.revert(zd, result["id"])
+```
+
+`replace` cherche le texte tel qu'il s'affiche : une espace trouve aussi une espace insécable (`&nbsp;`), un guillemet ou une apostrophe leur forme codée. Il ne touche ni les balises HTML ni les variables et instructions Zendesk (`{{ticket.id}}`, `{% if %}`, `{{dc.…}}`) : `markup_hits` les compte par macro, à mentionner dans la relecture ; `include_markup=True` seulement sur demande explicite. Le diff est découpé par paragraphe de la réponse.
+
+« Changer le statut » ne s'applique qu'aux macros qui posent déjà un statut : ne pas en ajouter un aux autres sans le dire. Si un nom de statut, de groupe ou d'agent désigne plusieurs éléments ou aucun, lister les candidats au lieu de choisir.
+
+Une transformation rend exactement ces quatre champs : la restriction (groupe ou agent) n'est pas modifiable par un changeset. Le manifeste liste les éléments touchés sous la clé `articles` quel que soit `kind` : pour un changeset de macros, ce sont des macros.
+
+Une macro **supprimée** entre-temps est sautée (« supprimé entre-temps ») à l'application comme au retour arrière, et n'est jamais recréée.
+
+### Créer
+
+Sans changeset, mais **toujours après confirmation en clair** du titre et des actions exacts dans le message précédent de l'utilisateur. Une macro naît inactive ; l'activer passe ensuite par un changeset.
+
+```python
+zd.create_macro(title, actions, description="")   # toujours inactive
+```
+
+**Ne jamais supprimer une macro** : pour la retirer, la désactiver par un changeset (réversible).
+
 ## Tickets (lecture seule)
 
 ```python
@@ -118,3 +170,4 @@ Les tickets contiennent parfois des NIR (~1,3 % sur un échantillon de 300). Le 
 
 - Diagnostiquer une demande utilisateur (ticket #X), extraire les premières clarifications d'un échantillon, recouper tags et statuts avec Matomo ou Metabase.
 - Corriger, enrichir ou renommer en masse la documentation d'aide des Emplois.
+- Consulter, corriger, désactiver ou réétiqueter les macros du support, une à une ou en masse.
