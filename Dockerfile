@@ -22,6 +22,10 @@ ENV UV_COMPILE_BYTECODE=1
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-editable
 
+# Navigateur du skill verify_dashboard, hors de $HOME pour que l'utilisateur autometa le trouve.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN .venv/bin/playwright install --with-deps --only-shell chromium
+
 COPY --chown=autometa:autometa . .
 
 RUN mkdir -p /app/data/uploads /app/data/modified \

@@ -1,0 +1,76 @@
+---
+name: verify_dashboard
+description: Vérifier la qualité visuelle d'un tableau de bord (TDB) en le rendant dans un navigateur sans écran — erreurs JavaScript, fichiers non chargés, graphiques vides ou manquants, valeurs NaN/undefined, mise en page cassée. MUST be invoked as the last step after writing or modifying a dashboard's files, before giving its URL to the user.
+---
+
+# Verify Dashboard Skill
+
+Affiche le TDB comme le verrait un utilisateur et rend un verdict **réussi / échoué** avec la liste des
+problèmes. Le skill sert lui-même le dossier du TDB : aucune application démarrée n'est nécessaire.
+
+## Quand le lancer
+
+Après `create_dashboard` ou `update_dashboard`, **une fois les fichiers du TDB écrits** — et, s'il a un
+`cron.py`, après l'avoir lancé une première fois pour générer `data.json`. Une modification qui ne
+touche que les métadonnées (titre, tags, archivage) ne se vérifie pas.
+
+## Usage
+
+```bash
+.venv/bin/python skills/verify_dashboard/scripts/verify_dashboard.py mon-tdb --expect-charts 3
+```
+
+| Argument | Description |
+|---|---|
+| `target` | Slug du TDB (dossier `data/interactive/{slug}/`) ou chemin d'un dossier |
+| `--expect-charts` | Nombre total de graphiques du TDB, **onglets inactifs compris**. Le passer dès que le TDB en a ; sans lui, aucun minimum n'est exigé |
+
+Sortie sur stdout (JSON) :
+
+```json
+{
+  "target": "mon-tdb",
+  "passed": false,
+  "issues": [
+    {"severity": "error", "message": "graphique canvas #evolution affiché sans aucun tracé"},
+    {"severity": "warning", "message": "données en direct non vérifiées : http://127.0.0.1:41235/api/query"}
+  ]
+}
+```
+
+## Ce qui fait échouer le verdict
+
+- une erreur JavaScript ou une erreur écrite dans la console ;
+- un fichier du TDB (données, script, feuille de style, CDN…) qui ne se charge pas ;
+- un graphique visible sans aucun tracé, ou moins de graphiques que `--expect-charts` ;
+- un graphique Chart.js dont une série n'a aucune valeur, ou dont un libellé (axe, légende) vaut
+  `undefined`, `NaN` ou `null` — un jeu de données sans `label` s'affiche « undefined » en légende ;
+- `NaN`, `undefined`, `null` ou `[object Object]` affichés dans la page ;
+- un débordement horizontal sur un écran de 1280 px, ou une page sans texte ;
+- le bloc `#error` affiché, ou `#loading` encore visible ;
+- une page qui n'a pas fini de charger en 30 s ;
+- un dossier sans `index.html`.
+
+Un graphique d'un onglet inactif est compté et ses séries Chart.js sont contrôlées, mais ni sa taille
+ni son tracé ne sont jugés : seul l'onglet affiché au chargement l'est.
+
+Ne font **pas** échouer : le tag manager Matomo (bloqué pendant la vérification, pour ne pas compter
+de fausse visite) ; une police, une image ou un média non chargé — avertissement « fichier non chargé »,
+c'est le cas des polices Marianne du gabarit, refusées hors de inclusion.gouv.fr ; les appels `/api/…`
+des TDB en données live, impossibles hors de l'application — avertissement « données en direct non
+vérifiées ».
+
+## Conduite à tenir
+
+- **Réussi** (code `0`) : donner le lien à l'utilisateur.
+- **Échoué** (code `1`) : corriger chaque problème de sévérité `error`, puis relancer — **trois
+  tentatives au plus**. Si des problèmes restent, donner le lien **en les listant** à l'utilisateur ;
+  ne jamais présenter le TDB comme vérifié.
+- **Audit impossible** (code `2`, aucun JSON, raison sur stderr) : le navigateur n'a pas pu tourner.
+  Ne pas toucher au TDB ni consommer de tentative ; donner le lien en disant qu'il n'a **pas** été
+  vérifié. Sur Scalingo, le navigateur est installé au build par `bin/post_compile` : son absence
+  signale un build à reprendre.
+- **Avertissement « données en direct non vérifiées »** : hors de l'application, la page n'a pas ses
+  données live, et les erreurs qui en découlent (graphique vide, bloc d'erreur, erreur JavaScript
+  sur la réponse) sont attendues. Corriger le reste, ne pas consommer de tentative sur celles-là, et
+  donner le lien en précisant que la vérification n'a pas pu voir les données en direct.
