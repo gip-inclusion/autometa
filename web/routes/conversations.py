@@ -20,6 +20,7 @@ from web.database import store
 from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
+from web.publications import drifted_dashboards_for_conversation
 from web.runner import runner
 from web.uploads import (
     AVScanFailedError,
@@ -123,6 +124,16 @@ def list_conversations(user_email: str = Depends(get_current_user), limit: int =
 @router.get("/running")
 def get_running(user_email: str = Depends(get_current_user)):
     return {"running": store.get_running_conversation_ids(user_id=user_email)}
+
+
+@router.get("/{conv_id}/dashboards")
+def conversation_dashboards(conv_id: str, user_email: str = Depends(get_current_user)):
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    return {"drifted": drifted_dashboards_for_conversation(conv_id)}
 
 
 @router.get("/flagged")

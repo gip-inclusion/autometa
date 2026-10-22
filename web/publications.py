@@ -196,6 +196,37 @@ def list_active_publications() -> list[dict]:
         return result
 
 
+def drifted_environments(publications: list[dict], updated_at: datetime | None) -> list[str]:
+    """Environnements dont la version en ligne la plus récente précède la dernière modif du tableau."""
+    if updated_at is None:
+        return []
+    latest: dict[str, datetime] = {}
+    for pub in publications:
+        published_at = pub.get("published_at")
+        if published_at is None:
+            continue
+        environment = pub["environment"]
+        if environment not in latest or published_at > latest[environment]:
+            latest[environment] = published_at
+    return sorted(env for env, published_at in latest.items() if published_at < updated_at)
+
+
+def drifted_dashboards_for_conversation(conv_id: str) -> list[dict]:
+    """Tableaux créés dans cette conversation dont au moins une version en ligne est en retard."""
+    with get_db() as session:
+        rows = session.execute(
+            select(Dashboard.slug, Dashboard.title, Dashboard.updated_at).where(
+                Dashboard.created_in_conversation_id == conv_id,
+                ~Dashboard.is_archived,
+            )
+        ).all()
+    drifted = []
+    for slug, title, updated_at in rows:
+        if drifted_environments(list_publications(slug), updated_at):
+            drifted.append({"slug": slug, "title": title})
+    return drifted
+
+
 def pause_refresh(publication_id: str) -> bool:
     return _set_paused(publication_id, paused=True)
 
