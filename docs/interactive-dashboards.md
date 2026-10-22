@@ -55,6 +55,7 @@ Les deux skills lisent `AUTOMETA_CONVERSATION_ID` et `AUTOMETA_USER_EMAIL` injec
 - **HTML sémantique** — utiliser les bons éléments (`<nav>`, `<main>`, `<article>`, `<table>`…).
 - **CSS** — custom properties, dépendances minimales. Pas de Tailwind.
 - **Graphiques** — D3.js ou Observable Plot pour les visualisations complexes, Chart.js pour les plus simples.
+- **Scripts externes** — uniquement depuis jsDelivr `/npm/`, unpkg, d3js.org ou le dossier du TDB. Le navigateur refuse tout autre domaine (consigne de sécurité CSP envoyée avec chaque page), et le TDB casse. Pour une bibliothèque absente de ces sites, copier son fichier dans le dossier du TDB. L'écriture d'une page ou d'un `.js` qui charge un script d'ailleurs, par `<script src>` ou par un import ES, est refusée. Une URL construite à l'exécution échappe à ce contrôle : seul le rapport CSP la signale, une fois la page ouverte.
 
 ## Structure de fichiers
 

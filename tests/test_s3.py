@@ -101,3 +101,14 @@ def test_list_files_treats_an_unreachable_endpoint_like_any_other_s3_error(monke
             s3.sessions.list_files("a/", raise_errors=True)
     else:
         assert s3.sessions.list_files("a/") == []
+
+
+def test_presigned_urls_name_the_bucket_in_the_host(monkeypatch):
+    monkeypatch.setattr("web.s3.config.S3_ENDPOINT", "https://s3.fr-par.scw.cloud")
+    monkeypatch.setattr("web.s3.config.S3_REGION", "fr-par")
+    monkeypatch.setattr("web.s3.config.S3_ACCESS_KEY", "key")
+    monkeypatch.setattr("web.s3.config.S3_SECRET_KEY", "secret")
+
+    url = s3.make_client().generate_presigned_url("get_object", Params={"Bucket": "autometa", "Key": "a/app.js"})
+
+    assert url.startswith("https://autometa.s3.fr-par.scw.cloud/a/app.js?")
