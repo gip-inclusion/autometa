@@ -85,6 +85,10 @@
     <!-- Conversation detail view with sidebar -->
     <div class="chat-with-sidebar" id="chatWithSidebar">
       <div class="chat-main">
+        <div class="chat-guide-banner">
+          <i class="ri-compass-3-line" aria-hidden="true"></i>
+          <a href="https://autometa.inclusion.gouv.fr/rapports/309">Pensez à utiliser le guide pratique d'investigation des données pour vos problématiques data</a>
+        </div>
         <div class="chat-output" id="chatOutput"{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
           <div class="loading-indicator" id="loadingConversation">
             <div class="spinner"></div> Chargement...
@@ -156,6 +160,10 @@
     <!-- New conversation - empty chat (no sidebar needed) -->
     <div class="chat-with-sidebar">
       <div class="chat-main">
+        <div class="chat-guide-banner">
+          <i class="ri-compass-3-line" aria-hidden="true"></i>
+          <a href="https://autometa.inclusion.gouv.fr/rapports/309">Pensez à utiliser le guide pratique d'investigation des données pour vos problématiques data</a>
+        </div>
         <div class="chat-output" id="chatOutput">
           <div class="empty-state" id="emptyState">
             <i class="ri-chat-3-line ri-4x text-disabled mb-3"></i>
