@@ -762,6 +762,20 @@ def test_empty_response_body_yields_empty_dict(api_no_signal, mocker):
     assert api_no_signal._request("DELETE", "help_center/articles/1.json") == {}
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["views/count_many.json", "https://emplois.zendesk.com/api/v2/views/count_many.json"],
+)
+def test_get_accepts_a_relative_path_or_a_full_next_page_url(api_no_signal, mocker, path):
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"ok": True})
+    )
+
+    assert api_no_signal.get(path, {"ids": "1"}) == {"ok": True}
+    assert request.call_args.args[1] == "https://emplois.zendesk.com/api/v2/views/count_many.json"
+    assert request.call_args.kwargs["params"] == {"ids": "1"}
+
+
 def macro_payload(macro_id=1, title="Candidat::Relance", **extra):
     return {
         "url": f"https://emplois.zendesk.com/api/v2/macros/{macro_id}.json",

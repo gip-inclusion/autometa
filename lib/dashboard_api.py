@@ -4,11 +4,16 @@
 # ne peut mesurer ce qu'il casse chez eux. Plutôt que de courir après les cassures, on réduit la
 # surface où elles peuvent se produire — cette façade est un contrat, ses tests en sont la preuve.
 
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+
 from lib import query, variants
 from lib.datadog import by_count
 from lib.facade_imports import APPLICATION_PACKAGES, FACADE, facade_violations
 from lib.query import CallerType, QueryResult
 from web import config
+from web.db import get_db
+from web.models import Dashboard, DashboardPublication
 
 __all__ = [
     "APPLICATION_PACKAGES",
@@ -18,16 +23,22 @@ __all__ = [
     "by_count",
     "count_datadog",
     "facade_violations",
+    "list_dashboards",
     "list_variants",
     "query_airtable",
     "query_appli_monrecap",
     "query_autometa_tables",
     "query_data_inclusion",
     "query_datadog",
+    "query_github",
     "query_matomo",
     "query_metabase",
+    "query_notion",
     "query_storage",
+    "query_tally",
+    "query_zendesk",
     "sample_datadog",
+    "search_zendesk_tickets",
 ]
 
 VERSION = 1
@@ -134,3 +145,70 @@ def query_storage(sql: str, params: dict | None = None, timeout: int = 60) -> Qu
 def query_appli_monrecap(sql: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
     """Lit et écrit dans la base applicative Mon Récap. Renvoie un QueryResult, ne lève jamais."""
     return query.execute_appli_monrecap_query(sql=sql, caller=CallerType.APP, params=params, timeout=timeout)
+
+
+def query_github(path: str, params: dict | None = None, timeout: int = 30) -> QueryResult:
+    """Lit l'API REST GitHub (GET seulement), `path` relatif à api.github.com. Ne lève jamais."""
+    return query.execute_github_query(path=path, caller=CallerType.APP, params=params, timeout=timeout)
+
+
+def query_notion(database_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> QueryResult:
+    """Lit toutes les pages d'une base Notion, filtrées et triées selon l'API Notion. Ne lève jamais."""
+    return query.execute_notion_query(database_id=database_id, caller=CallerType.APP, filter=filter, sorts=sorts)
+
+
+def query_tally(form_id: str, filter: str | None = None, timeout: int = 30) -> QueryResult:
+    """Lit les questions et les réponses d'un formulaire Tally : {questions, submissions}. Ne lève jamais."""
+    return query.execute_tally_query(form_id=form_id, caller=CallerType.APP, filter=filter, timeout=timeout)
+
+
+def query_zendesk(path: str, params: dict | None = None) -> QueryResult:
+    """Lit l'API Zendesk (GET seulement), `path` relatif à /api/v2 ou URL `next_page`. Ne lève jamais."""
+    return query.execute_zendesk_query(path=path, caller=CallerType.APP, params=params)
+
+
+def search_zendesk_tickets(
+    search: str, sort_by: str | None = None, sort_order: str | None = None, max_results: int = 100
+) -> QueryResult:
+    """Cherche des tickets Zendesk (syntaxe de recherche Zendesk), sujets caviardés. Ne lève jamais."""
+    return query.execute_zendesk_search(
+        query=search, caller=CallerType.APP, sort_by=sort_by, sort_order=sort_order, max_results=max_results
+    )
+
+
+def list_dashboards() -> QueryResult:
+    """Catalogue des tableaux de bord actifs et de leurs publications en ligne, sans auteur. Ne lève jamais."""
+    try:
+        with get_db() as session:
+            dashboards = session.scalars(select(Dashboard).where(~Dashboard.is_archived).order_by(Dashboard.slug))
+            publications = session.execute(
+                select(
+                    DashboardPublication.dashboard_slug,
+                    DashboardPublication.environment,
+                    DashboardPublication.published_at,
+                )
+                .where(DashboardPublication.unpublished_at.is_(None))
+                .order_by(DashboardPublication.published_at)
+            ).all()
+            catalog = [
+                {
+                    "slug": d.slug,
+                    "title": d.title,
+                    "description": d.description,
+                    "website": d.website,
+                    "category": d.category,
+                    "has_cron": d.has_cron,
+                    "has_api_access": d.has_api_access,
+                    "created_at": d.created_at.isoformat(),
+                    "updated_at": d.updated_at.isoformat(),
+                    "publications": [
+                        {"environment": environment, "published_at": published_at.isoformat()}
+                        for slug, environment, published_at in publications
+                        if slug == d.slug
+                    ],
+                }
+                for d in dashboards
+            ]
+    except SQLAlchemyError as e:
+        return QueryResult(success=False, data=None, error=str(e))
+    return QueryResult(success=True, data=catalog)

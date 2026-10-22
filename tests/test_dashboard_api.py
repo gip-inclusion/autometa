@@ -1,11 +1,16 @@
 """Tests de la façade des tableaux de bord et de son vérificateur d'imports."""
 
-import pytest
+from datetime import datetime, timezone
 
-from lib import dashboard_api
+import pytest
+from sqlalchemy.exc import OperationalError
+
+from lib import dashboard_api, facade_imports
 from lib.airtable import AirtableError
 from lib.datadog import by_count
 from lib.query import CallerType, QueryResult
+from web.db import get_db
+from web.models import Dashboard, DashboardPublication
 
 FACADE_IMPORT = "from lib.dashboard_api import query_matomo\n"
 FACADE_MODULE_IMPORT = "import lib.dashboard_api\n"
@@ -55,6 +60,29 @@ def test_facade_violations_reports_each_module_once():
 def test_facade_violations_rejects_unparsable_source():
     with pytest.raises(SyntaxError):
         dashboard_api.facade_violations("def main(\n")
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (FACADE_IMPORT, ["lib.dashboard_api.query_matomo"]),
+        (
+            FACADE_FROM_PACKAGE + "dashboard_api.query_storage('x')\n",
+            ["lib.dashboard_api", "lib.dashboard_api.query_storage"],
+        ),
+        (STDLIB + THIRD_PARTY + RELATIVE, []),
+        (INTERNAL_QUERY, ["lib.query.execute_matomo_query"]),
+        (INTERNAL_ALIASED + "q.CallerType.APP\n", ["lib.query", "lib.query.CallerType", "lib.query.CallerType.APP"]),
+        (INTERNAL_CONFIG + "web.config.GITHUB_TOKEN\n", ["web.config", "web.config.GITHUB_TOKEN"]),
+        (
+            "from web import s3\ns3.interactive.download('x')\n",
+            ["web.s3", "web.s3.interactive", "web.s3.interactive.download"],
+        ),
+        ("from lib.query import get_metabase as gm\ngm().execute_sql('x')\n", ["lib.query.get_metabase"]),
+    ],
+)
+def test_imported_symbols_names_what_a_dashboard_uses_down_to_the_attribute(source, expected):
+    assert facade_imports.imported_symbols(source) == expected
 
 
 RESULT = QueryResult(success=True, data=[])
@@ -132,6 +160,31 @@ RESULT = QueryResult(success=True, data=[])
             lambda: dashboard_api.query_appli_monrecap("UPDATE t SET a = :a", {"a": 1}, timeout=30),
             "execute_appli_monrecap_query",
             {"sql": "UPDATE t SET a = :a", "params": {"a": 1}, "timeout": 30},
+        ),
+        (
+            lambda: dashboard_api.query_github("repos/o/r/pulls", {"state": "closed"}),
+            "execute_github_query",
+            {"path": "repos/o/r/pulls", "params": {"state": "closed"}, "timeout": 30},
+        ),
+        (
+            lambda: dashboard_api.query_notion("db1", filter={"property": "Statut"}, sorts=[{"property": "Date"}]),
+            "execute_notion_query",
+            {"database_id": "db1", "filter": {"property": "Statut"}, "sorts": [{"property": "Date"}]},
+        ),
+        (
+            lambda: dashboard_api.query_tally("form1", filter="completed"),
+            "execute_tally_query",
+            {"form_id": "form1", "filter": "completed", "timeout": 30},
+        ),
+        (
+            lambda: dashboard_api.query_zendesk("views/count_many", {"ids": "1,2"}),
+            "execute_zendesk_query",
+            {"path": "views/count_many", "params": {"ids": "1,2"}},
+        ),
+        (
+            lambda: dashboard_api.search_zendesk_tickets("group:emplois", sort_by="created_at", max_results=1000),
+            "execute_zendesk_search",
+            {"query": "group:emplois", "sort_by": "created_at", "sort_order": None, "max_results": 1000},
         ),
     ],
 )
@@ -215,3 +268,71 @@ def test_query_airtable_turns_a_client_failure_into_a_failed_result(mocker, clie
 
     assert result.success is False
     assert result.error == error
+
+
+def make_dashboard(slug, archived=False):
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    return Dashboard(
+        slug=slug,
+        title=slug.upper(),
+        description="d",
+        website="emplois",
+        category="c",
+        first_author_email="alice@example.org",
+        is_archived=archived,
+        has_cron=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def make_publication(slug, publication_id, environment, unpublished=False):
+    published_at = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    return DashboardPublication(
+        dashboard_slug=slug,
+        publication_id=publication_id,
+        environment=environment,
+        published_by="bob@example.org",
+        published_at=published_at,
+        unpublished_at=published_at if unpublished else None,
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("app")
+def test_list_dashboards_lists_active_dashboards_and_their_online_publications_without_authors():
+    with get_db() as session:
+        session.add_all([make_dashboard("b-actif"), make_dashboard("a-archive", archived=True)])
+        session.flush()
+        session.add_all([
+            make_publication("b-actif", "p1", "production"),
+            make_publication("b-actif", "p2", "staging", unpublished=True),
+            make_publication("a-archive", "p3", "production"),
+        ])
+
+    result = dashboard_api.list_dashboards()
+
+    assert result.data == [
+        {
+            "slug": "b-actif",
+            "title": "B-ACTIF",
+            "description": "d",
+            "website": "emplois",
+            "category": "c",
+            "has_cron": True,
+            "has_api_access": False,
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "publications": [{"environment": "production", "published_at": "2026-10-02T00:00:00+00:00"}],
+        }
+    ]
+    assert "example.org" not in str(result.data)
+
+
+def test_list_dashboards_turns_a_database_failure_into_a_failed_result(mocker):
+    mocker.patch("lib.dashboard_api.get_db", side_effect=OperationalError("SELECT", {}, Exception("down")))
+
+    result = dashboard_api.list_dashboards()
+
+    assert result.success is False
+    assert "down" in result.error

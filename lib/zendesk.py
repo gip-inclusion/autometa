@@ -199,6 +199,10 @@ class ZendeskAPI:
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
         return self._request("GET", path, params=params)
 
+    def get(self, path: str, params: Optional[dict] = None) -> Any:
+        """Lecture brute d'un endpoint (GET), relatif à /api/v2 ou URL `next_page` complète."""
+        return self._get(path.removeprefix(f"{self.base_url}/"), params)
+
     def _request(self, method: str, path: str, params: Optional[dict] = None, json: Optional[dict] = None) -> Any:
         url = f"{self.base_url}/{path.lstrip('/')}"
         response: Optional[httpx.Response] = None
