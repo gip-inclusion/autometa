@@ -11,7 +11,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_dod_2_cancel_signal_reaches_a_run_after_a_long_silence(mocker):
-    """Une écoute bloquante de l'abonnement retomberait sur le délai du client et tomberait au premier silence."""
+    """Un arrêt diffusé après un silence plus long que le délai de lecture interrompt toujours la réponse."""
     mocker.patch("web.redis_conn.SOCKET_TIMEOUT", 0.2)
     mocker.patch("web.redis_conn._pool", None)
     backend = mocker.MagicMock(cancel=mocker.AsyncMock())

@@ -530,7 +530,7 @@ def test_consumer_survives_when_recovery_also_fails(mocker, fake_redis):
 
 
 def test_dod_1_consumer_keeps_retrying_when_redis_stops_answering(silent_redis, caplog):
-    """Le 2026-10-22, une lecture sans délai a figé la distribution quinze heures sur une connexion muette."""
+    """Sur une file muette, chaque attente de la boucle lève au lieu de la figer, et la boucle recommence."""
     runner = TaskRunner()
 
     async def _run():
@@ -546,7 +546,7 @@ def test_dod_1_consumer_keeps_retrying_when_redis_stops_answering(silent_redis, 
 
 @pytest.fixture
 def refused_redis(mocker):
-    """Redis dont le port refuse la connexion, comme la file au redémarrage du proxy le 2026-10-23 à 00:12."""
+    """Redis dont le port refuse la connexion."""
     with socket.create_server(("127.0.0.1", 0)) as server:
         port = server.getsockname()[1]
     mocker.patch("web.config.REDIS_URL", f"redis://127.0.0.1:{port}/0")
@@ -555,7 +555,7 @@ def refused_redis(mocker):
 
 @pytest.mark.parametrize("loop", ["_consumer_loop", "_heartbeat_loop", "_sweep_loop"])
 def test_dod_4_background_loops_survive_starting_while_redis_is_down(refused_redis, loop):
-    """La première vérification de connexion de chaque boucle est hors de son rattrapage d'erreur."""
+    """Chaque boucle survit à une file injoignable dès sa première vérification de connexion."""
 
     async def _run():
         await get_redis()
@@ -570,7 +570,7 @@ def test_dod_4_background_loops_survive_starting_while_redis_is_down(refused_red
 
 
 def test_dod_4_startup_succeeds_while_redis_is_down_with_conversations_to_release(mocker, refused_redis):
-    """Au redémarrage qui suit une coupure, des conversations restent à débloquer : la récupération lit Redis."""
+    """Le démarrage aboutit quand la file est injoignable et que des conversations restent à débloquer."""
     mocker.patch("web.runner.get_agent")
     mocker.patch("web.runner.schema_ready", return_value=True)
     mocker.patch("web.runner.store").get_running_conversation_ids.return_value = ["c1"]
