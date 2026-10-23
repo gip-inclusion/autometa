@@ -4,8 +4,8 @@ import redis.asyncio as aioredis
 
 from . import config
 
-# Why: sans délai, une lecture sur une connexion muette attend sans fin — la distribution est restée
-# figée quinze heures le 2026-10-22. Doit dépasser le délai serveur du BLPOP du runner (1 s).
+# Why: sans délai, une lecture sur une connexion muette attend sans fin. Doit dépasser le délai
+# serveur du BLPOP du runner (1 s).
 SOCKET_TIMEOUT = 5
 
 _pool: aioredis.Redis | None = None

@@ -138,7 +138,7 @@ def client(app):
 
 @pytest.fixture
 def silent_redis(mocker):
-    """Redis qui accepte la connexion sans jamais répondre, comme la file du 2026-10-22."""
+    """Redis qui accepte la connexion sans jamais répondre."""
     with socket.create_server(("127.0.0.1", 0)) as server:
         mocker.patch("web.config.REDIS_URL", f"redis://127.0.0.1:{server.getsockname()[1]}/0")
         mocker.patch("web.redis_conn.SOCKET_TIMEOUT", 0.2)
