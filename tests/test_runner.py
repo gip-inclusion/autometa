@@ -527,6 +527,21 @@ def test_consumer_survives_when_recovery_also_fails(mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_dod_1_consumer_keeps_retrying_when_redis_stops_answering(silent_redis, caplog):
+    """Le 2026-10-22, une lecture sans délai a figé la distribution quinze heures sur une connexion muette."""
+    runner = TaskRunner()
+
+    async def _run():
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(2)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    with caplog.at_level(logging.ERROR, logger="web.runner"):
+        asyncio.run(_run())
+    assert sum("consumer loop failed" in r.getMessage() for r in caplog.records) >= 2
+
+
 def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
     """A task erroring mid-setup is un-stuck (needs_response + running key), the user is told, the stream closes."""
     runner = make_runner(mocker, fake_redis)
