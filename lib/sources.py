@@ -122,8 +122,8 @@ def get_zendesk(instance: str | None = None) -> ZendeskAPI:
     instance_name = instance or get_default_instance("zendesk") or "emplois"
     return ZendeskAPI(
         subdomain=config["subdomain"],
-        email=config["email"],
-        token=config["token"],
+        client_id=config["client_id"],
+        client_secret=config["client_secret"],
         instance=instance_name,
     )
 
