@@ -7,7 +7,7 @@
 
 ```
 .                                                                        [100%]
-1 passed in 1.54s
+1 passed in 1.49s
 ```
 
 **Contenu prouvé**
@@ -19,7 +19,7 @@
 | `scripts` | `1db5541ee291f83cc7f58352cd6e10d88881ebf6` |
 | `skills` | `fbec123c7a780c89e7405a30f3cebc5b35bc519c` |
 | `alembic` | `4199ab20c8200527287a4d1328e495721ee59ab2` |
-| `tests` | `adadd9d444e0674cd68d799e7d19dc91efd93937` |
+| `tests` | `a4119d45d709c2832d11c0d04e1eb1575ad99133` |
 | `browser` | `e1014cdcfb373eabc61d5901ed1e2eb8a1fc476e` |
 
 **Verdict** — démontré.
