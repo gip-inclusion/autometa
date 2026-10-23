@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from web import complexity
 from web.agents.base import AgentMessage
 from web.database import Message
+from web.redis_conn import get_redis
 from web.runner import (
     EngineTurn,
     RunUsage,
@@ -540,6 +541,22 @@ def test_dod_1_consumer_keeps_retrying_when_redis_stops_answering(silent_redis, 
     with caplog.at_level(logging.ERROR, logger="web.runner"):
         asyncio.run(_run())
     assert sum("consumer loop failed" in r.getMessage() for r in caplog.records) >= 2
+
+
+@pytest.mark.parametrize("loop", ["_consumer_loop", "_heartbeat_loop", "_sweep_loop"])
+def test_dod_4_background_loops_survive_starting_while_redis_is_silent(silent_redis, loop):
+    """La première vérification de connexion de chaque boucle est hors de son rattrapage d'erreur."""
+
+    async def _run():
+        await get_redis()
+        task = asyncio.create_task(getattr(TaskRunner(), loop)())
+        await asyncio.sleep(1)
+        alive = not task.done()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return alive
+
+    assert asyncio.run(_run())
 
 
 def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
