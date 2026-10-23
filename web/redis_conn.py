@@ -4,6 +4,10 @@ import redis.asyncio as aioredis
 
 from . import config
 
+# Why: sans délai, une lecture sur une connexion muette attend sans fin. Doit dépasser le délai
+# serveur du BLPOP du runner (1 s).
+SOCKET_TIMEOUT = 5
+
 _pool: aioredis.Redis | None = None
 
 
@@ -12,10 +16,10 @@ async def get_redis() -> aioredis.Redis:
     if _pool is not None:
         try:
             await _pool.ping()
-        except ConnectionError, RuntimeError, OSError:
+        except aioredis.ConnectionError, aioredis.TimeoutError, RuntimeError, OSError:
             _pool = None
     if _pool is None:
-        _pool = aioredis.from_url(config.REDIS_URL, decode_responses=True)
+        _pool = aioredis.from_url(config.REDIS_URL, decode_responses=True, socket_timeout=SOCKET_TIMEOUT)
     return _pool
 
 

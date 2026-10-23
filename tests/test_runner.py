@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import socket
 
 import fakeredis.aioredis
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from web import complexity
 from web.agents.base import AgentMessage
 from web.database import Message
+from web.redis_conn import get_redis
 from web.runner import (
     EngineTurn,
     RunUsage,
@@ -525,6 +527,66 @@ def test_consumer_survives_when_recovery_also_fails(mocker, fake_redis):
         await asyncio.gather(consumer, *runner._running.values(), return_exceptions=True)
 
     asyncio.run(_run())
+
+
+def test_dod_1_consumer_keeps_retrying_when_redis_stops_answering(silent_redis, caplog):
+    """Sur une file muette, chaque attente de la boucle lève au lieu de la figer, et la boucle recommence."""
+    runner = TaskRunner()
+
+    async def _run():
+        consumer = asyncio.create_task(runner._consumer_loop())
+        await asyncio.sleep(2)
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
+    with caplog.at_level(logging.ERROR, logger="web.runner"):
+        asyncio.run(_run())
+    assert sum("consumer loop failed" in r.getMessage() for r in caplog.records) >= 2
+
+
+@pytest.fixture
+def refused_redis(mocker):
+    """Redis dont le port refuse la connexion."""
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        port = server.getsockname()[1]
+    mocker.patch("web.config.REDIS_URL", f"redis://127.0.0.1:{port}/0")
+    mocker.patch("web.redis_conn._pool", None)
+
+
+@pytest.mark.parametrize("loop", ["_consumer_loop", "_heartbeat_loop", "_sweep_loop"])
+def test_dod_4_background_loops_survive_starting_while_redis_is_down(refused_redis, loop):
+    """Chaque boucle survit à une file injoignable dès sa première vérification de connexion."""
+
+    async def _run():
+        await get_redis()
+        task = asyncio.create_task(getattr(TaskRunner(), loop)())
+        await asyncio.sleep(1)
+        alive = not task.done()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return alive
+
+    assert asyncio.run(_run())
+
+
+def test_dod_4_startup_succeeds_while_redis_is_down_with_conversations_to_release(mocker, refused_redis):
+    """Le démarrage aboutit quand la file est injoignable et que des conversations restent à débloquer."""
+    mocker.patch("web.runner.get_agent")
+    mocker.patch("web.runner.schema_ready", return_value=True)
+    mocker.patch("web.runner.store").get_running_conversation_ids.return_value = ["c1"]
+    runner = TaskRunner()
+
+    async def _run():
+        await runner.startup()
+        await asyncio.sleep(1)
+        loops = [runner._consumer_task, runner._heartbeat_task, runner._sweep_task]
+        alive = [not task.done() for task in loops]
+        for task in loops:
+            task.cancel()
+        await asyncio.gather(*loops, return_exceptions=True)
+        return alive
+
+    assert asyncio.run(_run()) == [True, True, True]
 
 
 def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
