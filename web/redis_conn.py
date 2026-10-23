@@ -1,7 +1,6 @@
 """Redis async connection pool."""
 
 import redis.asyncio as aioredis
-from redis.exceptions import RedisError
 
 from . import config
 
@@ -17,7 +16,7 @@ async def get_redis() -> aioredis.Redis:
     if _pool is not None:
         try:
             await _pool.ping()
-        except RedisError, RuntimeError, OSError:
+        except aioredis.ConnectionError, aioredis.TimeoutError, RuntimeError, OSError:
             _pool = None
     if _pool is None:
         _pool = aioredis.from_url(config.REDIS_URL, decode_responses=True, socket_timeout=SOCKET_TIMEOUT)

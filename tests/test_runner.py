@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import socket
 
 import fakeredis.aioredis
 import pytest
@@ -543,8 +544,17 @@ def test_dod_1_consumer_keeps_retrying_when_redis_stops_answering(silent_redis, 
     assert sum("consumer loop failed" in r.getMessage() for r in caplog.records) >= 2
 
 
+@pytest.fixture
+def refused_redis(mocker):
+    """Redis dont le port refuse la connexion, comme la file au redémarrage du proxy le 2026-10-23 à 00:12."""
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        port = server.getsockname()[1]
+    mocker.patch("web.config.REDIS_URL", f"redis://127.0.0.1:{port}/0")
+    mocker.patch("web.redis_conn._pool", None)
+
+
 @pytest.mark.parametrize("loop", ["_consumer_loop", "_heartbeat_loop", "_sweep_loop"])
-def test_dod_4_background_loops_survive_starting_while_redis_is_silent(silent_redis, loop):
+def test_dod_4_background_loops_survive_starting_while_redis_is_down(refused_redis, loop):
     """La première vérification de connexion de chaque boucle est hors de son rattrapage d'erreur."""
 
     async def _run():
@@ -557,6 +567,26 @@ def test_dod_4_background_loops_survive_starting_while_redis_is_silent(silent_re
         return alive
 
     assert asyncio.run(_run())
+
+
+def test_dod_4_startup_succeeds_while_redis_is_down_with_conversations_to_release(mocker, refused_redis):
+    """Au redémarrage qui suit une coupure, des conversations restent à débloquer : la récupération lit Redis."""
+    mocker.patch("web.runner.get_agent")
+    mocker.patch("web.runner.schema_ready", return_value=True)
+    mocker.patch("web.runner.store").get_running_conversation_ids.return_value = ["c1"]
+    runner = TaskRunner()
+
+    async def _run():
+        await runner.startup()
+        await asyncio.sleep(1)
+        loops = [runner._consumer_task, runner._heartbeat_task, runner._sweep_task]
+        alive = [not task.done() for task in loops]
+        for task in loops:
+            task.cancel()
+        await asyncio.gather(*loops, return_exceptions=True)
+        return alive
+
+    assert asyncio.run(_run()) == [True, True, True]
 
 
 def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):

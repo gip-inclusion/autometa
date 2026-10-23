@@ -16,6 +16,8 @@ from datetime import datetime
 import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -311,7 +313,13 @@ class TaskRunner:
         if not schema_ready():
             logger.warning("Schema not migrated yet (no conversations table); skipping startup recovery")
             return
-        cleared = await self._reconcile_stuck(r, 0, "*Interrompu (redémarrage serveur).*")
+        try:
+            cleared = await self._reconcile_stuck(r, 0, "*Interrompu (redémarrage serveur).*")
+        except RedisConnectionError, RedisTimeoutError:
+            # Why: une file coupée au démarrage ne doit pas empêcher l'application de démarrer ; le
+            # sweep périodique libère ces conversations une fois la file revenue.
+            logger.exception("Startup recovery skipped: Redis unavailable")
+            return
         if cleared:
             logger.info("Cleared %s stuck conversations on startup", cleared)
 
