@@ -335,10 +335,12 @@ class TaskRunner:
         pubsub = r.pubsub()
         await pubsub.subscribe(f"{PREFIX}:cancel:{conv_id}")
         try:
-            async for msg in pubsub.listen():
-                if msg["type"] == "message":
-                    await self._cancel_all_backends(conv_id)
-                    break
+            # Why: listen() lit sans délai explicite et retombe sur SOCKET_TIMEOUT — l'écoute tomberait
+            # au premier silence de quelques secondes. Un délai explicite rend None au lieu de lever.
+            msg = None
+            while msg is None:
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1)
+            await self._cancel_all_backends(conv_id)
         finally:
             await pubsub.unsubscribe()
             await pubsub.aclose()
