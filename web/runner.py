@@ -317,7 +317,7 @@ class TaskRunner:
             cleared = await self._reconcile_stuck(r, 0, "*Interrompu (redémarrage serveur).*")
         except RedisConnectionError, RedisTimeoutError:
             # Why: une file coupée au démarrage ne doit pas empêcher l'application de démarrer ; le
-            # sweep périodique libère ces conversations une fois la file revenue.
+            # sweep périodique libère ces conversations une fois la file revenue, passé ses 15 min.
             logger.exception("Startup recovery skipped: Redis unavailable")
             return
         if cleared:
