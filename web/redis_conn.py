@@ -1,5 +1,7 @@
 """Redis async connection pool."""
 
+import socket
+
 import redis.asyncio as aioredis
 
 from . import config
@@ -19,7 +21,15 @@ async def get_redis() -> aioredis.Redis:
         except aioredis.ConnectionError, aioredis.TimeoutError, RuntimeError, OSError:
             _pool = None
     if _pool is None:
-        _pool = aioredis.from_url(config.REDIS_URL, decode_responses=True, socket_timeout=SOCKET_TIMEOUT)
+        # Why: un abonnement n'écrit jamais ; sans keepalive TCP, une connexion dont le pair a disparu
+        # reste ouverte sans erreur et l'écoute de l'arrêt devient sourde. Panne vue en une minute environ.
+        _pool = aioredis.from_url(
+            config.REDIS_URL,
+            decode_responses=True,
+            socket_timeout=SOCKET_TIMEOUT,
+            socket_keepalive=True,
+            socket_keepalive_options={socket.TCP_KEEPIDLE: 30, socket.TCP_KEEPINTVL: 10, socket.TCP_KEEPCNT: 3},
+        )
     return _pool
 
 
