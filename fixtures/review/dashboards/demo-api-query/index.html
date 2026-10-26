@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Requête live (démo)</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+        .barre { background: #000091; height: .8rem; }
+    </style>
+</head>
+<body>
+    <h1>Requête live (démo)</h1>
+    <p>Cette page interroge <code>/api/query</code> à chaque ouverture : elle ne peut pas être publiée.</p>
+    <p>Heure du serveur de base : <strong id="resultat">…</strong></p>
+    <script>
+        fetch('/api/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'dashboard_storage', sql: 'SELECT now() AS maintenant' })
+        }).then(r => r.json()).then(result => {
+            document.getElementById('resultat').textContent = result.success ? result.data.rows[0][0] : result.error;
+        });
+    </script>
+</body>
+</html>

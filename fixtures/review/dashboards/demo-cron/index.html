@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orientations Dora mensuelles (démo)</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+        .barre { background: #000091; height: .8rem; }
+    </style>
+</head>
+<body>
+    <h1>Orientations Dora mensuelles (démo)</h1>
+    <p>Données de démonstration, régénérées par <code>cron.py</code>. Mis à jour le <span id="maj">…</span>.</p>
+    <table>
+        <thead><tr><th>Mois</th><th>Orientations</th><th></th></tr></thead>
+        <tbody id="lignes"></tbody>
+    </table>
+    <script>
+        fetch('data.json').then(r => r.json()).then(data => {
+            document.getElementById('maj').textContent = data.metadata.generated_at;
+            const max = Math.max(...data.series.map(p => p.valeur));
+            document.getElementById('lignes').innerHTML = data.series.map(p =>
+                `<tr><td>${p.mois}</td><td>${p.valeur}</td><td><div class="barre" style="width:${100 * p.valeur / max}%"></div></td></tr>`
+            ).join('');
+        });
+    </script>
+</body>
+</html>
