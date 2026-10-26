@@ -40,7 +40,7 @@ dependencies = [
     "reportlab>=4.2.0",
     "xlrd>=2.0.1",
     "pdfplumber>=0.11.0",
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     "model2vec>=0.8.2",
     # Modélisation statistique, fréquentiste et bayésienne (MMM, GLM, modèles mixtes,
     # panel/DiD, survie) — utilisée par l'agent dans ses analyses.
@@ -60,8 +60,8 @@ sync-connectors = "lib.source_inventory:main"
 slack-feedback = "web.slack_feedback:main"
 
 [tool.uv]
-# cryptography < 50 : PYSEC-2026-3552 (dépendance transitive de paramiko)
-constraint-dependencies = ["urllib3>=2.7.0", "cryptography>=50.0.0"]
+# urllib3 < 2.8 : GHSA Dependabot #24-26 ; cryptography < 50 : PYSEC-2026-3552 (via paramiko)
+constraint-dependencies = ["urllib3>=2.8.0", "cryptography>=50.0.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -83,6 +83,7 @@ dev = [
     "diff-cover>=9",
     "pre-commit>=4.6.1",
     "pytest-playwright>=0.7.1",
+    "pytest-xdist>=3.8.0",
 ]
 
 # =============================================================================
