@@ -22,6 +22,11 @@ class Environment(StrEnum):
         return self is not Environment.DEV
 
     @property
+    def seeds_fixtures(self) -> bool:
+        """True only on review apps, whose empty database gets a demo set of conversations and dashboards."""
+        return self is Environment.REVIEW
+
+    @property
     def owns_shared_db(self) -> bool:
         """True only for prod, the single instance that maintains the shared autometa_tables_db."""
         return self is Environment.PROD
