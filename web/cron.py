@@ -18,7 +18,6 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import sentry_sdk
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,7 +31,6 @@ from . import alerts, config, publications, s3
 from .database import get_db
 from .log import setup_logging
 from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication, FacadeAuditState
-from .sentry import init_sentry
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +57,7 @@ DASHBOARD_BATCH = "tableaux-internes"
 # Why: partagées en externe, les publications ont leur propre lot, sans budget — une publication
 # cassée doit se voir chaque jour, pas être sautée parce qu'un TDB interne a mangé le temps.
 PUBLICATION_BATCH = "tableaux-publies"
-# (heure, minute) UTC auxquelles cron.json démarre chaque lot. Sentry attend le check-in à ce moment-là :
-# le déduire de la cadence ferait manquer leur créneau aux lots qui ne partent pas à 06:00.
+# (heure, minute) UTC auxquelles cron.json démarre chaque lot — recopie de cron.json.
 BATCH_START = {
     "synchros": (2, 0),
     "maintenance": (6, 0),
@@ -672,34 +669,6 @@ def kill_process_group(pgid: int, process: subprocess.Popen) -> None:
         process.kill()
 
 
-def sentry_monitor_config(task: dict) -> dict:
-    """Build Sentry Crons monitor config from task metadata."""
-    days = SCHEDULE_PRESETS[cadence(task.get("schedule", "daily"))].split(" ", 2)[2]
-    hour, minute = BATCH_START.get(task.get("batch"), (6, 0))
-    crontab = f"{minute} {hour} {days}"
-    return {
-        "schedule": {"type": "crontab", "value": crontab},
-        "checkin_margin": 30,
-        "max_runtime": task.get("timeout", DEFAULT_TIMEOUT) // 60 + 1,
-        "failure_issue_threshold": 2,
-        "recovery_threshold": 1,
-    }
-
-
-def batch_monitor_config(batch: str, tasks: list[dict], budget: int | None) -> dict:
-    """Moniteur Sentry d'un lot : un conteneur tué laisse son check-in ouvert, que Sentry passe en échec."""
-    timeouts = [task["timeout"] for task in tasks if task["batch"] == batch]
-    runtime = min(sum(timeouts), budget + max(timeouts, default=0)) if budget else sum(timeouts)
-    hour, minute = BATCH_START.get(batch, (6, 0))
-    return {
-        "schedule": {"type": "crontab", "value": f"{minute} {hour} * * *"},
-        "checkin_margin": 30,
-        "max_runtime": runtime // 60 + 1,
-        "failure_issue_threshold": 1,
-        "recovery_threshold": 1,
-    }
-
-
 def run_task_and_publications(slug: str, trigger: str = "manual") -> list[dict]:
     """Rejoue une tâche puis, si c'est un tableau de bord, ses publications — sur une seule découverte."""
     started_at = utcnow()
@@ -738,13 +707,6 @@ def run_discovered(slug: str, task: dict | None, trigger: str) -> dict:
 def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | None = None) -> dict:
     """Run an already-discovered task; callers with the task dict skip re-discovery."""
     slug = task["slug"]
-    monitor_slug = f"cron-{slug}"
-    monitor_config = sentry_monitor_config(task)
-    check_in_id = sentry_sdk.crons.api.capture_checkin(
-        monitor_slug=monitor_slug,
-        status=sentry_sdk.crons.consts.MonitorStatus.IN_PROGRESS,
-        monitor_config=monitor_config,
-    )
 
     source = task.get("source")
     uses_workdir = source in ("s3", "s3-publication")
@@ -820,15 +782,6 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     finally:
         if workdir and workdir.exists():
             remove_workdir(workdir)
-        sentry_sdk.crons.api.capture_checkin(
-            monitor_slug=monitor_slug,
-            status=sentry_sdk.crons.consts.MonitorStatus.OK
-            if status == "success"
-            else sentry_sdk.crons.consts.MonitorStatus.ERROR,
-            check_in_id=check_in_id,
-            duration=time.monotonic() - start_time,
-            monitor_config=monitor_config,
-        )
 
     run_result = {
         "slug": slug,
@@ -1236,12 +1189,6 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None, wor
     dropped = []
     if not dry_run:
         batch_run_id = open_batch_run(batch)
-        monitor_config = batch_monitor_config(batch, tasks, budget)
-        check_in_id = sentry_sdk.crons.api.capture_checkin(
-            monitor_slug=f"lot-{batch}",
-            status=sentry_sdk.crons.consts.MonitorStatus.IN_PROGRESS,
-            monitor_config=monitor_config,
-        )
 
     for task in tasks:
         if task["batch"] != batch:
@@ -1320,13 +1267,6 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None, wor
 
     if not dry_run:
         close_batch_run(batch_run_id, "over_budget" if dropped else "finished")
-        sentry_sdk.crons.api.capture_checkin(
-            monitor_slug=f"lot-{batch}",
-            status=sentry_sdk.crons.consts.MonitorStatus.ERROR if dropped else sentry_sdk.crons.consts.MonitorStatus.OK,
-            check_in_id=check_in_id,
-            duration=time.monotonic() - started,
-            monitor_config=monitor_config,
-        )
     return results
 
 
@@ -1340,7 +1280,6 @@ def positive_int(value: str) -> int:
 
 def main():
     setup_logging(level=logging.DEBUG if config.DEBUG else logging.INFO)
-    init_sentry()
     parser = argparse.ArgumentParser(description="Run cron tasks")
     parser.add_argument("--app", help="Run a specific task by slug (ignores schedule)")
     parser.add_argument("--batch", help="Batch to run")
