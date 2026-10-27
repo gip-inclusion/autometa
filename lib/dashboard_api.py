@@ -22,6 +22,7 @@ __all__ = [
     "QueryResult",
     "by_count",
     "count_datadog",
+    "count_zendesk_views",
     "facade_violations",
     "list_dashboards",
     "list_variants",
@@ -36,9 +37,9 @@ __all__ = [
     "query_notion",
     "query_storage",
     "query_tally",
-    "query_zendesk",
     "sample_datadog",
     "search_zendesk_tickets",
+    "zendesk_view_ticket_dates",
 ]
 
 VERSION = 1
@@ -148,7 +149,7 @@ def query_appli_monrecap(sql: str, params: dict | None = None, timeout: int = 60
 
 
 def query_github(path: str, params: dict | None = None, timeout: int = 30) -> QueryResult:
-    """Lit l'API REST GitHub (GET seulement), `path` relatif à api.github.com. Ne lève jamais."""
+    """Lit l'API REST GitHub (GET seulement) des dépôts gip-inclusion, `path` en `repos/gip-inclusion/…`. Ne lève jamais."""
     return query.execute_github_query(path=path, caller=CallerType.APP, params=params, timeout=timeout)
 
 
@@ -162,11 +163,6 @@ def query_tally(form_id: str, filter: str | None = None, timeout: int = 30) -> Q
     return query.execute_tally_query(form_id=form_id, caller=CallerType.APP, filter=filter, timeout=timeout)
 
 
-def query_zendesk(path: str, params: dict | None = None) -> QueryResult:
-    """Lit l'API Zendesk (GET seulement), `path` relatif à /api/v2 ou URL `next_page`. Ne lève jamais."""
-    return query.execute_zendesk_query(path=path, caller=CallerType.APP, params=params)
-
-
 def search_zendesk_tickets(
     search: str, sort_by: str | None = None, sort_order: str | None = None, max_results: int = 100
 ) -> QueryResult:
@@ -174,6 +170,16 @@ def search_zendesk_tickets(
     return query.execute_zendesk_search(
         query=search, caller=CallerType.APP, sort_by=sort_by, sort_order=sort_order, max_results=max_results
     )
+
+
+def count_zendesk_views(view_ids: list[int]) -> QueryResult:
+    """Nombre de tickets de chaque vue Zendesk : {view_id: nombre}. Ne lève jamais."""
+    return query.execute_zendesk_view_counts(view_ids=view_ids, caller=CallerType.APP)
+
+
+def zendesk_view_ticket_dates(view_id: int) -> QueryResult:
+    """Dates de création (`created_at`) des tickets d'une vue Zendesk, sans autre champ. Ne lève jamais."""
+    return query.execute_zendesk_view_dates(view_id=view_id, caller=CallerType.APP)
 
 
 def list_dashboards() -> QueryResult:

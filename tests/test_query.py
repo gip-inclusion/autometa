@@ -717,12 +717,24 @@ def test_execute_github_query_gets_the_api_with_the_token_when_set(mocker, token
     mocker.patch("web.config.GITHUB_TOKEN", token)
     get = mocker.patch("lib.query.httpx.get", return_value=mocker.Mock(json=lambda: [{"number": 1}]))
 
-    result = q.execute_github_query("/repos/o/r/pulls", q.CallerType.APP, params={"state": "closed"})
+    result = q.execute_github_query("/repos/gip-inclusion/r/pulls", q.CallerType.APP, params={"state": "closed"})
 
     assert result.data == [{"number": 1}]
-    assert get.call_args.args == ("https://api.github.com/repos/o/r/pulls",)
+    assert get.call_args.args == ("https://api.github.com/repos/gip-inclusion/r/pulls",)
     assert get.call_args.kwargs["params"] == {"state": "closed"}
     assert get.call_args.kwargs["headers"].get("Authorization") == authorization
+
+
+@pytest.mark.parametrize("path", ["user/repos", "repos/autre-org/r/pulls", "repos/gip-inclusion/../../user/repos"])
+def test_execute_github_query_refuses_paths_outside_gip_inclusion_repositories(mocker, path):
+    from lib import query as q
+
+    get = mocker.patch("lib.query.httpx.get")
+
+    result = q.execute_github_query(path, q.CallerType.APP)
+
+    assert (result.success, result.invalid_request) == (False, True)
+    get.assert_not_called()
 
 
 def test_execute_notion_query_forwards_filter_and_sorts(mocker):
@@ -747,18 +759,6 @@ def test_execute_tally_query_returns_questions_and_all_submissions(mocker):
 
     assert result.data == {"questions": [{"id": "q1"}], "submissions": [{"id": "s1"}, {"id": "s2"}]}
     client.iter_submissions.assert_called_once_with("form1", filter="completed")
-
-
-def test_execute_zendesk_query_returns_the_raw_payload(mocker):
-    from lib import query as q
-
-    client = mocker.patch("lib.query.get_zendesk").return_value.__enter__.return_value
-    client.get.return_value = {"view_counts": []}
-
-    result = q.execute_zendesk_query("views/count_many", q.CallerType.APP, params={"ids": "1"})
-
-    assert result.data == {"view_counts": []}
-    client.get.assert_called_once_with("views/count_many", {"ids": "1"})
 
 
 def test_execute_zendesk_search_returns_tickets_as_dicts(mocker):
@@ -790,11 +790,12 @@ def test_execute_zendesk_search_returns_tickets_as_dicts(mocker):
 @pytest.mark.parametrize(
     ("execute", "patched", "kwargs"),
     [
-        ("execute_github_query", "lib.query.httpx.get", {"path": "x"}),
+        ("execute_github_query", "lib.query.httpx.get", {"path": "repos/gip-inclusion/x"}),
         ("execute_notion_query", "lib.query.notion.query_database", {"database_id": "db1"}),
         ("execute_tally_query", "lib.query.TallyClient", {"form_id": "f1"}),
-        ("execute_zendesk_query", "lib.query.get_zendesk", {"path": "x"}),
         ("execute_zendesk_search", "lib.query.get_zendesk", {"query": "x"}),
+        ("execute_zendesk_view_counts", "lib.query.get_zendesk", {"view_ids": [1]}),
+        ("execute_zendesk_view_dates", "lib.query.get_zendesk", {"view_id": 1}),
     ],
 )
 def test_read_only_api_executors_turn_a_failure_into_a_failed_result(mocker, execute, patched, kwargs):

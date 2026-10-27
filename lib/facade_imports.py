@@ -34,6 +34,21 @@ def dotted_name(node: ast.AST) -> list[str] | None:
     return None
 
 
+def rebound_names(tree: ast.AST) -> set[str]:
+    """Noms qu'un script réaffecte quelque part (paramètre, affectation, boucle, définition, `except … as`)."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            names.add(node.id)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+    return names
+
+
 def imported_symbols(source: str) -> list[str]:
     """Symboles applicatifs qu'un script utilise (`lib.query.CallerType.APP`), façade comprise. Lève sur source illisible."""
     tree = ast.parse(source)
@@ -50,7 +65,10 @@ def imported_symbols(source: str) -> list[str]:
                 names = {alias.asname or alias.name: f"{node.module}.{alias.name}" for alias in node.names}
                 bound |= names
                 used |= set(names.values())
+    # Why: sans suivi des portées, `def f(query): query.strip()` ferait croire à `lib.query.strip` ;
+    # un nom réaffecté n'est donc suivi que jusqu'à son import, jamais dans ses attributs.
+    traced = bound.keys() - rebound_names(tree)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and (parts := dotted_name(node)) and parts[0] in bound:
+        if isinstance(node, ast.Attribute) and (parts := dotted_name(node)) and parts[0] in traced:
             used.add(".".join([bound[parts[0]], *parts[1:]]))
     return sorted(used)

@@ -199,10 +199,6 @@ class ZendeskAPI:
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
         return self._request("GET", path, params=params)
 
-    def get(self, path: str, params: Optional[dict] = None) -> Any:
-        """Lecture brute d'un endpoint (GET), relatif à /api/v2 ou URL `next_page` complète."""
-        return self._get(path.removeprefix(f"{self.base_url}/"), params)
-
     def _request(self, method: str, path: str, params: Optional[dict] = None, json: Optional[dict] = None) -> Any:
         url = f"{self.base_url}/{path.lstrip('/')}"
         response: Optional[httpx.Response] = None
@@ -332,6 +328,15 @@ class ZendeskAPI:
         """Return the count of tickets matching the query (server-side, no pagination cost)."""
         data = self._get("search/count.json", {"query": ticket_query(query)})
         return int(data.get("count", 0))
+
+    def count_views(self, view_ids: list[int]) -> dict[int, int]:
+        """Number of tickets in each view, by view id."""
+        data = self._get("views/count_many", {"ids": ",".join(str(view_id) for view_id in view_ids)})
+        return {count["view_id"]: count.get("value", 0) for count in data.get("view_counts", [])}
+
+    def view_ticket_dates(self, view_id: int) -> list[str]:
+        """Creation date of every ticket in a view, nothing else."""
+        return [ticket["created_at"] for ticket in self._iter_pages(f"views/{view_id}/tickets", "tickets")]
 
     def check_auth(self) -> dict[str, Any]:
         """Verify credentials. Returns current user info."""

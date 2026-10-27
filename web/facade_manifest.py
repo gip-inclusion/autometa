@@ -10,7 +10,6 @@ import importlib
 import json
 import logging
 import sys
-from collections import defaultdict
 from datetime import datetime, timedelta
 
 import httpx
@@ -23,7 +22,7 @@ from web.helpers import sanitize_for_log, utcnow
 
 logger = logging.getLogger(__name__)
 
-# Why: lisible sans secret par la CI d'un dépôt public — des noms de symboles et de TDB, jamais de code.
+# Why: lisible sans secret par la CI d'un dépôt public — des noms de symboles seulement, ni code ni slug de TDB.
 MANIFEST_KEY = "contrat-tdb/manifest.json"
 MANIFEST_URL = f"{config.PUBLIC_DASHBOARDS_PROD_URL}/{MANIFEST_KEY}"
 # Why: le cron publie chaque matin ; au-delà, l'inventaire ne dit plus l'état de la prod.
@@ -34,12 +33,16 @@ def dashboard_sources(slug: str) -> list[str]:
     """Tous les fichiers .py d'un tableau de bord : un cron.py peut importer ses voisins."""
     entries = s3.interactive.list_files(f"{slug}/", raise_errors=True)
     paths = [entry["path"] for entry in entries if entry["path"].endswith(".py")]
-    return [content.decode(errors="replace") for content in s3_map(s3.interactive.download, paths) if content]
+    contents = s3_map(s3.interactive.download, paths)
+    # Why: un fichier manquant retirerait ses symboles de l'inventaire, et la CI laisserait passer leur disparition.
+    if None in contents:
+        raise RuntimeError(f"manifeste : un fichier de {slug} n'a pas pu être lu, inventaire non publié")
+    return [content.decode(errors="replace") for content in contents]
 
 
 def build_manifest(tasks: list[dict]) -> dict:
-    """Pour chaque symbole applicatif utilisé par un tableau de bord cronné, les slugs qui l'utilisent."""
-    users = defaultdict(set)
+    """Symboles applicatifs utilisés par au moins un tableau de bord cronné."""
+    used = set()
     for task in tasks:
         # Why: les crons système sont du code du dépôt, que la CI voit déjà ; une publication n'a pas de cron.
         if task.get("source") != "s3":
@@ -50,12 +53,8 @@ def build_manifest(tasks: list[dict]) -> dict:
             except SyntaxError:
                 logger.warning("manifeste : un fichier de %s est illisible, ignoré", sanitize_for_log(task["slug"]))
                 continue
-            for symbol in symbols:
-                users[symbol].add(task["slug"])
-    return {
-        "generated_at": utcnow().isoformat(),
-        "symbols": {symbol: sorted(slugs) for symbol, slugs in sorted(users.items())},
-    }
+            used |= set(symbols)
+    return {"generated_at": utcnow().isoformat(), "symbols": sorted(used)}
 
 
 def publish_manifest(manifest: dict) -> bool:
@@ -84,9 +83,9 @@ def resolves(symbol: str) -> bool:
     return False
 
 
-def missing_symbols(manifest: dict) -> dict[str, list[str]]:
-    """Symboles de l'inventaire absents de l'arbre courant, avec les tableaux de bord qui les utilisent."""
-    return {symbol: slugs for symbol, slugs in manifest["symbols"].items() if not resolves(symbol)}
+def missing_symbols(symbols: list[str]) -> list[str]:
+    """Symboles de l'inventaire absents de l'arbre courant."""
+    return [symbol for symbol in symbols if not resolves(symbol)]
 
 
 def load_manifest(location: str) -> dict:
@@ -102,20 +101,21 @@ def check(location: str) -> int:
     """Code de sortie de la CI : 1 si l'arbre courant a perdu un symbole qu'un tableau de bord utilise."""
     try:
         manifest = load_manifest(location)
-    except (httpx.HTTPError, OSError, ValueError) as e:
+        age = utcnow() - datetime.fromisoformat(manifest["generated_at"])
+        symbols = sorted(manifest["symbols"])
+    except (httpx.HTTPError, OSError, KeyError, TypeError, ValueError) as e:
         # Why: une panne du site public ne doit pas bloquer toutes les PR ; l'avertissement reste dans le job.
-        print(f"::warning::inventaire des tableaux de bord illisible ({e}) : contrat non vérifié")
+        print(f"::warning::inventaire des tableaux de bord illisible ({e!r}) : contrat non vérifié")
         return 0
-    age = utcnow() - datetime.fromisoformat(manifest["generated_at"])
     if age > STALE_AFTER:
         print(
             f"::warning::inventaire des tableaux de bord vieux de {age.days} jours : le cron facade-audit tourne-t-il ?"
         )
-    missing = missing_symbols(manifest)
-    for symbol, slugs in sorted(missing.items()):
-        print(f"::error::{symbol} a disparu, or il est utilisé par : {', '.join(slugs)}")
+    missing = missing_symbols(symbols)
+    for symbol in missing:
+        print(f"::error::{symbol} a disparu, or au moins un tableau de bord de production l'utilise")
     if not missing:
-        print(f"{len(manifest['symbols'])} symboles utilisés par les tableaux de bord, tous présents.")
+        print(f"{len(symbols)} symboles utilisés par les tableaux de bord, tous présents.")
     return 1 if missing else 0
 
 

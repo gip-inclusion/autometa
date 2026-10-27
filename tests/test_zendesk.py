@@ -472,6 +472,39 @@ def test_search_tickets_paginates_until_max(api_no_signal, mocker):
     assert [t.id for t in results] == [1, 2, 3, 4, 5]
 
 
+def test_count_views_maps_each_view_to_its_ticket_count(api_no_signal, mocker):
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        return_value=_mock_response(
+            mocker, json_data={"view_counts": [{"view_id": 1, "value": 4, "fresh": True}, {"view_id": 2}]}
+        ),
+    )
+
+    assert api_no_signal.count_views([1, 2]) == {1: 4, 2: 0}
+    assert request.call_args.args[1] == "https://emplois.zendesk.com/api/v2/views/count_many"
+    assert request.call_args.kwargs["params"] == {"ids": "1,2"}
+
+
+def test_view_ticket_dates_follows_pages_and_keeps_only_creation_dates(api_no_signal, mocker):
+    ticket = {"subject": "NIR 1 85 05 78 006 084 36", "requester_id": 9}
+    pages = [
+        {
+            "tickets": [{**ticket, "created_at": "2026-10-01T08:00:00Z"}],
+            "next_page": "https://emplois.zendesk.com/api/v2/views/5/tickets?page=2",
+        },
+        {"tickets": [{**ticket, "created_at": "2026-10-02T08:00:00Z"}], "next_page": None},
+    ]
+    request = mocker.patch.object(
+        api_no_signal._client,
+        "request",
+        side_effect=[_mock_response(mocker, json_data=page) for page in pages],
+    )
+
+    assert api_no_signal.view_ticket_dates(5) == ["2026-10-01T08:00:00Z", "2026-10-02T08:00:00Z"]
+    assert request.call_args.args[1] == "https://emplois.zendesk.com/api/v2/views/5/tickets?page=2"
+
+
 def test_count_tickets_calls_count_endpoint(api_no_signal, mocker):
     get = mocker.patch.object(
         api_no_signal._client,
@@ -760,20 +793,6 @@ def test_empty_response_body_yields_empty_dict(api_no_signal, mocker):
     resp.content = b""
     mocker.patch.object(api_no_signal._client, "request", return_value=resp)
     assert api_no_signal._request("DELETE", "help_center/articles/1.json") == {}
-
-
-@pytest.mark.parametrize(
-    "path",
-    ["views/count_many.json", "https://emplois.zendesk.com/api/v2/views/count_many.json"],
-)
-def test_get_accepts_a_relative_path_or_a_full_next_page_url(api_no_signal, mocker, path):
-    request = mocker.patch.object(
-        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"ok": True})
-    )
-
-    assert api_no_signal.get(path, {"ids": "1"}) == {"ok": True}
-    assert request.call_args.args[1] == "https://emplois.zendesk.com/api/v2/views/count_many.json"
-    assert request.call_args.kwargs["params"] == {"ids": "1"}
 
 
 def macro_payload(macro_id=1, title="Candidat::Relance", **extra):

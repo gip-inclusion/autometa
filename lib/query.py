@@ -471,16 +471,23 @@ def execute_airtable_query(
 def execute_github_query(
     path: str, caller: CallerType, params: Optional[dict] = None, timeout: int = 30
 ) -> QueryResult:
-    """GET on the GitHub REST API (read-only). Returns QueryResult, never raises."""
-    attrs = {"db.system": "github", "caller": caller.value, "github.path": str(path)}
+    """GET on the GitHub REST API (read-only), gip-inclusion repositories only. Returns QueryResult, never raises."""
+    path = str(path).lstrip("/")
+    # Why: the app token can read every repository it sees, private ones included — a dashboard may publish what it reads.
+    if not path.startswith("repos/gip-inclusion/") or ".." in path:
+        return QueryResult(
+            success=False,
+            data=None,
+            error=f"{path} : seuls les chemins repos/gip-inclusion/… sont permis",
+            invalid_request=True,
+        )
+    attrs = {"db.system": "github", "caller": caller.value, "github.path": path}
 
     def _do():
         headers = {"Accept": "application/vnd.github+json"}
         if config.GITHUB_TOKEN:
             headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
-        response = httpx.get(
-            f"https://api.github.com/{path.lstrip('/')}", params=params, headers=headers, timeout=timeout
-        )
+        response = httpx.get(f"https://api.github.com/{path}", params=params, headers=headers, timeout=timeout)
         response.raise_for_status()
         return response.json()
 
@@ -513,17 +520,6 @@ def execute_tally_query(
     return _run_traced_query("tally.query", attrs, _do)
 
 
-def execute_zendesk_query(path: str, caller: CallerType, params: Optional[dict] = None) -> QueryResult:
-    """GET on the Zendesk API (read-only). Returns QueryResult, never raises."""
-    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": str(path)}
-
-    def _do():
-        with get_zendesk() as client:
-            return client.get(path, params)
-
-    return _run_traced_query("zendesk.query", attrs, _do)
-
-
 def execute_zendesk_search(
     query: str,
     caller: CallerType,
@@ -540,6 +536,28 @@ def execute_zendesk_search(
             return [asdict(ticket) for ticket in tickets]
 
     return _run_traced_query("zendesk.search", attrs, _do)
+
+
+def execute_zendesk_view_counts(view_ids: list[int], caller: CallerType) -> QueryResult:
+    """Ticket count of each Zendesk view. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": "views/count_many"}
+
+    def _do():
+        with get_zendesk() as client:
+            return client.count_views(view_ids)
+
+    return _run_traced_query("zendesk.view_counts", attrs, _do)
+
+
+def execute_zendesk_view_dates(view_id: int, caller: CallerType) -> QueryResult:
+    """Creation dates of the tickets in a Zendesk view. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": f"views/{view_id}/tickets"}
+
+    def _do():
+        with get_zendesk() as client:
+            return client.view_ticket_dates(view_id)
+
+    return _run_traced_query("zendesk.view_dates", attrs, _do)
 
 
 def execute_query(

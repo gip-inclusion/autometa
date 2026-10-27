@@ -85,6 +85,23 @@ def test_imported_symbols_names_what_a_dashboard_uses_down_to_the_attribute(sour
     assert facade_imports.imported_symbols(source) == expected
 
 
+@pytest.mark.parametrize(
+    "shadowing",
+    [
+        "def f(query):\n    return query.strip()\n",
+        "query = 'x'\nquery.strip()\n",
+        "for query in ['x']:\n    query.strip()\n",
+        "[query.strip() for query in ['x']]\n",
+        "with open('x') as query:\n    query.read()\n",
+        "f = lambda query: query.strip()\n",
+        "try:\n    pass\nexcept ValueError as query:\n    query.args\n",
+        "class query:\n    pass\nquery.mro()\n",
+    ],
+)
+def test_imported_symbols_does_not_follow_a_rebound_name_into_its_attributes(shadowing):
+    assert facade_imports.imported_symbols("from lib import query\n" + shadowing) == ["lib.query"]
+
+
 RESULT = QueryResult(success=True, data=[])
 
 
@@ -162,9 +179,9 @@ RESULT = QueryResult(success=True, data=[])
             {"sql": "UPDATE t SET a = :a", "params": {"a": 1}, "timeout": 30},
         ),
         (
-            lambda: dashboard_api.query_github("repos/o/r/pulls", {"state": "closed"}),
+            lambda: dashboard_api.query_github("repos/gip-inclusion/r/pulls", {"state": "closed"}),
             "execute_github_query",
-            {"path": "repos/o/r/pulls", "params": {"state": "closed"}, "timeout": 30},
+            {"path": "repos/gip-inclusion/r/pulls", "params": {"state": "closed"}, "timeout": 30},
         ),
         (
             lambda: dashboard_api.query_notion("db1", filter={"property": "Statut"}, sorts=[{"property": "Date"}]),
@@ -177,14 +194,19 @@ RESULT = QueryResult(success=True, data=[])
             {"form_id": "form1", "filter": "completed", "timeout": 30},
         ),
         (
-            lambda: dashboard_api.query_zendesk("views/count_many", {"ids": "1,2"}),
-            "execute_zendesk_query",
-            {"path": "views/count_many", "params": {"ids": "1,2"}},
-        ),
-        (
             lambda: dashboard_api.search_zendesk_tickets("group:emplois", sort_by="created_at", max_results=1000),
             "execute_zendesk_search",
             {"query": "group:emplois", "sort_by": "created_at", "sort_order": None, "max_results": 1000},
+        ),
+        (
+            lambda: dashboard_api.count_zendesk_views([1, 2]),
+            "execute_zendesk_view_counts",
+            {"view_ids": [1, 2]},
+        ),
+        (
+            lambda: dashboard_api.zendesk_view_ticket_dates(3),
+            "execute_zendesk_view_dates",
+            {"view_id": 3},
         ),
     ],
 )
