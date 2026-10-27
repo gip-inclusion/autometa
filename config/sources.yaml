@@ -86,7 +86,7 @@ tag_manager:
     - name: Pilotage
       matomo_id: 146
       container_id: czDcW7tH
-    - name: Plateforme
+    - name: Site institutionnel
       matomo_id: 212
       container_id: SAGWfnKo
     - name: RDV-Insertion

@@ -1,3 +1,7 @@
+---
+source: [metabase:stats, metabase:datalake]
+verifie_le: 2026-07-15
+---
 # Utilisateurs (les pros)
 
 Les utilisateurs professionnels des services de la Plateforme de l'inclusion :

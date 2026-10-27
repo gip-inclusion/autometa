@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-01-03
+---
 # Cohorts Module (Premium)
 
 Cohort analysis groups visitors by their first visit date and tracks behavior over subsequent periods.
