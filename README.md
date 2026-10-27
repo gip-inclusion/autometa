@@ -227,16 +227,20 @@ Matomo ou Metabase reste vide.
 Le postdeploy joue les migrations, puis pose un **jeu de démonstration** inventé
 (`fixtures/review/`) : cinq conversations (une très longue, une d'administrateur, une conversation
 et son clone, une signalée) et cinq tableaux de bord (sans cron, avec cron et historique
-d'exécutions, publié en staging, en requête live, archivé). Il se rejoue à chaque déploiement sans
-doublon. Pour le retirer :
+d'exécutions, publié en staging, en requête live, archivé). Chaque déploiement le complète sans
+doublon et le remet dans son état d'origine. Un échec ne bloque pas le déploiement : il part dans
+Sentry. Pour le retirer :
 
 ```bash
 scalingo --app autometa-staging-pr<N> run python -m lib.review_fixtures --purge
 ```
 
+Le prochain déploiement le repose. Les tags restent.
+
 Les fichiers des tableaux de bord vont dans le bucket S3 de staging, et la publication dans le
-bucket public de staging : toutes les review apps partagent ces copies, que la purge laisse en
-place.
+bucket public de staging. Toutes les review apps partagent ces copies, staging les voit aussi, et
+la purge les laisse en place. Une review app exécute `cron.json` comme staging : les crons de
+démonstration tournent chaque nuit, sans appel réseau.
 
 Le job attend la fin du build avant de publier l'URL, donc elle répond dès qu'elle apparaît dans
 la PR — au prix de deux à trois minutes de CI en plus. En contrepartie, une review app qui ne
