@@ -1,11 +1,11 @@
 ---
 name: sync_sites
-description: Sync site knowledge files with fresh Matomo baselines and events data (project)
+description: Sync Matomo baselines, dimensions, segments and events into the PostgreSQL cache read by the agent (project)
 ---
 
 # Site Sync Skill
 
-Update the knowledge base documents (`knowledge/sites/*.md`) with fresh data from Matomo and codebases.
+Copy fresh Matomo data (baselines, dimensions, segments, events) into PostgreSQL cache tables. At startup the application turns them into `data/cache/matomo/` files, which the agent reads next to the hand-written site documents (`knowledge/sites/*.md`). The script never writes to `knowledge/`.
 
 ## Philosophy
 
@@ -21,39 +21,21 @@ The goal is to provide **raw facts** that the agent can use as context when answ
 
 This keeps the knowledge base clean and prevents the agent from being influenced by stale interpretations.
 
-## Document Structure
+## Site documents
 
-Each site document should have a clear separation between:
-
-### Auto-generated sections (managed by this skill)
-- `## Traffic Baselines (YYYY)` - Monthly stats tables ONLY
-- `## Custom Dimensions` - Dimension list from API
-- `## Saved Segments` - Segment list from API
-- `## Event Categories` - Category counts from API
-
-### Manual sections (preserved, never overwritten)
-- `## Description` - Site context and purpose
-- `## Matomo Events` - Detailed event documentation with examples
-- `## Feature-Specific Insights` - Analyses tied to specific features
-- Any section with >10 lines of content
-
-**IMPORTANT**: Put analyses and insights in SEPARATE sections, not inside Traffic Baselines.
-The baselines section will be fully replaced on each sync.
+`knowledge/sites/*.md` are written by hand (description, event documentation, analyses tied to a feature). Measured data lives in the cache, not in these documents: do not paste baselines into them.
 
 ## Usage
 
 ```bash
-# Full sync (all sites, baselines + events)
+# Full sync (all sites, previous year's baselines + current data)
 python -m skills.sync_sites.scripts.sync_sites
-
-# Baselines only (faster)
-python -m skills.sync_sites.scripts.sync_sites --baselines-only
 
 # Single site
 python -m skills.sync_sites.scripts.sync_sites --site emplois
 
-# Dry run (show what would be updated)
-python -m skills.sync_sites.scripts.sync_sites --dry-run
+# Baselines of a given year
+python -m skills.sync_sites.scripts.sync_sites --year 2025
 ```
 
 ## What it syncs
@@ -102,33 +84,25 @@ When documenting events, search for these patterns in codebases:
 
 ## Sites
 
-| Site | Matomo ID | Doc |
-|------|-----------|-----|
-| emplois | 117 | knowledge/sites/plateforme-ex-emplois.md |
-| pilotage | 146 | knowledge/sites/pilotage.md |
-| communaute | 206 | knowledge/sites/communaute.md |
-| dora | 211 | knowledge/sites/dora.md |
-| plateforme | 212 | knowledge/sites/site-institutionnel.md |
-| rdv-insertion | 214 | knowledge/sites/rdv-insertion.md |
-| mon-recap | 217 | knowledge/sites/mon-recap.md |
-| marche | 136 | knowledge/sites/marche.md |
+Keys accepted by `--site`. Names, URLs and Matomo IDs are defined once, in the « Sites web » table of `AGENT.md`.
 
-## Weekly Schedule
+| `--site` key | Matomo ID |
+|------|-----------|
+| emplois | 117 |
+| pilotage | 146 |
+| communaute | 206 |
+| dora | 211 |
+| plateforme | 212 |
+| rdv-insertion | 214 |
+| mon-recap | 217 |
+| marche | 136 |
 
-Run every Monday morning:
-```bash
-# Cron entry
-0 8 * * 1 cd /path/to/Autometa && python -m skills.sync_sites.scripts.sync_sites
-```
+The `plateforme` key is a legacy name: it designates the Site institutionnel (212), not the Plateforme (117).
 
-Or via launchd on macOS.
+## Schedule
+
+Nightly, in the `synchros` cron batch (`cron/sync-sites/CRON.md`).
 
 ## Output
 
-Updates markdown files in place, preserving:
-- Header section (URL, GitHub, description)
-- Custom sections you've added manually
-
-Regenerates:
-- Traffic Baselines tables
-- Last sync date
+Rows in the Matomo cache tables of the application database (baselines, dimensions, segments, event names). They reach the agent as `data/cache/matomo/*.md`, regenerated at application startup.

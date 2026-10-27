@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import socket
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -133,3 +134,13 @@ def client(app):
     from starlette.testclient import TestClient
 
     return TestClient(app)
+
+
+@pytest.fixture
+def silent_redis(mocker):
+    """Redis qui accepte la connexion sans jamais répondre."""
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        mocker.patch("web.config.REDIS_URL", f"redis://127.0.0.1:{server.getsockname()[1]}/0")
+        mocker.patch("web.redis_conn.SOCKET_TIMEOUT", 0.2)
+        mocker.patch("web.redis_conn._pool", None)
+        yield

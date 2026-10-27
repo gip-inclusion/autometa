@@ -11,8 +11,7 @@ Query the Metabase instances for IAE (Insertion par l'Activite Economique) emplo
 
 Before querying, read the relevant documentation:
 - `knowledge/metabase/` - Tables, schemas, data dictionary
-- `knowledge/stats/dashboards/` - Dashboard cards with IDs and SQL
-- `knowledge/stats/cards/` - Cards grouped by topic
+- `data/cache/metabase/` - Dashboard and card inventory (IDs, SQL), refreshed daily from the Metabase API
 
 ## Usage
 
@@ -68,9 +67,7 @@ for card in cards:
     print(f"{card['id']}: {card['name']}")
 ```
 
-Card metadata is also documented in:
-- `knowledge/stats/dashboards/` - Dashboard cards with IDs and SQL
-- `knowledge/stats/cards/` - Cards grouped by topic
+Card metadata is also available in `data/cache/metabase/` (daily inventory).
 
 ## Available Methods
 
@@ -91,7 +88,8 @@ Card metadata is also documented in:
 
 | Instance | URL | Database ID | Purpose |
 |----------|-----|-------------|---------|
-| stats | stats.inclusion.beta.gouv.fr | 2 | IAE employment statistics |
-| datalake | datalake.inclusion.beta.gouv.fr | 2 | Cross-product analytics |
-| dora | metabase.dora.inclusion.gouv.fr | 2 | Dora services directory (structures, services, orientations) |
-| data_inclusion | metabase.data.inclusion.gouv.fr | — | Modèles Metabase uniquement via `list_metabase_models(instance="data_inclusion", ...)` |
+| `stats` | stats.inclusion.beta.gouv.fr | 2 | IAE employment statistics |
+| `datalake` | datalake.inclusion.beta.gouv.fr | 2 | Cross-product analytics |
+| `dora` | metabase.dora.inclusion.gouv.fr | 2 | Dora services directory (structures, services, orientations). SQL only: the API key cannot open cards or dashboards (403), so `search_cards` / `execute_card` do not work here |
+| `rdvi` | rdv-service-public-metabase.osc-secnum-fr1.scalingo.io | 2 | RDV-Insertion (Prod ETL) — see `knowledge/rdvi/README.md` |
+| `data_inclusion` | metabase.data.inclusion.gouv.fr | — | Modèles Metabase uniquement via `list_metabase_models(instance="data_inclusion", ...)` |

@@ -79,7 +79,6 @@ def test_discover_from_s3_fails_loudly_when_the_listing_fails(mocker):
 @pytest.mark.parametrize("error", [RuntimeError("bug"), S3_DOWN])
 def test_run_all_runs_every_task_and_records_a_failure_when_one_raises(mocker, error):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a"), make_task("b"), make_task("c")])
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "get_app_runs", return_value=[])
     mocker.patch.object(cron, "notify_cron_status_change")
     record_run = mocker.patch.object(cron, "record_run")
@@ -92,20 +91,16 @@ def test_run_all_runs_every_task_and_records_a_failure_when_one_raises(mocker, e
     assert [c.args[0]["slug"] for c in record_run.call_args_list] == ["a", "b", "c"]
 
 
-def test_execute_task_reports_a_failure_and_closes_the_sentry_checkin_when_it_raises(mocker):
-    checkin = mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
+def test_execute_task_reports_a_failure_when_it_raises(mocker):
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=RuntimeError("bug"))
     mocker.patch.object(cron, "record_run")
 
     result = cron.execute_task(make_task("a"), trigger="manual")
 
     assert result["status"] == "failure"
-    assert checkin.call_args.kwargs["status"] == cron.sentry_sdk.crons.consts.MonitorStatus.ERROR
-    assert checkin.call_args.kwargs["check_in_id"] == "cid"
 
 
 def test_execute_task_records_success_when_the_publication_refresh_fails(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     (tmp_path / "cron.py").write_text("print('ok')")
     mocker.patch.object(cron, "prepare_s3_workdir", return_value=(tmp_path, {}))
     mocker.patch.object(cron, "upload_s3_results")
@@ -122,7 +117,6 @@ def test_execute_task_records_success_when_the_publication_refresh_fails(mocker,
 
 @pytest.mark.parametrize(("source", "repeat"), [("s3", False), ("s3-publication", True)])
 def test_execute_task_repeats_failure_alerts_only_for_publications(mocker, tmp_path, source, repeat):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     (tmp_path / "cron.py").write_text("import sys; sys.exit(1)")
     mocker.patch.object(cron, "prepare_s3_workdir", return_value=(tmp_path, {}))
     mocker.patch.object(cron, "get_app_runs", return_value=[])
@@ -143,7 +137,6 @@ def test_combine_output_keeps_the_stderr_tail_when_stdout_is_huge():
 
 
 def test_execute_task_alerts_slack_with_stderr_rather_than_stdout(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "get_app_runs", return_value=[])
     mocker.patch.object(cron, "record_run")
     notify = mocker.patch.object(cron, "notify_cron_status_change")
@@ -178,7 +171,6 @@ def write_task(tmp_path, body, **overrides):
 
 
 def run_task_offline(mocker, task, **kwargs):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "record_run")
     return cron.execute_task(task, trigger="manual", **kwargs)
 
@@ -401,26 +393,9 @@ def process_alive(pid):
     return True
 
 
-@pytest.mark.parametrize(
-    ("batch", "schedule", "timeout", "crontab", "max_runtime"),
-    [
-        ("synchros", "daily", 300, "0 2 * * *", 6),
-        ("maintenance", "daily", 300, "0 6 * * *", 6),
-        ("maintenance", "weekly", 600, "0 6 * * 1", 11),
-    ],
-)
-def test_a_task_checks_in_at_the_hour_its_batch_starts(batch, schedule, timeout, crontab, max_runtime):
-    # Why: déduire l'heure de la cadence faisait attendre à Sentry un check-in à 06:00 pour des
-    # tâches lancées à 02:00 — un missed check-in par jour et par tâche.
-    config = cron.sentry_monitor_config({"schedule": schedule, "timeout": timeout, "batch": batch})
-
-    assert config["schedule"]["value"] == crontab
-    assert config["max_runtime"] == max_runtime
-
-
 def test_every_batch_starts_at_the_hour_cron_json_says():
-    # Why: BATCH_START n'est vrai que tant qu'il recopie cron.json — sinon Sentry attend le
-    # check-in à une heure où plus rien ne tourne.
+    # Why: BATCH_START n'est vrai que tant qu'il recopie cron.json — sinon une tâche manquée se
+    # compterait depuis une heure où plus rien ne tourne.
     jobs = json.loads((Path(cron.config.BASE_DIR) / "cron.json").read_text())["jobs"]
     scheduled = {
         scheduled_batch(job["command"]): (int(job["command"].split()[1]), int(job["command"].split()[0]))
@@ -428,16 +403,6 @@ def test_every_batch_starts_at_the_hour_cron_json_says():
     }
 
     assert cron.BATCH_START == scheduled
-
-
-def test_a_task_checks_in_at_the_minute_its_batch_starts(monkeypatch):
-    monkeypatch.setitem(cron.BATCH_START, "synchros", (2, 30))
-
-    assert (
-        cron.sentry_monitor_config({"schedule": "daily", "timeout": 300, "batch": "synchros"})["schedule"]["value"]
-        == "30 2 * * *"
-    )
-    assert cron.batch_monitor_config("synchros", [], None)["schedule"]["value"] == "30 2 * * *"
 
 
 UTC = timezone.utc
@@ -499,7 +464,6 @@ def test_a_task_emitting_non_utf8_bytes_does_not_derail_the_run(mocker, tmp_path
 )
 def test_an_enormous_exception_message_is_truncated_before_reaching_the_database(mocker, error):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a")])
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "get_app_runs", return_value=[])
     mocker.patch.object(cron, "notify_cron_status_change")
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=error)
@@ -723,37 +687,6 @@ def test_next_cron_run_counts_in_utc_like_the_scalingo_schedule(mocker):
     assert cron.next_cron_run("daily", cron.DASHBOARD_BATCH) == datetime(2026, 7, 1, 6, 0, tzinfo=timezone.utc)
 
 
-def test_a_batch_closes_its_sentry_check_in_only_once_it_reaches_the_end(mocker):
-    mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a", source=None)])
-    mocker.patch.object(cron, "is_due", return_value=True)
-    checkin = mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
-
-    def mid_batch(task, trigger, batch_run_id):
-        assert [call.kwargs["status"] for call in checkin.call_args_list] == ["in_progress"]
-        return {"slug": "a", "status": "success", "duration_ms": 1, "output": ""}
-
-    mocker.patch.object(cron, "execute_task", side_effect=mid_batch)
-
-    cron.run_all(batch="maintenance")
-
-    assert checkin.call_args_list[-1].kwargs["monitor_slug"] == "lot-maintenance"
-    assert checkin.call_args_list[-1].kwargs["status"] == "ok"
-    assert checkin.call_args_list[-1].kwargs["check_in_id"] == "cid"
-
-
-@pytest.mark.parametrize(
-    "budget,expected_minutes",
-    [
-        (None, 1 + (300 + 600) // 60),
-        (60, 1 + (60 + 600) // 60),
-        (3600, 1 + (300 + 600) // 60),
-    ],
-)
-def test_a_batch_monitor_allows_the_time_the_batch_can_legitimately_take(budget, expected_minutes):
-    tasks = [make_task("a", timeout=300), make_task("b", timeout=600), make_task("c", timeout=900, batch="xl")]
-    assert cron.batch_monitor_config("maintenance", tasks, budget)["max_runtime"] == expected_minutes
-
-
 def test_a_batch_without_a_budget_runs_everything(mocker):
     tasks = [make_task("a", source=None), make_task("b", source=None)]
     mocker.patch.object(cron, "discover_cron_tasks", return_value=tasks)
@@ -767,15 +700,15 @@ def test_a_batch_without_a_budget_runs_everything(mocker):
     assert execute.call_count == 2
 
 
-def test_the_cron_entry_point_initialises_sentry(monkeypatch, mocker):
-    monkeypatch.setattr("sys.argv", ["cron", "--dry-run", "--batch", "maintenance"])
+def test_the_cron_entry_point_does_not_report_to_sentry(monkeypatch, mocker):
+    monkeypatch.setattr("sys.argv", ["cron", "--batch", "maintenance"])
     mocker.patch.object(cron, "setup_logging")
     mocker.patch.object(cron, "run_all", return_value=[])
-    init = mocker.patch.object(cron, "init_sentry")
+    init = mocker.patch("sentry_sdk.init")
 
     cron.main()
 
-    init.assert_called_once()
+    init.assert_not_called()
 
 
 @pytest.mark.parametrize("option", ["--budget", "--workers"])
@@ -785,7 +718,6 @@ def test_the_cron_entry_point_refuses_a_budget_or_workers_that_is_not_positive(
 ):
     monkeypatch.setattr("sys.argv", ["cron", "--batch", "tableaux", option, value])
     mocker.patch.object(cron, "setup_logging")
-    mocker.patch.object(cron, "init_sentry")
     run_all = mocker.patch.object(cron, "run_all")
 
     with pytest.raises(SystemExit) as exc_info:
@@ -799,7 +731,6 @@ def test_the_cron_entry_point_refuses_a_budget_or_workers_that_is_not_positive(
 def test_the_cron_entry_point_refuses_to_run_with_no_mode_and_no_batch(monkeypatch, mocker, capsys):
     monkeypatch.setattr("sys.argv", ["cron"])
     mocker.patch.object(cron, "setup_logging")
-    mocker.patch.object(cron, "init_sentry")
 
     with pytest.raises(SystemExit) as exc_info:
         cron.main()
@@ -819,7 +750,6 @@ def test_the_cron_entry_point_refuses_to_run_with_no_mode_and_no_batch(monkeypat
 def test_a_mode_runs_without_a_batch(monkeypatch, mocker, argv, mocked):
     monkeypatch.setattr("sys.argv", argv)
     mocker.patch.object(cron, "setup_logging")
-    mocker.patch.object(cron, "init_sentry")
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[])
     mocker.patch.object(cron, "facade_audit", return_value=[])
     mocker.patch.object(
