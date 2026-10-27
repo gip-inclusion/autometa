@@ -65,8 +65,7 @@
       "tags": [
         "dora",
         "orientation",
-        "indicateurs",
-        "territoire"
+        "indicateurs"
       ],
       "messages": [
         [
@@ -80,14 +79,13 @@
             "input": {
               "skill": "autometa_tables_db"
             },
-            "id": "toolu_demo_0001",
             "category": "Skill: autometa_tables_db"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0001",
+            "tool": "toolu_01",
             "output": "Launching skill: autometa_tables_db"
           }
         ],
@@ -99,14 +97,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) AS orientations FROM public.fct_dora__orientations WHERE date_orientation >= '2026-04-01' GROUP BY 1 ORDER BY 2 DESC\"\"\")\nprint(r.data)\nEOF",
               "description": "Orientations Dora par département depuis avril"
             },
-            "id": "toolu_demo_0002",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0002",
+            "tool": "toolu_01",
             "output": "Orientations Dora (avril → septembre 2026, données de démonstration)\ndepartement    orientations\n         01             550\n         02             224\n         03             602\n         04             336\n         05             418\n         06             412\n         07              58\n         08             516\n         09             522\n         10             808\n         11             686\n         12             840\n         13             586\n         14             536\n         15             914\n         16             192\n         17             230\n         18             320\n         19             850\n         21             524\n         22             130\n         23             256\n         24             330\n         25             884\n         26             190\n         27              64\n         28             226\n         29             692\n         30             230\n         31             248\n         32             766\n         33             236\n         34             906\n         35             596\n         36             242\n         37             448\n         38             482\n         39             608\n         40             110\n         41             540\n         42             938\n         43             848\n         44             734\n         45              60\n         46             774\n         47             408\n         48             286\n         49             816\n         50             266\n         51             592\n         52             818\n         53             828\n         54             202\n         55             524\n         56             442\n[55 rows x 2 columns]"
           }
         ],
@@ -118,14 +115,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT to_char(date_orientation::date, 'YYYY-MM') AS mois, count(*) FROM public.fct_dora__orientations WHERE date_orientation >= '2026-04-01' GROUP BY 1 ORDER BY 1\"\"\")\nprint(r.data)\nEOF",
               "description": "Orientations Dora par mois"
             },
-            "id": "toolu_demo_0003",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0003",
+            "tool": "toolu_01",
             "output": "mois     count\n2026-04   8412\n2026-05   8790\n2026-06   9104\n2026-07   7655\n2026-08   6021\n2026-09   9932"
           }
         ],
@@ -144,14 +140,13 @@
             "input": {
               "skill": "create_dashboard"
             },
-            "id": "toolu_demo_0004",
             "category": "Skill: create_dashboard"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0004",
+            "tool": "toolu_01",
             "output": "Launching skill: create_dashboard"
           }
         ],
@@ -163,14 +158,13 @@
               "command": "python .claude/skills/create_dashboard/scripts/create_dashboard.py --slug demo-cron --title 'Orientations Dora mensuelles (démo)' --website dora --has-cron true",
               "description": "Création du tableau de bord"
             },
-            "id": "toolu_demo_0005",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0005",
+            "tool": "toolu_01",
             "output": "Dashboard créé : /interactive/demo-cron/"
           }
         ],
@@ -182,14 +176,13 @@
               "file_path": "/app/data/interactive/demo-cron/index.html",
               "content": "<!DOCTYPE html>…"
             },
-            "id": "toolu_demo_0006",
             "category": "Write: interactive"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0006",
+            "tool": "toolu_01",
             "output": "File created successfully at: /app/data/interactive/demo-cron/index.html"
           }
         ],
@@ -208,14 +201,13 @@
             "input": {
               "skill": "save_report"
             },
-            "id": "toolu_demo_0007",
             "category": "Skill: save_report"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0007",
+            "tool": "toolu_01",
             "output": "Launching skill: save_report"
           }
         ],
@@ -257,14 +249,13 @@
             "input": {
               "file_path": "/app/knowledge/sites/plateforme-ex-emplois.md"
             },
-            "id": "toolu_demo_0008",
             "category": "Read: knowledge"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0008",
+            "tool": "toolu_01",
             "output": "# Plateforme de l'inclusion (démo)\n\nFiche de démonstration : site 117, candidatures, diagnostics, pass IAE. Les candidatures se lisent dans `les_emplois.candidatures`, une ligne par candidature, avec son état (nouvelle, acceptée, refusée, annulée) et la date de dernière transition.\n# Plateforme de l'inclusion (démo)\n\nFiche de démonstration : site 117, candidatures, diagnostics, pass IAE. Les candidatures se lisent dans `les_emplois.candidatures`, une ligne par candidature, avec son état (nouvelle, acceptée, refusée, annulée) et la date de dernière transition.\n# Plateforme de l'inclusion (démo)\n\nFiche de démonstration : site 117, candidatures, diagnostics, pass IAE. Les candidatures se lisent dans `les_emplois.candidatures`, une ligne par candidature, avec son état (nouvelle, acceptée, refusée, annulée) et la date de dernière transition.\n# Plateforme de l'inclusion (démo)\n\nFiche de démonstration : site 117, candidatures, diagnostics, pass IAE. Les candidatures se lisent dans `les_emplois.candidatures`, une ligne par candidature, avec son état (nouvelle, acceptée, refusée, annulée) et la date de dernière transition.\n# Plateforme de l'inclusion (démo)\n\nFiche de démonstration : site 117, candidatures, diagnostics, pass IAE. Les candidatures se lisent dans `les_emplois.candidatures`, une ligne par candidature, avec son état (nouvelle, acceptée, refusée, annulée) et la date de dernière transition.\n# Plateforme de l'inclusion (démo)\n\nFiche de démonstration : site 117, candidatures, diagnostics, pass IAE. Les candidatures se lisent dans `les_emplois.candidatures`, une ligne par candidature, avec son état (nouvelle, acceptée, refusée, annulée) et la date de dernière transition.\n"
           }
         ],
@@ -275,14 +266,13 @@
             "input": {
               "skill": "autometa_tables_db"
             },
-            "id": "toolu_demo_0009",
             "category": "Skill: autometa_tables_db"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0009",
+            "tool": "toolu_01",
             "output": "Launching skill: autometa_tables_db"
           }
         ],
@@ -294,14 +284,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Candidatures reçues\"\"\")\nprint(r.data)\nEOF",
               "description": "Candidatures reçues, semaine {n}"
             },
-            "id": "toolu_demo_0010",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0010",
+            "tool": "toolu_01",
             "output": "Candidatures reçues — semaine {n} (données de démonstration)\ndepartement    candidatures       acceptees            taux\n         01             647             323            49.9\n         02             225             171            76.0\n         03             291             203            69.8\n         04             301             108            35.9\n         05             367             271            73.8\n         06             209             100            47.8\n         07             667             173            25.9\n         08             389             186            47.8\n         09             791             522            66.0\n         10             937             637            68.0\n         11             631             265            42.0\n         12             809             194            24.0\n         13             527             200            38.0\n         14             221             141            63.8\n         15             819             212            25.9\n         16             857             411            48.0\n         17             767             230            30.0\n         18             185              96            51.9\n         19             163             107            65.6\n         21             109              78            71.6\n         22             319             236            74.0\n         23              53              19            35.8\n         24             623             211            33.9\n         25             641             205            32.0\n         26              87              19            21.8\n         27             289             184            63.7\n         28             355             248            69.9\n         29             921             405            44.0\n         30             591             153            25.9\n         31             313              62            19.8\n         32             135             105            77.8\n         33             621             471            75.8\n         34             783             391            49.9\n         35             681             190            27.9\n         36              71              21            29.6\n         37             649             389            59.9\n         38             703             379            53.9\n         39             641             230            35.9\n         40             259             191            73.7\n         41             289             184            63.7\n         42             291              87            29.9\n         43             949             227            23.9\n         44             727             189            26.0\n         45             829             596            71.9\n         46             775             511            65.9\n         47             313             112            35.8\n         48             339             237            69.9\n         49             585             421            72.0\n         50             259              98            37.8\n         51             437             279            63.8\n         52              75              49            65.3\n         53             169             101            59.8\n         54             871             644            73.9\n         55             817             457            55.9\n         56             563             304            54.0\n[55 rows x 4 columns]"
           }
         ],
@@ -313,14 +302,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Candidatures via prescripteur habilité\"\"\")\nprint(r.data)\nEOF",
               "description": "Candidatures via prescripteur habilité, semaine {n}"
             },
-            "id": "toolu_demo_0011",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0011",
+            "tool": "toolu_01",
             "output": "Candidatures via prescripteur habilité — semaine {n} (données de démonstration)\ndepartement    candidatures       acceptees            taux\n         01             692             546            78.9\n         02             134              97            72.4\n         03             144             113            78.5\n         04             694             201            29.0\n         05             360             140            38.9\n         06              50              36            72.0\n         07             436             327            75.0\n         08             906             371            40.9\n         09             472             278            58.9\n         10             914             703            76.9\n         11             812             446            54.9\n         12             206              84            40.8\n         13             772             177            22.9\n         14             578             398            68.9\n         15             380             300            78.9\n         16             586             169            28.8\n         17             388             120            30.9\n         18             694             284            40.9\n         19             496             252            50.8\n         21             306             186            60.8\n         22             256             181            70.7\n         23             526             215            40.9\n         24             848             195            23.0\n         25             414             186            44.9\n         26             600             354            59.0\n         27             774             410            53.0\n         28             392             137            34.9\n         29             922             636            69.0\n         30             548             126            23.0\n         31             670             247            36.9\n         32             632             221            35.0\n         33             814             301            37.0\n         34             696             271            38.9\n         35             378             124            32.8\n         36             840             529            63.0\n         37             310             189            61.0\n         38             764             511            66.9\n         39              94              72            76.6\n         40             172              80            46.5\n         41             714             264            37.0\n         42             304             155            51.0\n         43              70              28            40.0\n         44              84              39            46.4\n         45             270             197            73.0\n         46             176              75            42.6\n         47             610             274            44.9\n         48             628             395            62.9\n         49             582             448            77.0\n         50             812             219            27.0\n         51             878             324            36.9\n         52             856             642            75.0\n         53             822             271            33.0\n         54             624             293            47.0\n         55             430             159            37.0\n         56             252              78            31.0\n[55 rows x 4 columns]"
           }
         ],
@@ -332,14 +320,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Candidatures en autonomie\"\"\")\nprint(r.data)\nEOF",
               "description": "Candidatures en autonomie, semaine {n}"
             },
-            "id": "toolu_demo_0012",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0012",
+            "tool": "toolu_01",
             "output": "Candidatures en autonomie — semaine {n} (données de démonstration)\ndepartement    candidatures       acceptees            taux\n         01             789             441            55.9\n         02             943             660            70.0\n         03             845             169            20.0\n         04             239              52            21.8\n         05             405             226            55.8\n         06             739             221            29.9\n         07             205             131            63.9\n         08             575             241            41.9\n         09             153              79            51.6\n         10             839             654            77.9\n         11              93              63            67.7\n         12             503             331            65.8\n         13              65              39            60.0\n         14              87              64            73.6\n         15             841             168            20.0\n         16             315             220            69.8\n         17             909             290            31.9\n         18             251              75            29.9\n         19             829             298            35.9\n         21             503             211            41.9\n         22             193             131            67.9\n         23              99              45            45.5\n         24             173             124            71.7\n         25             239             138            57.7\n         26             265              95            35.8\n         27             359             179            49.9\n         28             481             288            59.9\n         29              75              31            41.3\n         30             505             101            20.0\n         31             127              78            61.4\n         32             177              92            52.0\n         33              55              31            56.4\n         34             661             185            28.0\n         35              75              28            37.3\n         36             657             236            35.9\n         37             819             507            61.9\n         38             877             245            27.9\n         39             395             197            49.9\n         40              85              23            27.1\n         41             239             167            69.9\n         42             265             169            63.8\n         43              91              60            65.9\n         44             341             204            59.8\n         45             611             452            74.0\n         46             529             148            28.0\n         47              59              31            52.5\n         48             917             513            55.9\n         49             579             428            73.9\n         50             465             353            75.9\n         51             471             292            62.0\n         52             737             235            31.9\n         53             575             379            65.9\n         54             325              91            28.0\n         55             943             735            77.9\n         56             893             535            59.9\n[55 rows x 4 columns]"
           }
         ],
@@ -351,14 +338,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Diagnostics réalisés\"\"\")\nprint(r.data)\nEOF",
               "description": "Diagnostics réalisés, semaine {n}"
             },
-            "id": "toolu_demo_0013",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0013",
+            "tool": "toolu_01",
             "output": "Diagnostics réalisés — semaine {n} (données de démonstration)\ndepartement     diagnostics            pass            taux\n         01             834             208            24.9\n         02             852             570            66.9\n         03             698             202            28.9\n         04             632             145            22.9\n         05             398             290            72.9\n         06             580             319            55.0\n         07             874             463            53.0\n         08             192              67            34.9\n         09             734             389            53.0\n         10             764             206            27.0\n         11             274              57            20.8\n         12             800             184            23.0\n         13             258             116            45.0\n         14             444             350            78.8\n         15             402             293            72.9\n         16             944             481            51.0\n         17             530             174            32.8\n         18             760             600            78.9\n         19             262              55            21.0\n         21             700             217            31.0\n         22              78              50            64.1\n         23             572             291            50.9\n         24             398             242            60.8\n         25              64              45            70.3\n         26             778             567            72.9\n         27             844             329            39.0\n         28             518             129            24.9\n         29              76              57            75.0\n         30             462             318            68.8\n         31             484             382            78.9\n         32             674             518            76.9\n         33             248             195            78.6\n         34             626             156            24.9\n         35             672             288            42.9\n         36             474             327            69.0\n         37             480             302            62.9\n         38             938             459            48.9\n         39             696             160            23.0\n         40             898             547            60.9\n         41             716             250            34.9\n         42             278              69            24.8\n         43              60              18            30.0\n         44             650             474            72.9\n         45              52              39            75.0\n         46             830             605            72.9\n         47             408             257            63.0\n         48             306             149            48.7\n         49             628             445            70.9\n         50             118              76            64.4\n         51              64              22            34.4\n         52             618             253            40.9\n         53             328             127            38.7\n         54              78              53            67.9\n         55             556             328            59.0\n         56             582             215            36.9\n[55 rows x 4 columns]"
           }
         ],
@@ -370,14 +356,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Pass IAE délivrés\"\"\")\nprint(r.data)\nEOF",
               "description": "Pass IAE délivrés, semaine {n}"
             },
-            "id": "toolu_demo_0014",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0014",
+            "tool": "toolu_01",
             "output": "Pass IAE délivrés — semaine {n} (données de démonstration)\ndepartement            pass       embauches            taux\n         01             931             577            62.0\n         02             761             487            64.0\n         03             551             165            29.9\n         04             125              95            76.0\n         05             391             117            29.9\n         06             421             303            72.0\n         07             695             291            41.9\n         08             709             198            27.9\n         09             363             166            45.7\n         10             689             248            36.0\n         11             507             172            33.9\n         12             197              94            47.7\n         13             503             110            21.9\n         14             801             256            32.0\n         15             811             600            74.0\n         16             673             215            31.9\n         17              99              33            33.3\n         18             317             215            67.8\n         19             595             392            65.9\n         21             949             189            19.9\n         22             915             567            62.0\n         23             145              69            47.6\n         24             571             239            41.9\n         25             737             235            31.9\n         26             391             195            49.9\n         27             429             120            28.0\n         28             607             254            41.8\n         29              77              36            46.8\n         30             419             276            65.9\n         31             841             302            35.9\n         32             271              92            33.9\n         33             389             155            39.8\n         34             539             398            73.8\n         35             369             206            55.8\n         36             343             144            42.0\n         37             141              90            63.8\n         38              99              61            61.6\n         39              97              62            63.9\n         40             811             275            33.9\n         41             241             163            67.6\n         42             239              90            37.7\n         43              81              38            46.9\n         44             907             308            34.0\n         45             341             259            76.0\n         46             283             164            58.0\n         47             705             507            71.9\n         48             595             249            41.8\n         49             625             425            68.0\n         50             671             362            53.9\n         51             557             378            67.9\n         52             499             289            57.9\n         53              81              58            71.6\n         54             679             339            49.9\n         55             169              67            39.6\n         56             323             213            65.9\n[55 rows x 4 columns]"
           }
         ],
@@ -389,14 +374,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Refus employeur\"\"\")\nprint(r.data)\nEOF",
               "description": "Refus employeur, semaine {n}"
             },
-            "id": "toolu_demo_0015",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0015",
+            "tool": "toolu_01",
             "output": "Refus employeur — semaine {n} (données de démonstration)\ndepartement           refus     motif_poste            part\n         01              76              23            30.3\n         02             670             462            69.0\n         03             404             125            30.9\n         04             518             357            68.9\n         05             384             180            46.9\n         06             210              60            28.6\n         07             464             143            30.8\n         08             378              79            20.9\n         09             944             368            39.0\n         10             666             299            44.9\n         11             688             378            54.9\n         12             494             321            65.0\n         13             696             410            58.9\n         14             258              95            36.8\n         15             372             249            66.9\n         16             402             293            72.9\n         17             620             217            35.0\n         18             826             470            56.9\n         19             928             473            51.0\n         21             246             169            68.7\n         22             852             502            58.9\n         23             618             327            52.9\n         24             796             246            30.9\n         25             562             252            44.8\n         26             904             244            27.0\n         27             914             228            24.9\n         28             644             431            66.9\n         29              78              16            20.5\n         30             376             206            54.8\n         31             298             157            52.7\n         32             716             365            51.0\n         33             582             401            68.9\n         34             504             317            62.9\n         35              66              40            60.6\n         36             160             120            75.0\n         37             650             422            64.9\n         38             160              36            22.5\n         39             450             166            36.9\n         40             724             543            75.0\n         41             666             273            41.0\n         42             200             118            59.0\n         43             102              74            72.5\n         44             264             124            47.0\n         45             682             525            77.0\n         46             636             222            34.9\n         47             154              32            20.8\n         48             884             309            35.0\n         49             622             404            65.0\n         50             324             139            42.9\n         51             150              49            32.7\n         52             380             254            66.8\n         53             734             330            45.0\n         54             432             133            30.8\n         55             682             143            21.0\n         56             912             392            43.0\n[55 rows x 4 columns]"
           }
         ],
@@ -408,14 +392,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Délai de réponse (jours)\"\"\")\nprint(r.data)\nEOF",
               "description": "Délai de réponse (jours), semaine {n}"
             },
-            "id": "toolu_demo_0016",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0016",
+            "tool": "toolu_01",
             "output": "Délai de réponse (jours) — semaine {n} (données de démonstration)\ndepartement    candidatures       repondues            taux\n         01             173             117            67.6\n         02             579             382            66.0\n         03             257             102            39.7\n         04              63              44            69.8\n         05             377             241            63.9\n         06              51              27            52.9\n         07             233              46            19.7\n         08             895             196            21.9\n         09             625             200            32.0\n         10             591             271            45.9\n         11             869             590            67.9\n         12             791             174            22.0\n         13             889             391            44.0\n         14             615             258            42.0\n         15             833             499            59.9\n         16             131              60            45.8\n         17             241              86            35.7\n         18             383             176            46.0\n         19             361             158            43.8\n         21             443             256            57.8\n         22             737             353            47.9\n         23             191             110            57.6\n         24             121              24            19.8\n         25             335             194            57.9\n         26             569             364            64.0\n         27             499             369            73.9\n         28             733             234            31.9\n         29             131              60            45.8\n         30             333             173            52.0\n         31             603             422            70.0\n         32             313             212            67.7\n         33             723             216            29.9\n         34             469             243            51.8\n         35             663             437            65.9\n         36             929             445            47.9\n         37             311             205            65.9\n         38             273              98            35.9\n         39             751             525            69.9\n         40             637             305            47.9\n         41             191             141            73.8\n         42             213             153            71.8\n         43              71              21            29.6\n         44             521             354            67.9\n         45             123              95            77.2\n         46             937             187            20.0\n         47             503             150            29.8\n         48             273              76            27.8\n         49             619             433            70.0\n         50             877             280            31.9\n         51             591             390            66.0\n         52             261              62            23.8\n         53             487             379            77.8\n         54             133              95            71.4\n         55             243             170            70.0\n         56             653             470            72.0\n[55 rows x 4 columns]"
           }
         ],
@@ -427,14 +410,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Semaine précédente\"\"\")\nprint(r.data)\nEOF",
               "description": "Semaine précédente, semaine {n}"
             },
-            "id": "toolu_demo_0017",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0017",
+            "tool": "toolu_01",
             "output": "Semaine précédente — semaine {n} (données de démonstration)\ndepartement    candidatures       acceptees            taux\n         01             218              80            36.7\n         02             488             307            62.9\n         03             110              45            40.9\n         04             456             287            62.9\n         05             370              77            20.8\n         06             792             562            71.0\n         07             902             622            69.0\n         08             564             423            75.0\n         09             306              76            24.8\n         10             516             283            54.8\n         11             150              31            20.7\n         12             188              88            46.8\n         13             234              49            20.9\n         14              72              39            54.2\n         15             394             240            60.9\n         16             760             205            27.0\n         17             762             281            36.9\n         18             892             312            35.0\n         19             694             201            29.0\n         21             640             249            38.9\n         22             674             303            45.0\n         23             664             365            55.0\n         24             346             238            68.8\n         25             160             113            70.6\n         26             182              74            40.7\n         27              84              59            70.2\n         28             770             438            56.9\n         29             132             104            78.8\n         30             290             142            49.0\n         31              60              16            26.7\n         32             810             202            24.9\n         33             916             467            51.0\n         34             382             187            49.0\n         35             360             255            70.8\n         36             746             156            20.9\n         37             820             549            67.0\n         38             334             190            56.9\n         39             152              65            42.8\n         40             498             104            20.9\n         41             616             289            46.9\n         42             174              57            32.8\n         43              92              50            54.3\n         44             778             163            21.0\n         45             464             366            78.9\n         46             390             253            64.9\n         47             800             312            39.0\n         48             562             118            21.0\n         49             616             412            66.9\n         50             478             100            20.9\n         51             184              71            38.6\n         52             142              46            32.4\n         53             292             125            42.8\n         54             786             416            52.9\n         55             756             385            50.9\n         56             394             193            49.0\n[55 rows x 4 columns]"
           }
         ],
@@ -446,14 +428,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Écart hebdomadaire\"\"\")\nprint(r.data)\nEOF",
               "description": "Écart hebdomadaire, semaine {n}"
             },
-            "id": "toolu_demo_0018",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0018",
+            "tool": "toolu_01",
             "output": "Écart hebdomadaire — semaine {n} (données de démonstration)\ndepartement         semaine      precedente       evolution\n         01             315             233            74.0\n         02             397             238            59.9\n         03             811             340            41.9\n         04             849             543            64.0\n         05             363             137            37.7\n         06             633             227            35.9\n         07             671             389            58.0\n         08             181             123            68.0\n         09             835             651            78.0\n         10             493             315            63.9\n         11             331             112            33.8\n         12             485             310            63.9\n         13             427             281            65.8\n         14             429             257            59.9\n         15             855             461            53.9\n         16             437             297            68.0\n         17             383             145            37.9\n         18             449             107            23.8\n         19              75              55            73.3\n         21             837             234            28.0\n         22             611             256            41.9\n         23             237             142            59.9\n         24             571             285            49.9\n         25             885             212            24.0\n         26             695             542            78.0\n         27             569             341            59.9\n         28             859             188            21.9\n         29             133              69            51.9\n         30             195              74            37.9\n         31             417             183            43.9\n         32             355             149            42.0\n         33             157             113            72.0\n         34             347             131            37.8\n         35              57              43            75.4\n         36             563             304            54.0\n         37             481             327            68.0\n         38             395             276            69.9\n         39             453             108            23.8\n         40             411             254            61.8\n         41             141             101            71.6\n         42             187              86            46.0\n         43              61              12            19.7\n         44             135              45            33.3\n         45             805             161            20.0\n         46             743             371            49.9\n         47             249             119            47.8\n         48             851             629            73.9\n         49             665             425            63.9\n         50             131              91            69.5\n         51             677             433            64.0\n         52             923             461            49.9\n         53             945             718            76.0\n         54             487             165            33.9\n         55             369             118            32.0\n         56              83              64            77.1\n[55 rows x 4 columns]"
           }
         ],
@@ -465,14 +446,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nr = query_autometa_tables(\"\"\"SELECT departement, count(*) FROM les_emplois.candidatures WHERE semaine = :s GROUP BY 1 -- Structures actives\"\"\")\nprint(r.data)\nEOF",
               "description": "Structures actives, semaine {n}"
             },
-            "id": "toolu_demo_0019",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0019",
+            "tool": "toolu_01",
             "output": "Structures actives — semaine {n} (données de démonstration)\ndepartement      structures       recrutent            part\n         01             412             177            43.0\n         02             306             174            56.9\n         03             664             338            50.9\n         04             342             194            56.7\n         05             356             224            62.9\n         06             422             223            52.8\n         07             440             206            46.8\n         08             698             425            60.9\n         09             516             366            70.9\n         10             418             305            73.0\n         11             564             265            47.0\n         12             782             226            28.9\n         13             672             288            42.9\n         14             786             510            64.9\n         15             416             228            54.8\n         16             166              81            48.8\n         17             904             352            38.9\n         18              58              42            72.4\n         19             408             240            58.8\n         21             134             103            76.9\n         22             496             193            38.9\n         23             710             461            64.9\n         24             796             310            38.9\n         25             658             296            45.0\n         26             308             144            46.8\n         27             154              75            48.7\n         28             896             421            47.0\n         29             134              33            24.6\n         30             152              53            34.9\n         31             774             472            61.0\n         32             852             570            66.9\n         33             350             115            32.9\n         34             312              84            26.9\n         35             654             137            20.9\n         36             432             116            26.9\n         37              90              62            68.9\n         38             456             141            30.9\n         39             806             459            56.9\n         40             324             113            34.9\n         41             566             254            44.9\n         42             148              99            66.9\n         43              82              30            36.6\n         44             392             215            54.8\n         45             246              51            20.7\n         46             144              38            26.4\n         47             598             340            56.9\n         48             188             125            66.5\n         49             662             403            60.9\n         50             684             403            58.9\n         51             270              99            36.7\n         52             804             474            59.0\n         53             698             342            49.0\n         54             240             180            75.0\n         55             882             643            72.9\n         56             724             398            55.0\n[55 rows x 4 columns]"
           }
         ],
@@ -484,14 +464,13 @@
               "file_path": "/tmp/semaine-{n}.csv",
               "content": "departement,candidatures\n01,412\n02,388\n…"
             },
-            "id": "toolu_demo_0020",
             "category": "Write: temp"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0020",
+            "tool": "toolu_01",
             "output": "File created successfully at: /tmp/semaine-{n}.csv"
           }
         ],
@@ -502,14 +481,13 @@
             "input": {
               "command": "python -c \"import csv; print(sum(1 for _ in csv.reader(open('/tmp/semaine-{n}.csv'))))\""
             },
-            "id": "toolu_demo_0021",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0021",
+            "tool": "toolu_01",
             "output": "95"
           }
         ],
@@ -526,8 +504,7 @@
       "days_ago": 14,
       "tags": [
         "rdv-insertion",
-        "territoire",
-        "indicateurs"
+        "territoire"
       ],
       "messages": [
         [
@@ -541,14 +518,13 @@
             "input": {
               "skill": "autometa_tables_db"
             },
-            "id": "toolu_demo_0022",
             "category": "Skill: autometa_tables_db"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0022",
+            "tool": "toolu_01",
             "output": "Launching skill: autometa_tables_db"
           }
         ],
@@ -560,14 +536,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nprint(query_autometa_tables(\"SELECT departement, statut, count(*) FROM raw_rdvi.rdvs GROUP BY 1, 2\").data)\nEOF",
               "description": "RDV par statut, Nord et Pas-de-Calais"
             },
-            "id": "toolu_demo_0023",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0023",
+            "tool": "toolu_01",
             "output": "departement  statut    count\n59  seen      18342\n59  noshow     4120\n59  excused    2205\n62  seen      11876\n62  noshow     3301\n62  excused    1554"
           }
         ],
@@ -587,14 +562,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nprint(query_autometa_tables(\"SELECT departement, motif, count(*) FROM raw_rdvi.rdvs GROUP BY 1, 2\").data)\nEOF",
               "description": "RDV par motif"
             },
-            "id": "toolu_demo_0024",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0024",
+            "tool": "toolu_01",
             "output": "departement  motif               count\n59  orientation         9120\n59  accompagnement      13547\n62  orientation         6233\n62  accompagnement      10498"
           }
         ],
@@ -627,14 +601,13 @@
               "command": "python - <<'EOF'\nfrom lib.dashboard_api import query_autometa_tables\nprint(query_autometa_tables(\"SELECT statut, count(*) FROM raw_rdvi.rdvs WHERE departement = '56' GROUP BY 1\").data)\nEOF",
               "description": "RDV du Morbihan"
             },
-            "id": "toolu_demo_0025",
             "category": "Execute: script"
           }
         ],
         [
           "tool_result",
           {
-            "tool": "toolu_demo_0025",
+            "tool": "toolu_01",
             "output": "statut    count\nseen      4410\nnoshow     980\nexcused    512"
           }
         ],
@@ -666,7 +639,6 @@
             "input": {
               "skill": "autometa_tables_db"
             },
-            "id": "toolu_demo_9001",
             "category": "Skill: autometa_tables_db"
           }
         ],
@@ -685,7 +657,7 @@
         [
           "tool_result",
           {
-            "tool": "toolu_demo_9001",
+            "tool": "toolu_01",
             "output": "Launching skill: autometa_tables_db"
           }
         ],
