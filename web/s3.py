@@ -204,6 +204,16 @@ def list_prefix(bucket: str, prefix: str) -> list[str]:
     return keys
 
 
+def put_object(bucket: str, key: str, content: bytes, content_type: str) -> bool:
+    """Dépose un objet dans un bucket donné, hors du préfixe d'un S3Store (bucket public, par exemple)."""
+    try:
+        _client.put_object(Bucket=bucket, Key=key, Body=content, ContentType=content_type)
+        return True
+    except (ClientError, BotoCoreError) as e:
+        logger.error("S3 put failed for %s/%s: %s", bucket, key, e)
+        return False
+
+
 COMPRESSIBLE_EXTS = frozenset({".css", ".csv", ".html", ".js", ".json", ".map", ".mjs", ".svg", ".txt", ".xml"})
 
 

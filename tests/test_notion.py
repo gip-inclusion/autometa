@@ -362,6 +362,26 @@ def test_query_database_paginates(mocker):
     assert req.call_args_list[1][0][2]["start_cursor"] == "c1"
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, {"page_size": 100}),
+        (
+            {"filter": {"property": "Statut"}, "sorts": [{"property": "Date"}]},
+            {"page_size": 100, "filter": {"property": "Statut"}, "sorts": [{"property": "Date"}]},
+        ),
+    ],
+)
+def test_query_database_sends_filter_and_sorts_only_when_given(mocker, kwargs, expected):
+    from lib import notion
+
+    req = mocker.patch("lib.notion.notion_request", return_value={"results": [], "has_more": False})
+
+    notion.query_database("db1", **kwargs)
+
+    assert req.call_args.args[2] == expected
+
+
 def test_notion_request_retries_on_429(mocker):
     from lib import notion
 
