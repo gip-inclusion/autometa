@@ -3,14 +3,18 @@
 import hashlib
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
 
+import httpx
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 from sqlalchemy.exc import ProgrammingError
 
+from web import config
+
+from . import notion
 from .airtable import AirtableClient
 from .data_inclusion import execute_sql as _di_execute_sql
 from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
@@ -18,7 +22,8 @@ from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
-from .sources import get_matomo, get_metabase
+from .sources import get_matomo, get_metabase, get_zendesk
+from .tally import TallyClient
 
 __all__ = ["MatomoAPI", "MatomoError", "MetabaseAPI", "MetabaseError", "get_matomo", "get_metabase"]
 
@@ -461,6 +466,98 @@ def execute_airtable_query(
 
     # Why: a 200 with an unexpected body raises JSONDecodeError/AttributeError, not AirtableError; caller checks result.success.
     return _run_traced_query("airtable.query", attrs, _do)
+
+
+def execute_github_query(
+    path: str, caller: CallerType, params: Optional[dict] = None, timeout: int = 30
+) -> QueryResult:
+    """GET on the GitHub REST API (read-only), gip-inclusion repositories only. Returns QueryResult, never raises."""
+    path = str(path).lstrip("/")
+    # Why: the app token can read every repository it sees, private ones included — a dashboard may publish what it reads.
+    if not path.startswith("repos/gip-inclusion/") or ".." in path:
+        return QueryResult(
+            success=False,
+            data=None,
+            error=f"{path} : seuls les chemins repos/gip-inclusion/… sont permis",
+            invalid_request=True,
+        )
+    attrs = {"db.system": "github", "caller": caller.value, "github.path": path}
+
+    def _do():
+        headers = {"Accept": "application/vnd.github+json"}
+        if config.GITHUB_TOKEN:
+            headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
+        response = httpx.get(f"https://api.github.com/{path}", params=params, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+
+    return _run_traced_query("github.query", attrs, _do)
+
+
+def execute_notion_query(
+    database_id: str, caller: CallerType, filter: Optional[dict] = None, sorts: Optional[list[dict]] = None
+) -> QueryResult:
+    """All pages of a Notion database (read-only). Returns QueryResult, never raises."""
+    attrs = {"db.system": "notion", "caller": caller.value, "notion.database": str(database_id)}
+    return _run_traced_query(
+        "notion.query", attrs, lambda: notion.query_database(database_id, filter=filter, sorts=sorts)
+    )
+
+
+def execute_tally_query(
+    form_id: str, caller: CallerType, filter: Optional[str] = None, timeout: int = 30
+) -> QueryResult:
+    """Questions and submissions of a Tally form (read-only). Returns QueryResult, never raises."""
+    attrs = {"db.system": "tally", "caller": caller.value, "tally.form": str(form_id)}
+
+    def _do():
+        with TallyClient(timeout=timeout) as client:
+            return {
+                "questions": client.list_questions(form_id).get("questions", []),
+                "submissions": list(client.iter_submissions(form_id, filter=filter)),
+            }
+
+    return _run_traced_query("tally.query", attrs, _do)
+
+
+def execute_zendesk_search(
+    query: str,
+    caller: CallerType,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+    max_results: int = 100,
+) -> QueryResult:
+    """Zendesk ticket search, subjects redacted. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": "search.json"}
+
+    def _do():
+        with get_zendesk() as client:
+            tickets = client.search_tickets(query, sort_by=sort_by, sort_order=sort_order, max_results=max_results)
+            return [asdict(ticket) for ticket in tickets]
+
+    return _run_traced_query("zendesk.search", attrs, _do)
+
+
+def execute_zendesk_view_counts(view_ids: list[int], caller: CallerType) -> QueryResult:
+    """Ticket count of each Zendesk view. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": "views/count_many"}
+
+    def _do():
+        with get_zendesk() as client:
+            return client.count_views(view_ids)
+
+    return _run_traced_query("zendesk.view_counts", attrs, _do)
+
+
+def execute_zendesk_view_dates(view_id: int, caller: CallerType) -> QueryResult:
+    """Creation dates of the tickets in a Zendesk view. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": f"views/{view_id}/tickets"}
+
+    def _do():
+        with get_zendesk() as client:
+            return client.view_ticket_dates(view_id)
+
+    return _run_traced_query("zendesk.view_dates", attrs, _do)
 
 
 def execute_query(

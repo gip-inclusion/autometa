@@ -42,6 +42,13 @@ fi
 chmod +x "$HOME/bin/claude"
 "$HOME/bin/claude" --version || true
 
+# Scalingo rejects images over 2 GB. The installer's own copy of the CLI (~280 MB) is
+# dead weight once copied to bin/, and so are the dependencies' test suites (~165 MB):
+# nothing imports a tests/ package at runtime.
+rm -rf "$HOME/.local/share/claude" "$HOME/.local/bin/claude"
+find "$HOME/.scalingo/python/lib" -path '*/site-packages/*' -type d -name tests -prune -exec rm -rf {} +
+echo "-----> Removed the installer's CLI copy and the dependencies' test suites"
+
 # Mark onboarding as complete so the CLI skips the interactive setup wizard
 # (theme selection, login method) which doesn't work in non-interactive terminals.
 # Auth is handled via CLAUDE_CODE_OAUTH_TOKEN env var instead.

@@ -1,19 +1,15 @@
 ---
 name: autometa_tables_db
-description: Query autometa_tables_db — base PostgreSQL centralisant les tables des instances Metabase. Priorité absolue sur Metabase pour toute donnée disponible ici.
+description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
 ---
 
 # autometa_tables_db
 
-Base PostgreSQL contenant les tables exportées depuis les différentes bases de données. À utiliser **en priorité** avant toute requête Metabase.
+Base PostgreSQL contenant les tables exportées depuis les différentes bases de données.
 
-## Règle de priorité
+## Ordre des sources
 
-**Avant toute requête Metabase**, vérifier si les tables nécessaires sont présentes dans `autometa_tables_db` :
-
-1. Interroger `documentation.doc_autometa_tables` pour obtenir la liste et la description des tables disponibles.
-2. Si les tables nécessaires sont présentes → requêter `autometa_tables_db` directement en SQL.
-3. Si absentes → **ne pas s'arrêter là**. Invoquer le skill `metabase_query` pour rechercher la donnée dans les instances Metabase (`stats`, `datalake`, `dora`). Utiliser `search_cards(query)` pour identifier les cartes pertinentes, puis `execute_card(card_id)` ou `execute_sql(sql)` pour récupérer les données. Ne déclarer une donnée absente qu'après avoir cherché dans autometa_tables_db **et** dans Metabase.
+L'ordre entre cette base et Metabase est fixé par `AGENT.md` (section « Sources de données ») ; ce skill ne le recopie pas. Dans cette base, commencer par le catalogue `documentation.doc_autometa_tables` (voir plus bas), puis appliquer les règles de sélection des tables.
 
 ## Règles de sélection des tables
 
@@ -79,7 +75,7 @@ else:
 
 ## Pièges
 
-Les colonnes de date de `les_emplois` sont du **texte** ISO, pas des dates. Écrire
+Les colonnes de date des tables issues des Emplois sont du **texte** ISO, pas des dates. Écrire
 `colonne::date >= x` écarte l'index et double le coût de la requête : comparer comme du
 texte, et passer par `TO_CHAR` quand le terme de droite n'est pas un littéral.
 

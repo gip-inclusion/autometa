@@ -99,7 +99,6 @@ def test_slack_hears_of_an_interruption_once_then_of_the_recovery(mocker):
 
 
 def test_a_batch_run_to_its_end_is_recorded_with_its_tasks(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     task = write_system_task(tmp_path, "sys-ok", "print('ok')")
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[task])
     mocker.patch.object(cron, "is_due", return_value=True)
@@ -119,7 +118,6 @@ def test_a_batch_over_its_budget_still_reaches_its_end(mocker):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[write_task_stub("a"), write_task_stub("b")])
     mocker.patch.object(cron, "is_due", return_value=True)
     mocker.patch.object(cron.alerts, "notify_alert_channel")
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron.time, "monotonic", side_effect=itertools.count(0, 100))
 
     cron.run_all(batch="maintenance", budget=10)
@@ -132,7 +130,6 @@ def write_task_stub(slug):
 
 
 def test_a_task_shows_as_running_while_it_runs(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     seen = {}
 
     def spy(*args, **kwargs):
@@ -148,7 +145,6 @@ def test_a_task_shows_as_running_while_it_runs(mocker, tmp_path):
 
 
 def test_a_task_that_raises_closes_its_own_running_row(mocker):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=RuntimeError("bug"))
     task = {**write_task_stub("tdb-x"), "source": "s3", "tier": "app"}
 
@@ -160,7 +156,6 @@ def test_a_task_that_raises_closes_its_own_running_row(mocker):
 
 
 def test_a_scheduled_success_after_a_failure_still_announces_the_recovery(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     notify = mocker.patch.object(cron, "notify_cron_status_change")
     task = write_system_task(tmp_path, "sys-back", "print('ok')")
     cron.record_run(
@@ -231,7 +226,6 @@ def test_a_weekly_task_catches_up_when_monday_never_really_ran_it(mocker, histor
 
 def test_the_next_batch_runs_a_weekly_task_whose_monday_was_missed(mocker, tmp_path):
     mocker.patch.object(cron, "utcnow", return_value=TUESDAY)
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     task = {**write_system_task(tmp_path, "hebdo", "print('ok')"), "schedule": "weekly"}
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[task])
 

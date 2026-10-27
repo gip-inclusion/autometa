@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-01-13
+---
 # CLPE - Comités Locaux Pour l'Emploi
 
 Documentation des données CLPE disponibles dans Metabase.

@@ -1,3 +1,7 @@
+---
+source: [grist, livestorm]
+verifie_le: 2026-04-02
+---
 # Webinaires — Données de participation
 
 Base de données unifiée des webinaires et inscriptions, alimentée par deux sources :
@@ -157,7 +161,7 @@ Document: GRIST_WEBINAIRES_DOC_ID
 
 ## Taggage produit
 
-Inféré automatiquement depuis le titre du webinaire (`lib/webinaires.infer_product`).
+Inféré automatiquement depuis le titre du webinaire (`infer_product` dans `lib/webinaires.py`).
 
 | Produit | Patterns | Webinaires |
 |---------|----------|-----------|

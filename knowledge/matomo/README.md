@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-04-02
+---
 # Matomo API Reference
 
 > **Note:** You don't need to read all files here. Load only what's relevant to your query.

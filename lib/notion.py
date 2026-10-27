@@ -47,12 +47,13 @@ def db_id_from_url(url: str) -> str:
     return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 
 
-def query_database(db_id: str) -> list[dict]:
-    """All rows of a Notion database (paginated)."""
+def query_database(db_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> list[dict]:
+    """All rows of a Notion database (paginated), optionally filtered and sorted."""
+    query = {key: value for key, value in (("filter", filter), ("sorts", sorts)) if value}
     pages = []
     cursor = None
     while True:
-        payload = {"page_size": 100}
+        payload = {"page_size": 100, **query}
         if cursor:
             payload["start_cursor"] = cursor
         data = notion_request("POST", f"databases/{db_id}/query", payload)
