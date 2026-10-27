@@ -7,6 +7,7 @@ import shutil
 import sys
 from datetime import datetime, timedelta, timezone
 
+import sentry_sdk
 from sqlalchemy import delete, insert, select, update
 
 from lib.dashboards import adopt_dashboard
@@ -19,9 +20,12 @@ from web.models import (
     Dashboard,
     DashboardPublication,
     Message,
+    PinnedItem,
     Report,
     Tag,
+    UserFavorite,
 )
+from web.sentry import init_sentry
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +52,24 @@ def seed() -> None:
                 seed_conversation(session, spec)
     for spec in data["dashboards"]:
         seed_dashboard(spec)
+    logger.info(
+        "Jeu de démonstration en place : %d conversations, %d tableaux de bord",
+        len(data["conversations"]),
+        len(data["dashboards"]),
+    )
 
 
 def seed_conversation(session, spec: dict) -> None:
     user = owner(spec["owner"])
     created = datetime.now(timezone.utc) - timedelta(days=spec["days_ago"])
-    source = select(Message.type, Message.content).where(Message.conversation_id == spec.get("forked_from"))
-    copied = session.execute(source.order_by(Message.id)).all() if "forked_from" in spec else []
-    turns = [(kind, body, n) for n in range(1, spec.get("repeat", 1) + 1) for kind, body in spec["messages"]]
+    rows = []
+    if "forked_from" in spec:
+        source = select(Message.type, Message.content, Message.timestamp).where(
+            Message.conversation_id == spec["forked_from"]
+        )
+        rows = list(session.execute(source.order_by(Message.id)))
+    repeat = spec.get("repeat")
+    turns = [(kind, body, n) for n in range(1, (repeat or 1) + 1) for kind, body in spec["messages"]]
     flag_reason = spec.get("flag_reason")
     session.add(
         Conversation(
@@ -67,15 +81,14 @@ def seed_conversation(session, spec: dict) -> None:
             flag_reason=flag_reason,
             flag_user_id=user if flag_reason else None,
             created_at=created,
-            updated_at=created + timedelta(seconds=20 * (len(copied) + len(turns))),
+            updated_at=created + timedelta(seconds=20 * len(turns)),
         )
     )
     session.flush()
     tag_ids = session.scalars(select(Tag.id).where(Tag.name.in_(spec["tags"])))
     session.add_all(ConversationTag(conversation_id=spec["id"], tag_id=tag_id) for tag_id in tag_ids)
 
-    rows = list(copied)
-    for kind, body, n in turns:
+    for i, (kind, body, n) in enumerate(turns):
         if kind == "report":
             report = Report(
                 **body, source_conversation_id=spec["id"], user_id=user, created_at=created, updated_at=created
@@ -84,28 +97,19 @@ def seed_conversation(session, spec: dict) -> None:
             session.flush()
             body = {"report_id": report.id, "title": report.title}
         content = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
-        rows.append((kind, content.replace("{n}", str(n))))
+        rows.append((kind, content.replace("{n}", str(n)) if repeat else content, created + timedelta(seconds=20 * i)))
     session.execute(
         insert(Message),
         [
-            {
-                "conversation_id": spec["id"],
-                "type": kind,
-                "role": kind,
-                "content": content,
-                "timestamp": created + timedelta(seconds=20 * i),
-            }
-            for i, (kind, content) in enumerate(rows)
+            {"conversation_id": spec["id"], "type": kind, "role": kind, "content": content, "timestamp": timestamp}
+            for kind, content, timestamp in rows
         ],
     )
 
 
 def seed_dashboard(spec: dict) -> None:
-    slug = spec["slug"]
-    with get_db() as session:
-        if session.scalar(select(Dashboard.id).where(Dashboard.slug == slug)) is not None:
-            return
-
+    """Chaque étape converge : un déploiement reprend un tableau à moitié posé et rétablit les copies partagées."""
+    slug, publication_id = spec["slug"], spec.get("publication")
     # Why: adopt_dashboard contrôle les imports sur le dossier local, mais les pages sont servies depuis S3.
     folder = config.INTERACTIVE_DIR / slug
     shutil.copytree(FIXTURES_DIR / "dashboards" / slug, folder, dirs_exist_ok=True)
@@ -114,38 +118,45 @@ def seed_dashboard(spec: dict) -> None:
     for path in sorted(folder.rglob("*")):
         if path.is_file() and not s3.interactive.upload(f"{slug}/{path.relative_to(folder)}", path.read_bytes()):
             raise RuntimeError(f"Envoi S3 impossible pour {slug}/{path.relative_to(folder)}")
+    if publication_id:
+        # Why: identifiant fixe — toutes les review apps partagent le même instantané public au lieu d'en empiler.
+        s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
 
     author = owner(spec["owner"])
-    adopt_dashboard(
-        slug=slug,
-        title=spec["title"],
-        description=spec["description"],
-        website=spec["website"],
-        category=spec["category"],
-        tags=spec["tags"],
-        has_cron=spec["has_cron"],
-        has_api_access=spec["has_api_access"],
-        first_author_email=author,
-        created_in_conversation_id=spec.get("created_in"),
-    )
+    with get_db() as session:
+        adopted = session.scalar(select(Dashboard.id).where(Dashboard.slug == slug)) is not None
+    if not adopted:
+        adopt_dashboard(
+            slug=slug,
+            title=spec["title"],
+            description=spec["description"],
+            website=spec["website"],
+            category=spec["category"],
+            tags=spec["tags"],
+            has_cron=spec["has_cron"],
+            has_api_access=spec["has_api_access"],
+            first_author_email=author,
+            created_in_conversation_id=spec.get("created_in"),
+        )
     now = datetime.now(timezone.utc)
-    publication_id = spec.get("publication")
     with get_db() as session:
         session.execute(update(Dashboard).where(Dashboard.slug == slug).values(is_archived=spec["archived"]))
-        for run in spec["cron_runs"]:
-            started = now - timedelta(hours=run["hours_ago"])
-            session.add(
-                CronRun(
-                    app_slug=slug,
-                    started_at=started,
-                    finished_at=started + timedelta(milliseconds=run["duration_ms"]),
-                    status=run["status"],
-                    output=run["output"],
-                    duration_ms=run["duration_ms"],
-                    trigger="scheduled",
+        if session.scalar(select(CronRun.id).where(CronRun.app_slug == slug).limit(1)) is None:
+            for run in spec["cron_runs"]:
+                started = now - timedelta(hours=run["hours_ago"])
+                session.add(
+                    CronRun(
+                        app_slug=slug,
+                        started_at=started,
+                        finished_at=started + timedelta(milliseconds=run["duration_ms"]),
+                        status=run["status"],
+                        output=run["output"],
+                        duration_ms=run["duration_ms"],
+                        trigger="scheduled",
+                    )
                 )
-            )
-        if publication_id:
+        published = select(DashboardPublication.id).where(DashboardPublication.publication_id == publication_id)
+        if publication_id and session.scalar(published) is None:
             session.add(
                 DashboardPublication(
                     dashboard_slug=slug,
@@ -157,22 +168,26 @@ def seed_dashboard(spec: dict) -> None:
                 )
             )
     if publication_id:
-        # Why: identifiant fixe — toutes les review apps partagent le même instantané public au lieu d'en empiler.
-        s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
         publications.refresh(publication_id)
 
 
 def purge() -> None:
-    """Supprime le jeu de démonstration ; les fichiers S3, partagés entre review apps, restent en place."""
+    """Supprime le jeu de démonstration ; restent les tags, et les fichiers S3 partagés entre review apps."""
     data = load()
     conversation_ids = [spec["id"] for spec in data["conversations"]]
     slugs = [spec["slug"] for spec in data["dashboards"]]
+    # Why: le cron d'une publication tourne sous `<slug>-<publication>` (web/cron.py).
+    run_slugs = slugs + [
+        f"{spec['slug']}-{spec['publication']}" for spec in data["dashboards"] if "publication" in spec
+    ]
     with get_db() as session:
         session.execute(delete(Report).where(Report.source_conversation_id.in_(conversation_ids)))
         session.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
         session.execute(delete(Conversation).where(Conversation.id.in_(conversation_ids)))
-        session.execute(delete(CronRun).where(CronRun.app_slug.in_(slugs)))
+        session.execute(delete(CronRun).where(CronRun.app_slug.in_(run_slugs)))
         session.execute(delete(Dashboard).where(Dashboard.slug.in_(slugs)))
+        session.execute(delete(PinnedItem).where(PinnedItem.item_id.in_(conversation_ids + slugs)))
+        session.execute(delete(UserFavorite).where(UserFavorite.item_id.in_(conversation_ids + slugs)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -184,8 +199,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.purge:
         purge()
-    else:
+        return 0
+    try:
         seed()
+    except Exception:  # Why: des données de démonstration ne doivent jamais bloquer le déploiement d'une review app
+        logger.exception("Jeu de démonstration en échec")
+        init_sentry()
+        sentry_sdk.capture_exception()
     return 0
 
 
