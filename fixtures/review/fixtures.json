@@ -59,7 +59,7 @@
   "conversations": [
     {
       "id": "d3e00000-0000-4000-8000-000000000001",
-      "owner": "admin",
+      "owner": "admin.demo@example.org",
       "title": "Orientations Dora par département",
       "days_ago": 6,
       "tags": [
@@ -705,7 +705,7 @@
         "orientation",
         "indicateurs"
       ],
-      "owner": "admin",
+      "owner": "admin.demo@example.org",
       "has_cron": true,
       "has_api_access": false,
       "archived": false,
@@ -770,7 +770,7 @@
       "tags": [
         "meta"
       ],
-      "owner": "admin",
+      "owner": "admin.demo@example.org",
       "has_cron": false,
       "has_api_access": true,
       "archived": false,

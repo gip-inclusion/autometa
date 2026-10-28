@@ -76,10 +76,15 @@ def test_giga_conversation_holds_thousands_of_messages(seeded):
     assert len(messages(GIGA_CONVERSATION)) >= 6000
 
 
-@pytest.mark.integration
-def test_admin_conversation_belongs_to_the_first_admin(seeded):
-    with get_db() as session:
-        assert session.get(Conversation, ADMIN_CONVERSATION).user_id == config.ADMIN_USERS[0]
+@pytest.mark.parametrize(("env", "admin"), [("review", True), ("staging", False)])
+def test_demo_admin_is_an_admin_only_on_review_apps(env, admin, monkeypatch):
+    demo_admin = next(spec["owner"] for spec in FIXTURES["conversations"] if spec["id"] == ADMIN_CONVERSATION)
+    monkeypatch.setenv("AUTOMETA_ENV", env)
+    try:
+        assert (demo_admin in importlib.reload(config).ADMIN_USERS) is admin
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
 
 
 def test_every_clone_follows_its_source():
