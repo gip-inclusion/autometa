@@ -82,6 +82,18 @@ def test_admin_conversation_belongs_to_the_first_admin(seeded):
         assert session.get(Conversation, ADMIN_CONVERSATION).user_id == config.ADMIN_USERS[0]
 
 
+def test_every_clone_follows_its_source():
+    """Le seed copie les messages de la source au moment du clone : elle doit déjà exister."""
+    order = [spec["id"] for spec in FIXTURES["conversations"]]
+    forks = [
+        (order.index(spec["forked_from"]), order.index(spec["id"]))
+        for spec in FIXTURES["conversations"]
+        if "forked_from" in spec
+    ]
+    assert forks
+    assert all(source < clone for source, clone in forks)
+
+
 @pytest.mark.integration
 def test_clone_copies_its_source_then_diverges(seeded):
     source, clone = messages(SOURCE_CONVERSATION), messages(CLONE_CONVERSATION)
