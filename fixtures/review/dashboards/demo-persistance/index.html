@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes partagées (démo)</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; }
+        li { border-bottom: 1px solid #ddd; padding: .4rem 0; }
+    </style>
+</head>
+<body>
+    <h1>Notes partagées (démo)</h1>
+    <p>Cette page lit et écrit dans <code>dashboard_storage</code> : elle ne peut pas être publiée. La table vit dans la base de staging, partagée par toutes les review apps.</p>
+    <form id="formulaire">
+        <input id="note" required maxlength="200" placeholder="Une note">
+        <button>Ajouter</button>
+    </form>
+    <ul id="notes"></ul>
+    <script>
+        const query = (sql, params) => fetch('/api/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'dashboard_storage', sql, params })
+        }).then(r => r.json());
+
+        const afficher = () => query('SELECT note, created_at FROM dashboard_storage.demo_persistance_notes ORDER BY id DESC LIMIT 20')
+            .then(result => {
+                document.getElementById('notes').replaceChildren(...(result.success ? result.data.rows : []).map(([note, date]) => {
+                    const ligne = document.createElement('li');
+                    ligne.textContent = `${note} — ${date}`;
+                    return ligne;
+                }));
+            });
+
+        document.getElementById('formulaire').addEventListener('submit', event => {
+            event.preventDefault();
+            const champ = document.getElementById('note');
+            query('INSERT INTO dashboard_storage.demo_persistance_notes (note) VALUES (:note)', { note: champ.value })
+                .then(() => { champ.value = ''; afficher(); });
+        });
+
+        afficher();
+    </script>
+</body>
+</html>

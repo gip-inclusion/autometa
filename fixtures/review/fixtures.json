@@ -691,6 +691,7 @@
       "owner": "camille.demo@example.org",
       "has_cron": false,
       "has_api_access": false,
+      "has_persistence": false,
       "archived": false,
       "cron_runs": []
     },
@@ -709,6 +710,7 @@
       "owner": "admin.demo@example.org",
       "has_cron": true,
       "has_api_access": false,
+      "has_persistence": false,
       "archived": false,
       "created_in": "d3e00000-0000-4000-8000-000000000001",
       "cron_runs": [
@@ -752,6 +754,7 @@
       "owner": "dominique.demo@example.org",
       "has_cron": true,
       "has_api_access": false,
+      "has_persistence": false,
       "archived": false,
       "publication": "demo01",
       "cron_runs": [
@@ -775,7 +778,25 @@
       "owner": "admin.demo@example.org",
       "has_cron": false,
       "has_api_access": true,
+      "has_persistence": false,
       "archived": false,
+      "cron_runs": []
+    },
+    {
+      "slug": "demo-persistance",
+      "title": "Notes partagées (démo)",
+      "description": "Lit et écrit des notes dans dashboard_storage : non publiable.",
+      "website": "multi",
+      "category": "Outillage",
+      "tags": [
+        "meta"
+      ],
+      "owner": "dominique.demo@example.org",
+      "has_cron": false,
+      "has_api_access": false,
+      "has_persistence": true,
+      "archived": false,
+      "storage": "CREATE TABLE IF NOT EXISTS dashboard_storage.demo_persistance_notes (id SERIAL PRIMARY KEY, note TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
       "cron_runs": []
     },
     {
@@ -792,6 +813,7 @@
       "owner": "camille.demo@example.org",
       "has_cron": true,
       "has_api_access": false,
+      "has_persistence": false,
       "archived": true,
       "cron_runs": [
         {
