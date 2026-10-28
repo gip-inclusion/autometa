@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orientations Dora mensuelles (démo)</title>
+    <title>{titre}</title>
     <style>
         body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #1e1e1e; }
         table { border-collapse: collapse; width: 100%; }
@@ -12,10 +12,10 @@
     </style>
 </head>
 <body>
-    <h1>Orientations Dora mensuelles (démo)</h1>
+    <h1>{titre}</h1>
     <p>Données de démonstration, régénérées par <code>cron.py</code>. Mis à jour le <span id="maj">…</span>.</p>
     <table>
-        <thead><tr><th>Mois</th><th>Orientations</th><th></th></tr></thead>
+        <thead><tr><th>Mois</th><th>{colonne}</th><th></th></tr></thead>
         <tbody id="lignes"></tbody>
     </table>
     <script>

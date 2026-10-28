@@ -162,6 +162,17 @@ def test_only_cron_dashboards_ship_a_cron(seeded):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("spec", [s for s in FIXTURES["dashboards"] if s["has_cron"]], ids=lambda s: s["slug"])
+def test_cron_dashboards_get_their_own_page_and_todays_data(spec, seeded, tmp_path):
+    folder = tmp_path / spec["slug"]
+    page = (folder / "index.html").read_text()
+    assert f"<title>{spec['title']}</title>" in page
+    assert f"<th>{spec['column']}</th>" in page
+    assert json.loads((folder / "data.json").read_text())["metadata"]["generated_at"] == date.today().isoformat()
+    assert f"{spec['slug']}/data.json" in {call.args[0] for call in seeded.upload.call_args_list}
+
+
+@pytest.mark.integration
 def test_cron_dashboard_has_a_mixed_run_history(seeded):
     with get_db() as session:
         statuses = set(session.scalars(select(CronRun.status).where(CronRun.app_slug == "demo-cron")))
