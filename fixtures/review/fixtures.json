@@ -697,6 +697,7 @@
     {
       "slug": "demo-cron",
       "title": "Orientations Dora mensuelles (démo)",
+      "column": "Orientations",
       "description": "Régénéré chaque matin par un cron de démonstration, sans appel réseau.",
       "website": "dora",
       "category": "Orientations",
@@ -740,6 +741,7 @@
     {
       "slug": "demo-publie-staging",
       "title": "Rendez-vous RDV-Insertion (démo)",
+      "column": "Rendez-vous honorés",
       "description": "Publié en staging : instantané partagé par toutes les review apps.",
       "website": "rdv-insertion",
       "category": "Rendez-vous",
@@ -779,6 +781,7 @@
     {
       "slug": "demo-archive",
       "title": "Candidatures IAE 2025 (démo)",
+      "column": "Candidatures",
       "description": "Tableau archivé : son cron ne tourne plus.",
       "website": "emplois",
       "category": "Candidatures",

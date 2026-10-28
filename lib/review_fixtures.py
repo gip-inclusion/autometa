@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -107,9 +108,14 @@ def seed_dashboard(spec: dict) -> None:
     slug, publication_id = spec["slug"], spec.get("publication")
     # Why: adopt_dashboard contrôle les imports sur le dossier local, mais les pages sont servies depuis S3.
     folder = config.INTERACTIVE_DIR / slug
-    shutil.copytree(FIXTURES_DIR / "dashboards" / slug, folder, dirs_exist_ok=True)
     if spec["has_cron"]:
+        folder.mkdir(parents=True, exist_ok=True)
+        page = (FIXTURES_DIR / "cron.html").read_text()
+        (folder / "index.html").write_text(page.replace("{titre}", spec["title"]).replace("{colonne}", spec["column"]))
         shutil.copy(FIXTURES_DIR / "cron.py", folder / "cron.py")
+        subprocess.run([sys.executable, "cron.py"], cwd=folder, check=True, timeout=60)
+    else:
+        shutil.copytree(FIXTURES_DIR / "dashboards" / slug, folder, dirs_exist_ok=True)
     for path in sorted(folder.rglob("*")):
         if path.is_file() and not s3.interactive.upload(f"{slug}/{path.relative_to(folder)}", path.read_bytes()):
             raise RuntimeError(f"Envoi S3 impossible pour {slug}/{path.relative_to(folder)}")
