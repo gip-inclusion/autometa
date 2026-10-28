@@ -159,6 +159,11 @@ except ValueError as exc:
     sentry_sdk.flush()
     raise
 
+if ENV.seeds_fixtures:
+    # Why: la conversation d'administrateur du jeu de démonstration (lib/review_fixtures.py) appartient
+    # à une adresse fictive, pour n'entrer dans l'historique d'aucun administrateur réel.
+    ADMIN_USERS.append("admin.demo@example.org")
+
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 

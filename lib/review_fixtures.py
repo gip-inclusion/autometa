@@ -36,11 +36,6 @@ def load() -> dict:
     return json.loads((FIXTURES_DIR / "fixtures.json").read_text())
 
 
-def owner(name: str) -> str:
-    """« admin » désigne le premier administrateur configuré : aucune adresse réelle dans le dépôt."""
-    return config.ADMIN_USERS[0] if name == "admin" else name
-
-
 def seed() -> None:
     data = load()
     with get_db() as session:
@@ -60,7 +55,7 @@ def seed() -> None:
 
 
 def seed_conversation(session, spec: dict) -> None:
-    user = owner(spec["owner"])
+    user = spec["owner"]
     created = datetime.now(timezone.utc) - timedelta(days=spec["days_ago"])
     rows = []
     if "forked_from" in spec:
@@ -122,7 +117,7 @@ def seed_dashboard(spec: dict) -> None:
         # Why: identifiant fixe — toutes les review apps partagent le même instantané public au lieu d'en empiler.
         s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
 
-    author = owner(spec["owner"])
+    author = spec["owner"]
     with get_db() as session:
         adopted = session.scalar(select(Dashboard.id).where(Dashboard.slug == slug)) is not None
     if not adopted:
