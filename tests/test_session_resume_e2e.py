@@ -115,9 +115,13 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
     return runner
 
 
-async def _run_consumer_cycle(runner, fake_redis, wait=0.5):
+async def _run_consumer_cycle(runner, fake_redis, turns=1):
+    expected = len(runner._calls) + turns
     consumer = asyncio.create_task(runner._consumer_loop())
-    await asyncio.sleep(wait)
+    # Why: une attente fixe échoue quand la suite sature les cœurs (xdist) — on attend la fin réelle des tours.
+    async with asyncio.timeout(10):
+        while len(runner._calls) < expected or runner._running:
+            await asyncio.sleep(0.01)
     consumer.cancel()
     for t in list(runner._running.values()):
         t.cancel()
@@ -160,7 +164,7 @@ def test_two_parallel_conversations(runner_with_sessions, fake_redis, session_st
     async def _run():
         await runner.submit("conv-a", "Question A", [], session_id="sess-a")
         await runner.submit("conv-b", "Question B", [], session_id="sess-b")
-        await _run_consumer_cycle(runner, fake_redis, wait=1.0)
+        await _run_consumer_cycle(runner, fake_redis, turns=2)
 
         conv_ids = {c["conversation_id"] for c in runner._calls}
         assert conv_ids == {"conv-a", "conv-b"}
