@@ -764,7 +764,7 @@
     {
       "slug": "demo-api-query",
       "title": "Requête live (démo)",
-      "description": "Interroge /api/query à l'ouverture de la page : non publiable.",
+      "description": "Interroge autometa_tables_db via /api/query à l'ouverture de la page : non publiable.",
       "website": "multi",
       "category": "Outillage",
       "tags": [

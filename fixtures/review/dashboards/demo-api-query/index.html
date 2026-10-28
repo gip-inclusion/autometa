@@ -13,13 +13,13 @@
 </head>
 <body>
     <h1>Requête live (démo)</h1>
-    <p>Cette page interroge <code>/api/query</code> à chaque ouverture : elle ne peut pas être publiée.</p>
+    <p>Cette page interroge <code>autometa_tables_db</code> par <code>/api/query</code> à chaque ouverture : elle ne peut pas être publiée.</p>
     <p>Heure du serveur de base : <strong id="resultat">…</strong></p>
     <script>
         fetch('/api/query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: 'dashboard_storage', sql: 'SELECT now() AS maintenant' })
+            body: JSON.stringify({ source: 'autometa_tables_db', sql: 'SELECT now() AS maintenant' })
         }).then(r => r.json()).then(result => {
             document.getElementById('resultat').textContent = result.success ? result.data.rows[0][0] : result.error;
         });
