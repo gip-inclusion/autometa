@@ -17,13 +17,15 @@ Ordre de préférence, du plus au moins prioritaire :
 
 1. **Tables de référence** (liste ci-dessous) : chercher la donnée ici en premier. Ce sont les tables métier de référence, les plus fiables et les mieux connues. Elles sont réparties entre les schémas autorisés — chercher le nom de table dans l'ensemble de ces schémas plutôt que de présumer d'un schéma précis.
 2. **Tables documentées** : si les tables de référence ne couvrent pas le besoin, se limiter aux tables présentes dans `documentation.doc_autometa_tables`.
-3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*`, `intermediate*` et `raw*` (sauf `raw_dora` et `raw_rdvi`) contiennent des données brutes ou des couches intermédiaires du pipeline, non destinées aux analyses.
+3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*` et `intermediate*` sont des couches intermédiaires du pipeline, non destinées aux analyses.
+
+Ordre des schémas : chercher d'abord dans `reporting`, puis dans `public`, et seulement ensuite dans les schémas `raw*`. Les schémas `raw*` (hors `raw_dora` et `raw_rdvi`) contiennent les données brutes : avant d'y requêter, demander à l'utilisateur s'il veut vraiment aller chercher dans les données brutes, et attendre son accord.
 
 Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora__orientations` (tables de référence) avant de se rabattre sur `raw_dora`.
 
 ### Schémas autorisés
 
-`public`, `monrecap`, `reporting`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi` (seules exceptions à l'interdiction de lire les schémas `raw*`), plus `documentation` pour le catalogue.
+`reporting`, `public`, `monrecap`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi`, plus `documentation` pour le catalogue. Les autres schémas `raw*` ne se lisent qu'après accord explicite de l'utilisateur.
 
 ### Tables de référence
 
@@ -86,14 +88,15 @@ Cette liste est indicative — la source de vérité est `documentation.doc_auto
 
 | Schéma | Contenu |
 |---|---|
-| `public` | Tables métier principales |
 | `reporting` | Tables de reporting |
+| `public` | Tables métier principales |
 | `monrecap` | Tables Mon Récap |
 | `data_inclusion` | Tables data·inclusion |
 | `esat` | Tables ESAT |
 | `seeds` | Tables de référentiel (seeds dbt) |
-| `raw_dora` | Tables Dora brutes — schéma `raw*` autorisé |
-| `raw_rdvi` | Tables RDV-Insertion brutes — schéma `raw*` autorisé |
+| `raw_dora` | Tables Dora brutes — lisible sans demander |
+| `raw_rdvi` | Tables RDV-Insertion brutes — lisible sans demander |
+| autres `raw*` | Données brutes — uniquement après accord de l'utilisateur |
 | `documentation` | Catalogue des tables (`doc_autometa_tables`) |
 
-Tout autre schéma (`staging*`, `intermediate*`, autres `raw*`) est hors périmètre.
+Les schémas `staging*` et `intermediate*` sont hors périmètre.
