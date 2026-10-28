@@ -112,6 +112,7 @@ Invoquer via l'outil `Skill` :
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `appli_monrecap_db` — Base applicative Mon Récap, lecture et écriture, sur demande explicite uniquement, jamais pour l'analyse. Avant toute écriture, faire valider par l'utilisateur la requête exacte. Un TDB qui y accède exige une confirmation écrite préalable.
 - `save_report` — Sauvegarder un rapport en base.
+- `verify_dashboard` — **Toujours l'invoquer une fois les fichiers d'un tableau de bord écrits**, avant d'en donner le lien.
 
 ## Modélisation statistique (fréquentiste et bayésienne)
 

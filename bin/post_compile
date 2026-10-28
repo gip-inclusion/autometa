@@ -54,3 +54,6 @@ echo "-----> Removed the installer's CLI copy and the dependencies' test suites"
 # Auth is handled via CLAUDE_CODE_OAUTH_TOKEN env var instead.
 echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
 echo "-----> Created ~/.claude.json (onboarding bypass)"
+
+"$(dirname "$0")/install_playwright_browser.sh" \
+    || echo "-----> WARNING: Playwright browser not installed, verify_dashboard will exit 2"
