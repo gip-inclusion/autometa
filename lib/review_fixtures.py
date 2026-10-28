@@ -37,14 +37,15 @@ def load() -> dict:
 
 
 def seed() -> None:
+    """Purge puis recrée le jeu : chaque déploiement le ramène à son état d'origine."""
+    purge()
     data = load()
     with get_db() as session:
         known = set(session.scalars(select(Tag.name)))
         session.add_all(Tag(**tag) for tag in data["tags"] if tag["name"] not in known)
         session.flush()
         for spec in data["conversations"]:
-            if session.get(Conversation, spec["id"]) is None:
-                seed_conversation(session, spec)
+            seed_conversation(session, spec)
     for spec in data["dashboards"]:
         seed_dashboard(spec)
     logger.info(
@@ -103,7 +104,6 @@ def seed_conversation(session, spec: dict) -> None:
 
 
 def seed_dashboard(spec: dict) -> None:
-    """Chaque étape converge : un déploiement reprend un tableau à moitié posé et rétablit les copies partagées."""
     slug, publication_id = spec["slug"], spec.get("publication")
     # Why: adopt_dashboard contrôle les imports sur le dossier local, mais les pages sont servies depuis S3.
     folder = config.INTERACTIVE_DIR / slug
@@ -117,47 +117,41 @@ def seed_dashboard(spec: dict) -> None:
         # Why: identifiant fixe — toutes les review apps partagent le même instantané public au lieu d'en empiler.
         s3.copy_prefix(f"interactive/{slug}/", config.S3_BUCKET, f"publications/{slug}/{publication_id}/")
 
-    author = spec["owner"]
-    with get_db() as session:
-        adopted = session.scalar(select(Dashboard.id).where(Dashboard.slug == slug)) is not None
-    if not adopted:
-        adopt_dashboard(
-            slug=slug,
-            title=spec["title"],
-            description=spec["description"],
-            website=spec["website"],
-            category=spec["category"],
-            tags=spec["tags"],
-            has_cron=spec["has_cron"],
-            has_api_access=spec["has_api_access"],
-            first_author_email=author,
-            created_in_conversation_id=spec.get("created_in"),
-        )
+    adopt_dashboard(
+        slug=slug,
+        title=spec["title"],
+        description=spec["description"],
+        website=spec["website"],
+        category=spec["category"],
+        tags=spec["tags"],
+        has_cron=spec["has_cron"],
+        has_api_access=spec["has_api_access"],
+        first_author_email=spec["owner"],
+        created_in_conversation_id=spec.get("created_in"),
+    )
     now = datetime.now(timezone.utc)
     with get_db() as session:
         session.execute(update(Dashboard).where(Dashboard.slug == slug).values(is_archived=spec["archived"]))
-        if session.scalar(select(CronRun.id).where(CronRun.app_slug == slug).limit(1)) is None:
-            for run in spec["cron_runs"]:
-                started = now - timedelta(hours=run["hours_ago"])
-                session.add(
-                    CronRun(
-                        app_slug=slug,
-                        started_at=started,
-                        finished_at=started + timedelta(milliseconds=run["duration_ms"]),
-                        status=run["status"],
-                        output=run["output"],
-                        duration_ms=run["duration_ms"],
-                        trigger="scheduled",
-                    )
+        for run in spec["cron_runs"]:
+            started = now - timedelta(hours=run["hours_ago"])
+            session.add(
+                CronRun(
+                    app_slug=slug,
+                    started_at=started,
+                    finished_at=started + timedelta(milliseconds=run["duration_ms"]),
+                    status=run["status"],
+                    output=run["output"],
+                    duration_ms=run["duration_ms"],
+                    trigger="scheduled",
                 )
-        published = select(DashboardPublication.id).where(DashboardPublication.publication_id == publication_id)
-        if publication_id and session.scalar(published) is None:
+            )
+        if publication_id:
             session.add(
                 DashboardPublication(
                     dashboard_slug=slug,
                     publication_id=publication_id,
                     environment="staging",
-                    published_by=author,
+                    published_by=spec["owner"],
                     published_at=now,
                     snapshot_has_cron=spec["has_cron"],
                 )
