@@ -203,16 +203,33 @@ def test_every_seed_restores_the_shared_copies(seeded):
 
 
 @pytest.mark.integration
-def test_next_seed_completes_a_half_seeded_dashboard(seeded):
+def test_next_seed_restores_the_original_state(seeded):
+    before = counts()
     with get_db() as session:
+        title = session.get(Conversation, FLAGGED_CONVERSATION).title
+        session.execute(
+            update(Conversation)
+            .where(Conversation.id == FLAGGED_CONVERSATION)
+            .values(title="Renommée", flagged_at=None, flag_reason=None)
+        )
+        session.add(
+            Message(
+                conversation_id=SOURCE_CONVERSATION,
+                type="user",
+                role="user",
+                content="Et le Var ?",
+                timestamp=datetime.now(timezone.utc),
+            )
+        )
         session.execute(delete(CronRun).where(CronRun.app_slug.in_(SLUGS)))
         session.execute(delete(DashboardPublication))
         session.execute(update(Dashboard).where(Dashboard.slug == "demo-archive").values(is_archived=False))
     review_fixtures.seed()
     with get_db() as session:
+        flagged = session.get(Conversation, FLAGGED_CONVERSATION)
+        assert (flagged.title, flagged.flagged_at is not None) == (title, True)
         assert session.scalar(select(Dashboard.is_archived).where(Dashboard.slug == "demo-archive"))
-        assert session.scalar(select(func.count()).select_from(CronRun).where(CronRun.app_slug == "demo-cron")) == 4
-        assert session.scalar(select(DashboardPublication.publication_id)) == "demo01"
+    assert counts() == before
 
 
 @pytest.mark.integration
