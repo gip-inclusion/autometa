@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import delete, func, select, update
 
 from lib import review_fixtures
+from lib.query import QueryResult
 from web import config, s3
 from web.db import get_db
 from web.db import test_transaction as _test_tx
@@ -41,6 +42,9 @@ def seeded(_db, tmp_path, monkeypatch, mocker):
         upload=mocker.patch.object(s3.interactive, "upload", return_value=True),
         copy_prefix=mocker.patch.object(s3, "copy_prefix", return_value=1),
         sync_prefix=mocker.patch.object(s3, "sync_prefix", return_value=1),
+        storage=mocker.patch.object(
+            review_fixtures.query, "execute_dashboard_storage_query", return_value=QueryResult(success=True, data={})
+        ),
     )
     with _test_tx():
         review_fixtures.seed()
@@ -144,13 +148,14 @@ def test_conversations_have_no_session_to_resume(seeded):
 def test_dashboards_cover_each_mode(seeded):
     with get_db() as session:
         dashboards = session.scalars(select(Dashboard).where(Dashboard.slug.in_(SLUGS)))
-        flags = {d.slug: (d.has_cron, d.has_api_access, d.is_archived) for d in dashboards}
+        flags = {d.slug: (d.has_cron, d.has_api_access, d.has_persistence, d.is_archived) for d in dashboards}
     assert flags == {
-        "demo-sans-cron": (False, False, False),
-        "demo-cron": (True, False, False),
-        "demo-publie-staging": (True, False, False),
-        "demo-api-query": (False, True, False),
-        "demo-archive": (True, False, True),
+        "demo-sans-cron": (False, False, False, False),
+        "demo-cron": (True, False, False, False),
+        "demo-publie-staging": (True, False, False, False),
+        "demo-api-query": (False, True, False, False),
+        "demo-persistance": (False, False, True, False),
+        "demo-archive": (True, False, False, True),
     }
 
 
@@ -158,7 +163,7 @@ def test_dashboards_cover_each_mode(seeded):
 def test_only_cron_dashboards_ship_a_cron(seeded):
     uploaded = {call.args[0] for call in seeded.upload.call_args_list}
     assert {"demo-cron/cron.py", "demo-publie-staging/cron.py", "demo-archive/cron.py"} <= uploaded
-    assert {"demo-sans-cron/cron.py", "demo-api-query/cron.py"}.isdisjoint(uploaded)
+    assert {"demo-sans-cron/cron.py", "demo-api-query/cron.py", "demo-persistance/cron.py"}.isdisjoint(uploaded)
 
 
 @pytest.mark.integration
@@ -170,6 +175,21 @@ def test_cron_dashboards_get_their_own_page_and_todays_data(spec, seeded, tmp_pa
     assert f"<th>{spec['column']}</th>" in page
     assert json.loads((folder / "data.json").read_text())["metadata"]["generated_at"] == date.today().isoformat()
     assert f"{spec['slug']}/data.json" in {call.args[0] for call in seeded.upload.call_args_list}
+
+
+@pytest.mark.integration
+def test_persistence_table_is_created_if_missing_and_never_dropped(seeded):
+    review_fixtures.seed()
+    statements = [call.kwargs["sql"] for call in seeded.storage.call_args_list]
+    assert len(statements) == 2
+    assert all(sql.startswith("CREATE TABLE IF NOT EXISTS dashboard_storage.") for sql in statements)
+
+
+@pytest.mark.integration
+def test_a_storage_failure_fails_the_seed(seeded):
+    seeded.storage.return_value = QueryResult(success=False, data=None, error="permission denied")
+    with pytest.raises(RuntimeError, match="permission denied"):
+        review_fixtures.seed()
 
 
 @pytest.mark.integration

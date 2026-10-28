@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import sentry_sdk
 from sqlalchemy import delete, insert, select, update
 
+from lib import query
 from lib.dashboards import adopt_dashboard
 from web import config, publications, s3
 from web.db import get_db
@@ -116,6 +117,10 @@ def seed_dashboard(spec: dict) -> None:
         subprocess.run([sys.executable, "cron.py"], cwd=folder, check=True, timeout=60)
     else:
         shutil.copytree(FIXTURES_DIR / "dashboards" / slug, folder, dirs_exist_ok=True)
+    if "storage" in spec:
+        result = query.execute_dashboard_storage_query(sql=spec["storage"], caller=query.CallerType.AGENT)
+        if not result.success:
+            raise RuntimeError(f"Table de démonstration impossible pour {slug} : {result.error}")
     for path in sorted(folder.rglob("*")):
         if path.is_file() and not s3.interactive.upload(f"{slug}/{path.relative_to(folder)}", path.read_bytes()):
             raise RuntimeError(f"Envoi S3 impossible pour {slug}/{path.relative_to(folder)}")
@@ -132,6 +137,7 @@ def seed_dashboard(spec: dict) -> None:
         tags=spec["tags"],
         has_cron=spec["has_cron"],
         has_api_access=spec["has_api_access"],
+        has_persistence=spec["has_persistence"],
         first_author_email=spec["owner"],
         created_in_conversation_id=spec.get("created_in"),
     )
@@ -167,7 +173,7 @@ def seed_dashboard(spec: dict) -> None:
 
 
 def purge() -> None:
-    """Supprime le jeu de démonstration ; restent les tags, et les fichiers S3 partagés entre review apps."""
+    """Supprime le jeu de démonstration ; restent les tags, les fichiers S3 et la table de dashboard_storage, partagés."""
     data = load()
     conversation_ids = [spec["id"] for spec in data["conversations"]]
     slugs = [spec["slug"] for spec in data["dashboards"]]
