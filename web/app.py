@@ -18,6 +18,7 @@ from lib.variants import KEY_RE, list_variants
 
 from . import config, csp, memory_introspect, sync_to_s3
 from . import s3 as s3_module
+from .conversation_embeddings.query_embedding import prepare_embedding_model
 from .deps import templates
 from .helpers import sanitize_for_log
 from .log import setup_logging
@@ -63,6 +64,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown tasks."""
     # Warmup (cache rebuild) runs in background — app serves requests immediately
     warmup_task = asyncio.create_task(asyncio.to_thread(warmup))
+    embedding_task = asyncio.create_task(asyncio.to_thread(prepare_embedding_model))
     sync_to_s3.start_sync_watcher()
 
     try:
@@ -78,6 +80,7 @@ async def lifespan(app: FastAPI):
     yield
 
     warmup_task.cancel()
+    embedding_task.cancel()
     if mem_task:
         mem_task.cancel()
     await runner.shutdown()

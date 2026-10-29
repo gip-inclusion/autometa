@@ -1,5 +1,7 @@
 """Recherche de conversations par le sens (embeddings) avec repli sur les mots exacts."""
 
+import math
+
 import pytest
 
 from web import config
@@ -12,6 +14,12 @@ pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 ALICE = "alice@example.com"
 BOB = "bob@example.com"
+
+
+@pytest.fixture(autouse=True)
+def embedding_model_ready(mocker):
+    mocker.patch("web.routes.html.is_embedding_model_ready", return_value=True)
+    mocker.patch("web.routes.conversations.is_embedding_model_ready", return_value=True)
 
 
 def headers(email=ALICE):
@@ -33,22 +41,68 @@ def embedded_conversation(content, axis, title=None, user_id=ALICE):
     conv = store.create_conversation(user_id=user_id)
     if title:
         store.update_conversation(conv.id, title=title)
-    message = store.add_message(conv.id, "user", content)
+    embed_message(conv, content, unit_vector(axis))
+    return conv
+
+
+def embed_message(conv, content, vector, role="user"):
+    message = store.add_message(conv.id, role, content)
     with get_db() as session:
         session.add(
             ConversationMessageEmbedding(
                 message_id=message.id,
                 conversation_id=conv.id,
-                user_id=user_id,
-                role="user",
-                content_hash=f"hash-{axis}-{conv.id}",
+                user_id=conv.user_id,
+                role=role,
+                content_hash=f"hash-{message.id}",
                 content_length=len(content),
                 message_timestamp=utcnow(),
                 embedding_model=config.EMBEDDING_MODEL,
-                embedding=unit_vector(axis),
+                embedding=vector,
             )
         )
-    return conv
+
+
+def test_similar_groups_by_best_message_and_limits_to_three(client, mocker):
+    current = store.create_conversation(user_id=ALICE)
+    store.add_message(current.id, "user", "Question actuelle")
+    closest = embedded_conversation("Question éloignée", axis=1, title="Fréquentation", user_id=BOB)
+    embed_message(closest, "Réponse sur les visites du portail.", unit_vector(0), role="assistant")
+
+    ranked = []
+    for cosine in (0.8, 0.6, 0.4):
+        conv = store.create_conversation(user_id=BOB)
+        vector = [cosine, math.sqrt(1 - cosine**2)] + [0.0] * 254
+        embed_message(conv, "Analyse des visites", vector, role="report")
+        ranked.append(conv.id)
+
+    embed = mocker.patch("web.routes.conversations.embed_query", return_value=unit_vector(0))
+    response = client.get(f"/api/conversations/{current.id}/similar", headers=headers())
+
+    assert response.status_code == 200
+    results = response.json()["conversations"]
+    assert [conv["id"] for conv in results] == [closest.id, *ranked[:2]]
+    assert results[0] == {"id": closest.id, "title": "Fréquentation"}
+    embed.assert_called_once_with("Question actuelle")
+
+
+def test_search_keeps_keywords_while_model_loads_and_adds_semantic_results_when_ready(client, mocker):
+    keyword = embedded_conversation("Les candidatures", axis=1, title="Tableau emploi")
+    semantic = embedded_conversation("Les visites du portail", axis=0, title="Fréquentation")
+    mocker.patch("web.routes.html.is_embedding_model_ready", side_effect=[False, True])
+    embed = mocker.patch("web.routes.html.embed_query", return_value=unit_vector(0))
+
+    pending = client.get("/conversations?q=emploi", headers=headers()).text
+
+    assert f"conv-{keyword.id}" in pending
+    assert f"conv-{semantic.id}" not in pending
+    embed.assert_not_called()
+
+    ready = client.get("/conversations?q=emploi", headers=headers()).text
+
+    assert f"conv-{keyword.id}" in ready
+    assert f"conv-{semantic.id}" in ready
+    embed.assert_called_once_with("emploi")
 
 
 def test_dod_9_la_recherche_retrouve_par_le_sens(client, mocker):

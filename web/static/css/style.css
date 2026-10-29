@@ -3033,6 +3033,14 @@ body.has-sidebar {
   padding: 0.5rem;
 }
 
+.similar-conversations {
+  flex-shrink: 0;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
 /* Show tab content based on sidebar data-active-tab (single source of truth) */
 .actions-sidebar[data-active-tab="toc"] #tocContent,
 .actions-sidebar[data-active-tab="actions"] #actionsContent {
@@ -3180,9 +3188,22 @@ body.has-sidebar {
 @media (max-width: 991.98px) {
   .chat-with-sidebar {
     grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
   }
 
   .actions-sidebar {
+    display: none;
+  }
+
+  .actions-sidebar:has(.similar-conversations:not([hidden])) {
+    display: flex;
+    border-left: 0;
+    border-top: 1px solid var(--bs-border-color);
+  }
+
+  .actions-sidebar .actions-sidebar-header,
+  .actions-sidebar .sidebar-tab-content,
+  .actions-sidebar .actions-sidebar-footer {
     display: none;
   }
 
