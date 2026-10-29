@@ -162,14 +162,54 @@ def parse_retry_after(value: Optional[str], default: int = 60) -> int:
         return default
 
 
+class ClientCredentialsAuth(httpx.Auth):
+    """Bearer token from Zendesk's OAuth client_credentials grant, fetched again on expiry or 401."""
+
+    requires_response_body = True
+
+    def __init__(self, token_url: str, client_id: str, client_secret: str) -> None:
+        self.token_url = token_url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.token: Optional[str] = None
+        self.expires_at = 0.0
+
+    def auth_flow(self, request: httpx.Request) -> Iterator[httpx.Request]:
+        if time.monotonic() >= self.expires_at:
+            yield from self.fetch_token()
+        request.headers["Authorization"] = f"Bearer {self.token}"
+        response = yield request
+        if response.status_code == 401:
+            yield from self.fetch_token()
+            request.headers["Authorization"] = f"Bearer {self.token}"
+            yield request
+
+    def fetch_token(self) -> Iterator[httpx.Request]:
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "scope": "read hc:write macros:write",
+        }
+        # Why: httpx applies the client timeout only to the request it was sent, not to those auth_flow yields.
+        timeout = httpx.Timeout(_DEFAULT_TIMEOUT).as_dict()
+        response = yield httpx.Request("POST", self.token_url, json=payload, extensions={"timeout": timeout})
+        if not response.is_success:
+            raise ZendeskError(response.status_code, response.text[:200])
+        data = response.json()
+        self.token = data["access_token"]
+        # Why: renew a minute early so a token never expires between the check and the request.
+        self.expires_at = time.monotonic() + data["expires_in"] - 60
+
+
 class ZendeskAPI:
     """Zendesk REST API client with built-in rate limiting: tickets read-only, Guide and macros read-write."""
 
     def __init__(
         self,
         subdomain: str,
-        email: str,
-        token: str,
+        client_id: str,
+        client_secret: str,
         instance: str = "emplois",
         redact: bool = True,
     ) -> None:
@@ -178,7 +218,7 @@ class ZendeskAPI:
         self.redact = redact
         self._client = httpx.Client(
             transport=httpx.HTTPTransport(retries=2),
-            auth=(f"{email}/token", token),
+            auth=ClientCredentialsAuth(f"https://{subdomain}.zendesk.com/oauth/tokens", client_id, client_secret),
             headers={"Accept": "application/json"},
             timeout=_DEFAULT_TIMEOUT,
         )
