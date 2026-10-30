@@ -16,12 +16,12 @@ from lib.query import CallerType, execute_metabase_query
 from lib.slack import post_message
 
 from . import config
-from .helpers import utcnow
+from .helpers import DISPLAY_TZ, utcnow
 from .redaction import EMAIL, redact, secret_kinds
 
 AUDIT_DIR = config.DATA_DIR / "audit"
 GRID = config.BASE_DIR / "plugins" / "retrospect" / "skills" / "conversations" / "grille.json"
-# Même valeur que le `limit` des requêtes de messages : une page pleine en annonce une autre.
+# Même valeur que le `limit` des requêtes paginées : une page pleine en annonce une autre.
 PAGE = 1000
 MESSAGES_SQL = (
     "select id, conversation_id, type, timestamp, length(content) as len, left(content, 40000) as content "
@@ -34,8 +34,8 @@ CONTEXT_SQL = (
     "order by id limit 1000"
 )
 CONVERSATIONS_SQL = (
-    "select id, user_id, title, forked_from, created_at from conversations where id in "
-    "(select distinct conversation_id from messages where id > {{first}} and id <= {{last}})"
+    "select id, user_id, title, forked_from, created_at from conversations where id > {{after}} and id in "
+    "(select distinct conversation_id from messages where id > {{first}} and id <= {{last}}) order by id limit 1000"
 )
 # Why: les ids suivent l'ordre d'insertion, pas les horodatages — un fork recopie l'historique avec ses dates
 # d'origine. Une borne est donc le dernier id avant le premier message horodaté à partir de cet instant.
@@ -292,7 +292,8 @@ def prod_rows(sql: str, **params: int | str) -> list[dict]:
     return [dict(zip(result.data["columns"], row)) for row in result.data["rows"]]
 
 
-def fetch_messages(sql: str, after: int, **params: int) -> list[dict]:
+def fetch_pages(sql: str, after: int | str, **params: int) -> list[dict]:
+    """Toutes les lignes d'une requête paginée sur `id` ; Metabase plafonne une réponse à 2 000 lignes."""
     rows = []
     while True:
         page = prod_rows(sql, after=after, **params)
@@ -315,6 +316,8 @@ def start(kind: str, since: dt.date | None = None, until: dt.date | None = None)
             f"Run {opened[0]} encore ouvert : le clore ou l'abandonner (finish) avant d'en ouvrir un autre."
         )
     daily_runs = []
+    if kind == "weekly" and (since or until):
+        raise AuditError("--since et --until ne valent que pour un run quotidien.")
     if kind == "daily":
         after = watermark()
         if after is not None and since:
@@ -322,10 +325,10 @@ def start(kind: str, since: dt.date | None = None, until: dt.date | None = None)
         if after is None and not since:
             raise AuditError("Premier run : donner --since (date du premier jour audité).")
         if since:
-            after = prod_rows(BOUND_SQL, at=since.isoformat())[0]["id"]
+            after = prod_rows(BOUND_SQL, at=day_start(since))[0]["id"]
         # Why: des insertions concurrentes peuvent valider un id inférieur après un id supérieur ; s'arrêter dix
         # minutes avant maintenant laisse le temps aux transactions en cours de se terminer.
-        bound = until.isoformat() if until else (utcnow() - dt.timedelta(minutes=10)).isoformat()
+        bound = day_start(until) if until else (utcnow() - dt.timedelta(minutes=10)).isoformat()
         last = prod_rows(BOUND_SQL, at=bound)[0]["id"]
     else:
         weeklies = [r for r in runs if r.kind == "weekly" and r.status == "clos"]
@@ -351,11 +354,27 @@ def start(kind: str, since: dt.date | None = None, until: dt.date | None = None)
     return run
 
 
+def day_start(day: dt.date) -> str:
+    """Minuit, heure de Paris : un jour audité est un jour des utilisateurs."""
+    return dt.datetime.combine(day, dt.time(), DISPLAY_TZ).isoformat()
+
+
+def aware(value) -> dt.datetime:
+    moment = dt.datetime.fromisoformat(str(value))
+    return moment if moment.tzinfo else moment.replace(tzinfo=dt.UTC)
+
+
 def is_fork_copy(message: dict, conv: dict) -> bool:
     """Message recopié par un fork depuis la conversation d'origine, où il a déjà été audité."""
-    return bool(conv["forked_from"]) and dt.datetime.fromisoformat(
-        str(message["timestamp"])
-    ) < dt.datetime.fromisoformat(str(conv["created_at"]))
+    return bool(conv["forked_from"]) and aware(message["timestamp"]) < aware(conv["created_at"])
+
+
+def without_cut_word(message: dict) -> dict:
+    """Un contenu tronqué perd son dernier mot : un secret à cheval sur la coupure ne laisse aucun début lisible."""
+    content = message["content"]
+    if message["len"] <= len(content):
+        return message
+    return {**message, "content": content[: max(0, *(content.rfind(c) for c in " \n\"'"))]}
 
 
 def parse(message: dict) -> tuple[str, str | None]:
@@ -406,6 +425,12 @@ def detect(messages: list[dict], rules: list[tuple[str, set[str], re.Pattern]]) 
     return dict(hits)
 
 
+def body(text: str, head: int, tail: int = 0) -> str:
+    """Corps d'un message dans une transcription : masqué avant d'être coupé, et sans titre markdown qui imiterait les
+    sections de la transcription (« Incidents déjà relevés »)."""
+    return re.sub(r"(?m)^#", r"\\#", clip(scrub(text), head, tail))
+
+
 def render(conv: dict, messages: list[dict], context: list[dict], previous: list[Finding]) -> str:
     lines = [
         f"# {conv['title']}",
@@ -413,29 +438,28 @@ def render(conv: dict, messages: list[dict], context: list[dict], previous: list
     ]
     if context:
         lines += ["", "## Contexte : messages antérieurs, déjà audités"]
-        lines += [f"\n[{m['id']}] {m['type'].upper()}\n{clip(scrub(m['content']), 1500)}" for m in context]
+        lines += [f"\n[{m['id']}] {m['type'].upper()}\n{body(m['content'], 1500)}" for m in context]
     if previous:
         lines += ["", "## Incidents déjà relevés sur cette conversation (ne pas les signaler à nouveau)"]
         lines += [f"- {f.key} {f.severity} : {f.description[:200]}" for f in previous]
     lines += ["", "## Messages à auditer"]
-    # Why: masquer avant de couper — une coupure au milieu d'un secret laisserait une forme que le masquage ne reconnaît plus.
     for m in messages:
         text, tool = parse(m)
         head = f"[{m['id']} {str(m['timestamp'])[:19]}]"
         if m["type"] == "user":
-            lines.append(f"\n## {head} USER\n{clip(scrub(m['content']), 6000, 1000)}")
+            lines.append(f"\n## {head} USER\n{body(m['content'], 6000, 1000)}")
         elif m["type"] == "assistant":
-            lines.append(f"\n## {head} ASSISTANT\n{clip(scrub(m['content']), 12000, 2000)}")
+            lines.append(f"\n## {head} ASSISTANT\n{body(m['content'], 12000, 2000)}")
         elif m["type"] == "tool_use":
-            lines.append(f"\n### {head} TOOL_USE {tool}\n{clip(scrub(text), 3500, 500)}")
+            lines.append(f"\n### {head} TOOL_USE {tool}\n{body(text, 3500, 500)}")
         else:
-            lines.append(f"\n### {head} TOOL_RESULT (len={m['len']})\n{clip(scrub(text), 3500, 800)}")
+            lines.append(f"\n### {head} TOOL_RESULT (len={m['len']})\n{body(text, 3500, 800)}")
     return scrub("\n".join(lines))
 
 
 def write_batches(index: list[dict], count: int, out: Path) -> list[dict]:
     """Répartit les conversations en lots de taille comparable, les plus longues d'abord."""
-    bins = [[] for _ in range(max(1, min(count, len(index))))]
+    bins = [[] for _ in range(min(max(count, 1), len(index)))]
     sizes = [0] * len(bins)
     for item in sorted(index, key=lambda x: -x["chars"]):
         k = sizes.index(min(sizes))
@@ -467,19 +491,22 @@ def extract(run_id: int, batches: int | None = None) -> dict:
         raise AuditError(f"Run {run_id} : l'extraction ne concerne qu'un run quotidien ouvert.")
     window = {"first": run.after_message_id, "last": run.last_message_id}
     excluded = {r.conversation_id for r in load_runs() if r.conversation_id}
-    convs = {c["id"]: c for c in prod_rows(CONVERSATIONS_SQL, **window) if c["id"] not in excluded}
+    # Why: les ids de conversation sont des UUID en texte ; « 0 » les précède tous.
+    convs = {c["id"]: c for c in fetch_pages(CONVERSATIONS_SQL, "0", **window) if c["id"] not in excluded}
     fetched = [
-        m
-        for m in fetch_messages(MESSAGES_SQL, run.after_message_id, last=run.last_message_id)
+        without_cut_word(m)
+        for m in fetch_pages(MESSAGES_SQL, run.after_message_id, last=run.last_message_id)
         if m["conversation_id"] in convs
     ]
     copies = {m["id"] for m in fetched if is_fork_copy(m, convs[m["conversation_id"]])}
     messages = [m for m in fetched if m["id"] not in copies]
-    context = fetch_messages(CONTEXT_SQL, 0, **window) + [
+    context = [without_cut_word(m) for m in fetch_pages(CONTEXT_SQL, 0, **window)] + [
         m for m in fetched if m["id"] in copies and m["type"] in ("user", "assistant")
     ]
     out = work_dir(run_id)
     (out / "tx").mkdir(parents=True, exist_ok=True)
+    for stale in out.glob("batch_*.md"):
+        stale.unlink()
     by_conv, context_by_conv, previous = (collections.defaultdict(list) for _ in range(3))
     for m in messages:
         by_conv[m["conversation_id"]].append(m)
@@ -487,7 +514,9 @@ def extract(run_id: int, batches: int | None = None) -> dict:
         context_by_conv[m["conversation_id"]].append(m)
     for f in all_findings():
         previous[f.conversation_id].append(f)
-    rules = [(c.code, set(c.on), re.compile(c.pattern)) for c in load_criteria() if c.status == "actif" and c.pattern]
+    criteria = [c for c in load_criteria() if c.status == "actif"]
+    rules = [(c.code, set(c.on), re.compile(c.pattern)) for c in criteria if c.pattern]
+    active = {c.code for c in criteria}
     writers = collections.defaultdict(set)
     for m in messages:
         if m["type"] == "tool_use":
@@ -504,6 +533,7 @@ def extract(run_id: int, batches: int | None = None) -> dict:
         hits = detect(conv_messages, rules)
         if shared := [path for path, ids in collisions.items() if conv["id"] in ids]:
             hits["G29"] = [(conv_messages[0]["id"], f"/tmp partagé : {path}") for path in shared]
+        hits = {code: found for code, found in hits.items() if code in active}
         index.append({
             "id": conv["id"],
             "user": conv["user_id"],
