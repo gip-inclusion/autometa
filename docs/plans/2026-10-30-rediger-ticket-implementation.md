@@ -190,6 +190,8 @@ git commit -m "Add Notion backlog, member directory and Figma settings"
 
 ### Tâche 3 : lecture des maquettes Figma (`lib/figma.py`) — DOD-1
 
+> **Révisé après relecture (commit e5a027a)** : liens de branche réels, `node-id` encodé, nœud absent, un seul appel d'images par échelle, champ `genre` et paramètres inutilisés retirés. Le code de référence est `lib/figma.py` ; le code ci-dessous est l'état d'origine.
+
 **Fichiers :**
 - Créer : `lib/figma.py`
 - Test : `tests/test_figma.py`
