@@ -18,6 +18,8 @@
 
 **Attestations : abandonnées le 2026-10-30 à la demande de l'utilisateur.** On garde la DoD et le plan ; on ne lance plus `make paved-road-advance` ni `reprove` (ni rouge, ni vert, ni empreintes). Les étapes d'attestation ci-dessous sont à sauter ; les tests gardent leurs noms `test_dod_<n>_…`. Ancienne règle, pour mémoire : un critère se prouve par des tests nommés `test_dod_<n>_…`, lancés par `uv run --frozen pytest <fichiers> -k dod_<n>` (l'outil refuse `python -m`). Le rouge et le vert s'apparient par critère, pas par commande. Chaque commit sous `lib/`, `skills/` ou `tests/` périme les verts précédents : `make paved-road-reprove` les rejoue en fin de parcours (tâche 9). En tâche 7, rejouer les verts de DOD-1 et DOD-3 avec les tests des scripts en plus : `uv run --frozen pytest tests/test_figma.py tests/test_rediger_ticket_scripts.py -k dod_1` et `uv run --frozen pytest tests/test_backlog.py tests/test_rediger_ticket_scripts.py -k dod_3`.
 
+**Dette reportée (2026-10-30) :** `ensure_schema` existe désormais en trois copies (`lib/tag_suggestions.py`, `lib/failure_detection.py`, `lib/backlog_stockage.py`). L'extraction dans un module commun se fera dans une PR séparée, pour ne pas mêler deux changements logiques.
+
 ## Contraintes globales
 
 - Lecture d'environnement uniquement dans `web/config.py` (règle TID251).
@@ -813,6 +815,8 @@ make paved-road-advance DOD=DOD-3 CMD='uv run --frozen pytest tests/test_backlog
 
 ### Tâche 5 : contexte rangé et cron quotidien — DOD-2
 
+> **Révisé après relecture (commits 81a709d, 7874763)** : la table est définie en SQLAlchemy et créée par le moteur applicatif, comme le veut `.claude/rules/sql.md` (et non par `query_storage`, dont le rôle sert `/api/query`) ; fraîcheur de 30 h ; une écriture plus ancienne n'écrase pas une plus récente ; tests d'intégration sur PostgreSQL. Le code de référence est `lib/backlog_stockage.py` ; le code ci-dessous est l'état d'origine.
+
 **Fichiers :**
 - Créer : `lib/backlog_stockage.py`, `cron/contexte-backlog/CRON.md`, `cron/contexte-backlog/cron.py`
 - Test : `tests/test_backlog_stockage.py`
@@ -1071,25 +1075,31 @@ def test_emoji_autometa_parcourt_les_pages(mocker):
     assert creation.emoji_autometa() == "e"
 
 
+def page_notion(base, titre="", archivee=False):
+    return {"parent": {"database_id": base}, "archived": archivee, "properties": {"Nom": {"type": "title", "title": [{"plain_text": titre}]}}}
+
+
 @pytest.mark.parametrize(
-    ("parents", "ticket_relations"),
+    ("pages", "champs", "message"),
     [
-        ({"e1": "autre-base"}, {"equipes": ["e1"]}),
-        ({"e1": "equipes", "p1": "equipes"}, {"equipes": ["e1"], "epic": "p1"}),
+        ({"e1": page_notion("autre-base")}, {}, "pas une page active"),
+        ({"e1": page_notion("equipes"), "p1": page_notion("equipes")}, {"epic": "p1"}, "pas une page active"),
+        ({"e1": page_notion("equipes", archivee=True)}, {}, "pas une page active"),
+        ({"e1": page_notion("equipes", "Prescription")}, {"noms": {"e1": "Emplois"}}, "ne s'appelle pas"),
     ],
 )
-def test_dod_4_verifier_relations_refuse_une_page_hors_base(mocker, parents, ticket_relations):
+def test_dod_4_verifier_relations_refuse(mocker, pages, champs, message):
     mocker.patch.object(creation.backlog, "bases_liees", return_value={"equipes": "equi-pes", "epics": "epics"})
-    mocker.patch("lib.notion.notion_request", side_effect=lambda methode, chemin, charge=None: {"parent": {"database_id": parents[chemin.split("/")[1]]}})
-    with pytest.raises(ValueError, match="Relation refusée"):
-        creation.verifier_relations(ticket(**ticket_relations))
+    mocker.patch("lib.notion.notion_request", side_effect=lambda methode, chemin, charge=None: pages[chemin.split("/")[1]])
+    with pytest.raises(ValueError, match=message):
+        creation.verifier_relations(ticket(**champs))
 
 
-def test_dod_4_verifier_relations_accepte_les_pages_des_bonnes_bases(mocker):
+def test_dod_4_verifier_relations_accepte_les_pages_attendues(mocker):
     mocker.patch.object(creation.backlog, "bases_liees", return_value={"equipes": "equi-pes", "epics": "epics"})
-    parents = {"e1": "equipes", "p1": "e-pics"}
-    appel = mocker.patch("lib.notion.notion_request", side_effect=lambda methode, chemin, charge=None: {"parent": {"database_id": parents[chemin.split("/")[1]]}})
-    creation.verifier_relations(ticket(epic="p1"))
+    pages = {"e1": page_notion("equipes", "Emplois"), "p1": page_notion("e-pics", "RUN EMPLOIS")}
+    appel = mocker.patch("lib.notion.notion_request", side_effect=lambda methode, chemin, charge=None: pages[chemin.split("/")[1]])
+    creation.verifier_relations(ticket(epic="p1", noms={"e1": "Emplois", "p1": "RUN EMPLOIS"}))
     assert [c.args[1] for c in appel.call_args_list] == ["pages/e1", "pages/p1"]
 
 
@@ -1119,7 +1129,7 @@ Expected: échec à l'import.
 """Création d'un ticket dans le Backlog unifié, après accord de l'auteur."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from lib import backlog, notion
 from web import config
@@ -1148,6 +1158,7 @@ class Ticket:
     epic: str | None = None
     champ_auteur: str | None = None
     auteur_notion_id: str | None = None
+    noms: dict[str, str] = field(default_factory=dict)
 
 
 def construire_proprietes(ticket: Ticket) -> dict:
@@ -1203,17 +1214,19 @@ def placer_marqueur(blocs: list[dict], emoji_id: str | None) -> list[dict]:
 
 
 def verifier_relations(ticket: Ticket) -> None:
-    """Vérifie dans Notion que les équipes et l'épic du ticket sont des pages des bases attendues."""
-    # Why: les identifiants viennent du contexte rangé dans dashboard_storage, que tout utilisateur
-    # connecté peut modifier par /api/query ; on ne les écrit dans Notion qu'après vérification.
+    """Vérifie dans Notion que chaque équipe et l'épic du ticket sont la page attendue, active, dans la bonne base."""
+    # Why: les identifiants viennent d'un contexte rangé hors de Notion ; on ne les écrit qu'après vérification.
     bases = backlog.bases_liees()
     attendues = [(equipe, bases["equipes"]) for equipe in ticket.equipes]
     if ticket.epic:
         attendues.append((ticket.epic, bases["epics"]))
     for page_id, base in attendues:
-        parent = notion.notion_request("GET", f"pages/{page_id}").get("parent") or {}
-        if parent.get("database_id", "").replace("-", "") != base.replace("-", ""):
-            raise ValueError(f"Relation refusée : {page_id} n'est pas une page de la base attendue")
+        page = notion.notion_request("GET", f"pages/{page_id}")
+        parent = (page.get("parent") or {}).get("database_id", "")
+        if parent.replace("-", "") != base.replace("-", "") or page.get("archived") or page.get("in_trash"):
+            raise ValueError(f"Relation refusée : {page_id} n'est pas une page active de la base attendue")
+        if page_id in ticket.noms and backlog.titre(page) != ticket.noms[page_id]:
+            raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {ticket.noms[page_id]} »")
 
 
 def creer_ticket(ticket: Ticket) -> tuple[str, str]:
@@ -1236,7 +1249,7 @@ Si l'essai de la tâche 1 a montré une autre forme de mention, la reporter dans
 - [ ] **Étape 4 : lancer les tests**
 
 Run: `uv run --frozen pytest tests/test_backlog_creation.py -q`
-Expected: `13 passed`
+Expected: `15 passed`
 
 - [ ] **Étape 5 : committer et attester**
 
@@ -1316,6 +1329,7 @@ def test_dod_5_creer_avec_go_resout_noms_et_auteur(mocker, tmp_path):
     assert creer.run(Namespace(brouillon=brouillon(tmp_path), go=True)) == "Ticket créé : https://notion/p"
     ticket = creation.call_args.args[0]
     assert (ticket.equipes, ticket.epic, ticket.champ_auteur, ticket.auteur_notion_id) == (["e1"], "p1", "POM", "u1")
+    assert ticket.noms == {"e1": "Emplois inclusifs et dispositifs réglementés", "p1": "RUN EMPLOIS"}
 
 
 def test_creer_respecte_le_champ_donne_par_l_auteur(mocker, tmp_path):
@@ -1651,6 +1665,7 @@ def resoudre(brouillon: dict, contexte: dict, auteur: backlog.Auteur | None) -> 
         epic=epic,
         champ_auteur=brouillon.get("champ_auteur") or (backlog.champ_auteur(auteur, ids) if auteur else None),
         auteur_notion_id=auteur.notion_id if auteur else None,
+        noms={**{equipes[n]["id"]: n for n in brouillon["equipes"]}, **({epic: brouillon["epic"]} if epic else {})},
     )
 
 
