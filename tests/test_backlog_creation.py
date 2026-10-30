@@ -53,6 +53,10 @@ def paragraphe(texte):
     return {"type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": texte}}]}}
 
 
+def notion_blocs(markdown):
+    return creation.notion.markdown_to_blocks(markdown)
+
+
 MENTION = {"type": "mention", "mention": {"type": "custom_emoji", "custom_emoji": {"id": "emoji-1"}}}
 
 
@@ -87,6 +91,21 @@ def test_placer_marqueur_cree_un_paragraphe_si_le_corps_n_en_a_pas():
     blocs = creation.placer_marqueur([titre], "emoji-1")
     assert blocs[0]["paragraph"]["rich_text"] == [MENTION]
     assert blocs[1] == titre
+
+
+def test_placer_marqueur_ne_touche_pas_un_paragraphe_plus_loin():
+    blocs = creation.placer_marqueur(
+        notion_blocs("## Périmètre\n- x\n\n**Version A**"),
+        "emoji-1",
+    )
+    assert blocs[0]["paragraph"]["rich_text"] == [MENTION]
+    assert blocs[-1]["paragraph"]["rich_text"][0]["text"]["content"] == "Version A"
+    assert len(blocs[-1]["paragraph"]["rich_text"]) == 1
+
+
+def test_dod_4_verifier_corps_refuse_un_titre_dans_le_corps():
+    with pytest.raises(ValueError, match="le titre ne va pas dans le corps"):
+        creation.verifier_corps(ticket(corps="\n# Un titre\n\nTexte"))
 
 
 def test_emoji_autometa_filtre_par_nom(mocker):
