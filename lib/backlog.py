@@ -192,7 +192,7 @@ def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
         },
     )
     cibles = {normaliser(m) for m in mots}
-    # Why: seuil mesuré sur le backlog réel, voir la décision 3 de la définition de fini (rediger-ticket).
+    # Why: seuil mesuré sur le backlog réel, voir la décision 3 de paved-road/rediger-ticket/definition-of-done.md.
     seuil = max(2, math.ceil(len(cibles) / 2))
     notes = [(sum(1 for c in cibles if re.search(rf"\b{re.escape(c)}", normaliser(titre(p)))), p) for p in pages]
     notes.sort(key=lambda note: note[0], reverse=True)
