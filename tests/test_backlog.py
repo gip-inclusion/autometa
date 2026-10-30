@@ -171,33 +171,19 @@ def test_dod_3_chercher_doublons_compare_les_debuts_de_mots(mocker):
     assert [t["url"] for t in trouves] == ["u-b"]
 
 
-def test_dod_3_chercher_doublons_ignore_un_titre_a_un_seul_mot_cle(mocker):
-    appel = mocker.patch("lib.notion.notion_request")
-    assert backlog.chercher_doublons("Export") == []
-    appel.assert_not_called()
-
-
-def test_dod_3_trouver_auteur_croise_annuaire_et_comptes_notion(mocker):
-    mocker.patch.object(backlog.config, "NOTION_ANNUAIRE_DB", "annuaire")
-    fiche = {
-        "id": "f",
-        "properties": {
-            "Nom": titre_notion("Camille"),
-            "Rôle": {"type": "multi_select", "multi_select": [{"name": "Designer"}]},
-            "🍕 Équipes": relation("e1"),
-        },
-    }
-    comptes = {
-        "results": [
-            {"id": "u1", "type": "person", "name": "Camille", "person": {"email": "camille@exemple.fr"}},
-            {"id": "b1", "type": "bot", "name": "Robot"},
-        ],
-        "has_more": False,
-    }
-    mocker.patch("lib.notion.notion_request", side_effect=[reponse(fiche), comptes])
-    assert backlog.trouver_auteur("Camille@exemple.fr") == backlog.Auteur(
-        nom="Camille", roles=["Designer"], equipes=["e1"], notion_id="u1"
+def test_dod_3_chercher_doublons_garde_les_debuts_de_mots_apres_une_apostrophe_typographique(mocker):
+    mocker.patch.object(backlog.config, "NOTION_BACKLOG_DB", "backlog")
+    mocker.patch(
+        "lib.notion.notion_request",
+        return_value=reponse(page("a", "Permettre à l’employeur d’exporter la fiche", url="u-a")),
     )
+    trouves = backlog.chercher_doublons("Exporter la fiche employeur")
+    assert [t["url"] for t in trouves] == ["u-a"]
+
+
+def test_dod_3_chercher_doublons_ignore_un_titre_a_un_seul_mot_cle(mocker):
+    mocker.patch("lib.notion.notion_request", side_effect=AssertionError("aucune requête attendue"))
+    assert backlog.chercher_doublons("Export") == []
 
 
 @pytest.mark.parametrize(
@@ -236,7 +222,10 @@ def test_dod_3_trouver_auteur_selon_ce_qui_existe(mocker, fiches, comptes, atten
             "🍕 Équipes": relation("e1"),
         },
     }
-    personnes = [{"id": "u1", "type": "person", "name": "Camille", "person": {"email": "camille@exemple.fr"}}]
+    personnes = [
+        {"id": "u1", "type": "person", "name": "Camille", "person": {"email": "camille@exemple.fr"}},
+        {"id": "b1", "type": "bot", "name": "Robot"},
+    ]
     mocker.patch(
         "lib.notion.notion_request",
         side_effect=[
@@ -244,7 +233,7 @@ def test_dod_3_trouver_auteur_selon_ce_qui_existe(mocker, fiches, comptes, atten
             {"results": personnes if comptes else [], "has_more": False},
         ],
     )
-    assert backlog.trouver_auteur("camille@exemple.fr") == attendu
+    assert backlog.trouver_auteur("Camille@exemple.fr") == attendu
 
 
 def test_utilisateur_notion_pagine(mocker):
