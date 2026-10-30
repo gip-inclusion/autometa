@@ -428,6 +428,8 @@ make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_figma.p
 
 ### Tâche 4 : lecture du backlog (`lib/backlog.py`) — DOD-2 et DOD-3
 
+> **Révisé après relecture (commits 4a2ff6b, 25355ef)** : doublons sans plafond, comparaison au début des mots, élisions et préfixes `[…]` traités ; titres récents lus équipe par équipe (`tickets_recents`) ; cas de l'auteur absent testés. Le code de référence est `lib/backlog.py` ; le code ci-dessous est l'état d'origine.
+
 **Fichiers :**
 - Créer : `lib/backlog.py`
 - Test : `tests/test_backlog.py`
