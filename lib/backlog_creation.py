@@ -136,8 +136,8 @@ def verifier_relations(ticket: Ticket) -> None:
             raise ValueError("Relation refusée : l'épic n'appartient à aucune des équipes choisies")
 
 
-def creer_ticket(ticket: Ticket) -> tuple[str, str]:
-    """Crée la page du ticket, après vérification de ses champs et relations, et renvoie son identifiant et son URL."""
+def preparer(ticket: Ticket) -> dict:
+    """Vérifie le ticket et renvoie le payload exact de la création, sans rien écrire."""
     verifier_corps(ticket)
     proprietes = construire_proprietes(ticket)
     verifier_relations(ticket)
@@ -145,10 +145,12 @@ def creer_ticket(ticket: Ticket) -> tuple[str, str]:
     # Why: au-delà de 100 blocs il faudrait un second appel, et un échec laisserait un ticket écrit à moitié.
     if len(blocs) > BLOCS_MAX:
         raise ValueError(f"Ticket trop long : {len(blocs)} blocs, {BLOCS_MAX} au plus")
-    page = notion.notion_request(
-        "POST",
-        "pages",
-        {"parent": {"database_id": config.NOTION_BACKLOG_DB}, "properties": proprietes, "children": blocs},
-    )
+    return {"parent": {"database_id": config.NOTION_BACKLOG_DB}, "properties": proprietes, "children": blocs}
+
+
+def creer_ticket(ticket: Ticket) -> tuple[str, str]:
+    """Crée la page du ticket, après vérification de ses champs et relations, et renvoie son identifiant et son URL."""
+    charge = preparer(ticket)
+    page = notion.notion_request("POST", "pages", charge)
     logger.info("Ticket créé dans le backlog : %s", page["id"])
     return page["id"], page["url"]

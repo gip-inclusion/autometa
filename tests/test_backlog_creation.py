@@ -212,3 +212,23 @@ def test_dod_4_creer_ticket_n_ecrit_rien_si_la_verification_echoue(mocker):
     with pytest.raises(ValueError, match="Relation refusée"):
         creation.creer_ticket(ticket())
     appel.assert_not_called()
+
+
+def test_preparer_renvoie_le_payload_reel_avec_le_marqueur_sans_ecrire(mocker):
+    mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
+    mocker.patch.object(creation, "emoji_autometa", return_value="emoji-1")
+    mocker.patch.object(creation, "verifier_relations")
+    appel = mocker.patch("lib.notion.notion_request")
+    charge = creation.preparer(ticket(corps="Texte."))
+    appel.assert_not_called()
+    assert charge["parent"] == {"database_id": "backlog"}
+    assert charge["properties"]["Nom"]["title"][0]["text"]["content"] == "Masquer les candidatures anciennes"
+    assert charge["children"][0]["paragraph"]["rich_text"][0] == MENTION
+
+
+def test_preparer_refuse_un_corps_de_plus_de_100_blocs(mocker):
+    mocker.patch.object(creation, "verifier_relations")
+    mocker.patch.object(creation, "emoji_autometa", return_value=None)
+    mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraphe(str(i)) for i in range(101)])
+    with pytest.raises(ValueError, match="Ticket trop long"):
+        creation.preparer(ticket())
