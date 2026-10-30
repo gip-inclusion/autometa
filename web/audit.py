@@ -3,11 +3,13 @@
 import collections
 import datetime as dt
 import json
+import logging
 import math
 import re
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
 
 from lib import notion
@@ -18,6 +20,8 @@ from lib.slack import post_message
 from . import config
 from .helpers import DISPLAY_TZ, utcnow
 from .redaction import EMAIL, redact, secret_kinds
+
+logger = logging.getLogger(__name__)
 
 AUDIT_DIR = config.DATA_DIR / "audit"
 GRID = config.BASE_DIR / "plugins" / "retrospect" / "skills" / "conversations" / "grille.json"
@@ -185,6 +189,7 @@ class Run(BaseModel):
     stats: dict = {}
     summary: str = ""
     posted_at: str | None = None
+    posted: list[str] = []
 
 
 def read_json(path: Path, default):
@@ -840,26 +845,46 @@ def weekly_digest(run: Run) -> dict:
     return {"text": "\n".join(lines)}
 
 
+def slack_escape(text: str) -> str:
+    """Les caractères de contrôle de Slack : un « <!channel> » cité d'une conversation ne doit rien déclencher."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def send(channel: str, text: str, thread_ts: str | None = None) -> str | None:
+    try:
+        return post_message(config.SLACK_BOT_TOKEN, channel, slack_escape(text), thread_ts=thread_ts)
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("audit: Slack injoignable (%s)", e)
+        return None
+
+
 def post_slack(run_id: int, channel: str, base_url: str) -> int:
-    """Publie les messages du run dans le canal choisi, le détail en fil de discussion ; une seule fois par run."""
+    """Publie les messages du run dans le canal choisi, le détail en fil ; reprend où un envoi interrompu s'est arrêté."""
     run = load_run(run_id)
     if run.posted_at:
         raise AuditError(f"Run {run_id} déjà publié le {run.posted_at}.")
     if not config.SLACK_BOT_TOKEN:
         raise AuditError("SLACK_BOT_TOKEN absent.")
-    messages = slack_messages(run_id, base_url)
+    messages = [m for m in slack_messages(run_id, base_url) if m["text"] not in run.posted]
+    failures = []
     for message in messages:
-        ts = post_message(config.SLACK_BOT_TOKEN, channel, message["text"])
+        ts = send(channel, message["text"])
         if not ts:
-            raise AuditError("Slack a refusé le message.")
-        for reply in message.get("thread", []):
-            post_message(config.SLACK_BOT_TOKEN, channel, reply, thread_ts=ts)
-    now = utcnow().isoformat()
-    posted = {k for message in messages for k in message.get("findings", [])}
-    save_findings(
-        run_id, [f.model_copy(update={"posted_at": now}) if f.key in posted else f for f in load_findings(run_id)]
-    )
-    save_run(run.model_copy(update={"posted_at": now}))
+            failures.append(message["text"][:80])
+            continue
+        failures += [reply[:80] for reply in message.get("thread", []) if not send(channel, reply, thread_ts=ts)]
+        run.posted.append(message["text"])
+        now = utcnow().isoformat()
+        keys = set(message.get("findings", []))
+        save_findings(
+            run_id, [f.model_copy(update={"posted_at": now}) if f.key in keys else f for f in load_findings(run_id)]
+        )
+        save_run(run)
+    if failures:
+        raise AuditError(
+            "Slack a refusé ces messages, relancer la publication pour les reprendre :\n" + "\n".join(failures)
+        )
+    save_run(run.model_copy(update={"posted_at": utcnow().isoformat()}))
     return len(messages)
 
 
@@ -942,7 +967,7 @@ def verify_list(run_id: int) -> list[dict]:
 def merge(run_id: int) -> dict:
     """Applique les contre-vérifications (verdict_NN.json) et remplace les incidents audités du run : on peut le relancer."""
     run = load_run(run_id)
-    if run.posted_at or any(f.posted_at for f in load_findings(run_id)):
+    if run.posted_at or run.posted or any(f.posted_at for f in load_findings(run_id)):
         raise AuditError(f"Run {run_id} déjà publié sur Slack : ses incidents ne se réécrivent plus.")
     checks = {
         v.key: v

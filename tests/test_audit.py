@@ -574,6 +574,38 @@ def test_post_slack_threads_the_details_and_posts_only_once(mocker, monkeypatch)
         audit.post_slack(run.id, "C-TEST", "https://autometa")
 
 
+def test_an_interrupted_post_resumes_without_reposting(mocker, monkeypatch):
+    monkeypatch.setattr(audit.config, "SLACK_BOT_TOKEN", "xoxb-test")
+    run = open_daily(mocker, [msg(1), tool_result(2, f"postgresql://u:{FAUX}@h/db")])
+    audit.extract(run.id)
+    audit.record(run.id, output(finding(1)))
+    post = mocker.patch.object(
+        audit,
+        "post_message",
+        side_effect=lambda token, channel, text, thread_ts: None if text.startswith(":clipboard:") else "1.0",
+    )
+
+    with pytest.raises(audit.AuditError, match="relancer"):
+        audit.post_slack(run.id, "C-TEST", "https://autometa")
+    post.side_effect = None
+    post.return_value = "2.0"
+    audit.post_slack(run.id, "C-TEST", "https://autometa")
+
+    texts = [c.args[2] for c in post.call_args_list if c.kwargs["thread_ts"] is None]
+    assert [t.split(" ")[0] for t in texts] == [":rotating_light:", ":warning:", ":clipboard:", ":clipboard:"]
+    assert audit.load_run(run.id).posted_at
+
+
+def test_text_quoted_from_a_conversation_cannot_ping_the_channel(mocker, monkeypatch):
+    monkeypatch.setattr(audit.config, "SLACK_BOT_TOKEN", "xoxb-test")
+    post = mocker.patch.object(audit, "post_message", return_value="1.0")
+    run = recorded_run(mocker, finding(1, description="<!channel> le taux est faux"))
+
+    audit.post_slack(run.id, "C-TEST", "https://autometa")
+
+    assert "&lt;!channel&gt; le taux est faux" in post.call_args_list[0].args[2]
+
+
 def test_the_weekly_digest_tells_issues_created_this_week_from_known_ones(mocker):
     run = recorded_run(mocker, finding(1), finding(2))
     audit.finish(run.id)
