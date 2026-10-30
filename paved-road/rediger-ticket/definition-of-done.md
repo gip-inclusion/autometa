@@ -32,6 +32,9 @@ serait créé.
 1. Le marqueur `:autometa:` devient l'emoji personnalisé de l'espace. Essai du 2026-10-30 dans une
    page bac à sable : l'API accepte la mention `custom_emoji` dans un texte.
 2. Âge maximal du contexte rangé avant relecture dans Notion : un jour.
+   Révision 2026-10-30 — âge porté à 30 heures : le cron part chaque nuit à 02:00 UTC ; à 24 heures
+   strictes, chaque nuit laisserait un moment où toutes les conversations relisent Notion, et un cron
+   en échec les y renverrait toutes. DOD-2 se lit avec cette révision.
 3. Un ticket proche est signalé quand son titre partage au moins la moitié des mots-clés du titre
    proposé, et au moins deux ; l'agent ne montre que ceux qu'il juge vraiment proches. Mesuré le
    2026-10-30 sur 150 titres du backlog : 37 % ont au moins un candidat, contre 66 % avec « deux

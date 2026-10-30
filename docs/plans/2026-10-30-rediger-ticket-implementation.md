@@ -2016,8 +2016,7 @@ Expected: `rien de sensible`.
 
 - [ ] **Étape 3 : rejouer les preuves périmées**
 
-Run: `make paved-road-reprove`
-Expected: toutes les attestations repassent.
+Sans objet : les attestations sont abandonnées pour ce travail (voir l'en-tête du plan).
 
 - [ ] **Étape 4 : lentille de cohérence** (`paved-road:design-coherence`) sur le diff ; corriger ou justifier chaque bloqueur.
 
@@ -2057,4 +2056,4 @@ Le banc est dans `organisation-produit/exploration/redacteur-tickets/banc/` (26 
 .venv/bin/python -c "from lib import notion; notion.notion_request('PATCH', 'pages/<id>', {'archived': True})"
 ```
 
-- [ ] **Étape 3 :** `make paved-road-status` ; ouvrir la PR avec la DoD, le journal et les attestations (l'utilisateur pousse et ouvre la PR).
+- [ ] **Étape 3 :** ouvrir la PR avec la DoD et le plan, sans journal ni attestations (l'utilisateur pousse et ouvre la PR).
