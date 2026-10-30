@@ -213,7 +213,6 @@ def lancer(mocker, script, *arguments):
 
 def test_creer_sans_argument_lit_le_brouillon_de_la_conversation_et_le_consomme(mocker, tmp_path):
     creer, creation = preparer_creer(mocker)
-    mocker.patch.object(creer.config, "agent_conversation_id", return_value="conv-1")
     chemin = tmp_path / "brouillon.json"
     chemin.write_text(Path(brouillon(tmp_path)).read_text())
     mocker.patch.object(creer, "chemin_brouillon", return_value=chemin)
@@ -299,8 +298,10 @@ def test_dod_5_creer_en_ligne_de_commande_sans_go_ne_cree_rien(mocker, tmp_path,
 def test_creer_en_ligne_de_commande_dit_l_erreur_notion(mocker, tmp_path, erreur, message):
     creer, creation = preparer_creer(mocker)
     creation.side_effect = erreur
+    chemin = brouillon(tmp_path)
     with pytest.raises(SystemExit, match=message):
-        lancer(mocker, creer, brouillon(tmp_path), "--go")
+        lancer(mocker, creer, chemin, "--go")
+    assert Path(chemin).exists()
 
 
 def test_creer_en_ligne_de_commande_refuse_un_fichier_absent(mocker, tmp_path):
@@ -409,3 +410,95 @@ def test_dod_1_maquette_signale_cadre_sans_texte_et_sans_image(mocker, tmp_path)
     sortie = maquette.run(Namespace(url=LIEN_CADRE))
     assert "Textes visibles : aucun" in sortie
     assert "Image non rendue" in sortie
+
+
+def test_creer_ne_plante_pas_si_le_brouillon_a_deja_disparu(mocker, tmp_path):
+    creer, creation = preparer_creer(mocker)
+    chemin = Path(brouillon(tmp_path))
+    creation.side_effect = lambda ticket: (chemin.unlink(), ("p", "https://notion/p"))[1]
+    assert creer.run(Namespace(brouillon=str(chemin), go=True)).startswith("Ticket créé")
+
+
+def test_creer_en_ligne_de_commande_traite_un_5xx_comme_une_absence_de_reponse(mocker, tmp_path):
+    creer, creation = preparer_creer(mocker)
+    creation.side_effect = httpx.HTTPStatusError(
+        "502", request=REQUETE, response=httpx.Response(502, text="bad gateway")
+    )
+    with pytest.raises(SystemExit, match="Notion ne répond pas correctement : vérifier dans Notion"):
+        lancer(mocker, creer, brouillon(tmp_path), "--go")
+
+
+def test_creer_refuse_un_brouillon_qui_n_est_pas_un_objet(mocker, tmp_path):
+    creer, _ = preparer_creer(mocker)
+    liste = tmp_path / "liste.json"
+    liste.write_text("[1, 2]")
+    with pytest.raises(ValueError, match="objet JSON"):
+        creer.run(Namespace(brouillon=str(liste), go=False))
+
+
+def test_creer_continue_sans_auteur_apres_les_reessais_429(mocker, tmp_path):
+    creer, _ = preparer_creer(mocker)
+    mocker.patch.object(creer.backlog, "trouver_auteur", side_effect=RuntimeError("429"))
+    assert "Auteur non inscrit" in creer.run(Namespace(brouillon=brouillon(tmp_path), go=True))
+
+
+@pytest.mark.parametrize("erreur", [httpx.ReadTimeout("lent", request=REQUETE), RuntimeError("429")])
+def test_auteur_illisible_ne_fait_pas_sortir_en_erreur(mocker, erreur):
+    auteur = charger("auteur")
+    mocker.patch.object(auteur.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(auteur.config, "agent_user_email", return_value="camille@exemple.fr")
+    mocker.patch.object(auteur.backlog, "trouver_auteur", side_effect=erreur)
+    assert auteur.run(Namespace(equipe=[])) == "Auteur non inscrit : annuaire ou comptes Notion illisibles."
+
+
+def test_dod_1_maquette_dit_image_non_rendue_si_l_export_echoue(mocker):
+    maquette = charger("maquette")
+    mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(
+        maquette.figma, "lire_cadres", return_value=[Cadre(id="2:2", nom="Choix 1", textes=["A"], largeur=100)]
+    )
+    mocker.patch.object(maquette.figma, "exporter_images", side_effect=httpx.ReadTimeout("lent", request=REQUETE))
+    assert "Image non rendue" in maquette.run(Namespace(url=LIEN_CADRE))
+
+
+def test_dod_5_creer_a_blanc_etiquette_les_noms_resolus(mocker, tmp_path):
+    creer, _ = preparer_creer(mocker)
+    assert "Noms résolus :" in creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
+
+
+@pytest.mark.parametrize(
+    ("nom", "arguments", "attendu"),
+    [
+        ("contexte", [], "## Emplois inclusifs"),
+        ("doublons", ["Titre test"], "- T (Cadrage"),
+        ("auteur", [], "Auteur : Camille"),
+        ("maquette", ["https://www.figma.com/board/AAAAAAAAAAAAAAAAAAAAAA/x"], "Lien Figma sans cadre précis"),
+    ],
+)
+def test_scripts_de_lecture_en_ligne_de_commande_affichent_leur_resultat(mocker, capsys, nom, arguments, attendu):
+    script = charger(nom)
+    mocker.patch.object(script.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(script.config, "agent_user_email", return_value="camille@exemple.fr", create=True)
+    if nom == "contexte":
+        mocker.patch.object(script.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
+    if nom == "doublons":
+        mocker.patch.object(
+            script.backlog,
+            "chercher_doublons",
+            return_value=[{"titre": "T", "url": "u", "statut": "Cadrage", "communs": 1}],
+        )
+    if nom == "auteur":
+        mocker.patch.object(script.backlog, "trouver_auteur", return_value=AUTEUR)
+        mocker.patch.object(script.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
+    lancer(mocker, script, *arguments)
+    assert attendu in capsys.readouterr().out
+
+
+def test_scripts_de_lecture_en_ligne_de_commande_disent_que_notion_ne_repond_pas(mocker):
+    doublons = charger("doublons")
+    mocker.patch.object(doublons.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(
+        doublons.backlog, "chercher_doublons", side_effect=httpx.ConnectTimeout("lent", request=REQUETE)
+    )
+    with pytest.raises(SystemExit, match="Notion ne répond pas"):
+        lancer(mocker, doublons, "Titre")
