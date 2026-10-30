@@ -24,15 +24,20 @@ def reponse(*pages, suite=None):
     return {"results": list(pages), "has_more": suite is not None, "next_cursor": suite}
 
 
-def test_requeter_pagine_et_s_arrete_a_la_limite(mocker):
-    appel = mocker.patch(
-        "lib.notion.notion_request",
-        side_effect=[reponse(page("a", "A"), page("b", "B"), suite="c1"), reponse(page("c", "C"), suite="c2")],
+def test_tickets_recents_lit_via_query_database_et_coupe_au_nombre_demande(mocker):
+    requete = mocker.patch(
+        "lib.notion.query_database", return_value=[page("a", "A"), page("b", ""), page("c", "C"), page("d", "D")]
     )
-    lignes = backlog.requeter("base", {"property": "x"}, limite=3)
-    assert [p["id"] for p in lignes] == ["a", "b", "c"]
-    assert appel.call_args_list[1].args[2]["start_cursor"] == "c1"
-    assert appel.call_count == 2
+    assert backlog.tickets_recents("e1", 2) == ["A", "C"]
+    assert requete.call_args.kwargs["sorts"] == [{"timestamp": "created_time", "direction": "descending"}]
+
+
+def test_trouver_auteur_ne_garde_que_la_premiere_fiche(mocker):
+    mocker.patch.object(backlog.config, "NOTION_ANNUAIRE_DB", "annuaire")
+    fiches = [page("f1", "Premiere"), page("f2", "Seconde")]
+    mocker.patch("lib.notion.query_database", return_value=fiches)
+    mocker.patch.object(backlog, "utilisateur_notion", return_value=None)
+    assert backlog.trouver_auteur("x@exemple.fr").nom == "Premiere"
 
 
 def test_dod_2_charger_contexte_regroupe_epics_et_titres_par_equipe(mocker):
