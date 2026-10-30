@@ -1,53 +1,70 @@
 """Contexte des équipes du backlog, rangé dans dashboard_storage et rafraîchi chaque jour."""
 
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import Column, DateTime, MetaData, String, Table, select, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import ProgrammingError
+
 from lib import backlog
-from lib.dashboard_api import query_storage
 from web import config
+from web.db import get_engine
 
 logger = logging.getLogger(__name__)
 
-CREER = (
-    "CREATE TABLE IF NOT EXISTS dashboard_storage.backlog_contexte "
-    "(cle text PRIMARY KEY, contenu jsonb NOT NULL, genere_le timestamptz NOT NULL)"
+SCHEMA = "dashboard_storage"
+
+_metadata = MetaData(schema=SCHEMA)
+backlog_contexte = Table(
+    "backlog_contexte",
+    _metadata,
+    Column("cle", String, primary_key=True),
+    Column("contenu", JSONB, nullable=False),
+    Column("genere_le", DateTime(timezone=True), nullable=False),
 )
-ECRIRE = (
-    "INSERT INTO dashboard_storage.backlog_contexte (cle, contenu, genere_le) "
-    "VALUES ('courant', CAST(:contenu AS jsonb), CAST(:genere_le AS timestamptz)) "
-    "ON CONFLICT (cle) DO UPDATE SET contenu = EXCLUDED.contenu, genere_le = EXCLUDED.genere_le"
-)
-LIRE = "SELECT contenu, genere_le FROM dashboard_storage.backlog_contexte WHERE cle = 'courant'"
 
 
-def executer(sql: str, params: dict | None = None) -> dict:
-    """Exécute une requête sur dashboard_storage, ou lève l'erreur qu'elle renvoie."""
-    resultat = query_storage(sql, params)
-    if not resultat.success:
-        raise RuntimeError(f"dashboard_storage : {resultat.error}")
-    return resultat.data
+def ensure_schema() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
+    _metadata.create_all(engine)
 
 
 def enregistrer_contexte(contexte: dict) -> None:
-    """Range le contexte, en remplaçant le précédent."""
-    executer(CREER)
-    executer(ECRIRE, {"contenu": json.dumps(contexte, ensure_ascii=False), "genere_le": contexte["genere_le"]})
+    """Range le contexte, sauf si un chargement plus récent est déjà rangé."""
+    ensure_schema()
+    statement = pg_insert(backlog_contexte).values(
+        cle="courant", contenu=contexte, genere_le=datetime.fromisoformat(contexte["genere_le"])
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=["cle"],
+        set_={"contenu": statement.excluded.contenu, "genere_le": statement.excluded.genere_le},
+        where=backlog_contexte.c.genere_le < statement.excluded.genere_le,
+    )
+    with get_engine().begin() as conn:
+        conn.execute(statement)
 
 
-def lire_contexte(age_max: timedelta = timedelta(days=1)) -> dict | None:
+# Why: le cron tourne chaque jour ; 24 h strictes laisseraient un trou chaque nuit, et un cron en échec
+# renverrait toutes les conversations vers Notion.
+def lire_contexte(age_max: timedelta = timedelta(hours=30)) -> dict | None:
     """Le contexte rangé s'il a moins de age_max, sinon None."""
-    executer(CREER)
-    lignes = executer(LIRE)["rows"]
-    if not lignes:
+    try:
+        with get_engine().connect() as conn:
+            ligne = conn.execute(
+                select(backlog_contexte.c.contenu, backlog_contexte.c.genere_le).where(
+                    backlog_contexte.c.cle == "courant"
+                )
+            ).first()
+    except ProgrammingError:
+        # Why: première lecture avant toute écriture, la table n'existe pas encore.
         return None
-    contenu, genere_le = lignes[0]
-    contenu = json.loads(contenu) if isinstance(contenu, str) else contenu
-    genere_le = datetime.fromisoformat(genere_le) if isinstance(genere_le, str) else genere_le
-    if datetime.now(UTC) - genere_le > age_max:
+    if ligne is None or datetime.now(UTC) - ligne.genere_le > age_max:
         return None
-    return contenu
+    return ligne.contenu
 
 
 def contexte_courant() -> dict:
