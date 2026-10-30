@@ -16,7 +16,7 @@
 
 ---
 
-**Attestations (paved road) :** un critère se prouve par des tests nommés `test_dod_<n>_…`, lancés par `uv run --frozen pytest <fichiers> -k dod_<n>` (l'outil refuse `python -m`). Le rouge et le vert s'apparient par critère, pas par commande. Chaque commit sous `lib/`, `skills/` ou `tests/` périme les verts précédents : `make paved-road-reprove` les rejoue en fin de parcours (tâche 9). En tâche 7, rejouer les verts de DOD-1 et DOD-3 avec les tests des scripts en plus : `uv run --frozen pytest tests/test_figma.py tests/test_rediger_ticket_scripts.py -k dod_1` et `uv run --frozen pytest tests/test_backlog.py tests/test_rediger_ticket_scripts.py -k dod_3`.
+**Attestations : abandonnées le 2026-10-30 à la demande de l'utilisateur.** On garde la DoD et le plan ; on ne lance plus `make paved-road-advance` ni `reprove` (ni rouge, ni vert, ni empreintes). Les étapes d'attestation ci-dessous sont à sauter ; les tests gardent leurs noms `test_dod_<n>_…`. Ancienne règle, pour mémoire : un critère se prouve par des tests nommés `test_dod_<n>_…`, lancés par `uv run --frozen pytest <fichiers> -k dod_<n>` (l'outil refuse `python -m`). Le rouge et le vert s'apparient par critère, pas par commande. Chaque commit sous `lib/`, `skills/` ou `tests/` périme les verts précédents : `make paved-road-reprove` les rejoue en fin de parcours (tâche 9). En tâche 7, rejouer les verts de DOD-1 et DOD-3 avec les tests des scripts en plus : `uv run --frozen pytest tests/test_figma.py tests/test_rediger_ticket_scripts.py -k dod_1` et `uv run --frozen pytest tests/test_backlog.py tests/test_rediger_ticket_scripts.py -k dod_3`.
 
 ## Contraintes globales
 
