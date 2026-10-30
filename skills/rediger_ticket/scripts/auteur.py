@@ -18,7 +18,10 @@ def run(args: argparse.Namespace) -> str:
     email = config.agent_user_email()
     if not email:
         return "Personne connectée inconnue : l'auteur ne sera pas inscrit."
-    auteur = backlog.trouver_auteur(email)
+    try:
+        auteur = backlog.trouver_auteur(email)
+    except httpx.HTTPError, RuntimeError:
+        return "Auteur non inscrit : annuaire ou comptes Notion illisibles."
     if auteur is None:
         return "Absent de l'Annuaire et de Notion : l'auteur ne sera pas inscrit."
     equipes = {e["nom"]: e["id"] for e in backlog_stockage.contexte_courant()["equipes"]}

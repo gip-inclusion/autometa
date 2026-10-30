@@ -21,6 +21,8 @@ def chemin_brouillon() -> Path:
 
 
 def verifier_champs(brouillon: dict) -> None:
+    if not isinstance(brouillon, dict):
+        raise ValueError("Le brouillon doit être un objet JSON")
     for champ in (*CHAMPS_TEXTES, *CHAMPS_LISTES):
         if not brouillon.get(champ):
             raise ValueError(f"Champ manquant dans le brouillon : {champ}")
@@ -66,7 +68,7 @@ def run(args: argparse.Namespace) -> str:
     if email:
         try:
             auteur = backlog.trouver_auteur(email)
-        except httpx.HTTPError:
+        except httpx.HTTPError, RuntimeError:
             avis.append("Auteur non inscrit : annuaire ou comptes Notion illisibles.")
     ticket = resoudre(brouillon, backlog_stockage.contexte_courant(), auteur)
     if not args.go:
@@ -76,11 +78,12 @@ def run(args: argparse.Namespace) -> str:
         return "\n".join([
             "Vérification seulement (sans --go) : rien n'est créé.",
             json.dumps(proprietes, ensure_ascii=False, indent=2),
+            "Noms résolus :",
             json.dumps(ticket.noms, ensure_ascii=False, indent=2),
             *avis,
         ])
     _, url = backlog_creation.creer_ticket(ticket)
-    chemin.unlink()
+    chemin.unlink(missing_ok=True)
     return "\n".join([f"Ticket créé : {url}", *avis])
 
 
@@ -90,9 +93,13 @@ def main() -> None:
     parser.add_argument("--go", action="store_true", help="créer vraiment, après l'accord explicite de l'auteur")
     try:
         print(run(parser.parse_args()))
-    except (OSError, json.JSONDecodeError, ValueError) as erreur:
+    except (OSError, ValueError) as erreur:
         sys.exit(f"Refusé, rien n'est créé : {erreur}")
     except httpx.HTTPStatusError as erreur:
+        if erreur.response.status_code >= 500:
+            sys.exit(
+                "Notion ne répond pas correctement : vérifier dans Notion si le ticket existe avant de relancer --go."
+            )
         sys.exit(f"Notion répond {erreur.response.status_code} : {erreur.response.text[:300]}")
     except httpx.TransportError:
         sys.exit("Notion ne répond pas : vérifier dans Notion si le ticket existe avant de relancer --go.")

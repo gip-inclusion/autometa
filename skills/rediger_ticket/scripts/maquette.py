@@ -44,13 +44,13 @@ def run(args: argparse.Namespace) -> str:
     try:
         images = figma.exporter_images(lien, cadres, dossier_images() / f"{lien.cle}-{lien.noeud.replace(':', '-')}")
     except httpx.HTTPError as erreur:
-        images = {}
+        images = None
         lignes.extend([f"Images non rendues ({message_erreur(erreur)}) : se fier aux textes.", ""])
     for rang, cadre in enumerate(cadres, start=1):
         lignes.append(f"## Cadre {rang} : {cadre.nom}")
-        if cadre.id in images:
+        if images is not None and cadre.id in images:
             lignes.append(f"Image à regarder : {images[cadre.id]}")
-        elif images:
+        else:
             lignes.append("Image non rendue")
         if cadre.textes:
             lignes.append("Textes visibles :")
