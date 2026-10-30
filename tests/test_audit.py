@@ -200,6 +200,20 @@ def test_an_abandoned_run_leaves_the_window_to_the_next_one(mocker):
         audit.start("daily")
 
 
+def test_findings_of_an_abandoned_run_are_found_again_by_the_next_one(mocker):
+    run = open_daily(mocker, [msg(1)])
+    audit.extract(run.id)
+    audit.record(run.id, output(finding(1)))
+    audit.finish(run.id, abandon=True)
+    again = audit.start("daily", since=dt.date(2026, 10, 9))
+    audit.extract(again.id)
+
+    result = audit.record(again.id, output(finding(1)))
+
+    assert result == {"enregistrés": 1, "doublons": 0}
+    assert "Incidents déjà relevés" not in (audit.work_dir(again.id) / "tx" / "c1.md").read_text()
+
+
 def test_a_weekly_run_covers_the_daily_runs_closed_since_the_last_weekly(mocker):
     prod = fake_prod(mocker, [msg(1), msg(10)])
     audit.finish(audit.start("daily", since=dt.date(2026, 10, 9)).id)

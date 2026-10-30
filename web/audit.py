@@ -221,7 +221,8 @@ def save_findings(run_id: int, findings: list[Finding]) -> None:
 
 
 def all_findings() -> list[Finding]:
-    return [f for run in load_runs() for f in load_findings(run.id)]
+    """Les incidents de tous les runs, sauf des runs abandonnés : leur fenêtre sera auditée à nouveau."""
+    return [f for run in load_runs() if run.status != "abandonné" for f in load_findings(run.id)]
 
 
 def load_criteria() -> list[Criterion]:
