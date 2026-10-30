@@ -1010,6 +1010,8 @@ make paved-road-advance DOD=DOD-2 CMD='uv run --frozen pytest tests/test_backlog
 
 ### Tâche 6 : création du ticket (`lib/backlog_creation.py`) — DOD-4
 
+> **Révisé après relecture (commit 7deb18d)** : plus de 100 blocs refusés avant écriture (plus d'ajout par PATCH), `verifier_corps` (lignes de 2 000 caractères, liens non http(s), lien Figma), nom et équipe de l'épic vérifiés, emoji cherché par son nom, marqueur toujours posé. Le code de référence est `lib/backlog_creation.py` ; le code ci-dessous est l'état d'origine.
+
 **Fichiers :**
 - Créer : `lib/backlog_creation.py`
 - Test : `tests/test_backlog_creation.py`
@@ -1312,6 +1314,7 @@ def preparer_creer(mocker):
     mocker.patch.object(creer.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
     mocker.patch.object(creer.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(creer.backlog, "trouver_auteur", return_value=AUTEUR)
+    mocker.patch.object(creer.backlog_creation, "verifier_relations")
     creation = mocker.patch.object(creer.backlog_creation, "creer_ticket", return_value=("p", "https://notion/p"))
     return creer, creation
 
@@ -1320,6 +1323,7 @@ def test_dod_5_creer_sans_go_ne_cree_rien(mocker, tmp_path):
     creer, creation = preparer_creer(mocker)
     sortie = creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
     creation.assert_not_called()
+    creer.backlog_creation.verifier_relations.assert_called_once()
     assert sortie.startswith("Vérification seulement")
     assert '"POM"' in sortie
 
@@ -1673,8 +1677,10 @@ def run(args: argparse.Namespace) -> str:
     brouillon = json.loads(Path(args.brouillon).read_text())
     email = config.agent_user_email()
     ticket = resoudre(brouillon, backlog_stockage.contexte_courant(), backlog.trouver_auteur(email) if email else None)
+    backlog_creation.verifier_corps(ticket)
     proprietes = backlog_creation.construire_proprietes(ticket)
     if not args.go:
+        backlog_creation.verifier_relations(ticket)
         return "Vérification seulement (sans --go) : rien n'est créé.\n" + json.dumps(proprietes, ensure_ascii=False, indent=2)
     _, url = backlog_creation.creer_ticket(ticket)
     return f"Ticket créé : {url}"
@@ -1846,6 +1852,8 @@ Pose les questions en texte (pas d'outil de question). Ne répète pas une quest
   "champ_auteur": "<POM|UX|Développeurs|Contributeurs, seulement si l'auteur a donné son rôle>"
 }
 ```
+
+Le script refuse, avant toute écriture : un corps de plus de 100 blocs, une ligne de 2 000 caractères ou plus (découpe les longs textes recopiés en paragraphes), un lien qui n'est pas en `http://` ou `https://`, un lien Figma illisible, une équipe ou un épic qui ne correspond pas à Notion. Corrige et relance la vérification.
 
 ## Liste de vérification finale
 
