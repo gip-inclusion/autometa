@@ -82,6 +82,9 @@ DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
+# Adresse publique de l'application de prod : liens vers ses conversations produits depuis un poste local.
+PROD_URL = os.getenv("PROD_URL", "https://autometa.inclusion.gouv.fr").rstrip("/")
+
 # Default user for local development (when oauth-proxy not present)
 DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 
