@@ -39,7 +39,10 @@ def run(args: argparse.Namespace) -> str:
         if inconnues:
             lignes.append(f"Équipe inconnue : {', '.join(inconnues)} (nom exact : voir contexte.py)")
         cibles = [equipes[n] for n in args.equipe if n in equipes]
-        lignes.append(f"Inscrit dans : {backlog.champ_auteur(auteur, cibles)}")
+        if auteur.notion_id:
+            lignes.append(f"Inscrit dans : {backlog.champ_auteur(auteur, cibles)}")
+        else:
+            lignes.append("Inscrit dans : personne (pas de compte Notion)")
     return "\n".join(lignes)
 
 

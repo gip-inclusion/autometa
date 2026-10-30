@@ -82,6 +82,8 @@ def run(args: argparse.Namespace) -> str:
             avis.append("Auteur non inscrit : annuaire ou comptes Notion illisibles.")
     ticket = resoudre(brouillon, backlog_stockage.contexte_courant(), auteur)
     if not args.go:
+        if not ticket.auteur_notion_id and not avis:
+            avis.append("Auteur non inscrit : pas de compte Notion.")
         charge = backlog_creation.preparer(ticket)
         return "\n".join([
             "Vérification seulement (sans --go) : rien n'est créé.",
