@@ -3,6 +3,7 @@
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 from lib import backlog, figma, notion
 from web import config
@@ -157,6 +158,23 @@ def preparer(ticket: Ticket) -> dict:
 def creer_ticket(ticket: Ticket) -> tuple[str, str]:
     """Crée la page du ticket, après vérification de ses champs et relations, et renvoie son identifiant et son URL."""
     charge = preparer(ticket)
+    # Why: un nouvel essai après un délai dépassé ou une demande de correction ne doit pas créer un doublon.
+    depuis = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    existants = notion.query_database(
+        config.NOTION_BACKLOG_DB,
+        filter={
+            "and": [
+                {"property": "Nom", "title": {"equals": ticket.titre}},
+                {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
+                {"timestamp": "created_time", "created_time": {"on_or_after": depuis}},
+            ]
+        },
+    )
+    if existants:
+        raise ValueError(
+            f"Un ticket au même titre vient d'être créé : {existants[0].get('url', '')}. "
+            "Corriger dans Notion plutôt que relancer --go."
+        )
     page = notion.notion_request("POST", "pages", charge)
     logger.info("Ticket créé dans le backlog : %s", page["id"])
     return page["id"], page["url"]
