@@ -7,7 +7,7 @@ import logging
 import math
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import httpx
 from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
@@ -47,19 +47,14 @@ BOUND_SQL = (
     "select coalesce((select min(id) from messages where timestamp >= {{at}}::timestamptz), "
     "(select max(id) + 1 from messages), 1) - 1 as id"
 )
-SEVERITIES = ("CRITIQUE", "GRAVE", "MOYEN", "MINEUR")
-SQL_ERROR = re.compile(
-    r"does not exist|Perhaps you meant|syntax error at or near|UndefinedColumn|UndefinedTable|invalid input syntax|"
-    r"operator does not exist|ProgrammingError|psycopg\.errors|sqlalchemy\.exc",
-    re.I,
-)
-TMP_WRITE = re.compile(r"(?:>|cat >|tee )\s*(/tmp/[\w./-]+)")
-
 # Why: la description d'un incident de données personnelles tend à citer la donnée elle-même ; les sorties diffusées
 # (rapport, Slack, Notion) n'en donnent que la nature.
 PERSONAL_DATA_CRITERIA = {"C15", "G35", "G37"}
 
 Severity = Literal["CRITIQUE", "GRAVE", "MOYEN", "MINEUR"]
+SEVERITIES = get_args(Severity)
+# Les incidents qui passent par une contre-vérification et peuvent donner une correction.
+SERIOUS = ("CRITIQUE", "GRAVE")
 
 
 class AuditError(Exception):
@@ -425,7 +420,12 @@ def detect(messages: list[dict], rules: list[tuple[str, set[str], re.Pattern]]) 
         for code, on, rx in rules:
             if m["type"] in on and (match := rx.search(text)):
                 hits[code].append((m["id"], scrub(match.group(0))[:160]))
-        if m["type"] == "tool_result" and SQL_ERROR.search(text):
+        if m["type"] == "tool_result" and re.search(
+            r"does not exist|Perhaps you meant|syntax error at or near|UndefinedColumn|UndefinedTable|"
+            r"invalid input syntax|operator does not exist|ProgrammingError|psycopg\.errors|sqlalchemy\.exc",
+            text,
+            re.I,
+        ):
             after_error = True
         elif m["type"] == "tool_use" and after_error:
             hits["B5"].append((m["id"], "relance après une erreur SQL"))
@@ -534,7 +534,7 @@ def extract(run_id: int, batches: int | None = None) -> dict:
     writers = collections.defaultdict(set)
     for m in messages:
         if m["type"] == "tool_use":
-            for path in TMP_WRITE.findall(parse(m)[0]):
+            for path in re.findall(r"(?:>|cat >|tee )\s*(/tmp/[\w./-]+)", parse(m)[0]):
                 writers[path].add(m["conversation_id"])
     collisions = {path: sorted(ids) for path, ids in writers.items() if len(ids) > 1}
     index = []
@@ -774,24 +774,27 @@ def severity_counts(findings: list[Finding]) -> str:
     return ", ".join(f"{counts[s]} {s}" for s in SEVERITIES if counts[s]) or "aucun incident"
 
 
+def exposed_secrets(run_id: int) -> dict[str, set[str]]:
+    """Par conversation, les sortes de secret d'une forme certaine repérées à l'extraction."""
+    secrets = collections.defaultdict(set)
+    for s in read_json(work_dir(run_id) / "summary.json", {}).get("secrets", []):
+        secrets[s["conversation_id"]].update(certain_kinds(s["kinds"]))
+    return {cid: kinds for cid, kinds in secrets.items() if kinds}
+
+
 def slack_messages(run_id: int, base_url: str) -> list[dict]:
     """Messages Slack d'un run, à relire avant publication. Aucun extrait de conversation, aucune mention."""
     run = load_run(run_id)
     if run.kind == "weekly":
         return [weekly_digest(run)]
-    summary = read_json(work_dir(run_id) / "summary.json", {})
     authors = {c["id"]: c["user_id"] for c in read_json(work_dir(run_id) / "convs.json", [])}
     findings = load_findings(run_id)
     definitions = criterion_definitions()
-    secrets = collections.defaultdict(set)
-    for s in summary.get("secrets", []):
-        secrets[s["conversation_id"]].update(certain_kinds(s["kinds"]))
     messages = [
         {
             "text": f":rotating_light: Secret exposé ({', '.join(sorted(kinds))}), valeur non reproduite : {link(base_url, cid)}"
         }
-        for cid, kinds in secrets.items()
-        if kinds
+        for cid, kinds in exposed_secrets(run_id).items()
     ]
     messages += [
         {
@@ -801,7 +804,7 @@ def slack_messages(run_id: int, base_url: str) -> list[dict]:
             "findings": [f.key],
         }
         for f in findings
-        if f.severity in ("CRITIQUE", "GRAVE")
+        if f.severity in SERIOUS
         and f.verification == "confirmé"
         and f.criterion in {"A1", "A2", "G30", "G31"}
         and not f.posted_at
@@ -812,7 +815,7 @@ def slack_messages(run_id: int, base_url: str) -> list[dict]:
         "thread": [
             f"• {f.criterion} {f.severity} — {shareable(f, definitions)[:200]} {link(base_url, f.conversation_id)}"
             for f in findings
-            if f.severity in ("CRITIQUE", "GRAVE")
+            if f.severity in SERIOUS
         ],
     })
     return messages
@@ -951,7 +954,7 @@ def verify_list(run_id: int) -> list[dict]:
     """Écrit, pour chaque lot, les incidents CRITIQUE et GRAVE à contre-vérifier (verify_NN.json)."""
     summary = []
     for lot, output in lot_outputs(run_id).items():
-        serious = [f for f in output.findings if f.severity in ("CRITIQUE", "GRAVE")]
+        serious = [f for f in output.findings if f.severity in SERIOUS]
         if serious:
             write_json(work_dir(run_id) / f"verify_{lot}.json", [{"key": f.key, **f.model_dump()} for f in serious])
         summary.append({
@@ -981,7 +984,7 @@ def merge(run_id: int) -> dict:
         merged.off_grid += output.off_grid
         for f in output.findings:
             check = checks.get(f.key)
-            if f.severity in ("CRITIQUE", "GRAVE") and check is None:
+            if f.severity in SERIOUS and check is None:
                 unchecked.append(f.key)
             if check and check.status == "infirmé":
                 dropped.append(f.key)
@@ -1012,22 +1015,17 @@ def report(run_id: int, base_url: str) -> Path:
 def daily_report(run: Run, base_url: str) -> list[str]:
     findings = load_findings(run.id)
     definitions = criterion_definitions()
-    summary = read_json(work_dir(run.id) / "summary.json", {})
-    secrets = collections.defaultdict(set)
-    for s in summary.get("secrets", []):
-        secrets[s["conversation_id"]].update(certain_kinds(s["kinds"]))
+    secrets = exposed_secrets(run.id)
     lines = [
         f"# Audit des conversations — run {run.id}",
         "",
         f"Messages {run.after_message_id + 1} à {run.last_message_id} · {run.stats.get('conversations', '?')} "
         f"conversations · {severity_counts(findings)} · run {run.status}",
     ]
-    if any(secrets.values()):
+    if secrets:
         lines += ["", "## Secrets exposés", ""]
-        lines += [f"- {', '.join(sorted(k))} : {link(base_url, cid)}" for cid, k in secrets.items() if k]
-    serious = sorted(
-        (f for f in findings if f.severity in ("CRITIQUE", "GRAVE")), key=lambda f: SEVERITIES.index(f.severity)
-    )
+        lines += [f"- {', '.join(sorted(k))} : {link(base_url, cid)}" for cid, k in secrets.items()]
+    serious = sorted((f for f in findings if f.severity in SERIOUS), key=lambda f: SEVERITIES.index(f.severity))
     if serious:
         lines += ["", "## Incidents CRITIQUE et GRAVE"]
     for f in serious:
