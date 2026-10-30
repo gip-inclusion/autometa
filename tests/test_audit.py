@@ -608,7 +608,43 @@ def test_merge_applies_the_verdicts_drops_what_was_refuted_and_reports_the_unche
     [partial, unchecked] = audit.load_findings(run.id)
     assert (result["infirmés"], result["non_vérifiés"]) == (["c1:2:A2"], ["c1:3:A2"])
     assert (partial.verification, partial.severity, partial.correction) == ("partiel", "MOYEN", "25 %")
-    assert unchecked.message_id == 3
+    # L'auditeur a écrit « confirmé » de lui-même : sans contre-vérification, cela ne compte pas.
+    assert (unchecked.message_id, unchecked.verification) == (3, "non vérifié")
+
+
+def test_merge_can_be_rerun_after_a_new_verdict(mocker):
+    off_grid = {"conversation_id": "c1", "message_id": 1, "symptom": "s", "mechanism": "m", "why_serious": "w"}
+    run = open_daily(mocker, [msg(1)])
+    audit.extract(run.id)
+    lot_files(
+        run, output(finding(1), off_grid=[off_grid]), [{"key": "c1:1:A2", "status": "confirmé", "severity": "GRAVE"}]
+    )
+    audit.merge(run.id)
+
+    lot_files(
+        run, output(finding(1), off_grid=[off_grid]), [{"key": "c1:1:A2", "status": "infirmé", "severity": "GRAVE"}]
+    )
+    audit.merge(run.id)
+
+    assert audit.load_findings(run.id) == []
+    assert len(audit.findings_for(run.id)["off_grid"]) == 1
+
+
+def test_free_text_quoting_a_secret_url_is_masked_and_stays_readable(mocker):
+    leaky = {
+        "conversation_id": "c1",
+        "message_id": 1,
+        "symptom": 'curl "https://api.x/?api_key=abc123def456"',
+        "mechanism": "m",
+        "why_serious": "w",
+    }
+    run = open_daily(mocker, [msg(1)])
+    audit.extract(run.id)
+
+    audit.record(run.id, output(off_grid=[leaky]))
+
+    [stored] = audit.findings_for(run.id)["off_grid"]
+    assert stored["symptom"] == 'curl "https://api.x/?api_key=***"'
 
 
 def test_the_report_names_personal_data_problems_without_quoting_them(mocker, audit_dir):
