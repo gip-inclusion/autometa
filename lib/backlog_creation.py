@@ -25,6 +25,7 @@ STATUTS_PROPOSABLES = (
 TYPES = ("Fonctionnalité", "Bug", "Sécurité", "Technique", "Tâche")
 LIGNE_MAX = 2000
 BLOCS_MAX = 100
+TITRES = ("heading_1", "heading_2", "heading_3")
 CHAMPS_AUTEUR = ("POM", "UX", "Développeurs", "Contributeurs")
 
 
@@ -69,6 +70,9 @@ def construire_proprietes(ticket: Ticket) -> dict:
 
 def verifier_corps(ticket: Ticket) -> None:
     """Refuse un corps que Notion tronquerait ou n'accepterait pas, un lien non http(s) ou un lien Figma invalide."""
+    premiere = next((ligne for ligne in ticket.corps.splitlines() if ligne.strip()), "")
+    if premiere.startswith("# "):
+        raise ValueError("Corps refusé : le titre ne va pas dans le corps")
     blocs = notion.markdown_to_blocks(ticket.corps)
     if len(blocs) > BLOCS_MAX:
         raise ValueError(f"Ticket trop long : {len(blocs)} blocs, {BLOCS_MAX} au plus")
@@ -100,7 +104,9 @@ def placer_marqueur(blocs: list[dict], emoji_id: str | None) -> list[dict]:
         else {"type": "text", "text": {"content": MARQUEUR}}
     )
     espace = {"type": "text", "text": {"content": " "}}
-    premier = next((b for b in blocs if b.get("type") == "paragraph"), None)
+    # Why: le marqueur ouvre le ticket ; un paragraphe plus loin (« Version A » sous Attendu) ne doit pas le porter.
+    index = 1 if blocs and blocs[0].get("type") in TITRES else 0
+    premier = blocs[index] if index < len(blocs) and blocs[index].get("type") == "paragraph" else None
     if premier is None:
         blocs.insert(0, {"type": "paragraph", "paragraph": {"rich_text": [marqueur]}})
         return blocs
