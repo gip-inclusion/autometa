@@ -39,3 +39,7 @@ serait créé.
 4. Maquette : 6 cadres au plus, images de 1 600 pixels de large au plus.
 5. Auteur absent de l'Annuaire : l'agent lui demande son rôle. Sans compte Notion : le ticket est
    créé sans auteur inscrit, et l'agent le dit.
+
+## Validation
+
+Validé par LJ le 2026-10-30.
