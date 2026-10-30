@@ -10,6 +10,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from lib import backlog, backlog_creation, backlog_stockage  # noqa: E402
+from skills.rediger_ticket.scripts.commun import verifier_configuration  # noqa: E402
 from web import config  # noqa: E402
 
 CHAMPS_LISTES = ("equipes", "types")
@@ -67,8 +68,9 @@ def resoudre(brouillon: dict, contexte: dict, auteur: backlog.Auteur | None) -> 
 
 
 def run(args: argparse.Namespace) -> str:
-    if not config.NOTION_BACKLOG_DB:
-        raise ValueError("NOTION_BACKLOG_DB absent : variable d'environnement à renseigner")
+    manque = verifier_configuration(annuaire=False)
+    if manque:
+        raise ValueError(manque)
     chemin = Path(args.brouillon) if args.brouillon else chemin_brouillon()
     brouillon = json.loads(chemin.read_text(encoding="utf-8"))
     email = config.agent_user_email()
@@ -111,6 +113,8 @@ def main() -> None:
         sys.exit(f"Notion répond {erreur.response.status_code} : {erreur.response.text[:300]}")
     except httpx.TransportError:
         sys.exit("Notion ne répond pas : vérifier dans Notion si le ticket existe avant de relancer --go.")
+    except RuntimeError:
+        sys.exit("Notion limite les appels : réessayer dans une minute, après avoir vérifié si le ticket existe.")
 
 
 if __name__ == "__main__":

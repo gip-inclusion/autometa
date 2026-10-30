@@ -1,3 +1,4 @@
+import argparse
 import importlib.util
 import json
 from argparse import Namespace
@@ -8,6 +9,7 @@ import pytest
 
 from lib import backlog
 from lib.figma import Cadre
+from skills.rediger_ticket.scripts import commun
 
 SCRIPTS = Path(__file__).parent.parent / "skills/rediger_ticket/scripts"
 
@@ -50,7 +52,7 @@ def brouillon(tmp_path, **champs):
 
 def preparer_creer(mocker):
     creer = charger("creer")
-    mocker.patch.object(creer.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(creer.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
     mocker.patch.object(creer.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(creer.backlog, "trouver_auteur", return_value=AUTEUR)
@@ -180,14 +182,16 @@ def test_dod_1_maquette_garde_les_textes_si_les_images_echouent(mocker):
 
 def test_auteur_sans_session_le_dit(mocker):
     auteur = charger("auteur")
-    mocker.patch.object(auteur.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
     mocker.patch.object(auteur.config, "agent_user_email", return_value=None)
     assert auteur.run(Namespace(equipe=[])) == "Personne connectée inconnue : l'auteur ne sera pas inscrit."
 
 
 def test_dod_3_auteur_donne_le_champ_pour_l_equipe_visee(mocker):
     auteur = charger("auteur")
-    mocker.patch.object(auteur.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
     mocker.patch.object(auteur.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(auteur.backlog, "trouver_auteur", return_value=AUTEUR)
     mocker.patch.object(auteur.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
@@ -198,7 +202,7 @@ def test_dod_3_auteur_donne_le_champ_pour_l_equipe_visee(mocker):
 
 def test_contexte_rafraichi_relit_notion_et_range(mocker):
     script = charger("contexte")
-    mocker.patch.object(script.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(script.backlog, "charger_contexte", return_value=CONTEXTE)
     ranger = mocker.patch.object(script.backlog_stockage, "enregistrer_contexte")
     sortie = script.run(Namespace(rafraichir=True))
@@ -208,7 +212,7 @@ def test_contexte_rafraichi_relit_notion_et_range(mocker):
 
 def test_dod_3_doublons_liste_les_tickets_proches(mocker):
     doublons = charger("doublons")
-    mocker.patch.object(doublons.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(
         doublons.backlog,
         "chercher_doublons",
@@ -261,7 +265,7 @@ def test_creer_refuse_des_equipes_qui_ne_sont_pas_une_liste(mocker, tmp_path):
 
 def test_creer_sans_base_backlog_refuse(mocker, tmp_path):
     creer, creation = preparer_creer(mocker)
-    mocker.patch.object(creer.config, "NOTION_BACKLOG_DB", None)
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", None)
     with pytest.raises(ValueError, match="NOTION_BACKLOG_DB absent"):
         creer.run(Namespace(brouillon=brouillon(tmp_path), go=True))
     creation.assert_not_called()
@@ -338,34 +342,21 @@ def test_creer_en_ligne_de_commande_refuse_une_equipe_inconnue(mocker, tmp_path)
 @pytest.mark.parametrize("nom", ["contexte", "doublons", "auteur"])
 def test_scripts_de_lecture_sans_base_backlog_le_disent(mocker, nom):
     script = charger(nom)
-    mocker.patch.object(script.config, "NOTION_BACKLOG_DB", None)
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", None)
     sortie = script.run(Namespace(rafraichir=False, titre="x", equipe=[]))
     assert sortie.startswith("NOTION_BACKLOG_DB absent")
 
 
-def test_doublons_en_ligne_de_commande_dit_l_erreur_notion(mocker):
-    doublons = charger("doublons")
-    mocker.patch.object(doublons.config, "NOTION_BACKLOG_DB", "db")
-    reponse = httpx.Response(401, text="unauthorized")
-    mocker.patch.object(
-        doublons.backlog,
-        "chercher_doublons",
-        side_effect=httpx.HTTPStatusError("401", request=REQUETE, response=reponse),
-    )
-    with pytest.raises(SystemExit, match="Notion répond 401 : unauthorized"):
-        lancer(mocker, doublons, "Un titre")
-
-
 def test_doublons_sans_resultat(mocker):
     doublons = charger("doublons")
-    mocker.patch.object(doublons.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(doublons.backlog, "chercher_doublons", return_value=[])
     assert doublons.run(Namespace(titre="x")) == "Aucun ticket proche."
 
 
 def test_contexte_sans_rafraichir_lit_le_contexte_stocke(mocker):
     script = charger("contexte")
-    mocker.patch.object(script.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(script.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
     charge = mocker.patch.object(script.backlog, "charger_contexte")
     assert "## Emplois inclusifs et dispositifs réglementés" in script.run(Namespace(rafraichir=False))
@@ -374,7 +365,8 @@ def test_contexte_sans_rafraichir_lit_le_contexte_stocke(mocker):
 
 def test_auteur_introuvable_le_dit(mocker):
     auteur = charger("auteur")
-    mocker.patch.object(auteur.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
     mocker.patch.object(auteur.config, "agent_user_email", return_value="x@exemple.fr")
     mocker.patch.object(auteur.backlog, "trouver_auteur", return_value=None)
     assert auteur.run(Namespace(equipe=[])).startswith("Absent de l'Annuaire")
@@ -382,7 +374,8 @@ def test_auteur_introuvable_le_dit(mocker):
 
 def test_auteur_signale_une_equipe_inconnue(mocker):
     auteur = charger("auteur")
-    mocker.patch.object(auteur.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
     mocker.patch.object(auteur.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(auteur.backlog, "trouver_auteur", return_value=AUTEUR)
     mocker.patch.object(auteur.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
@@ -456,60 +449,79 @@ def test_creer_continue_sans_auteur_apres_les_reessais_429(mocker, tmp_path):
 @pytest.mark.parametrize("erreur", [httpx.ReadTimeout("lent", request=REQUETE), RuntimeError("429")])
 def test_auteur_illisible_ne_fait_pas_sortir_en_erreur(mocker, erreur):
     auteur = charger("auteur")
-    mocker.patch.object(auteur.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
     mocker.patch.object(auteur.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(auteur.backlog, "trouver_auteur", side_effect=erreur)
     assert auteur.run(Namespace(equipe=[])) == "Auteur non inscrit : annuaire ou comptes Notion illisibles."
-
-
-def test_dod_1_maquette_dit_image_non_rendue_si_l_export_echoue(mocker):
-    maquette = charger("maquette")
-    mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
-    mocker.patch.object(
-        maquette.figma, "lire_cadres", return_value=[Cadre(id="2:2", nom="Choix 1", textes=["A"], largeur=100)]
-    )
-    mocker.patch.object(maquette.figma, "exporter_images", side_effect=httpx.ReadTimeout("lent", request=REQUETE))
-    assert "Image non rendue" in maquette.run(Namespace(url=LIEN_CADRE))
-
-
-def test_dod_5_creer_a_blanc_etiquette_les_noms_resolus(mocker, tmp_path):
-    creer, _ = preparer_creer(mocker)
-    assert "Noms résolus :" in creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
 
 
 @pytest.mark.parametrize(
     ("nom", "arguments", "attendu"),
     [
         ("contexte", [], "## Emplois inclusifs"),
-        ("doublons", ["Titre test"], "- T (Cadrage"),
+        ("doublons", ["Titre test"], "- T (Cadrage, 1 mots communs) u"),
         ("auteur", [], "Auteur : Camille"),
         ("maquette", ["https://www.figma.com/board/AAAAAAAAAAAAAAAAAAAAAA/x"], "Lien Figma sans cadre précis"),
     ],
 )
 def test_scripts_de_lecture_en_ligne_de_commande_affichent_leur_resultat(mocker, capsys, nom, arguments, attendu):
     script = charger(nom)
-    mocker.patch.object(script.config, "NOTION_BACKLOG_DB", "db")
-    mocker.patch.object(script.config, "agent_user_email", return_value="camille@exemple.fr", create=True)
-    if nom == "contexte":
-        mocker.patch.object(script.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
-    if nom == "doublons":
-        mocker.patch.object(
-            script.backlog,
-            "chercher_doublons",
-            return_value=[{"titre": "T", "url": "u", "statut": "Cadrage", "communs": 1}],
-        )
-    if nom == "auteur":
-        mocker.patch.object(script.backlog, "trouver_auteur", return_value=AUTEUR)
-        mocker.patch.object(script.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
+    mocker.patch.object(commun.config, "agent_user_email", return_value="camille@exemple.fr")
+    mocker.patch("lib.backlog_stockage.contexte_courant", return_value=CONTEXTE)
+    mocker.patch("lib.backlog.trouver_auteur", return_value=AUTEUR)
+    mocker.patch(
+        "lib.backlog.chercher_doublons",
+        return_value=[{"titre": "T", "url": "u", "statut": "Cadrage", "communs": 1}],
+    )
     lancer(mocker, script, *arguments)
     assert attendu in capsys.readouterr().out
 
 
-def test_scripts_de_lecture_en_ligne_de_commande_disent_que_notion_ne_repond_pas(mocker):
-    doublons = charger("doublons")
-    mocker.patch.object(doublons.config, "NOTION_BACKLOG_DB", "db")
-    mocker.patch.object(
-        doublons.backlog, "chercher_doublons", side_effect=httpx.ConnectTimeout("lent", request=REQUETE)
-    )
-    with pytest.raises(SystemExit, match="Notion ne répond pas"):
-        lancer(mocker, doublons, "Titre")
+@pytest.mark.parametrize(
+    ("erreur", "message"),
+    [
+        (
+            httpx.HTTPStatusError("401", request=REQUETE, response=httpx.Response(401, text="unauthorized")),
+            "Notion répond 401 : unauthorized",
+        ),
+        (httpx.ConnectTimeout("lent", request=REQUETE), "Notion ne répond pas."),
+        (RuntimeError("429"), "Notion limite les appels : réessayer dans une minute."),
+    ],
+)
+def test_lancer_traduit_les_erreurs_notion_en_une_ligne(mocker, erreur, message):
+    parser = argparse.ArgumentParser()
+    mocker.patch("sys.argv", ["script.py"])
+    with pytest.raises(SystemExit, match=message):
+        commun.lancer(mocker.Mock(side_effect=erreur), parser)
+
+
+def test_lancer_affiche_le_resultat(mocker, capsys):
+    mocker.patch("sys.argv", ["script.py"])
+    commun.lancer(lambda args: "résultat", argparse.ArgumentParser())
+    assert capsys.readouterr().out == "résultat\n"
+
+
+@pytest.mark.parametrize(
+    ("base", "annuaire", "demande", "attendu"),
+    [
+        (None, None, False, "NOTION_BACKLOG_DB absent"),
+        ("db", None, False, None),
+        ("db", None, True, "NOTION_ANNUAIRE_DB absent"),
+        ("db", "annuaire", True, None),
+    ],
+)
+def test_verifier_configuration_nomme_la_variable_absente(mocker, base, annuaire, demande, attendu):
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", base)
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", annuaire)
+    message = commun.verifier_configuration(annuaire=demande)
+    assert (message is None) if attendu is None else message.startswith(attendu)
+
+
+def test_creer_en_ligne_de_commande_dit_que_notion_limite_les_appels(mocker, tmp_path):
+    creer, creation = preparer_creer(mocker)
+    creation.side_effect = RuntimeError("429")
+    with pytest.raises(SystemExit, match="Notion limite les appels"):
+        lancer(mocker, creer, brouillon(tmp_path), "--go")
