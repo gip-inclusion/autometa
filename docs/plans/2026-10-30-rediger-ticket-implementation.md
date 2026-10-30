@@ -10,11 +10,13 @@
 
 **Conception :** interne (dépôt privé `organisation-produit`, `exploration/redacteur-tickets/conception.md`). La consigne a été mise au point sur un banc de 26 tickets réels, avec des juges à l'aveugle ; le banc reste dans le dépôt privé.
 
-**Tests :** `uv run --frozen python -m pytest tests/<fichier> -q -m "not integration"`, puis `make test` et `make lint` à la fin.
+**Tests :** `uv run --frozen pytest tests/<fichier> -q -m "not integration"`, puis `make test` et `make lint` à la fin.
 
 **Zones critiques :** aucune n'est modifiée. `lib/notion.py` et `lib/dashboard_api.py` (zone secondaire) sont seulement appelés.
 
 ---
+
+**Attestations (paved road) :** un critère se prouve par des tests nommés `test_dod_<n>_…`, lancés par `uv run --frozen pytest <fichiers> -k dod_<n>` (l'outil refuse `python -m`). Le rouge et le vert s'apparient par critère, pas par commande. Chaque commit sous `lib/`, `skills/` ou `tests/` périme les verts précédents : `make paved-road-reprove` les rejoue en fin de parcours (tâche 9). En tâche 7, rejouer les verts de DOD-1 et DOD-3 avec les tests des scripts en plus : `uv run --frozen pytest tests/test_figma.py tests/test_rediger_ticket_scripts.py -k dod_1` et `uv run --frozen pytest tests/test_backlog.py tests/test_rediger_ticket_scripts.py -k dod_3`.
 
 ## Contraintes globales
 
@@ -144,7 +146,7 @@ EOF
 
 Attendu : soit la mention est relue (type `mention`, sous-type `custom_emoji`), soit une erreur 400 `validation_error`.
 
-- [ ] **Étape 3 : consigner le résultat** dans la DoD (décision 1). Si l'API refuse, la fonction `placer_marqueur` de la tâche 6 garde le texte littéral : supprimer alors la branche `if emoji_id` et le test `test_placer_marqueur_insere_l_emoji`, et retirer `emoji_autometa`.
+- [ ] **Étape 3 : consigner le résultat** dans la DoD (décision 1). Si l'API refuse, la fonction `placer_marqueur` de la tâche 6 garde le texte littéral : supprimer alors la branche `if emoji_id` et le test `test_dod_4_placer_marqueur_insere_l_emoji`, et retirer `emoji_autometa`.
 
 ---
 
@@ -225,7 +227,7 @@ def test_analyser_lien(url, attendu):
     assert figma.analyser_lien(url) == attendu
 
 
-def test_textes_visibles_ignore_les_calques_masques():
+def test_dod_1_textes_visibles_ignore_les_calques_masques():
     cadre = noeud("FRAME", enfants=[
         noeud("TEXT", texte="Titre"),
         noeud("GROUP", visible=False, enfants=[noeud("TEXT", texte="Ancien texte")]),
@@ -248,20 +250,20 @@ def test_choisir_cadres(racine, noms):
     assert [c["name"] for c in figma.choisir_cadres(racine)] == noms
 
 
-def test_lire_cadres_sans_noeud_ne_lit_rien(mocker):
+def test_dod_1_lire_cadres_sans_noeud_ne_lit_rien(mocker):
     appel = mocker.patch.object(figma, "appeler_api")
     assert figma.lire_cadres(figma.LienFigma(CLE, None, "board")) == []
     appel.assert_not_called()
 
 
-def test_lire_cadres_donne_nom_textes_et_largeur(mocker):
+def test_dod_1_lire_cadres_donne_nom_textes_et_largeur(mocker):
     document = noeud("SECTION", enfants=[noeud("FRAME", nom="Choix 1", id_="2:2", largeur=1435, enfants=[noeud("TEXT", texte="Accepter la candidature")])])
     mocker.patch.object(figma, "appeler_api", return_value={"nodes": {"4:5": {"document": document}}})
     cadres = figma.lire_cadres(figma.LienFigma(CLE, "4:5", "design"))
     assert cadres == [figma.Cadre(id="2:2", nom="Choix 1", textes=["Accepter la candidature"], largeur=1435)]
 
 
-def test_exporter_images_reduit_la_largeur_et_ecrit_le_png(mocker, tmp_path):
+def test_dod_1_exporter_images_reduit_la_largeur_et_ecrit_le_png(mocker, tmp_path):
     appel = mocker.patch.object(figma, "appeler_api", return_value={"images": {"2:2": "https://rendu/2-2.png"}})
     reponse = mocker.Mock(content=b"PNG")
     mocker.patch.object(figma.httpx, "get", return_value=reponse)
@@ -284,7 +286,7 @@ Ajouter `import pytest` en tête du fichier.
 
 - [ ] **Étape 2 : journaliser le rouge**
 
-Run: `make paved-road-advance DOD=DOD-1 RED=1 CMD='uv run --frozen python -m pytest tests/test_figma.py -q'`
+Run: `make paved-road-advance DOD=DOD-1 RED=1 CMD='uv run --frozen pytest tests/test_figma.py -k dod_1'`
 Expected: échec à l'import (`cannot import name 'figma'`).
 
 - [ ] **Étape 3 : écrire `lib/figma.py`**
@@ -409,7 +411,7 @@ def exporter_images(lien: LienFigma, cadres: list[Cadre], dossier: Path, largeur
 
 - [ ] **Étape 4 : lancer les tests**
 
-Run: `uv run --frozen python -m pytest tests/test_figma.py -q`
+Run: `uv run --frozen pytest tests/test_figma.py -q`
 Expected: `13 passed`
 
 - [ ] **Étape 5 : committer et attester**
@@ -417,7 +419,7 @@ Expected: `13 passed`
 ```bash
 git add lib/figma.py tests/test_figma.py
 git commit -m "Read Figma frames, visible texts and frame renders"
-make paved-road-advance DOD=DOD-1 CMD='uv run --frozen python -m pytest tests/test_figma.py -q'
+make paved-road-advance DOD=DOD-1 CMD='uv run --frozen pytest tests/test_figma.py -k dod_1'
 ```
 
 ---
@@ -468,7 +470,7 @@ def test_requeter_pagine_et_s_arrete_a_la_limite(mocker):
     assert appel.call_count == 2
 
 
-def test_charger_contexte_regroupe_epics_et_titres_par_equipe(mocker):
+def test_dod_2_charger_contexte_regroupe_epics_et_titres_par_equipe(mocker):
     mocker.patch.object(backlog.config, "NOTION_BACKLOG_DB", "backlog")
     schema = {"properties": {
         "Pizza team": {"relation": {"database_id": "equipes"}},
@@ -517,7 +519,7 @@ def test_mots_cles(texte, attendu):
     assert backlog.mots_cles(texte) == attendu
 
 
-def test_chercher_doublons_classe_et_ecarte_les_rapprochements_faibles(mocker):
+def test_dod_3_chercher_doublons_classe_et_ecarte_les_rapprochements_faibles(mocker):
     mocker.patch.object(backlog.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch(
         "lib.notion.notion_request",
@@ -532,7 +534,7 @@ def test_chercher_doublons_classe_et_ecarte_les_rapprochements_faibles(mocker):
     assert trouves[0] == {"titre": "Masquer candidatures employeurs non acceptées", "url": "u-c", "statut": "Bac à sable 🏝️", "communs": 4}
 
 
-def test_chercher_doublons_exige_la_moitie_des_mots_cles(mocker):
+def test_dod_3_chercher_doublons_exige_la_moitie_des_mots_cles(mocker):
     mocker.patch.object(backlog.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch(
         "lib.notion.notion_request",
@@ -545,7 +547,7 @@ def test_chercher_doublons_exige_la_moitie_des_mots_cles(mocker):
     assert [t["url"] for t in trouves] == ["u-b"]
 
 
-def test_trouver_auteur_croise_annuaire_et_comptes_notion(mocker):
+def test_dod_3_trouver_auteur_croise_annuaire_et_comptes_notion(mocker):
     mocker.patch.object(backlog.config, "NOTION_ANNUAIRE_DB", "annuaire")
     fiche = {"id": "f", "properties": {
         "Nom": titre_notion("Camille"),
@@ -572,14 +574,14 @@ def test_trouver_auteur_croise_annuaire_et_comptes_notion(mocker):
         ([], [], ["e1"], "Contributeurs"),
     ],
 )
-def test_champ_auteur(roles, equipes_auteur, destinataires, champ):
+def test_dod_3_champ_auteur(roles, equipes_auteur, destinataires, champ):
     auteur = backlog.Auteur(nom="x", roles=roles, equipes=equipes_auteur, notion_id="u")
     assert backlog.champ_auteur(auteur, destinataires) == champ
 ```
 
 - [ ] **Étape 2 : journaliser le rouge**
 
-Run: `make paved-road-advance DOD=DOD-3 RED=1 CMD='uv run --frozen python -m pytest tests/test_backlog.py -q'`
+Run: `make paved-road-advance DOD=DOD-3 RED=1 CMD='uv run --frozen pytest tests/test_backlog.py -k dod_3'`
 Expected: échec à l'import.
 
 - [ ] **Étape 3 : écrire `lib/backlog.py`**
@@ -792,7 +794,7 @@ Note : l'Annuaire a un titre `Nom`, comme le backlog ; `extract_page_title` lit 
 
 - [ ] **Étape 4 : lancer les tests**
 
-Run: `uv run --frozen python -m pytest tests/test_backlog.py -q`
+Run: `uv run --frozen pytest tests/test_backlog.py -q`
 Expected: `16 passed`
 
 - [ ] **Étape 5 : committer et attester**
@@ -800,7 +802,7 @@ Expected: `16 passed`
 ```bash
 git add lib/backlog.py tests/test_backlog.py
 git commit -m "Read team context, similar tickets and author role from the backlog"
-make paved-road-advance DOD=DOD-3 CMD='uv run --frozen python -m pytest tests/test_backlog.py -q'
+make paved-road-advance DOD=DOD-3 CMD='uv run --frozen pytest tests/test_backlog.py -k dod_3'
 ```
 
 ---
@@ -828,19 +830,19 @@ def contexte(age):
     return {"genere_le": (datetime.now(UTC) - age).isoformat(), "equipes": []}
 
 
-def test_lire_contexte_renvoie_le_contexte_frais(mocker):
+def test_dod_2_lire_contexte_renvoie_le_contexte_frais(mocker):
     frais = contexte(timedelta(hours=3))
     mocker.patch.object(backlog_stockage, "query_storage", side_effect=[resultat(), resultat([[frais, frais["genere_le"]]])])
     assert backlog_stockage.lire_contexte() == frais
 
 
-def test_lire_contexte_perime_renvoie_none(mocker):
+def test_dod_2_lire_contexte_perime_renvoie_none(mocker):
     vieux = contexte(timedelta(days=2))
     mocker.patch.object(backlog_stockage, "query_storage", side_effect=[resultat(), resultat([[vieux, vieux["genere_le"]]])])
     assert backlog_stockage.lire_contexte() is None
 
 
-def test_contexte_courant_relit_notion_et_range_si_rien_n_est_frais(mocker):
+def test_dod_2_contexte_courant_relit_notion_et_range_si_rien_n_est_frais(mocker):
     neuf = contexte(timedelta(0))
     mocker.patch.object(backlog_stockage, "lire_contexte", return_value=None)
     mocker.patch.object(backlog_stockage.backlog, "charger_contexte", return_value=neuf)
@@ -874,7 +876,7 @@ Ajouter `import pytest` en tête du fichier.
 
 - [ ] **Étape 2 : journaliser le rouge**
 
-Run: `make paved-road-advance DOD=DOD-2 RED=1 CMD='uv run --frozen python -m pytest tests/test_backlog_stockage.py -q'`
+Run: `make paved-road-advance DOD=DOD-2 RED=1 CMD='uv run --frozen pytest tests/test_backlog.py tests/test_backlog_stockage.py -k dod_2'`
 Expected: échec à l'import.
 
 - [ ] **Étape 3 : écrire `lib/backlog_stockage.py`**
@@ -985,7 +987,7 @@ if __name__ == "__main__":
 
 - [ ] **Étape 5 : lancer les tests, dont la découverte des crons**
 
-Run: `uv run --frozen python -m pytest tests/test_backlog_stockage.py tests/test_cron_runner.py -q -m "not integration"`
+Run: `uv run --frozen pytest tests/test_backlog_stockage.py tests/test_cron_runner.py -q -m "not integration"`
 Expected: tout passe ; `repo_system_tasks()` découvre `contexte-backlog` dans le lot `synchros`.
 
 - [ ] **Étape 6 : committer et attester**
@@ -993,7 +995,7 @@ Expected: tout passe ; `repo_system_tasks()` découvre `contexte-backlog` dans l
 ```bash
 git add lib/backlog_stockage.py cron/contexte-backlog tests/test_backlog_stockage.py
 git commit -m "Store the backlog team context daily in dashboard_storage"
-make paved-road-advance DOD=DOD-2 CMD='uv run --frozen python -m pytest tests/test_backlog_stockage.py -q'
+make paved-road-advance DOD=DOD-2 CMD='uv run --frozen pytest tests/test_backlog.py tests/test_backlog_stockage.py -k dod_2'
 ```
 
 ---
@@ -1019,7 +1021,7 @@ def ticket(**champs):
     return creation.Ticket(**valeurs)
 
 
-def test_construire_proprietes_ne_pose_que_les_champs_autorises():
+def test_dod_4_construire_proprietes_ne_pose_que_les_champs_autorises():
     proprietes = creation.construire_proprietes(ticket(figma="https://figma", epic="p1", champ_auteur="UX", auteur_notion_id="u1"))
     assert set(proprietes) == {"Nom", "Pizza team", "Statut", "Type", "Figma", "Epic - feuille de route", "UX"}
     assert proprietes["UX"] == {"people": [{"id": "u1"}]}
@@ -1036,7 +1038,7 @@ def test_construire_proprietes_ne_pose_que_les_champs_autorises():
         ({"champ_auteur": "Responsable(s)", "auteur_notion_id": "u1"}, "Champ d'auteur inconnu"),
     ],
 )
-def test_construire_proprietes_refuse(champs, message):
+def test_dod_4_construire_proprietes_refuse(champs, message):
     with pytest.raises(ValueError, match=message):
         creation.construire_proprietes(ticket(**champs))
 
@@ -1045,7 +1047,7 @@ def paragraphe(texte):
     return {"type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": texte}}]}}
 
 
-def test_placer_marqueur_insere_l_emoji():
+def test_dod_4_placer_marqueur_insere_l_emoji():
     blocs = creation.placer_marqueur([paragraphe(":autometa: Les employeurs gardent l'accès.")], "emoji-1")
     textes = blocs[0]["paragraph"]["rich_text"]
     assert textes[0] == {"type": "mention", "mention": {"type": "custom_emoji", "custom_emoji": {"id": "emoji-1"}}}
@@ -1065,7 +1067,7 @@ def test_emoji_autometa_parcourt_les_pages(mocker):
     assert creation.emoji_autometa() == "e"
 
 
-def test_creer_ticket_envoie_100_blocs_puis_le_reste(mocker):
+def test_dod_4_creer_ticket_envoie_100_blocs_puis_le_reste(mocker):
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "emoji_autometa", return_value=None)
     mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraphe(str(i)) for i in range(150)])
@@ -1080,7 +1082,7 @@ def test_creer_ticket_envoie_100_blocs_puis_le_reste(mocker):
 
 - [ ] **Étape 2 : journaliser le rouge**
 
-Run: `make paved-road-advance DOD=DOD-4 RED=1 CMD='uv run --frozen python -m pytest tests/test_backlog_creation.py -q'`
+Run: `make paved-road-advance DOD=DOD-4 RED=1 CMD='uv run --frozen pytest tests/test_backlog_creation.py -k dod_4'`
 Expected: échec à l'import.
 
 - [ ] **Étape 3 : écrire `lib/backlog_creation.py`**
@@ -1186,11 +1188,11 @@ def creer_ticket(ticket: Ticket) -> tuple[str, str]:
     return page["id"], page["url"]
 ```
 
-Si l'essai de la tâche 1 a montré une autre forme de mention, la reporter dans `placer_marqueur` et dans `test_placer_marqueur_insere_l_emoji`.
+Si l'essai de la tâche 1 a montré une autre forme de mention, la reporter dans `placer_marqueur` et dans `test_dod_4_placer_marqueur_insere_l_emoji`.
 
 - [ ] **Étape 4 : lancer les tests**
 
-Run: `uv run --frozen python -m pytest tests/test_backlog_creation.py -q`
+Run: `uv run --frozen pytest tests/test_backlog_creation.py -q`
 Expected: `10 passed`
 
 - [ ] **Étape 5 : committer et attester**
@@ -1198,7 +1200,7 @@ Expected: `10 passed`
 ```bash
 git add lib/backlog_creation.py tests/test_backlog_creation.py
 git commit -m "Create backlog tickets with allowed properties and the autometa marker"
-make paved-road-advance DOD=DOD-4 CMD='uv run --frozen python -m pytest tests/test_backlog_creation.py -q'
+make paved-road-advance DOD=DOD-4 CMD='uv run --frozen pytest tests/test_backlog_creation.py -k dod_4'
 ```
 
 ---
@@ -1258,7 +1260,7 @@ def preparer_creer(mocker):
     return creer, creation
 
 
-def test_creer_sans_go_ne_cree_rien(mocker, tmp_path):
+def test_dod_5_creer_sans_go_ne_cree_rien(mocker, tmp_path):
     creer, creation = preparer_creer(mocker)
     sortie = creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
     creation.assert_not_called()
@@ -1266,7 +1268,7 @@ def test_creer_sans_go_ne_cree_rien(mocker, tmp_path):
     assert '"POM"' in sortie
 
 
-def test_creer_avec_go_resout_noms_et_auteur(mocker, tmp_path):
+def test_dod_5_creer_avec_go_resout_noms_et_auteur(mocker, tmp_path):
     creer, creation = preparer_creer(mocker)
     assert creer.run(Namespace(brouillon=brouillon(tmp_path), go=True)) == "Ticket créé : https://notion/p"
     ticket = creation.call_args.args[0]
@@ -1296,7 +1298,7 @@ def test_creer_refuse_un_nom_inconnu(mocker, tmp_path, champs, message):
         ("https://www.figma.com/board/AAAAAAAAAAAAAAAAAAAAAA/x", "Lien Figma sans cadre précis"),
     ],
 )
-def test_maquette_ne_lit_pas_un_lien_inexploitable(mocker, url, debut):
+def test_dod_1_maquette_ne_lit_pas_un_lien_inexploitable(mocker, url, debut):
     maquette = charger("maquette")
     mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
     lire = mocker.patch.object(maquette.figma, "lire_cadres")
@@ -1304,7 +1306,7 @@ def test_maquette_ne_lit_pas_un_lien_inexploitable(mocker, url, debut):
     lire.assert_not_called()
 
 
-def test_maquette_liste_cadres_textes_et_images(mocker, tmp_path):
+def test_dod_1_maquette_liste_cadres_textes_et_images(mocker, tmp_path):
     maquette = charger("maquette")
     mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(maquette, "dossier_images", return_value=tmp_path)
@@ -1316,7 +1318,7 @@ def test_maquette_liste_cadres_textes_et_images(mocker, tmp_path):
     assert "- Accepter" in sortie
 
 
-def test_maquette_signale_un_acces_refuse(mocker):
+def test_dod_1_maquette_signale_un_acces_refuse(mocker):
     maquette = charger("maquette")
     mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
     refus = httpx.HTTPStatusError("403", request=httpx.Request("GET", "https://api.figma.com"), response=httpx.Response(403))
@@ -1331,7 +1333,7 @@ def test_auteur_sans_session_le_dit(mocker):
     assert auteur.run(Namespace(equipe=[])) == "Personne connectée inconnue : l'auteur ne sera pas inscrit."
 
 
-def test_auteur_donne_le_champ_pour_l_equipe_visee(mocker):
+def test_dod_3_auteur_donne_le_champ_pour_l_equipe_visee(mocker):
     auteur = charger("auteur")
     mocker.patch.object(auteur.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(auteur.backlog, "trouver_auteur", return_value=AUTEUR)
@@ -1350,7 +1352,7 @@ def test_contexte_rafraichi_relit_notion_et_range(mocker):
     assert "## Emplois inclusifs et dispositifs réglementés" in sortie
 
 
-def test_doublons_liste_les_tickets_proches(mocker):
+def test_dod_3_doublons_liste_les_tickets_proches(mocker):
     doublons = charger("doublons")
     mocker.patch.object(doublons.backlog, "chercher_doublons", return_value=[{"titre": "T", "url": "u", "statut": "Cadrage", "communs": 3}])
     assert doublons.run(Namespace(titre="Masquer les candidatures")) == "- T (Cadrage, 3 mots communs) u"
@@ -1358,7 +1360,7 @@ def test_doublons_liste_les_tickets_proches(mocker):
 
 - [ ] **Étape 2 : journaliser le rouge**
 
-Run: `make paved-road-advance DOD=DOD-5 RED=1 CMD='uv run --frozen python -m pytest tests/test_rediger_ticket_scripts.py -q'`
+Run: `make paved-road-advance DOD=DOD-5 RED=1 CMD='uv run --frozen pytest tests/test_rediger_ticket_scripts.py -k dod_5'`
 Expected: échec (`FileNotFoundError` sur les scripts).
 
 - [ ] **Étape 3 : écrire `skills/rediger_ticket/scripts/contexte.py`**
@@ -1591,7 +1593,7 @@ if __name__ == "__main__":
 
 - [ ] **Étape 8 : lancer les tests**
 
-Run: `uv run --frozen python -m pytest tests/test_rediger_ticket_scripts.py -q`
+Run: `uv run --frozen pytest tests/test_rediger_ticket_scripts.py -q`
 Expected: `13 passed`
 
 Les scripts se lancent depuis la racine du dépôt, comme les autres skills (le répertoire courant de l'agent est la racine).
@@ -1601,7 +1603,7 @@ Les scripts se lancent depuis la racine du dépôt, comme les autres skills (le 
 ```bash
 git add skills/rediger_ticket/scripts tests/test_rediger_ticket_scripts.py
 git commit -m "Add command-line scripts for the ticket drafting skill"
-make paved-road-advance DOD=DOD-5 CMD='uv run --frozen python -m pytest tests/test_rediger_ticket_scripts.py -q'
+make paved-road-advance DOD=DOD-5 CMD='uv run --frozen pytest tests/test_rediger_ticket_scripts.py -k dod_5'
 ```
 
 ---
@@ -1900,7 +1902,12 @@ Expected: aucun constat nouveau dans `lib/` ni `skills/rediger_ticket/`.
 Run: `git diff main --stat && git diff main | grep -nE "[0-9a-f]{32}|@inclusion|figd_" || echo "rien de sensible"`
 Expected: `rien de sensible`.
 
-- [ ] **Étape 3 : lentille de cohérence** (`paved-road:design-coherence`) sur le diff ; corriger ou justifier chaque bloqueur.
+- [ ] **Étape 3 : rejouer les preuves périmées**
+
+Run: `make paved-road-reprove`
+Expected: toutes les attestations repassent.
+
+- [ ] **Étape 4 : lentille de cohérence** (`paved-road:design-coherence`) sur le diff ; corriger ou justifier chaque bloqueur.
 
 ---
 
