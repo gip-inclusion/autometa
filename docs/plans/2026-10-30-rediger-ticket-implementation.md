@@ -1318,13 +1318,41 @@ def test_dod_1_maquette_liste_cadres_textes_et_images(mocker, tmp_path):
     assert "- Accepter" in sortie
 
 
-def test_dod_1_maquette_signale_un_acces_refuse(mocker):
+LIEN_CADRE = "https://www.figma.com/design/AAAAAAAAAAAAAAAAAAAAAA/x?node-id=1-2"
+REQUETE = httpx.Request("GET", "https://api.figma.com")
+
+
+@pytest.mark.parametrize(
+    ("erreur", "attendu"),
+    [
+        (httpx.HTTPStatusError("403", request=REQUETE, response=httpx.Response(403)), "Maquette non lue : Figma répond 403 (accès refusé ou fichier introuvable)."),
+        (httpx.HTTPStatusError("429", request=REQUETE, response=httpx.Response(429)), "Maquette non lue : Figma limite les appels (429), réessayer dans une minute."),
+        (httpx.ConnectTimeout("lent", request=REQUETE), "Maquette non lue : Figma ne répond pas."),
+    ],
+)
+def test_dod_1_maquette_dit_pourquoi_elle_n_est_pas_lue(mocker, erreur, attendu):
     maquette = charger("maquette")
     mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
-    refus = httpx.HTTPStatusError("403", request=httpx.Request("GET", "https://api.figma.com"), response=httpx.Response(403))
-    mocker.patch.object(maquette.figma, "lire_cadres", side_effect=refus)
-    sortie = maquette.run(Namespace(url="https://www.figma.com/design/AAAAAAAAAAAAAAAAAAAAAA/x?node-id=1-2"))
-    assert sortie == "Maquette non lue : Figma répond 403 (accès refusé ou cadre introuvable)."
+    mocker.patch.object(maquette.figma, "lire_cadres", side_effect=erreur)
+    assert maquette.run(Namespace(url=LIEN_CADRE)) == attendu
+
+
+def test_dod_1_maquette_signale_un_cadre_introuvable(mocker):
+    maquette = charger("maquette")
+    mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(maquette.figma, "lire_cadres", return_value=[])
+    assert maquette.run(Namespace(url=LIEN_CADRE)).startswith("Cadre introuvable dans ce fichier Figma")
+
+
+def test_dod_1_maquette_garde_les_textes_si_les_images_echouent(mocker):
+    maquette = charger("maquette")
+    mocker.patch.object(maquette.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(maquette.figma, "lire_cadres", return_value=[Cadre(id="2:2", nom="Choix 1", textes=["Accepter"], largeur=100)])
+    mocker.patch.object(maquette.figma, "exporter_images", side_effect=httpx.ReadTimeout("lent", request=REQUETE))
+    sortie = maquette.run(Namespace(url=LIEN_CADRE))
+    assert "Images non rendues (Maquette non lue : Figma ne répond pas.) : se fier aux textes." in sortie
+    assert "- Accepter" in sortie
+    assert "Image à regarder" not in sortie
 
 
 def test_auteur_sans_session_le_dit(mocker):
@@ -1417,6 +1445,14 @@ def dossier_images() -> Path:
     return Path("/tmp/rediger_ticket") / (config.agent_conversation_id() or "local")
 
 
+def message_erreur(erreur: httpx.HTTPError) -> str:
+    if isinstance(erreur, httpx.HTTPStatusError) and erreur.response.status_code == 429:
+        return "Maquette non lue : Figma limite les appels (429), réessayer dans une minute."
+    if isinstance(erreur, httpx.HTTPStatusError):
+        return f"Maquette non lue : Figma répond {erreur.response.status_code} (accès refusé ou fichier introuvable)."
+    return "Maquette non lue : Figma ne répond pas."
+
+
 def run(args: argparse.Namespace) -> str:
     lien = figma.analyser_lien(args.url)
     if lien is None:
@@ -1427,10 +1463,16 @@ def run(args: argparse.Namespace) -> str:
         return "FIGMA_ACCESS_TOKEN absent : maquette non lue."
     try:
         cadres = figma.lire_cadres(lien)
-        images = figma.exporter_images(lien, cadres, dossier_images() / f"{lien.cle}-{lien.noeud.replace(':', '-')}")
-    except httpx.HTTPStatusError as erreur:
-        return f"Maquette non lue : Figma répond {erreur.response.status_code} (accès refusé ou cadre introuvable)."
+    except httpx.HTTPError as erreur:
+        return message_erreur(erreur)
+    if not cadres:
+        return "Cadre introuvable dans ce fichier Figma (supprimé, ou lien vers un autre fichier) : demander un lien vers le cadre."
     lignes = [f"# Maquette : {args.url}", ""]
+    try:
+        images = figma.exporter_images(lien, cadres, dossier_images() / f"{lien.cle}-{lien.noeud.replace(':', '-')}")
+    except httpx.HTTPError as erreur:
+        images = {}
+        lignes.extend([f"Images non rendues ({message_erreur(erreur)}) : se fier aux textes.", ""])
     for rang, cadre in enumerate(cadres, start=1):
         lignes.append(f"## Cadre {rang} : {cadre.nom}")
         if cadre.id in images:
@@ -1594,7 +1636,7 @@ if __name__ == "__main__":
 - [ ] **Étape 8 : lancer les tests**
 
 Run: `uv run --frozen pytest tests/test_rediger_ticket_scripts.py -q`
-Expected: `13 passed`
+Expected: `17 passed`
 
 Les scripts se lancent depuis la racine du dépôt, comme les autres skills (le répertoire courant de l'agent est la racine).
 
