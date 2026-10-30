@@ -68,13 +68,21 @@ def construire_proprietes(ticket: Ticket) -> dict:
 
 
 def verifier_corps(ticket: Ticket) -> None:
-    """Refuse les lignes que Notion tronquerait, les liens non http(s) et les liens Figma invalides."""
-    if any(len(ligne) >= LIGNE_MAX for ligne in ticket.corps.splitlines()):
-        raise ValueError("Corps refusé : ligne de plus de 2000 caractères : la découper")
-    for url in re.findall(r"\]\(([^)\s]+)\)", ticket.corps):
-        if not url.startswith(("http://", "https://")):
+    """Refuse un corps que Notion tronquerait ou n'accepterait pas, un lien non http(s) ou un lien Figma invalide."""
+    blocs = notion.markdown_to_blocks(ticket.corps)
+    if len(blocs) > BLOCS_MAX:
+        raise ValueError(f"Ticket trop long : {len(blocs)} blocs, {BLOCS_MAX} au plus")
+    for bloc in blocs:
+        for morceau in bloc[bloc["type"]].get("rich_text", []):
+            if len(morceau.get("text", {}).get("content", "")) >= LIGNE_MAX:
+                raise ValueError(
+                    f"Corps refusé : paragraphe ou bloc de code de {LIGNE_MAX} caractères ou plus, "
+                    "le découper avec des lignes vides"
+                )
+    for url in re.findall(r"\]\(([^)]+)\)", ticket.corps):
+        if not url.strip().startswith(("http://", "https://")):
             raise ValueError(f"Lien refusé : {url}")
-    if ticket.figma and figma.analyser_lien(ticket.figma) is None:
+    if ticket.figma and not (ticket.figma.startswith("https://www.figma.com/") and figma.analyser_lien(ticket.figma)):
         raise ValueError(f"Ce n'est pas un lien Figma : {ticket.figma}")
 
 
@@ -89,16 +97,21 @@ def placer_marqueur(blocs: list[dict], emoji_id: str | None) -> list[dict]:
     marqueur = (
         {"type": "mention", "mention": {"type": "custom_emoji", "custom_emoji": {"id": emoji_id}}}
         if emoji_id
-        else {"type": "text", "text": {"content": MARQUEUR + " "}}
+        else {"type": "text", "text": {"content": MARQUEUR}}
     )
+    espace = {"type": "text", "text": {"content": " "}}
     premier = next((b for b in blocs if b.get("type") == "paragraph"), None)
     if premier is None:
         blocs.insert(0, {"type": "paragraph", "paragraph": {"rich_text": [marqueur]}})
         return blocs
     textes = premier["paragraph"]["rich_text"]
-    if textes and textes[0].get("text", {}).get("content", "").startswith(MARQUEUR):
-        textes[0]["text"]["content"] = textes[0]["text"]["content"][len(MARQUEUR) :]
-    textes.insert(0, marqueur)
+    if textes and textes[0].get("text", {}).get("content", "").lstrip().startswith(MARQUEUR):
+        reste = textes[0]["text"]["content"].lstrip()[len(MARQUEUR) :].lstrip()
+        if reste:
+            textes[0]["text"]["content"] = reste
+        else:
+            textes.pop(0)
+    textes[:0] = [marqueur, espace] if textes else [marqueur]
     return blocs
 
 
@@ -114,8 +127,11 @@ def verifier_relations(ticket: Ticket) -> None:
         parent = (page.get("parent") or {}).get("database_id", "")
         if parent.replace("-", "") != base.replace("-", "") or page.get("archived") or page.get("in_trash"):
             raise ValueError(f"Relation refusée : {page_id} n'est pas une page active de la base attendue")
-        if backlog.titre(page) != ticket.noms.get(page_id):
-            raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {ticket.noms.get(page_id)} »")
+        nom = ticket.noms.get(page_id)
+        if nom is None:
+            raise ValueError(f"Relation refusée : {page_id} : nom non fourni")
+        if backlog.titre(page) != nom:
+            raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {nom} »")
         if page_id == ticket.epic and not set(backlog.ids_relation(page, "Pizza team")) & set(ticket.equipes):
             raise ValueError("Relation refusée : l'épic n'appartient à aucune des équipes choisies")
 
