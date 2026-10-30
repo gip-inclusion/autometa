@@ -55,6 +55,7 @@ def preparer_creer(mocker):
     mocker.patch.object(creer.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(creer.backlog, "trouver_auteur", return_value=AUTEUR)
     mocker.patch.object(creer.backlog_creation, "verifier_relations")
+    mocker.patch.object(creer.backlog_creation, "emoji_autometa", return_value="emoji-1")
     creation = mocker.patch.object(creer.backlog_creation, "creer_ticket", return_value=("p", "https://notion/p"))
     return creer, creation
 
@@ -66,6 +67,16 @@ def test_dod_5_creer_sans_go_ne_cree_rien(mocker, tmp_path):
     creer.backlog_creation.verifier_relations.assert_called_once()
     assert sortie.startswith("Vérification seulement")
     assert '"POM"' in sortie
+    assert "Corps : 1 blocs" in sortie
+    assert "Texte." in sortie
+
+
+def test_dod_5_creer_sans_go_passe_par_preparer(mocker, tmp_path):
+    creer, creation = preparer_creer(mocker)
+    preparer = mocker.spy(creer.backlog_creation, "preparer")
+    creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
+    preparer.assert_called_once()
+    creation.assert_not_called()
 
 
 def test_dod_5_creer_avec_go_resout_noms_et_auteur(mocker, tmp_path):

@@ -31,6 +31,14 @@ def verifier_champs(brouillon: dict) -> None:
             raise ValueError(f"Le champ {champ} du brouillon doit être une liste")
 
 
+def ouverture(blocs: list[dict]) -> str:
+    """Texte brut du premier paragraphe, le marqueur Autometa compris."""
+    premier = next(b for b in blocs if b["type"] == "paragraph")
+    return "".join(
+        ":autometa:" if t["type"] == "mention" else t["text"]["content"] for t in premier["paragraph"]["rich_text"]
+    )
+
+
 def resoudre(brouillon: dict, contexte: dict, auteur: backlog.Auteur | None) -> backlog_creation.Ticket:
     verifier_champs(brouillon)
     equipes = {e["nom"]: e for e in contexte["equipes"]}
@@ -72,14 +80,14 @@ def run(args: argparse.Namespace) -> str:
             avis.append("Auteur non inscrit : annuaire ou comptes Notion illisibles.")
     ticket = resoudre(brouillon, backlog_stockage.contexte_courant(), auteur)
     if not args.go:
-        backlog_creation.verifier_corps(ticket)
-        proprietes = backlog_creation.construire_proprietes(ticket)
-        backlog_creation.verifier_relations(ticket)
+        charge = backlog_creation.preparer(ticket)
         return "\n".join([
             "Vérification seulement (sans --go) : rien n'est créé.",
-            json.dumps(proprietes, ensure_ascii=False, indent=2),
+            json.dumps(charge["properties"], ensure_ascii=False, indent=2),
             "Noms résolus :",
             json.dumps(ticket.noms, ensure_ascii=False, indent=2),
+            f"Corps : {len(charge['children'])} blocs",
+            ouverture(charge["children"]),
             *avis,
         ])
     _, url = backlog_creation.creer_ticket(ticket)
