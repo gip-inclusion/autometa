@@ -38,7 +38,8 @@ serait créé.
    mots en commun ».
    Révision 2026-10-30 — après la relecture du code (plus de plafond à 100 résultats, élisions
    détachées, comparaison au début des mots, préfixes entre crochets ignorés), la règle est
-   inchangée ; nouvelle mesure : 35 % sur le même échantillon, 38 % sur les 1 983 titres.
+   inchangée ; nouvelle mesure, apostrophes typographiques comprises : 35 % sur le même échantillon, 40 % sur
+   les 1 983 titres.
 4. Maquette : 6 cadres au plus, images de 1 600 pixels de large au plus.
 5. Auteur absent de l'Annuaire : l'agent lui demande son rôle. Sans compte Notion : le ticket est
    créé sans auteur inscrit, et l'agent le dit.
