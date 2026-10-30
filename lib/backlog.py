@@ -55,29 +55,6 @@ class Auteur:
     notion_id: str | None
 
 
-def requeter(
-    base: str, filtre: dict | None = None, tri: list[dict] | None = None, limite: int | None = None
-) -> list[dict]:
-    """Pages d'une base Notion, filtrées et triées, jusqu'à limite."""
-    pages: list[dict] = []
-    cursor = None
-    while True:
-        payload: dict = {"page_size": min(100, limite or 100)}
-        if filtre:
-            payload["filter"] = filtre
-        if tri:
-            payload["sorts"] = tri
-        if cursor:
-            payload["start_cursor"] = cursor
-        response = notion.notion_request("POST", f"databases/{base}/query", payload)
-        pages.extend(response["results"])
-        if limite and len(pages) >= limite:
-            return pages[:limite]
-        if not response.get("has_more"):
-            return pages
-        cursor = response["next_cursor"]
-
-
 def titre(page: dict) -> str:
     """Titre d'une page, sans espaces aux bords."""
     return notion.extract_page_title(page).strip()
@@ -99,17 +76,15 @@ def bases_liees() -> dict[str, str]:
 
 def tickets_recents(equipe_id: str, nombre: int) -> list[str]:
     """Titres non vides des tickets non annulés les plus récents d'une équipe."""
-    pages = requeter(
+    pages = notion.query_database(
         config.NOTION_BACKLOG_DB,
-        {
+        filter={
             "and": [
                 {"property": "Pizza team", "relation": {"contains": equipe_id}},
                 {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
             ]
         },
-        [{"timestamp": "created_time", "direction": "descending"}],
-        # Why: marge pour les tickets sans titre, écartés ensuite.
-        limite=nombre + 5,
+        sorts=[{"timestamp": "created_time", "direction": "descending"}],
     )
     return [t for t in (titre(p) for p in pages) if t][:nombre]
 
@@ -117,18 +92,20 @@ def tickets_recents(equipe_id: str, nombre: int) -> list[str]:
 def charger_contexte(par_equipe: int = 15) -> dict:
     """Équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
     bases = bases_liees()
-    equipes = requeter(
+    equipes = notion.query_database(
         bases["equipes"],
-        {
+        filter={
             "and": [
                 {"property": "Activité", "select": {"equals": "Actif"}},
                 {"property": "Type", "select": {"equals": "Équipe produit"}},
             ]
         },
     )
-    epics = requeter(
+    epics = notion.query_database(
         bases["epics"],
-        {"and": [{"property": "Statut", "status": {"does_not_equal": statut}} for statut in STATUTS_EPIC_INACTIFS]},
+        filter={
+            "and": [{"property": "Statut", "status": {"does_not_equal": statut}} for statut in STATUTS_EPIC_INACTIFS]
+        },
     )
     return {
         "genere_le": datetime.now(UTC).isoformat(),
@@ -182,9 +159,9 @@ def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
     mots = mots_cles(texte)
     if len(mots) < 2:
         return []
-    pages = requeter(
+    pages = notion.query_database(
         config.NOTION_BACKLOG_DB,
-        {
+        filter={
             "and": [
                 {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
                 {"or": [{"property": "Nom", "title": {"contains": mot}} for mot in mots]},
@@ -227,7 +204,9 @@ def utilisateur_notion(email: str) -> tuple[str, str] | None:
 
 def trouver_auteur(email: str) -> Auteur | None:
     """Rôles et équipes de l'auteur d'après l'Annuaire, et son compte Notion."""
-    fiches = requeter(config.NOTION_ANNUAIRE_DB, {"property": "Email", "email": {"equals": email}}, limite=1)
+    fiches = notion.query_database(config.NOTION_ANNUAIRE_DB, filter={"property": "Email", "email": {"equals": email}})[
+        :1
+    ]
     compte = utilisateur_notion(email)
     if not fiches and not compte:
         return None
