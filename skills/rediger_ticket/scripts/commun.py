@@ -3,13 +3,10 @@
 import argparse
 import sys
 from collections.abc import Callable
-from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from web import config  # noqa: E402
+from web import config
 
 
 def verifier_configuration(annuaire: bool = False) -> str | None:
