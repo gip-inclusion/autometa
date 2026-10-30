@@ -95,7 +95,7 @@ Cette liste est indicative — la source de vérité est `documentation.doc_auto
 | `esat` | Tables ESAT |
 | `seeds` | Tables de référentiel (seeds dbt) |
 | `raw_dora` | Tables Dora brutes — lisible sans demander |
-| `raw_rdvi` | Tables RDV-Insertion brutes — lisible sans demander |
+| `raw_rdvi` | Copie quotidienne du schéma `rdvi` (RDV-Insertion) de la base ETL qui alimente le Metabase rdvi — lisible sans demander. Lire `knowledge/rdvi/README.md` avant de requêter |
 | autres `raw*` | Données brutes — uniquement après accord de l'utilisateur |
 | `documentation` | Catalogue des tables (`doc_autometa_tables`) |
 
