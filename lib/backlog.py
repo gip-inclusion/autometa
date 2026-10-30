@@ -1,16 +1,14 @@
 """Lecture du Backlog unifié pour rédiger un ticket : équipes, épics, tickets proches, auteur."""
 
-import logging
 import math
 import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 from lib import notion
 from web import config
-
-logger = logging.getLogger(__name__)
 
 STATUTS_EPIC_INACTIFS = ("Archivé", "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre")
 ROLES_PM = {"Responsable d'équipe", "Gestionnaire de produit", "Product Owner", "Produit", "Responsable de Mission"}
@@ -62,22 +60,22 @@ def requeter(
 ) -> list[dict]:
     """Pages d'une base Notion, filtrées et triées, jusqu'à limite."""
     pages: list[dict] = []
-    curseur = None
+    cursor = None
     while True:
-        charge: dict = {"page_size": 100}
+        payload: dict = {"page_size": min(100, limite or 100)}
         if filtre:
-            charge["filter"] = filtre
+            payload["filter"] = filtre
         if tri:
-            charge["sorts"] = tri
-        if curseur:
-            charge["start_cursor"] = curseur
-        reponse = notion.notion_request("POST", f"databases/{base}/query", charge)
-        pages.extend(reponse["results"])
+            payload["sorts"] = tri
+        if cursor:
+            payload["start_cursor"] = cursor
+        response = notion.notion_request("POST", f"databases/{base}/query", payload)
+        pages.extend(response["results"])
         if limite and len(pages) >= limite:
             return pages[:limite]
-        if not reponse.get("has_more"):
+        if not response.get("has_more"):
             return pages
-        curseur = reponse["next_cursor"]
+        cursor = response["next_cursor"]
 
 
 def titre(page: dict) -> str:
@@ -99,7 +97,23 @@ def bases_liees() -> dict[str, str]:
     }
 
 
-def charger_contexte(par_equipe: int = 15, tickets_lus: int = 300) -> dict:
+def tickets_recents(equipe_id: str, nombre: int) -> list[str]:
+    """Titres non vides des tickets non annulés les plus récents d'une équipe."""
+    pages = requeter(
+        config.NOTION_BACKLOG_DB,
+        {
+            "and": [
+                {"property": "Pizza team", "relation": {"contains": equipe_id}},
+                {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
+            ]
+        },
+        [{"timestamp": "created_time", "direction": "descending"}],
+        limite=nombre + 5,
+    )
+    return [t for t in (titre(p) for p in pages) if t][:nombre]
+
+
+def charger_contexte(par_equipe: int = 15) -> dict:
     """Équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
     bases = bases_liees()
     equipes = requeter(
@@ -115,12 +129,6 @@ def charger_contexte(par_equipe: int = 15, tickets_lus: int = 300) -> dict:
         bases["epics"],
         {"and": [{"property": "Statut", "status": {"does_not_equal": statut}} for statut in STATUTS_EPIC_INACTIFS]},
     )
-    tickets = requeter(
-        config.NOTION_BACKLOG_DB,
-        {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
-        [{"timestamp": "created_time", "direction": "descending"}],
-        limite=tickets_lus,
-    )
     return {
         "genere_le": datetime.now(UTC).isoformat(),
         "equipes": [
@@ -130,9 +138,7 @@ def charger_contexte(par_equipe: int = 15, tickets_lus: int = 300) -> dict:
                 "epics": [
                     {"id": e["id"], "nom": titre(e)} for e in epics if equipe["id"] in ids_relation(e, "Pizza team")
                 ],
-                "tickets_recents": [
-                    titre(t) for t in tickets if equipe["id"] in ids_relation(t, "Pizza team") and titre(t)
-                ][:par_equipe],
+                "tickets_recents": tickets_recents(equipe["id"], par_equipe),
             }
             for equipe in equipes
         ],
@@ -146,8 +152,11 @@ def formater_contexte(contexte: dict) -> str:
         lignes.append(f"## {equipe['nom']}")
         if equipe["epics"]:
             lignes.append("- Épics actifs : " + " ; ".join(e["nom"] for e in equipe["epics"]))
-        lignes.append("- Tickets récents :")
-        lignes.extend(f"  - {t}" for t in equipe["tickets_recents"])
+        if equipe["tickets_recents"]:
+            lignes.append("- Tickets récents :")
+            lignes.extend(f"  - {t}" for t in equipe["tickets_recents"])
+        else:
+            lignes.append("- Tickets récents : aucun")
         lignes.append("")
     return "\n".join(lignes)
 
@@ -160,7 +169,8 @@ def normaliser(texte: str) -> str:
 def mots_cles(texte: str, maximum: int = 8) -> list[str]:
     """Mots porteurs de sens d'un titre, sans doublon."""
     mots: list[str] = []
-    for mot in re.findall(r"[^\W\d_][\w'’-]{3,}", texte):
+    texte = re.sub(r"^\s*\[[^\]]*\]\s*", "", texte)
+    for mot in re.findall(r"[^\W\d_][\w-]{3,}", texte):
         if normaliser(mot) not in MOTS_VIDES and normaliser(mot) not in {normaliser(m) for m in mots}:
             mots.append(mot)
     return mots[:maximum]
@@ -169,7 +179,7 @@ def mots_cles(texte: str, maximum: int = 8) -> list[str]:
 def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
     """Tickets non annulés dont le titre partage au moins la moitié des mots-clés de texte (et deux), les plus proches d'abord."""
     mots = mots_cles(texte)
-    if not mots:
+    if len(mots) < 2:
         return []
     pages = requeter(
         config.NOTION_BACKLOG_DB,
@@ -179,13 +189,12 @@ def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
                 {"or": [{"property": "Nom", "title": {"contains": mot}} for mot in mots]},
             ]
         },
-        limite=100,
     )
     cibles = {normaliser(m) for m in mots}
     # Why: avec « deux mots en commun », 66 % des titres du backlog avaient des candidats (mesure du 2026-10-30) ;
     # avec la moitié des mots-clés, 37 %, et rarement plus de cinq.
     seuil = max(2, math.ceil(len(cibles) / 2))
-    notes = [(sum(1 for c in cibles if c in normaliser(titre(p))), p) for p in pages]
+    notes = [(sum(1 for c in cibles if re.search(rf"\b{re.escape(c)}", normaliser(titre(p)))), p) for p in pages]
     notes.sort(key=lambda note: note[0], reverse=True)
     return [
         {
@@ -201,18 +210,19 @@ def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
 
 def utilisateur_notion(email: str) -> tuple[str, str] | None:
     """Identifiant et nom du compte Notion qui porte cet e-mail."""
-    curseur = None
+    cursor = None
     while True:
-        reponse = notion.notion_request("GET", "users?page_size=100" + (f"&start_cursor={curseur}" if curseur else ""))
-        for compte in reponse["results"]:
+        suffixe = f"&start_cursor={quote(cursor, safe='')}" if cursor else ""
+        response = notion.notion_request("GET", "users?page_size=100" + suffixe)
+        for compte in response["results"]:
             if (
                 compte.get("type") == "person"
                 and (compte.get("person") or {}).get("email", "").lower() == email.lower()
             ):
                 return compte["id"], compte.get("name", "")
-        if not reponse.get("has_more"):
+        if not response.get("has_more"):
             return None
-        curseur = reponse["next_cursor"]
+        cursor = response["next_cursor"]
 
 
 def trouver_auteur(email: str) -> Auteur | None:
