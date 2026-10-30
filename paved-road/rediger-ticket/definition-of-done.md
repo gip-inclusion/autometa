@@ -40,6 +40,31 @@ serait créé.
 5. Auteur absent de l'Annuaire : l'agent lui demande son rôle. Sans compte Notion : le ticket est
    créé sans auteur inscrit, et l'agent le dit.
 
+## Sources lues
+
+- `lib/notion.py` (R1) : client Notion existant ; `query_database` ne prend ni filtre ni tri,
+  `markdown_to_blocks` ne fait pas de listes imbriquées, la création de page vise la base des
+  rapports seulement. Aucune fonction ne rédige ni ne crée de ticket aujourd'hui.
+- `lib/dashboard_api.py`, `lib/query.py`, `docs/interactive-dashboards.md` (R1) : `query_storage`
+  écrit dans `dashboard_storage` ; la création de table par un script d'agent y est admise.
+- `web/cron.py`, `web/cron_task.py`, `cron/sync-tags/` (R1) : format de `CRON.md`, lot `synchros`,
+  aucune ligne à ajouter dans `cron.json`.
+- `web/config.py`, `web/agents/cli.py` (R1) : l'e-mail de la personne connectée et l'identifiant de
+  conversation sont transmis à l'agent.
+- `skills/tally/scripts/query.py`, `tests/test_airtable.py` (R1) : forme des scripts de skill et de
+  leurs tests.
+- `docs/plans/2026-09-21-cron-lots-et-run-manuel.md` (R5) : décision sur les lots de crons.
+- Chiffres (R2) : le seuil de la décision 3 est mesuré le 2026-10-30 sur 150 titres de l'export du
+  Backlog unifié (2026-10-26) ; les bornes de la décision 4 viennent de la lecture de 7 maquettes
+  réelles le 2026-10-30. L'âge d'un jour (décision 2) est un choix, pas une mesure.
+- Vérifications d'API du 2026-10-30 : l'intégration Notion lit le backlog, l'Annuaire et les e-mails
+  des comptes ; elle écrit l'emoji personnalisé dans un texte ; le jeton Figma lit un nœud de
+  maquette avec l'en-tête `X-Figma-Token`.
+
+## Questions ouvertes
+
+Aucune. L'écriture de l'emoji a été essayée, et le seuil des doublons mesuré, avant validation.
+
 ## Validation
 
 Validé par LJ le 2026-10-30.
