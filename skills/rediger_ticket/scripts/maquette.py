@@ -19,8 +19,10 @@ def dossier_images() -> Path:
 def message_erreur(erreur: httpx.HTTPError) -> str:
     if isinstance(erreur, httpx.HTTPStatusError) and erreur.response.status_code == 429:
         return "Maquette non lue : Figma limite les appels (429), réessayer dans une minute."
-    if isinstance(erreur, httpx.HTTPStatusError):
+    if isinstance(erreur, httpx.HTTPStatusError) and erreur.response.status_code in (403, 404):
         return f"Maquette non lue : Figma répond {erreur.response.status_code} (accès refusé ou fichier introuvable)."
+    if isinstance(erreur, httpx.HTTPStatusError):
+        return f"Maquette non lue : Figma répond {erreur.response.status_code}."
     return "Maquette non lue : Figma ne répond pas."
 
 
@@ -48,8 +50,13 @@ def run(args: argparse.Namespace) -> str:
         lignes.append(f"## Cadre {rang} : {cadre.nom}")
         if cadre.id in images:
             lignes.append(f"Image à regarder : {images[cadre.id]}")
-        lignes.append("Textes visibles :")
-        lignes.extend(f"- {texte}" for texte in cadre.textes)
+        elif images:
+            lignes.append("Image non rendue")
+        if cadre.textes:
+            lignes.append("Textes visibles :")
+            lignes.extend(f"- {texte}" for texte in cadre.textes)
+        else:
+            lignes.append("Textes visibles : aucun")
         lignes.append("")
     return "\n".join(lignes)
 
