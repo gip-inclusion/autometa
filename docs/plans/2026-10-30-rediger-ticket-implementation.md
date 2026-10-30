@@ -1741,7 +1741,9 @@ Règle d'or : **tu n'inventes jamais de solution**. Tout ce que le ticket dit vi
 4. **Doublons** : `.venv/bin/python skills/rediger_ticket/scripts/doublons.py "<titre>"`.
 5. **Auteur** : `.venv/bin/python skills/rediger_ticket/scripts/auteur.py --equipe "<équipe recommandée>"`. Si ses rôles sont inconnus, demande-lui son rôle (PM, design, dev ou data, autre) et mets le champ correspondant dans le brouillon (`champ_auteur`). Sans compte Notion, dis-lui que le ticket sera créé sans auteur inscrit.
 6. **Proposition** (format plus bas). Attends un accord explicite (« go », « crée-le », « ok »). Applique les corrections demandées et remontre si elles sont importantes.
-7. **Création** : écris le brouillon dans `/tmp/rediger_ticket/brouillon.json`, lance `.venv/bin/python skills/rediger_ticket/scripts/creer.py /tmp/rediger_ticket/brouillon.json` (vérification), puis la même commande avec `--go`. Donne le lien du ticket.
+7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/rediger_ticket/$AUTOMETA_CONVERSATION_ID && cat > /tmp/rediger_ticket/$AUTOMETA_CONVERSATION_ID/brouillon.json <<'EOF'` … `EOF`. Lance `.venv/bin/python skills/rediger_ticket/scripts/creer.py` (vérification, rien n'est créé), puis `.venv/bin/python skills/rediger_ticket/scripts/creer.py --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau.
+
+Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Après « Notion ne répond pas » pendant `--go`, vérifie dans Notion si le ticket existe avant de relancer.
 
 Tu ne poses jamais `Priorité`, `Période` ni `Estimation`. Tu peux recommander `𝗗𝗘𝗩 Prêt à développer` ; l'auteur choisit.
 
@@ -1838,7 +1840,7 @@ Pose les questions en texte (pas d'outil de question). Ne répète pas une quest
 
 ## 6. Brouillon pour la création
 
-`/tmp/rediger_ticket/brouillon.json` :
+`/tmp/rediger_ticket/$AUTOMETA_CONVERSATION_ID/brouillon.json` (écrit avec Bash) :
 
 ```json
 {
