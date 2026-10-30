@@ -667,8 +667,8 @@ def upsert_issues(payload: str) -> list[Issue]:
         keys = sorted(set(existing.findings if existing else []) | set(item.findings))
         days = sorted(by_key[k].timestamp[:10] for k in keys if by_key[k].timestamp)
         days = sorted(filter(None, [existing.first_seen, *days, existing.last_seen] if existing else days))
-        status = item.status
-        if existing and existing.status == "livré" and set(keys) - set(existing.findings):
+        status = existing.status if existing and "status" not in item.model_fields_set else item.status
+        if existing and existing.status in ("livré", "résolu") and set(keys) - set(existing.findings):
             status = "régression"
         issues[item.code] = item.model_copy(
             update={
@@ -683,6 +683,10 @@ def upsert_issues(payload: str) -> list[Issue]:
         )
         for k in item.findings:
             by_key[k].issue = item.code
+        for other in issues.values():
+            if other.code != item.code and set(other.findings) & set(item.findings):
+                other.findings = [k for k in other.findings if k not in item.findings]
+                other.occurrences = len(other.findings)
     save_issues(list(issues.values()))
     for run in load_runs():
         save_findings(run.id, [by_key.get(f.key, f) for f in load_findings(run.id)])
@@ -707,6 +711,7 @@ def upsert_lessons(payload: str) -> list[Lesson]:
         existing = lessons.get(item.code)
         lessons[item.code] = item.model_copy(
             update={
+                "status": existing.status if existing and "status" not in item.model_fields_set else item.status,
                 "findings": sorted(set(existing.findings if existing else []) | set(item.findings)),
                 "created_at": existing.created_at if existing else now,
                 "updated_at": now,

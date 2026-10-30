@@ -435,6 +435,39 @@ def test_new_findings_on_a_delivered_issue_mark_it_as_regressed(mocker):
     assert (updated.status, updated.occurrences) == ("régression", 2)
 
 
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [("régression", "régression"), ("livré", "régression"), ("résolu", "régression"), ("ouvert", "ouvert")],
+)
+def test_an_update_without_a_status_keeps_the_stored_one_and_flags_regressions(mocker, stored, expected):
+    recorded_run(mocker, finding(1), finding(2))
+    audit.upsert_issues(json.dumps([issue(findings=["c1:1:A2"], status=stored)]))
+    update = {key: value for key, value in issue(code="S1", findings=["c1:2:A2"]).items() if key != "status"}
+
+    [updated] = audit.upsert_issues(json.dumps([update]))
+
+    assert updated.status == expected
+
+
+def test_moving_a_finding_to_another_issue_takes_it_off_the_first(mocker):
+    recorded_run(mocker, finding(1), finding(2))
+    audit.upsert_issues(json.dumps([issue(findings=["c1:1:A2", "c1:2:A2"])]))
+
+    audit.upsert_issues(json.dumps([issue(findings=["c1:2:A2"])]))
+
+    first, second = audit.load_issues()
+    assert (first.findings, first.occurrences, second.findings) == (["c1:1:A2"], 1, ["c1:2:A2"])
+
+
+def test_rewriting_a_lesson_keeps_its_status(mocker):
+    recorded_run(mocker, finding(1))
+    audit.upsert_lessons(json.dumps([{**lesson(), "status": "appliquée"}]))
+
+    [rewritten] = audit.upsert_lessons(json.dumps([{**lesson(code="L1"), "fact": "Reformulé."}]))
+
+    assert rewritten.status == "appliquée"
+
+
 def test_linking_findings_keeps_the_dates_an_issue_was_first_seen(mocker):
     audit.save_issues([audit.Issue(**{**issue(code="S1"), "first_seen": "2026-10-01", "last_seen": "2026-10-02"})])
     recorded_run(mocker, finding(1))
