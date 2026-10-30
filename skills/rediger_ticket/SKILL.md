@@ -19,7 +19,7 @@ Règle d'or : **tu n'inventes jamais de solution**. Tout ce que le ticket dit vi
 6. **Proposition** (format plus bas). Attends un accord explicite (« go », « crée-le », « ok »). Applique les corrections demandées et remontre si elles sont importantes.
 7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/rediger_ticket/${AUTOMETA_CONVERSATION_ID:-local} && cat > /tmp/rediger_ticket/${AUTOMETA_CONVERSATION_ID:-local}/brouillon.json <<'EOF'` … `EOF`. Lance `.venv/bin/python skills/rediger_ticket/scripts/creer.py` (vérification, rien n'est créé), puis `.venv/bin/python skills/rediger_ticket/scripts/creer.py --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
 
-Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`.venv/bin/python skills/rediger_ticket/scripts/doublons.py "<titre>"`, ou dans Notion) avant de relancer.
+Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Sauf « Un ticket au même titre vient d'être créé » : donne ce lien à l'auteur et ne relance pas, même sous un autre titre. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`.venv/bin/python skills/rediger_ticket/scripts/doublons.py "<titre>"`, ou dans Notion) avant de relancer.
 
 Tu ne poses jamais `Priorité`, `Période` ni `Estimation`. Tu peux recommander `𝗗𝗘𝗩 Prêt à développer` ; l'auteur choisit.
 
