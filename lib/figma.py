@@ -12,21 +12,22 @@ from web import config
 logger = logging.getLogger(__name__)
 
 API = "https://api.figma.com/v1"
+# Why: Figma met plusieurs secondes à sérialiser un gros nœud ou à rendre un cadre, au-delà du délai par défaut de 5 s.
 TIMEOUT = 30
+LARGEUR_MAX = 1600
 TYPES_CADRE = {"FRAME", "SECTION", "COMPONENT", "COMPONENT_SET"}
 TYPES_ECRAN = {"FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"}
 LIEN = re.compile(
-    r"figma\.com/(?P<genre>design|file|board|proto)/(?P<cle>[0-9A-Za-z]{22,128})"
-    r"(?:/[^/?]*/branch/(?P<branche>[0-9A-Za-z]{22,128}))?"
+    r"figma\.com/(?:design|file|board|proto)/(?P<cle>[0-9A-Za-z]{22,128})"
+    r"(?:(?:/[^/?]*)?/branch/(?P<branche>[0-9A-Za-z]{22,128}))?"
 )
-NOEUD = re.compile(r"[?&]node-id=(\d+)[-:](\d+)")
+NOEUD = re.compile(r"[?&]node-id=(\d+)(?:-|:|%3A)(\d+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class LienFigma:
     cle: str
     noeud: str | None
-    genre: str
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,7 @@ class Cadre:
 
 
 def analyser_lien(url: str) -> LienFigma | None:
-    """Fichier, nœud et genre d'un lien Figma, ou None si ce n'en est pas un."""
+    """Fichier et nœud d'un lien Figma, ou None si ce n'en est pas un."""
     lien = LIEN.search(url)
     if not lien:
         return None
@@ -46,7 +47,6 @@ def analyser_lien(url: str) -> LienFigma | None:
     return LienFigma(
         cle=lien.group("branche") or lien.group("cle"),
         noeud=f"{noeud.group(1)}:{noeud.group(2)}" if noeud else None,
-        genre="board" if lien.group("genre") == "board" else "design",
     )
 
 
@@ -81,11 +81,15 @@ def appeler_api(chemin: str, params: dict | None = None) -> dict:
     return reponse.json()
 
 
-def lire_cadres(lien: LienFigma, maximum: int = 6) -> list[Cadre]:
+def lire_cadres(lien: LienFigma) -> list[Cadre]:
     """Cadres du nœud lié, avec leurs textes visibles."""
     if not lien.noeud:
         return []
-    document = appeler_api(f"files/{lien.cle}/nodes", {"ids": lien.noeud})["nodes"][lien.noeud]["document"]
+    document = (appeler_api(f"files/{lien.cle}/nodes", {"ids": lien.noeud})["nodes"].get(lien.noeud) or {}).get(
+        "document"
+    )
+    if not document:
+        return []
     return [
         Cadre(
             id=cadre["id"],
@@ -93,19 +97,22 @@ def lire_cadres(lien: LienFigma, maximum: int = 6) -> list[Cadre]:
             textes=textes_visibles(cadre),
             largeur=(cadre.get("absoluteBoundingBox") or {}).get("width") or 0,
         )
-        for cadre in choisir_cadres(document, maximum)
+        for cadre in choisir_cadres(document)
     ]
 
 
-def exporter_images(lien: LienFigma, cadres: list[Cadre], dossier: Path, largeur_max: int = 1600) -> dict[str, Path]:
-    """Une image PNG par cadre, réduite à largeur_max pixels, rangée par identifiant de cadre."""
+def exporter_images(lien: LienFigma, cadres: list[Cadre], dossier: Path) -> dict[str, Path]:
+    """Une image PNG par cadre, réduite à LARGEUR_MAX pixels, rangée par identifiant de cadre."""
     dossier.mkdir(parents=True, exist_ok=True)
+    echelles = {c.id: max(0.01, round(min(1.0, LARGEUR_MAX / c.largeur), 3)) if c.largeur else 1.0 for c in cadres}
+    urls = {}
+    for echelle in sorted(set(echelles.values())):
+        ids = [i for i, e in echelles.items() if e == echelle]
+        reponse = appeler_api(f"images/{lien.cle}", {"ids": ",".join(ids), "format": "png", "scale": echelle})
+        urls.update(reponse["images"] or {})
     images = {}
     for rang, cadre in enumerate(cadres, start=1):
-        echelle = round(min(1.0, largeur_max / cadre.largeur), 3) if cadre.largeur else 1.0
-        url = appeler_api(f"images/{lien.cle}", {"ids": cadre.id, "format": "png", "scale": echelle})["images"].get(
-            cadre.id
-        )
+        url = urls.get(cadre.id)
         if not url:
             logger.warning("Figma n'a pas rendu le cadre %s", cadre.id)
             continue
