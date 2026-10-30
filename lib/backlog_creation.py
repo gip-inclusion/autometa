@@ -148,18 +148,8 @@ def preparer(ticket: Ticket) -> dict:
     verifier_corps(ticket)
     proprietes = construire_proprietes(ticket)
     verifier_relations(ticket)
-    blocs = placer_marqueur(notion.markdown_to_blocks(ticket.corps), emoji_autometa())
-    # Why: au-delà de 100 blocs il faudrait un second appel, et un échec laisserait un ticket écrit à moitié.
-    if len(blocs) > BLOCS_MAX:
-        raise ValueError(f"Ticket trop long : {len(blocs)} blocs, {BLOCS_MAX} au plus")
-    return {"parent": {"database_id": config.NOTION_BACKLOG_DB}, "properties": proprietes, "children": blocs}
-
-
-def creer_ticket(ticket: Ticket) -> tuple[str, str]:
-    """Crée la page du ticket, après vérification de ses champs et relations, et renvoie son identifiant et son URL."""
-    charge = preparer(ticket)
     # Why: un nouvel essai après un délai dépassé ou une demande de correction ne doit pas créer un doublon.
-    depuis = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    depuis = (datetime.now(UTC) - timedelta(minutes=10)).isoformat(timespec="seconds")
     existants = notion.query_database(
         config.NOTION_BACKLOG_DB,
         filter={
@@ -175,6 +165,16 @@ def creer_ticket(ticket: Ticket) -> tuple[str, str]:
             f"Un ticket au même titre vient d'être créé : {existants[0].get('url', '')}. "
             "Corriger dans Notion plutôt que relancer --go."
         )
+    blocs = placer_marqueur(notion.markdown_to_blocks(ticket.corps), emoji_autometa())
+    # Why: au-delà de 100 blocs il faudrait un second appel, et un échec laisserait un ticket écrit à moitié.
+    if len(blocs) > BLOCS_MAX:
+        raise ValueError(f"Ticket trop long : {len(blocs)} blocs, {BLOCS_MAX} au plus")
+    return {"parent": {"database_id": config.NOTION_BACKLOG_DB}, "properties": proprietes, "children": blocs}
+
+
+def creer_ticket(ticket: Ticket) -> tuple[str, str]:
+    """Crée la page du ticket, après vérification de ses champs et relations, et renvoie son identifiant et son URL."""
+    charge = preparer(ticket)
     page = notion.notion_request("POST", "pages", charge)
     logger.info("Ticket créé dans le backlog : %s", page["id"])
     return page["id"], page["url"]

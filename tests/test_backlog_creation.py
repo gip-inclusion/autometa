@@ -210,6 +210,7 @@ def test_dod_4_verifier_corps_accepte_liens_http_et_lignes_courtes():
 def test_dod_4_creer_ticket_refuse_un_corps_de_plus_de_100_blocs(mocker):
     mocker.patch.object(creation, "verifier_relations")
     mocker.patch.object(creation, "emoji_autometa", return_value=None)
+    mocker.patch("lib.notion.query_database", return_value=[])
     mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraphe(str(i)) for i in range(101)])
     appel = mocker.patch("lib.notion.notion_request")
     with pytest.raises(ValueError, match="Ticket trop long"):
@@ -244,6 +245,7 @@ def test_preparer_renvoie_le_payload_reel_avec_le_marqueur_sans_ecrire(mocker):
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "emoji_autometa", return_value="emoji-1")
     mocker.patch.object(creation, "verifier_relations")
+    mocker.patch("lib.notion.query_database", return_value=[])
     appel = mocker.patch("lib.notion.notion_request")
     charge = creation.preparer(ticket(corps="Texte."))
     appel.assert_not_called()
@@ -255,23 +257,24 @@ def test_preparer_renvoie_le_payload_reel_avec_le_marqueur_sans_ecrire(mocker):
 def test_preparer_refuse_un_corps_de_plus_de_100_blocs(mocker):
     mocker.patch.object(creation, "verifier_relations")
     mocker.patch.object(creation, "emoji_autometa", return_value=None)
+    mocker.patch("lib.notion.query_database", return_value=[])
     mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraphe(str(i)) for i in range(101)])
     with pytest.raises(ValueError, match="Ticket trop long"):
         creation.preparer(ticket())
 
 
-def test_creer_ticket_refuse_un_ticket_recent_au_meme_titre(mocker):
+def test_preparer_refuse_un_ticket_recent_au_meme_titre(mocker):
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "emoji_autometa", return_value=None)
     mocker.patch.object(creation, "verifier_relations")
     requete = mocker.patch("lib.notion.query_database", return_value=[{"url": "https://notion/deja"}])
     appel = mocker.patch("lib.notion.notion_request")
     with pytest.raises(ValueError, match="vient d'être créé : https://notion/deja"):
-        creation.creer_ticket(ticket())
+        creation.preparer(ticket())
     appel.assert_not_called()
     assert requete.call_args.args[0] == "backlog"
     filtre = requete.call_args.kwargs["filter"]["and"]
     assert {"property": "Nom", "title": {"equals": "Masquer les candidatures anciennes"}} in filtre
     assert {"property": "Statut", "select": {"does_not_equal": "Annulé"}} in filtre
     recent = next(f for f in filtre if f.get("timestamp") == "created_time")
-    assert recent["created_time"]["on_or_after"]
+    assert len(recent["created_time"]["on_or_after"]) == len("2026-10-30T10:00:00+00:00")
