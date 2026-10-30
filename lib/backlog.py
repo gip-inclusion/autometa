@@ -108,6 +108,7 @@ def tickets_recents(equipe_id: str, nombre: int) -> list[str]:
             ]
         },
         [{"timestamp": "created_time", "direction": "descending"}],
+        # Why: marge pour les tickets sans titre, écartés ensuite.
         limite=nombre + 5,
     )
     return [t for t in (titre(p) for p in pages) if t][:nombre]
@@ -163,7 +164,7 @@ def formater_contexte(contexte: dict) -> str:
 
 def normaliser(texte: str) -> str:
     """Texte en minuscules, sans accents."""
-    return unicodedata.normalize("NFKD", texte).encode("ascii", "ignore").decode().lower()
+    return unicodedata.normalize("NFKD", texte.replace("’", "'")).encode("ascii", "ignore").decode().lower()
 
 
 def mots_cles(texte: str, maximum: int = 8) -> list[str]:
@@ -191,8 +192,7 @@ def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
         },
     )
     cibles = {normaliser(m) for m in mots}
-    # Why: avec « deux mots en commun », 66 % des titres du backlog avaient des candidats (mesure du 2026-10-30) ;
-    # avec la moitié des mots-clés, 37 %, et rarement plus de cinq.
+    # Why: seuil mesuré sur le backlog réel, voir la décision 3 de la définition de fini (rediger-ticket).
     seuil = max(2, math.ceil(len(cibles) / 2))
     notes = [(sum(1 for c in cibles if re.search(rf"\b{re.escape(c)}", normaliser(titre(p)))), p) for p in pages]
     notes.sort(key=lambda note: note[0], reverse=True)
