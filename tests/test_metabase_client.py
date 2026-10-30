@@ -49,6 +49,48 @@ def test_build_sql_url_special_characters_in_sql():
     assert decoded["dataset_query"]["native"]["query"] == sql
 
 
+def offline_api(mocker):
+    mocker.patch("lib.sources.get_source_config", return_value={"url": "http://mb.test", "api_key": "k"})
+    mocker.patch("lib.sources.get_default_instance", return_value="stats")
+    mocker.patch("lib.metabase.emit_api_signal")
+    api = get_metabase(instance="stats", database_id=19)
+    request = mocker.patch.object(api, "_request", return_value={"data": {"cols": [{"name": "n"}], "rows": [[1]]}})
+    return api, request
+
+
+def test_execute_sql_without_params_sends_the_bare_native_query(mocker):
+    api, request = offline_api(mocker)
+
+    api.execute_sql("SELECT 1")
+
+    assert request.call_args.args[2] == {"database": 19, "type": "native", "native": {"query": "SELECT 1"}}
+
+
+def test_execute_sql_binds_params_as_template_tags(mocker):
+    api, request = offline_api(mocker)
+
+    api.execute_sql(
+        "SELECT * FROM t WHERE id > {{after}} AND d >= {{since}}::date", params={"after": 5, "since": "x'y"}
+    )
+
+    payload = request.call_args.args[2]
+    assert payload["native"]["template-tags"] == {
+        "after": {"id": "after", "name": "after", "display-name": "after", "type": "number"},
+        "since": {"id": "since", "name": "since", "display-name": "since", "type": "text"},
+    }
+    assert payload["parameters"] == [
+        {"type": "number/=", "target": ["variable", ["template-tag", "after"]], "value": 5},
+        {"type": "category", "target": ["variable", ["template-tag", "since"]], "value": "x'y"},
+    ]
+
+
+@pytest.mark.external
+def test_execute_sql_bound_params_against_metabase(api):
+    result = api.execute_sql("SELECT {{n}} + 1 AS n, {{s}} AS s", params={"n": 41, "s": "l'inclusion"})
+
+    assert result.rows == [[42, "l'inclusion"]]
+
+
 # Known collection IDs
 COLLECTION_452 = 452
 COLLECTION_453 = 453
