@@ -58,6 +58,7 @@ def preparer_creer(mocker):
     mocker.patch.object(creer.backlog, "trouver_auteur", return_value=AUTEUR)
     mocker.patch.object(creer.backlog_creation, "verifier_relations")
     mocker.patch.object(creer.backlog_creation, "emoji_autometa", return_value="emoji-1")
+    mocker.patch("lib.notion.query_database", return_value=[])
     creation = mocker.patch.object(creer.backlog_creation, "creer_ticket", return_value=("p", "https://notion/p"))
     return creer, creation
 
@@ -546,3 +547,11 @@ def test_creer_sans_go_signale_un_auteur_sans_compte_notion(mocker, tmp_path):
     mocker.patch.object(creer.backlog, "trouver_auteur", return_value=backlog.Auteur("Camille", [], ["e1"], None))
     sortie = creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
     assert "Auteur non inscrit : pas de compte Notion." in sortie
+
+
+def test_creer_sans_go_refuse_si_le_ticket_vient_d_etre_cree(mocker, tmp_path):
+    creer, creation = preparer_creer(mocker)
+    mocker.patch("lib.notion.query_database", return_value=[{"url": "https://notion/deja"}])
+    with pytest.raises(ValueError, match="https://notion/deja"):
+        creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
+    creation.assert_not_called()
