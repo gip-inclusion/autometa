@@ -123,8 +123,9 @@ def execute_metabase_query(
     database_id: Optional[int] = None,
     card_id: Optional[int] = None,
     timeout: int = 60,
+    params: Optional[dict[str, int | str]] = None,
 ) -> QueryResult:
-    """Execute a Metabase query (sql+database_id or card_id). Returns QueryResult, never raises."""
+    """Execute a Metabase query (sql+database_id or card_id), `{{name}}` bound from params. Never raises."""
     attrs: dict[str, Any] = {
         "db.system": "metabase",
         "metabase.instance": instance,
@@ -139,7 +140,7 @@ def execute_metabase_query(
         api = get_metabase(instance, database_id=database_id)
         api.caller = caller.value
         if sql:
-            return _wrap_columns_rows(api.execute_sql(sql, timeout=timeout))
+            return _wrap_columns_rows(api.execute_sql(sql, timeout=timeout, params=params))
         if card_id is not None:
             return _wrap_columns_rows(api.execute_card(card_id, timeout=timeout))
         raise ValueError("Either sql+database_id or card_id must be provided")

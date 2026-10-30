@@ -79,6 +79,19 @@ def test_execute_metabase_sql(mocker):
     mock_api.execute_sql.assert_called_once()
 
 
+def test_execute_metabase_sql_passes_bound_params(mocker):
+    from lib.query import CallerType, execute_metabase_query
+
+    mock_api = metabase_api_mock(mocker)
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    execute_metabase_query(
+        instance="stats", caller=CallerType.AGENT, sql="SELECT {{n}}", database_id=2, params={"n": 1}
+    )
+
+    mock_api.execute_sql.assert_called_once_with("SELECT {{n}}", timeout=60, params={"n": 1})
+
+
 def test_execute_metabase_card(mocker):
     from lib.query import CallerType, execute_metabase_query
 
