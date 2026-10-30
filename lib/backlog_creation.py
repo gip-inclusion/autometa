@@ -47,7 +47,7 @@ class Ticket:
 def construire_proprietes(ticket: Ticket) -> dict:
     """Propriétés Notion du ticket, limitées à celles que l'auteur peut poser."""
     if ticket.statut not in STATUTS_PROPOSABLES:
-        raise ValueError(f"Statut non proposable : {ticket.statut}")
+        raise ValueError(f"Statut non proposable : {ticket.statut}. Valeurs : {', '.join(STATUTS_PROPOSABLES)}")
     if not ticket.types or not set(ticket.types) <= set(TYPES):
         raise ValueError(f"Type inconnu : {ticket.types}")
     if not ticket.equipes:
@@ -94,7 +94,7 @@ def verifier_corps(ticket: Ticket) -> None:
 def emoji_autometa() -> str | None:
     """Identifiant de l'emoji personnalisé de l'espace, s'il existe."""
     resultats = notion.notion_request("GET", "custom_emojis?name=autometa").get("results", [])
-    return resultats[0]["id"] if resultats else None
+    return next((e["id"] for e in resultats if e.get("name") == "autometa"), None)
 
 
 def placer_marqueur(blocs: list[dict], emoji_id: str | None) -> list[dict]:

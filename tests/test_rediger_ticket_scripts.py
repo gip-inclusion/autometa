@@ -525,3 +525,24 @@ def test_creer_en_ligne_de_commande_dit_que_notion_limite_les_appels(mocker, tmp
     creation.side_effect = RuntimeError("429")
     with pytest.raises(SystemExit, match="Notion limite les appels"):
         lancer(mocker, creer, brouillon(tmp_path), "--go")
+
+
+def test_auteur_sans_compte_notion_dit_qu_il_ne_sera_pas_inscrit(mocker):
+    auteur = charger("auteur")
+    mocker.patch.object(commun.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(commun.config, "NOTION_ANNUAIRE_DB", "annuaire")
+    mocker.patch.object(commun.config, "agent_user_email", return_value="camille@exemple.fr")
+    mocker.patch.object(
+        auteur.backlog, "trouver_auteur", return_value=backlog.Auteur("Camille", ["Designer"], ["e1"], None)
+    )
+    mocker.patch.object(auteur.backlog_stockage, "contexte_courant", return_value=CONTEXTE)
+    sortie = auteur.run(Namespace(equipe=["Emplois inclusifs et dispositifs réglementés"]))
+    assert "Inscrit dans : personne (pas de compte Notion)" in sortie
+    assert "Inscrit dans : UX" not in sortie
+
+
+def test_creer_sans_go_signale_un_auteur_sans_compte_notion(mocker, tmp_path):
+    creer, _ = preparer_creer(mocker)
+    mocker.patch.object(creer.backlog, "trouver_auteur", return_value=backlog.Auteur("Camille", [], ["e1"], None))
+    sortie = creer.run(Namespace(brouillon=brouillon(tmp_path), go=False))
+    assert "Auteur non inscrit : pas de compte Notion." in sortie

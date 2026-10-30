@@ -36,7 +36,7 @@ def test_dod_4_construire_proprietes_ne_pose_que_les_champs_autorises():
 @pytest.mark.parametrize(
     ("champs", "message"),
     [
-        ({"statut": "𝗗𝗘𝗩 En prod"}, "Statut non proposable"),
+        ({"statut": "𝗗𝗘𝗩 En prod"}, "Statut non proposable : .* Valeurs : Bac à sable.*Prêt à développer"),
         ({"statut": "𝗗𝗘𝗩 Ce sprint"}, "Statut non proposable"),
         ({"types": ["Épopée"]}, "Type inconnu"),
         ({"types": []}, "Type inconnu"),
@@ -112,6 +112,12 @@ def test_emoji_autometa_filtre_par_nom(mocker):
     appel = mocker.patch("lib.notion.notion_request", return_value={"results": [{"id": "e", "name": "autometa"}]})
     assert creation.emoji_autometa() == "e"
     assert "name=autometa" in appel.call_args.args[1]
+
+
+def test_emoji_autometa_ignore_un_autre_nom_en_tete(mocker):
+    resultats = [{"id": "x", "name": "autometa-beta"}, {"id": "e", "name": "autometa"}]
+    mocker.patch("lib.notion.notion_request", return_value={"results": resultats})
+    assert creation.emoji_autometa() == "e"
 
 
 def test_emoji_autometa_absent(mocker):

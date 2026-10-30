@@ -88,3 +88,10 @@ class TestStockage:
         backlog_stockage.enregistrer_contexte(recent)
         backlog_stockage.enregistrer_contexte(ancien)
         assert backlog_stockage.lire_contexte() == recent
+
+
+def test_lire_contexte_sert_par_defaut_un_contexte_de_25_heures(mocker):
+    ligne = mocker.Mock(contenu={"equipes": []}, genere_le=datetime.now(UTC) - timedelta(hours=25))
+    moteur = mocker.patch.object(backlog_stockage, "get_engine")
+    moteur.return_value.connect.return_value.__enter__.return_value.execute.return_value.first.return_value = ligne
+    assert backlog_stockage.lire_contexte() == {"equipes": []}
