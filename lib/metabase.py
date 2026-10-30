@@ -38,6 +38,20 @@ def build_sql_url(base_url: str, database_id: int, sql: str) -> str:
     return f"{base_url}/question#{encoded}"
 
 
+def native_parameters(params: dict[str, int | str]) -> tuple[dict, list]:
+    """Template tags et valeurs Metabase pour des paramètres liés `{{nom}}` : entier ou texte, échappés par Metabase."""
+    tags, values = {}, []
+    for name, value in params.items():
+        number = isinstance(value, int)
+        tags[name] = {"id": name, "name": name, "display-name": name, "type": "number" if number else "text"}
+        values.append({
+            "type": "number/=" if number else "category",
+            "target": ["variable", ["template-tag", name]],
+            "value": value,
+        })
+    return tags, values
+
+
 @dataclass
 class QueryResult:
     """Result from a Metabase query."""
@@ -199,12 +213,14 @@ class MetabaseAPI:
 
     # --- Core methods ---
 
-    def execute_sql(self, sql: str, timeout: int = 60) -> QueryResult:
+    def execute_sql(self, sql: str, timeout: int = 60, params: dict[str, int | str] | None = None) -> QueryResult:
         data = {
             "database": self.database_id,
             "type": "native",
             "native": {"query": sql},
         }
+        if params:
+            data["native"]["template-tags"], data["parameters"] = native_parameters(params)
         result_data = self._request("POST", "/api/dataset", data, timeout=timeout, query_type="sql")
         result = self._parse_result(result_data)
 

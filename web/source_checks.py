@@ -1,7 +1,6 @@
 """Sondes de disponibilité des sources de données, partagées par /sources et /selftest."""
 
 import logging
-import re
 
 import httpx
 from sqlalchemy import text
@@ -15,7 +14,7 @@ from lib.query import (
     execute_dora_staging_query,
     get_matomo,
 )
-from lib.sources import get_source_config, list_instances, load_config
+from lib.sources import get_source_config
 
 from . import config, s3
 from .db import get_db
@@ -24,43 +23,6 @@ from .helpers import list_knowledge_files
 logger = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_SEC = 3
-
-DSN_CREDENTIALS = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
-SENSITIVE_QUERY_PARAM = re.compile(r"([?&](?:token[_a-z]*|api[_-]?key|pass[a-z]*|secret|auth)=)[^&\s'\"]+", re.I)
-
-
-def known_secrets() -> list[str]:
-    """Valeurs secrètes résolues, y compris celles de config/sources.yaml (jetons Matomo, Metabase, Zendesk)."""
-    values = [
-        config.NOTION_TOKEN,
-        config.GRIST_API_KEY,
-        config.LIVESTORM_API_KEY,
-        config.SLACK_BOT_TOKEN,
-        config.TALLY_API_KEY,
-        config.DATADOG_API_KEY,
-        config.DATADOG_APP_KEY,
-        config.AUTOMETA_TABLES_DATABASE_URL,
-        config.DATA_INCLUSION_DATABASE_URL,
-        config.DATABASE_URL,
-        config.DASHBOARD_STORAGE_DB_URL,
-        config.DORA_STAGING_DB_URL,
-        config.MONRECAP_APPLI_DB_URL,
-    ]
-    for source_type in ("matomo", "metabase", "zendesk"):
-        for instance in list_instances(source_type):
-            cfg = load_config().get(source_type, {}).get(instance, {})
-            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth")]
-    return [v for v in values if v and len(v) > 6 and not v.startswith("${env.")]
-
-
-def redact(detail: str) -> str:
-    """Retire d'un message de sonde tout ce qui pourrait être un secret."""
-    out = DSN_CREDENTIALS.sub("://***@", detail)
-    # Why: httpx met l'URL complète dans ses exceptions — un jeton passé en paramètre s'y retrouve.
-    out = SENSITIVE_QUERY_PARAM.sub(r"\1***", out)
-    for secret in known_secrets():
-        out = out.replace(secret, "***")
-    return out
 
 
 def check_knowledge_base() -> tuple[bool, str]:

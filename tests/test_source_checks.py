@@ -162,25 +162,6 @@ def test_check_app_db_against_a_real_database():
     assert check_app_db() == (True, "connectée")
 
 
-FAUX = "valeur-factice-de-test"  # gitleaks:allow
-
-
-@pytest.mark.parametrize(
-    "template",
-    [
-        # httpx met l'URL complète dans ses exceptions, et check_matomo passe le jeton en paramètre.
-        "Server error '500' for url 'https://matomo/index.php?module=API&token_auth={v}'",
-        "HTTP 401 sur https://x/api?api_key={v}&format=json",
-        "échec https://y/?password={v}",
-        "postgresql://u:{v}@host/db",
-    ],
-)
-def test_probe_details_never_carry_a_secret(template):
-    from web.source_checks import redact
-
-    assert FAUX not in redact(template.format(v=FAUX))
-
-
 @pytest.mark.parametrize(
     ("upload", "download", "expect_ok", "detail_substr"),
     [
@@ -200,15 +181,3 @@ def test_check_s3_roundtrip(mocker, upload, download, expect_ok, detail_substr):
     assert detail_substr in detail
     if expect_ok:
         interactive.delete.assert_called_once_with("selftest/ping.txt")
-
-
-def test_the_dora_staging_url_is_a_known_secret(mocker):
-    mocker.patch.object(source_checks.config, "DORA_STAGING_DB_URL", "dora-secret-value-123")
-
-    assert "dora-secret-value-123" in source_checks.known_secrets()
-
-
-def test_the_appli_monrecap_url_is_a_known_secret(mocker):
-    mocker.patch.object(source_checks.config, "MONRECAP_APPLI_DB_URL", "monrecap-secret-value-123")
-
-    assert "monrecap-secret-value-123" in source_checks.known_secrets()

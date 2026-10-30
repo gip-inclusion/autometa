@@ -10,8 +10,8 @@ import pytest
 from redis.exceptions import RedisError
 
 from web import config
+from web.redaction import redact
 from web.routes import sources as sources_routes
-from web.source_checks import redact
 from web.sources_registry import GROUPS, Source, all_sources, check_source, find_source, grouped_sources
 
 REPO = Path(__file__).parent.parent

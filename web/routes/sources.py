@@ -15,8 +15,8 @@ from redis.exceptions import RedisError
 from web import config
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date
+from web.redaction import redact
 from web.redis_conn import get_redis
-from web.source_checks import redact
 from web.source_inventories import inventory_for
 from web.sources_registry import GROUPS, Source, find_source, grouped_sources, source_href
 
