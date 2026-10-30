@@ -97,6 +97,7 @@ class Finding(BaseModel):
     timestamp: str | None = None
     issue: str | None = None
     posted_at: str | None = None
+    origin: Literal["audit", "extraction"] = "audit"
 
     @property
     def key(self) -> str:
@@ -266,6 +267,11 @@ def next_code(codes) -> int:
 def mask(text: str) -> str:
     """Secrets, NIR et adresses e-mail retirés : ce qui est stocké hors transcription."""
     return EMAIL.sub("***", redact_nir(redact(text)))
+
+
+def masked[M: BaseModel](model: M) -> M:
+    """Le même objet, chaque champ texte masqué un par un : masquer le JSON entier en casserait l'échappement."""
+    return model.model_copy(update={k: mask(v) for k, v in model.model_dump().items() if isinstance(v, str)})
 
 
 def scrub(text: str) -> str:
@@ -552,6 +558,7 @@ def secret_findings(secrets: list[dict]) -> list[Finding]:
             description=f"Secret en clair dans un message persisté : {', '.join(certain)}.",
             evidence="Détection automatique à l'extraction ; valeur masquée.",
             action="Faire tourner le secret, masquer le message, corriger le chemin qui l'a exposé.",
+            origin="extraction",
         )
         for s in secrets
         if (certain := certain_kinds(s["kinds"]))
@@ -591,22 +598,14 @@ def record(run_id: int, payload: str) -> dict:
         if f.key in seen:
             continue
         seen.add(f.key)
-        findings.append(
-            f.model_copy(
-                update={
-                    "run_id": run_id,
-                    "timestamp": timestamps.get(f.message_id),
-                    "description": mask(f.description),
-                    "evidence": mask(f.evidence),
-                    "correction": mask(f.correction),
-                    "action": mask(f.action),
-                }
-            )
-        )
+        findings.append(masked(f).model_copy(update={"run_id": run_id, "timestamp": timestamps.get(f.message_id)}))
     save_findings(run_id, findings)
-    for name, items in (("verdicts", output.verdicts), ("off_grid", output.off_grid)):
-        path = run_dir(run_id) / f"{name}.json"
-        write_json(path, read_json(path, []) + [json.loads(mask(i.model_dump_json())) for i in items])
+    verdicts = {v["conversation_id"]: v for v in read_json(run_dir(run_id) / "verdicts.json", [])}
+    verdicts.update({v.conversation_id: masked(v).model_dump() for v in output.verdicts})
+    write_json(run_dir(run_id) / "verdicts.json", list(verdicts.values()))
+    off_grid = read_json(run_dir(run_id) / "off_grid.json", [])
+    off_grid += [o for o in (masked(o).model_dump() for o in output.off_grid) if o not in off_grid]
+    write_json(run_dir(run_id) / "off_grid.json", off_grid)
     added = len(findings) - before
     return {"enregistrés": added, "doublons": len(output.findings) - added}
 
@@ -888,14 +887,18 @@ def verify_list(run_id: int) -> list[dict]:
 
 
 def merge(run_id: int) -> dict:
-    """Applique les contre-vérifications (verdict_NN.json) aux sorties des auditeurs et enregistre le tout."""
+    """Applique les contre-vérifications (verdict_NN.json) et remplace les incidents audités du run : on peut le relancer."""
+    run = load_run(run_id)
+    if run.posted_at or any(f.posted_at for f in load_findings(run_id)):
+        raise AuditError(f"Run {run_id} déjà publié sur Slack : ses incidents ne se réécrivent plus.")
     checks = {
         v.key: v
         for path in work_dir(run_id).glob("verdict_*.json")
         for v in TypeAdapter(list[Verification]).validate_json(path.read_text())
     }
+    outputs = lot_outputs(run_id)
     merged, dropped, unchecked = AuditOutput(verdicts=[], findings=[]), [], []
-    for output in lot_outputs(run_id).values():
+    for output in outputs.values():
         merged.verdicts += output.verdicts
         merged.off_grid += output.off_grid
         for f in output.findings:
@@ -905,15 +908,17 @@ def merge(run_id: int) -> dict:
             if check and check.status == "infirmé":
                 dropped.append(f.key)
                 continue
+            # Why: seule une contre-vérification établit un incident ; ce que l'auditeur écrit de lui-même n'en vaut pas une.
+            update = {"verification": "non vérifié"}
             if check:
-                f = f.model_copy(
-                    update={
-                        "verification": check.status,
-                        "severity": check.severity,
-                        "correction": check.correction or f.correction,
-                    }
-                )
-            merged.findings.append(f)
+                update = {
+                    "verification": check.status,
+                    "severity": check.severity,
+                    "correction": check.correction or f.correction,
+                }
+            merged.findings.append(f.model_copy(update=update))
+    audited = {f.key for output in outputs.values() for f in output.findings}
+    save_findings(run_id, [f for f in load_findings(run_id) if f.origin == "extraction" or f.key not in audited])
     return {**record(run_id, merged.model_dump_json()), "infirmés": dropped, "non_vérifiés": unchecked}
 
 
