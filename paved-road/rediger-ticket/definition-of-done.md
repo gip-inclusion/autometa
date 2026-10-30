@@ -36,13 +36,16 @@ serait créé.
    proposé, et au moins deux ; l'agent ne montre que ceux qu'il juge vraiment proches. Mesuré le
    2026-10-30 sur 150 titres du backlog : 37 % ont au moins un candidat, contre 66 % avec « deux
    mots en commun ».
+   Révision 2026-10-30 — après la relecture du code (plus de plafond à 100 résultats, élisions
+   détachées, comparaison au début des mots, préfixes entre crochets ignorés), la règle est
+   inchangée ; nouvelle mesure : 35 % sur le même échantillon, 38 % sur les 1 983 titres.
 4. Maquette : 6 cadres au plus, images de 1 600 pixels de large au plus.
 5. Auteur absent de l'Annuaire : l'agent lui demande son rôle. Sans compte Notion : le ticket est
    créé sans auteur inscrit, et l'agent le dit.
 
 ## Sources lues
 
-- `lib/notion.py` (R1) : client Notion existant ; `query_database` ne prend ni filtre ni tri,
+- `lib/notion.py` (R1) : client Notion existant ; `query_database` prend un filtre et un tri, sans limite,
   `markdown_to_blocks` ne fait pas de listes imbriquées, la création de page vise la base des
   rapports seulement. Aucune fonction ne rédige ni ne crée de ticket aujourd'hui.
 - `lib/dashboard_api.py`, `lib/query.py`, `docs/interactive-dashboards.md` (R1) : `query_storage`
