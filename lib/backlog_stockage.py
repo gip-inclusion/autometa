@@ -59,8 +59,10 @@ def lire_contexte(age_max: timedelta = timedelta(hours=30)) -> dict | None:
                     backlog_contexte.c.cle == "courant"
                 )
             ).first()
-    except ProgrammingError:
-        # Why: première lecture avant toute écriture, la table n'existe pas encore.
+    except ProgrammingError as erreur:
+        # Why: seule la table absente (première lecture avant toute écriture) est attendue ; le reste remonte.
+        if erreur.orig.pgcode != "42P01":
+            raise
         return None
     if ligne is None or datetime.now(UTC) - ligne.genere_le > age_max:
         return None
