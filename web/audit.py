@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
 
 from lib import notion
 from lib.pii import redact_nir
@@ -72,6 +72,15 @@ class Criterion(BaseModel):
     status: Literal["proposé", "actif", "retiré"] = "proposé"
     added_at: str = ""
     added_by: str = ""
+
+    @field_validator("pattern")
+    @classmethod
+    def compiles(cls, pattern: str | None) -> str | None:
+        try:
+            re.compile(pattern or "")
+        except re.error as e:
+            raise ValueError(f"expression invalide : {e}") from e
+        return pattern
 
 
 class Finding(BaseModel):
@@ -677,6 +686,8 @@ def upsert_issues(payload: str) -> list[Issue]:
                 "first_seen": days[0] if days else None,
                 "last_seen": days[-1] if days else None,
                 "status": status,
+                "title": mask(item.title),
+                "action": mask(item.action),
                 "notion_page_id": item.notion_page_id or (existing.notion_page_id if existing else None),
                 "created_at": existing.created_at if existing else utcnow().isoformat(),
             }
@@ -712,6 +723,8 @@ def upsert_lessons(payload: str) -> list[Lesson]:
         lessons[item.code] = item.model_copy(
             update={
                 "status": existing.status if existing and "status" not in item.model_fields_set else item.status,
+                "title": mask(item.title),
+                "fact": mask(item.fact),
                 "findings": sorted(set(existing.findings if existing else []) | set(item.findings)),
                 "created_at": existing.created_at if existing else now,
                 "updated_at": now,
@@ -724,11 +737,15 @@ def upsert_lessons(payload: str) -> list[Lesson]:
 def propose_criteria(payload: str) -> list[Criterion]:
     criteria = load_criteria()
     codes = {c.code for c in criteria}
-    proposed = TypeAdapter(list[Criterion]).validate_json(payload)
+    try:
+        proposed = TypeAdapter(list[Criterion]).validate_json(payload)
+    except ValidationError as e:
+        raise AuditError(f"Critère invalide : {e.errors()[0]['loc']} {e.errors()[0]['msg']}") from e
     if taken := [c.code for c in proposed if c.code in codes]:
         raise AuditError("Codes déjà pris : " + ", ".join(taken))
     for c in proposed:
         c.status, c.added_at, c.added_by = "proposé", utcnow().date().isoformat(), config.agent_user_email() or "audit"
+        c.definition = mask(c.definition)
     save_criteria(criteria + proposed)
     return proposed
 
@@ -996,10 +1013,10 @@ def daily_report(run: Run, base_url: str) -> list[str]:
             shareable(f, definitions),
             "",
             f"- Vérification : {f.verification} · cause : {f.cause} · {link(base_url, f.conversation_id)}",
-            f"- Action : {f.action}",
         ]
-        if f.correction:
-            lines.append(f"- Correction : {f.correction}")
+        if f.criterion not in PERSONAL_DATA_CRITERIA:
+            lines.append(f"- Action : {f.action}")
+            lines += [f"- Correction : {f.correction}"] if f.correction else []
     others = collections.Counter((f.criterion, f.severity) for f in findings if f.severity in ("MOYEN", "MINEUR"))
     if others:
         lines += ["", "## Autres incidents", "", "| Critère | MOYEN | MINEUR |", "|---|---|---|"]

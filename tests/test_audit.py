@@ -628,6 +628,22 @@ def test_the_skill_script_turns_refusals_into_an_exit_message(monkeypatch):
         cli.main()
 
 
+def test_a_criterion_with_an_invalid_pattern_is_refused_when_proposed():
+    bad = {"code": "G99", "family": "G", "definition": "d", "detection": "regex", "on": ["user"], "pattern": "(oops"}
+
+    with pytest.raises(audit.AuditError, match="pattern"):
+        audit.propose_criteria(json.dumps([bad]))
+
+
+def test_issue_and_lesson_texts_are_masked_like_findings(mocker):
+    recorded_run(mocker, finding(1))
+
+    [stored_issue] = audit.upsert_issues(json.dumps([{**issue(findings=["c1:1:A2"]), "title": "Écrire à a.b@x.fr"}]))
+    [stored_lesson] = audit.upsert_lessons(json.dumps([{**lesson(), "fact": "Voir a.b@x.fr"}]))
+
+    assert (stored_issue.title, stored_lesson.fact) == ("Écrire à ***", "Voir ***")
+
+
 def test_the_shared_grid_is_amended_by_local_changes_and_only_those_are_saved(audit_dir):
     (audit_dir / "grille.json").write_text(json.dumps([criterion("A1").model_dump(), criterion("A2").model_dump()]))
 
@@ -731,14 +747,16 @@ def test_free_text_quoting_a_secret_url_is_masked_and_stays_readable(mocker):
 
 def test_the_report_names_personal_data_problems_without_quoting_them(mocker, audit_dir):
     (audit_dir / "grille.json").write_text(json.dumps([criterion("G35").model_dump()]))
-    run = recorded_run(
-        mocker, finding(1), finding(2, criterion="G35", severity="CRITIQUE", description="Nom Prénom né le 01/01/1990")
+    leaky = finding(
+        2, criterion="G35", severity="CRITIQUE", description="Nom Prénom né le 01/01/1990", action="Prévenir Nom Prénom"
     )
+    run = recorded_run(mocker, finding(1), leaky)
 
     text = audit.report(run.id, "https://autometa").read_text()
 
     assert "Le taux annoncé est 42 %" in text
     assert "01/01/1990" not in text
+    assert "Prévenir Nom Prénom" not in text
     assert "### CRITIQUE G35 — G35" in text
 
 
