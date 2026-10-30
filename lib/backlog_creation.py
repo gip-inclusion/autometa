@@ -1,15 +1,15 @@
 """Création d'un ticket dans le Backlog unifié, après accord de l'auteur."""
 
 import logging
+import re
 from dataclasses import dataclass, field
 
-from lib import backlog, notion
+from lib import backlog, figma, notion
 from web import config
 
 logger = logging.getLogger(__name__)
 
 MARQUEUR = ":autometa:"
-NOM_EMOJI = "autometa"
 # Why: Priorité, Période, Estimation et les statuts d'avancement de dev sont des décisions d'équipe.
 STATUTS_PROPOSABLES = (
     "Bac à sable 🏝️",
@@ -23,6 +23,8 @@ STATUTS_PROPOSABLES = (
     "𝗗𝗘𝗩 Prêt à développer",
 )
 TYPES = ("Fonctionnalité", "Bug", "Sécurité", "Technique", "Tâche")
+LIGNE_MAX = 2000
+BLOCS_MAX = 100
 CHAMPS_AUTEUR = ("POM", "UX", "Développeurs", "Contributeurs")
 
 
@@ -65,32 +67,38 @@ def construire_proprietes(ticket: Ticket) -> dict:
     return proprietes
 
 
+def verifier_corps(ticket: Ticket) -> None:
+    """Refuse les lignes que Notion tronquerait, les liens non http(s) et les liens Figma invalides."""
+    if any(len(ligne) >= LIGNE_MAX for ligne in ticket.corps.splitlines()):
+        raise ValueError("Corps refusé : ligne de plus de 2000 caractères : la découper")
+    for url in re.findall(r"\]\(([^)\s]+)\)", ticket.corps):
+        if not url.startswith(("http://", "https://")):
+            raise ValueError(f"Lien refusé : {url}")
+    if ticket.figma and figma.analyser_lien(ticket.figma) is None:
+        raise ValueError(f"Ce n'est pas un lien Figma : {ticket.figma}")
+
+
 def emoji_autometa() -> str | None:
     """Identifiant de l'emoji personnalisé de l'espace, s'il existe."""
-    curseur = None
-    while True:
-        reponse = notion.notion_request(
-            "GET", "custom_emojis?page_size=100" + (f"&start_cursor={curseur}" if curseur else "")
-        )
-        for emoji in reponse.get("results", []):
-            if emoji.get("name") == NOM_EMOJI:
-                return emoji["id"]
-        if not reponse.get("has_more"):
-            return None
-        curseur = reponse["next_cursor"]
+    resultats = notion.notion_request("GET", "custom_emojis?name=autometa").get("results", [])
+    return resultats[0]["id"] if resultats else None
 
 
 def placer_marqueur(blocs: list[dict], emoji_id: str | None) -> list[dict]:
-    """Remplace le marqueur en tête du premier paragraphe par l'emoji de l'espace."""
+    """Place le marqueur Autometa en tête du premier paragraphe : emoji de l'espace, sinon texte."""
+    marqueur = (
+        {"type": "mention", "mention": {"type": "custom_emoji", "custom_emoji": {"id": emoji_id}}}
+        if emoji_id
+        else {"type": "text", "text": {"content": MARQUEUR + " "}}
+    )
     premier = next((b for b in blocs if b.get("type") == "paragraph"), None)
-    if not premier or not emoji_id:
+    if premier is None:
+        blocs.insert(0, {"type": "paragraph", "paragraph": {"rich_text": [marqueur]}})
         return blocs
     textes = premier["paragraph"]["rich_text"]
-    contenu = textes[0].get("text", {}).get("content", "") if textes else ""
-    if not contenu.startswith(MARQUEUR):
-        return blocs
-    textes[0]["text"]["content"] = contenu[len(MARQUEUR) :]
-    textes.insert(0, {"type": "mention", "mention": {"type": "custom_emoji", "custom_emoji": {"id": emoji_id}}})
+    if textes and textes[0].get("text", {}).get("content", "").startswith(MARQUEUR):
+        textes[0]["text"]["content"] = textes[0]["text"]["content"][len(MARQUEUR) :]
+    textes.insert(0, marqueur)
     return blocs
 
 
@@ -106,24 +114,25 @@ def verifier_relations(ticket: Ticket) -> None:
         parent = (page.get("parent") or {}).get("database_id", "")
         if parent.replace("-", "") != base.replace("-", "") or page.get("archived") or page.get("in_trash"):
             raise ValueError(f"Relation refusée : {page_id} n'est pas une page active de la base attendue")
-        if page_id in ticket.noms and backlog.titre(page) != ticket.noms[page_id]:
-            raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {ticket.noms[page_id]} »")
+        if backlog.titre(page) != ticket.noms.get(page_id):
+            raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {ticket.noms.get(page_id)} »")
+        if page_id == ticket.epic and not set(backlog.ids_relation(page, "Pizza team")) & set(ticket.equipes):
+            raise ValueError("Relation refusée : l'épic n'appartient à aucune des équipes choisies")
 
 
 def creer_ticket(ticket: Ticket) -> tuple[str, str]:
-    """Crée la page du ticket, après vérification de ses relations, et renvoie son identifiant et son URL."""
+    """Crée la page du ticket, après vérification de ses champs et relations, et renvoie son identifiant et son URL."""
+    verifier_corps(ticket)
+    proprietes = construire_proprietes(ticket)
     verifier_relations(ticket)
     blocs = placer_marqueur(notion.markdown_to_blocks(ticket.corps), emoji_autometa())
+    # Why: au-delà de 100 blocs il faudrait un second appel, et un échec laisserait un ticket écrit à moitié.
+    if len(blocs) > BLOCS_MAX:
+        raise ValueError(f"Ticket trop long : {len(blocs)} blocs, {BLOCS_MAX} au plus")
     page = notion.notion_request(
         "POST",
         "pages",
-        {
-            "parent": {"database_id": config.NOTION_BACKLOG_DB},
-            "properties": construire_proprietes(ticket),
-            "children": blocs[:100],
-        },
+        {"parent": {"database_id": config.NOTION_BACKLOG_DB}, "properties": proprietes, "children": blocs},
     )
-    for debut in range(100, len(blocs), 100):
-        notion.notion_request("PATCH", f"blocks/{page['id']}/children", {"children": blocs[debut : debut + 100]})
     logger.info("Ticket créé dans le backlog : %s", page["id"])
     return page["id"], page["url"]
