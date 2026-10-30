@@ -65,6 +65,10 @@ class TestStockage:
         backlog_stockage.enregistrer_contexte(ctx)
         assert backlog_stockage.lire_contexte() == ctx
 
+    def test_lire_sans_table_renvoie_none(self):
+        backlog_contexte.drop(get_engine(), checkfirst=True)
+        assert backlog_stockage.lire_contexte() is None
+
     def test_lire_sans_ligne_renvoie_none(self):
         assert backlog_stockage.lire_contexte() is None
 
