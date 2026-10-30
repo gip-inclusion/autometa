@@ -1071,9 +1071,32 @@ def test_emoji_autometa_parcourt_les_pages(mocker):
     assert creation.emoji_autometa() == "e"
 
 
+@pytest.mark.parametrize(
+    ("parents", "ticket_relations"),
+    [
+        ({"e1": "autre-base"}, {"equipes": ["e1"]}),
+        ({"e1": "equipes", "p1": "equipes"}, {"equipes": ["e1"], "epic": "p1"}),
+    ],
+)
+def test_dod_4_verifier_relations_refuse_une_page_hors_base(mocker, parents, ticket_relations):
+    mocker.patch.object(creation.backlog, "bases_liees", return_value={"equipes": "equi-pes", "epics": "epics"})
+    mocker.patch("lib.notion.notion_request", side_effect=lambda methode, chemin, charge=None: {"parent": {"database_id": parents[chemin.split("/")[1]]}})
+    with pytest.raises(ValueError, match="Relation refusée"):
+        creation.verifier_relations(ticket(**ticket_relations))
+
+
+def test_dod_4_verifier_relations_accepte_les_pages_des_bonnes_bases(mocker):
+    mocker.patch.object(creation.backlog, "bases_liees", return_value={"equipes": "equi-pes", "epics": "epics"})
+    parents = {"e1": "equipes", "p1": "e-pics"}
+    appel = mocker.patch("lib.notion.notion_request", side_effect=lambda methode, chemin, charge=None: {"parent": {"database_id": parents[chemin.split("/")[1]]}})
+    creation.verifier_relations(ticket(epic="p1"))
+    assert [c.args[1] for c in appel.call_args_list] == ["pages/e1", "pages/p1"]
+
+
 def test_dod_4_creer_ticket_envoie_100_blocs_puis_le_reste(mocker):
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "emoji_autometa", return_value=None)
+    verification = mocker.patch.object(creation, "verifier_relations")
     mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraphe(str(i)) for i in range(150)])
     appel = mocker.patch("lib.notion.notion_request", side_effect=[{"id": "p", "url": "https://notion/p"}, {}])
     assert creation.creer_ticket(ticket()) == ("p", "https://notion/p")
@@ -1081,6 +1104,7 @@ def test_dod_4_creer_ticket_envoie_100_blocs_puis_le_reste(mocker):
     assert creer.args[2]["parent"] == {"database_id": "backlog"}
     assert len(creer.args[2]["children"]) == 100
     assert ajouter.args[:2] == ("PATCH", "blocks/p/children")
+    verification.assert_called_once()
     assert len(ajouter.args[2]["children"]) == 50
 ```
 
@@ -1097,7 +1121,7 @@ Expected: échec à l'import.
 import logging
 from dataclasses import dataclass
 
-from lib import notion
+from lib import backlog, notion
 from web import config
 
 logger = logging.getLogger(__name__)
@@ -1178,8 +1202,23 @@ def placer_marqueur(blocs: list[dict], emoji_id: str | None) -> list[dict]:
     return blocs
 
 
+def verifier_relations(ticket: Ticket) -> None:
+    """Vérifie dans Notion que les équipes et l'épic du ticket sont des pages des bases attendues."""
+    # Why: les identifiants viennent du contexte rangé dans dashboard_storage, que tout utilisateur
+    # connecté peut modifier par /api/query ; on ne les écrit dans Notion qu'après vérification.
+    bases = backlog.bases_liees()
+    attendues = [(equipe, bases["equipes"]) for equipe in ticket.equipes]
+    if ticket.epic:
+        attendues.append((ticket.epic, bases["epics"]))
+    for page_id, base in attendues:
+        parent = notion.notion_request("GET", f"pages/{page_id}").get("parent") or {}
+        if parent.get("database_id", "").replace("-", "") != base.replace("-", ""):
+            raise ValueError(f"Relation refusée : {page_id} n'est pas une page de la base attendue")
+
+
 def creer_ticket(ticket: Ticket) -> tuple[str, str]:
-    """Crée la page du ticket et renvoie son identifiant et son URL."""
+    """Crée la page du ticket, après vérification de ses relations, et renvoie son identifiant et son URL."""
+    verifier_relations(ticket)
     blocs = placer_marqueur(notion.markdown_to_blocks(ticket.corps), emoji_autometa())
     page = notion.notion_request("POST", "pages", {
         "parent": {"database_id": config.NOTION_BACKLOG_DB},
@@ -1197,7 +1236,7 @@ Si l'essai de la tâche 1 a montré une autre forme de mention, la reporter dans
 - [ ] **Étape 4 : lancer les tests**
 
 Run: `uv run --frozen pytest tests/test_backlog_creation.py -q`
-Expected: `10 passed`
+Expected: `13 passed`
 
 - [ ] **Étape 5 : committer et attester**
 
