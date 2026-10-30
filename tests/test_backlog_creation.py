@@ -60,18 +60,19 @@ def test_dod_4_placer_marqueur_insere_l_emoji():
     blocs = creation.placer_marqueur([paragraphe(":autometa: Les employeurs gardent l'accès.")], "emoji-1")
     textes = blocs[0]["paragraph"]["rich_text"]
     assert textes[0] == MENTION
-    assert textes[1]["text"]["content"] == " Les employeurs gardent l'accès."
+    assert textes[1]["text"]["content"] == " "
+    assert textes[2]["text"]["content"] == "Les employeurs gardent l'accès."
 
 
 def test_placer_marqueur_sans_emoji_garde_le_texte_une_seule_fois():
     blocs = creation.placer_marqueur([paragraphe(":autometa: Texte")], None)
-    assert [t["text"]["content"] for t in blocs[0]["paragraph"]["rich_text"]] == [":autometa: ", " Texte"]
+    assert [t["text"]["content"] for t in blocs[0]["paragraph"]["rich_text"]] == [":autometa:", " ", "Texte"]
 
 
 def test_placer_marqueur_ajoute_le_marqueur_absent():
     blocs = creation.placer_marqueur([paragraphe("Texte")], "emoji-1")
     assert blocs[0]["paragraph"]["rich_text"][0] == MENTION
-    assert blocs[0]["paragraph"]["rich_text"][1]["text"]["content"] == "Texte"
+    assert [t["text"]["content"] for t in blocs[0]["paragraph"]["rich_text"][1:]] == [" ", "Texte"]
 
 
 def test_placer_marqueur_vise_le_premier_paragraphe_apres_un_titre():
@@ -123,7 +124,7 @@ def page_notion(base, titre="", archivee=False, corbeille=False, equipes=()):
         ({"e1": page_notion("equipes", "Emplois", archivee=True)}, {"noms": {"e1": "Emplois"}}, "pas une page active"),
         ({"e1": page_notion("equipes", "Emplois", corbeille=True)}, {"noms": {"e1": "Emplois"}}, "pas une page active"),
         ({"e1": page_notion("equipes", "Prescription")}, {"noms": {"e1": "Emplois"}}, "ne s'appelle pas"),
-        ({"e1": page_notion("equipes", "Emplois")}, {}, "ne s'appelle pas"),
+        ({"e1": page_notion("equipes", "Emplois")}, {}, "nom non fourni"),
         (
             {"e1": page_notion("equipes", "Emplois"), "p1": page_notion("epics", "RUN", equipes=("autre",))},
             {"epic": "p1", "noms": {"e1": "Emplois", "p1": "RUN"}},
@@ -153,11 +154,16 @@ def test_dod_4_verifier_relations_accepte_les_pages_attendues(mocker):
 @pytest.mark.parametrize(
     ("champs", "message"),
     [
-        ({"corps": "x" * 2000}, "ligne de plus de 2000"),
-        ({"corps": "ok\n" + "y" * 2500}, "ligne de plus de 2000"),
+        ({"corps": "x" * 2000}, "2000 caractères ou plus"),
+        ({"corps": "a" * 1500 + "\n" + "b" * 1500}, "2000 caractères ou plus"),
+        ({"corps": "```\n" + "\n".join("c" * 50 for _ in range(60)) + "\n```"}, "2000 caractères ou plus"),
+        ({"corps": "\n".join(f"- point {i}" for i in range(101))}, "Ticket trop long"),
         ({"corps": "voir [lien](javascript:alert)"}, "Lien refusé"),
         ({"corps": "voir [lien](/relatif)"}, "Lien refusé"),
+        ({"corps": "voir [x](javascript:x y)"}, "Lien refusé"),
+        ({"corps": "voir [x]( javascript:x)"}, "Lien refusé"),
         ({"figma": "https://exemple.fr/design"}, "lien Figma"),
+        ({"figma": "https://evil.example/?u=figma.com/design/AbCdEfGhIjKlMnOpQrStUv"}, "lien Figma"),
     ],
 )
 def test_dod_4_verifier_corps_refuse_avant_toute_requete(mocker, champs, message):
@@ -170,7 +176,7 @@ def test_dod_4_verifier_corps_refuse_avant_toute_requete(mocker, champs, message
 def test_dod_4_verifier_corps_accepte_liens_http_et_lignes_courtes():
     assert (
         creation.verifier_corps(
-            ticket(corps="voir [a](https://x.fr/a) et [b](http://x.fr)\n" + "y" * 1999, figma=FIGMA)
+            ticket(corps="voir [a](https://x.fr/a) et [b](http://x.fr)\n\n" + "y" * 1999, figma=FIGMA)
         )
         is None
     )
@@ -203,6 +209,6 @@ def test_dod_4_creer_ticket_envoie_une_seule_creation(mocker):
 def test_dod_4_creer_ticket_n_ecrit_rien_si_la_verification_echoue(mocker):
     mocker.patch.object(creation, "verifier_relations", side_effect=ValueError("Relation refusée"))
     appel = mocker.patch("lib.notion.notion_request")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Relation refusée"):
         creation.creer_ticket(ticket())
     appel.assert_not_called()
