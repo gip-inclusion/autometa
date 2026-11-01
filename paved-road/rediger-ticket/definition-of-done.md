@@ -34,7 +34,7 @@ serait créé.
 2. Âge maximal du contexte rangé avant relecture dans Notion : un jour.
    Révision 2026-10-30 — âge porté à 30 heures : le cron part chaque nuit à 02:00 UTC ; à 24 heures
    strictes, chaque nuit laisserait un moment où toutes les conversations relisent Notion, et un cron
-   en échec les y renverrait toutes. DOD-2 se lit avec cette révision.
+   en échec les y renverrait toutes. DOD-2 se lit avec cette révision. Revalidé par LJ le 2026-11-01.
 3. Un ticket proche est signalé quand son titre partage au moins la moitié des mots-clés du titre
    proposé, et au moins deux ; l'agent ne montre que ceux qu'il juge vraiment proches. Mesuré le
    2026-10-30 sur 150 titres du backlog : 37 % ont au moins un candidat, contre 66 % avec « deux
@@ -42,7 +42,7 @@ serait créé.
    Révision 2026-10-30 — après la relecture du code (plus de plafond à 100 résultats, élisions
    détachées, comparaison au début des mots, préfixes entre crochets ignorés), la règle est
    inchangée ; nouvelle mesure, apostrophes typographiques comprises : 35 % sur le même échantillon, 40 % sur
-   les 1 983 titres.
+   les 1 983 titres. Revalidé par LJ le 2026-11-01.
 4. Maquette : 6 cadres au plus, images de 1 600 pixels de large au plus.
 5. Auteur absent de l'Annuaire : l'agent lui demande son rôle. Sans compte Notion : le ticket est
    créé sans auteur inscrit, et l'agent le dit.
