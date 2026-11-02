@@ -137,9 +137,43 @@ async function sendToAgent(message) {
 
     // Start streaming from after the user message we just sent
     startStream(data.after_id || 0);
+    if (document.querySelectorAll('#chatOutput .event-user').length === 1) {
+      loadSimilarConversations(currentConversationId);
+    }
   } catch (error) {
     console.error('Failed to send message:', error);
     showError('Erreur de connexion');
+  }
+}
+
+async function loadSimilarConversations(convId) {
+  const container = document.getElementById('similarConversations');
+  if (!container || container.dataset.conversationId === convId) return;
+  container.dataset.conversationId = convId;
+  container.hidden = true;
+
+  try {
+    const response = await fetch(`/api/conversations/${convId}/similar`, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return;
+
+    const data = await response.json();
+    if (!container.isConnected || currentConversationId !== convId || !data.conversations.length) return;
+
+    container.innerHTML = `
+        <h2 class="h6">Conversations similaires</h2>
+        <ul class="list-unstyled mb-0">
+          ${data.conversations
+            .map(
+              (conv) => `
+            <li class="mt-2">
+              <a href="/explorations/${encodeURIComponent(conv.id)}" target="_blank" rel="noopener">${escapeHtml(conv.title || 'Sans titre')}</a>
+            </li>`,
+            )
+            .join('')}
+        </ul>`;
+    container.hidden = false;
+  } catch (error) {
+    console.warn('Failed to load similar conversations:', error);
   }
 }
 

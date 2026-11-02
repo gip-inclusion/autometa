@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 
 from web import helpers
 from web.config import ADMIN_USERS
-from web.conversation_embeddings.query_embedding import embed_query
+from web.conversation_embeddings.query_embedding import embed_query, is_embedding_model_ready
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import (
@@ -310,9 +310,11 @@ def conversations(
             # Les mots exacts (titre ou message) remontent toujours en tête ; le sens complète
             # avec les conversations proches qui n'emploient pas ces mots.
             keyword_ids = store.search_conversation_ids_by_keyword(q, user_id=filter_user, limit=100)
-            semantic_ids = store.search_conversation_ids_by_embedding(
-                embed_query(q), user_id=filter_user, limit=100, max_distance=SEMANTIC_MAX_DISTANCE
-            )
+            semantic_ids = []
+            if is_embedding_model_ready():
+                semantic_ids = store.search_conversation_ids_by_embedding(
+                    embed_query(q), user_id=filter_user, limit=100, max_distance=SEMANTIC_MAX_DISTANCE
+                )
             ranked_ids = keyword_ids + [cid for cid in semantic_ids if cid not in keyword_ids]
             conversations_with_tags = store.list_ranked_conversations_with_tags(
                 ranked_ids, user_id=filter_user, tag_names=active_tags or None, authors=active_authors or None

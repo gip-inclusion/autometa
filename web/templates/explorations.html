@@ -112,6 +112,7 @@
           </button>
         </div>
         <div class="actions-sidebar-body">
+          <section id="similarConversations" class="similar-conversations" aria-label="Conversations similaires" aria-live="polite" hidden></section>
           <div class="sidebar-tab-content" id="tocContent">
             <!-- TOC entries will be inserted here by JS -->
           </div>
@@ -158,7 +159,7 @@
     </div>
     {% elif is_new %}
     <!-- New conversation - empty chat (no sidebar needed) -->
-    <div class="chat-with-sidebar">
+    <div class="chat-with-sidebar" id="chatWithSidebar">
       <div class="chat-main">
         <div class="chat-guide-banner">
           <i class="ri-compass-3-line" aria-hidden="true"></i>
@@ -188,6 +189,7 @@
           </button>
         </div>
         <div class="actions-sidebar-body">
+          <section id="similarConversations" class="similar-conversations" aria-label="Conversations similaires" aria-live="polite" hidden></section>
           <div class="sidebar-tab-content" id="tocContent">
             <!-- TOC entries will be inserted here by JS -->
           </div>

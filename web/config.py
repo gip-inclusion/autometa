@@ -274,6 +274,7 @@ MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "minishlab/potion-multilingual-128M")
 EMBEDDING_BATCH_SIZE = int(os.environ.get("EMBEDDING_BATCH_SIZE", "32"))
 EMBEDDING_CRON_LIMIT = int(os.environ.get("EMBEDDING_CRON_LIMIT", "1000"))
+SIMILAR_CONVERSATIONS_MAX_DISTANCE = float(os.environ.get("SIMILAR_CONVERSATIONS_MAX_DISTANCE", "0.75"))
 
 
 def agent_conversation_id() -> str | None:
