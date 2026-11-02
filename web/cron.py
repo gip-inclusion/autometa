@@ -85,6 +85,9 @@ def is_valid_schedule(schedule: str) -> bool:
 
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
+# Why: la façade ne lève jamais, un script peut donc sortir en 0 avec des requêtes en échec et des
+# fichiers en partie périmés. Ni un succès, ni une panne : ses fichiers sont gardés, le récap le dit.
+DEGRADED_STATUS = "degraded"
 
 
 def parse_frontmatter_text(content: str) -> dict:
@@ -173,7 +176,7 @@ def missed_last_due(task: dict, batch: str) -> bool:
                 .where(
                     CronRun.app_slug == task["slug"],
                     CronRun.started_at >= due,
-                    CronRun.status.in_(("success", "failure", "timeout")),
+                    CronRun.status.in_(("success", "degraded", "failure", "timeout")),
                 )
                 .limit(1)
             )
@@ -502,25 +505,28 @@ def report_facade_violations(tasks: list[dict], notify: bool) -> dict[str, list[
 def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -> tuple[Path, dict[str, str]]:
     safe_label = re.sub(r"[^a-zA-Z0-9_-]", "", label) or "task"
     workdir = Path(tempfile.mkdtemp(prefix=f"cron-{safe_label}-"))
-    pre_hashes: dict[str, str] = {}
+
+    def fetch(entry: dict) -> tuple[str, str] | None:
+        local_name = entry["path"][len(store_relative_prefix) :]
+        local_file = (workdir / local_name).resolve()
+        if not local_file.is_relative_to(workdir.resolve()):
+            return None
+        # Why: sur disque dès le téléchargement — tout garder jusqu'à la fin laissait 470 Mo au parent
+        # après une publication de 236 Mo, jamais rendus au système, et le conteneur du lot était tué.
+        content = store.download(entry["path"])
+        if content is None:
+            return None
+        local_file.parent.mkdir(parents=True, exist_ok=True)
+        local_file.write_bytes(content)
+        return local_name, hashlib.md5(content, usedforsecurity=False).hexdigest()
+
     try:
         entries = [
             entry
             for entry in store.list_files(store_relative_prefix)
             if entry["path"][len(store_relative_prefix) :] and ".." not in entry["path"][len(store_relative_prefix) :]
         ]
-        contents = s3_map(store.download, [entry["path"] for entry in entries])
-        for entry, content in zip(entries, contents, strict=True):
-            local_name = entry["path"][len(store_relative_prefix) :]
-            if content is not None:
-                local_file = (workdir / local_name).resolve()
-                try:
-                    local_file.relative_to(workdir.resolve())
-                except ValueError:
-                    continue
-                local_file.parent.mkdir(parents=True, exist_ok=True)
-                local_file.write_bytes(content)
-                pre_hashes[local_name] = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        pre_hashes = dict(filter(None, s3_map(fetch, entries)))
     # Why: the caller only learns the workdir on return — on failure, nobody else can remove it.
     except BaseException:
         remove_workdir(workdir)
@@ -531,29 +537,24 @@ def prepare_s3_workdir(store: S3Store, store_relative_prefix: str, label: str) -
 def upload_s3_results(
     store: S3Store, store_relative_prefix: str, label: str, workdir: Path, pre_hashes: dict[str, str]
 ):
-    changed = []
-    skipped = 0
     workdir_resolved = workdir.resolve()
-    for path in workdir.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            path.resolve().relative_to(workdir_resolved)
-        except ValueError:
-            continue
+    files = [path for path in workdir.rglob("*") if path.is_file() and path.resolve().is_relative_to(workdir_resolved)]
+
+    def upload_if_changed(path: Path) -> bool:
         rel = str(path.relative_to(workdir))
         content = path.read_bytes()
         if pre_hashes.get(rel) == hashlib.md5(content, usedforsecurity=False).hexdigest():
-            skipped += 1
-            continue
-        changed.append((f"{store_relative_prefix}{rel}", content))
-    s3_map(lambda item: store.upload(*item), changed)
-    if changed:
+            return False
+        store.upload(f"{store_relative_prefix}{rel}", content)
+        return True
+
+    uploaded = sum(s3_map(upload_if_changed, files))
+    if uploaded:
         logger.info(
             "Cron upload %s: %d uploaded, %d unchanged",
             sanitize_for_log(label),
-            len(changed),
-            skipped,
+            uploaded,
+            len(files) - uploaded,
         )
 
 
@@ -715,6 +716,8 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     problems = []
     keep_outputs = False
     pre_hashes: dict[str, str] = {}
+    failures_file = None
+    failed_queries = []
 
     previous_status = None
     if trigger == "scheduled":
@@ -745,6 +748,9 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     try:
         if uses_workdir:
             workdir, pre_hashes = prepare_s3_workdir(store, store_prefix, slug)
+            # Why: à côté du dossier de travail, jamais dedans — tout ce qu'il contient part sur S3.
+            failures_file = workdir.with_name(f"{workdir.name}.query-failures")
+            env["AUTOMETA_QUERY_FAILURES_FILE"] = str(failures_file)
             cron_script = str(workdir / "cron.py")
             log_facade_violations(slug, workdir / "cron.py")
             cwd = str(workdir)
@@ -758,6 +764,10 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
 
         if returncode is None:
             stderr = f"{stderr}\nScript timed out after {timeout}s".lstrip()
+        if failures_file and failures_file.exists():
+            failed_queries = failures_file.read_text(encoding="utf-8").splitlines()
+        if failed_queries:
+            stderr = f"{stderr}\n{len(failed_queries)} requête(s) en échec, dernière : {failed_queries[-1]}".lstrip()
         output = combine_output(stdout, stderr)
         error = stderr or stdout
         keep_outputs = returncode in (0, PARTIAL_EXIT_CODE)
@@ -768,7 +778,8 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
             # copie publique est refusée, et le snapshot privé reste tel qu'il était.
             if not problems:
                 upload_s3_results(store, store_prefix, slug, workdir, pre_hashes)
-        status = {0: "success", None: "timeout"}.get(returncode, "failure")
+        clean_exit = DEGRADED_STATUS if failed_queries else "success"
+        status = {0: clean_exit, None: "timeout"}.get(returncode, "failure")
 
     except Exception as e:
         # Why: une exception, quelle qu'elle soit, doit fermer la ligne `running` ouverte plus haut —
@@ -782,6 +793,8 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     finally:
         if workdir and workdir.exists():
             remove_workdir(workdir)
+        if failures_file:
+            failures_file.unlink(missing_ok=True)
 
     run_result = {
         "slug": slug,
@@ -790,6 +803,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
         "duration_ms": elapsed_ms,
         "started_at": started_at,
         "finished_at": finished_at,
+        "failed_queries": len(failed_queries),
     }
 
     record_run(run_result, trigger, run_id=run_id)
@@ -810,7 +824,7 @@ def notify_cron_status_change(
 ) -> None:
     """Post a Slack alert when a cron breaks (every run if `repeat`, else only newly) or recovers."""
     broke = status in BROKEN_STATUSES and (repeat or previous_status not in BROKEN_STATUSES)
-    recovered = status == "success" and previous_status in BROKEN_STATUSES
+    recovered = status in ("success", DEGRADED_STATUS) and previous_status in BROKEN_STATUSES
     if not (broke or recovered):
         return
 
@@ -1143,10 +1157,53 @@ def failing_since(slugs: list[str]) -> dict[str, dt.datetime]:
         return {}
 
 
+def unfinished_elsewhere(batch: str) -> tuple[list[tuple[str, dt.datetime]], list[dict]]:
+    """Les autres lots et les tâches encore `running` depuis moins de deux jours : au-delà, un vestige."""
+    since = utcnow() - dt.timedelta(days=2)
+    try:
+        with get_db() as session:
+            batches = session.execute(
+                select(CronBatchRun.batch, CronBatchRun.started_at)
+                .where(CronBatchRun.status == "running", CronBatchRun.batch != batch, CronBatchRun.started_at >= since)
+                .order_by(CronBatchRun.started_at)
+            ).all()
+            runs = session.execute(
+                select(CronRun.app_slug, CronRun.status, CronRun.started_at)
+                .where(CronRun.status == "running", CronRun.started_at >= since)
+                .order_by(CronRun.started_at)
+            ).all()
+    except SQLAlchemyError as e:
+        logger.warning("cron : lignes `running` illisibles, récapitulatif sans elles (%s)", e)
+        return [], []
+    return [tuple(row) for row in batches], [dict(row._mapping) for row in runs]
+
+
+def degraded_section(results: list[dict]) -> str:
+    """Les runs sortis sans erreur malgré des requêtes en échec : leurs fichiers sont peut-être périmés."""
+    degraded = [result for result in results if result["status"] == DEGRADED_STATUS]
+    if not degraded:
+        return ""
+    lines = "\n".join(f"• `{result['slug']}` — {result['failed_queries']} requête(s) en échec" for result in degraded)
+    return f"\n:warning: {len(degraded)} dégradée(s), fichiers conservés :\n{lines}"
+
+
+def unfinished_section(batch: str, timeouts: dict[str, int]) -> str:
+    """Ce qui n'a pas écrit sa fin : c'est ainsi qu'un conteneur tué se voit le jour même."""
+    batches, runs = unfinished_elsewhere(batch)
+    lines = [f"• lot `{name}` depuis le {started_at:%d/%m à %H:%M} UTC" for name, started_at in batches]
+    for run in runs:
+        killed = displayed_status(run, timeouts.get(run["app_slug"], DEFAULT_TIMEOUT)) == "interrupted"
+        state = "délai dépassé, conteneur probablement tué" if killed else "en cours"
+        lines.append(f"• tâche `{run['app_slug']}` depuis le {run['started_at']:%d/%m à %H:%M} UTC — {state}")
+    return "\n:warning: Sans fin écrite :\n" + "\n".join(lines) if lines else ""
+
+
 # Why: une alerte au premier échec, puis plus rien, laissait une vingtaine de TDB en panne sans
 # suivi. Un message par matin redonne la liste entière, avec la durée du lot pour en suivre la marge.
-def notify_batch_summary(batch: str, results: list[dict], elapsed: float, budget: int | None, workers: int) -> None:
-    """Récapitulatif du lot : durée, marge, et chaque tâche en échec avec son ancienneté et son type d'erreur."""
+def notify_batch_summary(
+    batch: str, results: list[dict], elapsed: float, budget: int | None, workers: int, timeouts: dict[str, int]
+) -> None:
+    """Récapitulatif du lot : durée, marge, tâches en échec (ancienneté, type d'erreur), dégradées, sans fin écrite."""
     failed = [result for result in results if result["status"] in BROKEN_STATUSES]
     since = failing_since([result["slug"] for result in failed])
     usage = f" ({elapsed / budget:.0%} du budget de {budget // 60} min)" if budget else ""
@@ -1154,8 +1211,9 @@ def notify_batch_summary(batch: str, results: list[dict], elapsed: float, budget
         f":clipboard: *Lot `{batch}`* — {len(results)} tâche(s) en {elapsed / 60:.0f} min{usage}, "
         f"{workers} guichet(s).\n"
     )
+    unfinished = degraded_section(results) + unfinished_section(batch, timeouts)
     if not failed:
-        alerts.notify_alert_channel(message + ":white_check_mark: Aucune en échec.")
+        alerts.notify_alert_channel(message + ":white_check_mark: Aucune en échec." + unfinished)
         return
     failed.sort(key=lambda result: since.get(result["slug"], result["started_at"]))
     listing = "\n".join(
@@ -1165,7 +1223,7 @@ def notify_batch_summary(batch: str, results: list[dict], elapsed: float, budget
     )
     if config.BASE_URL:
         listing += f"\n<{config.BASE_URL}/cron|Voir les crons>"
-    alerts.notify_alert_channel(f"{message}:red_circle: {len(failed)} en échec :\n{listing}")
+    alerts.notify_alert_channel(f"{message}:red_circle: {len(failed)} en échec :\n{listing}{unfinished}")
 
 
 def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None, workers: int = 1) -> list[dict]:
@@ -1262,8 +1320,9 @@ def run_all(dry_run: bool = False, *, batch: str, budget: int | None = None, wor
             f"{len(dropped)} tâche(s) non exécutée(s) : " + ", ".join(f"`{slug}`" for slug in dropped)
         )
 
-    if batch == DASHBOARD_BATCH and results:
-        notify_batch_summary(batch, results, time.monotonic() - started, budget, workers)
+    if batch in (DASHBOARD_BATCH, PUBLICATION_BATCH) and results:
+        timeouts = {task["slug"]: task["timeout"] for task in tasks}
+        notify_batch_summary(batch, results, time.monotonic() - started, budget, workers, timeouts)
 
     if not dry_run:
         close_batch_run(batch_run_id, "over_budget" if dropped else "finished")

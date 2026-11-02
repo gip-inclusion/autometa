@@ -86,15 +86,26 @@ def error_detail(resp: httpx.Response) -> str:
     return (body.get("error") if isinstance(body, dict) else None) or resp.text
 
 
+def is_transient(error: httpx.HTTPError) -> bool:
+    """Vrai si l'échec vient du transport ou du serveur, jamais d'une réponse de Metabase sur la requête."""
+    if not isinstance(error, httpx.HTTPStatusError):
+        return True
+    response = error.response
+    # Why: une requête invalide ou une base inconnue répond en JSON, 400 comme 500 ; seule la JVM à bout
+    # (« unable to create native thread », Dora, 02/11/2026) sert la page HTML de Jetty.
+    is_server_page = response.status_code == 500 and "text/html" in response.headers.get("content-type", "")
+    return is_server_page or response.status_code in (502, 503, 504)
+
+
 class MetabaseAPI:
     """
     Client for querying the Metabase API.
 
     Uses httpx.Client for connection pooling (reuses TCP+TLS across calls).
     Retries connection errors via httpx.HTTPTransport, and gateway statuses
-    (502/503/504) or request errors with jittered linear backoff — ces échecs sont
-    typiquement transitoires (Metabase saturé à ~06:00 quand tous les crons
-    tapent l'API en même temps).
+    (502/503/504), server error pages or request errors with jittered linear
+    backoff — ces échecs sont typiquement transitoires (Metabase saturé à ~06:00
+    quand tous les crons tapent l'API en même temps).
 
     Une tentative n'est lancée que si elle tient dans RETRY_DEADLINE_S : le
     coût total est donc borné quel que soit le `timeout` de l'appelant.
@@ -153,18 +164,13 @@ class MetabaseAPI:
                 return resp.json()
 
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
-                # 502/503/504 = passerelle surchargée / timeout applicatif amont, transitoire → on retente.
                 status = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
                 # Why: sans jitter, tous les crons de 06:00 qui prennent le même 504 retentent
                 # à la même seconde et reforment la vague qui a saturé Metabase.
                 backoff = RETRY_BACKOFF_S * attempt * random.uniform(0.5, 1.5)  # noqa: S311 — pas de la crypto
                 # On ne démarre une tentative que si elle tient dans le budget : sinon le cron se fait
                 # tuer en plein retry et l'erreur d'origine (le 504) est perdue au profit d'un timeout.
-                if (
-                    (status is None or status in (502, 503, 504))
-                    and attempt < MAX_ATTEMPTS
-                    and time.monotonic() + backoff + timeout <= give_up_at
-                ):
+                if is_transient(e) and attempt < MAX_ATTEMPTS and time.monotonic() + backoff + timeout <= give_up_at:
                     logger.warning(
                         "Metabase %s %s -> %s (tentative %d), nouvel essai dans %.0fs",
                         method,

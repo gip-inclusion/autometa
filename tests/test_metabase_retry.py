@@ -1,4 +1,4 @@
-"""Retry du client Metabase sur les statuts passerelle transitoires (502/503/504) et erreurs réseau."""
+"""Retry du client Metabase sur les pannes transitoires : passerelle, page 500 du serveur, réseau."""
 
 import httpx
 import pytest
@@ -17,11 +17,19 @@ def make_api(mocker):
     return get_metabase(instance="stats")
 
 
-def response(status, json_body=None, text=""):
+def response(status, json_body=None, text="", html=None):
     req = httpx.Request("POST", "http://mb.test/api/dataset")
     if json_body is not None:
         return httpx.Response(status, json=json_body, request=req)
+    if html is not None:
+        return httpx.Response(status, html=html, request=req)
     return httpx.Response(status, text=text, request=req)
+
+
+# Why: formes relevées sur les vraies instances le 02/11/2026 (Dora saturée, stats saines).
+JVM_OUT_OF_THREADS = "<html><title>Error 500 unable to create native thread</title></html>"
+APPLICATIVE_500 = {"via": [{"type": "clojure.lang.ExceptionInfo"}], "trace": [], "cause": "Database does not exist"}
+SQL_ERROR = {"status": "failed", "error_type": "invalid-query", "error": 'ERROR: relation "t" does not exist'}
 
 
 @pytest.mark.parametrize("status", [502, 503, 504])
@@ -31,6 +39,48 @@ def test_retries_on_gateway_status_then_succeeds(mocker, status):
     result = api.execute_sql("SELECT 1")
     assert result.row_count == 1
     assert api._session.request.call_count == 2
+
+
+def test_retries_a_server_error_page_then_succeeds(mocker):
+    api = make_api(mocker)
+    api._session.request = mocker.Mock(
+        side_effect=[response(500, html=JVM_OUT_OF_THREADS), response(200, json_body=OK_BODY)]
+    )
+    assert api.execute_sql("SELECT 1").row_count == 1
+    assert api._session.request.call_count == 2
+
+
+def test_exhausts_retries_on_a_persistent_server_error_page(mocker):
+    api = make_api(mocker)
+    api._session.request = mocker.Mock(return_value=response(500, html=JVM_OUT_OF_THREADS))
+    with pytest.raises(MetabaseError, match="HTTP 500"):
+        api.execute_sql("SELECT 1")
+    assert api._session.request.call_count == MAX_ATTEMPTS
+
+
+def test_a_server_error_page_never_retries_past_the_deadline(mocker):
+    api = make_api(mocker)
+    api._session.request = mocker.Mock(return_value=response(500, html=JVM_OUT_OF_THREADS))
+    with pytest.raises(MetabaseError, match="HTTP 500"):
+        api.execute_sql("SELECT 1", timeout=int(RETRY_DEADLINE_S))
+    assert api._session.request.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"status": 400, "json_body": SQL_ERROR},
+        {"status": 500, "json_body": SQL_ERROR},
+        {"status": 500, "json_body": APPLICATIVE_500},
+        {"status": 404, "html": "<html>Not found</html>"},
+    ],
+)
+def test_no_retry_when_metabase_itself_answers_the_error(mocker, error):
+    api = make_api(mocker)
+    api._session.request = mocker.Mock(return_value=response(**error))
+    with pytest.raises(MetabaseError):
+        api.execute_sql("SELECT 1")
+    assert api._session.request.call_count == 1
 
 
 def test_exhausts_retries_on_persistent_504(mocker):

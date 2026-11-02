@@ -64,6 +64,8 @@
                 {% if last_run %}
                   {% if last_run.status == 'success' %}
                     <span class="badge bg-success">OK</span>
+                  {% elif last_run.status == 'degraded' %}
+                    <span class="badge bg-warning text-dark">dégradé</span>
                   {% elif last_run.status == 'timeout' %}
                     <span class="badge bg-warning text-dark">timeout</span>
                   {% else %}
@@ -479,6 +481,8 @@ function filterTagOptions(input) {
       for (const run of runs) {
         const badge = run.status === 'success'
           ? '<span class="badge bg-success">OK</span>'
+          : run.status === 'degraded'
+            ? '<span class="badge bg-warning text-dark">dégradé</span>'
           : run.status === 'timeout'
             ? '<span class="badge bg-warning text-dark">timeout</span>'
             : '<span class="badge bg-danger">échec</span>';
