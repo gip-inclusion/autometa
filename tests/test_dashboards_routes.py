@@ -41,6 +41,20 @@ def _h(email=ADMIN):
     return {"X-Forwarded-Email": email}
 
 
+def _make_publication(slug, environment, published_at, publication_id):
+    with get_db() as session:
+        session.add(
+            DashboardPublication(
+                dashboard_slug=slug,
+                publication_id=publication_id,
+                environment=environment,
+                published_by="alice@x",
+                published_at=published_at,
+                snapshot_has_cron=False,
+            )
+        )
+
+
 def test_new_dashboard_has_cron_metadata_defaults(client):
     _make_dashboard("cron-defaults")
     with get_db() as session:
@@ -310,6 +324,55 @@ def test_detail_shows_publish_buttons(client):
     assert "Publier une nouvelle version en staging" in r.text
     assert "Publier en production" in r.text
     assert "Re-publier" not in r.text
+
+
+def test_dod_2_suggestion_porte_un_bouton_republier_ciblant_les_versions_en_retard(client):
+    _make_dashboard("drift-sugg")
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_publication("drift-sugg", "staging", past, "aaaaaa")
+    r = client.get("/dashboards/drift-sugg/edit", headers=_h())
+    assert r.status_code == 200
+    assert 'data-action="republish"' in r.text
+    assert 'data-envs="staging"' in r.text
+
+
+@pytest.mark.parametrize("environment,expected", [("production", "true"), ("staging", "false")])
+def test_dod_3_confirmation_production_signalee_sur_le_bouton(client, environment, expected):
+    slug = f"drift-conf-{environment}"
+    _make_dashboard(slug)
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_publication(slug, environment, past, f"{environment[:4]}01")
+    r = client.get(f"/dashboards/{slug}/edit", headers=_h())
+    assert r.status_code == 200
+    assert f'data-has-production="{expected}"' in r.text
+
+
+def test_dod_7_bouton_republier_reserve_aux_tableaux_publiables(client):
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_dashboard("drift-ok")
+    _make_publication("drift-ok", "staging", past, "okok01")
+    _make_dashboard("drift-ko")
+    _make_publication("drift-ko", "staging", past, "koko01")
+    with get_db() as session:
+        session.scalar(select(Dashboard).where(Dashboard.slug == "drift-ko")).has_api_access = True
+    ok = client.get("/dashboards/drift-ok/edit", headers=_h())
+    ko = client.get("/dashboards/drift-ko/edit", headers=_h())
+    assert 'data-action="republish"' in ok.text
+    assert 'data-action="republish"' not in ko.text
+    assert "Publication indisponible" in ko.text
+
+
+def test_dod_8_apres_une_republication_bloquee_la_suggestion_demeure(client, mocker):
+    _make_dashboard("drift-fail")
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_publication("drift-fail", "staging", past, "fail01")
+    before = client.get("/dashboards/drift-fail/edit", headers=_h())
+    assert 'data-action="republish"' in before.text
+    mocker.patch("web.publications._public_bucket", return_value="")
+    r = client.post("/api/dashboards/drift-fail/publish", json={"environment": "staging"}, headers=_h())
+    assert r.status_code == 409
+    after = client.get("/dashboards/drift-fail/edit", headers=_h())
+    assert 'data-action="republish"' in after.text
 
 
 def test_detail_slug_links_to_interactive_app(client):

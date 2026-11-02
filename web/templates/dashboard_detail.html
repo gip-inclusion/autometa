@@ -163,9 +163,14 @@
 
       <div class="mt-5" id="publier-block" data-slug="{{ dashboard.slug }}">
         {% if dashboard_drifted %}
-        <p class="small text-warning mb-2">
-          <i class="ri-alert-line"></i> Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}).
-        </p>
+        <div class="alert alert-warning d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 py-2 px-3 mb-3">
+          <span class="small mb-0">
+            <i class="ri-alert-line"></i> Le tableau a été modifié depuis la dernière publication ({{ relative_updated }}). La version en ligne ne reflète pas vos derniers changements.
+          </span>
+          {% if can_publish %}
+          <button type="button" class="btn btn-warning btn-sm flex-shrink-0" data-action="republish" data-envs="{{ drifted_environments | join(',') }}" data-has-production="{{ 'true' if drift_has_production else 'false' }}">Republier avec mes changements</button>
+          {% endif %}
+        </div>
         {% endif %}
         <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 gap-md-3 mb-3">
           <h2 class="mb-0">Publier</h2>
@@ -405,6 +410,21 @@ function filterTagOptions(input) {
         }
         window.location.reload();
       });
+    });
+
+    document.querySelector('#publier-block [data-action=republish]')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.hasProduction === 'true' &&
+          !confirm('Republier la version publique remplacera la version vue par tout le monde. Continuer ?')) {
+        return;
+      }
+      btn.disabled = true;
+      const envs = (btn.dataset.envs || '').split(',').filter(Boolean);
+      for (const env of envs) {
+        const res = await post(`/api/dashboards/${slug}/publish`, { environment: env });
+        if (!res.ok) { await reportFailure('Republication', res); btn.disabled = false; return; }
+      }
+      window.location.reload();
     });
 
     document.getElementById('variant-filter')?.addEventListener('input', (e) => {
