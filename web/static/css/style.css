@@ -4525,3 +4525,33 @@ body.no-sidebar .section-header .container-fluid {
   font-weight: 600;
   color: #6c757d;
 }
+
+.staging-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--staging-banner-height);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ce0500;
+  color: #fff;
+  font-weight: 700;
+}
+
+.staging-banner a {
+  color: #fff;
+  margin-left: 0.25rem;
+}
+
+.is-staging {
+  --staging-banner-height: 2.5rem;
+  padding-top: var(--staging-banner-height);
+}
+
+.is-staging .app-sidebar,
+.is-staging .app-header-mobile {
+  top: var(--staging-banner-height);
+}
