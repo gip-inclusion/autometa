@@ -10,7 +10,6 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from . import config
-from .environment import Environment
 from .helpers import format_relative_date
 
 
@@ -55,7 +54,7 @@ templates.env.globals["static_url"] = static_url
 
 templates.env.globals["format_relative_date"] = format_relative_date
 
-templates.env.globals["is_staging"] = config.ENV is Environment.STAGING
+templates.env.globals["is_staging"] = config.ENV.shows_staging_banner
 
 templates.env.globals["matomo_tracking_url"] = config.MATOMO_TRACKING_URL
 templates.env.globals["matomo_tag_manager_container_id"] = config.MATOMO_TAG_MANAGER_CONTAINER_ID
