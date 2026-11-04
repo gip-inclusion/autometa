@@ -14,7 +14,7 @@ from web import config, s3
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["deliver", "approve", "show"]
+__all__ = ["deliver", "approve", "show", "read_json", "write_json"]
 
 STATUS_BY_MODE = {"ombre": "ombre", "relecture": "a_relire", "reel": "a_envoyer"}
 ENVOI_FIELDS = {"destination", "titre", "texte", "cle"}

@@ -1,0 +1,72 @@
+---
+name: agents
+description: Créer un agent (un job qui traite des données et écrit dans Slack ou Notion), seulement après confirmation explicite de l'utilisateur dans un message suivant ; retirer un agent ; livrer la sortie d'un de ses runs ; faire relire et approuver ses productions. À utiliser dès que l'utilisateur veut un job récurrent qui dépose ses résultats dans un canal Slack ou une base Notion.
+---
+
+# Agents
+
+Un agent est un job du moteur de jobs (page `/jobs`, nommé `agent-<slug>`) accompagné d'une
+configuration au format `pdi.agent/1`. Le worker du job n'écrit nulle part : il rend un JSON
+d'envois, et c'est Autometa qui les livre, seulement vers les destinations de la liste fermée
+`config/agent_destinations.yaml`, selon le mode choisi pour chacune :
+
+- `ombre` : l'envoi est enregistré, rien n'est écrit. Mode par défaut d'un nouvel agent.
+- `relecture` : rien n'est écrit tant qu'une personne n'a pas approuvé l'envoi.
+- `reel` : écrit directement ; refusé tant que l'agent n'est pas dans `reel_autorise` de la
+  destination, ce qui s'ouvre par une PR, jamais depuis une conversation.
+
+## Configuration
+
+```yaml
+format: pdi.agent/1
+slug: signaux-faibles-mep            # devient le job agent-signaux-faibles-mep
+titre: Signaux faibles des mises en production
+mission: >-                           # 20 à 400 caractères, ni lien, ni @personne, ni #canal
+  Signaler à l'équipe produit les MEP dont l'effet n'est pas mesurable.
+points_de_contact:                    # 1 à 6 destinations de config/agent_destinations.yaml
+  - id: produit.signal_faible
+    mode: ombre
+```
+
+Aucun autre champ n'est accepté. Ne jamais inventer une destination : lire la liste. Si aucune
+ne convient, le dire à l'utilisateur ; une destination nouvelle s'ajoute par une PR.
+
+La consigne du job se compose comme pour `compose_and_launch_job` (étapes 1 à 4 : le worker n'a
+aucun accès aux données ni au contexte d'Autometa). Le contrat de sortie JSON y est ajouté
+automatiquement, avec la liste des destinations de l'agent.
+
+## Déroulé imposé
+
+```bash
+S=skills/agents/scripts/agents.py
+.venv/bin/python $S proposer --config /tmp/agent.yaml --consigne /tmp/consigne.md
+.venv/bin/python $S creer <proposition>       # tour suivant, après le oui de l'utilisateur
+.venv/bin/python $S retirer <proposition>
+.venv/bin/python $S voir <proposition>
+```
+
+1. Rédiger la configuration et la consigne, appeler `proposer`. Rien n'est créé. Une
+   configuration refusée rend des messages qui nomment le champ et la correction : corriger et
+   reproposer.
+2. Terminer le tour par la relecture : titre, mission, chaque destination avec son mode, un
+   aperçu de la consigne, l'identifiant de la proposition, et la question « Je crée cet agent ? ».
+3. **Ne jamais appeler `creer` dans le tour de `proposer`.** Le code le refuse de toute façon :
+   la création exige un message de l'utilisateur postérieur à la proposition, dans la même
+   conversation. Si la réponse est ambiguë, ne pas créer. Une correction demandée donne une
+   nouvelle proposition ; l'ancienne reste sans effet.
+4. Après `creer`, donner le lien du job (`/jobs`) et rappeler que `retirer` arrête toute
+   livraison. Lancer un run reste soumis à la confirmation de `compose_and_launch_job`.
+
+## Livrer un run et relire ses productions
+
+```bash
+.venv/bin/python $S livrer --agent <slug> --run <run_id>
+.venv/bin/python $S montrer-envoi --agent <slug> --envoi <id>
+.venv/bin/python $S approuver-envoi --agent <slug> --envoi <id>   # tour suivant, après le oui
+```
+
+`livrer` n'accepte qu'un run terminé du job de l'agent ; relivrer le même run n'écrit rien de
+plus. Une seule destination hors liste fait refuser tout le run. Rendre compte de chaque envoi
+(destination, mode, statut : `ombre`, `a_relire`, `envoyee`, `echec`). Pour un envoi `a_relire`,
+`montrer-envoi` puis afficher son titre et son texte, demander la validation, et n'appeler
+`approuver-envoi` qu'au tour suivant. Un envoi `echec` se réessaie de la même façon.
