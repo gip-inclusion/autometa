@@ -278,6 +278,11 @@ pour cela un budget de temps. Les publications, partagées en externe, tournent 
 `tableaux-publies` : sans budget, elles ne sont jamais sautées, et chaque échec alerte Slack, pas
 seulement le premier.
 
+**Un run dont une requête a échoué est `degraded`.** Une requête en échec ne fait pas planter le
+script : il continue et peut sortir sans erreur. Le run garde ses fichiers, apparaît à part dans le
+récap Slack, et n'ouvre ni ne clôt d'alerte. Seuls les tableaux de bord et publications, via la façade,
+sont suivis ainsi ; une requête ratée puis retentée avec succès compte aussi.
+
 **Le budget borne le démarrage d'une tâche, pas sa fin.** Passé le budget, le lot cesse d'en lancer
 de nouvelles et enregistre les restantes en `skipped` ; mais celle qui a démarré juste avant la
 limite va jusqu'au bout de son propre timeout. La durée réelle du lot peut donc atteindre le budget

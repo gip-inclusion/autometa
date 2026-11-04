@@ -3,6 +3,8 @@
 import pytest
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
+from lib import query
+
 
 def test_query_module_imports():
     from lib import query
@@ -807,3 +809,31 @@ def test_read_only_api_executors_turn_a_failure_into_a_failed_result(mocker, exe
 
     assert result.success is False
     assert result.error == "HTTP 503"
+
+
+def test_a_failed_query_is_noted_for_the_cron_runner_first_line_only(mocker, tmp_path):
+    failures = tmp_path / "failures"
+    mocker.patch.object(query.config, "query_failures_path", return_value=str(failures))
+
+    query.record_query_failure("HTTP 500: boom\nFailing row contains (donnée)")
+    query.record_query_failure("HTTP 400: sql")
+
+    assert failures.read_text().splitlines() == ["HTTP 500: boom", "HTTP 400: sql"]
+
+
+def test_a_query_outside_a_cron_notes_nothing(mocker):
+    mocker.patch.object(query.config, "query_failures_path", return_value=None)
+    opened = mocker.spy(query.Path, "open")
+
+    query.record_query_failure("HTTP 500: boom")
+
+    assert not opened.called
+
+
+def test_an_unwritable_failures_file_never_breaks_the_query(mocker, tmp_path):
+    mocker.patch.object(query.config, "query_failures_path", return_value=str(tmp_path / "absent" / "failures"))
+    warning = mocker.patch.object(query.logger, "warning")
+
+    query.record_query_failure("HTTP 500: boom")
+
+    warning.assert_called_once()

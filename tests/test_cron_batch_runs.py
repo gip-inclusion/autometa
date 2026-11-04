@@ -98,6 +98,18 @@ def test_slack_hears_of_an_interruption_once_then_of_the_recovery(mocker):
     assert "rétabli" in messages[1]
 
 
+def test_unfinished_elsewhere_lists_recent_running_rows_of_other_batches_only(mocker):
+    mocker.patch.object(cron.alerts, "notify_alert_channel")
+    killed_during("tableaux-publies", "offre-kyp4mo")
+    cron.open_batch_run("tableaux-internes")
+    cron.open_run("orpheline-du-14-10", utcnow() - timedelta(days=19), "manual", None)
+
+    batches, runs = cron.unfinished_elsewhere("tableaux-internes")
+
+    assert [batch for batch, _ in batches] == ["tableaux-publies"]
+    assert [run["app_slug"] for run in runs] == ["offre-kyp4mo"]
+
+
 def test_a_batch_run_to_its_end_is_recorded_with_its_tasks(mocker, tmp_path):
     task = write_system_task(tmp_path, "sys-ok", "print('ok')")
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[task])
@@ -211,6 +223,7 @@ MONDAY_BATCH = datetime(2026, 9, 28, 6, 0, tzinfo=timezone.utc)
         ([("skipped", MONDAY_BATCH, "scheduled")], True),
         ([("success", MONDAY_BATCH - timedelta(days=7), "scheduled")], True),
         ([("success", MONDAY_BATCH, "scheduled")], False),
+        ([("degraded", MONDAY_BATCH, "scheduled")], False),
         ([("failure", MONDAY_BATCH, "scheduled")], False),
         ([("timeout", MONDAY_BATCH, "scheduled")], False),
         ([("success", MONDAY_BATCH + timedelta(hours=5), "manual")], False),
@@ -275,6 +288,7 @@ def test_a_failing_task_has_failed_since_the_first_failure_after_its_last_succes
         "retombe": ["failure", "success", "failure", "timeout"],
         "jamais-ok": ["failure", "interrupted", "failure"],
         "retabli": ["failure", "success"],
+        "degrade-entre-deux": ["failure", "degraded", "failure"],
     }
     for slug, statuses in history.items():
         for offset, status in enumerate(statuses):
@@ -283,4 +297,28 @@ def test_a_failing_task_has_failed_since_the_first_failure_after_its_last_succes
     assert cron.failing_since(list(history)) == {
         "retombe": day + timedelta(days=2),
         "jamais-ok": day,
+        "degrade-entre-deux": day,
     }
+
+
+@pytest.mark.parametrize(
+    ("history", "previous_success_announces", "failure_alerts"),
+    [
+        (["failure", "degraded"], True, False),
+        (["success", "degraded"], False, True),
+        (["degraded"], False, True),
+    ],
+)
+def test_a_degraded_run_is_transparent_for_the_next_alert(mocker, history, previous_success_announces, failure_alerts):
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+    day = datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc)
+    for offset, status in enumerate(history):
+        record_past_run("tdb", status, day + timedelta(days=offset))
+    previous = cron.last_verdict("tdb")
+
+    cron.notify_cron_status_change("tdb", "success", previous, "")
+    assert notify.called is previous_success_announces
+
+    notify.reset_mock()
+    cron.notify_cron_status_change("tdb", "failure", previous, "")
+    assert notify.called is failure_alerts

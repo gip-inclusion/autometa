@@ -5,6 +5,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import httpx
@@ -75,6 +76,19 @@ class QueryResult:
     invalid_request: bool = False
 
 
+def record_query_failure(error: str) -> None:
+    """Signale au runner de cron une requête en échec, que le script s'en remette ou non."""
+    path = config.query_failures_path()
+    if not path:
+        return
+    try:
+        with Path(path).open("a", encoding="utf-8") as failures:
+            failures.write(error.partition("\n")[0][:200] + "\n")
+    # Why: la façade promet de ne jamais lever ; perdre ce signal ne vaut pas de casser le TDB.
+    except OSError as e:
+        logger.warning("échec de requête non signalé au runner (%s)", e)
+
+
 def _run_traced_query(
     span_name: str,
     attrs: dict,
@@ -97,6 +111,7 @@ def _run_traced_query(
                 # Why: SQL invalide, table ou schéma absent, droit manquant — la faute est à la requête, pas à la source.
                 invalid_request=isinstance(e, ProgrammingError),
             )
+            record_query_failure(result.error)
         _record_result(span, result)
         log_attrs: dict[str, Any] = {
             **attrs,

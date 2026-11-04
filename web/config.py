@@ -286,6 +286,11 @@ def agent_user_email() -> str | None:
     return os.getenv("AUTOMETA_USER_EMAIL")
 
 
+def query_failures_path() -> str | None:
+    """Fichier où un cron de TDB note ses requêtes en échec, injecté par web/cron.py:execute_task()."""
+    return os.getenv("AUTOMETA_QUERY_FAILURES_FILE")
+
+
 def dashboard_slug() -> str | None:
     """Slug du tableau de bord dont le cron tourne, injecté par web/cron.py:execute_task()."""
     return os.getenv("AUTOMETA_DASHBOARD_SLUG")

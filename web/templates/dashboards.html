@@ -205,7 +205,7 @@
                         </span>
                         <span class="dashboard-col dashboard-col-cron">
                           {% if d.has_cron %}
-                            {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line') %}
+                            {% set cron_icon = 'ri-checkbox-circle-line text-success' if d.cron_status == 'success' else ('ri-alert-line text-warning' if d.cron_status == 'degraded' else ('ri-error-warning-line text-danger' if d.cron_status else 'ri-time-line')) %}
                             <i class="{{ cron_icon }}" title="{{ d.cron_status or 'jamais exécuté' }}"></i>
                             <span>{{ d.cron_run_date or '—' }}</span>
                           {% endif %}

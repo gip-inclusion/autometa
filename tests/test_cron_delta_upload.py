@@ -17,7 +17,8 @@ def test_prepare_s3_workdir_computes_hashes(mocker):
         {"path": "myapp/file1.txt"},
         {"path": "myapp/file2.txt"},
     ]
-    store.download.side_effect = [b"content1", b"content2"]
+    contents = {"myapp/file1.txt": b"content1", "myapp/file2.txt": b"content2"}
+    store.download.side_effect = contents.get
 
     workdir, pre_hashes = prepare_s3_workdir(store, "myapp/", "myapp")
 
@@ -126,3 +127,57 @@ def test_parallel_s3_calls_stay_within_the_pool_bound(mocker):
     prepare_s3_workdir(store, "myapp/", "myapp")
 
     assert 1 < peak <= cron.S3_WORKERS
+
+
+def test_a_downloaded_file_leaves_memory_before_the_next_download(mocker):
+    # Why: tout garder en mémoire jusqu'à la fin laissait 470 Mo au parent après une publication de
+    # 236 Mo (mesure glibc) ; la tâche suivante du lot le faisait tuer (OOM).
+    mocker.patch.object(cron, "S3_WORKERS", 1)
+    on_disk_at_each_download = []
+    workdirs = mocker.spy(tempfile, "mkdtemp")
+
+    def download(path):
+        on_disk_at_each_download.append(sorted(p.name for p in Path(workdirs.spy_return).iterdir()))
+        return b"x"
+
+    store = mocker.MagicMock()
+    store.list_files.return_value = [{"path": f"myapp/f{i}.txt"} for i in range(3)]
+    store.download.side_effect = download
+
+    prepare_s3_workdir(store, "myapp/", "myapp")
+
+    assert on_disk_at_each_download == [[], ["f0.txt"], ["f0.txt", "f1.txt"]]
+
+
+def test_a_file_is_only_read_once_the_previous_one_is_uploaded(mocker, tmp_path):
+    mocker.patch.object(cron, "S3_WORKERS", 1)
+    read = mocker.spy(Path, "read_bytes")
+    reads_at_each_upload = []
+    store = mocker.MagicMock()
+    store.upload.side_effect = lambda *_: reads_at_each_upload.append(read.call_count)
+    for i in range(3):
+        (tmp_path / f"f{i}.txt").write_bytes(b"new")
+
+    upload_s3_results(store, "myapp/", "myapp", tmp_path, {})
+
+    assert reads_at_each_upload == [1, 2, 3]
+
+
+def test_a_failed_upload_still_surfaces(mocker, tmp_path):
+    store = mocker.MagicMock()
+    store.upload.side_effect = RuntimeError("S3 down")
+    (tmp_path / "f.txt").write_bytes(b"new")
+
+    with pytest.raises(RuntimeError):
+        upload_s3_results(store, "myapp/", "myapp", tmp_path, {})
+
+
+def test_prepare_s3_workdir_refuses_a_key_that_escapes_the_workdir(mocker):
+    store = mocker.MagicMock()
+    store.list_files.return_value = [{"path": "myapp/ok.txt"}, {"path": "myapp//etc/passwd"}]
+    store.download.return_value = b"x"
+
+    workdir, pre_hashes = prepare_s3_workdir(store, "myapp/", "myapp")
+
+    assert sorted(pre_hashes) == ["ok.txt"]
+    assert sorted(p.name for p in workdir.iterdir()) == ["ok.txt"]
