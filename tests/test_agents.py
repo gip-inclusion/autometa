@@ -40,6 +40,7 @@ def store(mocker):
     fake = FakeStore()
     mocker.patch("lib.agent_delivery.s3.agents", fake)
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {"produit.signal_faible": "C0SLACK"})
+    mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "agent-bot-token")
     return fake
 
 

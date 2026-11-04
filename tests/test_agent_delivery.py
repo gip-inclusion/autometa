@@ -54,7 +54,7 @@ def store(mocker):
     fake = FakeStore()
     mocker.patch("lib.agent_delivery.s3.agents", fake)
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", TARGETS)
-    mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "bot-token")
+    mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "agent-bot-token")
     return fake
 
 
@@ -132,7 +132,7 @@ def test_dod_5_review_mode_writes_once_and_only_after_approval(store, post):
     assert agent_delivery.show(SLUG, envoi_id)["statut"] == "a_relire"
 
     assert agent_delivery.approve(SLUG, envoi_id, "lj@example.org")["statut"] == "envoyee"
-    post.assert_called_once_with("bot-token", "C0SLACK", "*MEP du 3 novembre*\n\nEffet non mesurable.")
+    post.assert_called_once_with("agent-bot-token", "C0SLACK", "*MEP du 3 novembre*\n\nEffet non mesurable.")
     assert store.json(f"{SLUG}/envois/{envoi_id}.json")["approuve_par"] == "lj@example.org"
 
     with pytest.raises(ValueError, match="est envoyee, attendu a_relire"):
@@ -199,6 +199,20 @@ def test_dod_6_failed_write_is_recorded_and_can_be_retried(store, post, mocker, 
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", TARGETS)
     post.return_value, post.side_effect = True, None
     assert agent_delivery.approve(SLUG, f"{RUN_ID}-0", "lj@example.org")["statut"] == "envoyee"
+
+
+@pytest.mark.parametrize("mode", ["reel", "relecture"])
+def test_dod_10_slack_writes_need_the_agents_bot_and_never_fall_back_to_the_alerts_bot(store, post, mocker, mode):
+    open_real_mode(mocker)
+    mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "")
+    mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "alerts-bot-token")
+    summary = agent_delivery.deliver(make_agent(("produit.signal_faible", mode)), RUN_ID, [make_envoi()])
+    if mode == "relecture":
+        assert summary[0]["statut"] == "a_relire"
+        summary = [agent_delivery.approve(SLUG, f"{RUN_ID}-0", "lj@example.org")]
+    assert summary[0]["statut"] == "echec"
+    assert "AGENT_SLACK_BOT_TOKEN absent" in store.json(f"{SLUG}/envois/{RUN_ID}-0.json")["erreur"]
+    post.assert_not_called()
 
 
 def test_dod_7_same_key_updates_the_notion_page_instead_of_creating_another(store, fake_notion, mocker):
