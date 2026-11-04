@@ -61,7 +61,9 @@ def write(slug: str, record: dict) -> dict:
     if not target:
         raise RuntimeError(f"destination {destination_id} sans identifiant dans AGENT_DESTINATION_TARGETS")
     if agent_config.destinations()[destination_id]["canal"] == "slack":
-        if not slack.post_message(config.SLACK_BOT_TOKEN, target, slack_text(record["titre"], record["texte"])):
+        if not config.AGENT_SLACK_BOT_TOKEN:
+            raise RuntimeError("AGENT_SLACK_BOT_TOKEN absent : le bot Slack des agents n'est pas configuré")
+        if not slack.post_message(config.AGENT_SLACK_BOT_TOKEN, target, slack_text(record["titre"], record["texte"])):
             raise RuntimeError("Slack a refusé le message")
         return {}
     page_path = f"{slug}/pages/{destination_id}/{record.get('cle')}.json"

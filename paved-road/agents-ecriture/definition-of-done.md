@@ -41,13 +41,24 @@ DOD-8 — Relancer la livraison d'un passage déjà livré n'écrit rien une sec
 DOD-9 — Les journaux de l'application nomment l'agent, la destination, le mode et le statut de
   chaque production, jamais son titre ni son texte.
 
+DOD-10 — Un message Slack d'agent part avec le jeton d'un bot propre aux agents, distinct de celui
+  des alertes et invité dans les seuls canaux d'agents ; sans ce jeton, l'écriture est enregistrée
+  en échec avec un message qui le nomme, sans repli sur le bot des alertes. Les modes ombre et
+  relecture n'en ont pas besoin pour enregistrer.
+
+DOD-11 — Au démarrage, l'application signale en avertissement, sans jamais bloquer, les
+  destinations de la liste qui n'ont pas d'identifiant réel et les identifiants réels qui ne
+  correspondent à aucune destination ; l'avertissement nomme les destinations, jamais les
+  identifiants.
+
 ## Sources lues
 
 - `lib/slack.py` — `post_message` poste déjà dans un canal avec le jeton du bot
-  (`SLACK_BOT_TOKEN`) : réutilisé pour `DOD-6`.
+  passé en argument : réutilisé pour `DOD-6`, avec le jeton du bot des agents (`DOD-10`).
 - `lib/notion.py` — `notion_request`, `markdown_to_blocks` et la création de page de
   `publish_report` : réutilisés pour `DOD-6` et `DOD-7` ; aucune fonction ne met à jour le contenu
-  d'une page existante.
+  d'une page existante. Le jeton Notion est lu dans le module, pas passé en argument : un jeton
+  Notion propre aux agents demanderait de le faire passer par toutes ces fonctions, hors périmètre.
 - `lib/zendesk_changeset.py`, `paved-road/zendesk-write/` — enregistrement sur S3 sans table, et
   approbation dans un message ultérieur : le patron de `DOD-5`.
 - `skills/compose_and_launch_job/SKILL.md` — un worker de job n'a aucun accès aux API

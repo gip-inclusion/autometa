@@ -1,13 +1,16 @@
 """Agent configuration, format pdi.agent/1: strict YAML reading and validation against the closed destination list."""
 
 import difflib
+import logging
 import re
 
 import yaml
 
 from web import config
 
-__all__ = ["FORMAT", "MODES", "destinations", "parse", "validate"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["FORMAT", "MODES", "destinations", "parse", "target_gaps", "validate", "warn_target_gaps"]
 
 FORMAT = "pdi.agent/1"
 MODES = ("ombre", "relecture", "reel")
@@ -45,6 +48,21 @@ def destinations() -> dict[str, dict]:
     """The closed list of destinations, by id."""
     raw = yaml.safe_load((config.BASE_DIR / "config" / "agent_destinations.yaml").read_text())
     return {d["id"]: d for d in raw["destinations"]}
+
+
+def target_gaps() -> tuple[list[str], list[str]]:
+    """Destinations without a real id in AGENT_DESTINATION_TARGETS, and ids there naming no known destination."""
+    known, targets = set(destinations()), config.AGENT_DESTINATION_TARGETS
+    return sorted(d for d in known if not targets.get(d)), sorted(set(targets) - known)
+
+
+def warn_target_gaps() -> None:
+    """Why: a gap only fails the deliveries it concerns, so startup warns and never stops."""
+    missing, unknown = target_gaps()
+    if missing:
+        logger.warning("destinations d'agent sans cible dans AGENT_DESTINATION_TARGETS : %s", ", ".join(missing))
+    if unknown:
+        logger.warning("AGENT_DESTINATION_TARGETS cite des destinations inconnues : %s", ", ".join(unknown))
 
 
 def suggestion(value: object, choices: list[str]) -> str:
