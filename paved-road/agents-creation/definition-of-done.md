@@ -13,7 +13,8 @@ DOD-1 — Quand Autometa propose un agent, il me présente sa configuration (tit
   destinations et leur mode) et la consigne du job, et aucun job n'est encore créé.
 
 DOD-2 — Une configuration refusée par le validateur `pdi.agent/1`, ou dont l'identifiant est
-  déjà pris par un agent, ne donne aucune proposition, et Autometa me dit pourquoi.
+  celui d'un agent retiré, ne donne aucune proposition, et Autometa me dit pourquoi. L'identifiant
+  d'un agent actif donne une proposition de modification (`DOD-13`).
 
 DOD-3 — L'agent n'est créé que si je l'approuve dans un message ultérieur de la même
   conversation : approuver dans le tour même de la proposition, depuis une autre conversation ou
@@ -46,19 +47,24 @@ DOD-10 — Un agent peut déclarer un classificateur pris dans une liste fermée
   production sous le seuil n'est pas livrée mais reste enregistrée avec sa probabilité, et sans
   réponse du classificateur rien n'est livré pour cette production.
 
-DOD-11 — Un agent peut déclarer jusqu'à trois préparations, prises dans une liste fermée de
-  tâches du dossier `cron/`. Avant chaque run, elles tournent dans l'ordre déclaré, et leurs
-  sorties sont transmises au run ; si l'une échoue ou manque, le run n'est pas lancé. Le worker ne
-  lance jamais de cron.
+DOD-11 — Un agent peut déclarer jusqu'à trois préparations, d'un des trois types fermés
+  (requête d'une base Notion, jeu de données S3, dernière sortie réussie d'une tâche existante de
+  `cron/`). Avant chaque run, leurs contenus sont rassemblés dans l'ordre déclaré et transmis au
+  run ; une préparation sans contenu empêche le run. Ni l'agent ni le worker ne lancent de cron.
 
-DOD-12 — Un agent est déclenché, pas allumé : avec une cadence, Autometa livre chaque jour ses
-  runs terminés puis lance ceux qui sont dus ; depuis le chat, le lancement part dans un
-  conteneur dédié, jamais dans le processus web. Un agent en échec n'empêche pas les autres.
+DOD-12 — Aucun agent n'a de cron à lui : un seul cron générique, dans un lot existant, livre
+  chaque jour les runs terminés des agents actifs puis lance ceux dont la cadence tombe. Un agent
+  en échec n'empêche pas les autres.
 
-DOD-13 — Le parcours « guide-moi pour créer un agent avec un classificateur et deux crons » va au
-  bout : proposition complète, rien avant mon oui dans un message suivant, création, deux
-  préparations dans l'ordre avant le run, classificateur sur la sortie, livraison selon le mode
-  (ombre par défaut).
+DOD-13 — Depuis le chat, lire est libre ; lancer un run maintenant et modifier un agent
+  (configuration, consigne, cadence) ne se font qu'après mon oui dans un message ultérieur,
+  vérifié par le code, et une confirmation ne sert qu'une fois. Une modification se défait et
+  rend ce qu'elle remplaçait. Passer une destination en réel reste une PR.
+
+DOD-14 — Le parcours « guide-moi pour créer un agent avec un classificateur et deux crons » va au
+  bout : proposition complète, rien avant mon oui dans un message suivant, création, lancement
+  après un autre oui, sorties des deux crons dans l'ordre transmises au run, classificateur sur
+  la sortie, livraison selon le mode (ombre par défaut).
 
 ## Sources lues
 
@@ -77,11 +83,12 @@ DOD-13 — Le parcours « guide-moi pour créer un agent avec un classificateur 
   d'appels ou arrêt ; un « code -9 » sans autre trace vient de l'extérieur (`DOD-9`).
 - ollama.com/library/clef — `clef` sur Ollama Cloud, point d'entrée `/v1/systemone`, question
   `noul`, réponse : la probabilité du oui (`DOD-10`). `web/llm.py` lit déjà `OLLAMA_API_KEY`.
-- `web/cron.py`, `lib/job_inputs.py` — `execute_task` (timeout, `cron_runs`) et
-  `publish_dataset` (S3, URL présignée) réutilisés pour `DOD-11` ; `web/scalingo.py`, le
-  conteneur one-off du run manuel des crons, pour `DOD-12`. `lib/jobs.py` n'a aucun déclenchement
-  sur horaire : c'est Autometa qui déclenche.
-- `paved-road/agents-creation/CONCEPTION_V2.md` — la conception de `DOD-9` à `DOD-13`.
+- `web/cron.py`, `lib/job_inputs.py`, `lib/notion.py` — `cron_runs` (dernière sortie d'une
+  tâche), `publish_dataset` (S3, URL présignée) et `query_database` réutilisés pour `DOD-11` ;
+  le lot `maintenance` et `is_due` pour `DOD-12`. `lib/jobs.py` n'a ni déclenchement sur horaire
+  ni mise à jour de pipeline : c'est Autometa qui déclenche, et une consigne changée est un
+  pipeline nouveau (`DOD-13`).
+- `paved-road/agents-creation/CONCEPTION_V2.md` — la conception de `DOD-9` à `DOD-14`.
 
 ## Questions ouvertes
 
@@ -94,4 +101,5 @@ En attente de validation par Alexis Akinyemi. Défauts retenus : identifiant du 
 retiré ; le job retiré reste dans le moteur de jobs, faute d'API de suppression ; la livraison
 d'un run se déclenche à la demande, ou au passage quotidien suivant pour un agent qui a une
 cadence. Ajouté le 04/11 à la demande d'Alexis : classificateur, préparations, cadence
-(`DOD-9` à `DOD-13`), le cerveau du worker restant hors périmètre.
+(`DOD-9` à `DOD-14`), le cerveau du worker restant hors périmètre ; la relance de #276
+devra réutiliser la confirmation de `DOD-13`.

@@ -14,7 +14,7 @@ moins de 100 Mo et ne plantent pas avec des variables vides. La cause la plus pr
 limite mémoire du conteneur de la review app (le CLI pèse 200 à 300 Mo à lui seul). Elle ne se
 voit pas en local. Ce que cette PR change : le skill a une commande `destinations` qui répond
 tout de suite (destinations, modèles, préparations, cible configurée ou non), au lieu de laisser
-l'agent chercher dans le dépôt, et les préparations ne tournent jamais dans le conteneur web.
+l'agent chercher dans le dépôt, et rien de lourd ne tourne dans le conteneur web.
 
 ## Ce qui reste séparé
 
@@ -32,28 +32,55 @@ run est livré, Autometa pose la question à chaque production avec `clef` sur O
 reste enregistrée avec sa probabilité (statut `ecarte`). Sans clé, la livraison est refusée et
 rien n'est livré : on ne livre pas sans le filtre demandé.
 
-## Préparations (les crons précèdent l'agent)
+## Préparations : ce qui nourrit le run
 
-Liste fermée `config/agent_preparations.yaml` : chaque préparation nomme une tâche existante du
-dossier `cron/`. Une nouvelle préparation se déclare par une PR (une tâche dans `cron/`, une
-ligne dans la liste). Une configuration en cite jusqu'à trois, dans l'ordre. Avant chaque run,
-Autometa les exécute dans cet ordre avec le moteur des crons (`web.cron.execute_task`, donc
-timeout, `cron_runs` et page `/cron` habituels), publie leurs sorties sur S3 comme
-`publish_dataset` et passe l'URL au run (`input_uri`). Une préparation en échec : pas de run.
+Pas de cron par agent. Les « crons qui alimentent » deviennent des préparations déclarées dans la
+configuration de l'agent, de trois types fermés, jusqu'à trois, dans l'ordre :
 
-## Cycle de vie : stop and go
+- `notion` : les lignes d'une base Notion (celles que l'intégration d'Autometa peut lire) ;
+- `s3` : un jeu publié par `publish_dataset`, transmis au run par son URL ;
+- `cron` : la dernière sortie réussie d'une tâche existante de `cron/`, lue dans `cron_runs`.
+  La tâche n'est jamais relancée par l'agent : elle garde son propre horaire.
+
+Avant chaque run, Autometa rassemble ces contenus dans l'ordre, les publie sur S3 comme
+`publish_dataset` et passe l'URL au run (`input_uri`). Une préparation sans contenu : pas de run.
+Le worker ne lance jamais de cron. Rien de lourd ne tourne : une requête Notion, une lecture en
+base, une URL présignée.
+
+## Cycle de vie : stop and go, un seul cron générique
 
 Un run est un conteneur Scaleway jetable qui va au bout puis disparaît. Un agent « permanent »
-n'est pas un processus allumé : c'est un déclenchement périodique (préparations, puis run).
-`autometa-jobs` n'expose aucun déclenchement sur horaire (`lib/jobs.py` : créer, déclencher,
-lire), donc c'est Autometa qui déclenche. La configuration porte une `cadence` (quotidienne,
-hebdomadaire, mensuelle, ou absente pour un agent à la demande) ; une tâche `cron/agents` du lot
-`maintenance` lance chaque matin les agents dus et livre les runs terminés depuis la veille.
-Depuis le chat, `lancer` démarre un conteneur one-off Scalingo, comme le run manuel d'un cron :
-jamais dans le processus web.
+n'est pas un processus allumé : c'est un déclenchement périodique. Vérifié dans le client
+d'Autometa (`lib/jobs.py` : créer, déclencher, lire, annuler) : `autometa-jobs` n'expose aucun
+déclenchement sur horaire, ni aucune mise à jour de pipeline. Son code n'est pas dans ce dépôt
+et n'a pas pu être lu ; si un déclenchement sur horaire y existe, il pourra remplacer la partie
+« run » du cron générique. En attendant, c'est Autometa qui déclenche, par un seul cron
+générique, `run-agents`, dans le lot existant `maintenance` (une fois par jour, comme tous les
+lots de `cron.json`) : pour chaque agent actif, il livre ses runs terminés, puis, si sa
+`cadence` tombe, enchaîne préparations, run, et au passage suivant classificateur et livraison.
+Il hérite de `cron_runs`, de Sentry et des alertes Slack des crons.
+
+## Grille d'actions
+
+| Action | Garde |
+|---|---|
+| lire (configuration, runs, envois) | aucune |
+| lancer un run maintenant | confirmation vérifiée par le code, dans un message ultérieur, utilisable une fois |
+| modifier la configuration (mission, destinations, préparations, cadence, classificateur, consigne) | plan / apply / revert, même confirmation |
+| passer une destination en réel | jamais depuis le chat : PR sur `reel_autorise` |
+
+Une modification se propose avec le même identifiant d'agent. Le moteur de jobs ne met pas à
+jour un pipeline : une consigne changée crée un pipeline `agent-<slug>-v<n>`, l'ancien reste.
+`retirer` une modification rend ce qu'elle remplaçait ; une proposition devenue obsolète (l'agent
+a changé depuis) est refusée.
+
+Hors de cette PR : la relance de #276 (mentions `@job` dans le chat) devra réutiliser cette
+confirmation vérifiée par le code au lieu de la seule consigne donnée au modèle, pour que la
+mention ne donne aucun pouvoir de plus que le parcours de création.
 
 ## Limites connues
 
-- Les crons existants sont des synchronisations : leur sortie est un compte rendu, pas un jeu de
-  données. Une préparation utile à un agent sera le plus souvent une tâche nouvelle de `cron/`.
-- Un run lancé le matin est livré au passage suivant de `cron/agents`, ou à la demande.
+- Les lots tournent une fois par jour : une cadence plus fine demanderait un lot de plus dans
+  `cron.json`, hors de cette PR.
+- Un run lancé le matin est livré au passage suivant de `run-agents`, ou à la demande (`livrer`).
+- Comment le worker lit `input_uri` dépend d'`autometa-jobs`, non vérifié.

@@ -16,8 +16,8 @@ __all__ = [
     "MODES",
     "destinations",
     "modeles",
+    "PREPARATION_TYPES",
     "parse",
-    "preparations",
     "target_gaps",
     "validate",
     "warn_target_gaps",
@@ -28,6 +28,9 @@ MODES = ("ombre", "relecture", "reel")
 FIELDS = ("format", "slug", "titre", "mission", "points_de_contact")
 OPTIONAL_FIELDS = ("cadence", "outils_modeles", "preparations")
 CADENCES = {"quotidienne": "daily", "hebdomadaire": "weekly", "mensuelle": "monthly"}
+# Why: the closed set of what may feed an agent's run, each with its one parameter; no code per agent.
+PREPARATION_TYPES = {"notion": "base", "s3": "jeu", "cron": "tache"}
+GENERIC_CRON = "run-agents"
 # Why: the mission is the only free text an LLM writes; a link, a person or a channel there would bypass
 # the closed destination list.
 FORBIDDEN_FREE_TEXT = re.compile(
@@ -70,11 +73,6 @@ def destinations() -> dict[str, dict]:
 def modeles() -> dict[str, dict]:
     """The closed list of models an agent may use as a tool, by id."""
     return closed_list("modeles")
-
-
-def preparations() -> dict[str, dict]:
-    """The closed list of preparations, each naming a task of cron/, by id."""
-    return closed_list("preparations")
 
 
 def target_gaps() -> tuple[list[str], list[str]]:
@@ -127,11 +125,39 @@ def outil_errors(index: int, outil: object, known: dict[str, dict]) -> list[str]
     return [e if e.startswith(path) else f"{path}.{e}" for e in errors]
 
 
-def list_errors(field: str, items: object, high: int) -> list[str]:
+def list_errors(field: str, items: object, high: int, keys: list[str]) -> list[str]:
     if not isinstance(items, list) or len(items) > high:
         return [f"{field} : attendu une liste de {high} éléments au plus."]
-    ids = [i.get("id") if isinstance(i, dict) else i for i in items]
-    return [f"{field} : {d!r} apparaît plusieurs fois." for d in sorted({str(i) for i in ids if ids.count(i) > 1})]
+    return [f"{field} : {k!r} apparaît plusieurs fois." for k in sorted({k for k in keys if keys.count(k) > 1})]
+
+
+def preparation_label(step: dict) -> str:
+    return f"{step.get('type')} {step.get(PREPARATION_TYPES.get(step.get('type'), ''))}"
+
+
+def cron_tasks() -> list[str]:
+    """Tasks of cron/ whose last output a preparation may read; the generic agents cron is not one."""
+    return sorted(d.name for d in config.CRON_DIR.iterdir() if (d / "cron.py").is_file() and d.name != GENERIC_CRON)
+
+
+def preparation_errors(index: int, step: object) -> list[str]:
+    path = f"preparations[{index}]"
+    kinds = ", ".join(f"{t} (avec {p})" for t, p in PREPARATION_TYPES.items())
+    if not isinstance(step, dict) or step.get("type") not in PREPARATION_TYPES:
+        return [f"{path} : attendu un type parmi {kinds}."]
+    param = PREPARATION_TYPES[step["type"]]
+    if set(step) != {"type", param}:
+        return [f"{path} : une préparation {step['type']} a exactement les champs type et {param}."]
+    value = step[param]
+    if step["type"] == "notion" and not (isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}|[0-9a-f-]{36}", value)):
+        return [f"{path}.base : attendu l'identifiant d'une base Notion (32 caractères hexadécimaux)."]
+    if step["type"] == "s3" and not (
+        isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]*\.(sqlite|jsonl|csv)", value)
+    ):
+        return [f"{path}.jeu : attendu un fichier publié par publish_dataset, par exemple services.sqlite."]
+    if step["type"] == "cron" and value not in (tasks := cron_tasks()):
+        return [f"{path}.tache : {value!r} n'est pas une tâche de cron/.{suggestion(value, tasks)}"]
+    return []
 
 
 def contact_errors(slug: object, index: int, contact: object, known: dict[str, dict]) -> list[str]:
@@ -179,7 +205,8 @@ def validate(doc: object) -> list[str]:
         errors.append(f"cadence : {doc['cadence']!r} inconnue, cadences permises : {', '.join(CADENCES)}.")
     if "outils_modeles" in doc:
         outils = doc["outils_modeles"]
-        errors += list_errors("outils_modeles", outils, 3)
+        keys = [str(o.get("id")) if isinstance(o, dict) else str(o) for o in outils] if isinstance(outils, list) else []
+        errors += list_errors("outils_modeles", outils, 3, keys)
         known_models = modeles()
         errors += [
             e
@@ -187,15 +214,10 @@ def validate(doc: object) -> list[str]:
             for e in outil_errors(i, o, known_models)
         ]
     if "preparations" in doc:
-        steps = doc["preparations"]
-        errors += list_errors("preparations", steps, 3)
-        known_steps = preparations()
-        errors += [
-            f"preparations[{i}] : {p!r} n'est pas une préparation de config/agent_preparations.yaml."
-            f"{suggestion(p, list(known_steps))}"
-            for i, p in enumerate(steps if isinstance(steps, list) else [])
-            if not isinstance(p, str) or p not in known_steps
-        ]
+        steps = doc["preparations"] if isinstance(doc["preparations"], list) else []
+        keys = [preparation_label(p) for p in steps if isinstance(p, dict)]
+        errors += list_errors("preparations", doc["preparations"], 3, keys)
+        errors += [e for i, p in enumerate(steps) for e in preparation_errors(i, p)]
     if "points_de_contact" in doc:
         contacts = doc["points_de_contact"]
         if not isinstance(contacts, list) or not 1 <= len(contacts) <= 6:

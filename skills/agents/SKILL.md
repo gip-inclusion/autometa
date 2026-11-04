@@ -42,9 +42,13 @@ outils_modeles:                       # facultatif, 3 au plus, modèles de confi
   - id: classifieur.pertinence
     question: La production signale-t-elle une MEP dont l'effet n'est pas mesurable ?
     seuil: 0.7                        # sous ce seuil, la production n'est pas livrée (gardée, statut ecarte)
-preparations:                         # facultatif, 3 au plus, dans l'ordre d'exécution
-  - metabase.inventaire
-  - tags.vocabulaire
+preparations:                         # facultatif, 3 au plus, dans l'ordre ; ce qui nourrit chaque run
+  - type: cron                        # la dernière sortie réussie d'une tâche de cron/ (jamais relancée)
+    tache: sync-tags
+  - type: notion                      # les lignes d'une base Notion partagée avec l'intégration
+    base: 0123456789abcdef0123456789abcdef
+  - type: s3                          # un jeu publié par publish_dataset (URL transmise au run)
+    jeu: services.sqlite
 ```
 
 Aucun autre champ n'est accepté. Ne jamais inventer une destination : lire la liste. Si aucune
@@ -80,16 +84,24 @@ S=skills/agents/scripts/agents.py
 ## Faire tourner un agent
 
 Un agent n'est pas un processus allumé : chaque run est un conteneur jetable qui va au bout puis
-disparaît. Avec une `cadence`, la tâche `cron/agents` le lance chaque matin et livre ses runs
-terminés. À la demande :
+disparaît. Aucun agent n'a de cron à lui : avec une `cadence`, le seul cron des agents,
+`run-agents`, enchaîne chaque matin préparations, run, classificateur et livraison.
+
+| Action | Garde |
+|---|---|
+| lire (configuration, runs, envois) | aucune |
+| lancer un run maintenant | `proposer-lancement`, puis `lancer` au tour suivant, après le oui |
+| modifier la configuration, la consigne ou la cadence | `proposer` avec le même slug (une modification), `creer` après le oui, `retirer` pour revenir en arrière |
+| passer une destination en réel | jamais depuis la conversation : une PR sur `reel_autorise` |
 
 ```bash
-.venv/bin/python $S lancer --agent <slug>     # préparations dans l'ordre, puis run, dans un conteneur one-off
+.venv/bin/python $S proposer-lancement --agent <slug>   # montre les préparations, ne lance rien
+.venv/bin/python $S lancer --agent <slug>               # tour suivant, après le oui de l'utilisateur
 ```
 
-Les préparations tournent avant le run, jamais dans le worker ; une préparation en échec empêche
-le run. Ne jamais appeler `executer` depuis la conversation : c'est la commande du conteneur
-one-off. Si `lancer` est indisponible, le dire et donner la commande qu'il rend.
+Le code refuse un `lancer` sans message ultérieur de l'utilisateur, et une confirmation ne sert
+qu'une fois. Une préparation sans contenu (cron sans dernière sortie réussie, jeu S3 absent)
+empêche le run.
 
 ## Livrer un run et relire ses productions
 
