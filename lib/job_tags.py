@@ -33,16 +33,17 @@ def pipelines_with_tags(tag_names: list[str]) -> set[str]:
 
 
 def toggle_tag(pipeline_id: str, name: str) -> bool:
-    """Coche ou décoche un terme actif ; False si le terme est inconnu ou désactivé."""
+    """Coche un terme actif ou décoche un terme posé ; False pour un terme ni actif ni posé."""
     with get_db() as session:
         facet_of = dict(session.execute(select(Tag.name, Tag.type).where(Tag.active)).all())
-        if name not in facet_of:
-            return False
         current = list(
             session.scalars(
                 select(Tag.name).join(JobTag, JobTag.tag_id == Tag.id).where(JobTag.pipeline_id == pipeline_id)
             )
         )
+        # Why: un terme désactivé par la synchro Notion reste posé ; il doit pouvoir être retiré.
+        if name not in facet_of and name not in current:
+            return False
         target = apply_toggle(current, name, facet_of)
         session.execute(delete(JobTag).where(JobTag.pipeline_id == pipeline_id))
         session.add_all(

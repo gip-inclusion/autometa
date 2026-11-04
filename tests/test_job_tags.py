@@ -112,9 +112,10 @@ def test_dod_1_toggle_adds_tag_and_page_shows_it(client, mocker):
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("_db")
-def test_dod_2_toggle_removes_carried_tag(client, mocker):
+@pytest.mark.parametrize("active", [True, False])
+def test_dod_2_toggle_removes_carried_tag(client, mocker, active):
     serve(mocker)
-    add_tag("agent")
+    add_tag("agent", active=active)
     add_tag("veille")
     tag_pipeline(ALPHA, "agent", "veille")
 
@@ -322,7 +323,7 @@ def test_dod_8_jobs_page_renders_filters_sort_and_editor(client, mocker):
     html = client.get(f"/jobs/pipelines/{ALPHA}").text
 
     assert 'href="/jobs?tag=agent"' in html
-    assert 'Agent <span class="opacity-75">2</span>' in html
+    assert 'Agent <span class="opacity-75 ms-1">2</span>' in html
     assert "Tri : Activité récente" in html
     assert 'href="/jobs?tri=nom"' in html
     assert '<option value="veille">Veille (proposé)</option>' in html

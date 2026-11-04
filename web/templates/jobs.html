@@ -70,8 +70,8 @@
         {% if tag_filters %}
         <div class="jobs-tag-filters d-flex flex-wrap gap-1 px-3 py-2 border-bottom">
           {% for f in tag_filters %}
-          <a href="{{ f.href }}" class="badge rounded-pill text-decoration-none {{ 'text-bg-primary' if f.active else 'text-bg-light border' }}"
-             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">{{ f.label }} <span class="opacity-75">{{ f.count }}</span></a>
+          <a href="{{ f.href }}" class="badge badge-tag text-decoration-none {{ 'bg-primary' if f.active else 'badge-product' }}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">{{ f.label }} <span class="opacity-75 ms-1">{{ f.count }}</span></a>
           {% endfor %}
         </div>
         {% endif %}

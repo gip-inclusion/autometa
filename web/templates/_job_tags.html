@@ -1,6 +1,6 @@
 <div id="jobTags" class="d-flex flex-wrap align-items-center gap-2">
   {% for tag in job_tags %}
-  <span class="badge rounded-pill text-bg-light border job-tag">
+  <span class="badge badge-tag badge-product job-tag d-inline-flex align-items-center">
     {{ tag.label }}
     <button type="button" class="btn-close ms-1" style="font-size: .55em;" aria-label="Retirer {{ tag.label }}"
             hx-post="/api/jobs/pipelines/{{ pipeline_id }}/tags" hx-vals='{"tag": {{ tag.name | tojson }}}'
