@@ -88,8 +88,9 @@ def test_dod_3_no_mention_does_not_call_the_service(orchestrator):
     orchestrator.list_pipelines.assert_not_called()
 
 
-def test_dod_3_service_down_adds_nothing(orchestrator):
-    orchestrator.list_pipelines.side_effect = httpx.ConnectError("down")
+@pytest.mark.parametrize("failure", [httpx.ConnectError("down"), ValueError("not JSON")])
+def test_dod_3_service_down_adds_nothing(orchestrator, failure):
+    orchestrator.list_pipelines.side_effect = failure
 
     assert job_mentions.build_context("@veille-dora") == ""
 
@@ -101,6 +102,20 @@ def test_dod_1_unavailable_output_is_reported(orchestrator):
 
     assert "sortie indisponible" in context
     assert "Analyse les services Dora." in context
+
+
+def test_dod_1_last_success_found_beyond_the_three_listed_runs(orchestrator):
+    orchestrator.list_runs.return_value = [
+        make_run(RUN_OK, "completed", "2026-10-01T09:00:00"),
+        *(make_run(f"ko-{d}", "failed", f"2026-11-0{d}T09:00:00") for d in (1, 2, 3)),
+    ]
+
+    context = job_mentions.build_context("@veille-dora")
+
+    assert "ko-3" in context
+    assert f"- completed — 2026-10-01T09:00:00 — run {RUN_OK}" not in context
+    assert f"Dernière sortie réussie (run {RUN_OK})" in context
+    orchestrator.get_run_output.assert_called_once_with(RUN_OK)
 
 
 def test_dod_1_no_completed_run(orchestrator):

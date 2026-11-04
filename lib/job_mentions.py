@@ -37,7 +37,7 @@ def truncate(text: str, limit: int) -> str:
 def last_output(runs: list[dict]) -> str:
     done = next((r for r in runs if r.get("status") == "completed"), None)
     if done is None:
-        return "Dernière sortie : aucun run réussi parmi les derniers."
+        return "Dernière sortie : aucun run réussi parmi les 20 derniers."
     try:
         output = truncate(jobs.get_run_output(done["id"]), 3000)
     except httpx.HTTPError as exc:
@@ -49,8 +49,8 @@ def last_output(runs: list[dict]) -> str:
 def describe(pipeline: dict) -> str:
     runs = sorted(
         jobs.list_runs(pipeline_id=pipeline["id"], limit=20), key=lambda r: r.get("created_at") or "", reverse=True
-    )[:3]
-    run_lines = "\n".join(f"- {r.get('status')} — {r.get('created_at')} — run {r['id']}" for r in runs)
+    )
+    run_lines = "\n".join(f"- {r.get('status')} — {r.get('created_at')} — run {r['id']}" for r in runs[:3])
     return f"""### Job @{pipeline["name"]} (pipeline {pipeline["id"]})
 Page : {config.BASE_URL}/jobs/pipelines/{pipeline["id"]}
 Relance, seulement après un « oui » explicite : \
@@ -73,7 +73,8 @@ def build_context(text: str) -> str:
         by_name = {p["name"]: p for p in jobs.list_pipelines()}
         # Why: borne la taille du prompt et le nombre d'appels au service de jobs.
         blocks = [describe(by_name[name]) for name in [n for n in names if n in by_name][:3]]
-    except httpx.HTTPError as exc:
+    # Why: ValueError couvre une réponse non JSON du service externe ; le message doit partir quand même.
+    except (httpx.HTTPError, ValueError) as exc:
         logger.warning("autometa-jobs unavailable for mentions: %s", exc)
         return ""
     if not blocks:
