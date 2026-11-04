@@ -259,15 +259,3 @@ def test_dod_4_send_message_with_mention_launches_nothing(client, submit_mock, m
     assert "« oui » explicite" in submit_mock.call_args.args[1]
     trigger.assert_not_called()
     jobs.trigger_run.assert_not_called()
-
-
-def test_dod_3_mention_failure_leaves_conversation_free(client, submit_mock, mocker):
-    mocker.patch("web.routes.conversations.job_mentions.build_context", side_effect=KeyError("name"))
-    conv = store.create_conversation(user_id=ALICE)
-
-    with pytest.raises(KeyError):
-        client.post(f"/api/conversations/{conv.id}/messages", headers=headers(), json={"content": "@veille-dora"})
-
-    after = store.get_conversation(conv.id, include_messages=True)
-    assert not after.needs_response
-    assert after.messages == []

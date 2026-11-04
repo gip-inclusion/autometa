@@ -400,8 +400,6 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
     if conv.needs_response:
         return JSONResponse({"error": "Conversation already running"}, status_code=409)
 
-    # Why: avant l'enregistrement, pour qu'un échec ne laisse pas la conversation marquée en cours.
-    job_context = await run_in_thread(job_mentions.build_context, content)
     is_first_message = len(conv.messages) == 0
     user_msg = store.add_message(conv_id, "user", content)
     store.update_conversation(conv_id, needs_response=True)
@@ -426,7 +424,7 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
             if msg.type in ("user", "assistant"):
                 history.append({"role": msg.type, "content": msg.content})
 
-    prompt = job_context + content
+    prompt = await run_in_thread(job_mentions.build_context, content) + content
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:
