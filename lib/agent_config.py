@@ -34,7 +34,11 @@ StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, map
 
 
 def parse(text: str) -> object:
-    return yaml.load(text, Loader=StrictLoader)  # noqa: S506 — StrictLoader derives from SafeLoader
+    loader = StrictLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 
 def destinations() -> dict[str, dict]:
