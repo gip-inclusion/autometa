@@ -19,6 +19,12 @@ def main(argv=None) -> int:
     proposer.add_argument("--consigne", required=True, type=Path, help="consigne du job, autosuffisante")
     for name in ("creer", "retirer", "voir"):
         commands.add_parser(name).add_argument("proposition")
+    commands.add_parser("destinations", help="destinations, modèles, préparations et cadences permis")
+    for name, help_text in (
+        ("lancer", "préparations puis run, dans un conteneur one-off"),
+        ("executer", "préparations puis run, ici même (conteneur one-off ou cron)"),
+    ):
+        commands.add_parser(name, help=help_text).add_argument("--agent", required=True)
     livrer = commands.add_parser("livrer", help="livrer la sortie d'un run terminé")
     livrer.add_argument("--agent", required=True)
     livrer.add_argument("--run", required=True)
@@ -33,13 +39,16 @@ def main(argv=None) -> int:
         "creer": lambda: agents.apply(args.proposition),
         "retirer": lambda: agents.revert(args.proposition),
         "voir": lambda: agents.show(args.proposition),
+        "destinations": agents.catalogue,
+        "lancer": lambda: agents.launch(args.agent),
+        "executer": lambda: agents.execute(args.agent),
         "livrer": lambda: agents.deliver_run(args.agent, args.run),
         "montrer-envoi": lambda: agents.present_envoi(args.agent, args.envoi),
         "approuver-envoi": lambda: agents.approve_envoi(args.agent, args.envoi),
     }
     try:
         out = actions[args.command]()
-    except (ValueError, PermissionError, yaml.YAMLError, httpx.HTTPError) as exc:
+    except (ValueError, PermissionError, RuntimeError, yaml.YAMLError, httpx.HTTPError) as exc:
         print(f"refusé : {exc}", file=sys.stderr)
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=2))

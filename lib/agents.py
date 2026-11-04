@@ -1,20 +1,37 @@
 """Agents: jobs created only after a confirmation in a later message, retired on demand, their runs delivered."""
 
 import json
+import logging
 import re
 import uuid
 from datetime import datetime
+from functools import partial
 from typing import Optional
 
+import httpx
 from sqlalchemy import func, select
 
-from lib import agent_config, agent_delivery, jobs
+from lib import agent_classifier, agent_config, agent_delivery, job_inputs, jobs
 from lib.agent_delivery import read_json, write_json
-from web import config
+from web import config, cron, s3, scalingo
 from web.db import get_db
 from web.models import Message
 
-__all__ = ["plan", "apply", "revert", "show", "deliver_run", "present_envoi", "approve_envoi"]
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "plan",
+    "apply",
+    "revert",
+    "show",
+    "catalogue",
+    "launch",
+    "execute",
+    "deliver_run",
+    "present_envoi",
+    "approve_envoi",
+    "tick",
+]
 
 OUTPUT_CONTRACT = """
 
@@ -28,6 +45,14 @@ Ta réponse est un unique objet JSON, sans aucun texte autour :
 - cle (facultative, Notion seulement) : minuscules, chiffres et tirets ; un envoi qui reprend la cle
   d'une page déjà écrite met cette page à jour.
 - Rien à signaler : {{"envois": []}}.
+"""
+
+INPUT_CONTRACT = """
+## Entrée
+
+Avant chacun de tes runs, Autometa fait tourner tes préparations, dans cet ordre : {preparations}.
+Leurs sorties sont le fichier d'entrée du run (input_uri) : un JSON lines, une ligne par préparation,
+champs ordre, preparation, statut, sortie. Ne lance aucune préparation ni aucun cron toi-même.
 """
 
 
@@ -85,7 +110,9 @@ def plan(config_yaml: str, system_prompt: str) -> dict:
         "id": changeset_id,
         "status": "planned",
         "config": doc,
-        "system_prompt": system_prompt + OUTPUT_CONTRACT.format(destinations=destinations),
+        "system_prompt": system_prompt
+        + OUTPUT_CONTRACT.format(destinations=destinations)
+        + (INPUT_CONTRACT.format(preparations=", ".join(steps)) if (steps := doc.get("preparations")) else ""),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "shown": mark(),
     }
@@ -146,8 +173,58 @@ def active_agent(slug: str) -> dict:
     return agent
 
 
+def catalogue() -> dict:
+    """Everything an agent may use, and whether this instance is configured for it; reads no secret."""
+    targets = config.AGENT_DESTINATION_TARGETS
+    return {
+        "destinations": [
+            {"id": d["id"], "canal": d["canal"], "cible_configuree": bool(targets.get(d["id"]))}
+            for d in agent_config.destinations().values()
+        ],
+        "modeles": [{"id": m["id"], "type": m["type"]} for m in agent_config.modeles().values()],
+        "preparations": [{"id": p["id"], "cron": p["cron"]} for p in agent_config.preparations().values()],
+        "cadences": list(agent_config.CADENCES),
+        "classificateur_configure": bool(config.OLLAMA_API_KEY),
+        "lancement_configure": scalingo.is_configured(),
+    }
+
+
+def launch(slug: str) -> dict:
+    """Start the agent's preparations and run in a one-off container, never in the web process."""
+    active_agent(slug)
+    command = f"python skills/agents/scripts/agents.py executer --agent {slug}"
+    if not scalingo.is_configured():
+        raise ValueError(f"lancement indisponible ici (Scalingo non configuré) : exécuter `{command}`")
+    return {"agent": slug, "conteneur": scalingo.start_one_off(command)}
+
+
+def execute(slug: str, idempotency_key: Optional[str] = None) -> dict:
+    """Run the agent's preparations in order, publish their outputs, then trigger its job's run with them."""
+    agent = active_agent(slug)
+    steps = agent["config"].get("preparations", [])
+    known = agent_config.preparations()
+    tasks = cron.discover_by_slug() if steps else {}
+    outputs = []
+    for i, step in enumerate(steps):
+        task = tasks.get(known[step]["cron"])
+        if task is None:
+            raise ValueError(f"préparation {step} : tâche {known[step]['cron']} introuvable, le run n'est pas lancé")
+        result = cron.execute_task(task, trigger="agent")
+        if result["status"] != "success":
+            raise ValueError(f"préparation {step} en {result['status']} : le run n'est pas lancé")
+        outputs.append([i + 1, step, result["status"], result["output"]])
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    columns = ["ordre", "preparation", "statut", "sortie"]
+    dataset = job_inputs.publish_dataset(f"agent-{slug}-{stamp}", columns, outputs, fmt="jsonl") if steps else None
+    run = jobs.trigger_run(
+        agent["pipeline_id"], input_uri=dataset["url"] if dataset else None, idempotency_key=idempotency_key
+    )
+    write_json(agent_path(slug), {**agent, "runs_a_livrer": [*agent.get("runs_a_livrer", []), run["id"]]})
+    return {"agent": slug, "run_id": run["id"], "preparations": [o[1] for o in outputs]}
+
+
 def deliver_run(slug: str, run_id: str) -> list[dict]:
-    """Deliver the output of a completed run of the agent's own job."""
+    """Deliver the output of a completed run of the agent's own job, through its classifiers if it has any."""
     agent = active_agent(slug)
     run = jobs.get_run(run_id)
     if run.get("pipeline_id") != agent["pipeline_id"]:
@@ -160,7 +237,33 @@ def deliver_run(slug: str, run_id: str) -> list[dict]:
         raise ValueError(f"sortie du run {run_id} illisible : {exc}") from exc
     if not isinstance(output, dict) or "envois" not in output:
         raise ValueError(f"sortie du run {run_id} sans liste envois")
-    return agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["envois"])
+    outils = agent["config"].get("outils_modeles")
+    classify = partial(agent_classifier.classify, outils) if outils else None
+    summary = agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["envois"], classify)
+    pending = [r for r in agent.get("runs_a_livrer", []) if r != run_id]
+    write_json(agent_path(slug), {**agent, "runs_a_livrer": pending})
+    return summary
+
+
+def tick() -> None:
+    """Daily: deliver every active agent's completed runs, then launch the agents whose cadence is due."""
+    failed = []
+    for slug in s3.agents.list_directories(""):
+        agent = None if slug.startswith("_") else read_json(agent_path(slug))
+        if agent is None or agent["status"] != "actif":
+            continue
+        try:
+            for run_id in agent.get("runs_a_livrer", []):
+                if jobs.get_run(run_id).get("status") == "completed":
+                    deliver_run(slug, run_id)
+            cadence = agent["config"].get("cadence")
+            if cadence and cron.is_due(agent_config.CADENCES[cadence], "maintenance"):
+                execute(slug, idempotency_key=f"agent-{slug}-{datetime.now():%Y-%m-%d}")
+        except (ValueError, RuntimeError, httpx.HTTPError) as exc:
+            logger.warning("agent %s : passage quotidien en échec : %s", slug, exc)
+            failed.append(slug)
+    if failed:
+        raise RuntimeError(f"agents en échec : {', '.join(failed)}")
 
 
 def present_envoi(slug: str, envoi_id: str) -> dict:

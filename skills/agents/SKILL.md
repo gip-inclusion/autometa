@@ -1,6 +1,6 @@
 ---
 name: agents
-description: Créer un agent (un job qui traite des données et écrit dans Slack ou Notion), seulement après confirmation explicite de l'utilisateur dans un message suivant ; retirer un agent ; livrer la sortie d'un de ses runs ; faire relire et approuver ses productions. À utiliser dès que l'utilisateur veut un job récurrent qui dépose ses résultats dans un canal Slack ou une base Notion.
+description: Créer un agent (un job qui traite des données et écrit dans Slack ou Notion, avec au besoin un classificateur et des préparations par crons), seulement après confirmation explicite de l'utilisateur dans un message suivant ; retirer un agent ; livrer la sortie d'un de ses runs ; faire relire et approuver ses productions. À utiliser dès que l'utilisateur veut un job récurrent qui dépose ses résultats dans un canal Slack ou une base Notion.
 ---
 
 # Agents
@@ -15,6 +15,17 @@ d'envois, et c'est Autometa qui les livre, seulement vers les destinations de la
 - `reel` : écrit directement ; refusé tant que l'agent n'est pas dans `reel_autorise` de la
   destination, ce qui s'ouvre par une PR, jamais depuis une conversation.
 
+## Commencer par la liste
+
+```bash
+.venv/bin/python skills/agents/scripts/agents.py destinations
+```
+
+Elle rend tout ce qu'un agent peut utiliser : destinations (et si leur cible est configurée sur
+cette instance), modèles, préparations, cadences. Ne jamais chercher ces listes dans le dépôt ni
+dans l'environnement. Une destination sans cible reste proposable : ses envois en mode `reel`
+seront en échec tant que la cible manque, ce qu'il faut dire à l'utilisateur.
+
 ## Configuration
 
 ```yaml
@@ -26,6 +37,14 @@ mission: >-                           # 20 à 400 caractères, ni lien, ni @pers
 points_de_contact:                    # 1 à 6 destinations de config/agent_destinations.yaml
   - id: produit.signal_faible
     mode: ombre
+cadence: quotidienne                  # facultatif : quotidienne, hebdomadaire, mensuelle ; absent = à la demande
+outils_modeles:                       # facultatif, 3 au plus, modèles de config/agent_modeles.yaml
+  - id: classifieur.pertinence
+    question: La production signale-t-elle une MEP dont l'effet n'est pas mesurable ?
+    seuil: 0.7                        # sous ce seuil, la production n'est pas livrée (gardée, statut ecarte)
+preparations:                         # facultatif, 3 au plus, dans l'ordre d'exécution
+  - metabase.inventaire
+  - tags.vocabulaire
 ```
 
 Aucun autre champ n'est accepté. Ne jamais inventer une destination : lire la liste. Si aucune
@@ -56,14 +75,29 @@ S=skills/agents/scripts/agents.py
 1. Rédiger la configuration et la consigne, appeler `proposer`. Rien n'est créé. Une
    configuration refusée rend des messages qui nomment le champ et la correction : corriger et
    reproposer.
-2. Terminer le tour par la relecture : titre, mission, chaque destination avec son mode, un
-   aperçu de la consigne, l'identifiant de la proposition, et la question « Je crée cet agent ? ».
+2. Terminer le tour par la relecture : titre, mission, chaque destination avec son mode, le
+   classificateur (question, seuil), les préparations dans l'ordre, la cadence, un aperçu de la
+   consigne, l'identifiant de la proposition, et la question « Je crée cet agent ? ».
 3. **Ne jamais appeler `creer` dans le tour de `proposer`.** Le code le refuse de toute façon :
    la création exige un message de l'utilisateur postérieur à la proposition, dans la même
    conversation. Si la réponse est ambiguë, ne pas créer. Une correction demandée donne une
    nouvelle proposition ; l'ancienne reste sans effet.
 4. Après `creer`, donner le lien du job (`/jobs`) et rappeler que `retirer` arrête toute
    livraison. Lancer un run reste soumis à la confirmation de `compose_and_launch_job`.
+
+## Faire tourner un agent
+
+Un agent n'est pas un processus allumé : chaque run est un conteneur jetable qui va au bout puis
+disparaît. Avec une `cadence`, la tâche `cron/agents` le lance chaque matin et livre ses runs
+terminés. À la demande :
+
+```bash
+.venv/bin/python $S lancer --agent <slug>     # préparations dans l'ordre, puis run, dans un conteneur one-off
+```
+
+Les préparations tournent avant le run, jamais dans le worker ; une préparation en échec empêche
+le run. Ne jamais appeler `executer` depuis la conversation : c'est la commande du conteneur
+one-off. Si `lancer` est indisponible, le dire et donner la commande qu'il rend.
 
 ## Livrer un run et relire ses productions
 
@@ -75,6 +109,7 @@ S=skills/agents/scripts/agents.py
 
 `livrer` n'accepte qu'un run terminé du job de l'agent ; relivrer le même run n'écrit rien de
 plus. Une seule destination hors liste fait refuser tout le run. Rendre compte de chaque envoi
-(destination, mode, statut : `ombre`, `a_relire`, `envoyee`, `echec`). Pour un envoi `a_relire`,
+(destination, mode, statut : `ombre`, `a_relire`, `envoyee`, `echec`, `ecarte` quand le
+classificateur l'a jugée sous le seuil). Pour un envoi `a_relire`,
 `montrer-envoi` puis afficher son titre et son texte, demander la validation, et n'appeler
 `approuver-envoi` qu'au tour suivant. Un envoi `echec` se réessaie de la même façon.

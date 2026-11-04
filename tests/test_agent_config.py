@@ -111,3 +111,44 @@ def test_dod_11_no_warning_when_aligned(mocker, caplog):
     mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", targets)
     agent_config.warn_target_gaps()
     assert caplog.records == []
+
+
+OUTIL = {"id": "classifieur.pertinence", "question": "Est-ce une opportunité pour le produit ?", "seuil": 0.7}
+
+
+def test_dod_10_classifier_preparations_and_cadence_are_accepted():
+    doc = make_agent(
+        cadence="hebdomadaire", outils_modeles=[OUTIL], preparations=["metabase.inventaire", "tags.vocabulaire"]
+    )
+    assert agent_config.validate(doc) == []
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"outils_modeles": [{**OUTIL, "id": "nimble"}]}, "outils_modeles[0].id : 'nimble' n'est pas un modèle"),
+        ({"outils_modeles": [{**OUTIL, "id": "classifieur.pertinenc"}]}, "Vouliez-vous dire 'classifieur.pertinence'"),
+        ({"outils_modeles": [{**OUTIL, "seuil": 1}]}, "outils_modeles[0].seuil : attendu une probabilité"),
+        ({"outils_modeles": [{**OUTIL, "seuil": True}]}, "outils_modeles[0].seuil"),
+        ({"outils_modeles": [{**OUTIL, "question": "Oui ?"}]}, "outils_modeles[0].question : attendu un texte"),
+        ({"outils_modeles": [{**OUTIL, "question": "Faut-il prévenir @louije de ceci ?"}]}, "'@louije'"),
+        ({"outils_modeles": [{"id": "classifieur.pertinence"}]}, "id, question et seuil"),
+        ({"outils_modeles": [OUTIL, OUTIL]}, "'classifieur.pertinence' apparaît plusieurs fois"),
+        ({"outils_modeles": [OUTIL] * 4}, "outils_modeles : attendu une liste de 3"),
+        ({"outils_modeles": "classifieur.pertinence"}, "outils_modeles : attendu une liste"),
+        ({"preparations": ["sync-tags"]}, "preparations[0] : 'sync-tags' n'est pas une préparation"),
+        ({"preparations": ["tags.vocabulaire", "tags.vocabulaire"]}, "apparaît plusieurs fois"),
+        ({"preparations": "tags.vocabulaire"}, "preparations : attendu une liste"),
+        ({"cadence": "toutes les heures"}, "cadences permises : quotidienne, hebdomadaire, mensuelle"),
+    ],
+)
+def test_dod_10_unknown_model_preparation_or_cadence_is_refused(overrides, expected):
+    errors = agent_config.validate(make_agent(**overrides))
+    assert any(expected in e for e in errors), errors
+
+
+def test_dod_11_every_preparation_names_a_task_of_cron_and_every_model_a_provider_model():
+    for preparation in agent_config.preparations().values():
+        assert (agent_config.config.CRON_DIR / preparation["cron"] / "cron.py").is_file()
+    assert {m["type"] for m in agent_config.modeles().values()} == {"classificateur"}
+    assert all(m["modele"] for m in agent_config.modeles().values())
