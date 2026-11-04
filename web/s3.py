@@ -192,6 +192,7 @@ uploads = S3Store("interactive/uploads/")
 publications = S3Store("publications/")
 job_inputs = S3Store("job-inputs/")
 zendesk = S3Store("zendesk/")
+agents = S3Store("agents/")
 
 
 def list_prefix(bucket: str, prefix: str) -> list[str]:

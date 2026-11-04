@@ -363,12 +363,37 @@ def publish_report(
         "pages",
         {"parent": {"database_id": NOTION_REPORTS_DB}, "properties": properties},
     )
-    page_id = result["id"]
-    page_url = result["url"]
+    append_markdown(result["id"], content)
+    return result["id"], result["url"]
 
+
+def append_markdown(page_id: str, content: str) -> None:
+    """Append markdown to a page, in batches of the 100 blocks Notion accepts per call."""
     blocks = markdown_to_blocks(content)
     for i in range(0, len(blocks), 100):
-        batch = blocks[i : i + 100]
-        notion_request("PATCH", f"blocks/{page_id}/children", {"children": batch})
+        notion_request("PATCH", f"blocks/{page_id}/children", {"children": blocks[i : i + 100]})
 
-    return page_id, page_url
+
+def title_property(database_id: str) -> str:
+    """Name of the title property, which each database names its own way."""
+    schema = notion_request("GET", f"databases/{database_id}")
+    return next(name for name, prop in schema["properties"].items() if prop["type"] == "title")
+
+
+def create_page(database_id: str, title: str, content: str) -> dict:
+    """Create a page in a database from markdown; returns its id and url."""
+    properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
+    page = notion_request("POST", "pages", {"parent": {"database_id": database_id}, "properties": properties})
+    append_markdown(page["id"], content)
+    return {"id": page["id"], "url": page["url"]}
+
+
+def replace_page(database_id: str, page_id: str, title: str, content: str) -> dict:
+    """Overwrite the title and the whole content of an existing page; returns its id and url."""
+    properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
+    page = notion_request("PATCH", f"pages/{page_id}", {"properties": properties})
+    for block in get_block_children(page_id):
+        if block["parent"].get("page_id") == page_id:
+            notion_request("DELETE", f"blocks/{block['id']}")
+    append_markdown(page_id, content)
+    return {"id": page["id"], "url": page["url"]}
