@@ -372,7 +372,7 @@ function resetFilters() {
   htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
 }
 
-// La recherche par mots est traitée côté serveur (par le sens, avec repli mots exacts) :
+// La recherche par mots est traitée côté serveur :
 // on relance une requête filtrée, débattue le temps de la frappe.
 function filterByText() {
   clearTimeout(window._searchUrlTimer);
