@@ -11,9 +11,9 @@ from typing import Optional
 import httpx
 from sqlalchemy import func, select
 
-from lib import agent_classifier, agent_config, agent_delivery, job_inputs, jobs
+from lib import agent_classifier, agent_config, agent_delivery, job_inputs, jobs, notion
 from lib.agent_delivery import read_json, write_json
-from web import config, cron, s3, scalingo
+from web import config, cron, s3
 from web.db import get_db
 from web.models import Message
 
@@ -25,6 +25,7 @@ __all__ = [
     "revert",
     "show",
     "catalogue",
+    "present_launch",
     "launch",
     "execute",
     "deliver_run",
@@ -51,8 +52,9 @@ INPUT_CONTRACT = """
 ## Entrée
 
 Avant chacun de tes runs, Autometa fait tourner tes préparations, dans cet ordre : {preparations}.
-Leurs sorties sont le fichier d'entrée du run (input_uri) : un JSON lines, une ligne par préparation,
-champs ordre, preparation, statut, sortie. Ne lance aucune préparation ni aucun cron toi-même.
+Leurs contenus sont le fichier d'entrée du run (input_uri) : un JSON lines, une ligne par préparation,
+champs ordre, type, source, contenu (pour s3, contenu est l'URL du jeu à télécharger). Ne lance
+aucune préparation ni aucun cron toi-même.
 """
 
 
@@ -102,20 +104,26 @@ def plan(config_yaml: str, system_prompt: str) -> dict:
         raise ValueError("configuration refusée : " + " ; ".join(errors))
     if not system_prompt.strip():
         raise ValueError("consigne du job vide")
-    if read_json(agent_path(doc["slug"])) is not None:
-        raise ValueError(f"l'identifiant {doc['slug']} est déjà pris par un agent")
-    changeset_id = f"{datetime.now().strftime('%Y-%m-%d-%H%M%S')}-{doc['slug']}"
+    current = read_json(agent_path(doc["slug"]))
+    if current is not None and current["status"] != "actif":
+        raise ValueError(f"l'identifiant {doc['slug']} est déjà pris par un agent retiré")
+    changeset_id = f"{datetime.now().strftime('%Y-%m-%d-%H%M%S')}-{doc['slug']}-{uuid.uuid4().hex[:6]}"
     destinations = ", ".join(c["id"] for c in doc["points_de_contact"])
+    steps = ", ".join(agent_config.preparation_label(p) for p in doc.get("preparations", []))
     manifest = {
         "id": changeset_id,
         "status": "planned",
+        "nature": "modification" if current else "creation",
         "config": doc,
         "system_prompt": system_prompt
         + OUTPUT_CONTRACT.format(destinations=destinations)
-        + (INPUT_CONTRACT.format(preparations=", ".join(steps)) if (steps := doc.get("preparations")) else ""),
+        + (INPUT_CONTRACT.format(preparations=steps) if steps else ""),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "shown": mark(),
     }
+    if current:
+        manifest["avant"] = {k: current[k] for k in ("config", "system_prompt", "pipeline_id")}
+        manifest["avant_changeset"] = current["changeset_id"]
     write_json(manifest_path(changeset_id), manifest)
     return manifest
 
@@ -128,32 +136,49 @@ def load(changeset_id: str, expected: str) -> dict:
 
 
 def apply(changeset_id: str) -> dict:
-    """Create the agent's job, only when confirmed in a later message; a second apply creates nothing."""
+    """Create or change the agent, only when confirmed in a later message; a second apply does nothing."""
     manifest = load(changeset_id, "planned")
     approved_by = require_confirmation(manifest["shown"])
     slug = manifest["config"]["slug"]
-    pipeline = jobs.create_pipeline(f"agent-{slug}", manifest["system_prompt"], {"output_format": "json"})
+    current = read_json(agent_path(slug)) or {}
+    if manifest["nature"] == "modification" and current.get("changeset_id") != manifest["avant_changeset"]:
+        raise ValueError(f"l'agent {slug} a changé depuis cette proposition : en proposer une nouvelle")
+    version = current.get("version", 0) + 1
+    pipeline_id = current.get("pipeline_id")
+    if manifest["system_prompt"] != current.get("system_prompt"):
+        # Why: the jobs engine cannot update a pipeline's prompt; a changed prompt is a new pipeline.
+        name = f"agent-{slug}" if version == 1 else f"agent-{slug}-v{version}"
+        pipeline_id = jobs.create_pipeline(name, manifest["system_prompt"], {"output_format": "json"})["id"]
     write_json(
         agent_path(slug),
         {
+            **current,
             "config": manifest["config"],
-            "pipeline_id": pipeline["id"],
+            "system_prompt": manifest["system_prompt"],
+            "pipeline_id": pipeline_id,
+            "version": version,
             "status": "actif",
             "changeset_id": changeset_id,
             "approved_by": approved_by,
             "approved_at": datetime.now().isoformat(timespec="seconds"),
         },
     )
-    manifest.update(status="applied", pipeline_id=pipeline["id"], approved_by=approved_by)
+    manifest.update(status="applied", pipeline_id=pipeline_id, approved_by=approved_by)
     write_json(manifest_path(changeset_id), manifest)
     return manifest
 
 
 def revert(changeset_id: str) -> dict:
-    """Retire an applied agent: its runs are no longer delivered. The job stays, the engine cannot delete it."""
+    """Undo an applied proposal: a creation retires the agent, a change restores what it replaced."""
     manifest = load(changeset_id, "applied")
     slug = manifest["config"]["slug"]
-    write_json(agent_path(slug), {**read_json(agent_path(slug)), "status": "retire"})
+    agent = read_json(agent_path(slug))
+    if agent["changeset_id"] != changeset_id:
+        raise ValueError(f"proposition {changeset_id} n'est plus la dernière appliquée à l'agent {slug}")
+    if manifest["nature"] == "creation":
+        write_json(agent_path(slug), {**agent, "status": "retire"})
+    else:
+        write_json(agent_path(slug), {**agent, **manifest["avant"], "changeset_id": manifest["avant_changeset"]})
     manifest["status"] = "reverted"
     write_json(manifest_path(changeset_id), manifest)
     return manifest
@@ -182,45 +207,58 @@ def catalogue() -> dict:
             for d in agent_config.destinations().values()
         ],
         "modeles": [{"id": m["id"], "type": m["type"]} for m in agent_config.modeles().values()],
-        "preparations": [{"id": p["id"], "cron": p["cron"]} for p in agent_config.preparations().values()],
+        "preparations": {"types": agent_config.PREPARATION_TYPES, "taches_cron": agent_config.cron_tasks()},
         "cadences": list(agent_config.CADENCES),
         "classificateur_configure": bool(config.OLLAMA_API_KEY),
-        "lancement_configure": scalingo.is_configured(),
     }
 
 
+def present_launch(slug: str) -> dict:
+    """What a run launched now would do, marked as shown so that only a later message may launch it."""
+    agent = active_agent(slug)
+    write_json(agent_path(slug), {**agent, "lancement": mark()})
+    return {"agent": slug, "preparations": agent["config"].get("preparations", []), "version": agent.get("version")}
+
+
 def launch(slug: str) -> dict:
-    """Start the agent's preparations and run in a one-off container, never in the web process."""
-    active_agent(slug)
-    command = f"python skills/agents/scripts/agents.py executer --agent {slug}"
-    if not scalingo.is_configured():
-        raise ValueError(f"lancement indisponible ici (Scalingo non configuré) : exécuter `{command}`")
-    return {"agent": slug, "conteneur": scalingo.start_one_off(command)}
+    """Run the agent now, only when confirmed in a later message; the confirmation is spent, never replayed."""
+    agent = active_agent(slug)
+    if "lancement" not in agent:
+        raise PermissionError("lancement jamais proposé : le proposer d'abord, puis attendre la confirmation")
+    require_confirmation(agent["lancement"])
+    write_json(agent_path(slug), {k: v for k, v in agent.items() if k != "lancement"})
+    return execute(slug)
+
+
+def prepare(step: dict) -> list:
+    """One preparation's content: rows of a Notion database, the URL of an S3 dataset, or a cron task's last output."""
+    if step["type"] == "notion":
+        rows = [notion.extract_page_properties(p) for p in notion.query_database(step["base"])]
+        return ["notion", step["base"], json.dumps(rows, ensure_ascii=False, default=str)]
+    if step["type"] == "s3":
+        url = s3.job_inputs.get_url(step["jeu"], expires_in=job_inputs.DEFAULT_EXPIRES)
+        if not (url and s3.job_inputs.exists(step["jeu"])):
+            raise ValueError(f"préparation s3 {step['jeu']} : jeu introuvable, le run n'est pas lancé")
+        return ["s3", step["jeu"], url]
+    runs = cron.get_app_runs(step["tache"], limit=1)
+    if not runs or runs[0]["status"] != "success":
+        raise ValueError(f"préparation cron {step['tache']} : pas de dernière sortie réussie, le run n'est pas lancé")
+    return ["cron", step["tache"], runs[0]["output"]]
 
 
 def execute(slug: str, idempotency_key: Optional[str] = None) -> dict:
-    """Run the agent's preparations in order, publish their outputs, then trigger its job's run with them."""
+    """Gather the agent's preparations in order, publish them, then trigger its job's run with them."""
     agent = active_agent(slug)
     steps = agent["config"].get("preparations", [])
-    known = agent_config.preparations()
-    tasks = cron.discover_by_slug() if steps else {}
-    outputs = []
-    for i, step in enumerate(steps):
-        task = tasks.get(known[step]["cron"])
-        if task is None:
-            raise ValueError(f"préparation {step} : tâche {known[step]['cron']} introuvable, le run n'est pas lancé")
-        result = cron.execute_task(task, trigger="agent")
-        if result["status"] != "success":
-            raise ValueError(f"préparation {step} en {result['status']} : le run n'est pas lancé")
-        outputs.append([i + 1, step, result["status"], result["output"]])
+    rows = [[i + 1, *prepare(step)] for i, step in enumerate(steps)]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    columns = ["ordre", "preparation", "statut", "sortie"]
-    dataset = job_inputs.publish_dataset(f"agent-{slug}-{stamp}", columns, outputs, fmt="jsonl") if steps else None
+    columns = ["ordre", "type", "source", "contenu"]
+    dataset = job_inputs.publish_dataset(f"agent-{slug}-{stamp}", columns, rows, fmt="jsonl") if steps else None
     run = jobs.trigger_run(
         agent["pipeline_id"], input_uri=dataset["url"] if dataset else None, idempotency_key=idempotency_key
     )
     write_json(agent_path(slug), {**agent, "runs_a_livrer": [*agent.get("runs_a_livrer", []), run["id"]]})
-    return {"agent": slug, "run_id": run["id"], "preparations": [o[1] for o in outputs]}
+    return {"agent": slug, "run_id": run["id"], "preparations": [f"{r[1]} {r[2]}" for r in rows]}
 
 
 def deliver_run(slug: str, run_id: str) -> list[dict]:

@@ -21,8 +21,8 @@ def main(argv=None) -> int:
         commands.add_parser(name).add_argument("proposition")
     commands.add_parser("destinations", help="destinations, modèles, préparations et cadences permis")
     for name, help_text in (
-        ("lancer", "préparations puis run, dans un conteneur one-off"),
-        ("executer", "préparations puis run, ici même (conteneur one-off ou cron)"),
+        ("proposer-lancement", "montrer ce qu'un run lancé maintenant ferait, sans rien lancer"),
+        ("lancer", "préparations puis run, seulement après confirmation dans un message ultérieur"),
     ):
         commands.add_parser(name, help=help_text).add_argument("--agent", required=True)
     livrer = commands.add_parser("livrer", help="livrer la sortie d'un run terminé")
@@ -40,8 +40,8 @@ def main(argv=None) -> int:
         "retirer": lambda: agents.revert(args.proposition),
         "voir": lambda: agents.show(args.proposition),
         "destinations": agents.catalogue,
+        "proposer-lancement": lambda: agents.present_launch(args.agent),
         "lancer": lambda: agents.launch(args.agent),
-        "executer": lambda: agents.execute(args.agent),
         "livrer": lambda: agents.deliver_run(args.agent, args.run),
         "montrer-envoi": lambda: agents.present_envoi(args.agent, args.envoi),
         "approuver-envoi": lambda: agents.approve_envoi(args.agent, args.envoi),

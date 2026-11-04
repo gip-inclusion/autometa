@@ -116,10 +116,13 @@ def test_dod_11_no_warning_when_aligned(mocker, caplog):
 OUTIL = {"id": "classifieur.pertinence", "question": "Est-ce une opportunité pour le produit ?", "seuil": 0.7}
 
 
-def test_dod_10_classifier_preparations_and_cadence_are_accepted():
-    doc = make_agent(
-        cadence="hebdomadaire", outils_modeles=[OUTIL], preparations=["metabase.inventaire", "tags.vocabulaire"]
-    )
+def test_dod_10_classifier_typed_preparations_and_cadence_are_accepted():
+    steps = [
+        {"type": "notion", "base": "0" * 32},
+        {"type": "cron", "tache": "sync-tags"},
+        {"type": "s3", "jeu": "a.jsonl"},
+    ]
+    doc = make_agent(cadence="hebdomadaire", outils_modeles=[OUTIL], preparations=steps)
     assert agent_config.validate(doc) == []
 
 
@@ -136,19 +139,28 @@ def test_dod_10_classifier_preparations_and_cadence_are_accepted():
         ({"outils_modeles": [OUTIL, OUTIL]}, "'classifieur.pertinence' apparaît plusieurs fois"),
         ({"outils_modeles": [OUTIL] * 4}, "outils_modeles : attendu une liste de 3"),
         ({"outils_modeles": "classifieur.pertinence"}, "outils_modeles : attendu une liste"),
-        ({"preparations": ["sync-tags"]}, "preparations[0] : 'sync-tags' n'est pas une préparation"),
-        ({"preparations": ["tags.vocabulaire", "tags.vocabulaire"]}, "apparaît plusieurs fois"),
-        ({"preparations": "tags.vocabulaire"}, "preparations : attendu une liste"),
+        ({"preparations": [{"type": "sql", "requete": "select 1"}]}, "attendu un type parmi notion (avec base)"),
+        ({"preparations": ["sync-tags"]}, "preparations[0] : attendu un type parmi"),
+        ({"preparations": [{"type": "cron", "tache": "sync-tag"}]}, "Vouliez-vous dire 'sync-tags'"),
+        ({"preparations": [{"type": "cron", "tache": "run-agents"}]}, "'run-agents' n'est pas une tâche de cron/"),
+        ({"preparations": [{"type": "cron", "tache": "../web"}]}, "n'est pas une tâche de cron/"),
+        ({"preparations": [{"type": "notion", "base": "https://notion.so/x"}]}, "preparations[0].base"),
+        ({"preparations": [{"type": "s3", "jeu": "../secrets.json"}]}, "preparations[0].jeu"),
+        ({"preparations": [{"type": "s3", "jeu": "a.csv", "url": "x"}]}, "exactement les champs type et jeu"),
+        ({"preparations": [{"type": "cron", "tache": "sync-tags"}] * 2}, "'cron sync-tags' apparaît plusieurs fois"),
+        ({"preparations": [{"type": "cron", "tache": "sync-tags"}] * 4}, "preparations : attendu une liste de 3"),
+        ({"preparations": "sync-tags"}, "preparations : attendu une liste"),
         ({"cadence": "toutes les heures"}, "cadences permises : quotidienne, hebdomadaire, mensuelle"),
     ],
 )
-def test_dod_10_unknown_model_preparation_or_cadence_is_refused(overrides, expected):
+def test_dod_10_unknown_model_preparation_type_or_cadence_is_refused(overrides, expected):
     errors = agent_config.validate(make_agent(**overrides))
     assert any(expected in e for e in errors), errors
 
 
-def test_dod_11_every_preparation_names_a_task_of_cron_and_every_model_a_provider_model():
-    for preparation in agent_config.preparations().values():
-        assert (agent_config.config.CRON_DIR / preparation["cron"] / "cron.py").is_file()
+def test_dod_11_cron_preparations_are_the_tasks_of_cron_except_the_generic_agents_cron():
+    tasks = agent_config.cron_tasks()
+    assert "sync-tags" in tasks
+    assert agent_config.GENERIC_CRON not in tasks
+    assert (agent_config.config.CRON_DIR / agent_config.GENERIC_CRON / "cron.py").is_file()
     assert {m["type"] for m in agent_config.modeles().values()} == {"classificateur"}
-    assert all(m["modele"] for m in agent_config.modeles().values())
