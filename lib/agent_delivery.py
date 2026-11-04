@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional
 
@@ -101,7 +102,9 @@ def log(slug: str, envoi_id: str, record: dict) -> dict:
     return {"id": envoi_id, "destination": record["destination"], "mode": record["mode"], "statut": record["statut"]}
 
 
-def deliver(agent: dict, run_id: str, envois: list) -> list[dict]:
+def deliver(
+    agent: dict, run_id: str, envois: list, classify: Optional[Callable[[dict], list[dict]]] = None
+) -> list[dict]:
     """Record every production of a run, writing only in real mode; one refused production refuses the whole run."""
     run_id = str(uuid.UUID(run_id))
     if errors := agent_config.validate(agent):
@@ -117,8 +120,12 @@ def deliver(agent: dict, run_id: str, envois: list) -> list[dict]:
         if (record := read_json(f"{slug}/envois/{envoi_id}.json")) is None:
             mode = modes[envoi["destination"]]
             record = {**envoi, "run_id": run_id, "mode": mode, "statut": STATUS_BY_MODE[mode]}
+            if classify:
+                record["classement"] = classify(envoi)
+                if any(c["probabilite"] < c["seuil"] for c in record["classement"]):
+                    record["statut"] = "ecarte"
             write_json(f"{slug}/envois/{envoi_id}.json", record)
-            if mode == "reel":
+            if record["statut"] == "a_envoyer":
                 record = send(slug, envoi_id, record)
         summary.append(log(slug, envoi_id, record))
     return summary

@@ -266,3 +266,288 @@ def test_dod_3_last_user_message_ignores_assistant_messages_and_other_conversati
     assert agents.last_user_message_id(conv.id) == asked.id
     confirmed = conversations.add_message(conv.id, "user", "oui")
     assert agents.last_user_message_id(conv.id) == confirmed.id
+
+
+CONFIG_V2 = (
+    CONFIG.replace("signaux-faibles-mep", "opportunites-backlog").replace(
+        "produit.signal_faible", "produit.opportunite"
+    )
+    + """cadence: quotidienne
+outils_modeles:
+  - id: classifieur.pertinence
+    question: La production décrit-elle une opportunité produit nouvelle ?
+    seuil: 0.7
+preparations:
+  - tags.vocabulaire
+  - connecteurs.inventaire
+"""
+)
+SLUG_V2 = "opportunites-backlog"
+NEW_RUN = "33333333-3333-3333-3333-333333333333"
+
+
+@pytest.fixture
+def preparations(mocker):
+    """The cron engine, faked: two discoverable tasks, each run recorded in order, both succeeding."""
+    ran = []
+    tasks = {slug: {"slug": slug} for slug in ("sync-tags", "sync-connectors")}
+    mocker.patch("lib.agents.cron.discover_by_slug", return_value=tasks)
+
+    def execute_task(task, trigger):
+        ran.append((task["slug"], trigger))
+        return {"status": "success", "output": f"sortie de {task['slug']}"}
+
+    mocker.patch("lib.agents.cron.execute_task", side_effect=execute_task)
+    publish = mocker.patch("lib.agents.job_inputs.publish_dataset", return_value={"url": "https://s3/entree.jsonl"})
+    mocker.patch("lib.agents.jobs.trigger_run", return_value={"id": NEW_RUN})
+    return ran, publish
+
+
+def created_v2(conversation, engine, mocker):
+    mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {})
+    proposal = agents.plan(CONFIG_V2, "Tu lis le backlog produit.")
+    conversation.user_replies()
+    return agents.apply(proposal["id"])
+
+
+def classifier_says(mocker, *probabilities):
+    return mocker.patch("lib.agent_classifier.probability", side_effect=list(probabilities))
+
+
+def test_dod_9_guide_lists_what_an_agent_may_use_even_when_no_destination_has_a_target(store, mocker, capsys):
+    mocker.patch("lib.agents.config.AGENT_DESTINATION_TARGETS", {})
+    mocker.patch("lib.agents.config.OLLAMA_API_KEY", "")
+    mocker.patch("lib.agents.scalingo.is_configured", return_value=False)
+    assert cli.main(["destinations"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert {d["id"] for d in listed["destinations"]} == {
+        "produit.signal_faible",
+        "bizdev.marche",
+        "produit.opportunite",
+    }
+    assert not any(d["cible_configuree"] for d in listed["destinations"])
+    assert listed["modeles"] == [{"id": "classifieur.pertinence", "type": "classificateur"}]
+    assert [p["id"] for p in listed["preparations"]] == [
+        "connecteurs.inventaire",
+        "metabase.inventaire",
+        "tags.vocabulaire",
+    ]
+    assert listed["cadences"] == ["quotidienne", "hebdomadaire", "mensuelle"]
+    assert (listed["classificateur_configure"], listed["lancement_configure"]) == (False, False)
+
+
+def test_dod_9_proposal_without_any_target_shows_classifier_preparations_and_cadence(
+    store, conversation, engine, mocker
+):
+    mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {})
+    proposal = agents.plan(CONFIG_V2, "Tu lis le backlog produit.")
+    assert proposal["config"]["cadence"] == "quotidienne"
+    assert proposal["config"]["outils_modeles"][0]["seuil"] == 0.7
+    assert proposal["config"]["preparations"] == ["tags.vocabulaire", "connecteurs.inventaire"]
+    assert "dans cet ordre : tags.vocabulaire, connecteurs.inventaire." in proposal["system_prompt"]
+    engine.create_pipeline.assert_not_called()
+
+
+def test_dod_11_preparations_run_in_order_before_the_run_and_their_outputs_are_its_input(
+    store, conversation, engine, mocker, preparations
+):
+    ran, publish = preparations
+    created_v2(conversation, engine, mocker)
+    assert agents.execute(SLUG_V2) == {
+        "agent": SLUG_V2,
+        "run_id": NEW_RUN,
+        "preparations": ["tags.vocabulaire", "connecteurs.inventaire"],
+    }
+    assert ran == [("sync-tags", "agent"), ("sync-connectors", "agent")]
+    _, columns, rows = publish.call_args.args
+    assert columns == ["ordre", "preparation", "statut", "sortie"]
+    assert rows == [
+        [1, "tags.vocabulaire", "success", "sortie de sync-tags"],
+        [2, "connecteurs.inventaire", "success", "sortie de sync-connectors"],
+    ]
+    agents.jobs.trigger_run.assert_called_once_with(
+        PIPELINE_ID, input_uri="https://s3/entree.jsonl", idempotency_key=None
+    )
+    assert store.json(f"{SLUG_V2}/agent.json")["runs_a_livrer"] == [NEW_RUN]
+
+
+def test_dod_11_agent_without_preparations_runs_without_input(store, conversation, engine, mocker, preparations):
+    created_agent(conversation)
+    agents.execute(SLUG)
+    agents.jobs.trigger_run.assert_called_once_with(PIPELINE_ID, input_uri=None, idempotency_key=None)
+    assert preparations[0] == []
+
+
+@pytest.mark.parametrize(
+    ("tasks", "status", "message"),
+    [
+        ({"sync-tags": {"slug": "sync-tags"}}, "success", "tâche sync-connectors introuvable"),
+        (None, "failure", "préparation tags.vocabulaire en failure"),
+    ],
+)
+def test_dod_11_a_failed_or_missing_preparation_launches_no_run(
+    store, conversation, engine, mocker, preparations, tasks, status, message
+):
+    created_v2(conversation, engine, mocker)
+    if tasks is not None:
+        mocker.patch("lib.agents.cron.discover_by_slug", return_value=tasks)
+    agents.cron.execute_task.side_effect = None
+    agents.cron.execute_task.return_value = {"status": status, "output": "x"}
+    with pytest.raises(ValueError, match=message):
+        agents.execute(SLUG_V2)
+    agents.jobs.trigger_run.assert_not_called()
+
+
+def test_dod_10_productions_under_the_threshold_are_kept_but_not_delivered(store, conversation, engine, mocker, post):
+    created_v2(conversation, engine, mocker)
+    engine.get_run_output.return_value = json.dumps({
+        "envois": [
+            {"destination": "produit.opportunite", "titre": "Export CSV", "texte": "Trois demandes."},
+            {"destination": "produit.opportunite", "titre": "Bruit", "texte": "Rien de neuf."},
+        ]
+    })
+    classifier_says(mocker, 0.91, 0.2)
+    summary = agents.deliver_run(SLUG_V2, RUN_ID)
+    assert [s["statut"] for s in summary] == ["a_relire", "ecarte"]
+    kept = store.json(f"{SLUG_V2}/envois/{RUN_ID}-1.json")
+    assert kept["classement"] == [{"modele": "classifieur.pertinence", "probabilite": 0.2, "seuil": 0.7}]
+    with pytest.raises(ValueError, match="est ecarte"):
+        agents.agent_delivery.approve(SLUG_V2, f"{RUN_ID}-1", "lj@example.org")
+
+
+def test_dod_10_classifier_failure_delivers_nothing_of_that_production(store, conversation, engine, mocker):
+    created_v2(conversation, engine, mocker)
+    engine.get_run_output.return_value = json.dumps({
+        "envois": [{"destination": "produit.opportunite", "titre": "Export", "texte": "Trois demandes."}]
+    })
+    mocker.patch("lib.agent_classifier.config.OLLAMA_API_KEY", "")
+    with pytest.raises(RuntimeError, match="OLLAMA_API_KEY absent"):
+        agents.deliver_run(SLUG_V2, RUN_ID)
+    assert f"{SLUG_V2}/envois/{RUN_ID}-0.json" not in store.files
+
+
+def test_dod_12_launching_from_the_chat_starts_a_one_off_container_never_the_preparations(
+    store, conversation, engine, mocker, preparations
+):
+    created_v2(conversation, engine, mocker)
+    mocker.patch("lib.agents.scalingo.is_configured", return_value=True)
+    start = mocker.patch("lib.agents.scalingo.start_one_off", return_value="one-off-1")
+    assert agents.launch(SLUG_V2) == {"agent": SLUG_V2, "conteneur": "one-off-1"}
+    start.assert_called_once_with(f"python skills/agents/scripts/agents.py executer --agent {SLUG_V2}")
+    assert preparations[0] == []
+
+    mocker.patch("lib.agents.scalingo.is_configured", return_value=False)
+    with pytest.raises(ValueError, match="Scalingo non configuré"):
+        agents.launch(SLUG_V2)
+
+
+def test_dod_12_daily_pass_delivers_finished_runs_then_launches_due_agents(
+    store, conversation, engine, mocker, post, preparations
+):
+    created_v2(conversation, engine, mocker)
+    agents.execute(SLUG_V2)
+    classifier_says(mocker, 0.9)
+    mocker.patch("lib.agents.cron.is_due", return_value=True)
+    engine.get_run.return_value = {"pipeline_id": PIPELINE_ID, "status": "completed"}
+    engine.get_run_output.return_value = json.dumps({
+        "envois": [{"destination": "produit.opportunite", "titre": "Export", "texte": "Trois demandes."}]
+    })
+    agents.jobs.trigger_run.return_value = {"id": "44444444-4444-4444-4444-444444444444"}
+
+    agents.tick()
+
+    assert store.json(f"{SLUG_V2}/envois/{NEW_RUN}-0.json")["statut"] == "a_relire"
+    assert store.json(f"{SLUG_V2}/agent.json")["runs_a_livrer"] == ["44444444-4444-4444-4444-444444444444"]
+    assert agents.jobs.trigger_run.call_args.kwargs["idempotency_key"].startswith(f"agent-{SLUG_V2}-")
+
+
+def test_dod_12_daily_pass_skips_running_runs_retired_and_on_demand_agents(
+    store, conversation, engine, mocker, preparations
+):
+    applied = created_agent(conversation)
+    mocker.patch("lib.agents.cron.is_due", return_value=True)
+    agents.execute(SLUG)
+    engine.get_run.return_value = {"pipeline_id": PIPELINE_ID, "status": "running"}
+    agents.tick()
+    assert agents.jobs.trigger_run.call_count == 1
+    assert store.json(f"{SLUG}/agent.json")["runs_a_livrer"] == [NEW_RUN]
+
+    agents.revert(applied["id"])
+    agents.tick()
+    assert agents.jobs.trigger_run.call_count == 1
+
+
+def test_dod_12_one_failing_agent_does_not_stop_the_others(store, conversation, engine, mocker, preparations):
+    created_v2(conversation, engine, mocker)
+    agents.execute(SLUG_V2)
+    engine.get_run.side_effect = httpx.ConnectError("coupé")
+    with pytest.raises(RuntimeError, match=f"agents en échec : {SLUG_V2}"):
+        agents.tick()
+
+
+def throwaway_cron(base, slug, line):
+    folder = base / slug
+    folder.mkdir()
+    (folder / "CRON.md").write_text("---\ntitle: test\nbatch: maintenance\ntimeout: 30\n---\n")
+    (folder / "cron.py").write_text(f"print({line!r})\n")
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+def test_dod_13_guide_me_to_an_agent_with_a_classifier_and_two_crons(
+    app, store, engine, post, mocker, monkeypatch, tmp_path, capsys
+):
+    """Alexis's review-app test: propose, wait for the yes, create, run with two preparations first, classify, deliver in shadow."""
+    for slug, line in (("sync-tags", "vocabulaire : 42 tags"), ("sync-connectors", "connecteurs : notion, tally")):
+        throwaway_cron(tmp_path, slug, line)
+    mocker.patch(
+        "lib.agents.cron.discover_by_slug",
+        lambda: {t["slug"]: t for t in agents.cron.discover_from_dir(tmp_path, "CRON.md", "system")},
+    )
+    publish = mocker.patch("lib.agents.job_inputs.publish_dataset", return_value={"url": "https://s3/entree.jsonl"})
+    mocker.patch("lib.agents.jobs.trigger_run", return_value={"id": RUN_ID})
+    mocker.patch("lib.agents.config.AGENT_DESTINATION_TARGETS", {})
+    classifier_says(mocker, 0.88, 0.1)
+    engine.get_run_output.return_value = json.dumps({
+        "envois": [
+            {"destination": "produit.opportunite", "titre": "Export CSV", "texte": "Trois demandes."},
+            {"destination": "produit.opportunite", "titre": "Bruit", "texte": "Rien de neuf."},
+        ]
+    })
+    conv = conversations.create_conversation()
+    monkeypatch.setenv("AUTOMETA_CONVERSATION_ID", conv.id)
+    monkeypatch.setenv("AUTOMETA_USER_EMAIL", "alexis@example.org")
+    conversations.add_message(conv.id, "user", "Guide-moi pour créer un agent avec un classificateur et 2 crons")
+    (tmp_path / "agent.yaml").write_text(CONFIG_V2.replace("mode: relecture", "mode: ombre"))
+    (tmp_path / "consigne.md").write_text("Tu lis le backlog produit.")
+
+    assert cli.main(["destinations"]) == 0
+    capsys.readouterr()
+    assert (
+        cli.main(["proposer", "--config", str(tmp_path / "agent.yaml"), "--consigne", str(tmp_path / "consigne.md")])
+        == 0
+    )
+    proposal = json.loads(capsys.readouterr().out)
+    assert proposal["config"]["preparations"] == ["tags.vocabulaire", "connecteurs.inventaire"]
+    conversations.add_message(conv.id, "assistant", "Je crée cet agent ?")
+    assert cli.main(["creer", proposal["id"]]) == 1
+    engine.create_pipeline.assert_not_called()
+
+    conversations.add_message(conv.id, "user", "oui")
+    assert cli.main(["creer", proposal["id"]]) == 0
+    assert cli.main(["executer", "--agent", SLUG_V2]) == 0
+    capsys.readouterr()
+
+    first, second = (agents.cron.get_app_runs(slug)[0] for slug in ("sync-tags", "sync-connectors"))
+    assert (first["trigger"], first["status"], second["status"]) == ("agent", "success", "success")
+    assert first["started_at"] <= second["started_at"]
+    rows = publish.call_args.args[2]
+    assert [r[1] for r in rows] == ["tags.vocabulaire", "connecteurs.inventaire"]
+    assert "vocabulaire : 42 tags" in rows[0][3]
+    agents.jobs.trigger_run.assert_called_once_with(
+        PIPELINE_ID, input_uri="https://s3/entree.jsonl", idempotency_key=None
+    )
+
+    assert cli.main(["livrer", "--agent", SLUG_V2, "--run", RUN_ID]) == 0
+    assert [e["statut"] for e in json.loads(capsys.readouterr().out)] == ["ombre", "ecarte"]
+    post.assert_not_called()

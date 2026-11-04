@@ -25,6 +25,9 @@ class FakeStore:
     def head(self, path):
         return {"exists": path in self.files}
 
+    def list_directories(self, prefix=""):
+        return sorted({path.split("/")[0] for path in self.files})
+
     def json(self, path):
         return json.loads(self.files[path])
 

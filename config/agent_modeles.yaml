@@ -1,0 +1,13 @@
+# Liste fermée des modèles qu'un agent peut utiliser comme outil (champ outils_modeles du format
+# pdi.agent/1). Une configuration qui en cite un autre est refusée.
+#
+# Un classificateur est appelé par Autometa après le run, avec la clé OLLAMA_API_KEY d'Autometa :
+# le worker ne détient aucune clé. Il pose une question oui/non à chaque production ; une
+# production dont la probabilité du oui est sous le seuil de l'agent n'est pas livrée.
+#
+# modele : le nom du modèle chez le fournisseur (clef sur Ollama Cloud, point d'entrée /v1/systemone).
+
+modeles:
+  - id: classifieur.pertinence
+    type: classificateur
+    modele: clef
