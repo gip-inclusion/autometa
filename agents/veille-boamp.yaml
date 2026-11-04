@@ -1,0 +1,13 @@
+# Agent déclaré dans le dépôt : ce fichier et sa consigne (veille-boamp.md) arrivent par PR,
+# `make test` les valide (tests/test_agents_repo.py). Il s'enregistre par le skill `agents`
+# (proposer puis creer). Le mode réel s'ouvre par une PR sur config/agent_destinations.yaml.
+format: pdi.agent/1
+slug: veille-boamp
+titre: Veille BOAMP insertion et emploi
+mission: >-
+  Repérer chaque semaine, parmi les avis de marchés publics ouverts au BOAMP, ceux qui portent
+  sur l'insertion professionnelle, l'IAE ou l'accompagnement des bénéficiaires du RSA, pour
+  qu'un bizdev de la Plateforme de l'inclusion décide d'y répondre ou de contacter l'acheteur.
+points_de_contact:
+  - id: bizdev.marche
+    mode: ombre

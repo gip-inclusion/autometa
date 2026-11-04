@@ -35,6 +35,14 @@ La consigne du job se compose comme pour `compose_and_launch_job` (étapes 1 à 
 aucun accès aux données ni au contexte d'Autometa). Le contrat de sortie JSON y est ajouté
 automatiquement, avec la liste des destinations de l'agent.
 
+## Agents déclarés dans le dépôt
+
+Un agent peut aussi arriver par une PR : sa configuration `agents/<slug>.yaml` et sa consigne
+`agents/<slug>.md`, relues en PR et validées par la CI. Il s'enregistre par le même déroulé, avec
+ces deux fichiers tels quels : `proposer --config agents/<slug>.yaml --consigne agents/<slug>.md`,
+puis `creer` au tour suivant. Ne pas réécrire la consigne d'un agent du dépôt : une correction
+passe par une PR.
+
 ## Déroulé imposé
 
 ```bash
