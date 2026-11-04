@@ -53,9 +53,6 @@ DOD-9 — Les journaux de l'application nomment l'agent, la destination, le mode
 - `skills/compose_and_launch_job/SKILL.md` — un worker de job n'a aucun accès aux API
   d'Autometa : ce qu'il produit est livré par Autometa après le run, jamais par le worker, qui ne
   détient donc aucun jeton Slack ni Notion.
-- `~/pdi-agents-ref/agents/` (`FORMAT.md`, `registres/points_de_contact.yaml`,
-  `agents_config.py`) — format `pdi.agent/1`, liste fermée des points de contact, modes ombre,
-  relecture et réel, `reel_autorise` : réduits ici aux points de contact Slack (canal) et Notion.
 
 ## Questions ouvertes
 
