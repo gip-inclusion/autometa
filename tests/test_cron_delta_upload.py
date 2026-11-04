@@ -17,7 +17,8 @@ def test_prepare_s3_workdir_computes_hashes(mocker):
         {"path": "myapp/file1.txt"},
         {"path": "myapp/file2.txt"},
     ]
-    store.download.side_effect = [b"content1", b"content2"]
+    contents = {"myapp/file1.txt": b"content1", "myapp/file2.txt": b"content2"}
+    store.download.side_effect = contents.get
 
     workdir, pre_hashes = prepare_s3_workdir(store, "myapp/", "myapp")
 
