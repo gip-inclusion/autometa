@@ -330,3 +330,24 @@ def test_dod_8_jobs_page_renders_filters_sort_and_editor(client, mocker):
     assert 'value="agent"' not in html
     assert "Siae" not in html
     assert f'hx-post="/api/jobs/pipelines/{ALPHA}/tags/new"' in html
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+@pytest.mark.parametrize(
+    "path,data",
+    [("/tags", {"tag": "agent"}), ("/tags/new", {"label": "veille"})],
+)
+def test_dod_6_tagging_log_strips_line_breaks_from_user_email(client, mocker, caplog, path, data):
+    serve(mocker)
+    add_tag("agent")
+    caplog.set_level("INFO", logger="web.routes.jobs")
+
+    resp = client.post(
+        f"/api/jobs/pipelines/{ALPHA}{path}", data=data, headers={"X-Forwarded-Email": "a@b.fr\r\nFAUX journal"}
+    )
+
+    assert resp.status_code == 200
+    assert [r.getMessage() for r in caplog.records if "FAUX" in r.getMessage()] == [
+        f"job {ALPHA} : {'tag agent basculé' if path == '/tags' else 'terme proposé veille'} par a@b.frFAUX journal"
+    ]

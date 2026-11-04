@@ -81,7 +81,12 @@ async def toggle_pipeline_tag(pipeline_id: JobId, request: Request, user_email: 
         return error
     if not job_tags.toggle_tag(pipeline_id, name):
         return JSONResponse({"error": f"Terme inconnu ou désactivé : {name}"}, status_code=400)
-    logger.info("job %s : tag %s basculé par %s", pipeline_id, sanitize_for_log(name), user_email)
+    logger.info(
+        "job %s : tag %s basculé par %s",
+        sanitize_for_log(pipeline_id),
+        sanitize_for_log(name),
+        sanitize_for_log(user_email),
+    )
     return render_job_tags(request, pipeline_id)
 
 
@@ -93,7 +98,12 @@ async def create_pipeline_tag(pipeline_id: JobId, request: Request, user_email: 
         return error
     if refusal := job_tags.propose_term(pipeline_id, label):
         return JSONResponse({"error": refusal}, status_code=400)
-    logger.info("job %s : terme proposé %s par %s", pipeline_id, sanitize_for_log(label), user_email)
+    logger.info(
+        "job %s : terme proposé %s par %s",
+        sanitize_for_log(pipeline_id),
+        sanitize_for_log(label),
+        sanitize_for_log(user_email),
+    )
     return render_job_tags(request, pipeline_id)
 
 
