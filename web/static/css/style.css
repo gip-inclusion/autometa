@@ -381,6 +381,7 @@ body.has-sidebar {
   bottom: calc(100% + 0.25rem);
   left: 0;
   z-index: 10;
+  box-sizing: border-box;
   min-width: 16rem;
   max-width: 100%;
   margin: 0;

@@ -155,14 +155,11 @@ function initChat() {
 
 let jobNames = null;
 
-async function loadJobNames() {
-  if (jobNames) return jobNames;
-  try {
-    const resp = await fetch('/api/jobs/pipelines/names');
-    jobNames = resp.ok ? (await resp.json()).names : [];
-  } catch {
-    jobNames = [];
-  }
+// Why: the promise is cached, not its result — keystrokes during the first request must not start new ones
+function loadJobNames() {
+  jobNames ??= fetch('/api/jobs/pipelines/names')
+    .then(async (resp) => (resp.ok ? (await resp.json()).names : []))
+    .catch(() => []);
   return jobNames;
 }
 
