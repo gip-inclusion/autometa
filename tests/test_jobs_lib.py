@@ -208,3 +208,22 @@ def test_launch_cli_orchestrator_error_returns_1(mocker, tmp_path, capsys):
     rc = _load_launch_cli().main(["--name", "n", "--system-prompt-file", str(prompt_file)])
     assert rc == 1
     assert "orchestrator error" in capsys.readouterr().err
+
+
+def test_dod_4_launch_cli_relaunches_existing_pipeline(mocker, capsys):
+    car = mocker.patch("lib.jobs.create_and_run")
+    tr = mocker.patch("lib.jobs.trigger_run", return_value={"id": "r2", "status": "queued"})
+    mocker.patch("lib.jobs.config.BASE_URL", "https://a.example")
+    rc = _load_launch_cli().main(["--relaunch", PIPELINE_ID])
+    assert rc == 0
+    car.assert_not_called()
+    tr.assert_called_once_with(PIPELINE_ID, input_uri=None)
+    assert '"run_url": "https://a.example/jobs/runs/r2"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv", [[], ["--name", "x"], ["--relaunch", PIPELINE_ID, "--name", "x"]])
+def test_dod_4_launch_cli_rejects_incoherent_arguments(mocker, argv):
+    mocker.patch("lib.jobs.create_and_run")
+    mocker.patch("lib.jobs.trigger_run")
+    with pytest.raises(SystemExit):
+        _load_launch_cli().main(argv)

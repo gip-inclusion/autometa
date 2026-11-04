@@ -370,9 +370,37 @@ body.has-sidebar {
 }
 
 .chat-bar {
+  position: relative;
   display: flex;
   gap: 0.75rem;
   align-items: center;
+}
+
+.job-mentions {
+  position: absolute;
+  bottom: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 10;
+  min-width: 16rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 0.875rem;
+}
+
+.job-mentions li {
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+}
+
+.job-mentions li[aria-selected="true"] {
+  background: #e3e3fd;
+  color: #000091;
 }
 
 /* The wrapper IS the rounded rectangle border — holds pending files + input row */

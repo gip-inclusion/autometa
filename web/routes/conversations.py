@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from lib import job_mentions
 from lib.tag_suggestions import Subject, build_prompt, parse_response
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web import config, llm
@@ -423,7 +424,7 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
             if msg.type in ("user", "assistant"):
                 history.append({"role": msg.type, "content": msg.content})
 
-    prompt = content
+    prompt = await run_in_thread(job_mentions.build_context, content) + content
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:

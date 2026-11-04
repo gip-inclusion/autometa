@@ -43,6 +43,15 @@ async def create_pipeline(request: Request):
         return _unavailable(exc)
 
 
+@router.get("/api/jobs/pipelines/names")
+def pipeline_names(user_email: str = Depends(get_current_user)):
+    """Pipeline names for the chat's `@` autocompletion."""
+    try:
+        return {"names": sorted(p["name"] for p in jobs.list_pipelines())}
+    except httpx.HTTPError as exc:
+        return _unavailable(exc)
+
+
 @router.post("/api/jobs/pipelines/{pipeline_id}/runs")
 async def trigger_run(pipeline_id: JobId, request: Request):
     raw = await request.body()

@@ -213,3 +213,49 @@ def test_auth_status_reports_backend(client):
     assert r.status_code == 200
     body = r.json()
     assert {"backend", "auth_required", "authenticated"} <= set(body)
+
+
+def send(client, content):
+    return client.post(
+        f"/api/conversations/{store.create_conversation(user_id=ALICE).id}/messages",
+        headers=headers(),
+        json={"content": content},
+    )
+
+
+def stored_messages(submit_mock):
+    conv_id = submit_mock.call_args.args[0]
+    return [m.content for m in store.get_conversation(conv_id, include_messages=True).messages]
+
+
+def test_dod_1_send_message_injects_job_mention_context(client, submit_mock, mocker):
+    build = mocker.patch("web.routes.conversations.job_mentions.build_context", return_value="[job]\n\nUser request: ")
+
+    assert send(client, "relance @veille-dora").status_code == 200
+
+    build.assert_called_once_with("relance @veille-dora")
+    assert submit_mock.call_args.args[1] == "[job]\n\nUser request: relance @veille-dora"
+    assert stored_messages(submit_mock) == ["relance @veille-dora"]
+
+
+def test_dod_3_send_message_with_unknown_mention_goes_as_written(client, submit_mock, mocker):
+    jobs = mocker.patch("lib.job_mentions.jobs")
+    jobs.list_pipelines.return_value = [{"id": "p1", "name": "veille-dora", "system_prompt": "x"}]
+
+    assert send(client, "et @inconnu ?").status_code == 200
+
+    assert submit_mock.call_args.args[1] == "et @inconnu ?"
+    assert stored_messages(submit_mock) == ["et @inconnu ?"]
+
+
+def test_dod_4_send_message_with_mention_launches_nothing(client, submit_mock, mocker):
+    jobs = mocker.patch("lib.job_mentions.jobs")
+    jobs.list_pipelines.return_value = [{"id": "p1", "name": "veille-dora", "system_prompt": "x"}]
+    jobs.list_runs.return_value = []
+    trigger = mocker.patch("lib.jobs.trigger_run")
+
+    assert send(client, "relance @veille-dora").status_code == 200
+
+    assert "« oui » explicite" in submit_mock.call_args.args[1]
+    trigger.assert_not_called()
+    jobs.trigger_run.assert_not_called()
