@@ -18,7 +18,7 @@ DIGEST = {
             "titre": "Veille BOAMP du 2026-10-28 au 2026-11-03 : 1 avis",
             "texte": (
                 "## Outils numériques\n\n"
-                "- Logiciel de suivi des parcours d'insertion des bénéficiaires du RSA — Département fictif (99), "
+                "- Logiciel de suivi des parcours d'insertion des bénéficiaires du RSA : Département fictif (99), "
                 "réponse avant le 04/12/2026 : https://www.boamp.fr/pages/avis/?q=idweb:26-000001\n\n"
                 "1 158 avis lus, 1 retenu."
             ),
@@ -53,6 +53,10 @@ def test_dod_2_job_prompt_reads_only_the_public_boamp_api():
     assert hosts == {"boamp-datadila.opendatasoft.com"}
     for rule in ('nature=\\"APPEL_OFFRE\\"', 'etat=\\"INITIAL\\"', "7 jours", "url_avis", '{"envois": []}'):
         assert rule in CONSIGNE
+
+
+def test_dod_2_job_prompt_and_digest_carry_no_long_dash():
+    assert not re.search("[\u2013\u2014]", CONSIGNE + DIGEST["envois"][0]["texte"])
 
 
 def test_dod_4_repository_agent_registers_through_the_creation_flow(store, mocker, offline):

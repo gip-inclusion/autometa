@@ -61,9 +61,10 @@ texte, en markdown, classe les avis en deux rubriques, « Outils numériques » 
 numérique) et « Prestations d'insertion et d'accompagnement », triées par date limite de réponse.
 Pour chaque avis, une ligne :
 
-    - <objet, 140 caractères au plus> — <acheteur> (<département>), réponse avant le <jj/mm/aaaa> : <url_avis>
+    - <objet, 140 caractères au plus> : <acheteur> (<département>), réponse avant le <jj/mm/aaaa> : <url_avis>
 
 Termine par une ligne qui donne le nombre d'avis lus et le nombre d'avis retenus. Au plus 25
 avis : au-delà, garde les 25 dont la date limite est la plus proche et dis combien sont omis.
-N'invente rien : chaque ligne reprend un avis lu dans l'API, avec son `url_avis`. Si aucun avis
-n'est retenu, rends {"envois": []}.
+N'écris aucun tiret long ni demi-cadratin, même dans un objet repris de l'avis : mets un
+deux-points ou une virgule à la place. N'invente rien : chaque ligne reprend un avis lu dans
+l'API, avec son `url_avis`. Si aucun avis n'est retenu, rends {"envois": []}.

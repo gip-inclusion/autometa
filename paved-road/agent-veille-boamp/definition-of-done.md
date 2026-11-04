@@ -46,10 +46,6 @@ DOD-5 — Un run de l'agent dont la sortie reprend des avis BOAMP est livré en 
   `nomacheteur`, `code_departement`, `datelimitereponse`, `descripteur_libelle`, `type_marche`,
   `nature`, `etat`, `url_avis` et filtre `search(objet, …)`, vérifiés par une requête manuelle sur
   une semaine de parution (`DOD-2`).
-- `~/pdi-agents-ref/` (`INTEGRATION_AUTOMETA.md`, `agents/exemples/`) — un agent à source publique
-  est un fichier `agents/<slug>.yaml` arrivé par PR, gardé par une vérification en CI (`DOD-3`).
-- Référence de veille BOAMP côté clawdio — l'idée de la règle à trois niveaux et du lexique
-  d'exclusion, sans son périmètre ni ses seuils, propres à une autre structure (`DOD-2`).
 
 ## Questions ouvertes
 
