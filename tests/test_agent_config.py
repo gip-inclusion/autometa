@@ -92,12 +92,12 @@ def test_dod_2_parse_refuses_duplicate_keys_that_yaml_would_overwrite():
         ),
     ],
 )
-def test_dod_10_target_gaps_list_destinations_without_target_and_unknown_targets(mocker, targets, missing, unknown):
+def test_dod_11_target_gaps_list_destinations_without_target_and_unknown_targets(mocker, targets, missing, unknown):
     mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", targets)
     assert agent_config.target_gaps() == (missing, unknown)
 
 
-def test_dod_10_gaps_are_warnings_naming_destinations_never_identifiers(mocker, caplog):
+def test_dod_11_gaps_are_warnings_naming_destinations_never_identifiers(mocker, caplog):
     mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", {"bizdev.marche": "C2", "x.y": "C9SECRET"})
     agent_config.warn_target_gaps()
     assert [r.levelname for r in caplog.records] == ["WARNING", "WARNING"]
@@ -106,7 +106,7 @@ def test_dod_10_gaps_are_warnings_naming_destinations_never_identifiers(mocker, 
     assert "C9SECRET" not in caplog.text
 
 
-def test_dod_10_no_warning_when_aligned(mocker, caplog):
+def test_dod_11_no_warning_when_aligned(mocker, caplog):
     targets = {d: "id" for d in agent_config.destinations()}
     mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", targets)
     agent_config.warn_target_gaps()

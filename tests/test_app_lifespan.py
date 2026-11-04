@@ -39,7 +39,7 @@ def test_lifespan_survives_schema_bootstrap_failure(mocker, caplog):
     assert "dashboard_storage" in caplog.text
 
 
-def test_lifespan_warns_about_agent_destinations_without_target_and_still_starts(mocker, caplog):
+def test_dod_11_lifespan_warns_about_agent_destinations_without_target_and_still_starts(mocker, caplog):
     _mock_lifespan_deps(mocker)
     mocker.patch("web.app.failure_detection.ensure_schema")
     mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", {})
