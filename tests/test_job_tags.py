@@ -326,7 +326,8 @@ def test_dod_8_jobs_page_renders_filters_sort_and_editor(client, mocker):
     assert 'Agent <span class="opacity-75 ms-1">2</span>' in html
     assert "Tri : Activité récente" in html
     assert 'href="/jobs?tri=nom"' in html
-    assert '<option value="veille">Veille (proposé)</option>' in html
+    assert '<option value="veille">Veille</option>' in html
+    assert "proposé" not in html
     assert 'value="agent"' not in html
     assert "Siae" not in html
     assert f'hx-post="/api/jobs/pipelines/{ALPHA}/tags/new"' in html

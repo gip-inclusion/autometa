@@ -4525,3 +4525,8 @@ body.no-sidebar .section-header .container-fluid {
   font-weight: 600;
   color: #6c757d;
 }
+
+/* Why: le thème itou dessine la flèche du select à 1rem du bord droit sans lui réserver de place. */
+.job-tags-select {
+  padding-right: 2.5rem;
+}

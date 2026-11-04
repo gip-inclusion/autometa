@@ -8,14 +8,14 @@
   </span>
   {% endfor %}
   {% if tag_groups %}
-  <select name="tag" class="form-select form-select-sm w-auto" aria-label="Ajouter un tag"
+  <select name="tag" class="form-select form-select-sm w-auto job-tags-select" aria-label="Ajouter un tag"
           hx-post="/api/jobs/pipelines/{{ pipeline_id }}/tags" hx-trigger="change"
           hx-target="#jobTags" hx-swap="outerHTML">
     <option value="" selected disabled>Ajouter un tag…</option>
     {% for group in tag_groups %}
     <optgroup label="{{ group.label }}">
       {% for term in group.terms %}
-      <option value="{{ term.name }}">{{ term.label }}{% if term.pending %} (proposé){% endif %}</option>
+      <option value="{{ term.name }}">{{ term.label }}</option>
       {% endfor %}
     </optgroup>
     {% endfor %}
