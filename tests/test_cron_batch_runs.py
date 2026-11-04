@@ -288,6 +288,7 @@ def test_a_failing_task_has_failed_since_the_first_failure_after_its_last_succes
         "retombe": ["failure", "success", "failure", "timeout"],
         "jamais-ok": ["failure", "interrupted", "failure"],
         "retabli": ["failure", "success"],
+        "degrade-entre-deux": ["failure", "degraded", "failure"],
     }
     for slug, statuses in history.items():
         for offset, status in enumerate(statuses):
@@ -296,4 +297,28 @@ def test_a_failing_task_has_failed_since_the_first_failure_after_its_last_succes
     assert cron.failing_since(list(history)) == {
         "retombe": day + timedelta(days=2),
         "jamais-ok": day,
+        "degrade-entre-deux": day,
     }
+
+
+@pytest.mark.parametrize(
+    ("history", "previous_success_announces", "failure_alerts"),
+    [
+        (["failure", "degraded"], True, False),
+        (["success", "degraded"], False, True),
+        (["degraded"], False, True),
+    ],
+)
+def test_a_degraded_run_is_transparent_for_the_next_alert(mocker, history, previous_success_announces, failure_alerts):
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+    day = datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc)
+    for offset, status in enumerate(history):
+        record_past_run("tdb", status, day + timedelta(days=offset))
+    previous = cron.last_verdict("tdb")
+
+    cron.notify_cron_status_change("tdb", "success", previous, "")
+    assert notify.called is previous_success_announces
+
+    notify.reset_mock()
+    cron.notify_cron_status_change("tdb", "failure", previous, "")
+    assert notify.called is failure_alerts

@@ -85,8 +85,9 @@ def is_valid_schedule(schedule: str) -> bool:
 
 # Cron statuses that count as "broken" for Slack alerts
 BROKEN_STATUSES = {"failure", "timeout"}
-# Why: la façade ne lève jamais, un script peut donc sortir en 0 avec des requêtes en échec et des
-# fichiers en partie périmés. Ni un succès, ni une panne : ses fichiers sont gardés, le récap le dit.
+# Why: une requête en échec ne fait pas planter le script : il peut sortir en 0 avec des fichiers en
+# partie périmés. Ni un succès, ni une panne : ses fichiers sont gardés, le récap le dit, et seul
+# `success` clôt une panne, sinon Slack annoncerait « rétabli » pendant que la source reste à terre.
 DEGRADED_STATUS = "degraded"
 
 
@@ -719,10 +720,7 @@ def execute_task(task: dict, trigger: str = "scheduled", batch_run_id: int | Non
     failures_file = None
     failed_queries = []
 
-    previous_status = None
-    if trigger == "scheduled":
-        recent = get_app_runs(slug, limit=1)
-        previous_status = recent[0]["status"] if recent else None
+    previous_status = last_verdict(slug) if trigger == "scheduled" else None
 
     started_at = utcnow()
     start_time = time.monotonic()
@@ -824,7 +822,7 @@ def notify_cron_status_change(
 ) -> None:
     """Post a Slack alert when a cron breaks (every run if `repeat`, else only newly) or recovers."""
     broke = status in BROKEN_STATUSES and (repeat or previous_status not in BROKEN_STATUSES)
-    recovered = status in ("success", DEGRADED_STATUS) and previous_status in BROKEN_STATUSES
+    recovered = status == "success" and previous_status in BROKEN_STATUSES
     if not (broke or recovered):
         return
 
@@ -1056,6 +1054,22 @@ def last_success_durations() -> dict[str, int]:
     except SQLAlchemyError as e:
         logger.warning("cron : durées des passages illisibles, lot sans couloir lourd (%s)", e)
         return {}
+
+
+def last_verdict(slug: str) -> str | None:
+    """Statut du dernier run hors `degraded`, qui n'ouvre ni ne clôt une panne."""
+    stmt = (
+        select(CronRun.status)
+        .where(CronRun.app_slug == slug, CronRun.status != DEGRADED_STATUS)
+        .order_by(CronRun.started_at.desc(), CronRun.id.desc())
+        .limit(1)
+    )
+    try:
+        with get_db() as session:
+            return session.scalar(stmt)
+    except SQLAlchemyError as e:
+        logger.warning("cron %s : historique illisible, pas d'alerte de transition (%s)", sanitize_for_log(slug), e)
+        return None
 
 
 def get_app_runs(slug: str, limit: int = 20) -> list[dict]:
@@ -1381,9 +1395,9 @@ def main():
     print("Running all cron tasks...")
     results = run_all(dry_run=args.dry_run, batch=args.batch, budget=args.budget, workers=args.workers)
     if not args.dry_run:
-        ok = sum(1 for r in results if r["status"] == "success")
-        fail = len(results) - ok
-        print(f"Done: {ok} succeeded, {fail} failed")
+        counts = collections.Counter(r["status"] for r in results)
+        ok, degraded = counts["success"], counts[DEGRADED_STATUS]
+        print(f"Done: {ok} succeeded, {degraded} degraded, {len(results) - ok - degraded} failed")
 
 
 if __name__ == "__main__":

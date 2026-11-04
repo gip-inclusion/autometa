@@ -79,7 +79,7 @@ def test_discover_from_s3_fails_loudly_when_the_listing_fails(mocker):
 @pytest.mark.parametrize("error", [RuntimeError("bug"), S3_DOWN])
 def test_run_all_runs_every_task_and_records_a_failure_when_one_raises(mocker, error):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a"), make_task("b"), make_task("c")])
-    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "last_verdict", return_value=None)
     mocker.patch.object(cron, "notify_cron_status_change")
     record_run = mocker.patch.object(cron, "record_run")
     prepare = mocker.patch.object(cron, "prepare_s3_workdir", side_effect=error)
@@ -119,7 +119,7 @@ def test_execute_task_records_success_when_the_publication_refresh_fails(mocker,
 def test_execute_task_repeats_failure_alerts_only_for_publications(mocker, tmp_path, source, repeat):
     (tmp_path / "cron.py").write_text("import sys; sys.exit(1)")
     mocker.patch.object(cron, "prepare_s3_workdir", return_value=(tmp_path, {}))
-    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "last_verdict", return_value=None)
     mocker.patch.object(cron, "record_run")
     notify = mocker.patch.object(cron, "notify_cron_status_change")
     task = make_task("tdb-pub1", source=source, dashboard_slug="tdb", publication_id="pub1")
@@ -137,7 +137,7 @@ def test_combine_output_keeps_the_stderr_tail_when_stdout_is_huge():
 
 
 def test_execute_task_alerts_slack_with_stderr_rather_than_stdout(mocker, tmp_path):
-    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "last_verdict", return_value=None)
     mocker.patch.object(cron, "record_run")
     notify = mocker.patch.object(cron, "notify_cron_status_change")
     task = write_task(
@@ -161,7 +161,7 @@ def run_dashboard_script(mocker, tmp_path, body, *, batch=cron.DASHBOARD_BATCH):
     workdir = tmp_path / "cron-tdb"
     workdir.mkdir()
     (workdir / "cron.py").write_text(textwrap.dedent(body))
-    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "last_verdict", return_value=None)
     mocker.patch.object(cron, "open_run", return_value=None)
     mocker.patch.object(cron, "record_run")
     mocker.patch.object(cron, "notify_cron_status_change")
@@ -212,7 +212,7 @@ def test_a_failed_query_only_softens_a_run_that_exited_cleanly(mocker, tmp_path,
 
 
 def test_a_system_task_is_never_watched_for_failed_queries(mocker, tmp_path):
-    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "last_verdict", return_value=None)
     mocker.patch.object(cron, "record_run")
     mocker.patch.object(cron, "notify_cron_status_change")
     task = write_task(
@@ -248,14 +248,13 @@ def test_the_failures_file_never_outlives_its_run_nor_reaches_the_workdir(mocker
 @pytest.mark.parametrize(
     ("status", "previous", "expected"),
     [
-        ("degraded", "failure", "rétabli"),
+        ("degraded", "failure", None),
         ("degraded", "success", None),
-        ("degraded", "degraded", None),
-        ("success", "degraded", None),
-        ("failure", "degraded", "en échec"),
+        ("success", "failure", "rétabli"),
+        ("failure", "success", "en échec"),
     ],
 )
-def test_a_degraded_run_closes_a_red_alert_but_opens_none(mocker, status, previous, expected):
+def test_a_degraded_run_neither_opens_nor_closes_a_red_alert(mocker, status, previous, expected):
     notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
 
     cron.notify_cron_status_change("tdb", status, previous, "erreur")
@@ -571,7 +570,7 @@ def test_a_task_emitting_non_utf8_bytes_does_not_derail_the_run(mocker, tmp_path
 )
 def test_an_enormous_exception_message_is_truncated_before_reaching_the_database(mocker, error):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[make_task("a")])
-    mocker.patch.object(cron, "get_app_runs", return_value=[])
+    mocker.patch.object(cron, "last_verdict", return_value=None)
     mocker.patch.object(cron, "notify_cron_status_change")
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=error)
     record_run = mocker.patch.object(cron, "record_run")
@@ -805,6 +804,17 @@ def test_a_batch_without_a_budget_runs_everything(mocker):
     cron.run_all(batch="maintenance")
 
     assert execute.call_count == 2
+
+
+def test_the_cron_entry_point_counts_degraded_runs_apart(monkeypatch, mocker, capsys):
+    monkeypatch.setattr("sys.argv", ["cron", "--batch", "maintenance"])
+    mocker.patch.object(cron, "setup_logging")
+    results = [{"status": status} for status in ("success", "degraded", "failure")]
+    mocker.patch.object(cron, "run_all", return_value=results)
+
+    cron.main()
+
+    assert "Done: 1 succeeded, 1 degraded, 1 failed" in capsys.readouterr().out
 
 
 def test_the_cron_entry_point_does_not_report_to_sentry(monkeypatch, mocker):
