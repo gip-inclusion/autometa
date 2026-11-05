@@ -586,8 +586,21 @@ def extract(run_id: int, batches: int | None = None) -> dict:
 
 
 def certain_kinds(kinds: str) -> list[str]:
-    """Les sortes de secret sans ambiguïté ; un paramètre d'URL nommé comme un secret reste un indice pour l'auditeur."""
-    return [k for k in kinds.split(", ") if k != "paramètre d'URL sensible"]
+    """Les sortes de secret reconnaissables à leur forme ; les autres sont des indices que l'auditeur juge."""
+    # Why: un champ, une variable, un en-tête ou un paramètre nommés comme un secret portent aussi bien un exemple
+    # (« password = "example" ») : en faire d'office un incident CRITIQUE lancerait de fausses alertes.
+    certain = {
+        "mot de passe de DSN",
+        "identifiants user:mot de passe",
+        "jeton JWT",
+        "jeton Matomo",
+        "clé autometa-jobs",
+        "jeton de service",
+        "jeton Notion",
+        "clé Anthropic",
+        "secret de configuration",
+    }
+    return [k for k in kinds.split(", ") if k in certain]
 
 
 def secret_findings(secrets: list[dict]) -> list[Finding]:

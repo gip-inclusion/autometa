@@ -33,9 +33,11 @@ Règles du projet utiles au jugement :
 1. **Vérifier, pas soupçonner.** Pour A1/A2, recalcule les chiffres à partir des sorties d'outil (ouvre le message
    complet si la transcription est tronquée). Si tu ne peux pas vérifier, ne crée pas d'incident.
 2. **Confirmer ou écarter les détections automatiques**, puis chercher ce que la regex ne voit pas. Un secret d'une
-   forme certaine (détection G28 autre que « paramètre d'URL sensible ») est déjà enregistré comme incident
-   CRITIQUE : ne le reprends pas. « paramètre d'URL sensible » n'est qu'un indice : la valeur est masquée, juge sur le
-   nom du paramètre et le contexte si c'était un secret.
+   forme certaine (adresse de base avec mot de passe, jeton de service, JWT, jeton Matomo, secret de la
+   configuration) est déjà enregistré comme incident CRITIQUE : ne le reprends pas. Les autres détections G28
+   (« paramètre d'URL sensible », « champ secret », « variable secrète », « en-tête d'autorisation ») ne sont que des
+   indices : la valeur est masquée, juge sur le nom et le contexte si c'était un vrai secret ; un exemple
+   (`password = "example"`) n'en est pas un.
 3. **Ancrer chaque incident sur un message de la section « Messages à auditer »**, jamais sur le contexte.
 4. **Signaler ce qui ne rentre pas dans la grille** dans `off_grid` : le symptôme, le mécanisme, pourquoi c'est grave
    et, si possible, comment le détecter mécaniquement. Un `off_grid` vide sur une quinzaine de conversations est

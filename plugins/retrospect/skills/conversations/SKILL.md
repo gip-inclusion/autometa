@@ -40,8 +40,10 @@ W=data/audit/runs/<run>/work
 
 1. `$A start --kind daily` — les messages depuis le dernier run clos, jusqu'à dix minutes avant maintenant. Premier
    run : `--since AAAA-MM-JJ`. `--until AAAA-MM-JJ` (jour exclu) borne la fenêtre.
-2. `$A extract --run N` — transcriptions masquées, détections et lots dans `$W` ; les secrets d'une forme certaine
-   sont enregistrés d'office comme incidents G28 CRITIQUE.
+2. `$A extract --run N` — transcriptions masquées, détections et lots dans `$W`. Les secrets reconnaissables à leur
+   forme (adresse de base avec mot de passe, jeton de service, secret de la configuration…) sont enregistrés d'office
+   comme incidents G28 CRITIQUE ; un champ, une variable ou un en-tête simplement nommés comme un secret restent des
+   indices pour les auditeurs.
 3. **Audit** : un sous-agent par lot, modèle **opus**, tous en parallèle, avec ce prompt :
 
    > Tu es auditeur de conversations de production d'Autometa. Lis entièrement

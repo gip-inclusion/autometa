@@ -240,6 +240,19 @@ def test_extract_masks_secrets_on_disk_and_reports_them(mocker, audit_dir):
     assert summary["secrets"] == [{"conversation_id": "c1", "message_id": 3, "kinds": "mot de passe de DSN"}]
 
 
+@pytest.mark.parametrize(
+    "text", ['password = "example"', 'api_key="votre_cle_api"', '"password": "changeme"', "MAX_TOKEN=4096000000"]
+)
+def test_a_value_merely_named_like_a_secret_is_masked_but_left_to_the_auditor(mocker, text):
+    run = open_daily(mocker, [msg(1), tool_result(2, text)])
+
+    audit.extract(run.id)
+
+    assert text not in (audit.work_dir(run.id) / "tx" / "c1.md").read_text()
+    assert audit.load_findings(run.id) == []
+    assert not [m for m in audit.slack_messages(run.id, "https://autometa") if m["text"].startswith(":rotating")]
+
+
 def test_a_secret_cut_by_the_transcript_is_masked_before_the_cut(mocker):
     long_output = "x" * 3472 + f"postgresql://autometa:{FAUX}@h/db" + "y" * 5000
     run = open_daily(mocker, [msg(1), tool_result(2, long_output)])
