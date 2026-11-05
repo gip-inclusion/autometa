@@ -97,8 +97,8 @@ def open_real_mode(mocker):
 @pytest.mark.parametrize(
     ("envois", "message"),
     [
-        ([make_envoi(), make_envoi("bizdev.marche")], "'bizdev.marche' n'est pas un point de contact"),
-        ([make_envoi("#general")], "'#general' n'est pas un point de contact"),
+        ([make_envoi(), make_envoi("bizdev.marche")], "'bizdev.marche' n'est ni un point de contact"),
+        ([make_envoi("#general")], "'#general' n'est ni un point de contact"),
         ([make_envoi(canal="C0AUTRE")], "attendu destination, titre, texte"),
         ([make_envoi(titre=" ")], "non vides"),
         ([make_envoi(cle="../x")], "cle en minuscules"),

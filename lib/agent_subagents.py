@@ -46,19 +46,35 @@ def chat(modele: str, consigne: str, envoi: dict, **options) -> str:
 
 
 def classify(outil: dict, envoi: dict) -> tuple[dict, dict]:
+    """A filter asks one yes/no question; a labeller asks one per label, in one call, and never sets aside."""
+    labels = outil.get("etiquettes") or [{"nom": "retenir", "question": outil["question"]}]
     body = ollama(
         "v1/systemone",
         {
             "model": outil["modele"],
             "state": {"titre": envoi["titre"], "texte": envoi["texte"]},
-            "questions": {"retenir": {"type": "noul", "instructions": outil["question"]}},
+            "questions": {e["nom"]: {"type": "noul", "instructions": e["question"]} for e in labels},
         },
     )
     try:
-        probabilite = round(float(body["answers"]["retenir"]["noul"]), 4)
+        probabilites = {e["nom"]: round(float(body["answers"][e["nom"]]["noul"]), 4) for e in labels}
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError(f"réponse illisible : {type(exc).__name__}") from exc
-    return envoi, {"probabilite": probabilite, "seuil": outil["seuil"], "retenu": probabilite >= outil["seuil"]}
+    seuil = outil["seuil"]
+    if "question" in outil:
+        return envoi, {
+            "probabilite": probabilites["retenir"],
+            "seuil": seuil,
+            "retenu": probabilites["retenir"] >= seuil,
+        }
+    retenues = [nom for nom, p in probabilites.items() if p >= seuil]
+    etiquettes = [*envoi.get("etiquettes", []), *(n for n in retenues if n not in envoi.get("etiquettes", []))]
+    texte = f"{envoi['texte']}\n\nÉtiquettes : {', '.join(retenues) or 'aucune'}"
+    return {**envoi, "texte": texte, "etiquettes": etiquettes}, {
+        "probabilites": probabilites,
+        "seuil": seuil,
+        "etiquettes": retenues,
+    }
 
 
 def well_typed(value: object, kind: str) -> bool:

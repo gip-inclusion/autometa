@@ -1,5 +1,6 @@
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -7,6 +8,7 @@ import pytest
 
 from lib import agents
 from skills.agents.scripts import agents as cli
+from tests.test_agent_connectors import FakeGitHub
 from tests.test_agent_delivery import FakeStore
 from web.database import store as conversations
 
@@ -244,7 +246,7 @@ def test_the_skill_runs_its_script_as_a_module_with_the_python_on_path(capsys):
     """Scalingo has no .venv: the skill calls `python -m`, resolved from the repository root."""
     skill = Path("skills/agents/SKILL.md").read_text()
     lines = [line.split() for line in skill.splitlines() if line.startswith("python")]
-    assert len(lines) == 10
+    assert len(lines) == 15
     assert ".venv" not in skill
     with pytest.raises(SystemExit):
         cli.main(["--help"])
@@ -324,8 +326,9 @@ def preparations(mocker):
         "lib.agents.cron.get_app_runs",
         side_effect=lambda slug, limit: [{"status": "success", "output": outputs[slug]}] if slug in outputs else [],
     )
-    mocker.patch("lib.agents.notion.query_database", return_value=[{"properties": {}}])
-    mocker.patch("lib.agents.notion.extract_page_properties", return_value={"Nom": "Export CSV"})
+    mocker.patch("lib.notion.query_database", return_value=[{"properties": {}}])
+    mocker.patch("lib.notion.extract_page_properties", return_value={"Nom": "Export CSV"})
+    mocker.patch("lib.notion.NOTION_TOKEN", "notion-token")
     mocker.patch("lib.agents.s3.job_inputs.get_url", return_value="https://s3/services.sqlite")
     mocker.patch("lib.agents.s3.job_inputs.exists", return_value=True)
     publish = mocker.patch("lib.agents.job_inputs.publish_dataset", return_value={"url": "https://s3/entree.jsonl"})
@@ -370,10 +373,14 @@ def test_dod_9_guide_lists_what_an_agent_may_use_even_when_no_destination_has_a_
     assert not any(d["cible_configuree"] for d in listed["destinations"])
     assert listed["sous_agents"]["classificateur"] == ["clef:27b"]
     assert set(listed["sous_agents"]) == {"classificateur", "extraction", "resume"}
-    assert listed["preparations"]["types"] == {"notion": "base", "s3": "jeu", "cron": "tache"}
-    assert "sync-tags" in listed["preparations"]["taches_cron"]
-    assert "run-agents" not in listed["preparations"]["taches_cron"]
-    assert listed["cadences"] == ["quotidienne", "hebdomadaire", "mensuelle"]
+    assert list(listed["preparations"]) == ["notion", "github", "url", "s3", "cron"]
+    assert {"base", "page", "filtre", "plafond"} <= set(listed["preparations"]["notion"]["champs"])
+    assert {"depots", "organisation", "plafond_depot"} <= set(listed["preparations"]["github"]["champs"])
+    assert "sync-tags" in listed["taches_cron"]
+    assert "run-agents" not in listed["taches_cron"]
+    assert listed["cadences"]["jours"][0] == "lundi"
+    assert listed["cadences"]["raccourcis"] == ["quotidienne", "hebdomadaire", "mensuelle"]
+    assert listed["fichiers"] == {"au_plus": 5, "taille_max": 100000}
     assert listed["sous_agents_configures"] is False
 
 
@@ -433,12 +440,21 @@ def test_dod_11_preparations_feed_the_run_in_order_from_their_three_types(
 ):
     steps = f"  - type: notion\n    base: {NOTION_DB}\n  - type: s3\n    jeu: services.sqlite\n"
     created_v2(conversation, mocker, CONFIG_V2.replace("  - type: cron\n    tache: sync-connectors\n", steps))
-    assert agents.execute(SLUG_V2)["preparations"] == ["cron sync-tags", f"notion {NOTION_DB}", "s3 services.sqlite"]
+    assert agents.execute(SLUG_V2)["preparations"] == [
+        "cron sync-tags",
+        f"notion base {NOTION_DB}",
+        "s3 services.sqlite",
+    ]
     _, columns, rows = preparations.call_args.args
     assert columns == ["ordre", "type", "source", "contenu"]
     assert rows == [
         [1, "cron", "sync-tags", "vocabulaire : 42 tags"],
-        [2, "notion", NOTION_DB, '[{"Nom": "Export CSV"}]'],
+        [
+            2,
+            "notion",
+            f"base {NOTION_DB}",
+            "1 lignes.\n\n| Nom | derniere_modification |\n|---|---|\n| Export CSV |  |",
+        ],
         [3, "s3", "services.sqlite", "https://s3/services.sqlite"],
     ]
     agents.jobs.trigger_run.assert_called_once_with(
@@ -596,6 +612,184 @@ def test_dod_13_a_changed_prompt_is_a_new_pipeline_and_a_stale_proposal_is_refus
         agents.revert(creation["id"])
 
 
+CONFIG_FILES = (
+    CONFIG_V2
+    .replace("cadence: quotidienne", "cadence:\n  jours: [lundi, jeudi]")
+    .replace("    question: La production décrit-elle une opportunité produit nouvelle ?\n", "")
+    .replace(
+        "    seuil: 0.7\n",
+        "    etiquettes:\n      - nom: rapide\n        question: Est-ce faisable en moins d'une semaine ?\n    seuil: 0.7\n",
+    )
+    + "fichiers: [notes.md, suivi.md]\n"
+)
+
+
+def labelled(mocker, *probabilities):
+    """Ollama Cloud mocked for a labeller with one label rapide, then the summary."""
+    answers = iter(probabilities)
+
+    def reply(path, payload):
+        if path == "v1/systemone":
+            return {"answers": {"rapide": {"type": "noul", "noul": next(answers)}}}
+        return {"message": {"role": "assistant", "content": "Résumé."}}
+
+    return mocker.patch("lib.agent_subagents.ollama", side_effect=reply)
+
+
+@pytest.mark.parametrize(
+    ("day", "due"),
+    [
+        ("2026-11-02T07:00:00", True),
+        ("2026-11-05T07:00:00", True),
+        ("2026-11-04T07:00:00", False),
+        ("2026-11-06T05:00:00", True),
+    ],
+)
+def test_dod_18_a_cadence_by_days_of_the_week_launches_on_those_days_only(mocker, day, due):
+    """Days of the batch start: a Friday before 06:00 still belongs to Thursday's batch."""
+    mocker.patch("lib.agents.cron.utcnow", return_value=datetime.fromisoformat(day).replace(tzinfo=timezone.utc))
+    assert agents.due({"jours": ["lundi", "jeudi"]}) is due
+
+
+@pytest.mark.parametrize(("cadence", "due"), [("quotidienne", True), ("hebdomadaire", False)])
+def test_dod_18_the_former_cadences_still_work(mocker, cadence, due):
+    mocker.patch("lib.agents.cron.utcnow", return_value=datetime(2026, 11, 4, 7, tzinfo=timezone.utc))
+    assert agents.due(cadence) is due
+
+
+def test_dod_16_the_run_receives_its_files_and_the_github_cursor_moves_on(
+    store, conversation, engine, mocker, preparations
+):
+    created_v2(conversation, mocker, CONFIG_FILES)
+    agents.agent_files.write_version(SLUG_V2, "notes.md", "Définitions v1", "run r0")
+    prepare = mocker.patch(
+        "lib.agents.agent_connectors.prepare",
+        side_effect=[{"source": "a", "contenu": "A", "suivant": 4}, {"source": "b", "contenu": "B"}],
+    )
+    result = agents.execute(SLUG_V2)
+    assert [c.args[1] for c in prepare.call_args_list] == [0, 0]
+    rows = preparations.call_args.args[2]
+    assert rows[2:] == [[3, "fichier", "notes.md", "Définitions v1"], [4, "fichier", "suivi.md", ""]]
+    assert result["preparations"][2:] == ["fichier notes.md", "fichier suivi.md"]
+    assert store.json(f"{SLUG_V2}/agent.json")["curseurs"] == {"0": 4}
+    prepare.side_effect = [{"source": "a", "contenu": "A", "suivant": 1}, {"source": "b", "contenu": "B"}]
+    agents.execute(SLUG_V2)
+    assert prepare.call_args_list[2].args[1] == 4
+
+
+def files_output(engine, envois, fichiers=None):
+    engine.get_run_output.return_value = json.dumps({"envois": envois, **({"fichiers": fichiers} if fichiers else {})})
+
+
+def test_dod_16_a_run_rewrites_a_file_and_files_labelled_productions_in_another(
+    store, conversation, engine, mocker, post
+):
+    created_v2(conversation, mocker, CONFIG_FILES)
+    envois = [
+        {"destination": "fichier:suivi.md", "titre": "Export CSV", "texte": "Trois demandes.", "cle": "export-csv"},
+        {"destination": "fichier:suivi.md", "titre": "Carte", "texte": "Une demande."},
+        {"destination": "produit.opportunite", "titre": "Synthèse", "texte": "Deux sujets."},
+    ]
+    files_output(engine, envois, [{"nom": "notes.md", "contenu": "# Définitions\n- rapide : moins d'une semaine"}])
+    labelled(mocker, 0.9, 0.2, 0.8)
+    summary = agents.deliver_run(SLUG_V2, RUN_ID)
+    assert [s["statut"] for s in summary] == ["range", "range", "a_relire"]
+    post.assert_not_called()
+    suivi = agents.read_file(SLUG_V2, "suivi.md")
+    assert suivi["version"] == 1
+    assert suivi["contenu"] == (
+        f"<!-- entree: export-csv -->\n## Export CSV\n\nRésumé.\n\n<!-- entree: {RUN_ID}-1 -->\n## Carte\n\nRésumé.\n\n"
+    )
+    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")["etiquettes"] == ["rapide"]
+    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-1.json")["version"] == 1
+    assert agents.read_file(SLUG_V2, "notes.md")["contenu"].startswith("# Définitions")
+    assert [s["statut"] for s in agents.deliver_run(SLUG_V2, RUN_ID)] == ["range", "range", "a_relire"]
+    assert len(agents.file_history(SLUG_V2, "suivi.md")) == 1
+    assert len(agents.file_history(SLUG_V2, "notes.md")) == 1
+
+
+@pytest.mark.parametrize(
+    ("envois", "fichiers", "message"),
+    [
+        ([], [{"nom": "secret.md", "contenu": "x"}], "'secret.md' n'est pas un fichier déclaré"),
+        (
+            [{"destination": "fichier:notes.md", "titre": "t", "texte": "x"}],
+            [{"nom": "notes.md", "contenu": "x"}],
+            "reçoit aussi",
+        ),
+    ],
+)
+def test_dod_16_a_run_writing_an_undeclared_file_writes_nothing(
+    store, conversation, engine, mocker, envois, fichiers, message
+):
+    created_v2(conversation, mocker, CONFIG_FILES)
+    files_output(engine, envois, fichiers)
+    with pytest.raises(ValueError, match=message):
+        agents.deliver_run(SLUG_V2, RUN_ID)
+    assert not [p for p in store.files if "/fichiers/" in p or "/envois/" in p]
+
+
+def test_dod_16_a_production_to_an_undeclared_file_refuses_the_run(store, conversation, engine, mocker):
+    created_v2(conversation, mocker, CONFIG_FILES)
+    files_output(engine, [{"destination": "fichier:autre.md", "titre": "t", "texte": "x"}])
+    with pytest.raises(ValueError, match="ni fichier:<nom> d'un de ses fichiers"):
+        agents.deliver_run(SLUG_V2, RUN_ID)
+
+
+def test_dod_16_files_are_read_compared_and_reverted_only_after_a_later_yes(
+    store, conversation, engine, mocker, capsys
+):
+    created_v2(conversation, mocker, CONFIG_FILES)
+    for text in ("v1\n", "v2\n"):
+        agents.agent_files.write_version(SLUG_V2, "notes.md", text, "run r")
+    file_args = ["--agent", SLUG_V2, "--nom", "notes.md"]
+    assert cli.main(["fichier", *file_args, "--version", "1"]) == 0
+    assert json.loads(capsys.readouterr().out)["contenu"] == "v1\n"
+    assert cli.main(["historique", *file_args]) == 0
+    assert [v["version"] for v in json.loads(capsys.readouterr().out)] == [1, 2]
+    assert cli.main(["comparer", *file_args, "--de", "1", "--a", "2"]) == 0
+    assert "-v1\n+v2" in capsys.readouterr().out
+    assert cli.main(["revenir", *file_args]) == 1
+    assert "retour jamais proposé" in capsys.readouterr().err
+    assert cli.main(["proposer-retour", *file_args, "--version", "1"]) == 0
+    assert json.loads(capsys.readouterr().out)["difference"].endswith("-v2\n+v1\n")
+    assert cli.main(["revenir", *file_args]) == 1
+    assert "aucune confirmation" in capsys.readouterr().err
+    conversation.user_replies()
+    assert cli.main(["revenir", *file_args]) == 0
+    assert json.loads(capsys.readouterr().out)["version"] == 3
+    assert agents.read_file(SLUG_V2, "notes.md")["contenu"] == "v1\n"
+    assert agents.file_history(SLUG_V2, "notes.md")[-1]["origine"] == "retour à la version 1 par lj@example.org"
+    assert cli.main(["revenir", *file_args]) == 1
+    assert cli.main(["fichier", "--agent", SLUG_V2, "--nom", "autre.md"]) == 1
+    assert "n'a pas de fichier autre.md" in capsys.readouterr().err
+
+
+def test_dod_16_the_proposal_shows_files_labels_and_days_and_the_contract_explains_them(
+    store, conversation, engine, mocker
+):
+    mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {})
+    proposal = agents.plan(CONFIG_FILES, "Tu lis le backlog produit.")
+    assert proposal["relecture"] == [
+        "destination produit.opportunite en mode relecture",
+        "sous-agent 1 : classificateur clef:27b, étiquettes rapide au seuil 0.7, sans rien écarter",
+        "sous-agent 2 : resume glm-5.2, 400 caractères au plus",
+        "préparation 1 : cron sync-tags",
+        "préparation 2 : cron sync-connectors",
+        "fichier de l'agent : notes.md, versionné, lisible depuis le chat",
+        "fichier de l'agent : suivi.md, versionné, lisible depuis le chat",
+        "cadence : chaque lundi, jeudi",
+    ]
+    prompt = proposal["system_prompt"]
+    assert "une de produit.opportunite, fichier:notes.md, fichier:suivi.md, aucune autre" in prompt
+    assert "Un envoi par élément" in prompt
+    assert (
+        "Tes fichiers de travail, gardés et versionnés par Autometa, jamais envoyés ailleurs : notes.md, suivi.md."
+        in prompt
+    )
+    assert "cron sync-connectors, fichier notes.md, fichier suivi.md." in prompt
+
+
 def ollama_cloud(*probabilities):
     """Ollama Cloud at the HTTP level: clef answers the probabilities in turn, the chat model a short summary."""
     answers = iter(probabilities)
@@ -682,3 +876,178 @@ def test_dod_14_guide_me_to_an_agent_with_a_classifier_a_summary_and_two_crons(
     assert delivered["texte"] == "Une demande d'export CSV."
     assert [e["type"] for e in delivered["sous_agents"]] == ["classificateur", "resume"]
     assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["appels_sous_agents"] == 3
+
+
+BACKLOG_DB = "2715f321b60480e1827df1529ea754f1"
+OKR_PAGE = "27d5f321b6048070985bc6cb1222230b"
+EXAMPLE_CONFIG = f"""
+format: pdi.agent/1
+slug: tickets-backlog
+titre: Tickets pour le backlog commun
+mission: Proposer des tickets pour le backlog commun à partir du backlog, des réflexions bizdev et du code.
+points_de_contact: []
+cadence:
+  jours: [lundi, jeudi]
+preparations:
+  - type: notion
+    base: {BACKLOG_DB}
+    colonnes: [Nom, Statut]
+    regrouper_par: [Statut]
+    plafond: 2000
+  - type: notion
+    page: {OKR_PAGE}
+    profondeur: 2
+  - type: github
+    depots: [gip-inclusion/les-emplois]
+    organisation: gip-inclusion
+    plafond_depot: 4500
+    plafond: 5000
+outils_modeles:
+  - type: classificateur
+    modele: "clef:27b"
+    etiquettes:
+      - nom: quick-win
+        question: Le ticket se réalise-t-il en moins d'une semaine ?
+      - nom: feature
+        question: Le ticket décrit-il une fonctionnalité nouvelle ?
+      - nom: verticale
+        question: Le ticket ouvre-t-il un nouveau public ou un nouveau métier ?
+    seuil: 0.6
+fichiers: [definitions.md, tickets.md]
+"""
+
+
+def notion_api(backlog_rows):
+    """Notion at the API level: the backlog database, the OKR page with one sub-page."""
+
+    def text(t):
+        return {"rich_text": [{"plain_text": t}]}
+
+    def request(method, endpoint, payload=None):
+        if endpoint == f"databases/{BACKLOG_DB}/query":
+            results = [
+                {
+                    "last_edited_time": f"2026-10-{(i % 28) + 1:02d}T00:00:00Z",
+                    "properties": {
+                        "Nom": {"type": "title", "title": [{"plain_text": f"Ticket {i}"}]},
+                        "Statut": {"type": "status", "status": {"name": "À faire" if i % 3 else "Fait"}},
+                    },
+                }
+                for i in range(backlog_rows)
+            ]
+            return {"results": results, "has_more": False}
+        if endpoint == f"pages/{OKR_PAGE}":
+            return {"properties": {"Titre": {"type": "title", "title": [{"plain_text": "OKRs Bizdev"}]}}}
+        block = endpoint.split("/")[1]
+        children = {
+            OKR_PAGE: [
+                {"id": "o1", "type": "bulleted_list_item", "bulleted_list_item": text("Ouvrir les employeurs")},
+                {"id": "sp", "type": "child_page", "child_page": {"title": "Pistes"}},
+            ],
+            "sp": [{"id": "o2", "type": "paragraph", "paragraph": text("Export CSV demandé")}],
+        }
+        return {"results": children[block], "has_more": False}
+
+    return request
+
+
+def labels_cloud(*verdicts):
+    """Ollama Cloud at the HTTP level: clef answers each label's probability, production after production."""
+    answers = iter(verdicts)
+
+    def respond(url, **kwargs):
+        questions = kwargs["json"]["questions"]
+        body = {"answers": {name: {"type": "noul", "noul": p} for name, p in zip(questions, next(answers))}}
+        return httpx.Response(200, json=body, request=httpx.Request("POST", url))
+
+    return respond
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+def test_dod_19_alexis_example_tickets_from_notion_and_github_labelled_by_clef_into_a_file(
+    app, store, engine, post, mocker, monkeypatch, capsys, tmp_path
+):
+    """The example of the PR: Notion base and page, GitHub, clef labels, files, twice a week; nothing coded for it."""
+    mocker.patch("lib.notion.NOTION_TOKEN", "notion-token")
+    mocker.patch("lib.notion.notion_request", side_effect=notion_api(120))
+    github = FakeGitHub(mocker, repos=["dora", "les-emplois", "marche"])
+    publish = mocker.patch("lib.agents.job_inputs.publish_dataset", return_value={"url": "https://s3/entree.jsonl"})
+    mocker.patch("lib.agents.jobs.trigger_run", return_value={"id": RUN_ID})
+    mocker.patch("lib.agent_subagents.config.OLLAMA_API_KEY", "ollama-key")
+    ollama = mocker.patch("lib.agent_subagents.httpx.post", side_effect=labels_cloud((0.9, 0.2, 0.1), (0.3, 0.8, 0.7)))
+    conv = conversations.create_conversation()
+    monkeypatch.setenv("AUTOMETA_CONVERSATION_ID", conv.id)
+    monkeypatch.setenv("AUTOMETA_USER_EMAIL", "alexis@example.org")
+
+    def user_says(text):
+        conversations.add_message(conv.id, "user", text)
+
+    user_says("Je veux un agent qui identifie des tickets pour le backlog commun, deux fois par semaine")
+    assert cli.main(["destinations"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert {"notion", "github"} <= set(listed["preparations"]) and "jours" in listed["cadences"]
+    (tmp_path / "agent.yaml").write_text(EXAMPLE_CONFIG)
+    (tmp_path / "consigne.md").write_text("Tu proposes des tickets ; tu fais évoluer definitions.md.")
+    assert (
+        cli.main(["proposer", "--config", str(tmp_path / "agent.yaml"), "--consigne", str(tmp_path / "consigne.md")])
+        == 0
+    )
+    proposal = json.loads(capsys.readouterr().out)
+    assert "cadence : chaque lundi, jeudi" in proposal["relecture"]
+    assert "étiquettes quick-win, feature, verticale au seuil 0.6, sans rien écarter" in proposal["relecture"][0]
+    assert cli.main(["creer", proposal["id"]]) == 1
+    user_says("oui")
+    assert cli.main(["creer", proposal["id"]]) == 0
+    assert cli.main(["proposer-lancement", "--agent", "tickets-backlog"]) == 0
+    user_says("lance-le")
+    assert cli.main(["lancer", "--agent", "tickets-backlog"]) == 0
+    capsys.readouterr()
+
+    rows = publish.call_args.args[2]
+    assert [(r[1], r[2]) for r in rows] == [
+        ("notion", f"base {BACKLOG_DB}"),
+        ("notion", f"page {OKR_PAGE}"),
+        ("github", "gip-inclusion/les-emplois, gip-inclusion"),
+        ("fichier", "definitions.md"),
+        ("fichier", "tickets.md"),
+    ]
+    assert rows[0][3].startswith("120 lignes, au-delà du plafond de 2000 caractères")
+    assert "## Statut\n- À faire : 80\n- Fait : 40" in rows[0][3]
+    assert "Export CSV demandé" in rows[1][3]
+    assert rows[2][3].startswith(
+        "Dépôts lus ce run : gip-inclusion/les-emplois, gip-inclusion/dora ; le prochain run reprend à gip-inclusion/marche."
+    )
+    assert "app/views.py:2: pass  # TODO: paginer" in rows[2][3]
+    assert all("Authorization" not in str(c) for c in publish.call_args_list)
+    assert github.paths[0] == "orgs/gip-inclusion/repos"
+
+    tickets = [
+        {
+            "destination": "fichier:tickets.md",
+            "titre": "Pagination des vues",
+            "texte": "TODO dans les-emplois.",
+            "cle": "pagination",
+        },
+        {"destination": "fichier:tickets.md", "titre": "Export CSV", "texte": "Demandé par les bizdev."},
+    ]
+    definitions = [{"nom": "definitions.md", "contenu": "# Définitions\n- quick-win : moins d'une semaine"}]
+    engine.get_run_output.return_value = json.dumps({"envois": tickets, "fichiers": definitions})
+    assert cli.main(["livrer", "--agent", "tickets-backlog", "--run", RUN_ID]) == 0
+    assert [e["statut"] for e in json.loads(capsys.readouterr().out)] == ["range", "range"]
+    assert ollama.call_count == 2
+    post.assert_not_called()
+
+    assert cli.main(["fichier", "--agent", "tickets-backlog", "--nom", "tickets.md"]) == 0
+    tickets_md = json.loads(capsys.readouterr().out)["contenu"]
+    assert "## Pagination des vues\n\nTODO dans les-emplois.\n\nÉtiquettes : quick-win" in tickets_md
+    assert "## Export CSV\n\nDemandé par les bizdev.\n\nÉtiquettes : feature, verticale" in tickets_md
+    assert cli.main(["historique", "--agent", "tickets-backlog", "--nom", "definitions.md"]) == 0
+    assert [v["origine"] for v in json.loads(capsys.readouterr().out)] == [f"run {RUN_ID}"]
+
+    mocker.patch("lib.agents.cron.utcnow", return_value=datetime(2026, 11, 5, 7, tzinfo=timezone.utc))
+    agents.jobs.get_run.return_value = {"pipeline_id": PIPELINE_ID, "status": "running"}
+    agents.tick()
+    rows = publish.call_args.args[2]
+    assert rows[2][3].startswith("Dépôts lus ce run : gip-inclusion/marche, gip-inclusion/les-emplois")
+    assert rows[3][3].startswith("# Définitions")

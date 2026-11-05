@@ -52,6 +52,39 @@ suite : en vrai, les CLI se chevauchent plus longtemps, les chiffres sont un pla
 Non corrigé, noté : `agents.py` importe `web.s3` (boto3, 1,3 s d'import mesurée) même pour lister les
 destinations ; l'alléger demanderait de découper `lib/agents.py`, hors de cette PR.
 
+## Version 4 : des briques génériques
+
+Révision du 05/11, après le test complet d'Alexis en review app. Son cas (des tickets pour le
+backlog commun à partir d'une base et d'une page Notion et du code GitHub, étiquetés par `clef`,
+rangés dans un fichier, deux fois par semaine) a été refusé par l'agent de la v2 : ni page
+Notion, ni GitHub, ni cadence bihebdomadaire, ni fichier, et un classificateur qui filtre sans
+étiqueter. Correction d'Alexis : ce cas n'est qu'un exemple, rien ne doit lui être propre.
+
+- **Préparations = connecteurs.** Un type de préparation est un fichier
+  `lib/agent_connectors/<type>.py` (ce qu'il lit, ses champs, ses refus, son rendu Markdown) ;
+  la liste fermée des types est `config/agent_preparations.yaml`, et rien hors de cette liste
+  n'est importé. Toute source (identifiant Notion, dépôt, organisation, URL) vient de la
+  configuration de l'agent. Chaque préparation accepte un `plafond` (1 000 à 200 000 caractères)
+  appliqué par le registre. Types : `notion` (base filtrée, colonnes choisies, et au-delà du
+  plafond un décompte déterministe par colonne suivi des lignes les plus récentes ; ou page et
+  sous-pages jusqu'à une profondeur), `github` (dépôts publics d'une liste puis d'une
+  organisation : README, configuration, TODO et FIXME avec chemin et ligne lus dans l'archive,
+  issues et PR ouvertes, derniers commits ; au-delà du plafond total, le run suivant reprend où
+  celui-ci s'est arrêté), `url` (https public, jamais une adresse privée), `s3`, `cron`.
+- **Classificateur en étiquettes.** À côté du filtre (une question, sous le seuil la production
+  est écartée), un mode étiquettes : de 1 à 10 étiquettes déclarées avec leur question, posées à
+  `clef` en un seul appel (il en accepte 64), chaque production reçoit celles qui passent le seuil
+  et n'est jamais écartée. La limite de 3 était celle des sous-agents ; elle passe à 5, et ne borne
+  plus le nombre de questions. Le contrat de sortie demande un envoi par élément, pour que le
+  seuil s'applique à un ticket et non à une liste.
+- **Fichiers de l'agent.** Des noms déclarés dans la configuration, gardés dans S3 par Autometa,
+  jamais envoyés ailleurs. Chaque fichier est donné au run ; l'agent en rend une version entière
+  ou y range des productions une par une (`fichier:<nom>`, après les sous-agents). Chaque
+  écriture est une version ; lire, historique et comparaison sont libres, revenir à une version
+  passe par la confirmation vérifiée par le code et s'écrit comme une version de plus.
+- **Cadence par jours de la semaine** (`jours: [lundi, jeudi]`), les anciennes valeurs restent.
+  Pas d'heure : `run-agents` passe une fois par jour, une heure demanderait un lot de plus.
+
 ## Ce qui reste séparé
 
 - **Le cerveau du worker** (le modèle du conteneur jetable) : hors de cette PR. Il est fixé par
@@ -129,5 +162,9 @@ mention ne donne aucun pouvoir de plus que le parcours de création.
 
 - Les lots tournent une fois par jour : une cadence plus fine demanderait un lot de plus dans
   `cron.json`, hors de cette PR.
+- `url` vérifie que l'hôte résout vers une adresse publique puis lit sans suivre de redirection ;
+  un DNS qui change entre la vérification et la lecture n'est pas couvert.
+- GitHub sans jeton : 60 requêtes par heure, quatre par dépôt ; `GITHUB_TOKEN` d'Autometa lève la
+  limite.
 - Un run lancé le matin est livré au passage suivant de `run-agents`, ou à la demande (`livrer`).
 - Comment le worker lit `input_uri` dépend d'`autometa-jobs`, non vérifié.

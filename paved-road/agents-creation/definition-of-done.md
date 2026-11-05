@@ -43,8 +43,8 @@ DOD-9 — Quand je demande à Autometa de me guider pour créer un agent, il me 
   pas. Si le conteneur tue malgré tout le CLI, le message dit « tué par le système (signal N),
   probablement faute de mémoire » et le journal consigne la mémoire du conteneur à ce moment.
 
-DOD-10 — Un agent peut déclarer jusqu'à trois sous-agents Ollama Cloud, de trois types fermés :
-  classificateur (question oui/non et seuil), extraction (champs d'un schéma déclaré), résumé
+DOD-10 — Un agent peut déclarer jusqu'à cinq sous-agents Ollama Cloud, de trois types fermés :
+  classificateur (question oui/non et seuil, ou étiquettes, `DOD-17`), extraction (champs d'un schéma déclaré), résumé
   (longueur maximale). Chaque type a sa liste fermée de modèles ; un type ou un modèle hors liste,
   un schéma mal formé ou une longueur absurde sont refusés comme une destination hors liste.
   Après le run, avant la livraison, Autometa les applique avec sa propre clé à chaque production,
@@ -53,9 +53,8 @@ DOD-10 — Un agent peut déclarer jusqu'à trois sous-agents Ollama Cloud, de t
   rien de cette production n'est livré, elle est tracée en échec et réessayée au passage suivant.
   Les journaux ne portent aucun contenu ; la trace du run compte les appels aux sous-agents.
 
-DOD-11 — Un agent peut déclarer jusqu'à trois préparations, d'un des trois types fermés
-  (requête d'une base Notion, jeu de données S3, dernière sortie réussie d'une tâche existante de
-  `cron/`). Avant chaque run, leurs contenus sont rassemblés dans l'ordre déclaré et transmis au
+DOD-11 — Un agent peut déclarer jusqu'à cinq préparations, chacune d'un type de la liste fermée
+  (`DOD-15`). Avant chaque run, leurs contenus sont rassemblés dans l'ordre déclaré et transmis au
   run ; une préparation sans contenu empêche le run. Ni l'agent ni le worker ne lancent de cron.
 
 DOD-12 — Aucun agent n'a de cron à lui : un seul cron générique, dans un lot existant, livre
@@ -71,6 +70,38 @@ DOD-14 — Le parcours « guide-moi pour créer un agent avec un classificateur 
   bout : proposition complète, rien avant mon oui dans un message suivant, création, lancement
   après un autre oui, sorties des deux crons dans l'ordre transmises au run, classificateur puis
   résumé sur la sortie, livraison selon le mode (ombre par défaut).
+
+DOD-15 — Les préparations sont des connecteurs génériques derrière une même interface : un type
+  de la liste fermée en configuration, ses champs, ses refus, un plafond de taille et un contenu
+  en Markdown. Toute source vient de la configuration de l'agent, aucune n'est écrite dans le
+  code : base Notion (filtre, colonnes, et au-delà du plafond un décompte déterministe puis les
+  lignes récentes) ou page Notion (sous-pages jusqu'à une profondeur), dépôts GitHub publics
+  d'une liste ou d'une organisation (condensé par dépôt, reprise au run suivant au-delà du
+  plafond), page web publique en https, jeu S3, sortie d'un cron. Une base ou une page non
+  partagée avec l'intégration, un dépôt privé, une adresse privée donnent une erreur claire et
+  aucun run. Ajouter un type est un fichier et une ligne de configuration.
+
+DOD-16 — Un agent peut déclarer jusqu'à cinq fichiers, de noms libres. Autometa les garde,
+  jamais ailleurs, les donne au run, et versionne chaque écriture : version entière rendue par
+  l'agent, ou productions rangées une par une après les sous-agents. Un fichier non déclaré ou
+  trop gros fait refuser tout le run. Depuis le chat : lire une version, l'historique, comparer
+  deux versions sans garde ; revenir à une version seulement après mon oui dans un message
+  ultérieur, comme une version de plus. Les journaux ne portent aucun contenu.
+
+DOD-17 — Un classificateur peut étiqueter au lieu de filtrer : des étiquettes déclarées avec leur
+  question (de 1 à 10, données de la configuration), posées en un seul appel ; chaque production
+  reçoit celles qui passent le seuil et n'est jamais écartée. Le même modèle sert plusieurs
+  sous-agents ; le contrat de sortie demande un envoi par élément. La relecture de la proposition
+  décrit chaque brique en clair.
+
+DOD-18 — Une cadence se déclare par jours de la semaine (`jours: [lundi, jeudi]`) ; quotidienne,
+  hebdomadaire et mensuelle restent acceptées.
+
+DOD-19 — L'exemple d'Alexis va au bout avec les seules briques génériques : une base et une page
+  Notion, une organisation GitHub commencée par un dépôt, des étiquettes `clef`, deux fichiers,
+  deux jours par semaine ; proposition, oui, création, lancement après un autre oui, entrée du
+  run dans l'ordre, étiquettes rangées dans le fichier, fichier lu depuis le chat, passage
+  suivant qui reprend GitHub où il s'était arrêté.
 
 ## Sources lues
 
@@ -101,7 +132,11 @@ DOD-14 — Le parcours « guide-moi pour créer un agent avec un classificateur 
   le lot `maintenance` et `is_due` pour `DOD-12`. `lib/jobs.py` n'a ni déclenchement sur horaire
   ni mise à jour de pipeline : c'est Autometa qui déclenche, et une consigne changée est un
   pipeline nouveau (`DOD-13`).
-- `paved-road/agents-creation/CONCEPTION_V2.md` — la conception de `DOD-9` à `DOD-14`.
+- `lib/notion.py` (lecture paginée des blocs, propriétés), `lib/query.py` (`GITHUB_TOKEN`
+  facultatif, dépôts publics), API REST GitHub (`repos`, `issues`, `commits`, `tarball`,
+  `orgs/<org>/repos`), page `ollama.com/library/clef` (1 à 64 questions par appel, noms de
+  lettres, chiffres, `_`, `.`, `-`) : `DOD-15` à `DOD-17`.
+- `paved-road/agents-creation/CONCEPTION_V2.md` — la conception de `DOD-9` à `DOD-19`.
 
 ## Questions ouvertes
 
@@ -117,4 +152,6 @@ cadence. Ajouté le 04/11 à la demande d'Alexis : classificateur, préparations
 (`DOD-9` à `DOD-14`), le cerveau du worker restant hors périmètre ; la relance de #276
 devra réutiliser la confirmation de `DOD-13`. Étendu le 05/11 à la demande d'Alexis : sous-agents
 extraction et résumé, chaînés dans l'ordre (`DOD-10`, `DOD-14`), et trace lisible d'un CLI tué
-par le système (`DOD-9`).
+par le système (`DOD-9`). Étendu le 05/11 après le test complet d'Alexis, puis généralisé à sa
+demande (son cas n'est qu'un exemple) : connecteurs génériques, fichiers de l'agent,
+étiquettes, jours de la semaine, l'exemple en test d'intégration (`DOD-15` à `DOD-19`).
