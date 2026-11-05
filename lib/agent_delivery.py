@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["deliver", "approve", "show", "read_json", "write_json"]
 
-STATUS_BY_MODE = {"ombre": "ombre", "relecture": "a_relire", "reel": "a_envoyer"}
+# Why: a production aimed at one of the agent's own files stays in Autometa, so it needs no mode.
+STATUS_BY_MODE = {"ombre": "ombre", "relecture": "a_relire", "reel": "a_envoyer", "fichier": "a_ranger"}
 ENVOI_FIELDS = {"destination", "titre", "texte", "cle"}
 
 
@@ -39,9 +40,12 @@ def write_json(path: str, data: Any) -> None:
 def envoi_errors(index: int, envoi: object, modes: dict[str, str]) -> list[str]:
     path = f"envois[{index}]"
     if not isinstance(envoi, dict) or not {"destination", "titre", "texte"} <= set(envoi) <= ENVOI_FIELDS:
-        return [f"{path} : attendu destination, titre, texte et, pour Notion, cle."]
+        return [f"{path} : attendu destination, titre, texte et, pour Notion ou un fichier, cle."]
     if envoi["destination"] not in modes:
-        return [f"{path} : la destination {envoi['destination']!r} n'est pas un point de contact de l'agent."]
+        return [
+            f"{path} : la destination {envoi['destination']!r} n'est ni un point de contact de l'agent "
+            "ni fichier:<nom> d'un de ses fichiers."
+        ]
     if not all(isinstance(envoi[k], str) and envoi[k].strip() for k in ("titre", "texte")):
         return [f"{path} : titre et texte doivent être des textes non vides."]
     if "cle" in envoi and not (isinstance(envoi["cle"], str) and re.fullmatch(r"[a-z0-9-]{1,80}", envoi["cle"])):
@@ -108,6 +112,7 @@ def deliver(agent: dict, run_id: str, envois: list, chain: Optional[Callable[[di
     if errors := agent_config.validate(agent):
         raise ValueError("configuration d'agent refusée : " + " ; ".join(errors))
     modes = {c["id"]: c["mode"] for c in agent["points_de_contact"]}
+    modes.update({f"fichier:{nom}": "fichier" for nom in agent.get("fichiers", [])})
     if not isinstance(envois, list):
         raise ValueError("envois : attendu une liste")
     if errors := [e for i, envoi in enumerate(envois) for e in envoi_errors(i, envoi, modes)]:

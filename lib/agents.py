@@ -11,7 +11,7 @@ from typing import Optional
 import httpx
 from sqlalchemy import func, select
 
-from lib import agent_config, agent_delivery, agent_subagents, job_inputs, jobs, notion
+from lib import agent_config, agent_connectors, agent_delivery, agent_files, agent_subagents, job_inputs, jobs
 from lib.agent_delivery import read_json, write_json
 from web import config, cron, s3
 from web.db import get_db
@@ -32,6 +32,11 @@ __all__ = [
     "present_envoi",
     "approve_envoi",
     "tick",
+    "read_file",
+    "file_history",
+    "compare_file",
+    "present_file_revert",
+    "revert_file",
 ]
 
 OUTPUT_CONTRACT = """
@@ -43,18 +48,32 @@ Ta réponse est un unique objet JSON, sans aucun texte autour :
 
 - destination : une de {destinations}, aucune autre.
 - titre : une ligne. texte : en markdown.
-- cle (facultative, Notion seulement) : minuscules, chiffres et tirets ; un envoi qui reprend la cle
-  d'une page déjà écrite met cette page à jour.
+- Un envoi par élément (un ticket, un signal, une opportunité) : les sous-agents d'Autometa jugent
+  chaque envoi à part, un envoi qui en regroupe plusieurs serait jugé en bloc.
+- cle (facultative, Notion ou fichier) : minuscules, chiffres et tirets ; un envoi qui reprend la
+  cle d'une page ou d'un élément déjà écrit le met à jour.
 - Rien à signaler : {{"envois": []}}.
+"""
+
+FILES_CONTRACT = """
+## Tes fichiers
+
+Tes fichiers de travail, gardés et versionnés par Autometa, jamais envoyés ailleurs : {fichiers}.
+Leur dernière version est dans ton entrée (type fichier ; vide avant la première écriture).
+- Pour réécrire un fichier en entier, ajoute à ta réponse
+  "fichiers": [{{"nom": "...", "contenu": "..."}}] ({taille} caractères au plus par fichier).
+- Pour y ranger des éléments un par un, un envoi par élément avec "destination": "fichier:<nom>" ;
+  Autometa l'y ajoute après ses sous-agents (étiquettes comprises).
+- Un même fichier ne reçoit pas les deux dans un même run.
 """
 
 INPUT_CONTRACT = """
 ## Entrée
 
 Avant chacun de tes runs, Autometa fait tourner tes préparations, dans cet ordre : {preparations}.
-Leurs contenus sont le fichier d'entrée du run (input_uri) : un JSON lines, une ligne par préparation,
-champs ordre, type, source, contenu (pour s3, contenu est l'URL du jeu à télécharger). Ne lance
-aucune préparation ni aucun cron toi-même.
+Leurs contenus sont le fichier d'entrée du run (input_uri) : un JSON lines, une ligne par préparation
+puis une par fichier, champs ordre, type, source, contenu (en Markdown ; pour s3, l'URL du jeu à
+télécharger). Ne lance aucune préparation ni aucun cron toi-même.
 """
 
 
@@ -108,8 +127,12 @@ def plan(config_yaml: str, system_prompt: str) -> dict:
     if current is not None and current["status"] != "actif":
         raise ValueError(f"l'identifiant {doc['slug']} est déjà pris par un agent retiré")
     changeset_id = f"{datetime.now().strftime('%Y-%m-%d-%H%M%S')}-{doc['slug']}-{uuid.uuid4().hex[:6]}"
-    destinations = ", ".join(c["id"] for c in doc["points_de_contact"])
-    steps = ", ".join(agent_config.preparation_label(p) for p in doc.get("preparations", []))
+    fichiers = doc.get("fichiers", [])
+    destinations = ", ".join([*(c["id"] for c in doc["points_de_contact"]), *(f"fichier:{f}" for f in fichiers)])
+    steps = ", ".join([
+        *(agent_connectors.label(p) for p in doc.get("preparations", [])),
+        *(f"fichier {f}" for f in fichiers),
+    ])
     manifest = {
         "id": changeset_id,
         "status": "planned",
@@ -117,7 +140,9 @@ def plan(config_yaml: str, system_prompt: str) -> dict:
         "config": doc,
         "system_prompt": system_prompt
         + OUTPUT_CONTRACT.format(destinations=destinations)
-        + (INPUT_CONTRACT.format(preparations=steps) if steps else ""),
+        + (INPUT_CONTRACT.format(preparations=steps) if steps else "")
+        + (FILES_CONTRACT.format(fichiers=", ".join(fichiers), taille=agent_config.FICHIER_MAX) if fichiers else ""),
+        "relecture": agent_config.describe(doc),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "shown": mark(),
     }
@@ -207,8 +232,10 @@ def catalogue() -> dict:
             for d in agent_config.destinations().values()
         ],
         "sous_agents": agent_config.modeles(),
-        "preparations": {"types": agent_config.PREPARATION_TYPES, "taches_cron": agent_config.cron_tasks()},
-        "cadences": list(agent_config.CADENCES),
+        "preparations": agent_connectors.catalogue(),
+        "taches_cron": agent_connectors.connector("cron").tasks(),
+        "cadences": {"jours": list(agent_config.JOURS), "raccourcis": list(agent_config.CADENCES)},
+        "fichiers": {"au_plus": 5, "taille_max": agent_config.FICHIER_MAX},
         "sous_agents_configures": bool(config.OLLAMA_API_KEY),
     }
 
@@ -230,34 +257,27 @@ def launch(slug: str) -> dict:
     return execute(slug)
 
 
-def prepare(step: dict) -> list:
-    """One preparation's content: rows of a Notion database, the URL of an S3 dataset, or a cron task's last output."""
-    if step["type"] == "notion":
-        rows = [notion.extract_page_properties(p) for p in notion.query_database(step["base"])]
-        return ["notion", step["base"], json.dumps(rows, ensure_ascii=False, default=str)]
-    if step["type"] == "s3":
-        url = s3.job_inputs.get_url(step["jeu"], expires_in=job_inputs.DEFAULT_EXPIRES)
-        if not (url and s3.job_inputs.exists(step["jeu"])):
-            raise ValueError(f"préparation s3 {step['jeu']} : jeu introuvable, le run n'est pas lancé")
-        return ["s3", step["jeu"], url]
-    runs = cron.get_app_runs(step["tache"], limit=1)
-    if not runs or runs[0]["status"] != "success":
-        raise ValueError(f"préparation cron {step['tache']} : pas de dernière sortie réussie, le run n'est pas lancé")
-    return ["cron", step["tache"], runs[0]["output"]]
-
-
 def execute(slug: str, idempotency_key: Optional[str] = None) -> dict:
     """Gather the agent's preparations in order, publish them, then trigger its job's run with them."""
     agent = active_agent(slug)
     steps = agent["config"].get("preparations", [])
-    rows = [[i + 1, *prepare(step)] for i, step in enumerate(steps)]
+    curseurs = agent.get("curseurs", {})
+    found = [agent_connectors.prepare(step, curseurs.get(str(i), 0)) for i, step in enumerate(steps)]
+    rows = [[i + 1, step["type"], f["source"], f["contenu"]] for i, (step, f) in enumerate(zip(steps, found))]
+    rows += [
+        [len(rows) + i + 1, "fichier", nom, agent_files.read(slug, nom)["contenu"]]
+        for i, nom in enumerate(agent["config"].get("fichiers", []))
+    ]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     columns = ["ordre", "type", "source", "contenu"]
-    dataset = job_inputs.publish_dataset(f"agent-{slug}-{stamp}", columns, rows, fmt="jsonl") if steps else None
+    dataset = job_inputs.publish_dataset(f"agent-{slug}-{stamp}", columns, rows, fmt="jsonl") if rows else None
     run = jobs.trigger_run(
         agent["pipeline_id"], input_uri=dataset["url"] if dataset else None, idempotency_key=idempotency_key
     )
-    write_json(agent_path(slug), {**agent, "runs_a_livrer": [*agent.get("runs_a_livrer", []), run["id"]]})
+    curseurs = {**curseurs, **{str(i): f["suivant"] for i, f in enumerate(found) if "suivant" in f}}
+    runs = [*agent.get("runs_a_livrer", []), run["id"]]
+    write_json(agent_path(slug), {**agent, "runs_a_livrer": runs, **({"curseurs": curseurs} if curseurs else {})})
+    logger.info("agent %s run %s lancé, entrée de %d caractères", slug, run["id"], sum(len(str(r[3])) for r in rows))
     return {"agent": slug, "run_id": run["id"], "preparations": [f"{r[1]} {r[2]}" for r in rows]}
 
 
@@ -275,9 +295,20 @@ def deliver_run(slug: str, run_id: str) -> list[dict]:
         raise ValueError(f"sortie du run {run_id} illisible : {exc}") from exc
     if not isinstance(output, dict) or "envois" not in output:
         raise ValueError(f"sortie du run {run_id} sans liste envois")
+    declared = agent["config"].get("fichiers", [])
+    fed = {
+        e["destination"][8:]
+        for e in output["envois"]
+        if isinstance(e, dict) and str(e.get("destination")).startswith("fichier:")
+    }
+    if errors := agent_files.output_errors(output.get("fichiers", []), declared, fed):
+        raise ValueError(f"sortie du run {run_id} refusée, rien n'est écrit : " + " ; ".join(errors))
     outils = agent["config"].get("outils_modeles")
     chain = partial(agent_subagents.run_chain, outils) if outils else None
     summary = agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["envois"], chain)
+    summary = file_entries(slug, run_id, summary)
+    for f in output.get("fichiers", []):
+        agent_files.write_version(slug, f["nom"], f["contenu"], f"run {run_id}")
     trace_path = f"{slug}/runs/{run_id}.json"
     appels = (read_json(trace_path) or {}).get("appels_sous_agents", 0) + sum(e["appels"] for e in summary)
     write_json(trace_path, {"livre_le": datetime.now().isoformat(timespec="seconds"), "appels_sous_agents": appels})
@@ -286,6 +317,30 @@ def deliver_run(slug: str, run_id: str) -> list[dict]:
     pending = [r for r in agent.get("runs_a_livrer", []) if r != run_id or retry]
     write_json(agent_path(slug), {**agent, "runs_a_livrer": pending})
     return summary
+
+
+def file_entries(slug: str, run_id: str, summary: list[dict]) -> list[dict]:
+    """Put the run's productions aimed at a file into it, one new version per file; they become range."""
+    ranged = {}
+    for item in summary:
+        if item["statut"] == "a_ranger":
+            ranged.setdefault(item["destination"][8:], []).append(item)
+    for nom, items in ranged.items():
+        records = [agent_delivery.show(slug, item["id"]) for item in items]
+        entries = [(r.get("cle") or item["id"], r["titre"], r["texte"]) for item, r in zip(items, records)]
+        version = agent_files.add_entries(slug, nom, entries, f"run {run_id}")
+        for item, record in zip(items, records):
+            write_json(f"{slug}/envois/{item['id']}.json", {**record, "statut": "range", "version": version})
+            item["statut"] = "range"
+    return summary
+
+
+def due(cadence: object) -> bool:
+    """Why: the one daily batch decides the day; days of the week cover every rhythm the batch can honour."""
+    if isinstance(cadence, dict):
+        day = cron.last_batch_start("maintenance", cron.utcnow()).weekday()
+        return agent_config.JOURS[day] in cadence["jours"]
+    return cron.is_due(agent_config.CADENCES[cadence], "maintenance")
 
 
 def tick() -> None:
@@ -303,7 +358,7 @@ def tick() -> None:
                 and any(e["statut"] == "echec_sous_agent" for e in deliver_run(slug, run_id))
             ]
             cadence = agent["config"].get("cadence")
-            if cadence and cron.is_due(agent_config.CADENCES[cadence], "maintenance"):
+            if cadence and due(cadence):
                 execute(slug, idempotency_key=f"agent-{slug}-{datetime.now():%Y-%m-%d}")
             if retry:
                 raise RuntimeError(
@@ -331,3 +386,51 @@ def approve_envoi(slug: str, envoi_id: str) -> dict:
     if "shown" not in record:
         raise PermissionError("envoi jamais présenté : le montrer d'abord, puis attendre la confirmation")
     return agent_delivery.approve(slug, envoi_id, require_confirmation(record["shown"]))
+
+
+def agent_file(slug: str, nom: str) -> dict:
+    agent = active_agent(slug)
+    if nom not in agent["config"].get("fichiers", []):
+        raise ValueError(
+            f"l'agent {slug} n'a pas de fichier {nom} ; fichiers : {', '.join(agent['config'].get('fichiers', []))}"
+        )
+    return agent
+
+
+def read_file(slug: str, nom: str, version: Optional[int] = None) -> dict:
+    agent_file(slug, nom)
+    return agent_files.read(slug, nom, version)
+
+
+def file_history(slug: str, nom: str) -> list[dict]:
+    agent_file(slug, nom)
+    return agent_files.history(slug, nom)
+
+
+def compare_file(slug: str, nom: str, de: int, a: int) -> str:
+    agent_file(slug, nom)
+    return agent_files.compare(slug, nom, de, a)
+
+
+def present_file_revert(slug: str, nom: str, version: int) -> dict:
+    """What a return to an earlier version would change, marked as shown so that only a later message may apply it."""
+    agent = agent_file(slug, nom)
+    current = agent_files.read(slug, nom)["version"]
+    diff = agent_files.compare(slug, nom, current, version)
+    write_json(agent_path(slug), {**agent, "retour_fichier": {"nom": nom, "version": version, "shown": mark()}})
+    return {"agent": slug, "fichier": nom, "de": current, "vers": version, "difference": diff}
+
+
+def revert_file(slug: str, nom: str) -> dict:
+    """Write the proposed earlier version as a new one, only when confirmed in a later message; history is kept."""
+    agent = agent_file(slug, nom)
+    proposed = agent.get("retour_fichier")
+    if not proposed or proposed["nom"] != nom:
+        raise PermissionError("retour jamais proposé : le proposer d'abord, puis attendre la confirmation")
+    approved_by = require_confirmation(proposed["shown"])
+    write_json(agent_path(slug), {k: v for k, v in agent.items() if k != "retour_fichier"})
+    contenu = agent_files.read(slug, nom, proposed["version"])["contenu"]
+    version = agent_files.write_version(
+        slug, nom, contenu, f"retour à la version {proposed['version']} par {approved_by}"
+    )
+    return {"agent": slug, "fichier": nom, "version": version}

@@ -146,3 +146,62 @@ def test_dod_10_without_the_ollama_key_nothing_is_called(ollama, mocker):
     trace = agent_subagents.run_chain([CLASSIFIEUR], ENVOI)
     assert "OLLAMA_API_KEY absent" in trace["echec"]
     ollama.assert_not_called()
+
+
+ETIQUETTEUR = {
+    "type": "classificateur",
+    "modele": "clef:27b",
+    "etiquettes": [
+        {"nom": "rapide", "question": "Est-ce faisable en moins d'une semaine ?"},
+        {"nom": "nouveaute", "question": "Est-ce une fonctionnalité nouvelle ?"},
+        {"nom": "terrain", "question": "Est-ce demandé par le terrain ?"},
+    ],
+    "seuil": 0.6,
+}
+
+
+def labels(**probabilities):
+    return answer({"answers": {n: {"type": "noul", "noul": p} for n, p in probabilities.items()}})
+
+
+def test_dod_17_a_labeller_asks_every_label_in_one_call_and_keeps_those_over_the_threshold(ollama):
+    ollama.return_value = labels(rapide=0.91, nouveaute=0.2, terrain=0.6)
+    trace = agent_subagents.run_chain([ETIQUETTEUR], ENVOI)
+    assert ollama.call_count == 1
+    questions = ollama.call_args.kwargs["json"]["questions"]
+    assert questions == {e["nom"]: {"type": "noul", "instructions": e["question"]} for e in ETIQUETTEUR["etiquettes"]}
+    assert trace["envoi"]["etiquettes"] == ["rapide", "terrain"]
+    assert trace["envoi"]["texte"] == "Trois demandes cette semaine.\n\nÉtiquettes : rapide, terrain"
+    assert trace["etapes"] == [
+        {
+            "type": "classificateur",
+            "modele": "clef:27b",
+            "probabilites": {"rapide": 0.91, "nouveaute": 0.2, "terrain": 0.6},
+            "seuil": 0.6,
+            "etiquettes": ["rapide", "terrain"],
+        }
+    ]
+
+
+def test_dod_17_a_labeller_never_sets_aside_and_the_chain_goes_on(ollama):
+    ollama.side_effect = [labels(rapide=0.1, nouveaute=0.1, terrain=0.1), chat("Court.")]
+    trace = agent_subagents.run_chain([ETIQUETTEUR, RESUME], ENVOI)
+    assert trace["etapes"][0]["etiquettes"] == []
+    assert "Étiquettes : aucune" in ollama.call_args_list[1].kwargs["json"]["messages"][1]["content"]
+    assert trace["envoi"]["texte"] == "Court."
+    assert trace["echec"] is None
+
+
+def test_dod_17_the_same_model_serves_several_sub_agents_each_judging_one_production(ollama):
+    filtre = {**CLASSIFIEUR, "seuil": 0.5}
+    ollama.side_effect = [clef(0.8), labels(rapide=0.7, nouveaute=0.9, terrain=0.1)]
+    trace = agent_subagents.run_chain([filtre, ETIQUETTEUR], ENVOI)
+    assert [c.kwargs["json"]["model"] for c in ollama.call_args_list] == ["clef:27b", "clef:27b"]
+    assert trace["envoi"]["etiquettes"] == ["rapide", "nouveaute"]
+    assert trace["appels"] == 2
+
+
+def test_dod_17_a_label_missing_from_the_answer_is_a_failing_link(ollama):
+    ollama.return_value = labels(rapide=0.9)
+    trace = agent_subagents.run_chain([ETIQUETTEUR], ENVOI)
+    assert "sous-agent 1 (classificateur clef:27b) en échec : réponse illisible" in trace["echec"]

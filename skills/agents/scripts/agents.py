@@ -32,6 +32,22 @@ def main(argv=None) -> int:
         sub = commands.add_parser(name)
         sub.add_argument("--agent", required=True)
         sub.add_argument("--envoi", required=True)
+    files = {
+        "fichier": "lire un fichier de l'agent, la dernière version ou --version",
+        "historique": "les versions d'un fichier, sans contenu",
+        "comparer": "la différence entre deux versions (--de, --a)",
+        "proposer-retour": "montrer ce que rendrait un retour à --version, sans rien écrire",
+        "revenir": "écrire la version proposée, seulement après confirmation dans un message ultérieur",
+    }
+    for name, help_text in files.items():
+        sub = commands.add_parser(name, help=help_text)
+        sub.add_argument("--agent", required=True)
+        sub.add_argument("--nom", required=True)
+        if name in ("fichier", "proposer-retour"):
+            sub.add_argument("--version", type=int, required=name == "proposer-retour")
+        if name == "comparer":
+            sub.add_argument("--de", type=int, required=True)
+            sub.add_argument("--a", type=int, required=True)
     args = parser.parse_args(argv)
 
     actions = {
@@ -45,13 +61,18 @@ def main(argv=None) -> int:
         "livrer": lambda: agents.deliver_run(args.agent, args.run),
         "montrer-envoi": lambda: agents.present_envoi(args.agent, args.envoi),
         "approuver-envoi": lambda: agents.approve_envoi(args.agent, args.envoi),
+        "fichier": lambda: agents.read_file(args.agent, args.nom, args.version),
+        "historique": lambda: agents.file_history(args.agent, args.nom),
+        "comparer": lambda: agents.compare_file(args.agent, args.nom, args.de, args.a),
+        "proposer-retour": lambda: agents.present_file_revert(args.agent, args.nom, args.version),
+        "revenir": lambda: agents.revert_file(args.agent, args.nom),
     }
     try:
         out = actions[args.command]()
     except (ValueError, PermissionError, RuntimeError, yaml.YAMLError, httpx.HTTPError) as exc:
         print(f"refusé : {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(out, ensure_ascii=False, indent=2))
+    print(out if isinstance(out, str) else json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 
 
