@@ -14,57 +14,37 @@ aux structures d'insertion.
 
 ## Ce que tu lis
 
-Les avis du BOAMP, en open data, sans compte ni jeton, par l'API Explore v2.1 :
+Ton entrée, préparée par Autometa avant le run :
 
-    https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/records
+- préparations 1 à 3 : les avis de marché ouverts du BOAMP parus dans les 7 jours qui précèdent le
+  run, en CSV séparé par des points-virgules (services en deux parties, puis fournitures), colonnes
+  idweb, dateparution, objet, nomacheteur, code_departement, datelimitereponse,
+  descripteur_libelle ;
+- le fichier `regles.md` : les termes, les exclusions et les rubriques. Applique-le tel qu'il est.
 
-Fenêtre : les 7 jours de parution qui précèdent la date du jour (`date +%F`). Ne garde que les
-avis de marché ouverts (`nature="APPEL_OFFRE"`, `etat="INITIAL"`) de services ou de fournitures.
-Requête de départ, à paginer par `offset` de 100 en 100 tant que `total_count` n'est pas atteint :
+Tu n'appelles aucune API : tout est dans l'entrée. Lis les CSV avec python3, sans les recopier
+dans ta réponse. Si un contenu se termine par une mention « tronqué », traite ce qui est là.
 
-    curl -sG "$BOAMP" \
-      --data-urlencode "select=idweb,objet,nomacheteur,code_departement,datelimitereponse,descripteur_libelle,type_marche,url_avis" \
-      --data-urlencode "where=dateparution>=date'$DEBUT' and nature=\"APPEL_OFFRE\" and etat=\"INITIAL\" and (type_marche=\"SERVICES\" or type_marche=\"FOURNITURES\")" \
-      --data-urlencode "limit=100" --data-urlencode "offset=$OFFSET"
+## Ce que tu fais
 
-Une semaine compte un bon millier d'avis : tu les télécharges dans un fichier et tu les tries
-avec python3, sans les recopier dans ta réponse. Si l'API reste injoignable après trois essais
-espacés, rends un seul envoi qui le dit, sans aucun avis.
+1. Applique les sections 1 à 3 de `regles.md` à chaque avis.
+2. Relis chaque avis retenu et écarte ceux qui, à la lecture, n'ont aucun rapport avec l'insertion
+   professionnelle ou l'accompagnement vers l'emploi. Dans le doute, garde-le : le classificateur
+   d'Autometa juge ensuite chaque avis.
+3. Rends **un envoi par avis retenu**, vers `bizdev.marche`, au plus 50, ceux dont la date limite
+   de réponse est la plus proche d'abord :
+   - titre : l'objet de l'avis, 140 caractères au plus ;
+   - texte, en markdown, quatre lignes :
 
-## Règle de tri
+         Acheteur : <nomacheteur> (<code_departement>)
+         Réponse avant le <jj/mm/aaaa>
+         Descripteurs : <descripteur_libelle>
+         https://www.boamp.fr/pages/avis/?q=idweb:<idweb>
 
-Compare sur l'objet et les descripteurs mis en minuscules et sans accents. Un avis est retenu :
+   Ne pose pas de rubrique : le classificateur ajoute les étiquettes.
+4. Si la lecture de la semaine montre qu'une règle de `regles.md` manque ou se trompe, rends-en une
+   version entière revue, comme le dit sa dernière section. Sinon, ne rends pas le fichier.
 
-1. Directement, si l'objet porte un terme autoportant : insertion par l'activite economique,
-   iae, siae, structure(s) d'insertion, chantier(s) d'insertion, atelier(s) et chantier(s)
-   d'insertion, entreprise d'insertion, marche reserve, beneficiaires du rsa, allocataires du
-   rsa, parcours d'insertion, accompagnement socio-professionnel, insertion professionnelle,
-   retour a l'emploi, demandeurs d'emploi, plateforme de l'inclusion, clause(s) d'insertion
-   (seulement en prestation de services, jamais en travaux).
-2. Sinon, si l'objet est un outil numérique générique (logiciel, progiciel, plateforme,
-   application, solution numerique, systeme d'information, outil de suivi, dematerialisation,
-   ou descripteur Logiciel ou Informatique) ET porte un terme de thème : insertion, emploi, rsa,
-   allocataire, beneficiaire, usager, accompagnement, orientation, social, sociale, solidarite,
-   handicap, jeunes, mission locale, france travail.
-3. Dans les deux cas, écarte l'avis si l'objet relève du bâti ou de l'environnement physique :
-   travaux, batiment, construction, maitrise d'oeuvre, amenagement, voirie, assainissement,
-   renovation, rehabilitation, espaces verts, nettoyage, gardiennage, restauration collective,
-   vehicule, ou s'il ne porte que sur la protection des données (dpo, rgpd).
-
-Puis relis chaque avis retenu et écarte ceux qui, à la lecture, n'ont aucun rapport avec
-l'insertion professionnelle ou l'accompagnement vers l'emploi. Dans le doute, garde-le.
-
-## Le message
-
-Un seul envoi vers `bizdev.marche`, titre « Veille BOAMP du <début> au <fin> : <n> avis ». Le
-texte, en markdown, classe les avis en deux rubriques, « Outils numériques » (règle 2 ou objet
-numérique) et « Prestations d'insertion et d'accompagnement », triées par date limite de réponse.
-Pour chaque avis, une ligne :
-
-    - <objet, 140 caractères au plus> : <acheteur> (<département>), réponse avant le <jj/mm/aaaa> : <url_avis>
-
-Termine par une ligne qui donne le nombre d'avis lus et le nombre d'avis retenus. Au plus 25
-avis : au-delà, garde les 25 dont la date limite est la plus proche et dis combien sont omis.
 N'écris aucun tiret long ni demi-cadratin, même dans un objet repris de l'avis : mets un
-deux-points ou une virgule à la place. N'invente rien : chaque ligne reprend un avis lu dans
-l'API, avec son `url_avis`. Si aucun avis n'est retenu, rends {"envois": []}.
+deux-points ou une virgule à la place. N'invente rien : chaque envoi reprend un avis lu dans
+l'entrée, avec son idweb. Si aucun avis n'est retenu, rends {"envois": []}.

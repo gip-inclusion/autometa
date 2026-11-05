@@ -17,6 +17,13 @@ def main(argv=None) -> int:
     proposer = commands.add_parser("proposer", help="valider et enregistrer une proposition, sans rien créer")
     proposer.add_argument("--config", required=True, type=Path, help="fichier YAML pdi.agent/1")
     proposer.add_argument("--consigne", required=True, type=Path, help="consigne du job, autosuffisante")
+    proposer.add_argument(
+        "--fichier",
+        action="append",
+        type=Path,
+        default=[],
+        help="valeur initiale d'un fichier déclaré, nommé comme lui ; écrite à la création si le fichier est vide",
+    )
     for name in ("creer", "retirer", "voir"):
         commands.add_parser(name).add_argument("proposition")
     commands.add_parser("destinations", help="destinations, modèles, préparations et cadences permis")
@@ -51,7 +58,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     actions = {
-        "proposer": lambda: agents.plan(args.config.read_text(), args.consigne.read_text()),
+        "proposer": lambda: agents.plan(
+            args.config.read_text(), args.consigne.read_text(), {f.name: f.read_text() for f in args.fichier}
+        ),
         "creer": lambda: agents.apply(args.proposition),
         "retirer": lambda: agents.revert(args.proposition),
         "voir": lambda: agents.show(args.proposition),

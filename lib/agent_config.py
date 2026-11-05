@@ -21,6 +21,7 @@ __all__ = [
     "MODES",
     "describe",
     "destinations",
+    "initial_errors",
     "modeles",
     "parse",
     "target_gaps",
@@ -204,6 +205,18 @@ def fichier_errors(fichiers: object) -> list[str]:
         if not (isinstance(f, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}\.(md|txt|csv|json)", f))
     ]
     return errors + list_errors("fichiers", fichiers, 5, [str(f) for f in fichiers])
+
+
+def initial_errors(initiaux: dict[str, str], fichiers: object) -> list[str]:
+    """What is wrong with the initial values given for an agent's files: undeclared or oversized."""
+    declared = fichiers if isinstance(fichiers, list) else []
+    return [
+        f"fichier initial {nom} : pas un fichier déclaré de l'agent, fichiers : {', '.join(map(str, declared)) or 'aucun'}."
+        if nom not in declared
+        else f"fichier initial {nom} : {len(contenu)} caractères, {FICHIER_MAX} au plus."
+        for nom, contenu in initiaux.items()
+        if nom not in declared or len(contenu) > FICHIER_MAX
+    ]
 
 
 def contact_errors(slug: object, index: int, contact: object, known: dict[str, dict]) -> list[str]:

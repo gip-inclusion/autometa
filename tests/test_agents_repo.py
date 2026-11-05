@@ -1,4 +1,4 @@
-"""Every agent declared in the repository (agents/<slug>.yaml) is accepted, or the unit lane fails."""
+"""Every agent declared in the repository (agents/<slug>.yaml, .md, and its files' initial values) is accepted."""
 
 from pathlib import Path
 
@@ -12,13 +12,21 @@ AGENTS_DIR = config.BASE_DIR / "agents"
 CONSIGNE = "Tu es chargé de la veille des marchés publics.\n"
 
 
+def initial_files(path: Path) -> dict[str, str]:
+    """Why: agents/<slug>/<nom> is the initial value of the declared file <nom>, given to proposer --fichier."""
+    folder = path.with_suffix("")
+    return {f.name: f.read_text() for f in sorted(folder.iterdir())} if folder.is_dir() else {}
+
+
 def repo_errors(path: Path) -> list[str]:
-    """Every error of a repository agent: its configuration, its slug against its file name, its job prompt."""
+    """Every error of a repository agent: its configuration, its slug, its job prompt, its files' initial values."""
     try:
         doc = agent_config.parse(path.read_text())
     except yaml.YAMLError as exc:
         return [f"{path.name} : YAML illisible : {exc}"]
     found = agent_config.validate(doc)
+    if isinstance(doc, dict):
+        found += agent_config.initial_errors(initial_files(path), doc.get("fichiers", []))
     if isinstance(doc, dict) and "slug" in doc and doc["slug"] != path.stem:
         found.append(f"slug : {doc['slug']!r} diffère du nom du fichier, attendu {path.stem!r}.")
     consigne = path.with_suffix(".md")
@@ -79,6 +87,31 @@ def test_dod_3_an_agent_without_a_job_prompt_is_refused(tmp_path, consigne):
         "veille-marches.yaml : consigne : veille-marches.md absente ou vide, "
         "la consigne du job vit à côté de la configuration."
     ]
+
+
+def agent_with_initial_file(directory: Path, fichiers: str, contenu: str) -> Path:
+    path = agent_file(directory, "veille-marches")
+    path.write_text(path.read_text() + fichiers)
+    path.with_suffix(".md").write_text(CONSIGNE)
+    (directory / "veille-marches").mkdir()
+    (directory / "veille-marches" / "regles.md").write_text(contenu)
+    return path
+
+
+def test_an_initial_value_for_an_undeclared_file_is_refused(tmp_path):
+    path = agent_with_initial_file(tmp_path, "", "# Règles")
+    assert repo_errors(path) == [
+        "veille-marches.yaml : fichier initial regles.md : pas un fichier déclaré de l'agent, fichiers : aucun."
+    ]
+
+
+def test_an_oversized_initial_value_is_refused(tmp_path):
+    path = agent_with_initial_file(tmp_path, "fichiers: [regles.md]\n", "x" * 100_001)
+    assert repo_errors(path) == ["veille-marches.yaml : fichier initial regles.md : 100001 caractères, 100000 au plus."]
+
+
+def test_the_boamp_agent_rules_are_its_declared_file():
+    assert list(initial_files(AGENTS_DIR / "veille-boamp.yaml")) == ["regles.md"]
 
 
 def test_dod_3_unreadable_yaml_is_refused(tmp_path):

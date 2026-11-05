@@ -120,11 +120,16 @@ automatiquement, avec la liste des destinations de l'agent.
 
 ## Agents déclarés dans le dépôt
 
-Un agent peut aussi arriver par une PR : sa configuration `agents/<slug>.yaml` et sa consigne
-`agents/<slug>.md`, relues en PR et validées par la CI. Il s'enregistre par le même déroulé, avec
-ces deux fichiers tels quels : `proposer --config agents/<slug>.yaml --consigne agents/<slug>.md`,
-puis `creer` au tour suivant. Ne pas réécrire la consigne d'un agent du dépôt : une correction
-passe par une PR.
+Un agent peut aussi arriver par une PR : sa configuration `agents/<slug>.yaml`, sa consigne
+`agents/<slug>.md` et, s'il déclare des fichiers, leur valeur initiale dans `agents/<slug>/<nom>`,
+relues en PR et validées par la CI. Il s'enregistre par le même déroulé, avec ces fichiers tels
+quels : `proposer --config agents/<slug>.yaml --consigne agents/<slug>.md --fichier
+agents/<slug>/<nom>` (un `--fichier` par fichier), puis `creer` au tour suivant. La valeur
+initiale devient la version 1 du fichier à la création ; elle n'écrase jamais un fichier que
+l'agent a déjà écrit. Ne pas réécrire la consigne d'un agent du dépôt : une correction passe par
+une PR. `agents/veille-boamp` est l'exemple de référence : préparations `url` sur une API
+publique, règles de tri dans un fichier de l'agent, un envoi par élément, classificateur en filtre
+puis en étiquettes, cadence hebdomadaire.
 
 ## Déroulé imposé
 

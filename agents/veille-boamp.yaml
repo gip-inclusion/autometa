@@ -1,6 +1,11 @@
-# Agent déclaré dans le dépôt : ce fichier et sa consigne (veille-boamp.md) arrivent par PR,
-# `make test` les valide (tests/test_agents_repo.py). Il s'enregistre par le skill `agents`
-# (proposer puis creer). Le mode réel s'ouvre par une PR sur config/agent_destinations.yaml.
+# Agent déclaré dans le dépôt : ce fichier, sa consigne (veille-boamp.md) et la valeur initiale de ses
+# fichiers (veille-boamp/) arrivent par PR, `make test` les valide (tests/test_agents_repo.py). Il
+# s'enregistre par le skill `agents` (proposer puis creer). Le mode réel s'ouvre par une PR sur
+# config/agent_destinations.yaml.
+#
+# Exemple de référence d'un agent composé de briques génériques : Autometa lit le BOAMP (préparations
+# url), le worker trie selon regles.md (fichier de l'agent) et rend un envoi par avis, clef juge chaque
+# envoi (filtre puis étiquettes), le cron run-agents le lance chaque lundi.
 format: pdi.agent/1
 slug: veille-boamp
 titre: Veille BOAMP insertion et emploi
@@ -11,3 +16,44 @@ mission: >-
 points_de_contact:
   - id: bizdev.marche
     mode: ombre
+cadence:
+  jours: [lundi]
+# Why: l'export CSV n'a pas la limite de 100 lignes de /records. La fenêtre now(days=-8) à
+# now(days=-1) couvre les 7 jours complets qui précèdent le run, sans trou ni chevauchement d'un lundi
+# à l'autre. Les services sont coupés en deux (lundi à mercredi, jeudi à dimanche) : leur semaine la
+# plus chargée de l'année (1 092 avis, environ 205 caractères chacun) dépasse le plafond d'une
+# préparation (200 000 caractères). Mesures du 05/11/2026 :
+# paved-road/agent-veille-boamp/definition-of-done.md.
+preparations:
+  - type: url
+    url: https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/exports/csv?select=idweb%2Cdateparution%2Cobjet%2Cnomacheteur%2Ccode_departement%2Cdatelimitereponse%2Cdescripteur_libelle&where=nature%3D%22APPEL_OFFRE%22+and+etat%3D%22INITIAL%22+and+type_marche%3D%22SERVICES%22+and+dateparution%3E%3Dnow%28days%3D-8%29+and+dateparution%3Cnow%28days%3D-5%29&order_by=datelimitereponse&delimiter=%3B
+    plafond: 200000
+  - type: url
+    url: https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/exports/csv?select=idweb%2Cdateparution%2Cobjet%2Cnomacheteur%2Ccode_departement%2Cdatelimitereponse%2Cdescripteur_libelle&where=nature%3D%22APPEL_OFFRE%22+and+etat%3D%22INITIAL%22+and+type_marche%3D%22SERVICES%22+and+dateparution%3E%3Dnow%28days%3D-5%29+and+dateparution%3Cnow%28days%3D-1%29&order_by=datelimitereponse&delimiter=%3B
+    plafond: 200000
+  - type: url
+    url: https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/exports/csv?select=idweb%2Cdateparution%2Cobjet%2Cnomacheteur%2Ccode_departement%2Cdatelimitereponse%2Cdescripteur_libelle&where=nature%3D%22APPEL_OFFRE%22+and+etat%3D%22INITIAL%22+and+type_marche%3D%22FOURNITURES%22+and+dateparution%3E%3Dnow%28days%3D-8%29+and+dateparution%3Cnow%28days%3D-1%29&order_by=datelimitereponse&delimiter=%3B
+    plafond: 120000
+# Why: le worker trie large par mots-clés (rappel), clef juge chaque avis à part (précision). Le filtre
+# à 0,7 écarte un avis seulement quand clef le juge nettement hors sujet ; l'écart reste enregistré avec
+# sa probabilité, lisible en ombre pour régler le seuil. Les étiquettes ne retirent rien : 0,5 veut dire
+# « plus probable que non », un avis peut porter les deux rubriques ou aucune.
+outils_modeles:
+  - type: classificateur
+    modele: "clef:27b"
+    question: >-
+      L'avis achète-t-il une prestation ou un outil au service de l'insertion professionnelle, de
+      l'IAE, de l'accompagnement des bénéficiaires du RSA ou du retour à l'emploi ?
+    seuil: 0.7
+  - type: classificateur
+    modele: "clef:27b"
+    etiquettes:
+      - nom: outils-numeriques
+        question: >-
+          L'avis achète-t-il un logiciel, une plateforme, une application ou un service numérique ?
+      - nom: prestations-insertion
+        question: >-
+          L'avis achète-t-il une prestation d'insertion, d'accompagnement vers l'emploi ou de suivi
+          de personnes en parcours ?
+    seuil: 0.5
+fichiers: [regles.md]
