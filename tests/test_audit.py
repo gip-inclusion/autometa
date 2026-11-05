@@ -40,9 +40,9 @@ def tool_result(id, output, conv="c1"):
     return msg(id, "tool_result", json.dumps({"output": output}), conv)
 
 
-def fake_prod(mocker, messages, forks=None):
+def fake_prod(mocker, messages, forks=None, titles=None):
     """Remplace Metabase par une base de messages en mémoire ; `forks` : conversation → (origine, création)."""
-    forks = forks or {}
+    forks, titles = forks or {}, titles or {}
 
     def in_window(params):
         return {m["conversation_id"] for m in messages if params["first"] < m["id"] <= params["last"]}
@@ -56,7 +56,7 @@ def fake_prod(mocker, messages, forks=None):
                 {
                     "id": c,
                     "user_id": f"{c}@x.fr",
-                    "title": f"titre {c}",
+                    "title": titles.get(c, f"titre {c}"),
                     "forked_from": forks.get(c, (None, None))[0],
                     "created_at": forks.get(c, (None, "2026-10-01T00:00:00"))[1],
                 }
@@ -238,6 +238,14 @@ def test_extract_masks_secrets_on_disk_and_reports_them(mocker, audit_dir):
     on_disk = "".join(p.read_text() for p in audit_dir.rglob("*") if p.is_file())
     assert FAUX not in on_disk
     assert summary["secrets"] == [{"conversation_id": "c1", "message_id": 3, "kinds": "mot de passe de DSN"}]
+
+
+def test_a_conversation_title_is_masked_in_every_file_of_the_run(mocker, audit_dir):
+    run = open_daily(mocker, [msg(1)], titles={"c1": f"export postgresql://u:{FAUX}@h/db"})
+
+    audit.extract(run.id)
+
+    assert FAUX not in "".join(p.read_text() for p in audit_dir.rglob("*") if p.is_file())
 
 
 @pytest.mark.parametrize(
@@ -702,10 +710,16 @@ def test_a_criterion_with_an_invalid_pattern_is_refused_when_proposed():
 def test_issue_and_lesson_texts_are_masked_like_findings(mocker):
     recorded_run(mocker, finding(1))
 
-    [stored_issue] = audit.upsert_issues(json.dumps([{**issue(findings=["c1:1:A2"]), "title": "Écrire à a.b@x.fr"}]))
-    [stored_lesson] = audit.upsert_lessons(json.dumps([{**lesson(), "fact": "Voir a.b@x.fr"}]))
+    leaky_issue = {**issue(findings=["c1:1:A2"]), "title": "Écrire à a.b@x.fr", "signature": "écrit à a.b@x.fr"}
+    [stored_issue] = audit.upsert_issues(json.dumps([leaky_issue]))
+    [stored_lesson, clean_lesson] = audit.upsert_lessons(
+        json.dumps([{**lesson(), "fact": "Voir a.b@x.fr", "proposal": "+écrire à a.b@x.fr\n"}, lesson()])
+    )
 
-    assert (stored_issue.title, stored_lesson.fact) == ("Écrire à ***", "Voir ***")
+    assert (stored_issue.title, stored_issue.signature) == ("Écrire à ***", "écrit à ***")
+    assert (stored_lesson.fact, stored_lesson.proposal) == ("Voir ***", "+écrire à ***\n")
+    assert clean_lesson.proposal == lesson()["proposal"]
+    assert "a.b@x.fr" not in audit.ticket(stored_issue.code, "https://autometa")
 
 
 def test_the_shared_grid_is_amended_by_local_changes_and_only_those_are_saved(audit_dir):

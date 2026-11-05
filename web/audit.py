@@ -513,7 +513,11 @@ def extract(run_id: int, batches: int | None = None) -> dict:
     window = {"first": run.after_message_id, "last": run.last_message_id}
     excluded = {r.conversation_id for r in load_runs() if r.conversation_id}
     # Why: les ids de conversation sont des UUID en texte ; « 0 » les précède tous.
-    convs = {c["id"]: c for c in fetch_pages(CONVERSATIONS_SQL, "0", **window) if c["id"] not in excluded}
+    convs = {
+        c["id"]: {**c, "title": scrub(c["title"] or "")}
+        for c in fetch_pages(CONVERSATIONS_SQL, "0", **window)
+        if c["id"] not in excluded
+    }
     fetched = [
         without_cut_word(m)
         for m in fetch_pages(MESSAGES_SQL, run.after_message_id, last=run.last_message_id)
@@ -558,7 +562,7 @@ def extract(run_id: int, batches: int | None = None) -> dict:
         index.append({
             "id": conv["id"],
             "user": conv["user_id"],
-            "title": (conv["title"] or "")[:90],
+            "title": conv["title"][:90],
             "chars": len(text),
             "n_user": sum(m["type"] == "user" for m in conv_messages),
             "n_tool": sum(m["type"] == "tool_use" for m in conv_messages),
@@ -724,6 +728,7 @@ def upsert_issues(payload: str) -> list[Issue]:
                 "last_seen": days[-1] if days else None,
                 "status": status,
                 "title": mask(item.title),
+                "signature": mask(item.signature),
                 "action": mask(item.action),
                 "notion_page_id": item.notion_page_id or (existing.notion_page_id if existing else None),
                 "created_at": existing.created_at if existing else utcnow().isoformat(),
@@ -762,6 +767,8 @@ def upsert_lessons(payload: str) -> list[Lesson]:
                 "status": existing.status if existing and "status" not in item.model_fields_set else item.status,
                 "title": mask(item.title),
                 "fact": mask(item.fact),
+                "proposal": mask(item.proposal),
+                "signature": mask(item.signature),
                 "findings": sorted(set(existing.findings if existing else []) | set(item.findings)),
                 "created_at": existing.created_at if existing else now,
                 "updated_at": now,
