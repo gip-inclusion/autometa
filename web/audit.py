@@ -170,6 +170,13 @@ class Lesson(BaseModel):
     updated_at: str = ""
 
 
+class Thread(BaseModel):
+    """Un message Slack publié et les réponses déjà parties dans son fil."""
+
+    ts: str
+    replies: list[str] = []
+
+
 class Run(BaseModel):
     id: int
     kind: Literal["daily", "weekly"]
@@ -185,6 +192,7 @@ class Run(BaseModel):
     summary: str = ""
     posted_at: str | None = None
     posted: list[str] = []
+    threads: dict[str, Thread] = {}
 
 
 def read_json(path: Path, default):
@@ -893,17 +901,27 @@ def post_slack(run_id: int, channel: str, base_url: str) -> int:
     messages = [m for m in slack_messages(run_id, base_url) if m["text"] not in run.posted]
     failures = []
     for message in messages:
-        ts = send(channel, message["text"])
-        if not ts:
-            failures.append(message["text"][:80])
-            continue
-        failures += [reply[:80] for reply in message.get("thread", []) if not send(channel, reply, thread_ts=ts)]
-        run.posted.append(message["text"])
-        now = utcnow().isoformat()
-        keys = set(message.get("findings", []))
-        save_findings(
-            run_id, [f.model_copy(update={"posted_at": now}) if f.key in keys else f for f in load_findings(run_id)]
-        )
+        thread = run.threads.get(message["text"])
+        if thread is None:
+            if not (ts := send(channel, message["text"])):
+                failures.append(message["text"][:80])
+                continue
+            thread = run.threads[message["text"]] = Thread(ts=ts)
+        for reply in message.get("thread", []):
+            if reply in thread.replies:
+                continue
+            if send(channel, reply, thread_ts=thread.ts):
+                thread.replies.append(reply)
+            else:
+                failures.append(reply[:80])
+        if set(message.get("thread", [])) <= set(thread.replies):
+            run.posted.append(message["text"])
+            now = utcnow().isoformat()
+            keys = set(message.get("findings", []))
+            save_findings(
+                run_id,
+                [f.model_copy(update={"posted_at": now}) if f.key in keys else f for f in load_findings(run_id)],
+            )
         save_run(run)
     if failures:
         raise AuditError(
@@ -992,7 +1010,7 @@ def verify_list(run_id: int) -> list[dict]:
 def merge(run_id: int) -> dict:
     """Applique les contre-vérifications (verdict_NN.json) et remplace les incidents audités du run : on peut le relancer."""
     run = open_daily_run(run_id)
-    if run.posted_at or run.posted or any(f.posted_at for f in load_findings(run_id)):
+    if run.posted_at or run.threads or any(f.posted_at for f in load_findings(run_id)):
         raise AuditError(f"Run {run_id} déjà publié sur Slack : ses incidents ne se réécrivent plus.")
     checks = {
         v.key: v

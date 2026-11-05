@@ -609,6 +609,25 @@ def test_an_interrupted_post_resumes_without_reposting(mocker, monkeypatch):
     assert audit.load_run(run.id).posted_at
 
 
+def test_a_reply_refused_by_slack_is_resent_alone_in_its_thread(mocker, monkeypatch):
+    monkeypatch.setattr(audit.config, "SLACK_BOT_TOKEN", "xoxb-test")
+    post = mocker.patch.object(
+        audit, "post_message", side_effect=lambda token, channel, text, thread_ts: None if thread_ts else "1.0"
+    )
+    run = recorded_run(mocker, finding(1))
+
+    with pytest.raises(audit.AuditError, match="relancer"):
+        audit.post_slack(run.id, "C-TEST", "https://autometa")
+    published_too_early = audit.load_run(run.id).posted_at
+    post.reset_mock(side_effect=True)
+    post.return_value = "2.0"
+    audit.post_slack(run.id, "C-TEST", "https://autometa")
+
+    assert published_too_early is None
+    assert [(c.args[2][0], c.kwargs["thread_ts"]) for c in post.call_args_list] == [("•", "1.0")]
+    assert audit.load_run(run.id).posted_at
+
+
 def test_text_quoted_from_a_conversation_cannot_ping_the_channel(mocker, monkeypatch):
     monkeypatch.setattr(audit.config, "SLACK_BOT_TOKEN", "xoxb-test")
     post = mocker.patch.object(audit, "post_message", return_value="1.0")
