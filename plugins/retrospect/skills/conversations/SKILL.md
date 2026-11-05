@@ -72,6 +72,8 @@ W=data/audit/runs/<run>/work
 
    Les liens vers les conversations pointent sur `PROD_URL` (l'application de prod par défaut).
 8. `$A finish --run N --summary "…"` — clôt le run, le suivant repartira de là. `--abandon` le ferme sans avancer.
+   Dans les deux cas, `$W` est supprimé : les transcriptions ne survivent pas au run. Le rapport et Slack restent
+   possibles après la clôture.
 
 Pour les incidents de données personnelles (C15, G35, G37), le rapport, Slack et Notion ne donnent que la nature du
 problème et le lien vers la conversation.

@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import re
+import shutil
 from pathlib import Path
 from typing import Literal, get_args
 
@@ -566,7 +567,8 @@ def extract(run_id: int, batches: int | None = None) -> dict:
     with (out / "messages.jsonl").open("w") as f:
         for m in context + messages:
             f.write(json.dumps({**m, "content": scrub(m["content"])}, default=str, ensure_ascii=False) + "\n")
-    write_json(out / "convs.json", list(convs.values()))
+    # Why: hors du dossier de travail, que la clôture du run supprime : Slack et le rapport en ont encore besoin.
+    write_json(run_dir(run_id) / "authors.json", {cid: c["user_id"] for cid, c in convs.items()})
     stats = {
         "conversations": len(index),
         "utilisateurs": len({i["user"] for i in index}),
@@ -585,7 +587,7 @@ def extract(run_id: int, batches: int | None = None) -> dict:
         ],
         "tmp_collisions": collisions,
     }
-    write_json(out / "summary.json", summary)
+    write_json(run_dir(run_id) / "summary.json", summary)
     save_run(run.model_copy(update={"stats": stats}))
     record(run_id, AuditOutput(verdicts=[], findings=secret_findings(summary["secrets"])).model_dump_json())
     return summary
@@ -807,7 +809,7 @@ def severity_counts(findings: list[Finding]) -> str:
 def exposed_secrets(run_id: int) -> dict[str, set[str]]:
     """Par conversation, les sortes de secret d'une forme certaine repérées à l'extraction."""
     secrets = collections.defaultdict(set)
-    for s in read_json(work_dir(run_id) / "summary.json", {}).get("secrets", []):
+    for s in read_json(run_dir(run_id) / "summary.json", {}).get("secrets", []):
         secrets[s["conversation_id"]].update(certain_kinds(s["kinds"]))
     return {cid: kinds for cid, kinds in secrets.items() if kinds}
 
@@ -817,7 +819,7 @@ def slack_messages(run_id: int, base_url: str) -> list[dict]:
     run = load_run(run_id)
     if run.kind == "weekly":
         return [weekly_digest(run)]
-    authors = {c["id"]: c["user_id"] for c in read_json(work_dir(run_id) / "convs.json", [])}
+    authors = read_json(run_dir(run_id) / "authors.json", {})
     findings = load_findings(run_id)
     definitions = criterion_definitions()
     messages = [
@@ -964,7 +966,7 @@ def ticket(code: str, base_url: str) -> str:
 
 
 def finish(run_id: int, summary: str = "", abandon: bool = False) -> Run:
-    """Clôt le run (le filigrane avance) ou l'abandonne (le suivant reprendra la même fenêtre)."""
+    """Clôt ou abandonne le run (seul un run clos avance le filigrane), puis supprime son dossier de travail."""
     run = load_run(run_id)
     if run.status != "ouvert":
         raise AuditError(f"Run {run_id} déjà {run.status}.")
@@ -972,6 +974,9 @@ def finish(run_id: int, summary: str = "", abandon: bool = False) -> Run:
         update={"status": "abandonné" if abandon else "clos", "finished_at": utcnow().isoformat(), "summary": summary}
     )
     save_run(run)
+    # Why: les transcriptions portent les conversations de tous les utilisateurs ; elles ne survivent pas au run.
+    if work_dir(run_id).exists():
+        shutil.rmtree(work_dir(run_id))
     return run
 
 

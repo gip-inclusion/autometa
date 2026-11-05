@@ -793,6 +793,23 @@ def test_a_refused_merge_keeps_the_findings_already_merged(mocker, spoil, reason
     assert [f.key for f in audit.load_findings(run.id)] == ["c1:1:A2"]
 
 
+def test_finishing_a_run_deletes_its_transcripts_but_keeps_what_its_outputs_need(mocker):
+    run = open_daily(mocker, [msg(1), tool_result(2, f"postgresql://u:{FAUX}@h/db")])
+    audit.extract(run.id)
+    audit.record(run.id, output(finding(1)))
+
+    audit.finish(run.id)
+
+    alert, correction, digest = audit.slack_messages(run.id, "https://autometa")
+    assert not audit.work_dir(run.id).exists()
+    assert "mot de passe de DSN" in audit.report(run.id, "https://autometa").read_text()
+    assert (alert["text"][:16], "c1@x.fr" in correction["text"], digest["text"][:11]) == (
+        ":rotating_light:",
+        True,
+        ":clipboard:",
+    )
+
+
 def test_merge_can_be_rerun_after_a_new_verdict(mocker):
     off_grid = {"conversation_id": "c1", "message_id": 1, "symptom": "s", "mechanism": "m", "why_serious": "w"}
     run = open_daily(mocker, [msg(1)])
