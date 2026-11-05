@@ -63,6 +63,7 @@ def test_dod_15_a_type_outside_the_config_is_never_imported(kind):
         ({"type": "github", "organisation": "a/b"}, "organisation : attendu un nom de propriétaire"),
         ({"type": "github", "depots": ["a/b"], "plafond_depot": 100}, "plafond_depot : attendu un entier de 2000"),
         ({"type": "url", "url": "http://example.org"}, "url : attendu une adresse https://"),
+        ({"type": "url", "url": "https://user:pass@example.org"}, "sans identifiants"),
         ({"type": "url"}, "url : attendu une adresse https://"),
     ],
 )
@@ -328,13 +329,52 @@ def addresses(*ips):
     return lambda host, port, proto: [(socket.AF_INET, socket.SOCK_STREAM, proto, "", (ip, port)) for ip in ips]
 
 
+PUBLIC = "93.184.215.14"
+
+
+class Site:
+    """An https site behind httpx's MockTransport: records each request as sent on the wire."""
+
+    def __init__(self, mocker, response):
+        self.requests, self.response = [], response
+        transport = httpx.MockTransport(self.handle)
+        mocker.patch("lib.agent_connectors.url.client", lambda: httpx.Client(transport=transport, timeout=30))
+
+    def handle(self, request):
+        self.requests.append(request)
+        return self.response
+
+
+def read_url(url="https://example.org/x", plafond=1000):
+    return agent_connectors.prepare({"type": "url", "url": url, "plafond": plafond})
+
+
 @pytest.mark.parametrize("ip", ["10.0.0.4", "127.0.0.1", "169.254.169.254"])
 def test_dod_15_a_url_resolving_to_a_private_address_is_never_fetched(mocker, ip):
-    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses("93.184.215.14", ip))
-    fetch = mocker.patch("lib.agent_connectors.url.httpx.get")
+    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses(PUBLIC, ip))
+    site = Site(mocker, httpx.Response(200, text="x"))
     with pytest.raises(ValueError, match="ne résout pas vers une adresse publique"):
-        agent_connectors.prepare({"type": "url", "url": "https://example.org/x"})
-    fetch.assert_not_called()
+        read_url()
+    assert site.requests == []
+
+
+def test_dod_15_a_name_rebound_to_a_private_address_after_the_check_is_never_connected_to(mocker):
+    """DNS rebinding: public when checked, private afterwards; the request goes to the checked address."""
+    resolve = mocker.patch(
+        "lib.agent_connectors.url.socket.getaddrinfo",
+        side_effect=[addresses(PUBLIC)(0, 443, 6), addresses("10.0.0.4")(0, 443, 6)],
+    )
+    site = Site(mocker, httpx.Response(200, text="contenu", headers={"content-type": "text/plain"}))
+    assert read_url("https://example.org:8443/notes?v=1")["contenu"] == "contenu"
+    assert resolve.call_count == 1
+    (request,) = site.requests
+    assert str(request.url) == f"https://{PUBLIC}:8443/notes?v=1"
+    assert request.headers["host"] == "example.org:8443"
+    assert request.extensions["sni_hostname"] == "example.org"
+
+
+def test_dod_15_an_ipv6_address_is_pinned_in_brackets():
+    assert url_connector.pinned("https://example.org/a", "2606:4700::1") == "https://[2606:4700::1]/a"
 
 
 @pytest.mark.parametrize(
@@ -349,13 +389,33 @@ def test_dod_15_a_url_resolving_to_a_private_address_is_never_fetched(mocker, ip
     ],
 )
 def test_dod_15_a_public_url_is_read_as_text(mocker, content_type, body, expected):
-    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses("93.184.215.14"))
-    response = httpx.Response(
-        200, text=body, headers={"content-type": content_type}, request=httpx.Request("GET", "https://example.org")
-    )
-    mocker.patch("lib.agent_connectors.url.httpx.get", return_value=response)
-    found = agent_connectors.prepare({"type": "url", "url": "https://example.org/x"})
-    assert found == {"source": "https://example.org/x", "contenu": expected}
+    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses(PUBLIC))
+    Site(mocker, httpx.Response(200, text=body, headers={"content-type": content_type}))
+    assert read_url() == {"source": "https://example.org/x", "contenu": expected}
+
+
+def chunks(size, count):
+    yield from (b"x" * size for _ in range(count))
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, headers={"content-type": "text/plain", "content-length": "10001"}, content=b"x"),
+        httpx.Response(200, headers={"content-type": "text/plain"}, content=chunks(4000, 1000)),
+    ],
+)
+def test_dod_15_a_url_answer_beyond_ten_times_the_cap_is_refused_without_reading_it_all(mocker, response):
+    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses(PUBLIC))
+    Site(mocker, response)
+    with pytest.raises(ValueError, match="réponse de plus de 10000 octets, rien n'est lu"):
+        read_url(plafond=1000)
+
+
+def test_dod_15_a_url_answer_within_its_byte_budget_is_read_then_cut_to_the_cap(mocker):
+    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses(PUBLIC))
+    Site(mocker, httpx.Response(200, headers={"content-type": "text/plain"}, content=chunks(2500, 4)))
+    assert read_url(plafond=1000)["contenu"].endswith("[contenu tronqué à 1000 caractères sur 10000]")
 
 
 @pytest.mark.parametrize(
@@ -367,16 +427,16 @@ def test_dod_15_a_public_url_is_read_as_text(mocker, content_type, body, expecte
     ],
 )
 def test_dod_15_a_url_that_is_not_text_or_answers_badly_launches_no_run(mocker, response, message):
-    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses("93.184.215.14"))
-    response.request = httpx.Request("GET", "https://example.org/x")
-    mocker.patch("lib.agent_connectors.url.httpx.get", return_value=response)
+    mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=addresses(PUBLIC))
+    site = Site(mocker, response)
     with pytest.raises(ValueError, match=message):
-        agent_connectors.prepare({"type": "url", "url": "https://example.org/x"})
+        read_url()
+    assert len(site.requests) == 1
 
 
 def test_dod_15_an_unresolvable_host_is_not_public(mocker):
     mocker.patch("lib.agent_connectors.url.socket.getaddrinfo", side_effect=socket.gaierror)
-    assert url_connector.public_host("nulle-part.invalid") is False
+    assert url_connector.public_address("nulle-part.invalid") is None
 
 
 def test_dod_15_every_preparation_is_cut_to_its_cap(mocker):

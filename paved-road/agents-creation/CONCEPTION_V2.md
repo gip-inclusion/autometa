@@ -162,8 +162,9 @@ mention ne donne aucun pouvoir de plus que le parcours de création.
 
 - Les lots tournent une fois par jour : une cadence plus fine demanderait un lot de plus dans
   `cron.json`, hors de cette PR.
-- `url` vérifie que l'hôte résout vers une adresse publique puis lit sans suivre de redirection ;
-  un DNS qui change entre la vérification et la lecture n'est pas couvert.
+- `url` se connecte à l'adresse vérifiée publique, le nom gardé dans Host et SNI (certificat
+  vérifié contre lui) : une seconde résolution, publique puis privée, n'est jamais contactée.
+  Pas de redirection ; réponse lue en flux, refusée au-delà de dix fois le plafond en octets.
 - GitHub sans jeton : 60 requêtes par heure, quatre par dépôt ; `GITHUB_TOKEN` d'Autometa lève la
   limite.
 - Un run lancé le matin est livré au passage suivant de `run-agents`, ou à la demande (`livrer`).
