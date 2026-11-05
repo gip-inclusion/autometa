@@ -52,6 +52,11 @@ HEX = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
         ("x-api-key: abc123def456ghi", "abc123def456ghi", "champ secret"),  # gitleaks:allow
         ("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345", "ABCDEFGHIJKLMNOPQRST", "jeton de service"),
         ("cle mb_AbCdEf0123456789XyZaBcD=", "AbCdEf0123456789XyZaBcD", "jeton de service"),
+        # Un mot de passe en majuscules, ou qui contient = & # : pas une valeur de substitution, pas une requête.
+        ("postgresql://user:MYSECRETPW@host/db", "MYSECRETPW", "mot de passe de DSN"),
+        ("postgresql://user:Abc=123xy@host/db", "Abc=123xy", "mot de passe de DSN"),
+        ("postgresql://user:p&ss1234@host/db", "p&ss1234", "mot de passe de DSN"),
+        ("postgres://u:Abc#12345@h/db", "Abc#12345", "mot de passe de DSN"),
     ],
 )
 def test_redact_removes_each_family_of_secret(text, secret, kind):
@@ -98,6 +103,7 @@ def test_database_urls_are_known_secrets(mocker, setting):
         'SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")',
         '"password": "<mot de passe>"',
         "le password: est requis",
+        "Le serveur exige une Basic authentification pour cette API.",
     ],
 )
 def test_plain_text_is_left_alone(text):

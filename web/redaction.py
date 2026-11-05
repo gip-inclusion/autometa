@@ -6,8 +6,9 @@ from lib.sources import list_instances, load_config
 
 from . import config
 
-# Une valeur de substitution (`USER`, `${DB_PASSWORD}`, `<mot de passe>`, `***`) n'est pas un secret.
-NOT_A_PLACEHOLDER = r"(?!(?-i:[A-Z_]+)\b|\$\{|<|\*{3})"
+# Une valeur de substitution (`PASSWORD`, `${DB_PASSWORD}`, `<mot de passe>`, `***`) n'est pas un secret ; un mot en
+# majuscules quelconque peut en être un (`MYSECRETPW`).
+NOT_A_PLACEHOLDER = r"(?!(?-i:USER|USERNAME|PASSWORD|PASSWD|PASS|PWD|SECRET|TOKEN)\b|\$\{|<|\*{3})"
 # Un nom de paramètre est sensible si l'un de ses segments l'est : `token_auth`, `accessToken`, pas `author`.
 SENSITIVE_NAME = (
     r"(?:(?i:(?:[a-z0-9]+[_-])*(?:token|key|apikey|signature|sig|secret|pass|password|passwd|auth)(?:[_-][a-z0-9]+)*)"
@@ -16,7 +17,9 @@ SENSITIVE_NAME = (
 # Why: formes reconnaissables même quand la valeur n'est pas dans la configuration de cet environnement
 # (jeton de prod lu depuis un poste local, clé d'un autre service collée dans une conversation).
 PATTERNS = {
-    "mot de passe de DSN": (re.compile(rf"://[^/\s:@]*:{NOT_A_PLACEHOLDER}[^/\s@?#&=\\]+@"), "://***@"),
+    # Why: un mot de passe peut contenir `? # & =` ; un port suivi d'une requête (`https://h:8080?email=a@b.fr`)
+    # n'en est pas un.
+    "mot de passe de DSN": (re.compile(rf"://[^/\s:@]*:(?!\d+[/?#]){NOT_A_PLACEHOLDER}[^/\s@]+@"), "://***@"),
     # Why: un extrait tronqué (« … so_3314:<mot de passe>@hôte ») perd le schéma. Une adresse e-mail précédée d'un
     # libellé (`requester:prenom.nom@…`) n'en est pas un : le mot de passe mêle lettres et chiffres, sans point.
     "identifiants user:mot de passe": (
@@ -46,7 +49,11 @@ PATTERNS = {
     "jeton JWT": (re.compile(r"eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}"), "***"),
     "jeton Matomo": (re.compile(r"(token_auth\W{1,4})[0-9a-f]{32}"), r"\1***"),
     "clé autometa-jobs": (re.compile(r"pmk_[A-Za-z0-9]{16,}"), "pmk_***"),
-    "en-tête d'autorisation": (re.compile(r"((?:Bearer|Basic) )[A-Za-z0-9._\-+/=]{16,}"), r"\1***"),
+    # Why: « Basic authentification » n'est pas un en-tête ; un base64 d'identifiants mêle majuscules et chiffres.
+    "en-tête d'autorisation": (
+        re.compile(r"(Bearer |Basic (?=[A-Za-z0-9+/=]*\d)(?=[A-Za-z0-9+/=]*[A-Z]))[A-Za-z0-9._\-+/=]{16,}"),
+        r"\1***",
+    ),
     "jeton de service": (
         re.compile(
             r"\b(?:xox[abposr]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|mb_[A-Za-z0-9+/=]{20,}|AKIA[0-9A-Z]{16})"
