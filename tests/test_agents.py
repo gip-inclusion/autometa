@@ -1,4 +1,6 @@
+import importlib.util
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -236,6 +238,21 @@ def test_dod_8_review_is_written_only_when_approved_in_a_later_message(store, co
     assert agents.approve_envoi(SLUG, envoi_id)["statut"] == "envoyee"
     post.assert_called_once()
     assert store.json(f"{SLUG}/envois/{envoi_id}.json")["approuve_par"] == "lj@example.org"
+
+
+def test_the_skill_runs_its_script_as_a_module_with_the_python_on_path(capsys):
+    """Scalingo has no .venv: the skill calls `python -m`, resolved from the repository root."""
+    skill = Path("skills/agents/SKILL.md").read_text()
+    lines = [line.split() for line in skill.splitlines() if line.startswith("python")]
+    assert len(lines) == 10
+    assert ".venv" not in skill
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    usage = capsys.readouterr().out
+    for words in lines:
+        assert words[:3] == ["python", "-m", "skills.agents.scripts.agents"]
+        assert words[3] in usage
+    assert importlib.util.find_spec("skills.agents.scripts.agents").origin.endswith("skills/agents/scripts/agents.py")
 
 
 def test_skill_walks_the_whole_flow_and_reports_refusals(store, conversation, engine, post, tmp_path, capsys):
