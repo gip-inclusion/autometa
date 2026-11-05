@@ -85,7 +85,9 @@ def test_dod_5_boamp_digest_is_recorded_in_shadow_and_written_nowhere(store, moc
     summary = agents.deliver_run("veille-boamp", RUN_ID)
 
     envoi_id = f"{RUN_ID}-0"
-    assert summary == [{"id": envoi_id, "destination": "bizdev.marche", "mode": "ombre", "statut": "ombre"}]
+    assert summary == [
+        {"id": envoi_id, "destination": "bizdev.marche", "mode": "ombre", "statut": "ombre", "appels": 0}
+    ]
     assert store.json(f"veille-boamp/envois/{envoi_id}.json")["texte"] == DIGEST["envois"][0]["texte"]
     slack.assert_not_called()
     notion.assert_not_called()
