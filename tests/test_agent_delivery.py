@@ -162,7 +162,7 @@ def test_dod_6_real_mode_posts_to_slack_with_control_sequences_escaped(store, po
     envoi = make_envoi(titre="<!channel> MEP", texte="voir <https://x.example|ici> & co")
     summary = agent_delivery.deliver(make_agent(("produit.signal_faible", "reel")), RUN_ID, [envoi])
     assert summary == [
-        {"id": f"{RUN_ID}-0", "destination": "produit.signal_faible", "mode": "reel", "statut": "envoyee"}
+        {"id": f"{RUN_ID}-0", "destination": "produit.signal_faible", "mode": "reel", "statut": "envoyee", "appels": 0}
     ]
     text = post.call_args.args[2]
     assert "<" not in text

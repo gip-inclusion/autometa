@@ -186,7 +186,13 @@ def test_dod_6_unknown_proposal_is_refused(store, changeset_id):
 def test_dod_7_completed_run_of_the_agent_job_is_delivered(store, conversation, engine, post):
     created_agent(conversation)
     assert agents.deliver_run(SLUG, RUN_ID) == [
-        {"id": f"{RUN_ID}-0", "destination": "produit.signal_faible", "mode": "relecture", "statut": "a_relire"}
+        {
+            "id": f"{RUN_ID}-0",
+            "destination": "produit.signal_faible",
+            "mode": "relecture",
+            "statut": "a_relire",
+            "appels": 0,
+        }
     ]
     post.assert_not_called()
 
@@ -274,9 +280,13 @@ CONFIG_V2 = (
     )
     + """cadence: quotidienne
 outils_modeles:
-  - id: classifieur.pertinence
+  - type: classificateur
+    modele: "clef:27b"
     question: La production décrit-elle une opportunité produit nouvelle ?
     seuil: 0.7
+  - type: resume
+    modele: glm-5.2
+    longueur_max: 400
 preparations:
   - type: cron
     tache: sync-tags
@@ -313,8 +323,16 @@ def created_v2(conversation, mocker, config_yaml=CONFIG_V2):
     return agents.apply(proposal["id"])
 
 
-def classifier_says(mocker, *probabilities):
-    return mocker.patch("lib.agent_classifier.probability", side_effect=list(probabilities))
+def ollama_says(mocker, *probabilities, summary="Résumé."):
+    """Ollama Cloud mocked: clef answers the probabilities in turn, the chat models the summary."""
+    answers = iter(probabilities)
+
+    def reply(path, payload):
+        if path == "v1/systemone":
+            return {"answers": {"retenir": {"type": "noul", "noul": next(answers)}}}
+        return {"message": {"role": "assistant", "content": summary}}
+
+    return mocker.patch("lib.agent_subagents.ollama", side_effect=reply)
 
 
 def runs_output(engine, *titles):
@@ -333,12 +351,13 @@ def test_dod_9_guide_lists_what_an_agent_may_use_even_when_no_destination_has_a_
         "produit.opportunite",
     }
     assert not any(d["cible_configuree"] for d in listed["destinations"])
-    assert listed["modeles"] == [{"id": "classifieur.pertinence", "type": "classificateur"}]
+    assert listed["sous_agents"]["classificateur"] == ["clef:27b"]
+    assert set(listed["sous_agents"]) == {"classificateur", "extraction", "resume"}
     assert listed["preparations"]["types"] == {"notion": "base", "s3": "jeu", "cron": "tache"}
     assert "sync-tags" in listed["preparations"]["taches_cron"]
     assert "run-agents" not in listed["preparations"]["taches_cron"]
     assert listed["cadences"] == ["quotidienne", "hebdomadaire", "mensuelle"]
-    assert listed["classificateur_configure"] is False
+    assert listed["sous_agents_configures"] is False
 
 
 def test_dod_9_proposal_without_any_target_shows_classifier_preparations_and_cadence(
@@ -356,22 +375,40 @@ def test_dod_9_proposal_without_any_target_shows_classifier_preparations_and_cad
 def test_dod_10_productions_under_the_threshold_are_kept_but_not_delivered(store, conversation, engine, mocker, post):
     created_v2(conversation, mocker)
     runs_output(engine, "Export CSV", "Bruit")
-    classifier_says(mocker, 0.91, 0.2)
+    ollama_says(mocker, 0.91, 0.2)
     summary = agents.deliver_run(SLUG_V2, RUN_ID)
     assert [s["statut"] for s in summary] == ["a_relire", "ecarte"]
+    assert [s["appels"] for s in summary] == [2, 1]
+    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")["texte"] == "Résumé."
     kept = store.json(f"{SLUG_V2}/envois/{RUN_ID}-1.json")
-    assert kept["classement"] == [{"modele": "classifieur.pertinence", "probabilite": 0.2, "seuil": 0.7}]
+    assert kept["sous_agents"] == [
+        {"type": "classificateur", "modele": "clef:27b", "probabilite": 0.2, "seuil": 0.7, "retenu": False}
+    ]
+    assert kept["texte"] == "Bruit, détails."
+    assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["appels_sous_agents"] == 3
     with pytest.raises(ValueError, match="est ecarte"):
         agents.agent_delivery.approve(SLUG_V2, f"{RUN_ID}-1", "lj@example.org")
 
 
-def test_dod_10_classifier_failure_delivers_nothing_of_that_production(store, conversation, engine, mocker):
+def test_dod_10_a_failing_sub_agent_delivers_nothing_of_that_production_and_is_retried(
+    store, conversation, engine, mocker, caplog
+):
     created_v2(conversation, mocker)
     runs_output(engine, "Export CSV")
-    mocker.patch("lib.agent_classifier.config.OLLAMA_API_KEY", "")
-    with pytest.raises(RuntimeError, match="OLLAMA_API_KEY absent"):
-        agents.deliver_run(SLUG_V2, RUN_ID)
-    assert f"{SLUG_V2}/envois/{RUN_ID}-0.json" not in store.files
+    mocker.patch("lib.agent_subagents.config.OLLAMA_API_KEY", "")
+    with caplog.at_level("INFO"):
+        summary = agents.deliver_run(SLUG_V2, RUN_ID)
+    assert [s["statut"] for s in summary] == ["echec_sous_agent"]
+    record = store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")
+    assert "sous-agent 1 (classificateur clef:27b) en échec : OLLAMA_API_KEY absent" in record["erreur"]
+    assert "Export CSV" not in caplog.text
+    with pytest.raises(ValueError, match="est echec_sous_agent"):
+        agents.agent_delivery.approve(SLUG_V2, f"{RUN_ID}-0", "lj@example.org")
+
+    ollama_says(mocker, 0.9)
+    assert [s["statut"] for s in agents.deliver_run(SLUG_V2, RUN_ID)] == ["a_relire"]
+    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")["texte"] == "Résumé."
+    assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["appels_sous_agents"] == 3
 
 
 def test_dod_11_preparations_feed_the_run_in_order_from_their_three_types(
@@ -433,7 +470,7 @@ def test_dod_12_generic_cron_delivers_finished_runs_then_launches_due_agents(
 ):
     created_v2(conversation, mocker)
     agents.execute(SLUG_V2)
-    classifier_says(mocker, 0.9)
+    ollama_says(mocker, 0.9)
     mocker.patch("lib.agents.cron.is_due", return_value=True)
     runs_output(engine, "Export")
     agents.jobs.trigger_run.return_value = {"id": "44444444-4444-4444-4444-444444444444"}
@@ -443,6 +480,25 @@ def test_dod_12_generic_cron_delivers_finished_runs_then_launches_due_agents(
     assert store.json(f"{SLUG_V2}/envois/{NEW_RUN}-0.json")["statut"] == "a_relire"
     assert store.json(f"{SLUG_V2}/agent.json")["runs_a_livrer"] == ["44444444-4444-4444-4444-444444444444"]
     assert agents.jobs.trigger_run.call_args.kwargs["idempotency_key"].startswith(f"agent-{SLUG_V2}-")
+
+
+def test_dod_12_a_run_whose_sub_agent_failed_stays_pending_and_the_cron_reports_it(
+    store, conversation, engine, mocker, post, preparations
+):
+    created_v2(conversation, mocker)
+    agents.execute(SLUG_V2)
+    mocker.patch("lib.agent_subagents.config.OLLAMA_API_KEY", "")
+    mocker.patch("lib.agents.cron.is_due", return_value=True)
+    runs_output(engine, "Export")
+    agents.jobs.trigger_run.return_value = {"id": "44444444-4444-4444-4444-444444444444"}
+
+    with pytest.raises(RuntimeError, match=f"agents en échec : {SLUG_V2}"):
+        agents.tick()
+
+    assert store.json(f"{SLUG_V2}/envois/{NEW_RUN}-0.json")["statut"] == "echec_sous_agent"
+    pending = store.json(f"{SLUG_V2}/agent.json")["runs_a_livrer"]
+    assert pending == [NEW_RUN, "44444444-4444-4444-4444-444444444444"]
+    post.assert_not_called()
 
 
 def test_dod_12_generic_cron_skips_running_runs_retired_and_on_demand_agents(
@@ -523,6 +579,20 @@ def test_dod_13_a_changed_prompt_is_a_new_pipeline_and_a_stale_proposal_is_refus
         agents.revert(creation["id"])
 
 
+def ollama_cloud(*probabilities):
+    """Ollama Cloud at the HTTP level: clef answers the probabilities in turn, the chat model a short summary."""
+    answers = iter(probabilities)
+
+    def respond(url, **kwargs):
+        if url.endswith("/v1/systemone"):
+            body = {"answers": {"retenir": {"type": "noul", "noul": next(answers)}}}
+        else:
+            body = {"message": {"role": "assistant", "content": "Une demande d'export CSV."}}
+        return httpx.Response(200, json=body, request=httpx.Request("POST", url))
+
+    return respond
+
+
 def throwaway_cron(base, slug, line):
     folder = base / slug
     folder.mkdir()
@@ -532,10 +602,10 @@ def throwaway_cron(base, slug, line):
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("_db")
-def test_dod_14_guide_me_to_an_agent_with_a_classifier_and_two_crons(
+def test_dod_14_guide_me_to_an_agent_with_a_classifier_a_summary_and_two_crons(
     app, store, engine, post, mocker, monkeypatch, tmp_path, capsys
 ):
-    """Alexis's review-app test: propose, wait for the yes, create, launch after a yes, two crons first, classify, shadow."""
+    """Alexis's review-app test: propose, yes, create, launch after a yes, two crons first, classify, summarize, shadow."""
     for slug, line in (("sync-tags", "vocabulaire : 42 tags"), ("sync-connectors", "connecteurs : notion, tally")):
         throwaway_cron(tmp_path, slug, line)
     for task in agents.cron.discover_from_dir(tmp_path, "CRON.md", "system"):
@@ -544,7 +614,8 @@ def test_dod_14_guide_me_to_an_agent_with_a_classifier_and_two_crons(
     publish = mocker.patch("lib.agents.job_inputs.publish_dataset", return_value={"url": "https://s3/entree.jsonl"})
     mocker.patch("lib.agents.jobs.trigger_run", return_value={"id": RUN_ID})
     mocker.patch("lib.agents.config.AGENT_DESTINATION_TARGETS", {})
-    classifier_says(mocker, 0.88, 0.1)
+    mocker.patch("lib.agent_subagents.config.OLLAMA_API_KEY", "ollama-key")
+    ollama = mocker.patch("lib.agent_subagents.httpx.post", side_effect=ollama_cloud(0.88, 0.1))
     runs_output(engine, "Export CSV", "Bruit")
     conv = conversations.create_conversation()
     monkeypatch.setenv("AUTOMETA_CONVERSATION_ID", conv.id)
@@ -585,3 +656,12 @@ def test_dod_14_guide_me_to_an_agent_with_a_classifier_and_two_crons(
     assert cli.main(["livrer", "--agent", SLUG_V2, "--run", RUN_ID]) == 0
     assert [e["statut"] for e in json.loads(capsys.readouterr().out)] == ["ombre", "ecarte"]
     post.assert_not_called()
+    assert [c.args[0].rsplit("/", 2)[-2:] for c in ollama.call_args_list] == [
+        ["v1", "systemone"],
+        ["api", "chat"],
+        ["v1", "systemone"],
+    ]
+    delivered = store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")
+    assert delivered["texte"] == "Une demande d'export CSV."
+    assert [e["type"] for e in delivered["sous_agents"]] == ["classificateur", "resume"]
+    assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["appels_sous_agents"] == 3

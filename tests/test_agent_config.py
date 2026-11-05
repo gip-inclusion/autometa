@@ -113,32 +113,54 @@ def test_dod_11_no_warning_when_aligned(mocker, caplog):
     assert caplog.records == []
 
 
-OUTIL = {"id": "classifieur.pertinence", "question": "Est-ce une opportunité pour le produit ?", "seuil": 0.7}
+OUTIL = {
+    "type": "classificateur",
+    "modele": "clef:27b",
+    "question": "Est-ce une opportunité pour le produit ?",
+    "seuil": 0.7,
+}
+EXTRACTION = {"type": "extraction", "modele": "glm-5.2", "schema": {"produit": "texte", "demandes": "entier"}}
+RESUME = {"type": "resume", "modele": "gemma4:31b", "longueur_max": 600}
 
 
-def test_dod_10_classifier_typed_preparations_and_cadence_are_accepted():
+def test_dod_10_sub_agents_typed_preparations_and_cadence_are_accepted():
     steps = [
         {"type": "notion", "base": "0" * 32},
         {"type": "cron", "tache": "sync-tags"},
         {"type": "s3", "jeu": "a.jsonl"},
     ]
-    doc = make_agent(cadence="hebdomadaire", outils_modeles=[OUTIL], preparations=steps)
+    doc = make_agent(cadence="hebdomadaire", outils_modeles=[OUTIL, EXTRACTION, RESUME], preparations=steps)
     assert agent_config.validate(doc) == []
 
 
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
-        ({"outils_modeles": [{**OUTIL, "id": "nimble"}]}, "outils_modeles[0].id : 'nimble' n'est pas un modèle"),
-        ({"outils_modeles": [{**OUTIL, "id": "classifieur.pertinenc"}]}, "Vouliez-vous dire 'classifieur.pertinence'"),
+        ({"outils_modeles": [{**OUTIL, "type": "traduction"}]}, "outils_modeles[0].type : attendu un type"),
+        ({"outils_modeles": [{**OUTIL, "modele": "nimble"}]}, "'nimble' n'est pas permis pour classificateur"),
+        ({"outils_modeles": [{**OUTIL, "modele": "glm-5.2"}]}, "modèles permis : clef:27b"),
+        ({"outils_modeles": [{**RESUME, "modele": "clef:27b"}]}, "'clef:27b' n'est pas permis pour resume"),
+        ({"outils_modeles": [{**RESUME, "modele": "glm-5"}]}, "Vouliez-vous dire 'glm-5.2'"),
         ({"outils_modeles": [{**OUTIL, "seuil": 1}]}, "outils_modeles[0].seuil : attendu une probabilité"),
         ({"outils_modeles": [{**OUTIL, "seuil": True}]}, "outils_modeles[0].seuil"),
         ({"outils_modeles": [{**OUTIL, "question": "Oui ?"}]}, "outils_modeles[0].question : attendu un texte"),
         ({"outils_modeles": [{**OUTIL, "question": "Faut-il prévenir @louije de ceci ?"}]}, "'@louije'"),
-        ({"outils_modeles": [{"id": "classifieur.pertinence"}]}, "id, question et seuil"),
-        ({"outils_modeles": [OUTIL, OUTIL]}, "'classifieur.pertinence' apparaît plusieurs fois"),
-        ({"outils_modeles": [OUTIL] * 4}, "outils_modeles : attendu une liste de 3"),
-        ({"outils_modeles": "classifieur.pertinence"}, "outils_modeles : attendu une liste"),
+        ({"outils_modeles": [{"type": "classificateur"}]}, "exactement les champs type, modele, question, seuil"),
+        ({"outils_modeles": [{**RESUME, "seuil": 0.5}]}, "exactement les champs type, modele, longueur_max"),
+        ({"outils_modeles": [{**EXTRACTION, "schema": []}]}, "outils_modeles[0].schema : attendu de 1 à 10"),
+        ({"outils_modeles": [{**EXTRACTION, "schema": {}}]}, "outils_modeles[0].schema : attendu de 1 à 10"),
+        ({"outils_modeles": [{**EXTRACTION, "schema": {f"c{i}": "texte" for i in range(11)}}]}, "de 1 à 10"),
+        ({"outils_modeles": [{**EXTRACTION, "schema": {"Produit": "texte"}}]}, "schema.Produit : nom en minuscules"),
+        ({"outils_modeles": [{**EXTRACTION, "schema": {"produit": "date"}}]}, "type parmi texte, nombre"),
+        ({"outils_modeles": [{**EXTRACTION, "schema": {"p": {"type": "string"}}}]}, "schema.p : nom"),
+        ({"outils_modeles": [{**RESUME, "longueur_max": 20}]}, "longueur_max : attendu un nombre de caractères"),
+        ({"outils_modeles": [{**RESUME, "longueur_max": 100000}]}, "de 100 à 3000"),
+        ({"outils_modeles": [{**RESUME, "longueur_max": "600"}]}, "longueur_max"),
+        ({"outils_modeles": [{**RESUME, "longueur_max": True}]}, "longueur_max"),
+        ({"outils_modeles": [OUTIL, OUTIL]}, "apparaît plusieurs fois"),
+        ({"outils_modeles": [OUTIL, EXTRACTION, RESUME, OUTIL]}, "outils_modeles : attendu une liste de 3"),
+        ({"outils_modeles": "classificateur"}, "outils_modeles : attendu une liste"),
+        ({"outils_modeles": ["classificateur"]}, "outils_modeles[0].type : attendu un type"),
         ({"preparations": [{"type": "sql", "requete": "select 1"}]}, "attendu un type parmi notion (avec base)"),
         ({"preparations": ["sync-tags"]}, "preparations[0] : attendu un type parmi"),
         ({"preparations": [{"type": "cron", "tache": "sync-tag"}]}, "Vouliez-vous dire 'sync-tags'"),
@@ -153,7 +175,7 @@ def test_dod_10_classifier_typed_preparations_and_cadence_are_accepted():
         ({"cadence": "toutes les heures"}, "cadences permises : quotidienne, hebdomadaire, mensuelle"),
     ],
 )
-def test_dod_10_unknown_model_preparation_type_or_cadence_is_refused(overrides, expected):
+def test_dod_10_unknown_sub_agent_preparation_type_or_cadence_is_refused(overrides, expected):
     errors = agent_config.validate(make_agent(**overrides))
     assert any(expected in e for e in errors), errors
 
@@ -163,4 +185,12 @@ def test_dod_11_cron_preparations_are_the_tasks_of_cron_except_the_generic_agent
     assert "sync-tags" in tasks
     assert agent_config.GENERIC_CRON not in tasks
     assert (agent_config.config.CRON_DIR / agent_config.GENERIC_CRON / "cron.py").is_file()
-    assert {m["type"] for m in agent_config.modeles().values()} == {"classificateur"}
+
+
+def test_dod_10_each_sub_agent_type_has_its_own_ollama_cloud_models():
+    assert agent_config.modeles() == {
+        "classificateur": ["clef:27b"],
+        "extraction": ["glm-5.2", "gemma4:31b"],
+        "resume": ["glm-5.2", "gemma4:31b"],
+    }
+    assert set(agent_config.modeles()) == set(agent_config.SUBAGENT_FIELDS)

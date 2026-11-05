@@ -75,3 +75,35 @@ def test_log_snapshot_emits_and_returns(mocker, deep):
     data = memory_introspect.log_snapshot(deep=deep, tasks=2)
     assert {"rss_bytes", "malloc_arenas", "gc_objects", "tasks"} <= data.keys()
     assert info.called
+
+
+def test_container_memory_reads_cgroup_v2(mocker, tmp_path):
+    mocker.patch("web.memory_introspect.CGROUP", tmp_path)
+    (tmp_path / "memory.max").write_text("536870912\n")
+    (tmp_path / "memory.current").write_text("536862720\n")
+    (tmp_path / "memory.peak").write_text("536870912\n")
+    (tmp_path / "memory.events").write_text("low 0\nhigh 0\nmax 12\noom 1\noom_kill 1\n")
+    assert memory_introspect.container_memory() == {
+        "limite": "536870912",
+        "utilisee": "536862720",
+        "pic": "536870912",
+        "oom_kill": "1",
+    }
+
+
+def test_container_memory_falls_back_to_cgroup_v1(mocker, tmp_path):
+    mocker.patch("web.memory_introspect.CGROUP", tmp_path)
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "memory" / "memory.limit_in_bytes").write_text("1073741824")
+    (tmp_path / "memory" / "memory.oom_control").write_text("oom_kill_disable 0\nunder_oom 0\noom_kill 2\n")
+    assert memory_introspect.container_memory() == {
+        "limite": "1073741824",
+        "utilisee": None,
+        "pic": None,
+        "oom_kill": "2",
+    }
+
+
+def test_container_memory_outside_a_container_is_all_none(mocker, tmp_path):
+    mocker.patch("web.memory_introspect.CGROUP", tmp_path / "absent")
+    assert set(memory_introspect.container_memory().values()) == {None}

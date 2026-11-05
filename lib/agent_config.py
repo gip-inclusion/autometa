@@ -1,6 +1,7 @@
 """Agent configuration, format pdi.agent/1: strict YAML reading and validation against the closed destination list."""
 
 import difflib
+import json
 import logging
 import re
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "CADENCES",
+    "CHAMP_TYPES",
     "FORMAT",
     "MODES",
     "destinations",
@@ -31,6 +33,10 @@ CADENCES = {"quotidienne": "daily", "hebdomadaire": "weekly", "mensuelle": "mont
 # Why: the closed set of what may feed an agent's run, each with its one parameter; no code per agent.
 PREPARATION_TYPES = {"notion": "base", "s3": "jeu", "cron": "tache"}
 GENERIC_CRON = "run-agents"
+# Why: what an extraction may declare, flat on purpose; each maps to its JSON Schema type for Ollama.
+CHAMP_TYPES = {"texte": "string", "nombre": "number", "entier": "integer", "booleen": "boolean"}
+# Why: the type-specific fields of a sub-agent, besides type and modele.
+SUBAGENT_FIELDS = {"classificateur": ("question", "seuil"), "extraction": ("schema",), "resume": ("longueur_max",)}
 # Why: the mission is the only free text an LLM writes; a link, a person or a channel there would bypass
 # the closed destination list.
 FORBIDDEN_FREE_TEXT = re.compile(
@@ -70,9 +76,10 @@ def destinations() -> dict[str, dict]:
     return closed_list("destinations")
 
 
-def modeles() -> dict[str, dict]:
-    """The closed list of models an agent may use as a tool, by id."""
-    return closed_list("modeles")
+def modeles() -> dict[str, list[str]]:
+    """The closed list of sub-agent types, each with the Ollama Cloud models it may use."""
+    raw = yaml.safe_load((config.BASE_DIR / "config" / "agent_modeles.yaml").read_text())
+    return {t["type"]: t["modeles"] for t in raw["types"]}
 
 
 def target_gaps() -> tuple[list[str], list[str]]:
@@ -108,15 +115,36 @@ def free_text_errors(field: str, value: object, hint: str) -> list[str]:
     return []
 
 
-def outil_errors(index: int, outil: object, known: dict[str, dict]) -> list[str]:
+def schema_errors(path: str, schema: object) -> list[str]:
+    kinds = ", ".join(CHAMP_TYPES)
+    if not isinstance(schema, dict) or not 1 <= len(schema) <= 10:
+        return [f"{path}.schema : attendu de 1 à 10 champs, chacun nom: type parmi {kinds}."]
+    return [
+        f"{path}.schema.{k} : nom en minuscules et soulignés, type parmi {kinds}."
+        for k, t in schema.items()
+        if not (isinstance(k, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", k) and str(t) in CHAMP_TYPES)
+    ]
+
+
+def outil_errors(index: int, outil: object, known: dict[str, list[str]]) -> list[str]:
     path = f"outils_modeles[{index}]"
-    if not isinstance(outil, dict) or set(outil) != {"id", "question", "seuil"}:
-        return [f"{path} : attendu exactement les champs id, question et seuil."]
-    if outil["id"] not in known:
+    if not isinstance(outil, dict) or outil.get("type") not in known:
+        return [f"{path}.type : attendu un type de config/agent_modeles.yaml parmi {', '.join(known)}."]
+    kind, fields = outil["type"], SUBAGENT_FIELDS[outil["type"]]
+    if set(outil) != {"type", "modele", *fields}:
+        return [f"{path} : un sous-agent {kind} a exactement les champs type, modele, {', '.join(fields)}."]
+    if outil["modele"] not in known[kind]:
         return [
-            f"{path}.id : {outil['id']!r} n'est pas un modèle de config/agent_modeles.yaml."
-            f"{suggestion(outil['id'], list(known))}"
+            f"{path}.modele : {outil['modele']!r} n'est pas permis pour {kind}, modèles permis : "
+            f"{', '.join(known[kind])}.{suggestion(outil['modele'], known[kind])}"
         ]
+    if kind == "extraction":
+        return schema_errors(path, outil["schema"])
+    if kind == "resume":
+        limite = outil["longueur_max"]
+        if isinstance(limite, bool) or not isinstance(limite, int) or not 100 <= limite <= 3000:
+            return [f"{path}.longueur_max : attendu un nombre de caractères de 100 à 3000."]
+        return []
     errors = text_errors(outil, "question", 10, 300)
     errors += free_text_errors(f"{path}.question", outil["question"], "la question porte sur une production.")
     seuil = outil["seuil"]
@@ -205,7 +233,7 @@ def validate(doc: object) -> list[str]:
         errors.append(f"cadence : {doc['cadence']!r} inconnue, cadences permises : {', '.join(CADENCES)}.")
     if "outils_modeles" in doc:
         outils = doc["outils_modeles"]
-        keys = [str(o.get("id")) if isinstance(o, dict) else str(o) for o in outils] if isinstance(outils, list) else []
+        keys = [json.dumps(o, sort_keys=True, default=str) for o in outils] if isinstance(outils, list) else []
         errors += list_errors("outils_modeles", outils, 3, keys)
         known_models = modeles()
         errors += [
