@@ -18,7 +18,7 @@ d'envois, et c'est Autometa qui les livre, seulement vers les destinations de la
 ## Commencer par la liste
 
 ```bash
-.venv/bin/python skills/agents/scripts/agents.py destinations
+python -m skills.agents.scripts.agents destinations
 ```
 
 Elle rend tout ce qu'un agent peut utiliser : destinations (et si leur cible est configurée sur
@@ -72,11 +72,10 @@ automatiquement, avec la liste des destinations de l'agent.
 ## Déroulé imposé
 
 ```bash
-S=skills/agents/scripts/agents.py
-.venv/bin/python $S proposer --config /tmp/agent.yaml --consigne /tmp/consigne.md
-.venv/bin/python $S creer <proposition>       # tour suivant, après le oui de l'utilisateur
-.venv/bin/python $S retirer <proposition>
-.venv/bin/python $S voir <proposition>
+python -m skills.agents.scripts.agents proposer --config /tmp/agent.yaml --consigne /tmp/consigne.md
+python -m skills.agents.scripts.agents creer <proposition>       # tour suivant, après le oui de l'utilisateur
+python -m skills.agents.scripts.agents retirer <proposition>
+python -m skills.agents.scripts.agents voir <proposition>
 ```
 
 1. Rédiger la configuration et la consigne, appeler `proposer`. Rien n'est créé. Une
@@ -106,8 +105,8 @@ disparaît. Aucun agent n'a de cron à lui : avec une `cadence`, le seul cron de
 | passer une destination en réel | jamais depuis la conversation : une PR sur `reel_autorise` |
 
 ```bash
-.venv/bin/python $S proposer-lancement --agent <slug>   # montre les préparations, ne lance rien
-.venv/bin/python $S lancer --agent <slug>               # tour suivant, après le oui de l'utilisateur
+python -m skills.agents.scripts.agents proposer-lancement --agent <slug>   # montre les préparations, ne lance rien
+python -m skills.agents.scripts.agents lancer --agent <slug>               # tour suivant, après le oui de l'utilisateur
 ```
 
 Le code refuse un `lancer` sans message ultérieur de l'utilisateur, et une confirmation ne sert
@@ -117,9 +116,9 @@ empêche le run.
 ## Livrer un run et relire ses productions
 
 ```bash
-.venv/bin/python $S livrer --agent <slug> --run <run_id>
-.venv/bin/python $S montrer-envoi --agent <slug> --envoi <id>
-.venv/bin/python $S approuver-envoi --agent <slug> --envoi <id>   # tour suivant, après le oui
+python -m skills.agents.scripts.agents livrer --agent <slug> --run <run_id>
+python -m skills.agents.scripts.agents montrer-envoi --agent <slug> --envoi <id>
+python -m skills.agents.scripts.agents approuver-envoi --agent <slug> --envoi <id>   # tour suivant, après le oui
 ```
 
 `livrer` n'accepte qu'un run terminé du job de l'agent ; relivrer le même run n'écrit rien de
