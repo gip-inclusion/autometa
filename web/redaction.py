@@ -1,5 +1,6 @@
 """Masquage des secrets dans un texte destiné à être affiché, journalisé ou stocké."""
 
+import base64
 import re
 
 from lib.sources import list_instances, load_config
@@ -67,7 +68,7 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 def known_secrets() -> list[str]:
-    """Valeurs secrètes résolues, y compris celles de config/sources.yaml (jetons Matomo, Metabase, Zendesk)."""
+    """Valeurs secrètes résolues, dont celles de config/sources.yaml, et les identifiants Basic tels qu'encodés."""
     values = [
         config.NOTION_TOKEN,
         config.GRIST_API_KEY,
@@ -82,11 +83,17 @@ def known_secrets() -> list[str]:
         config.DASHBOARD_STORAGE_DB_URL,
         config.DORA_STAGING_DB_URL,
         config.MONRECAP_APPLI_DB_URL,
+        config.SCALINGO_API_TOKEN,
     ]
+    pairs = [f":{config.SCALINGO_API_TOKEN}"]
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
             cfg = load_config().get(source_type, {}).get(instance, {})
             values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth")]
+            pairs += [cfg.get("basic_auth"), f"{cfg['email']}/token:{cfg['token']}" if "email" in cfg else None]
+    # Why: un en-tête `Authorization: Basic` porte ces identifiants encodés en base64, jamais en clair : seule leur forme
+    # encodée permet de reconnaître à coup sûr nos propres identifiants (Metabase RDVI, Zendesk, Scalingo).
+    values += [base64.b64encode(p.encode()).decode() for p in pairs if p and not p.endswith(":") and "${env." not in p]
     return [v for v in values if v and len(v) > 6 and not v.startswith("${env.")]
 
 

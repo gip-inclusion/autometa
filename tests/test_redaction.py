@@ -1,5 +1,6 @@
 """Masquage des secrets — web/redaction.py."""
 
+import base64
 import json
 
 import pytest
@@ -79,6 +80,28 @@ def test_a_configured_secret_is_masked_wherever_it_appears(mocker):
 
     assert redact("le jeton est valeur-du-jeton-configure, voilà") == "le jeton est ***, voilà"
     assert secret_kinds("valeur-du-jeton-configure") == ["secret de configuration"]
+
+
+@pytest.mark.parametrize(
+    ("sources", "scalingo", "pair"),
+    [
+        ({"metabase": {"rdvi": {"basic_auth": "lecteur:valeur-factice"}}}, "", "lecteur:valeur-factice"),
+        (
+            {"zendesk": {"emplois": {"email": "support@x.fr", "token": "valeur-factice"}}},
+            "",
+            "support@x.fr/token:valeur-factice",
+        ),
+        ({}, "valeur-factice", ":valeur-factice"),
+    ],
+)
+def test_our_basic_credentials_are_recognised_once_encoded(mocker, sources, scalingo, pair):
+    mocker.patch.object(redaction, "load_config", return_value=sources)
+    mocker.patch.object(redaction, "list_instances", side_effect=lambda kind: list(sources.get(kind, {})))
+    mocker.patch.object(redaction.config, "SCALINGO_API_TOKEN", scalingo)
+    encoded = base64.b64encode(pair.encode()).decode()
+
+    assert "secret de configuration" in secret_kinds(f"curl -v : > Authorization: Basic {encoded}")
+    assert encoded not in redact(f"> Authorization: Basic {encoded}")
 
 
 @pytest.mark.parametrize("setting", ["DORA_STAGING_DB_URL", "MONRECAP_APPLI_DB_URL"])
