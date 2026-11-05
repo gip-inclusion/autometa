@@ -25,6 +25,9 @@ class FakeStore:
     def head(self, path):
         return {"exists": path in self.files}
 
+    def list_directories(self, prefix=""):
+        return sorted({path.split("/")[0] for path in self.files})
+
     def json(self, path):
         return json.loads(self.files[path])
 
@@ -94,8 +97,8 @@ def open_real_mode(mocker):
 @pytest.mark.parametrize(
     ("envois", "message"),
     [
-        ([make_envoi(), make_envoi("bizdev.marche")], "'bizdev.marche' n'est pas un point de contact"),
-        ([make_envoi("#general")], "'#general' n'est pas un point de contact"),
+        ([make_envoi(), make_envoi("bizdev.marche")], "'bizdev.marche' n'est ni un point de contact"),
+        ([make_envoi("#general")], "'#general' n'est ni un point de contact"),
         ([make_envoi(canal="C0AUTRE")], "attendu destination, titre, texte"),
         ([make_envoi(titre=" ")], "non vides"),
         ([make_envoi(cle="../x")], "cle en minuscules"),
@@ -159,7 +162,7 @@ def test_dod_6_real_mode_posts_to_slack_with_control_sequences_escaped(store, po
     envoi = make_envoi(titre="<!channel> MEP", texte="voir <https://x.example|ici> & co")
     summary = agent_delivery.deliver(make_agent(("produit.signal_faible", "reel")), RUN_ID, [envoi])
     assert summary == [
-        {"id": f"{RUN_ID}-0", "destination": "produit.signal_faible", "mode": "reel", "statut": "envoyee"}
+        {"id": f"{RUN_ID}-0", "destination": "produit.signal_faible", "mode": "reel", "statut": "envoyee", "appels": 0}
     ]
     text = post.call_args.args[2]
     assert "<" not in text
