@@ -111,6 +111,7 @@ Invoquer via l'outil `Skill` :
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `appli_monrecap_db` — Base applicative Mon Récap, lecture et écriture, sur demande explicite uniquement, jamais pour l'analyse. Avant toute écriture, faire valider par l'utilisateur la requête exacte. Un TDB qui y accède exige une confirmation écrite préalable.
+- `github` — Lire, chercher et retracer l'historique du code des produits de la plateforme de l'inclusion, et de quelques dépôts publics de betagouv, numerique-gouv et suitenumerique (La Suite), en lecture seule.
 - `save_report` — Sauvegarder un rapport en base.
 - `verify_dashboard` — **Toujours l'invoquer une fois les fichiers d'un tableau de bord écrits**, avant d'en donner le lien.
 
@@ -212,7 +213,7 @@ En Docker, le répertoire de travail est `/app`.
 
 | Site | Dépôt | Branche par défaut |
 |---|---|---|
-| Plateforme (ex-Emplois) | `gip-inclusion/les-emplois` | main |
+| Plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
 | Marché | `gip-inclusion/le-marche` | main |
 | Communauté | `gip-inclusion/la-communaute` | main |
 | Pilotage | `gip-inclusion/pilotage` | staging |
@@ -222,4 +223,4 @@ En Docker, le répertoire de travail est `/app`.
 
 Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12).
 
-Utiliser `raw.githubusercontent.com` ou l'API GitHub contents pour explorer le code.
+Pour vérifier quelque chose dans le code de ces produits, invoquer le skill `github` (lecture seule), de sa propre initiative quand la question le demande. Dans `betagouv`, `numerique-gouv` et `suitenumerique`, seulement les dépôts que liste le skill, ou celui que l'utilisateur nomme.
