@@ -449,8 +449,8 @@ def detect(messages: list[dict], rules: list[tuple[str, set[str], re.Pattern]]) 
 
 
 def body(text: str, head: int, tail: int = 0) -> str:
-    """Corps d'un message dans une transcription : masqué avant d'être coupé, et sans titre markdown qui imiterait les
-    sections de la transcription (« Incidents déjà relevés »)."""
+    """Corps d'un message dans une transcription : masqué avant d'être coupé, et sans titre markdown."""
+    # Why: un titre markdown cité imiterait les sections de la transcription (« Incidents déjà relevés »).
     return re.sub(r"(?m)^#", r"\\#", clip(scrub(text), head, tail))
 
 
