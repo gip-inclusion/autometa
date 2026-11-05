@@ -1,6 +1,6 @@
 ---
 name: agents
-description: Créer un agent (un job qui traite des données et écrit dans Slack ou Notion, avec au besoin un classificateur et des préparations par crons), seulement après confirmation explicite de l'utilisateur dans un message suivant ; retirer un agent ; livrer la sortie d'un de ses runs ; faire relire et approuver ses productions. À utiliser dès que l'utilisateur veut un job récurrent qui dépose ses résultats dans un canal Slack ou une base Notion.
+description: Créer un agent (un job qui traite des données et écrit dans Slack ou Notion, avec au besoin des sous-agents (classificateur, extraction, résumé) et des préparations par crons), seulement après confirmation explicite de l'utilisateur dans un message suivant ; retirer un agent ; livrer la sortie d'un de ses runs ; faire relire et approuver ses productions. À utiliser dès que l'utilisateur veut un job récurrent qui dépose ses résultats dans un canal Slack ou une base Notion.
 ---
 
 # Agents
@@ -22,7 +22,7 @@ d'envois, et c'est Autometa qui les livre, seulement vers les destinations de la
 ```
 
 Elle rend tout ce qu'un agent peut utiliser : destinations (et si leur cible est configurée sur
-cette instance), modèles, préparations, cadences. Ne jamais chercher ces listes dans le dépôt ni
+cette instance), types de sous-agents et leurs modèles, préparations, cadences. Ne jamais chercher ces listes dans le dépôt ni
 dans l'environnement. Une destination sans cible reste proposable : ses envois en mode `reel`
 seront en échec tant que la cible manque, ce qu'il faut dire à l'utilisateur.
 
@@ -38,10 +38,19 @@ points_de_contact:                    # 1 à 6 destinations de config/agent_dest
   - id: produit.signal_faible
     mode: ombre
 cadence: quotidienne                  # facultatif : quotidienne, hebdomadaire, mensuelle ; absent = à la demande
-outils_modeles:                       # facultatif, 3 au plus, modèles de config/agent_modeles.yaml
-  - id: classifieur.pertinence
+outils_modeles:                       # facultatif, 3 sous-agents au plus, appliqués dans cet ordre
+  - type: classificateur              # question oui/non ; sous le seuil, la production n'est pas livrée
+    modele: "clef:27b"                # (gardée, statut ecarte) et la chaîne s'arrête
     question: La production signale-t-elle une MEP dont l'effet n'est pas mesurable ?
-    seuil: 0.7                        # sous ce seuil, la production n'est pas livrée (gardée, statut ecarte)
+    seuil: 0.7
+  - type: extraction                  # ajoute à la production les champs du schéma (1 à 10,
+    modele: glm-5.2                   # types texte, nombre, entier, booleen)
+    schema:
+      application: texte
+      utilisateurs_touches: entier
+  - type: resume                      # réécrit la production en 100 à 3000 caractères
+    modele: glm-5.2
+    longueur_max: 600
 preparations:                         # facultatif, 3 au plus, dans l'ordre ; ce qui nourrit chaque run
   - type: cron                        # la dernière sortie réussie d'une tâche de cron/ (jamais relancée)
     tache: sync-tags
@@ -51,7 +60,9 @@ preparations:                         # facultatif, 3 au plus, dans l'ordre ; ce
     jeu: services.sqlite
 ```
 
-Aucun autre champ n'est accepté. Ne jamais inventer une destination : lire la liste. Si aucune
+Les sous-agents sont appelés par Autometa après le run, avant la livraison, sur chaque
+production ; le type et le modèle viennent de la liste rendue par `destinations`. Aucun autre
+champ n'est accepté. Ne jamais inventer une destination : lire la liste. Si aucune
 ne convient, le dire à l'utilisateur ; une destination nouvelle s'ajoute par une PR.
 
 La consigne du job se compose comme pour `compose_and_launch_job` (étapes 1 à 4 : le worker n'a
@@ -80,7 +91,7 @@ S=skills/agents/scripts/agents.py
    configuration refusée rend des messages qui nomment le champ et la correction : corriger et
    reproposer.
 2. Terminer le tour par la relecture : titre, mission, chaque destination avec son mode, le
-   classificateur (question, seuil), les préparations dans l'ordre, la cadence, un aperçu de la
+   sous-agents dans l'ordre (type, modèle, et question et seuil, schéma ou longueur), les préparations dans l'ordre, la cadence, un aperçu de la
    consigne, l'identifiant de la proposition, et la question « Je crée cet agent ? ».
 3. **Ne jamais appeler `creer` dans le tour de `proposer`.** Le code le refuse de toute façon :
    la création exige un message de l'utilisateur postérieur à la proposition, dans la même
@@ -93,7 +104,7 @@ S=skills/agents/scripts/agents.py
 
 Un agent n'est pas un processus allumé : chaque run est un conteneur jetable qui va au bout puis
 disparaît. Aucun agent n'a de cron à lui : avec une `cadence`, le seul cron des agents,
-`run-agents`, enchaîne chaque matin préparations, run, classificateur et livraison.
+`run-agents`, enchaîne chaque matin préparations, run, sous-agents et livraison.
 
 | Action | Garde |
 |---|---|
@@ -122,6 +133,8 @@ empêche le run.
 `livrer` n'accepte qu'un run terminé du job de l'agent ; relivrer le même run n'écrit rien de
 plus. Une seule destination hors liste fait refuser tout le run. Rendre compte de chaque envoi
 (destination, mode, statut : `ombre`, `a_relire`, `envoyee`, `echec`, `ecarte` quand le
-classificateur l'a jugée sous le seuil). Pour un envoi `a_relire`,
+classificateur l'a jugée sous le seuil, `echec_sous_agent` quand un sous-agent a échoué : rien
+n'est livré de cette production, et relancer `livrer` sur le même run la refait passer par ses
+sous-agents) et le nombre d'appels aux sous-agents. Pour un envoi `a_relire`,
 `montrer-envoi` puis afficher son titre et son texte, demander la validation, et n'appeler
 `approuver-envoi` qu'au tour suivant. Un envoi `echec` se réessaie de la même façon.

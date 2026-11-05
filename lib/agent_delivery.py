@@ -102,10 +102,8 @@ def log(slug: str, envoi_id: str, record: dict) -> dict:
     return {"id": envoi_id, "destination": record["destination"], "mode": record["mode"], "statut": record["statut"]}
 
 
-def deliver(
-    agent: dict, run_id: str, envois: list, classify: Optional[Callable[[dict], list[dict]]] = None
-) -> list[dict]:
-    """Record every production of a run, writing only in real mode; one refused production refuses the whole run."""
+def deliver(agent: dict, run_id: str, envois: list, chain: Optional[Callable[[dict], dict]] = None) -> list[dict]:
+    """Record every production of a run through its sub-agents, writing only in real mode; failed chains rerun."""
     run_id = str(uuid.UUID(run_id))
     if errors := agent_config.validate(agent):
         raise ValueError("configuration d'agent refusée : " + " ; ".join(errors))
@@ -116,18 +114,23 @@ def deliver(
         raise ValueError("passage refusé, rien n'est écrit : " + " ; ".join(errors))
     slug, summary = agent["slug"], []
     for i, envoi in enumerate(envois):
-        envoi_id = f"{run_id}-{i}"
-        if (record := read_json(f"{slug}/envois/{envoi_id}.json")) is None:
+        envoi_id, appels = f"{run_id}-{i}", 0
+        record = read_json(f"{slug}/envois/{envoi_id}.json")
+        if record is None or record["statut"] == "echec_sous_agent":
             mode = modes[envoi["destination"]]
             record = {**envoi, "run_id": run_id, "mode": mode, "statut": STATUS_BY_MODE[mode]}
-            if classify:
-                record["classement"] = classify(envoi)
-                if any(c["probabilite"] < c["seuil"] for c in record["classement"]):
+            if chain:
+                trace = chain(envoi)
+                appels = trace["appels"]
+                record.update(trace["envoi"], sous_agents=trace["etapes"])
+                if trace["echec"]:
+                    record.update(statut="echec_sous_agent", erreur=trace["echec"])
+                elif any(e.get("retenu") is False for e in trace["etapes"]):
                     record["statut"] = "ecarte"
             write_json(f"{slug}/envois/{envoi_id}.json", record)
             if record["statut"] == "a_envoyer":
                 record = send(slug, envoi_id, record)
-        summary.append(log(slug, envoi_id, record))
+        summary.append({**log(slug, envoi_id, record), "appels": appels})
     return summary
 
 

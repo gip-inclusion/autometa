@@ -11,7 +11,7 @@ from typing import Optional
 import httpx
 from sqlalchemy import func, select
 
-from lib import agent_classifier, agent_config, agent_delivery, job_inputs, jobs, notion
+from lib import agent_config, agent_delivery, agent_subagents, job_inputs, jobs, notion
 from lib.agent_delivery import read_json, write_json
 from web import config, cron, s3
 from web.db import get_db
@@ -206,10 +206,10 @@ def catalogue() -> dict:
             {"id": d["id"], "canal": d["canal"], "cible_configuree": bool(targets.get(d["id"]))}
             for d in agent_config.destinations().values()
         ],
-        "modeles": [{"id": m["id"], "type": m["type"]} for m in agent_config.modeles().values()],
+        "sous_agents": agent_config.modeles(),
         "preparations": {"types": agent_config.PREPARATION_TYPES, "taches_cron": agent_config.cron_tasks()},
         "cadences": list(agent_config.CADENCES),
-        "classificateur_configure": bool(config.OLLAMA_API_KEY),
+        "sous_agents_configures": bool(config.OLLAMA_API_KEY),
     }
 
 
@@ -262,7 +262,7 @@ def execute(slug: str, idempotency_key: Optional[str] = None) -> dict:
 
 
 def deliver_run(slug: str, run_id: str) -> list[dict]:
-    """Deliver the output of a completed run of the agent's own job, through its classifiers if it has any."""
+    """Deliver the output of a completed run of the agent's own job, through its sub-agents if it has any."""
     agent = active_agent(slug)
     run = jobs.get_run(run_id)
     if run.get("pipeline_id") != agent["pipeline_id"]:
@@ -276,9 +276,14 @@ def deliver_run(slug: str, run_id: str) -> list[dict]:
     if not isinstance(output, dict) or "envois" not in output:
         raise ValueError(f"sortie du run {run_id} sans liste envois")
     outils = agent["config"].get("outils_modeles")
-    classify = partial(agent_classifier.classify, outils) if outils else None
-    summary = agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["envois"], classify)
-    pending = [r for r in agent.get("runs_a_livrer", []) if r != run_id]
+    chain = partial(agent_subagents.run_chain, outils) if outils else None
+    summary = agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["envois"], chain)
+    trace_path = f"{slug}/runs/{run_id}.json"
+    appels = (read_json(trace_path) or {}).get("appels_sous_agents", 0) + sum(e["appels"] for e in summary)
+    write_json(trace_path, {"livre_le": datetime.now().isoformat(timespec="seconds"), "appels_sous_agents": appels})
+    logger.info("agent %s run %s livré, %d appels aux sous-agents au total", slug, run_id, appels)
+    retry = any(e["statut"] == "echec_sous_agent" for e in summary)
+    pending = [r for r in agent.get("runs_a_livrer", []) if r != run_id or retry]
     write_json(agent_path(slug), {**agent, "runs_a_livrer": pending})
     return summary
 
@@ -291,12 +296,19 @@ def tick() -> None:
         if agent is None or agent["status"] != "actif":
             continue
         try:
-            for run_id in agent.get("runs_a_livrer", []):
-                if jobs.get_run(run_id).get("status") == "completed":
-                    deliver_run(slug, run_id)
+            retry = [
+                run_id
+                for run_id in agent.get("runs_a_livrer", [])
+                if jobs.get_run(run_id).get("status") == "completed"
+                and any(e["statut"] == "echec_sous_agent" for e in deliver_run(slug, run_id))
+            ]
             cadence = agent["config"].get("cadence")
             if cadence and cron.is_due(agent_config.CADENCES[cadence], "maintenance"):
                 execute(slug, idempotency_key=f"agent-{slug}-{datetime.now():%Y-%m-%d}")
+            if retry:
+                raise RuntimeError(
+                    f"sous-agent en échec sur les runs {', '.join(retry)}, réessayés au prochain passage"
+                )
         except (ValueError, RuntimeError, httpx.HTTPError) as exc:
             logger.warning("agent %s : passage quotidien en échec : %s", slug, exc)
             failed.append(slug)

@@ -38,14 +38,20 @@ DOD-8 — Une production en relecture ne s'écrit que si je l'approuve dans un m
   celui où Autometa me l'a montrée, dans la même conversation.
 
 DOD-9 — Quand je demande à Autometa de me guider pour créer un agent, il me présente ce qu'un
-  agent peut utiliser (destinations, modèles, préparations, cadences), même quand aucune
-  destination n'a de cible configurée sur l'instance, et la conversation ne plante pas.
+  agent peut utiliser (destinations, sous-agents et leurs modèles, préparations, cadences), même
+  quand aucune destination n'a de cible configurée sur l'instance, et la conversation ne plante
+  pas. Si le conteneur tue malgré tout le CLI, le message dit « tué par le système (signal N),
+  probablement faute de mémoire » et le journal consigne la mémoire du conteneur à ce moment.
 
-DOD-10 — Un agent peut déclarer un classificateur pris dans une liste fermée de modèles, avec une
-  question oui/non et un seuil ; un modèle hors liste est refusé comme une destination hors liste.
-  Après le run, Autometa pose la question à chaque production avec sa propre clé : une
-  production sous le seuil n'est pas livrée mais reste enregistrée avec sa probabilité, et sans
-  réponse du classificateur rien n'est livré pour cette production.
+DOD-10 — Un agent peut déclarer jusqu'à trois sous-agents Ollama Cloud, de trois types fermés :
+  classificateur (question oui/non et seuil), extraction (champs d'un schéma déclaré), résumé
+  (longueur maximale). Chaque type a sa liste fermée de modèles ; un type ou un modèle hors liste,
+  un schéma mal formé ou une longueur absurde sont refusés comme une destination hors liste.
+  Après le run, avant la livraison, Autometa les applique avec sa propre clé à chaque production,
+  dans l'ordre de la configuration. Un classificateur sous le seuil arrête la chaîne : la
+  production n'est pas livrée mais reste enregistrée avec sa probabilité. Un sous-agent en échec :
+  rien de cette production n'est livré, elle est tracée en échec et réessayée au passage suivant.
+  Les journaux ne portent aucun contenu ; la trace du run compte les appels aux sous-agents.
 
 DOD-11 — Un agent peut déclarer jusqu'à trois préparations, d'un des trois types fermés
   (requête d'une base Notion, jeu de données S3, dernière sortie réussie d'une tâche existante de
@@ -63,8 +69,8 @@ DOD-13 — Depuis le chat, lire est libre ; lancer un run maintenant et modifier
 
 DOD-14 — Le parcours « guide-moi pour créer un agent avec un classificateur et deux crons » va au
   bout : proposition complète, rien avant mon oui dans un message suivant, création, lancement
-  après un autre oui, sorties des deux crons dans l'ordre transmises au run, classificateur sur
-  la sortie, livraison selon le mode (ombre par défaut).
+  après un autre oui, sorties des deux crons dans l'ordre transmises au run, classificateur puis
+  résumé sur la sortie, livraison selon le mode (ombre par défaut).
 
 ## Sources lues
 
@@ -82,7 +88,14 @@ DOD-14 — Le parcours « guide-moi pour créer un agent avec un classificateur 
 - `web/agents/cli.py`, `web/runner.py` — Autometa ne tue le CLI que sur annulation, budget
   d'appels ou arrêt ; un « code -9 » sans autre trace vient de l'extérieur (`DOD-9`).
 - ollama.com/library/clef — `clef` sur Ollama Cloud, point d'entrée `/v1/systemone`, question
-  `noul`, réponse : la probabilité du oui (`DOD-10`). `web/llm.py` lit déjà `OLLAMA_API_KEY`.
+  `noul`, réponse : la probabilité du oui (`DOD-10`). `web/llm.py` lit déjà `OLLAMA_API_KEY` et
+  appelle Ollama par son API native ; extraction et résumé passent par `/api/chat` (sortie
+  contrainte par `format` pour l'extraction). Noms des modèles relevés le 05/11 dans
+  `https://ollama.com/api/tags` : `clef:27b`, `glm-5.2`, `gemma4:31b`.
+- `scalingo.json`, `scripts/review_app.py`, doc Scalingo des review apps (une review app clone la
+  formation de l'application parente, `scalingo.json` l'emporte) et client Go de Scalingo
+  (`containers: [{name, amount, size}]`) ; mesures locales du CLI dans
+  `paved-road/agents-creation/CONCEPTION_V2.md` (`DOD-9`).
 - `web/cron.py`, `lib/job_inputs.py`, `lib/notion.py` — `cron_runs` (dernière sortie d'une
   tâche), `publish_dataset` (S3, URL présignée) et `query_database` réutilisés pour `DOD-11` ;
   le lot `maintenance` et `is_due` pour `DOD-12`. `lib/jobs.py` n'a ni déclenchement sur horaire
@@ -102,4 +115,6 @@ retiré ; le job retiré reste dans le moteur de jobs, faute d'API de suppressio
 d'un run se déclenche à la demande, ou au passage quotidien suivant pour un agent qui a une
 cadence. Ajouté le 04/11 à la demande d'Alexis : classificateur, préparations, cadence
 (`DOD-9` à `DOD-14`), le cerveau du worker restant hors périmètre ; la relance de #276
-devra réutiliser la confirmation de `DOD-13`.
+devra réutiliser la confirmation de `DOD-13`. Étendu le 05/11 à la demande d'Alexis : sous-agents
+extraction et résumé, chaînés dans l'ordre (`DOD-10`, `DOD-14`), et trace lisible d'un CLI tué
+par le système (`DOD-9`).
