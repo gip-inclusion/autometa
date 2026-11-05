@@ -500,9 +500,7 @@ def write_batches(index: list[dict], count: int, out: Path) -> list[dict]:
 
 def extract(run_id: int, batches: int | None = None) -> dict:
     """Écrit transcriptions masquées, détections et lots d'un run quotidien dans son dossier de travail."""
-    run = load_run(run_id)
-    if run.kind != "daily" or run.status != "ouvert":
-        raise AuditError(f"Run {run_id} : l'extraction ne concerne qu'un run quotidien ouvert.")
+    run = open_daily_run(run_id)
     window = {"first": run.after_message_id, "last": run.last_message_id}
     excluded = {r.conversation_id for r in load_runs() if r.conversation_id}
     # Why: les ids de conversation sont des UUID en texte ; « 0 » les précède tous.
@@ -633,12 +631,16 @@ def show(run_id: int, message_ids: list[int]) -> list[dict]:
     return [m for m in map(json.loads, filter(None, path.read_text().split("\n"))) if m["id"] in wanted]
 
 
-def record(run_id: int, payload: str) -> dict:
-    """Valide et enregistre la sortie d'audit d'un run quotidien, sans doublon d'un run à l'autre."""
+def open_daily_run(run_id: int) -> Run:
+    """Le run, s'il est quotidien et ouvert : seul un tel run s'extrait, s'enregistre ou se fusionne."""
     run = load_run(run_id)
     if run.kind != "daily" or run.status != "ouvert":
-        raise AuditError(f"Run {run_id} : on n'enregistre des incidents que dans un run quotidien ouvert.")
-    output = AuditOutput.model_validate_json(payload)
+        raise AuditError(f"Run {run_id} : seul un run quotidien ouvert s'extrait, s'enregistre ou se fusionne.")
+    return run
+
+
+def validate(run: Run, output: AuditOutput) -> None:
+    """Refuse une sortie d'audit qui cite un critère inconnu ou un message hors de la fenêtre du run."""
     codes = {c.code for c in load_criteria()}
     errors = [f"{f.key} : critère inconnu" for f in output.findings if f.criterion not in codes]
     errors += [
@@ -648,6 +650,13 @@ def record(run_id: int, payload: str) -> dict:
     ]
     if errors:
         raise AuditError("\n".join(errors))
+
+
+def record(run_id: int, payload: str) -> dict:
+    """Valide et enregistre la sortie d'audit d'un run quotidien, sans doublon d'un run à l'autre."""
+    run = open_daily_run(run_id)
+    output = AuditOutput.model_validate_json(payload)
+    validate(run, output)
     timestamps = {m["id"]: str(m["timestamp"]) for m in show(run_id, [f.message_id for f in output.findings])}
     seen = {f.key for f in all_findings()}
     findings = load_findings(run_id)
@@ -982,7 +991,7 @@ def verify_list(run_id: int) -> list[dict]:
 
 def merge(run_id: int) -> dict:
     """Applique les contre-vérifications (verdict_NN.json) et remplace les incidents audités du run : on peut le relancer."""
-    run = load_run(run_id)
+    run = open_daily_run(run_id)
     if run.posted_at or run.posted or any(f.posted_at for f in load_findings(run_id)):
         raise AuditError(f"Run {run_id} déjà publié sur Slack : ses incidents ne se réécrivent plus.")
     checks = {
@@ -1011,6 +1020,8 @@ def merge(run_id: int) -> dict:
                     "correction": check.correction or f.correction,
                 }
             merged.findings.append(f.model_copy(update=update))
+    # Why: valider avant d'effacer les incidents audités, sinon un refus de `record` les perdrait.
+    validate(run, merged)
     audited = {f.key for output in outputs.values() for f in output.findings}
     save_findings(run_id, [f for f in load_findings(run_id) if f.origin == "extraction" or f.key not in audited])
     return {**record(run_id, merged.model_dump_json()), "infirmés": dropped, "non_vérifiés": unchecked}

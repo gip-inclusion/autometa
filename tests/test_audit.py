@@ -755,6 +755,25 @@ def test_merge_applies_the_verdicts_drops_what_was_refuted_and_reports_the_unche
     assert (unchecked.message_id, unchecked.verification) == (3, "non vérifié")
 
 
+@pytest.mark.parametrize(
+    ("spoil", "reason"),
+    [
+        (lambda run: audit.finish(run.id), "run quotidien ouvert"),
+        (lambda run: lot_files(run, output(finding(1), finding(99))), "hors de la fenêtre"),
+    ],
+)
+def test_a_refused_merge_keeps_the_findings_already_merged(mocker, spoil, reason):
+    run = open_daily(mocker, [msg(1)])
+    audit.extract(run.id)
+    lot_files(run, output(finding(1)), [{"key": "c1:1:A2", "status": "confirmé", "severity": "GRAVE"}])
+    audit.merge(run.id)
+    spoil(run)
+
+    with pytest.raises(audit.AuditError, match=reason):
+        audit.merge(run.id)
+    assert [f.key for f in audit.load_findings(run.id)] == ["c1:1:A2"]
+
+
 def test_merge_can_be_rerun_after_a_new_verdict(mocker):
     off_grid = {"conversation_id": "c1", "message_id": 1, "symptom": "s", "mechanism": "m", "why_serious": "w"}
     run = open_daily(mocker, [msg(1)])
