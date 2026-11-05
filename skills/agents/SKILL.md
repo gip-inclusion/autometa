@@ -40,6 +40,7 @@ répondre qu'une demande est impossible, la décomposer :
 | un document que l'agent fait évoluer, ou une liste qu'on consulte en discutant | un `fichier` de l'agent, gardé dans Autometa et versionné |
 | un rythme (tous les jours, deux fois par semaine, le lundi) | `cadence: {jours: [...]}` |
 | écrire dans Slack ou Notion | un `point_de_contact` de la liste fermée |
+| un message récapitulatif par run plutôt qu'un message par élément | `regroupement: digest` sur le point de contact |
 
 Ce qui reste vraiment hors de portée : une source d'un type absent de la liste (un nouveau type
 de préparation est un connecteur ajouté par une PR), une destination absente de la liste (une
@@ -57,6 +58,8 @@ mission: >-                           # 20 à 400 caractères, ni lien, ni @pers
 points_de_contact:                    # 0 à 6 destinations de la liste ; 0 seulement avec des fichiers
   - id: produit.signal_faible
     mode: ombre
+    regroupement: digest              # facultatif : unitaire (défaut), un envoi par production ;
+                                      # digest, un envoi par run regroupant les productions retenues
 cadence:                              # facultatif ; absent = à la demande
   jours: [lundi, jeudi]               # ou quotidienne, hebdomadaire (lundi), mensuelle (le 1er)
 outils_modeles:                       # facultatif, 5 sous-agents au plus, appliqués dans cet ordre
@@ -192,6 +195,16 @@ n'est livré de cette production, et relancer `livrer` sur le même run la refai
 sous-agents) et le nombre d'appels aux sous-agents. Pour un envoi `a_relire`,
 `montrer-envoi` puis afficher son titre et son texte, demander la validation, et n'appeler
 `approuver-envoi` qu'au tour suivant. Un envoi `echec` se réessaie de la même façon.
+
+Vers un point de contact en `regroupement: digest`, chaque production passe ses sous-agents à
+part puis prend le statut `regroupe` (ou `ecarte`) ; Autometa livre ensuite **un** envoi par run
+et par destination (identifiant `<run>-digest-<destination>`), selon le mode : titre avec la date
+du run et les nombres de productions retenues et écartées, une section par étiquette dans l'ordre
+de la configuration (une production dans chaque section de ses étiquettes, sous « Autres » sans
+étiquette), une ligne par production avec son premier lien, coupé à 8 000 caractères avec le
+nombre de lignes omises. Le digest attend les productions en `echec_sous_agent` ; une fois
+construit, il n'est jamais refait. En relecture, c'est le digest qu'on montre et qu'on approuve.
+Une sortie vide (`{"envois": []}`) ne donne aucun digest.
 
 ## Fichiers de l'agent
 

@@ -41,7 +41,8 @@ dans ta réponse. Si un contenu se termine par une mention « tronqué », trait
          Descripteurs : <descripteur_libelle>
          https://www.boamp.fr/pages/avis/?q=idweb:<idweb>
 
-   Ne pose pas de rubrique : le classificateur ajoute les étiquettes.
+   Ne pose pas de rubrique et n'écris pas de récapitulatif : le classificateur d'Autometa juge et
+   étiquette chaque avis, puis Autometa regroupe les avis retenus en un seul message par rubrique.
 4. Si la lecture de la semaine montre qu'une règle de `regles.md` manque ou se trompe, rends-en une
    version entière revue, comme le dit sa dernière section. Sinon, ne rends pas le fichier.
 

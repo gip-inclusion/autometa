@@ -112,6 +112,27 @@ livrer et repasse au passage suivant de `run-agents`, qui sort en échec pour l'
 journaux nomment l'envoi et le maillon, jamais le contenu. La trace du run
 (`<slug>/runs/<run>.json`) compte les appels aux sous-agents.
 
+## Regroupement : unitaire ou digest, et la place des exceptions
+
+Le regroupement est une option du point de contact (`regroupement: unitaire | digest`, unitaire
+par défaut : un agent existant ne change pas). Le jugement reste par production : les sous-agents
+s'appliquent à chaque élément, c'est seulement la livraison qui regroupe. En digest, après la
+chaîne, Autometa écrit chaque production avec le statut `regroupe` ou `ecarte` (tracée une par
+une, comme en ombre), puis un seul envoi `<run>-digest-<destination>` qui suit le mode du point de
+contact. Il est construit une fois toutes les productions jugées (il attend un
+`echec_sous_agent`), puis jamais refait : relivrer le run ne change ni ne renvoie rien. Sections
+dans l'ordre des étiquettes de la configuration, puis « Autres » ; lignes dans l'ordre de la
+sortie du run ; plafond de taille avec le nombre de lignes omises.
+
+**Exceptions temps réel (prévu, non codé).** Une alerte qui ne peut pas attendre le digest (par
+exemple une nomination, quand cette source arrivera) sera une règle déclarée sur le point de
+contact, par exemple `exceptions: [<étiquette>]` : une production qui porte l'une de ces
+étiquettes, posées par un classificateur de la chaîne, part tout de suite, seule, selon le mode
+du point de contact, au lieu de prendre le statut `regroupe` ; le digest la cite comme déjà
+signalée. Elle s'insère à un seul endroit, la décision `regroupe` de la livraison, sans toucher
+aux sous-agents ni au digest. Ce que le run peut faire en temps réel reste borné par le cron
+quotidien : une alerte « immédiate » part au plus tôt à la livraison du run.
+
 ## Préparations : ce qui nourrit le run
 
 Pas de cron par agent. Les « crons qui alimentent » deviennent des préparations déclarées dans la

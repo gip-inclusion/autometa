@@ -105,7 +105,7 @@ def registered(mocker) -> dict:
 def test_dod_1_boamp_agent_is_composed_of_generic_bricks_only():
     doc = agent_config.parse(CONFIG)
     assert agent_config.validate(doc) == []
-    assert doc["points_de_contact"] == [{"id": "bizdev.marche", "mode": "ombre"}]
+    assert doc["points_de_contact"] == [{"id": "bizdev.marche", "mode": "ombre", "regroupement": "digest"}]
     assert agent_config.destinations()["bizdev.marche"]["canal"] == "slack"
     assert doc["cadence"] == {"jours": ["lundi"]}
     assert {urlsplit(p["url"]).hostname for p in doc["preparations"]} == {BOAMP}
@@ -200,7 +200,7 @@ def test_dod_6_the_generic_cron_launches_it_on_mondays_only(mocker, day, due):
     assert agents.due(agent_config.parse(CONFIG)["cadence"]) is due
 
 
-def test_dod_5_a_simulated_run_sends_one_shadow_production_per_notice_filtered_and_labelled(store, mocker):
+def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_by_heading(store, mocker):
     """BOAMP and Ollama are mocked at the HTTP level; Slack and Notion are never called."""
     registered(mocker)
     boamp = Boamp(mocker)
@@ -227,12 +227,25 @@ def test_dod_5_a_simulated_run_sends_one_shadow_production_per_notice_filtered_a
 
     summary = agents.deliver_run("veille-boamp", RUN_ID)
 
-    assert [(e["statut"], e["appels"]) for e in summary] == [("ombre", 2), ("ecarte", 1), ("ombre", 2)]
+    assert [(e["statut"], e["appels"]) for e in summary] == [
+        ("regroupe", 2),
+        ("ecarte", 1),
+        ("regroupe", 2),
+        ("ombre", 0),
+    ]
     assert ollama.call_count == 5
     records = [store.json(f"veille-boamp/envois/{RUN_ID}-{i}.json") for i in range(3)]
     assert [r.get("etiquettes") for r in records] == [["outils-numeriques"], None, ["prestations-insertion"]]
     assert records[0]["texte"].endswith("idweb:26-000001\n\nÉtiquettes : outils-numeriques")
     assert records[1]["sous_agents"][0]["probabilite"] == 0.18
+    digest = store.json(f"veille-boamp/envois/{summary[-1]['id']}.json")
+    assert digest["titre"].endswith(" : retenus 2, écartés 1")
+    assert digest["texte"] == (
+        "## outils-numeriques\n"
+        "- Logiciel de suivi des parcours des bénéficiaires du RSA : https://www.boamp.fr/pages/avis/?q=idweb:26-000001\n\n"
+        "## prestations-insertion\n"
+        "- Accompagnement socio-professionnel des allocataires : https://www.boamp.fr/pages/avis/?q=idweb:26-000003"
+    )
     slack.assert_not_called()
     notion.assert_not_called()
     assert [v["version"] for v in agents.file_history("veille-boamp", "regles.md")] == [1, 2]

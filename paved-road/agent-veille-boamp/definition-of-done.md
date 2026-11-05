@@ -41,6 +41,14 @@ DOD-5 — Un run simulé (export BOAMP et Ollama Cloud mockés au niveau HTTP) d
 
 DOD-6 — Le cron générique `run-agents` lance l'agent le lundi et pas un autre jour.
 
+DOD-7 — Un point de contact peut regrouper ses productions (`regroupement: digest`, unitaire par
+  défaut, sans changement pour les agents existants) : après les sous-agents, les productions
+  retenues d'un run forment un seul envoi par destination, titré par la date du run et les
+  nombres retenus et écartés, en sections par étiquette (puis « Autres »), une ligne par
+  production avec son lien, dans un ordre déterministe et sous un plafond de taille qui dit le
+  nombre de lignes omises. Les productions écartées restent tracées une par une ; relivrer le run
+  ne refait ni ne renvoie le digest. L'agent BOAMP livre en digest.
+
 ## Sources lues
 
 - `lib/agent_config.py`, `config/agent_destinations.yaml`, `config/agent_modeles.yaml`,

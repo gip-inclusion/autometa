@@ -5,7 +5,7 @@
 #
 # Exemple de référence d'un agent composé de briques génériques : Autometa lit le BOAMP (préparations
 # url), le worker trie selon regles.md (fichier de l'agent) et rend un envoi par avis, clef juge chaque
-# envoi (filtre puis étiquettes), le cron run-agents le lance chaque lundi.
+# envoi (filtre puis étiquettes), Autometa les regroupe en un digest, le cron run-agents le lance le lundi.
 format: pdi.agent/1
 slug: veille-boamp
 titre: Veille BOAMP insertion et emploi
@@ -13,9 +13,12 @@ mission: >-
   Repérer chaque semaine, parmi les avis de marchés publics ouverts au BOAMP, ceux qui portent
   sur l'insertion professionnelle, l'IAE ou l'accompagnement des bénéficiaires du RSA, pour
   qu'un bizdev de la Plateforme de l'inclusion décide d'y répondre ou de contacter l'acheteur.
+# Why: un digest par semaine suffit à la veille ; chaque avis reste jugé à part par clef, puis Autometa
+# regroupe les avis retenus du run en un seul message, par rubrique.
 points_de_contact:
   - id: bizdev.marche
     mode: ombre
+    regroupement: digest
 cadence:
   jours: [lundi]
 # Why: l'export CSV n'a pas la limite de 100 lignes de /records. La fenêtre now(days=-8) à

@@ -45,7 +45,8 @@ Les rubriques sont posées par le classificateur d'Autometa après le run, sur c
 - Prestations d'insertion et d'accompagnement (étiquette prestations-insertion) : l'avis achète
   une prestation d'insertion, d'accompagnement vers l'emploi ou de suivi de personnes en parcours.
 
-Un avis peut porter les deux étiquettes, ou aucune s'il a passé le filtre pour une autre raison.
+Un avis peut porter les deux étiquettes, ou aucune s'il a passé le filtre pour une autre raison :
+le message de la semaine le range alors dans chaque rubrique qui le concerne, ou sous « Autres ».
 
 ## Faire évoluer ces règles
 

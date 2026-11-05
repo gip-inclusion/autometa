@@ -31,6 +31,7 @@ __all__ = [
 
 FORMAT = "pdi.agent/1"
 MODES = ("ombre", "relecture", "reel")
+REGROUPEMENTS = ("unitaire", "digest")
 FIELDS = ("format", "slug", "titre", "mission", "points_de_contact")
 OPTIONAL_FIELDS = ("cadence", "outils_modeles", "preparations", "fichiers")
 CADENCES = {"quotidienne": "daily", "hebdomadaire": "weekly", "mensuelle": "monthly"}
@@ -221,8 +222,10 @@ def initial_errors(initiaux: dict[str, str], fichiers: object) -> list[str]:
 
 def contact_errors(slug: object, index: int, contact: object, known: dict[str, dict]) -> list[str]:
     path = f"points_de_contact[{index}]"
-    if not isinstance(contact, dict) or set(contact) != {"id", "mode"}:
-        return [f"{path} : attendu exactement les champs id et mode."]
+    if not isinstance(contact, dict) or not {"id", "mode"} <= set(contact) <= {"id", "mode", "regroupement"}:
+        return [f"{path} : attendu les champs id et mode, et regroupement en option."]
+    if contact.get("regroupement", "unitaire") not in REGROUPEMENTS:
+        return [f"{path}.regroupement : {contact['regroupement']!r} inconnu, attendu {' ou '.join(REGROUPEMENTS)}."]
     destination = known.get(contact["id"])
     if destination is None:
         return [
@@ -297,7 +300,15 @@ def validate(doc: object) -> list[str]:
 
 def describe(doc: dict) -> list[str]:
     """What an accepted configuration does, one line per element, for the review before confirmation."""
-    lines = [f"destination {c['id']} en mode {c['mode']}" for c in doc["points_de_contact"]]
+    lines = [
+        f"destination {c['id']} en mode {c['mode']}"
+        + (
+            ", un digest par run (productions retenues regroupées par étiquette)"
+            if c.get("regroupement") == "digest"
+            else ""
+        )
+        for c in doc["points_de_contact"]
+    ]
     for i, o in enumerate(doc.get("outils_modeles", []), 1):
         if o["type"] == "classificateur" and "etiquettes" in o:
             detail = (
