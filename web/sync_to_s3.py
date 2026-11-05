@@ -2,10 +2,12 @@
 
 import logging
 import mimetypes
+import os
 import re
 import threading
 import time
 from pathlib import Path
+from uuid import uuid4
 
 from botocore.exceptions import ClientError
 
@@ -19,6 +21,17 @@ stop_event = threading.Event()
 # Why: les écritures atomiques passent par un `<fichier>.tmp.<pid>.<id>` renommé aussitôt ; vu
 # pendant sa courte vie, il partait sur S3 où rien ne le supprime, puis dans les publications.
 UNSYNCED = re.compile(r"\.tmp\.\d+\.[0-9a-f]+$|(^|/)__pycache__/")
+
+# Why: renvoyer un fichier restauré écrasait ce qu'on avait déposé sur S3 entre son téléchargement et ce renvoi.
+restored_mtimes: dict[Path, float] = {}
+
+
+def write_restored(path: Path, content: bytes):
+    """Write a file downloaded from S3 so that the watcher does not send it back."""
+    temporary = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid4().hex}")
+    temporary.write_bytes(content)
+    restored_mtimes[path] = temporary.stat().st_mtime
+    temporary.replace(path)
 
 
 def start_sync_watcher():
@@ -70,7 +83,8 @@ def watch_loop():
                     mtime = path.stat().st_mtime
                     current_files[path] = mtime
 
-                    if path not in known_files or known_files[path] < mtime:
+                    changed = path not in known_files or known_files[path] < mtime
+                    if changed and restored_mtimes.pop(path, None) != mtime:
                         _sync_file(path)
 
             known_files = current_files
