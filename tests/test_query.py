@@ -722,34 +722,39 @@ def test_execute_query_unknown_source_is_an_invalid_request():
     assert q.execute_query(source="nope", instance="", caller=q.CallerType.APP).invalid_request is True
 
 
-@pytest.mark.parametrize(
-    ("token", "authorization"),
-    [("ghp_x", "Bearer ghp_x"), ("", None)],
-)
-def test_execute_github_query_gets_the_api_with_the_token_when_set(mocker, token, authorization):
+def test_execute_github_query_reads_a_path_of_an_allowed_repository(mocker):
     from lib import query as q
 
-    mocker.patch("web.config.GITHUB_TOKEN", token)
-    get = mocker.patch("lib.query.httpx.get", return_value=mocker.Mock(json=lambda: [{"number": 1}]))
+    api = mocker.patch("lib.query.github.api", return_value=[{"number": 1}])
 
-    result = q.execute_github_query("/repos/gip-inclusion/r/pulls", q.CallerType.APP, params={"state": "closed"})
+    result = q.execute_github_query("/repos/betagouv/r/pulls", q.CallerType.APP, params={"state": "closed"})
 
     assert result.data == [{"number": 1}]
-    assert get.call_args.args == ("https://api.github.com/repos/gip-inclusion/r/pulls",)
-    assert get.call_args.kwargs["params"] == {"state": "closed"}
-    assert get.call_args.kwargs["headers"].get("Authorization") == authorization
+    api.assert_called_once_with("/repos/betagouv/r/pulls", {"state": "closed"}, timeout=30)
 
 
-@pytest.mark.parametrize("path", ["user/repos", "repos/autre-org/r/pulls", "repos/gip-inclusion/../../user/repos"])
-def test_execute_github_query_refuses_paths_outside_gip_inclusion_repositories(mocker, path):
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda q: q.execute_github_query("user/repos", q.CallerType.APP),
+        lambda q: q.execute_github_query("repos/autre-org/r/pulls", q.CallerType.APP),
+        lambda q: q.execute_github_query("repos/gip-inclusion/../../user/repos", q.CallerType.APP),
+        lambda q: q.execute_github_file("autre-org/r", "a.py", q.CallerType.APP),
+        lambda q: q.execute_github_search("autre-org/r", "x", q.CallerType.APP),
+        lambda q: q.execute_github_search("gip-inclusion/r", "x", q.CallerType.APP, ref="--depth=1000"),
+    ],
+)
+def test_github_executors_refuse_a_request_outside_what_they_allow_before_any_call(mocker, call):
     from lib import query as q
 
-    get = mocker.patch("lib.query.httpx.get")
+    get = mocker.patch("lib.github.httpx.request")
+    run = mocker.patch("lib.github.subprocess.run")
 
-    result = q.execute_github_query(path, q.CallerType.APP)
+    result = call(q)
 
     assert (result.success, result.invalid_request) == (False, True)
     get.assert_not_called()
+    run.assert_not_called()
 
 
 def test_execute_notion_query_forwards_filter_and_sorts(mocker):
@@ -805,7 +810,9 @@ def test_execute_zendesk_search_returns_tickets_as_dicts(mocker):
 @pytest.mark.parametrize(
     ("execute", "patched", "kwargs"),
     [
-        ("execute_github_query", "lib.query.httpx.get", {"path": "repos/gip-inclusion/x"}),
+        ("execute_github_query", "lib.query.github.api", {"path": "repos/gip-inclusion/x"}),
+        ("execute_github_file", "lib.query.github.read", {"repo": "gip-inclusion/x", "path": "a.py"}),
+        ("execute_github_search", "lib.query.github.clone", {"repo": "gip-inclusion/x", "pattern": "a"}),
         ("execute_notion_query", "lib.query.notion.query_database", {"database_id": "db1"}),
         ("execute_tally_query", "lib.query.TallyClient", {"form_id": "f1"}),
         ("execute_zendesk_search", "lib.query.get_zendesk", {"query": "x"}),
