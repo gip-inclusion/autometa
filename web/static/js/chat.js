@@ -130,6 +130,9 @@ function initChat() {
   // Send on button click
   sendBtn.addEventListener('click', () => sendMessage());
 
+  // Before the Enter handler: picking a mention with Enter must not send the message
+  initJobMentions(input);
+
   // Send on Enter (Shift+Enter for newline)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -148,6 +151,95 @@ function initChat() {
 
   // Title editing
   initTitleEditing();
+}
+
+let jobNames = null;
+
+// Why: the promise is cached, not its result — keystrokes during the first request must not start new ones
+function loadJobNames() {
+  jobNames ??= fetch('/api/jobs/pipelines/names')
+    .then(async (resp) => (resp.ok ? (await resp.json()).names : []))
+    .catch(() => []);
+  return jobNames;
+}
+
+function mentionAtCaret(input) {
+  const before = input.value.slice(0, input.selectionStart);
+  const match = before.match(/(?:^|\s)@([\w.-]*)$/);
+  return match ? { query: match[1], start: before.length - match[1].length } : null;
+}
+
+/**
+ * `@` autocompletion of job names: the server joins the mentioned job's context to the message
+ */
+function initJobMentions(input) {
+  const list = document.createElement('ul');
+  list.className = 'job-mentions';
+  list.id = 'jobMentions';
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+  input.closest('.chat-bar').appendChild(list);
+  let active = 0;
+
+  const close = () => {
+    list.hidden = true;
+    list.replaceChildren();
+  };
+  const highlight = () => {
+    [...list.children].forEach((li, i) => {
+      li.setAttribute('aria-selected', String(i === active));
+    });
+  };
+  const pick = (name) => {
+    const mention = mentionAtCaret(input);
+    if (!mention) return;
+    const after = input.value.slice(input.selectionStart);
+    input.value = `${input.value.slice(0, mention.start)}${name} ${after}`;
+    const caret = mention.start + name.length + 1;
+    input.setSelectionRange(caret, caret);
+    close();
+    input.focus();
+  };
+
+  input.addEventListener('input', async () => {
+    const mention = mentionAtCaret(input);
+    if (!mention) return close();
+    const query = mention.query.toLowerCase();
+    const names = (await loadJobNames()).filter((n) => n.toLowerCase().startsWith(query)).slice(0, 8);
+    if (!names.length || !mentionAtCaret(input)) return close();
+    active = 0;
+    list.replaceChildren(
+      ...names.map((name) => {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'option');
+        li.dataset.name = name;
+        li.textContent = `@${name}`;
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          pick(name);
+        });
+        return li;
+      }),
+    );
+    list.hidden = false;
+    highlight();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + list.children.length) % list.children.length;
+      highlight();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      pick(list.children[active].dataset.name);
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+  input.addEventListener('blur', close);
 }
 
 /**

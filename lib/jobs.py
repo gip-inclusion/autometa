@@ -101,10 +101,14 @@ def create_and_run(
     name: str, system_prompt: str, config_overrides: dict | None = None, input_uri: str | None = None
 ) -> dict:
     """Create a one-shot pipeline and immediately trigger a run — the composer's launch primitive."""
-    pipeline = create_pipeline(name, system_prompt, config_overrides)
-    run = trigger_run(pipeline["id"], input_uri=input_uri)
+    return launch(create_pipeline(name, system_prompt, config_overrides)["id"], input_uri=input_uri)
+
+
+def launch(pipeline_id: str, input_uri: str | None = None) -> dict:
+    """Trigger a run of an existing pipeline, summarised for the composer."""
+    run = trigger_run(pipeline_id, input_uri=input_uri)
     return {
-        "pipeline_id": pipeline["id"],
+        "pipeline_id": pipeline_id,
         "run_id": run["id"],
         "status": run["status"],
         "run_url": run_url(run["id"]),
