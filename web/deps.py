@@ -54,7 +54,7 @@ templates.env.globals["static_url"] = static_url
 
 templates.env.globals["format_relative_date"] = format_relative_date
 
-templates.env.globals["is_staging"] = config.ENV.shows_staging_banner
+templates.env.globals["shows_staging_banner"] = config.ENV.shows_staging_banner
 
 templates.env.globals["matomo_tracking_url"] = config.MATOMO_TRACKING_URL
 templates.env.globals["matomo_tag_manager_container_id"] = config.MATOMO_TAG_MANAGER_CONTAINER_ID

@@ -6,11 +6,11 @@ from web.deps import templates
 from web.environment import Environment
 
 
-@pytest.mark.parametrize("is_staging", [True, False])
-def test_staging_banner(mocker, is_staging):
-    mocker.patch.dict(templates.env.globals, {"is_staging": is_staging})
+@pytest.mark.parametrize("shows_staging_banner", [True, False])
+def test_staging_banner(mocker, shows_staging_banner):
+    mocker.patch.dict(templates.env.globals, {"shows_staging_banner": shows_staging_banner})
     html = templates.get_template("base.html").render()
-    assert ("Version de staging, ne pas utiliser" in html) is is_staging
+    assert ("Version de test, ne pas utiliser" in html) is shows_staging_banner
 
 
 @pytest.mark.parametrize(
