@@ -4525,3 +4525,49 @@ body.no-sidebar .section-header .container-fluid {
   font-weight: 600;
   color: #6c757d;
 }
+
+.staging-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--staging-banner-height);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+  text-align: center;
+  background: #ce0500;
+  color: #fff;
+  font-weight: 700;
+}
+
+.staging-banner a {
+  color: #fff;
+}
+
+.is-staging {
+  --staging-banner-height: 2.5rem;
+  padding-top: var(--staging-banner-height);
+}
+
+.is-staging .app-sidebar,
+.is-staging .app-header-mobile,
+.is-staging .auth-banner {
+  top: var(--staging-banner-height);
+}
+
+@media (max-width: 991.98px) {
+  .is-staging {
+    --staging-banner-height: 3rem;
+  }
+
+  .staging-banner {
+    font-size: 0.875rem;
+  }
+
+  .is-staging .auth-banner {
+    top: calc(var(--staging-banner-height) + 56px);
+  }
+}

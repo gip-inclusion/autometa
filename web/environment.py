@@ -27,6 +27,11 @@ class Environment(StrEnum):
         return self is Environment.REVIEW
 
     @property
+    def shows_staging_banner(self) -> bool:
+        """True on non-prod deployed instances, where users must be sent back to prod."""
+        return self in (Environment.STAGING, Environment.REVIEW)
+
+    @property
     def owns_shared_db(self) -> bool:
         """True only for prod, the single instance that maintains the shared autometa_tables_db."""
         return self is Environment.PROD
