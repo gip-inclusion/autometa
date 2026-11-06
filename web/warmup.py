@@ -11,7 +11,7 @@ import time
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 
-from . import config
+from . import config, sync_to_s3
 from .db import get_db
 from .models import MatomoBaseline, MatomoDimension, MatomoEvent, MatomoSegment, MetabaseCard, MetabaseDashboard
 
@@ -194,7 +194,7 @@ def restore_interactive_from_s3():
         content = s3_module.interactive.download(f["path"])
         if content is not None:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_bytes(content)
+            sync_to_s3.write_restored(local_path, content)
             restored += 1
 
     if restored:
