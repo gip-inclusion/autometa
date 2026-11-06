@@ -1,0 +1,33 @@
+<div id="jobTags" class="d-flex flex-wrap align-items-center gap-2">
+  {% for tag in job_tags %}
+  <span class="badge badge-tag badge-product job-tag d-inline-flex align-items-center">
+    {{ tag.label }}
+    <button type="button" class="btn-close ms-1" style="font-size: .55em;" aria-label="Retirer {{ tag.label }}"
+            hx-post="/api/jobs/pipelines/{{ pipeline_id }}/tags" hx-vals='{"tag": {{ tag.name | tojson }}}'
+            hx-target="#jobTags" hx-swap="outerHTML"></button>
+  </span>
+  {% endfor %}
+  {% if tag_groups %}
+  <select name="tag" class="form-select form-select-sm w-auto job-tags-select" aria-label="Ajouter un tag"
+          hx-post="/api/jobs/pipelines/{{ pipeline_id }}/tags" hx-trigger="change"
+          hx-target="#jobTags" hx-swap="outerHTML">
+    <option value="" selected disabled>Ajouter un tag…</option>
+    {% for group in tag_groups %}
+    <optgroup label="{{ group.label }}">
+      {% for term in group.terms %}
+      <option value="{{ term.name }}">{{ term.label }}</option>
+      {% endfor %}
+    </optgroup>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <form class="d-flex gap-1" hx-post="/api/jobs/pipelines/{{ pipeline_id }}/tags/new"
+        hx-target="#jobTags" hx-swap="outerHTML">
+    <input type="text" name="label" class="form-control form-control-sm" placeholder="Nouvelle nature…"
+           maxlength="80" aria-label="Nouveau terme de nature" required>
+    <button type="submit" class="btn btn-sm btn-outline-secondary">Créer</button>
+  </form>
+</div>
+{% if oob %}
+<span id="job-tags-{{ pipeline_id }}" hx-swap-oob="true">{% include "_job_tags_badges.html" %}</span>
+{% endif %}

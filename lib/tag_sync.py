@@ -11,7 +11,7 @@ from lib.taxonomy import FACETS_BY_NAME, normalize_tag_name
 from web import config
 from web.alerts import notify_alert_channel
 from web.db import get_db
-from web.models import ConversationTag, DashboardTag, ReportTag, Tag, TagImplication, TagSyncState
+from web.models import ConversationTag, DashboardTag, JobTag, ReportTag, Tag, TagImplication, TagSyncState
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def fetch_terms() -> tuple[list[NotionTerm], list[str]]:
 def assigned_tag_ids(session) -> set[int]:
     """Ids de tags portés par au moins un objet — jamais supprimés, seulement désactivés."""
     ids = set()
-    for model in (DashboardTag, ConversationTag, ReportTag):
+    for model in (DashboardTag, ConversationTag, ReportTag, JobTag):
         ids.update(session.scalars(select(model.tag_id).distinct()))
     return ids
 

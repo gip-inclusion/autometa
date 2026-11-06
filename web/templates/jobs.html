@@ -53,24 +53,46 @@
     <div class="jobs-layout">
 
       <div class="tm-pane">
-        <div class="tm-pane-header"><span>Pipelines</span></div>
+        <div class="tm-pane-header">
+          <span class="me-auto">Pipelines</span>
+          <div class="dropdown">
+            <button class="btn btn-sm btn-link text-secondary p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Tri : {{ sorts[sort][1] }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% for key, (href, label) in sorts.items() %}
+              <li><a class="dropdown-item{% if key == sort %} active{% endif %}" href="{{ href }}"
+                     hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">{{ label }}</a></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+        {% if tag_filters %}
+        <div class="jobs-tag-filters d-flex flex-wrap gap-1 px-3 py-2 border-bottom">
+          {% for f in tag_filters %}
+          <a href="{{ f.href }}" class="badge badge-tag text-decoration-none {{ 'bg-primary' if f.active else 'badge-product' }}"
+             hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">{{ f.label }} <span class="opacity-75 ms-1">{{ f.count }}</span></a>
+          {% endfor %}
+        </div>
+        {% endif %}
         <div class="tm-pane-body">
           {% for p in pipelines %}
-          <a href="/jobs/pipelines/{{ p.id }}"
+          <a href="/jobs/pipelines/{{ p.id }}{{ qs }}"
              class="tm-list-item{% if selected and selected.id == p.id %} active{% endif %}"
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <span class="tm-item-name">{{ p.name }}</span>
+            <span id="job-tags-{{ p.id }}">{% with job_tags = p.tags %}{% include "_job_tags_badges.html" %}{% endwith %}</span>
             <span class="text-muted small">{{ p.run_count }} run{{ "s" if p.run_count != 1 else "" }}{% if p.last_activity_display %} · {{ p.last_activity_display }}{% endif %}</span>
           </a>
           {% else %}
-          <div class="tm-empty"><p class="text-muted">Aucun pipeline.</p></div>
+          <div class="tm-empty"><p class="text-muted">{% if active_tags %}Aucun pipeline ne porte {{ "ce tag" if active_tags | length == 1 else "tous ces tags" }}.{% else %}Aucun pipeline.{% endif %}</p></div>
           {% endfor %}
         </div>
       </div>
 
       <div class="tm-pane">
         <div class="tm-pane-header">
-          <a href="/jobs" class="tm-pane-back" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true" aria-label="Retour aux pipelines">
+          <a href="/jobs{{ qs }}" class="tm-pane-back" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true" aria-label="Retour aux pipelines">
             <i class="ri-arrow-left-s-line"></i>
           </a>
           <span class="pane-title me-auto text-truncate">{% if selected %}{{ selected.name }}{% else %}Pipeline{% endif %}</span>
@@ -80,6 +102,10 @@
         </div>
         <div class="tm-pane-body">
           {% if selected %}
+          <div class="p-3 border-bottom">
+            <div class="text-muted small text-uppercase mb-2" style="letter-spacing: .05em;">Tags</div>
+            {% include "_job_tags.html" %}
+          </div>
           <div class="p-3 border-bottom">
             <div class="text-muted small text-uppercase mb-2" style="letter-spacing: .05em;">Consigne</div>
             <div class="jobs-prompt markdown-body">{{ selected.system_prompt | markdown }}</div>
