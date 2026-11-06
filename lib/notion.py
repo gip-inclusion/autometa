@@ -64,8 +64,8 @@ def query_database(db_id: str, filter: dict | None = None, sorts: list[dict] | N
     return pages
 
 
-def get_block_children(block_id: str) -> list[dict]:
-    """All child blocks of a block/page, recursing into nested blocks (paginated)."""
+def block_children(block_id: str) -> list[dict]:
+    """The direct child blocks of a block or page (paginated), without descending."""
     blocks = []
     cursor = None
     while True:
@@ -73,14 +73,64 @@ def get_block_children(block_id: str) -> list[dict]:
         if cursor:
             endpoint += f"&start_cursor={quote(cursor, safe='')}"
         data = notion_request("GET", endpoint)
-        for block in data["results"]:
-            blocks.append(block)
-            if block.get("has_children"):
-                blocks.extend(get_block_children(block["id"]))
+        blocks.extend(data["results"])
         if not data.get("has_more"):
             break
         cursor = data.get("next_cursor")
     return blocks
+
+
+def get_block_children(block_id: str) -> list[dict]:
+    """All child blocks of a block/page, recursing into nested blocks (paginated)."""
+    blocks = []
+    for block in block_children(block_id):
+        blocks.append(block)
+        if block.get("has_children"):
+            blocks.extend(get_block_children(block["id"]))
+    return blocks
+
+
+BLOCK_PREFIX = {
+    "heading_1": "# ",
+    "heading_2": "## ",
+    "heading_3": "### ",
+    "bulleted_list_item": "- ",
+    "numbered_list_item": "1. ",
+    "toggle": "- ",
+    "quote": "> ",
+    "callout": "> ",
+}
+
+
+def blocks_markdown(block_id: str, depth: int, indent: str = "") -> list[str]:
+    """Markdown lines of a block's children; a sub-page is opened only while depth allows it."""
+    lines = []
+    for block in block_children(block_id):
+        btype = block["type"]
+        text = extract_block_text(block)
+        if btype == "child_page":
+            lines.append(f"\n{indent}## Sous-page : {text}")
+            if depth > 1:
+                lines += blocks_markdown(block["id"], depth - 1, indent)
+            continue
+        if btype == "child_database":
+            lines.append(f"{indent}(base Notion : {text})")
+            continue
+        if btype == "code":
+            lines.append(f"{indent}```\n{text}\n{indent}```")
+        elif btype == "to_do":
+            lines.append(f"{indent}- [{'x' if block['to_do'].get('checked') else ' '}] {text}")
+        elif text:
+            lines.append(f"{indent}{BLOCK_PREFIX.get(btype, '')}{text}")
+        if block.get("has_children"):
+            lines += blocks_markdown(block["id"], depth, indent + "  ")
+    return lines
+
+
+def page_markdown(page_id: str, depth: int) -> str:
+    """A page and its sub-pages down to depth, as Markdown."""
+    title = extract_page_title(notion_request("GET", f"pages/{page_id}"))
+    return "\n".join([f"# {title}", "", *blocks_markdown(page_id, depth)])
 
 
 def extract_text_from_rich_text(rich_text_list: list[dict]) -> str:
@@ -128,6 +178,14 @@ def extract_page_properties(page: dict) -> dict:
             props[name] = [r["id"] for r in val.get("relation", [])]
         elif ptype == "people":
             props[name] = [p.get("name", p.get("id", "")) for p in val.get("people", [])]
+        elif ptype == "status":
+            status = val.get("status")
+            props[name] = status["name"] if status else None
+        elif ptype in ("number", "url", "email", "created_time", "last_edited_time"):
+            props[name] = val.get(ptype)
+        elif ptype == "unique_id":
+            uid = val.get("unique_id") or {}
+            props[name] = f"{uid.get('prefix') or ''}{'-' if uid.get('prefix') else ''}{uid.get('number')}"
         elif ptype == "formula":
             f = val.get("formula", {})
             ftype = f.get("type")
@@ -363,12 +421,37 @@ def publish_report(
         "pages",
         {"parent": {"database_id": NOTION_REPORTS_DB}, "properties": properties},
     )
-    page_id = result["id"]
-    page_url = result["url"]
+    append_markdown(result["id"], content)
+    return result["id"], result["url"]
 
+
+def append_markdown(page_id: str, content: str) -> None:
+    """Append markdown to a page, in batches of the 100 blocks Notion accepts per call."""
     blocks = markdown_to_blocks(content)
     for i in range(0, len(blocks), 100):
-        batch = blocks[i : i + 100]
-        notion_request("PATCH", f"blocks/{page_id}/children", {"children": batch})
+        notion_request("PATCH", f"blocks/{page_id}/children", {"children": blocks[i : i + 100]})
 
-    return page_id, page_url
+
+def title_property(database_id: str) -> str:
+    """Name of the title property, which each database names its own way."""
+    schema = notion_request("GET", f"databases/{database_id}")
+    return next(name for name, prop in schema["properties"].items() if prop["type"] == "title")
+
+
+def create_page(database_id: str, title: str, content: str) -> dict:
+    """Create a page in a database from markdown; returns its id and url."""
+    properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
+    page = notion_request("POST", "pages", {"parent": {"database_id": database_id}, "properties": properties})
+    append_markdown(page["id"], content)
+    return {"id": page["id"], "url": page["url"]}
+
+
+def replace_page(database_id: str, page_id: str, title: str, content: str) -> dict:
+    """Overwrite the title and the whole content of an existing page; returns its id and url."""
+    properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
+    page = notion_request("PATCH", f"pages/{page_id}", {"properties": properties})
+    for block in get_block_children(page_id):
+        if block["parent"].get("page_id") == page_id:
+            notion_request("DELETE", f"blocks/{block['id']}")
+    append_markdown(page_id, content)
+    return {"id": page["id"], "url": page["url"]}

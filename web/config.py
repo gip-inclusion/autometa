@@ -1,5 +1,6 @@
 """Configuration for the Autometa web application."""
 
+import json
 import os
 from pathlib import Path
 
@@ -190,6 +191,11 @@ NOTION_TAGS_DB = os.getenv("NOTION_TAGS_DB")
 # Slack notifications
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
+
+# Agents — identifiant réel (canal Slack, base Notion) de chaque destination de config/agent_destinations.yaml.
+AGENT_DESTINATION_TARGETS: dict[str, str] = json.loads(os.getenv("AGENT_DESTINATION_TARGETS") or "{}")
+# Why: a bot of its own, invited only to the agents' channels, so an agent cannot reach the alert channels.
+AGENT_SLACK_BOT_TOKEN = os.getenv("AGENT_SLACK_BOT_TOKEN", "")
 
 # Scalingo — lancement d'un conteneur one-off pour les runs manuels de cron.
 SCALINGO_API_TOKEN = os.getenv("SCALINGO_API_TOKEN", "")
