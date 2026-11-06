@@ -293,8 +293,22 @@ def test_grep_counts_every_match_but_returns_at_most_max_results(remote, tmp_pat
 def test_grep_reports_an_invalid_pattern(remote, tmp_path):
     path, _ = github.clone("gip-inclusion/demo", tmp_path)
 
-    with pytest.raises(github.GitHubError, match="git grep"):
+    with pytest.raises(github.InvalidPattern, match="git grep"):
         github.grep(path, "(")
+
+
+def test_grep_gives_up_on_a_search_that_outlasts_its_timeout(mocker, tmp_path):
+    popen = subprocess.Popen
+    mocker.patch("lib.github.subprocess.Popen", side_effect=lambda command, **kwargs: popen(("sleep", "5"), **kwargs))
+
+    with pytest.raises(github.GitHubError, match="pas de réponse en 0.1 s"):
+        github.grep(tmp_path, "x", timeout=0.1)
+
+
+def test_search_github_code_flags_an_invalid_pattern_as_the_request_s_fault(remote):
+    result = query.execute_github_search("gip-inclusion/demo", "(", query.CallerType.APP)
+
+    assert (result.success, result.invalid_request) == (False, True)
 
 
 def test_search_github_code_works_in_a_throwaway_clone(remote):
@@ -314,12 +328,14 @@ def test_sweep_removes_only_clones_idle_for_a_day(mocker, tmp_path):
     )
     for path in (idle, recent, foreign):
         path.mkdir(parents=True)
+        (path.parent / f".{path.name}.lock").touch()
     for path in (idle, foreign):
         os.utime(path, (0, 0))
 
     github.sweep()
 
     assert [path.exists() for path in (idle, recent, foreign)] == [False, True, True]
+    assert [(p.parent / f".{p.name}.lock").exists() for p in (idle, recent, foreign)] == [False, True, True]
 
 
 def run_cli(monkeypatch, *argv):

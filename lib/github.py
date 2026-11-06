@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,10 @@ RAW = "application/vnd.github.raw+json"
 
 class GitHubError(Exception):
     """Échec d'une lecture GitHub, avec un message qui dit quoi en conclure."""
+
+
+class InvalidPattern(GitHubError):
+    """Expression régulière que git grep refuse : la faute est à la requête, pas à GitHub."""
 
 
 def repository(name: str) -> str:
@@ -259,9 +264,17 @@ def sweep(max_age: int = 86400) -> None:
             if path.is_dir() and time.time() - path.stat().st_mtime > max_age:
                 # Why: les ménages de deux conversations peuvent viser le même clone en même temps.
                 shutil.rmtree(path, ignore_errors=True)
+                (path.parent / f".{path.name}.lock").unlink(missing_ok=True)
 
 
-def grep(path: Path, pattern: str, glob: str | None = None, ignore_case: bool = False, max_results: int = 200) -> dict:
+def grep(
+    path: Path,
+    pattern: str,
+    glob: str | None = None,
+    ignore_case: bool = False,
+    max_results: int = 200,
+    timeout: float = 120,
+) -> dict:
     """Les lignes d'un clone extrait qui correspondent à l'expression régulière étendue `pattern`."""
     flags = ["-i"] if ignore_case else []
     command = ("git", "-C", str(path), "grep", "-n", "-I", "-E", "--null", *flags, "-e", pattern, "--")
@@ -270,12 +283,20 @@ def grep(path: Path, pattern: str, glob: str | None = None, ignore_case: bool = 
     with subprocess.Popen(
         (*command, *([glob] if glob else [])), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=git_env()
     ) as process:
+        timer = threading.Timer(timeout, process.kill)
+        timer.start()
         for line in process.stdout:
             total += 1
             if total <= max_results:
                 file, number, text = line.decode(errors="replace").rstrip("\r\n").split("\0", 2)
                 matches.append({"path": file, "line": int(number), "text": text[:300]})
         error = process.stderr.read().decode(errors="replace").strip()
+    timer.cancel()
+    if process.returncode < 0:
+        raise GitHubError(f"git grep : pas de réponse en {timeout} s, resserrer le motif ou --glob")
+    # Why: git cite le motif refusé (« fatal: -e option, '<motif>': … »), quelle que soit la langue du conteneur.
+    if f"'{pattern}':" in error:
+        raise InvalidPattern(f"git grep : {error}")
     if process.returncode not in (0, 1):
         raise GitHubError(f"git grep : {error}")
     return {"total": total, "matches": matches}

@@ -108,8 +108,8 @@ def _run_traced_query(
                 data=None,
                 error=str(e),
                 execution_time_ms=int((time.time() - start) * 1000),
-                # Why: SQL invalide, table ou schéma absent, droit manquant — la faute est à la requête, pas à la source.
-                invalid_request=isinstance(e, ProgrammingError),
+                # Why: SQL invalide, table absente, droit manquant, motif refusé — la faute est à la requête, pas à la source.
+                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern)),
             )
             record_query_failure(result.error)
         _record_result(span, result)
