@@ -176,7 +176,8 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_github`, `query_notion`,
+`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_github`, `read_github_file`,
+`search_github_code`, `query_notion`,
 `query_tally`, `search_zendesk_tickets`, `count_zendesk_views`, `zendesk_view_ticket_dates`, `list_dashboards`, `query_storage` et
 `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
@@ -212,9 +213,14 @@ tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'aprè
 d'une vue Airtable (pagination complète) ; `data` est la liste brute des enregistrements `{id, createdTime,
 fields}`. Ils portent des données personnelles (emails, téléphones) : ne publier que les champs nécessaires.
 
-GitHub, Notion, Tally et Zendesk sont en **lecture seule**. `query_github(path, params=None)` fait un GET sur
-l'API REST GitHub, limité aux dépôts `gip-inclusion` (`path` en `repos/gip-inclusion/…`, `data` = le JSON brut) :
-le jeton de l'application voit aussi des dépôts privés, et un TDB peut publier ce qu'il lit. `query_notion(database_id,
+GitHub, Notion, Tally et Zendesk sont en **lecture seule**. GitHub se limite aux dépôts **publics** de `gip-inclusion`,
+`betagouv`, `numerique-gouv` et `suitenumerique` : le jeton de l'application pourrait voir des dépôts privés, et un TDB peut publier ce
+qu'il lit. `query_github(path, params=None)` fait un GET sur l'API REST (`path` en `repos/<org>/<dépôt>/…`, `data` =
+le JSON brut). `read_github_file(repo, path, ref=None)` renvoie le texte d'un fichier (`repo` en `org/dépôt`).
+`search_github_code(repo, pattern, ref=None, glob=None, ignore_case=False, max_results=200)` cherche une expression
+régulière étendue dans tout le dépôt, par un clone jetable plutôt que par l'API de recherche : `data` vaut `{commit,
+total, matches: [{path, line, text}]}`. Chaque appel refait le clone (quelques secondes) : un motif qui couvre tout
+le besoin plutôt qu'une boucle d'appels. `query_notion(database_id,
 filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au format de l'API Notion.
 `query_tally(form_id, filter=None)` renvoie `{questions, submissions}` d'un formulaire.
 `search_zendesk_tickets(search, sort_by=None, sort_order=None, max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. `count_zendesk_views(view_ids)` renvoie
