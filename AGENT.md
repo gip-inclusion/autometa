@@ -221,6 +221,6 @@ En Docker, le répertoire de travail est `/app`.
 | data·inclusion | `gip-inclusion/data-inclusion` | main |
 | RDV-Insertion | `gip-inclusion/rdv-insertion` | staging |
 
-Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12).
+Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12). Pour `rdv-insertion`, `main` est la production et `staging` la démo : lire le code de production sur `main`.
 
 Pour vérifier quelque chose dans le code de ces produits, invoquer le skill `github` (lecture seule), de sa propre initiative quand la question le demande. Dans `betagouv`, `numerique-gouv` et `suitenumerique`, seulement les dépôts que liste le skill, ou celui que l'utilisateur nomme.

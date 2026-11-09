@@ -1,5 +1,5 @@
 ---
-source: matomo:214
+source: [matomo:214, autometa_tables_db]
 verifie_le: 2026-09-11
 ---
 # RDV-Insertion
@@ -7,7 +7,8 @@ verifie_le: 2026-09-11
 - URL: https://www.rdv-insertion.fr
 - Matomo site ID: 214
 - GitHub: https://github.com/gip-inclusion/rdv-insertion
-- Metabase: [RDVI instance](../rdvi/README.md) — business data (invitations, RDVs, departments, organisations)
+- Données métier : [knowledge/rdvi](../rdvi/README.md) — `raw_rdvi` (autometa_tables_db) et Metabase rdvi : invitations, RDV, suivis, indicateurs officiels
+- Matomo ne suit que les agents connectés ayant accepté le traçage (`raw_rdvi.cookies_consents.tracking_accepted`) : environ deux agents actifs sur trois en octobre 2026. Matomo sous-estime donc l'usage d'environ un tiers ; pour mesurer l'activité, compter dans la base
 - Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (acquisition, activation, rétention, pénétration).
 
 ## Références de trafic
@@ -180,9 +181,11 @@ Description: Configuration page view tracking.
 
 ## Identifiants départements (API)
 
-**Attention :** L'API RDV-Insertion utilise des **identifiants internes**, pas les codes INSEE. Ces identifiants sont utilisés dans les URL des pages sur matomo.
+**Attention :** L'API RDV-Insertion utilise des **identifiants internes**, pas les codes INSEE.
 
 Par exemple, `/departments/28/users` concerne **Loire-Atlantique (44)**, pas l'Eure-et-Loir.
+
+Depuis le 5 novembre 2025, les URL envoyées à Matomo portent le motif de route (`/departments/:department_id/users`) et plus l'identifiant : cette table ne sert qu'à décoder l'historique Matomo antérieur. La correspondance à jour se lit dans la base : `SELECT id, number, name FROM raw_rdvi.departments ORDER BY id` (voir [knowledge/rdvi](../rdvi/README.md#départements-et-matomo)).
 
 ### Table de correspondance
 
@@ -238,7 +241,7 @@ Par exemple, `/departments/28/users` concerne **Loire-Atlantique (44)**, pas l'E
 | 48 | Haute-Marne | 52 |
 | 49 | Nord | 59 |
 | 50 | Haute-Corse | 2B |
-| 51 | Vendée | 85 |
+| 51 | Vendée (supprimé, recréé en 115) | 85 |
 | 52 | Haut-Rhin | 68 |
 | 53 | Gard | 30 |
 | 54 | Pas-de-Calais | 62 |
@@ -267,8 +270,12 @@ Par exemple, `/departments/28/users` concerne **Loire-Atlantique (44)**, pas l'E
 | 109 | Alpes-de-Haute-Provence | 04 |
 | 110 | Martinique | 972 |
 | 111 | Charente | 16 |
+| 112 | Doubs | 25 |
+| 113 | Savoie | 73 |
+| 114 | Vienne | 86 |
+| 115 | Vendée | 85 |
 
-**Note :** L'Allier a deux entrées (IDs 38 et 73) correspondant à des dispositifs différents (TZI et RSA).
+**Note :** L'Allier a deux entrées (IDs 38 et 73) correspondant à des dispositifs différents (TZI et RSA). Les IDs 112 à 115 ont été créés en 2026, après le passage aux motifs de route : ils n'apparaissent pas dans les URL Matomo.
 
 ## Event Names
 
