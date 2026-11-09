@@ -185,3 +185,47 @@ def test_the_facade_is_enforced_where_the_dashboard_code_enters(path, code, refu
     assert (verdict is not None) == refuse
     if refuse:
         assert "lib.query" in verdict
+
+
+ALLOWED_SCRIPT = '<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>'
+FORBIDDEN_SCRIPT = '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
+
+
+@pytest.mark.parametrize(
+    ("path", "code", "refuse"),
+    [
+        ("/app/data/interactive/tdb/index.html", FORBIDDEN_SCRIPT, True),
+        ("/app/data/interactive/tdb/nice/profil.htm", FORBIDDEN_SCRIPT, True),
+        ("/app/data/interactive/tdb/index.html", ALLOWED_SCRIPT, False),
+        ("/app/data/interactive/tdb/index.html", '<script src="app.js"></script>', False),
+        ("/app/data/interactive/tdb/app.js", 'import Plotly from "https://cdn.plot.ly/plotly-2.35.2.min.js";', True),
+        ("/app/data/interactive/tdb/data.json", FORBIDDEN_SCRIPT, False),
+        ("/app/data/cache/page.html", FORBIDDEN_SCRIPT, False),
+        ("/app/web/templates/base.html", FORBIDDEN_SCRIPT, False),
+    ],
+)
+def test_script_hosts_are_enforced_where_a_dashboard_page_is_written(path, code, refuse):
+    """Le navigateur refuserait ce script (CSP) : le TDB casserait, autant le dire à l'agent avant."""
+    verdict = guard.script_hosts_verdict(path, code, ROOT)
+
+    assert (verdict is not None) == refuse
+    if refuse:
+        assert "https://cdn.plot.ly/plotly-2.35.2.min.js" in verdict
+
+
+def test_a_forbidden_script_is_refused_by_the_hook_in_any_environment(tmp_path):
+    page = _HOOK_PATH.parents[2] / "data" / "interactive" / "tdb" / "index.html"
+    env = dict(os.environ, AUTOMETA_ENV="dev")  # noqa: TID251
+
+    result = subprocess.run(
+        [sys.executable, str(_HOOK_PATH)],
+        input=json.dumps({"tool_input": {"file_path": str(page), "content": FORBIDDEN_SCRIPT}}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=10,
+    )
+
+    assert result.returncode == 2
+    assert "cdn.plot.ly" in result.stderr

@@ -27,6 +27,8 @@ def make_client():
             connect_timeout=5,
             read_timeout=10,
             retries={"max_attempts": 2, "mode": "standard"},
+            # Why: le bucket dans l'hôte laisse la CSP des TDB autoriser ce seul bucket (web/csp.py).
+            s3={"addressing_style": "virtual"},
         ),
     )
 
@@ -200,6 +202,16 @@ def list_prefix(bucket: str, prefix: str) -> list[str]:
         for obj in page.get("Contents", []):
             keys.append(obj["Key"])
     return keys
+
+
+def put_object(bucket: str, key: str, content: bytes, content_type: str) -> bool:
+    """Dépose un objet dans un bucket donné, hors du préfixe d'un S3Store (bucket public, par exemple)."""
+    try:
+        _client.put_object(Bucket=bucket, Key=key, Body=content, ContentType=content_type)
+        return True
+    except (ClientError, BotoCoreError) as e:
+        logger.error("S3 put failed for %s/%s: %s", bucket, key, e)
+        return False
 
 
 COMPRESSIBLE_EXTS = frozenset({".css", ".csv", ".html", ".js", ".json", ".map", ".mjs", ".svg", ".txt", ".xml"})

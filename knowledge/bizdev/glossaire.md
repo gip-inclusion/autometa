@@ -1,3 +1,7 @@
+---
+source: aucune
+verifie_le: 2026-07-15
+---
 # Glossaire bizdev — Framework AARRI
 
 Référentiel commun PDI (Produits De l'Inclusion). Source : *Framework AARRI - Référentiel commun PDI* (@Hugo Simon).

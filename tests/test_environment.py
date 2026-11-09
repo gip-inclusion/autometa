@@ -52,6 +52,19 @@ def test_only_prod_owns_the_shared_db(env, owns):
     assert env.owns_shared_db is owns
 
 
+@pytest.mark.parametrize(
+    ("env", "seeds"),
+    [
+        (Environment.DEV, False),
+        (Environment.REVIEW, True),
+        (Environment.STAGING, False),
+        (Environment.PROD, False),
+    ],
+)
+def test_only_review_apps_seed_fixtures(env, seeds):
+    assert env.seeds_fixtures is seeds
+
+
 def test_config_reports_invalid_env_to_sentry(monkeypatch, mocker):
     monkeypatch.setenv("AUTOMETA_ENV", "live")
     init = mocker.patch("sentry_sdk.init")

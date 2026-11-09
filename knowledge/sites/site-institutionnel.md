@@ -1,3 +1,7 @@
+---
+source: matomo:212
+verifie_le: 2026-10-02
+---
 # Site institutionnel de La plateforme de l'inclusion
 
 Site vitrine institutionnel de La plateforme de l'inclusion. À ne pas confondre avec **Plateforme**,

@@ -24,6 +24,8 @@ def make_repo(root: Path) -> Path:
     attestation.git(root, "init", "-q", "-b", "main")
     attestation.git(root, "config", "user.email", "test@example.invalid")
     attestation.git(root, "config", "user.name", "Test")
+    # Why: un `commit.gpgsign` global signe chaque commit jetable — dix fois plus lent, la suite doublait.
+    attestation.git(root, "config", "commit.gpgsign", "false")
     commit(root, "initial")
     publish(root, "main")
     return root

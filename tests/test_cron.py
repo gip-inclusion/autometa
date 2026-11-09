@@ -25,6 +25,7 @@ from web.cron import (
     is_due,
     is_enabled,
     is_valid_schedule,
+    last_success_durations,
     next_cron_run,
     notify_cron_status_change,
     parse_frontmatter,
@@ -310,6 +311,19 @@ def test_get_last_runs_breaks_a_started_at_tie_on_the_highest_id(db_setup):
             session.add(CronRun(app_slug="tie-app", started_at=started, finished_at=started, status=status))
 
     assert get_last_runs()["tie-app"]["status"] == "success"
+
+
+def test_a_heavy_task_keeps_its_weight_after_a_skipped_or_quickly_failed_run(db_setup):
+    with get_db() as session:
+        for minute, status, duration in [(0, "success", 120_000), (1, "skipped", 0), (2, "failure", 2_000)]:
+            started = datetime(2026, 9, 1, 8, minute, tzinfo=timezone.utc)
+            session.add(
+                CronRun(
+                    app_slug="heavy-app", started_at=started, finished_at=started, status=status, duration_ms=duration
+                )
+            )
+
+    assert last_success_durations() == {"heavy-app": 120_000}
 
 
 def test_the_cron_runs_index_serves_the_latest_run_order(db_setup):
@@ -901,7 +915,7 @@ def test_main_passes_the_batch_to_run_all(monkeypatch, mocker):
 
     cron.main()
 
-    run.assert_called_once_with(dry_run=True, batch="xl", budget=None)
+    run.assert_called_once_with(dry_run=True, batch="xl", budget=None, workers=1)
 
 
 def test_main_requires_a_batch(monkeypatch, mocker):

@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-01-03
+---
 # Funnels Module (Premium)
 
 Conversion funnel analysis - track how visitors progress through defined steps.

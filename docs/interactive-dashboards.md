@@ -49,12 +49,25 @@ Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill génère le sca
 
 Les deux skills lisent `AUTOMETA_CONVERSATION_ID` et `AUTOMETA_USER_EMAIL` injectés automatiquement dans l'environnement par le runtime agent.
 
+### `verify_dashboard` (vérification avant partage)
+
+Une fois les fichiers du TDB écrits, le skill l'affiche dans un navigateur sans écran et rend un
+verdict réussi / échoué : erreurs JavaScript, fichiers non chargés, graphiques vides ou manquants,
+valeurs cassées à l'écran, mise en page qui déborde. L'agent corrige jusqu'au verdict réussi — trois
+tentatives au plus — et, à défaut, donne le lien en listant les problèmes restants. Détail :
+`skills/verify_dashboard/SKILL.md`.
+
+Le navigateur s'installe avec `make browsers` en local ; sur Scalingo (prod, staging, review apps),
+`bin/post_compile` l'installe au build, avec ses bibliothèques système déclarées dans l'`Aptfile` ;
+il est aussi inclus dans l'image Docker.
+
 ## Stack
 
 - **Vanilla JS** — pas de React, Vue ou autre framework.
 - **HTML sémantique** — utiliser les bons éléments (`<nav>`, `<main>`, `<article>`, `<table>`…).
 - **CSS** — custom properties, dépendances minimales. Pas de Tailwind.
 - **Graphiques** — D3.js ou Observable Plot pour les visualisations complexes, Chart.js pour les plus simples.
+- **Scripts externes** — uniquement depuis jsDelivr `/npm/`, unpkg, d3js.org ou le dossier du TDB. Le navigateur refuse tout autre domaine (consigne de sécurité CSP envoyée avec chaque page), et le TDB casse. Pour une bibliothèque absente de ces sites, copier son fichier dans le dossier du TDB. L'écriture d'une page ou d'un `.js` qui charge un script d'ailleurs, par `<script src>` ou par un import ES, est refusée. Une URL construite à l'exécution échappe à ce contrôle : seul le rapport CSP la signale, une fois la page ouverte.
 
 ## Structure de fichiers
 
@@ -163,7 +176,10 @@ Un dashboard n'importe qu'un seul module du dépôt : `lib.dashboard_api`. Tout 
 casse au premier refactor, souvent sans crasher : il continue de tourner et produit des chiffres faux.
 
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
-`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_storage` et `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
+`query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_github`, `read_github_file`,
+`search_github_code`, `query_notion`,
+`query_tally`, `search_zendesk_tickets`, `count_zendesk_views`, `zendesk_view_ticket_dates`, `list_dashboards`, `query_storage` et
+`query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
 Trois fonctions couvrent Datadog. `query_datadog(search, days=7, group_by=None, compute=None,
@@ -197,6 +213,24 @@ tourne (clé, libellé, jeton, chemin `data/<jeton>.json`), lues en base d'aprè
 d'une vue Airtable (pagination complète) ; `data` est la liste brute des enregistrements `{id, createdTime,
 fields}`. Ils portent des données personnelles (emails, téléphones) : ne publier que les champs nécessaires.
 
+GitHub, Notion, Tally et Zendesk sont en **lecture seule**. GitHub se limite aux dépôts **publics** de `gip-inclusion`,
+`betagouv`, `numerique-gouv` et `suitenumerique` : le jeton de l'application pourrait voir des dépôts privés, et un TDB peut publier ce
+qu'il lit. `query_github(path, params=None)` fait un GET sur l'API REST (`path` en `repos/<org>/<dépôt>/…`, `data` =
+le JSON brut). `read_github_file(repo, path, ref=None)` renvoie le texte d'un fichier (`repo` en `org/dépôt`).
+`search_github_code(repo, pattern, ref=None, glob=None, ignore_case=False, max_results=200)` cherche une expression
+régulière étendue dans tout le dépôt, par un clone jetable plutôt que par l'API de recherche : `data` vaut `{commit,
+total, matches: [{path, line, text}]}`. Chaque appel refait le clone (quelques secondes) : un motif qui couvre tout
+le besoin plutôt qu'une boucle d'appels. `query_notion(database_id,
+filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au format de l'API Notion.
+`query_tally(form_id, filter=None)` renvoie `{questions, submissions}` d'un formulaire.
+`search_zendesk_tickets(search, sort_by=None, sort_order=None, max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. `count_zendesk_views(view_ids)` renvoie
+`{view_id: nombre}` et `zendesk_view_ticket_dates(view_id)` les seules dates de création des tickets d'une vue :
+pas d'accès brut à l'API Zendesk, dont les tickets ne sont pas caviardés. Tickets et
+réponses Tally portent des données personnelles : ne publier que des agrégats.
+
+`list_dashboards()` renvoie le catalogue des TDB actifs (slug, titre, description, site, catégorie, cron,
+dates) et de leurs publications en ligne (environnement, date), sans auteur.
+
 `VERSION` ne bouge que sur un changement incompatible (renommage, retrait, signature modifiée) ; un ajout
 n'incrémente rien.
 
@@ -205,6 +239,13 @@ fichier Python d'un TDB. Modifier des métadonnées (titre, tags, archivage) ne 
 TDB antérieurs à la façade la violent par construction, et leur migration n'a pas à passer par un
 renommage. Le cron d'audit signale les non conformes sur le canal Slack d'alerte, seulement quand la
 liste change — en observation, sans refuser la planification.
+
+**Une PR ne retire pas en silence ce qu'un TDB utilise.** Chaque matin, le même cron publie dans le bucket
+public de production l'inventaire des symboles du dépôt qu'utilisent les fichiers Python des TDB cronnés,
+façade comprise — les noms des symboles seulement, sans les slugs, qui désigneraient des TDB non publiés. La
+CI le confronte à l'arbre de la PR (`python -m web.facade_manifest`) : un symbole disparu fait échouer le job.
+Un inventaire illisible ou vieux de plus de trois jours ne fait qu'avertir ; un fichier de TDB illisible sur
+S3 fait échouer le cron plutôt que de publier un inventaire incomplet.
 
 Si un besoin n'est pas couvert, élargir la façade (avec son test) plutôt que la contourner : c'est
 là tout l'intérêt, un changement de contrat devient un acte visible.
@@ -242,6 +283,11 @@ lot `tableaux-internes`, le seul dont la taille n'est bornée par aucun fichier 
 pour cela un budget de temps. Les publications, partagées en externe, tournent à part dans
 `tableaux-publies` : sans budget, elles ne sont jamais sautées, et chaque échec alerte Slack, pas
 seulement le premier.
+
+**Un run dont une requête a échoué est `degraded`.** Une requête en échec ne fait pas planter le
+script : il continue et peut sortir sans erreur. Le run garde ses fichiers, apparaît à part dans le
+récap Slack, et n'ouvre ni ne clôt d'alerte. Seuls les tableaux de bord et publications, via la façade,
+sont suivis ainsi ; une requête ratée puis retentée avec succès compte aussi.
 
 **Le budget borne le démarrage d'une tâche, pas sa fin.** Passé le budget, le lot cesse d'en lancer
 de nouvelles et enregistre les restantes en `skipped` ; mais celle qui a démarré juste avant la

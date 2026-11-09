@@ -70,6 +70,7 @@ jobs:
         run: |
           docker run -d --name rustfs -p 9000:9000 \
             -e RUSTFS_ACCESS_KEY=autometa -e RUSTFS_SECRET_KEY=autometa \
+            -e RUSTFS_SERVER_DOMAINS=localhost \
             rustfs/rustfs:1.0.0
           until curl -sf http://localhost:9000/health; do sleep 1; done
           docker run --rm --network host -e AWS_ACCESS_KEY_ID=autometa -e AWS_SECRET_ACCESS_KEY=autometa \

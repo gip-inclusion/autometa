@@ -36,7 +36,7 @@ Affiche du JSON :
 }
 ```
 
-`--source` vaut `autometa_tables_db` (en priorité — vérifiez d'abord `documentation.doc_autometa_tables`) ou `data_inclusion`.
+`--source` vaut `autometa_tables_db` ou `data_inclusion` (ordre entre sources : `AGENT.md`, section « Sources de données » ; tables d'`autometa_tables_db` : catalogue `documentation.doc_autometa_tables`).
 
 ## Plusieurs tables (données relationnelles)
 

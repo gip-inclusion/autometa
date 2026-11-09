@@ -82,6 +82,9 @@ DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
+# Adresse publique de l'application de prod : liens vers ses conversations produits depuis un poste local.
+PROD_URL = os.getenv("PROD_URL", "https://autometa.inclusion.gouv.fr").rstrip("/")
+
 # Default user for local development (when oauth-proxy not present)
 DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 
@@ -158,6 +161,11 @@ except ValueError as exc:
     sentry_sdk.capture_exception(exc)
     sentry_sdk.flush()
     raise
+
+if ENV.seeds_fixtures:
+    # Why: la conversation d'administrateur du jeu de démonstration (lib/review_fixtures.py) appartient
+    # à une adresse fictive, pour n'entrer dans l'historique d'aucun administrateur réel.
+    ADMIN_USERS.append("admin.demo@example.org")
 
 # Claude Code OAuth token (injected by oauth-proxy or set manually)
 CLAUDE_CODE_OAUTH_TOKEN = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
@@ -279,6 +287,11 @@ def agent_conversation_id() -> str | None:
 def agent_user_email() -> str | None:
     """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_USER_EMAIL")
+
+
+def query_failures_path() -> str | None:
+    """Fichier où un cron de TDB note ses requêtes en échec, injecté par web/cron.py:execute_task()."""
+    return os.getenv("AUTOMETA_QUERY_FAILURES_FILE")
 
 
 def dashboard_slug() -> str | None:

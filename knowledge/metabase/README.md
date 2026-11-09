@@ -1,29 +1,15 @@
+---
+source: metabase:stats
+verifie_le: 2026-04-01
+---
 # Metabase Cards Inventory
-
-**Database:** `knowledge/metabase/cards.db`
-**Last synced:** 2026-01-14 22:12
-**Total cards:** 359
 
 ## Sources de données
 
-### Markdown (recommandé)
-
-Les cartes sont documentées dans `knowledge/stats/` :
-- `_index.md` : vue d'ensemble
-- `cards/topic-*.md` : cartes groupées par thème
-- `dashboards/dashboard-*.md` : cartes par tableau de bord
-
-Ces fichiers sont versionnés dans git et mis à jour via le skill `sync_metabase`.
-
-### SQLite (optionnel)
-
-Si besoin de requêtes complexes, générer la base SQLite :
-
-```bash
-python -m skills.sync_metabase.scripts.sync_inventory --sqlite
-```
-
-Crée `knowledge/metabase/cards.db` avec recherche full-text.
+L'inventaire des cartes et tableaux de bord de chaque instance Metabase est recopié chaque nuit en base
+(cron `sync-inventory`, script `skills/sync_metabase/scripts/sync_inventory.py`), puis exposé à l'agent
+sous `data/cache/metabase/` au démarrage de l'application. Chercher une carte : `data/cache/metabase/`,
+ou `search_cards` via le skill `metabase_query`.
 
 ## Tables de référence
 
@@ -49,7 +35,7 @@ Voir [documentation détaillée des structures](../stats/structures.md) pour les
 
 ### bac_a_sable.communes_pop_aav
 
-Voir [documentation détaillée de la table](../stats/communes-pop-aav.md) pour le schéma et les bonnes pratiques.
+Voir [documentation détaillée de la table](../stats/communes-pop-aav.txt) pour le schéma et les bonnes pratiques.
 
 Communes françaises avec population, classification d'urbanité (AAV INSEE) et coordonnées GPS.
 

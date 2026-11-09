@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-01-05
+---
 # Core Matomo Modules
 
 Full method signatures for the most commonly used analytics modules.
@@ -68,7 +72,7 @@ returns events from visits that included a GPS page, NOT events triggered on GPS
 pages. An event fired on `/dashboard/` will be included if the user later visited
 `/gps/`. To find which events fire ON specific pages, search the codebase for
 `matomo_event` or `data-matomo-*` and check which templates contain them. See
-`skills/sync-events/SKILL.md` for the full methodology.
+`skills/sync_events/SKILL.md` for the full methodology.
 
 ## Referrers
 

@@ -1,3 +1,7 @@
+---
+source: matomo:117
+verifie_le: 2026-09-23
+---
 # Plateforme de l'inclusion (ex-Emplois)
 
 - URL: https://plateforme.inclusion.gouv.fr (ancienne URL : https://emplois.inclusion.beta.gouv.fr)

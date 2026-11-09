@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-01-05
+---
 # Prescripteurs habilités
 
 *Dernière mise à jour : 2025-01-03*

@@ -5,7 +5,7 @@ import logging
 
 import redis
 
-from web import config
+from web import config, redis_conn
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,9 @@ def backend_is_limited(backend: str) -> bool:
     # Why: client synchrone jetable — ces appels partent de threads démons sans boucle asyncio,
     # et emprunter le pool async du runner depuis une autre boucle le corromprait.
     try:
-        with redis.Redis.from_url(config.REDIS_URL, decode_responses=True) as client:
+        with redis.Redis.from_url(
+            config.REDIS_URL, decode_responses=True, socket_timeout=redis_conn.SOCKET_TIMEOUT
+        ) as client:
             return bool(client.exists(limit_key(backend)))
     except redis.RedisError as exc:
         logger.warning("Lecture de l'état de limite impossible pour %s : %s", backend, exc)

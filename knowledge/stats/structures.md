@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-01-13
+---
 # Structures d'insertion
 
 Documentation des structures d'insertion par l'activité économique (SIAE) et autres structures.

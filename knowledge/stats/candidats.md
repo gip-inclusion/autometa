@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-01-07
+---
 # Candidats (job seekers)
 
 ## Définitions
@@ -26,7 +30,7 @@
 | Prescripteur externe (France Travail, Mission Locale...) | **Prescription** | `auteur_diag_candidat = 'Prescripteur'` |
 | L'employeur SIAE lui-même | **Autoprescription** | `auteur_diag_candidat = 'Employeur'` |
 
-Voir aussi : [Emplois.md § Two Dimensions](../sites/Emplois.md#key-concepts-two-dimensions-of-the-iae-workflow)
+Voir aussi : [plateforme-ex-emplois.md § Two Dimensions](../sites/plateforme-ex-emplois.md#key-concepts-two-dimensions-of-the-iae-workflow)
 
 **Taux en 2025 :** 75,6 % des candidatures autonomes disposent d'un diagnostic d'éligibilité.
 
@@ -198,6 +202,8 @@ Voir aussi : [Emplois.md § Two Dimensions](../sites/Emplois.md#key-concepts-two
 
 ## Rapports associés
 
-- [Évolution du taux de candidats autonomes avec diagnostic (2023-2025)](../../reports/2026-01-evolution-taux-candidats-autonomes-diagnostic-2023-2025.md)
-- [Taux de candidatures autonomes avec diagnostic d'éligibilité (2025)](../../reports/2026-01-taux-candidats-autonomes-avec-diagnostic.md)
-- [Les candidats autonomes sur les Emplois de l'inclusion (2025)](../../reports/2026-01-candidats-autonomes.md)
+Rapports enregistrés en base (janvier 2026, recherche par titre dans l'application) :
+
+- Évolution du taux de candidats autonomes avec diagnostic (2023-2025)
+- Taux de candidatures autonomes avec diagnostic d'éligibilité (2025)
+- Les candidats autonomes sur les Emplois de l'inclusion (2025)

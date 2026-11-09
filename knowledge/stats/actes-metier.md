@@ -1,3 +1,7 @@
+---
+source: [metabase:stats, metabase:dora, metabase:rdvi, autometa_tables_db, matomo]
+verifie_le: 2026-07-15
+---
 # Actes métiers — Indicateur transverse
 
 Objectif central de la Plateforme : augmenter le volume des actes métiers réalisés
@@ -141,8 +145,10 @@ Mapping statut : `VALIDÉE` → accepté · `REFUSÉE`/`EXPIRÉE` → refusé ·
 ### Dora — iMER (intention de mise en relation)
 
 **Instance :** dora · **DB :** 2
-**Table :** `public_intermediate.int_iMER`
+**Table utilisée par le script du TDB :** `public_intermediate.int_iMER`
 **Filtre :** `user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur')`
+
+⚠️ Ce calcul n'est pas l'iMER complet. La définition de référence (cinq composantes, connectés et anonymes, avec les consultations de coordonnées) est dans `knowledge/dora/README.md`, section « Key Metrics ». `int_iMER` ne contient que les mobilisations et orientations des connectés, et ses orientations recouvrent l'acte « Dora — Orientations » ci-dessus : sommer les deux actes fait un double compte. Pour une question iMER hors de ce TDB, suivre la route de `knowledge/dora/README.md` ; corriger le script du TDB se fait hors de ce dépôt.
 
 | Type acte | Catégorie | Statut |
 |-----------|-----------|--------|
@@ -273,7 +279,7 @@ de l'acte comme proxy de ventilation.
 | Pilotage | Pas d'acte métier direct identifié |
 | data·inclusion | Accès Metabase non disponible au moment de la création |
 | Communauté | Non inclus dans la V1 |
-| Plateforme (inclusion.gouv.fr) | Non inclus dans la V1 |
+| Site institutionnel (inclusion.gouv.fr) | Non inclus dans la V1 |
 
 ---
 

@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-03-04
+---
 # Nexus (Le portail de la Plateforme de l’inclusion)
 
 ## Description du service

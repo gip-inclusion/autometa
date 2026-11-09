@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-01-11
+---
 # HeatmapSessionRecording Module (Premium)
 
 Heatmaps visualize where users click, move, and scroll on pages. Session recordings capture actual user sessions for replay and analysis.

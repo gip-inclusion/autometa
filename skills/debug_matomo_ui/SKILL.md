@@ -49,4 +49,4 @@ The cookie will expire (403 errors). When this happens:
 
 ## Known good mappings
 
-After testing, update `_UI_MAPPING` in `skills/querying/scripts/matomo.py`.
+After testing, update `UI_MAPPING` in `lib/matomo_ui.py`.

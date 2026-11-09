@@ -98,8 +98,19 @@ def test_slack_hears_of_an_interruption_once_then_of_the_recovery(mocker):
     assert "rétabli" in messages[1]
 
 
+def test_unfinished_elsewhere_lists_recent_running_rows_of_other_batches_only(mocker):
+    mocker.patch.object(cron.alerts, "notify_alert_channel")
+    killed_during("tableaux-publies", "offre-kyp4mo")
+    cron.open_batch_run("tableaux-internes")
+    cron.open_run("orpheline-du-14-10", utcnow() - timedelta(days=19), "manual", None)
+
+    batches, runs = cron.unfinished_elsewhere("tableaux-internes")
+
+    assert [batch for batch, _ in batches] == ["tableaux-publies"]
+    assert [run["app_slug"] for run in runs] == ["offre-kyp4mo"]
+
+
 def test_a_batch_run_to_its_end_is_recorded_with_its_tasks(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     task = write_system_task(tmp_path, "sys-ok", "print('ok')")
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[task])
     mocker.patch.object(cron, "is_due", return_value=True)
@@ -119,7 +130,6 @@ def test_a_batch_over_its_budget_still_reaches_its_end(mocker):
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[write_task_stub("a"), write_task_stub("b")])
     mocker.patch.object(cron, "is_due", return_value=True)
     mocker.patch.object(cron.alerts, "notify_alert_channel")
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron.time, "monotonic", side_effect=itertools.count(0, 100))
 
     cron.run_all(batch="maintenance", budget=10)
@@ -132,7 +142,6 @@ def write_task_stub(slug):
 
 
 def test_a_task_shows_as_running_while_it_runs(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     seen = {}
 
     def spy(*args, **kwargs):
@@ -148,7 +157,6 @@ def test_a_task_shows_as_running_while_it_runs(mocker, tmp_path):
 
 
 def test_a_task_that_raises_closes_its_own_running_row(mocker):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     mocker.patch.object(cron, "prepare_s3_workdir", side_effect=RuntimeError("bug"))
     task = {**write_task_stub("tdb-x"), "source": "s3", "tier": "app"}
 
@@ -160,7 +168,6 @@ def test_a_task_that_raises_closes_its_own_running_row(mocker):
 
 
 def test_a_scheduled_success_after_a_failure_still_announces_the_recovery(mocker, tmp_path):
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     notify = mocker.patch.object(cron, "notify_cron_status_change")
     task = write_system_task(tmp_path, "sys-back", "print('ok')")
     cron.record_run(
@@ -216,6 +223,7 @@ MONDAY_BATCH = datetime(2026, 9, 28, 6, 0, tzinfo=timezone.utc)
         ([("skipped", MONDAY_BATCH, "scheduled")], True),
         ([("success", MONDAY_BATCH - timedelta(days=7), "scheduled")], True),
         ([("success", MONDAY_BATCH, "scheduled")], False),
+        ([("degraded", MONDAY_BATCH, "scheduled")], False),
         ([("failure", MONDAY_BATCH, "scheduled")], False),
         ([("timeout", MONDAY_BATCH, "scheduled")], False),
         ([("success", MONDAY_BATCH + timedelta(hours=5), "manual")], False),
@@ -231,7 +239,6 @@ def test_a_weekly_task_catches_up_when_monday_never_really_ran_it(mocker, histor
 
 def test_the_next_batch_runs_a_weekly_task_whose_monday_was_missed(mocker, tmp_path):
     mocker.patch.object(cron, "utcnow", return_value=TUESDAY)
-    mocker.patch.object(cron.sentry_sdk.crons.api, "capture_checkin", return_value="cid")
     task = {**write_system_task(tmp_path, "hebdo", "print('ok')"), "schedule": "weekly"}
     mocker.patch.object(cron, "discover_cron_tasks", return_value=[task])
 
@@ -273,3 +280,45 @@ def test_the_history_purge_runs_every_day_in_the_maintenance_batch():
     tasks = {task["slug"]: task for task in cron.discover_from_dir(cron.config.CRON_DIR, "CRON.md", "system")}
 
     assert (tasks["purge-cron-history"]["batch"], tasks["purge-cron-history"]["schedule"]) == ("maintenance", "daily")
+
+
+def test_a_failing_task_has_failed_since_the_first_failure_after_its_last_success():
+    day = datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc)
+    history = {
+        "retombe": ["failure", "success", "failure", "timeout"],
+        "jamais-ok": ["failure", "interrupted", "failure"],
+        "retabli": ["failure", "success"],
+        "degrade-entre-deux": ["failure", "degraded", "failure"],
+    }
+    for slug, statuses in history.items():
+        for offset, status in enumerate(statuses):
+            record_past_run(slug, status, day + timedelta(days=offset))
+
+    assert cron.failing_since(list(history)) == {
+        "retombe": day + timedelta(days=2),
+        "jamais-ok": day,
+        "degrade-entre-deux": day,
+    }
+
+
+@pytest.mark.parametrize(
+    ("history", "previous_success_announces", "failure_alerts"),
+    [
+        (["failure", "degraded"], True, False),
+        (["success", "degraded"], False, True),
+        (["degraded"], False, True),
+    ],
+)
+def test_a_degraded_run_is_transparent_for_the_next_alert(mocker, history, previous_success_announces, failure_alerts):
+    notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+    day = datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc)
+    for offset, status in enumerate(history):
+        record_past_run("tdb", status, day + timedelta(days=offset))
+    previous = cron.last_verdict("tdb")
+
+    cron.notify_cron_status_change("tdb", "success", previous, "")
+    assert notify.called is previous_success_announces
+
+    notify.reset_mock()
+    cron.notify_cron_status_change("tdb", "failure", previous, "")
+    assert notify.called is failure_alerts

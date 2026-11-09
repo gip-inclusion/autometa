@@ -1,3 +1,7 @@
+---
+source: aucune
+verifie_le: 2026-09-23
+---
 # Base de connaissances
 
 Ces documents constituent la mémoire de l'agent Autometa. Ils sont lus avant chaque requête pour contextualiser les réponses.
@@ -32,15 +36,13 @@ Documentation technique de l'API Matomo :
 
 ### `metabase/`
 Documentation de l'API Metabase :
-- `README.md` : authentification et endpoints
-- `cards.db` : base SQLite des questions/dashboards disponibles
+- `README.md` : authentification, endpoints, tables de référence (l'inventaire des cartes est dans `data/cache/metabase/`)
 
 ### `stats/`
 Contexte métier et données Metabase :
-- `_index.md` : vue d'ensemble des dashboards
-- `candidats.md`, `prescribers.md`, `pass-iae.md` : thématiques IAE
-- `cards/` : fiches par thème (topic-candidatures.md, etc.)
-- `dashboards/` : documentation des tableaux de bord
+- `actes-metier.md` : actes métier par service
+- `candidats.md`, `candidatures.md`, `prescribers.md`, `pass-iae.md`, `structures.md`, `users.md` : thématiques IAE
+- `clpe.md`, `nexus.md`, `support-emplois.md` : CLPE, Nexus, support utilisateurs
 
 ### `notion/`
 Intégration Notion (API, authentification, fonctionnalités) :
@@ -56,11 +58,33 @@ Données de participation aux webinaires (Livestorm historique + Grist actuel) :
 
 2. **Exemples concrets** : inclure des appels API testés avec leurs résultats.
 
-3. **Dates de vérification** : indiquer quand une info a été testée (ex: "Testé 2026-01-11").
+3. **En-tête obligatoire** : chaque fiche commence par un en-tête qui dit la source décrite et la date de la dernière vérification :
 
-4. **Un sujet par fichier** : ne pas mélanger plusieurs sites ou modules.
+   ```yaml
+   ---
+   source: metabase:dora        # ou une liste ; `aucune` pour une fiche transverse
+   verifie_le: 2026-10-12       # date où le contenu a été confronté à la source
+   ---
+   ```
 
-5. **Markdown simple** : titres, listes, tableaux, blocs de code. Pas de HTML.
+   `source` fixe le périmètre de la fiche : une table de `public_intermediate` est légitime dans une fiche `metabase:dora`, pas dans une fiche `autometa_tables_db`. Une fiche vérifiée il y a plus de six mois est signalée par `make test`.
+
+4. **Ne rien recopier** : les règles de choix des sources, le tableau des sites et les dépôts GitHub vivent dans `AGENT.md` ; le choix des tables d'`autometa_tables_db` dans son skill. Y renvoyer.
+
+5. **Vérifié à chaque PR** (`lib/knowledge_lint.py`, `make test`) : chemins, modules et fonctions cités ; sites conformes au tableau de `AGENT.md` ; règles non recopiées ; affirmations réfutées (`refutations.yaml`) ; tables et colonnes des blocs SQL contre l'instantané du catalogue de la source (`catalog/`), quand il existe.
+
+   **Instantanés du catalogue** (`catalog/`) : un fichier par source de type base, la liste de ses tables et colonnes réelles à une date (`extracted_at`). Quand le contrôle signale « table absente du catalogue » pour une table qui existe bien en base, ou qu'un instantané a plus de six mois, le régénérer puis committer le diff avec la PR :
+
+   ```bash
+   make catalog                          # toutes les sources (autometa_tables_db, metabase:dora)
+   make catalog SOURCES=metabase:dora    # une seule ; appel direct : uv run python scripts/refresh_catalog.py metabase:dora
+   ```
+
+   Il faut les identifiants de la source dans `.env` (`AUTOMETA_TABLES_DATABASE_URL`, `METABASE_DORA_API_KEY`) ; une source injoignable est signalée et son instantané laissé tel quel. Les archives Metabase nouvellement apparues ne sont pas ajoutées aux tables documentées : leurs noms peuvent contenir des noms de personnes et le dépôt est public.
+
+6. **Un sujet par fichier** : ne pas mélanger plusieurs sites ou modules.
+
+7. **Markdown simple** : titres, listes, tableaux, blocs de code. Pas de HTML.
 
 ## Méthodologie d'analyse
 

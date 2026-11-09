@@ -1,3 +1,7 @@
+---
+source: metabase:stats
+verifie_le: 2026-04-07
+---
 # Candidatures — Emplois de l'Inclusion
 
 Table de référence pour toutes les analyses sur les candidatures du service Emplois.

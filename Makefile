@@ -1,6 +1,6 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report e2e diff-cover lint format security audit ci \
-        migrate check-migrations paved-road-baseline lint-js browsers
+        migrate check-migrations paved-road-baseline lint-js browsers catalog retrospect
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
 PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -35,11 +35,20 @@ dev:
 claude:
 	claude --plugin-dir plugins/paved-road --dangerously-skip-permissions
 
+# L'audit des conversations de prod est un plugin local : il ne se charge que par cette cible, jamais en prod.
+retrospect:
+	claude --plugin-dir plugins/retrospect
+
 hooks:
 	uv run --frozen pre-commit install --hook-type pre-commit
 
 migrate:
 	uv run --frozen alembic upgrade head
+
+# Régénère les instantanés knowledge/catalog/*.json depuis les bases (identifiants de .env requis).
+# Une source précise : make catalog SOURCES=metabase:dora
+catalog:
+	uv run --frozen python scripts/refresh_catalog.py $(SOURCES)
 
 check-migrations:
 	uv run --frozen alembic check
@@ -81,7 +90,7 @@ audit:
 	uv run --frozen pip-audit -r /tmp/requirements.txt $(PIP_AUDIT_IGNORES)
 
 test:
-	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short \
+	DATABASE_URL= REDIS_URL= uv run --frozen pytest tests/ infra/ -q --tb=short -n auto \
 		-p no:cacheprovider -m "not integration and not e2e and not external and not browser"
 
 # Les seuils vivent dans gates.toml, couvert par CODEOWNERS : abaisser un plancher reste un acte visible.

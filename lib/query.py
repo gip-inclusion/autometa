@@ -2,14 +2,20 @@
 
 import hashlib
 import logging
+import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
+from sqlalchemy.exc import ProgrammingError
 
+from web import config
+
+from . import github, notion
 from .airtable import AirtableClient
 from .data_inclusion import execute_sql as _di_execute_sql
 from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
@@ -17,7 +23,8 @@ from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
-from .sources import get_matomo, get_metabase
+from .sources import get_matomo, get_metabase, get_zendesk
+from .tally import TallyClient
 
 __all__ = ["MatomoAPI", "MatomoError", "MetabaseAPI", "MetabaseError", "get_matomo", "get_metabase"]
 
@@ -66,6 +73,20 @@ class QueryResult:
     data: Any
     error: Optional[str] = None
     execution_time_ms: int = 0
+    invalid_request: bool = False
+
+
+def record_query_failure(error: str) -> None:
+    """Signale au runner de cron une requête en échec, que le script s'en remette ou non."""
+    path = config.query_failures_path()
+    if not path:
+        return
+    try:
+        with Path(path).open("a", encoding="utf-8") as failures:
+            failures.write(error.partition("\n")[0][:200] + "\n")
+    # Why: la façade promet de ne jamais lever ; perdre ce signal ne vaut pas de casser le TDB.
+    except OSError as e:
+        logger.warning("échec de requête non signalé au runner (%s)", e)
 
 
 def _run_traced_query(
@@ -83,8 +104,14 @@ def _run_traced_query(
             result = QueryResult(success=True, data=data, execution_time_ms=int((time.time() - start) * 1000))
         except catches as e:
             result = QueryResult(
-                success=False, data=None, error=str(e), execution_time_ms=int((time.time() - start) * 1000)
+                success=False,
+                data=None,
+                error=str(e),
+                execution_time_ms=int((time.time() - start) * 1000),
+                # Why: SQL invalide, table absente, droit manquant, motif refusé — la faute est à la requête, pas à la source.
+                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern)),
             )
+            record_query_failure(result.error)
         _record_result(span, result)
         log_attrs: dict[str, Any] = {
             **attrs,
@@ -111,8 +138,9 @@ def execute_metabase_query(
     database_id: Optional[int] = None,
     card_id: Optional[int] = None,
     timeout: int = 60,
+    params: Optional[dict[str, int | str]] = None,
 ) -> QueryResult:
-    """Execute a Metabase query (sql+database_id or card_id). Returns QueryResult, never raises."""
+    """Execute a Metabase query (sql+database_id or card_id), `{{name}}` bound from params. Never raises."""
     attrs: dict[str, Any] = {
         "db.system": "metabase",
         "metabase.instance": instance,
@@ -127,7 +155,7 @@ def execute_metabase_query(
         api = get_metabase(instance, database_id=database_id)
         api.caller = caller.value
         if sql:
-            return _wrap_columns_rows(api.execute_sql(sql, timeout=timeout))
+            return _wrap_columns_rows(api.execute_sql(sql, timeout=timeout, params=params))
         if card_id is not None:
             return _wrap_columns_rows(api.execute_card(card_id, timeout=timeout))
         raise ValueError("Either sql+database_id or card_id must be provided")
@@ -456,6 +484,125 @@ def execute_airtable_query(
     return _run_traced_query("airtable.query", attrs, _do)
 
 
+def refused(error: ValueError) -> QueryResult:
+    """Une requête refusée avant tout appel : la faute est à la requête, pas à la source."""
+    return QueryResult(success=False, data=None, error=str(error), invalid_request=True)
+
+
+def execute_github_query(
+    path: str, caller: CallerType, params: Optional[dict] = None, timeout: int = 30
+) -> QueryResult:
+    """GET on the GitHub REST API (read-only), public repositories of github.ORGS only. Returns QueryResult, never raises."""
+    try:
+        github.repository_of(path)
+    except ValueError as e:
+        return refused(e)
+    attrs = {"db.system": "github", "caller": caller.value, "github.path": str(path)}
+    return _run_traced_query("github.query", attrs, lambda: github.api(path, params, timeout=timeout))
+
+
+def execute_github_file(repo: str, path: str, caller: CallerType, ref: Optional[str] = None) -> QueryResult:
+    """Text content of a file of a public repository of github.ORGS. Returns QueryResult, never raises."""
+    try:
+        repo = github.repository(repo)
+    except ValueError as e:
+        return refused(e)
+    attrs = {"db.system": "github", "caller": caller.value, "github.repo": repo, "github.file": str(path)}
+    return _run_traced_query("github.file", attrs, lambda: github.read(repo, path, ref))
+
+
+def execute_github_search(
+    repo: str,
+    pattern: str,
+    caller: CallerType,
+    ref: Optional[str] = None,
+    glob: Optional[str] = None,
+    ignore_case: bool = False,
+    max_results: int = 200,
+) -> QueryResult:
+    """Regex search in a public repository of github.ORGS, through a throwaway clone. Returns QueryResult, never raises."""
+    try:
+        repo, ref = github.repository(repo), github.reference(ref)
+    except ValueError as e:
+        return refused(e)
+    attrs = {"db.system": "github", "caller": caller.value, "github.repo": repo}
+
+    def _do():
+        github.sweep()
+        with tempfile.TemporaryDirectory() as root:
+            # Why: un cron tué à l'expiration de son délai laisse son clone ; rangé sous github/, le ménage le retrouve.
+            path, commit = github.clone(repo, Path(root) / "github", ref)
+            return {"commit": commit, **github.grep(path, pattern, glob, ignore_case, max_results)}
+
+    return _run_traced_query("github.search", attrs, _do)
+
+
+def execute_notion_query(
+    database_id: str, caller: CallerType, filter: Optional[dict] = None, sorts: Optional[list[dict]] = None
+) -> QueryResult:
+    """All pages of a Notion database (read-only). Returns QueryResult, never raises."""
+    attrs = {"db.system": "notion", "caller": caller.value, "notion.database": str(database_id)}
+    return _run_traced_query(
+        "notion.query", attrs, lambda: notion.query_database(database_id, filter=filter, sorts=sorts)
+    )
+
+
+def execute_tally_query(
+    form_id: str, caller: CallerType, filter: Optional[str] = None, timeout: int = 30
+) -> QueryResult:
+    """Questions and submissions of a Tally form (read-only). Returns QueryResult, never raises."""
+    attrs = {"db.system": "tally", "caller": caller.value, "tally.form": str(form_id)}
+
+    def _do():
+        with TallyClient(timeout=timeout) as client:
+            return {
+                "questions": client.list_questions(form_id).get("questions", []),
+                "submissions": list(client.iter_submissions(form_id, filter=filter)),
+            }
+
+    return _run_traced_query("tally.query", attrs, _do)
+
+
+def execute_zendesk_search(
+    query: str,
+    caller: CallerType,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+    max_results: int = 100,
+) -> QueryResult:
+    """Zendesk ticket search, subjects redacted. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": "search.json"}
+
+    def _do():
+        with get_zendesk() as client:
+            tickets = client.search_tickets(query, sort_by=sort_by, sort_order=sort_order, max_results=max_results)
+            return [asdict(ticket) for ticket in tickets]
+
+    return _run_traced_query("zendesk.search", attrs, _do)
+
+
+def execute_zendesk_view_counts(view_ids: list[int], caller: CallerType) -> QueryResult:
+    """Ticket count of each Zendesk view. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": "views/count_many"}
+
+    def _do():
+        with get_zendesk() as client:
+            return client.count_views(view_ids)
+
+    return _run_traced_query("zendesk.view_counts", attrs, _do)
+
+
+def execute_zendesk_view_dates(view_id: int, caller: CallerType) -> QueryResult:
+    """Creation dates of the tickets in a Zendesk view. Returns QueryResult, never raises."""
+    attrs = {"db.system": "zendesk", "caller": caller.value, "zendesk.path": f"views/{view_id}/tickets"}
+
+    def _do():
+        with get_zendesk() as client:
+            return client.view_ticket_dates(view_id)
+
+    return _run_traced_query("zendesk.view_dates", attrs, _do)
+
+
 def execute_query(
     source: str,
     instance: str,
@@ -507,4 +654,5 @@ def execute_query(
         success=False,
         data=None,
         error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', 'dashboard_storage', or 'appli_monrecap'.",
+        invalid_request=True,
     )

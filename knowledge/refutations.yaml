@@ -1,0 +1,39 @@
+# Affirmations reconnues fausses : `make test` refuse qu'elles réapparaissent dans une fiche, un skill ou
+# les consignes (lib/knowledge_lint.py). Une entrée = un motif (expression régulière, casse ignorée), la
+# raison, et la source qui l'a établie.
+
+- motif: suis intéressé
+  raison: >-
+    Dora n'a pas de bouton « Je suis intéressé ». Une mobilisation (stats_mobilisationevent) est enregistrée
+    par trackMobilisation : orienter un bénéficiaire, afficher les coordonnées d'un service, suivre un lien
+    de mobilisation externe — voir knowledge/dora/README.md.
+  source: gip-inclusion/dora@6e82bc9, front/src/lib/utils/stats.ts (vérifié le 2026-10-12)
+
+- motif: raw\.githubusercontent\.com/gip-inclusion/[\w.-]+/master/
+  raison: les branches master des dépôts gip-inclusion ont été renommées en main
+  source: API GitHub, default_branch et redirection 301 de master (vérifié le 2026-10-12)
+
+- motif: \|\s*master\s*\|
+  raison: les dépôts produits n'ont plus de branche master — main, ou staging pour pilotage et rdv-insertion
+  source: API GitHub, default_branch (vérifié le 2026-10-12)
+  fichiers: [AGENT.md]
+
+- motif: "'VALIDEE'|'REFUSEE'|'EXPIREE'"
+  raison: le modèle Dora écrit les statuts d'orientation avec accents (VALIDÉE, REFUSÉE, EXPIRÉE)
+  source: gip-inclusion/dora, modèle orientations_orientation (vérifié le 2026-10-12)
+  fichiers: [knowledge/dora/README.md]
+
+- motif: execute_sql\([^)]*database_id
+  raison: execute_sql ne prend pas de database_id — passer par lib.query.execute_metabase_query
+  source: lib/metabase.py (vérifié le 2026-10-12)
+  fichiers: [knowledge/datalake/README.md]
+
+- motif: --sqlite|cards\.db
+  raison: sync_inventory ne génère plus de base SQLite, l'inventaire vit dans PostgreSQL
+  source: skills/sync_metabase/scripts/sync_inventory.py (vérifié le 2026-10-12)
+  fichiers: [skills/sync_metabase/SKILL.md]
+
+- motif: Update the knowledge base documents|Updates markdown files
+  raison: sync_sites alimente le cache PostgreSQL, il ne réécrit pas les fiches knowledge/sites/
+  source: skills/sync_sites (vérifié le 2026-10-12)
+  fichiers: [skills/sync_sites/SKILL.md]
