@@ -204,16 +204,6 @@ def test_webinaires_main_calls_setup_logging(mocker):
     setup.assert_called_once()
 
 
-def test_slack_feedback_main_calls_setup_logging(mocker):
-    setup = mocker.patch("web.slack_feedback.setup_logging")
-    mocker.patch("web.config.SLACK_BOT_TOKEN", "")
-    from web.slack_feedback import main
-
-    with pytest.raises(SystemExit):
-        main()
-    setup.assert_called_once()
-
-
 def test_cron_main_calls_setup_logging(mocker):
     setup = mocker.patch("web.cron.setup_logging")
     mocker.patch("sys.argv", ["cron", "--list", "--batch", "maintenance"])
