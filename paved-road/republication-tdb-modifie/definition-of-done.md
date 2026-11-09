@@ -21,9 +21,12 @@ DOD-3 — [décision : confirmation production] Si la version publique (« produ
 des versions à republier, une confirmation m'est demandée avant de remplacer la version vue par
 tout le monde ; une version de test (« staging ») seule se republie sans confirmation.
 
-DOD-4 — [du brief : « car sinon ce n'est pas publié »] Après la republication, les versions en
-ligne reflètent mes changements et la suggestion disparaît ; si je recharge la page, l'état
-affiché correspond toujours à la réalité du serveur.
+DOD-4 — [du brief : « car sinon ce n'est pas publié »] Après la republication, la version en ligne
+active reflète mes changements et la suggestion disparaît ; si je recharge la page, l'état affiché
+correspond toujours à la réalité du serveur. En production, le lien public est stable et montre le
+nouveau contenu. En staging, republier crée un **nouveau** lien de test : l'ancien lien reste figé
+sur le contenu déjà partagé — c'est voulu, une version de test sert à faire vérifier un état précis,
+pas à être mutée sous les yeux de qui l'a reçue.
 
 DOD-5 — [tiré du brief : « un tableau de bord qui est publié »] Sur un tableau de bord qui n'a
 aucune version en ligne, aucune mention ni bouton de republication n'apparaît : il n'y a rien à

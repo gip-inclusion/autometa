@@ -422,9 +422,16 @@ function filterTagOptions(input) {
       }
       btn.disabled = true;
       const envs = (btn.dataset.envs || '').split(',').filter(Boolean);
+      const done = [];
       for (const env of envs) {
         const res = await post(`/api/dashboards/${slug}/publish`, { environment: env });
-        if (!res.ok) { await reportFailure('Republication', res); btn.disabled = false; return; }
+        if (!res.ok) {
+          const prefix = done.length ? `Déjà republié : ${done.join(', ')}. ` : '';
+          await reportFailure(`${prefix}Republication de « ${env} »`, res);
+          window.location.reload();
+          return;
+        }
+        done.push(env);
       }
       window.location.reload();
     });

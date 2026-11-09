@@ -225,7 +225,7 @@ def dashboard_detail(slug: Slug, request: Request, user_email: str = Depends(get
     dashboard_publications = list_publications(slug)
     can_publish = not (dashboard["has_api_access"] or dashboard["has_persistence"])
 
-    drifted = drifted_environments(dashboard_publications, dashboard.get("updated"))
+    drifted = drifted_environments(slug, dashboard_publications)
     dashboard_drifted = bool(drifted)
     drift_has_production = "production" in drifted
     has_active_production = any(p["environment"] == "production" for p in dashboard_publications)

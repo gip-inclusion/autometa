@@ -55,6 +55,16 @@ def _make_publication(slug, environment, published_at, publication_id):
         )
 
 
+def _set_drift(mocker, drifted=True):
+    """Pilote la comparaison de contenu S3 : le source live diffère (ou non) du snapshot figé."""
+    live = {"index.html": "live"} if drifted else {"index.html": "same"}
+
+    def etags(bucket, prefix):
+        return live if prefix.startswith("interactive/") else {"index.html": "same"}
+
+    mocker.patch("web.publications.s3.etags_under", side_effect=etags)
+
+
 def test_new_dashboard_has_cron_metadata_defaults(client):
     _make_dashboard("cron-defaults")
     with get_db() as session:
@@ -326,7 +336,8 @@ def test_detail_shows_publish_buttons(client):
     assert "Re-publier" not in r.text
 
 
-def test_dod_2_suggestion_porte_un_bouton_republier_ciblant_les_versions_en_retard(client):
+def test_dod_2_suggestion_porte_un_bouton_republier_ciblant_les_versions_en_retard(client, mocker):
+    _set_drift(mocker)
     _make_dashboard("drift-sugg")
     past = datetime.now(timezone.utc) - timedelta(days=1)
     _make_publication("drift-sugg", "staging", past, "aaaaaa")
@@ -337,7 +348,8 @@ def test_dod_2_suggestion_porte_un_bouton_republier_ciblant_les_versions_en_reta
 
 
 @pytest.mark.parametrize("environment,expected", [("production", "true"), ("staging", "false")])
-def test_dod_3_confirmation_production_signalee_sur_le_bouton(client, environment, expected):
+def test_dod_3_confirmation_production_signalee_sur_le_bouton(client, mocker, environment, expected):
+    _set_drift(mocker)
     slug = f"drift-conf-{environment}"
     _make_dashboard(slug)
     past = datetime.now(timezone.utc) - timedelta(days=1)
@@ -347,7 +359,8 @@ def test_dod_3_confirmation_production_signalee_sur_le_bouton(client, environmen
     assert f'data-has-production="{expected}"' in r.text
 
 
-def test_dod_7_bouton_republier_reserve_aux_tableaux_publiables(client):
+def test_dod_7_bouton_republier_reserve_aux_tableaux_publiables(client, mocker):
+    _set_drift(mocker)
     past = datetime.now(timezone.utc) - timedelta(days=1)
     _make_dashboard("drift-ok")
     _make_publication("drift-ok", "staging", past, "okok01")
@@ -363,6 +376,7 @@ def test_dod_7_bouton_republier_reserve_aux_tableaux_publiables(client):
 
 
 def test_dod_8_apres_une_republication_bloquee_la_suggestion_demeure(client, mocker):
+    _set_drift(mocker)
     _make_dashboard("drift-fail")
     past = datetime.now(timezone.utc) - timedelta(days=1)
     _make_publication("drift-fail", "staging", past, "fail01")
@@ -488,27 +502,21 @@ def test_refresh_pause_endpoint_idempotent_200(client, mocker):
     assert r.json() == {"ok": True, "paused": True}
 
 
-def test_detail_drift_hint_shown_when_dashboard_newer(client, mocker):
+def test_detail_drift_hint_shown_when_source_changed(client, mocker):
+    _set_drift(mocker, drifted=True)
     _make_dashboard("drift-yes")
-    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
-    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
-    mocker.patch("web.publications.s3.interactive.exists", return_value=False)
-    client.post("/api/dashboards/drift-yes/publish", json={"environment": "staging"}, headers=_h())
-    # Bump dashboards.updated_at to *after* the publication's published_at.
-    with get_db() as session:
-        d = session.scalar(select(Dashboard).where(Dashboard.slug == "drift-yes"))
-        d.updated_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_publication("drift-yes", "staging", past, "yes001")
     r = client.get("/dashboards/drift-yes/edit", headers=_h())
     assert r.status_code == 200
     assert "modifié depuis la dernière publication" in r.text
 
 
 def test_detail_drift_hint_hidden_when_not_drifted(client, mocker):
+    _set_drift(mocker, drifted=False)
     _make_dashboard("drift-no")
-    mocker.patch("web.publications.s3.copy_prefix", return_value=1)
-    mocker.patch("web.publications.s3.sync_prefix", return_value=1)
-    mocker.patch("web.publications.s3.interactive.exists", return_value=False)
-    client.post("/api/dashboards/drift-no/publish", json={"environment": "staging"}, headers=_h())
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    _make_publication("drift-no", "staging", past, "no0001")
     r = client.get("/dashboards/drift-no/edit", headers=_h())
     assert r.status_code == 200
     assert "modifié depuis la dernière publication" not in r.text

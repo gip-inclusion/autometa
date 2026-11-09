@@ -103,6 +103,26 @@ def test_list_files_treats_an_unreachable_endpoint_like_any_other_s3_error(monke
         assert s3.sessions.list_files("a/") == []
 
 
+def test_etags_under_maps_relative_path_to_etag(mocker):
+    paginate_pages(
+        mocker,
+        [
+            {
+                "Contents": [
+                    {"Key": "interactive/d/index.html", "ETag": '"abc"'},
+                    {"Key": "interactive/d/app.js", "ETag": '"def"'},
+                ]
+            }
+        ],
+    )
+    assert s3.etags_under("b", "interactive/d/") == {"index.html": "abc", "app.js": "def"}
+
+
+def test_etags_under_returns_empty_when_s3_unreachable(mocker):
+    paginate_pages(mocker, []).paginate.side_effect = EndpointConnectionError(endpoint_url="https://s3.example.org")
+    assert s3.etags_under("b", "interactive/d/") == {}
+
+
 def test_put_object_writes_to_the_given_bucket(mocker):
     put = mocker.patch.object(s3._client, "put_object")
 
