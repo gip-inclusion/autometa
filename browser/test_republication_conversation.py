@@ -58,3 +58,14 @@ def test_dod_11_no_alert_when_no_published_dashboard_has_drifted(served, page: P
     page.evaluate(f"showRepublishAlert('{CONV_ID}')")
 
     expect(page.locator("#republish-alert")).to_have_count(0)
+
+
+def test_alerte_retiree_quand_le_tableau_est_republie_entre_deux_reponses(served, page: Page):
+    _stub_dashboards(page, [{"slug": "mon-tdb", "title": "Mon TDB"}])
+    page.goto(f"{served}/index.html")
+    page.evaluate(f"showRepublishAlert('{CONV_ID}')")
+    expect(page.locator("#republish-alert")).to_be_visible()
+
+    _stub_dashboards(page, [])
+    page.evaluate(f"showRepublishAlert('{CONV_ID}')")
+    expect(page.locator("#republish-alert")).to_have_count(0)

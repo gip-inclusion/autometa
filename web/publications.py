@@ -1,19 +1,21 @@
 """Dashboard publication — immutable snapshots pushed to public S3 buckets."""
 
+import json
 import logging
+import re
 import secrets
 import string
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import select
+from sqlalchemy import false, or_, select
 
 from lib import variants
 from web import alerts, config, s3
 from web.db import get_db
 from web.helpers import sanitize_for_log
-from web.models import Dashboard, DashboardPublication
+from web.models import Dashboard, DashboardPublication, Message
 
 logger = logging.getLogger(__name__)
 
@@ -196,33 +198,72 @@ def list_active_publications() -> list[dict]:
         return result
 
 
-def drifted_environments(publications: list[dict], updated_at: datetime | None) -> list[str]:
-    """Environnements dont la version en ligne la plus récente précède la dernière modif du tableau."""
-    if updated_at is None:
-        return []
-    latest: dict[str, datetime] = {}
+def _source_manifest(prefix: str) -> dict[str, str]:
+    """ETags des fichiers *source* sous prefix, hors données générées par le cron (data.json, data/*)."""
+    return {
+        rel: etag
+        for rel, etag in s3.etags_under(config.S3_BUCKET, prefix).items()
+        if rel and rel != "data.json" and not rel.startswith("data/")
+    }
+
+
+def snapshot_drifted(slug: str, publication_id: str) -> bool:
+    """Le contenu source actuel du tableau diffère-t-il du snapshot figé de cette publication ?"""
+    live = _source_manifest(f"interactive/{slug}/")
+    snapshot = _source_manifest(f"publications/{slug}/{publication_id}/")
+    return live != snapshot
+
+
+def drifted_environments(slug: str, publications: list[dict]) -> list[str]:
+    """Environnements dont la version en ligne active est en retard sur le contenu source actuel."""
+    # Why: `publications` est trié par date décroissante, donc la première occurrence par
+    # environnement est la publication active. L'ordre du retour suit `ENVIRONMENTS` (staging avant
+    # production) pour que la republication passe d'abord par la version de test.
+    active: dict[str, str] = {}
     for pub in publications:
-        published_at = pub.get("published_at")
-        if published_at is None:
+        active.setdefault(pub["environment"], pub["publication_id"])
+    return [env for env in ENVIRONMENTS if env in active and snapshot_drifted(slug, active[env])]
+
+
+_SLUG_IN_PATH = re.compile(r"/interactive/([a-z0-9][a-z0-9-]*)/")
+
+
+def _slugs_touched_in_conversation(session, conv_id: str) -> set[str]:
+    """Slugs de TDB dont un fichier a été écrit (Write/Edit) par l'agent pendant la conversation."""
+    rows = session.scalars(
+        select(Message.content).where(
+            Message.conversation_id == conv_id,
+            Message.type == "tool_use",
+            Message.content.contains("/interactive/"),
+        )
+    ).all()
+    slugs: set[str] = set()
+    for content in rows:
+        try:
+            file_path = json.loads(content).get("input", {}).get("file_path", "") or ""
+        except json.JSONDecodeError, AttributeError:
             continue
-        environment = pub["environment"]
-        if environment not in latest or published_at > latest[environment]:
-            latest[environment] = published_at
-    return sorted(env for env, published_at in latest.items() if published_at < updated_at)
+        if match := _SLUG_IN_PATH.search(file_path):
+            slugs.add(match.group(1))
+    return slugs
 
 
 def drifted_dashboards_for_conversation(conv_id: str) -> list[dict]:
-    """Tableaux créés dans cette conversation dont au moins une version en ligne est en retard."""
+    """Tableaux créés ou modifiés dans cette conversation dont au moins une version en ligne est en retard."""
     with get_db() as session:
+        touched = _slugs_touched_in_conversation(session, conv_id)
         rows = session.execute(
-            select(Dashboard.slug, Dashboard.title, Dashboard.updated_at).where(
-                Dashboard.created_in_conversation_id == conv_id,
+            select(Dashboard.slug, Dashboard.title).where(
+                or_(
+                    Dashboard.created_in_conversation_id == conv_id,
+                    Dashboard.slug.in_(touched) if touched else false(),
+                ),
                 ~Dashboard.is_archived,
             )
         ).all()
     drifted = []
-    for slug, title, updated_at in rows:
-        if drifted_environments(list_publications(slug), updated_at):
+    for slug, title in rows:
+        if drifted_environments(slug, list_publications(slug)):
             drifted.append({"slug": slug, "title": title})
     return drifted
 

@@ -205,6 +205,21 @@ def list_prefix(bucket: str, prefix: str) -> list[str]:
     return keys
 
 
+def etags_under(bucket: str, prefix: str) -> dict[str, str]:
+    """{chemin relatif au préfixe: ETag} des objets sous prefix. ETag préservé par copy_object (sans gzip)."""
+    # Why: l'ETag est comparable entre interactive/{slug}/ et son snapshot figé (même bucket, pas de
+    # gzip). S3 injoignable renvoie {} comme list_files : deux {} égaux = pas de faux retard.
+    etags: dict[str, str] = {}
+    try:
+        paginator = _client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                etags[obj["Key"][len(prefix) :]] = obj["ETag"].strip('"')
+    except (ClientError, BotoCoreError) as e:
+        logger.error("S3 etags failed for %s/%s: %s", bucket, prefix, e)
+    return etags
+
+
 def put_object(bucket: str, key: str, content: bytes, content_type: str) -> bool:
     """Dépose un objet dans un bucket donné, hors du préfixe d'un S3Store (bucket public, par exemple)."""
     try:

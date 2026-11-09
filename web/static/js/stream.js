@@ -32,9 +32,12 @@ async function showRepublishAlert(convId) {
   } catch (_) {
     return;
   }
+
+  // Why: retirer l'alerte périmée même quand il n'y a plus de retard (TDB republié ailleurs),
+  // sinon elle resterait affichée à tort après la réponse suivante.
+  document.getElementById('republish-alert')?.remove();
   if (!drifted || drifted.length === 0) return;
 
-  document.getElementById('republish-alert')?.remove();
   const block = document.createElement('div');
   block.id = 'republish-alert';
   block.className = 'alert alert-warning mt-3';
@@ -774,6 +777,10 @@ async function loadConversation(convId, { autoStream = true } = {}) {
 
     // Reconcile sidebar spinners on every conversation load
     reconcileSidebarSpinners();
+
+    // Why: au chargement d'une conversation, réafficher (ou retirer) l'alerte de republication
+    // selon l'état réel du serveur — sinon elle ne réapparaît qu'à la prochaine réponse.
+    showRepublishAlert(convId);
 
     // If conversation is running, resume the stream (unless caller handles it)
     if (autoStream && conv.is_running) {
