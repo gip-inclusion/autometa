@@ -116,10 +116,11 @@ def manifest_path(changeset_id: str) -> str:
     return f"_creations/{changeset_id}.json"
 
 
-def plan(config_yaml: str, system_prompt: str) -> dict:
+def plan(config_yaml: str, system_prompt: str, initiaux: Optional[dict[str, str]] = None) -> dict:
     """Validate an agent and record its creation as a proposal; nothing is created in the jobs engine."""
     doc = agent_config.parse(config_yaml)
-    if errors := agent_config.validate(doc):
+    initiaux = initiaux or {}
+    if errors := agent_config.validate(doc) + agent_config.initial_errors(initiaux, doc.get("fichiers", [])):
         raise ValueError("configuration refusée : " + " ; ".join(errors))
     if not system_prompt.strip():
         raise ValueError("consigne du job vide")
@@ -142,7 +143,12 @@ def plan(config_yaml: str, system_prompt: str) -> dict:
         + OUTPUT_CONTRACT.format(destinations=destinations)
         + (INPUT_CONTRACT.format(preparations=steps) if steps else "")
         + (FILES_CONTRACT.format(fichiers=", ".join(fichiers), taille=agent_config.FICHIER_MAX) if fichiers else ""),
-        "relecture": agent_config.describe(doc),
+        "relecture": agent_config.describe(doc)
+        + [
+            f"valeur initiale de {nom} : {len(c)} caractères, écrite à la création si le fichier est vide"
+            for nom, c in initiaux.items()
+        ],
+        "fichiers_initiaux": initiaux,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "shown": mark(),
     }
@@ -188,6 +194,10 @@ def apply(changeset_id: str) -> dict:
             "approved_at": datetime.now().isoformat(timespec="seconds"),
         },
     )
+    for nom, contenu in manifest.get("fichiers_initiaux", {}).items():
+        # Why: a file the agent already wrote is its own work; an initial value never overwrites it.
+        if not agent_files.history(slug, nom):
+            agent_files.write_version(slug, nom, contenu, f"valeur initiale, proposition {changeset_id}")
     manifest.update(status="applied", pipeline_id=pipeline_id, approved_by=approved_by)
     write_json(manifest_path(changeset_id), manifest)
     return manifest
