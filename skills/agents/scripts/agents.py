@@ -24,8 +24,13 @@ def main(argv=None) -> int:
         default=[],
         help="valeur initiale d'un fichier déclaré, nommé comme lui ; écrite à la création si le fichier est vide",
     )
-    for name in ("create", "retire", "show"):
-        commands.add_parser(name).add_argument("changeset")
+    for name, help_text in (
+        ("create", "créer ou modifier l'agent, seulement après confirmation dans un message ultérieur"),
+        ("propose-retire", "montrer ce que retirer cette proposition déferait, sans rien retirer"),
+        ("retire", "retirer, seulement après confirmation dans un message ultérieur"),
+        ("show", "voir une proposition"),
+    ):
+        commands.add_parser(name, help=help_text).add_argument("changeset")
     commands.add_parser("destinations", help="destinations, modèles, préparations et cadences permis")
     for name, help_text in (
         ("propose-launch", "montrer ce qu'un run lancé maintenant ferait, sans rien lancer"),
@@ -62,6 +67,7 @@ def main(argv=None) -> int:
             args.config.read_text(), args.instructions.read_text(), {f.name: f.read_text() for f in args.file}
         ),
         "create": lambda: agents.apply(args.changeset),
+        "propose-retire": lambda: agents.present_retire(args.changeset),
         "retire": lambda: agents.revert(args.changeset),
         "show": lambda: agents.show(args.changeset),
         "destinations": agents.catalogue,

@@ -1,10 +1,13 @@
 import pytest
 
 from lib import agent_config, agent_delivery
-from tests.test_agent_delivery import RUN_ID, SLUG, TARGETS, FakeStore, make_agent, open_real_mode
+from tests.test_agent_delivery import TARGETS, Rows, make_agent, open_real_mode
+from tests.test_agent_delivery import deliver as deliver_run
+from web.db import test_transaction as _test_tx
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 DESTINATION = "produit.signal_faible"
-DIGEST_ID = f"{RUN_ID}-digest-{DESTINATION}"
 LABELS = {
     "type": "classifier",
     "model": "clef:27b",
@@ -18,11 +21,10 @@ LABELS = {
 
 @pytest.fixture
 def store(mocker):
-    fake = FakeStore()
-    mocker.patch("lib.agent_delivery.s3.agents", fake)
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", TARGETS)
     mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "agent-bot-token")
-    return fake
+    with _test_tx():
+        yield Rows()
 
 
 @pytest.fixture
@@ -74,56 +76,56 @@ ENVOIS = [
 ]
 
 
-def test_dod_7_digest_gathers_kept_productions_by_label_with_their_links(store, post):
-    summary = agent_delivery.deliver(digest_agent(), RUN_ID, ENVOIS, chain(VERDICTS))
+def deliver(mocker, agent, deliveries, verdicts):
+    return deliver_run(mocker, agent, deliveries, chain=chain(verdicts))
 
-    assert [(e["id"], e["status"]) for e in summary] == [
-        (f"{RUN_ID}-0", "grouped"),
-        (f"{RUN_ID}-1", "grouped"),
-        (f"{RUN_ID}-2", "discarded"),
-        (f"{RUN_ID}-3", "grouped"),
-        (DIGEST_ID, "recorded"),
-    ]
-    digest = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")
-    assert digest["title"].startswith("Signaux faibles des mises en production, run du ")
-    assert digest["title"].endswith(" : retenus 3, écartés 1")
-    assert digest["text"] == (
+
+def digest(rows: Rows) -> dict:
+    return next(d for d in rows.deliveries() if d["rank"] is None)
+
+
+def test_dod_7_digest_gathers_kept_productions_by_label_with_their_links(store, post, mocker):
+    summary = deliver(mocker, digest_agent(), ENVOIS, VERDICTS)
+
+    assert [e["status"] for e in summary] == ["grouped", "grouped", "discarded", "grouped", "recorded"]
+    found = digest(store)
+    assert found["title"].startswith("Signaux faibles des mises en production, run du ")
+    assert found["title"].endswith(" : retenus 3, écartés 1")
+    assert found["text"] == (
         "## outils\n- Logiciel RSA : https://exemple.fr/avis/1\n- Plateforme insertion : https://exemple.fr/avis/2\n\n"
         "## prestations\n- Plateforme insertion : https://exemple.fr/avis/2\n\n"
         "## Autres\n- Divers"
     )
-    assert digest["productions"] == [f"{RUN_ID}-0", f"{RUN_ID}-1", f"{RUN_ID}-3"]
-    assert store.json(f"{SLUG}/envois/{RUN_ID}-0.json")["digest"] == DIGEST_ID
-    assert store.json(f"{SLUG}/envois/{RUN_ID}-2.json")["status"] == "discarded"
+    assert [d["rank"] for d in store.deliveries() if d["digest_id"] == found["id"]] == [0, 1, 3]
+    assert store.delivery(2)["status"] == "discarded"
     post.assert_not_called()
 
 
-def test_dod_7_digest_with_nothing_kept_says_so(store, post):
-    agent_delivery.deliver(digest_agent(), RUN_ID, [production("Nettoyage")], chain(VERDICTS))
-    digest = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")
-    assert (digest["title"][-22:], digest["text"]) == (": retenus 0, écartés 1", "Aucune production retenue.")
+def test_dod_7_digest_with_nothing_kept_says_so(store, post, mocker):
+    deliver(mocker, digest_agent(), [production("Nettoyage")], VERDICTS)
+    found = digest(store)
+    assert (found["title"][-22:], found["text"]) == (": retenus 0, écartés 1", "Aucune production retenue.")
 
 
 def test_dod_7_digest_beyond_its_cap_keeps_the_first_lines_and_counts_the_others(store, post, mocker):
     mocker.patch("lib.agent_delivery.DIGEST_MAX", 90)
     deliveries = [production(f"Avis {n:02d}", f"https://exemple.fr/{n}") for n in range(10)]
-    agent_delivery.deliver(digest_agent(), RUN_ID, deliveries, chain({e["title"]: ["outils"] for e in deliveries}))
+    deliver(mocker, digest_agent(), deliveries, {e["title"]: ["outils"] for e in deliveries})
 
-    text = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")["text"]
-    kept, _, omitted = text.rpartition("\n\n")
+    kept, _, omitted = digest(store)["text"].rpartition("\n\n")
     assert kept == "## outils\n- Avis 00 : https://exemple.fr/0\n- Avis 01 : https://exemple.fr/1"
     assert len(kept) <= 90
     assert omitted == "8 lignes omises au-delà de 90 caractères."
 
 
-def test_dod_7_real_digest_is_posted_once_and_never_rebuilt_on_redelivery(store, post, mocker):
+def test_dod_7_autonomous_digest_is_posted_once_and_never_rebuilt_on_redelivery(store, post, mocker):
     open_real_mode(mocker)
     agent = digest_agent("autonomous")
-    first = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
-    second = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
+    first = deliver(mocker, agent, ENVOIS, VERDICTS)
+    second = deliver(mocker, agent, ENVOIS, VERDICTS)
 
     assert first[-1] == {
-        "id": DIGEST_ID,
+        "id": digest(store)["id"],
         "destination": DESTINATION,
         "mode": "autonomous",
         "status": "sent",
@@ -134,36 +136,44 @@ def test_dod_7_real_digest_is_posted_once_and_never_rebuilt_on_redelivery(store,
     assert "Plateforme insertion" in post.call_args.args[2]
 
 
-def test_dod_7_digest_waits_for_productions_whose_sub_agents_failed(store, post):
+def test_dod_7_digest_waits_for_productions_whose_sub_agents_failed(store, post, mocker):
     agent = digest_agent()
-    failing = {**VERDICTS, "Divers": "failure"}
-    first = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(failing))
-    assert [e["id"] for e in first][-1] == f"{RUN_ID}-3"
-    assert f"{SLUG}/envois/{DIGEST_ID}.json" not in store.files
+    first = deliver(mocker, agent, ENVOIS, {**VERDICTS, "Divers": "failure"})
+    assert first[-1]["status"] == "pending_subagents"
+    assert all(d["rank"] is not None for d in store.deliveries())
 
-    second = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
-    assert second[-1]["id"] == DIGEST_ID
-    assert store.json(f"{SLUG}/envois/{DIGEST_ID}.json")["text"].endswith("## Autres\n- Divers")
+    second = deliver(mocker, agent, ENVOIS, VERDICTS)
+    assert second[-1]["id"] == digest(store)["id"]
+    assert digest(store)["text"].endswith("## Autres\n- Divers")
+
+
+def test_review_2_5_a_sub_agent_failing_every_time_is_set_aside_and_the_digest_goes_on(store, post, mocker):
+    """Review 2.5: an identical failure used to hold the digest for ever."""
+    agent, failing = digest_agent(), {**VERDICTS, "Divers": "failure"}
+    for _ in range(agent_delivery.SUBAGENT_ATTEMPTS_MAX):
+        summary = deliver(mocker, agent, ENVOIS, failing)
+    assert summary[3]["status"] == "subagent_failed"
+    assert digest(store)["title"].endswith(" : retenus 2, écartés 2")
 
 
 def test_dod_7_digest_in_review_is_written_once_approved(store, post, mocker):
     open_real_mode(mocker)
-    agent_delivery.deliver(digest_agent("conversational"), RUN_ID, ENVOIS, chain(VERDICTS))
-    assert agent_delivery.show(SLUG, DIGEST_ID)["status"] == "pending_review"
+    deliver(mocker, digest_agent("conversational"), ENVOIS, VERDICTS)
+    assert digest(store)["status"] == "pending_review"
     post.assert_not_called()
 
-    assert agent_delivery.approve(SLUG, DIGEST_ID, "lj@example.org")["status"] == "sent"
+    assert agent_delivery.approve(digest(store)["id"], "lj@example.org") == "sent"
     post.assert_called_once()
 
 
 @pytest.mark.parametrize("grouping", [None, "single"])
-def test_dod_7_unit_delivery_is_unchanged_without_digest(store, post, grouping):
+def test_dod_7_unit_delivery_is_unchanged_without_digest(store, post, mocker, grouping):
     agent = digest_agent(grouping=grouping)
     if grouping is None:
         del agent["destinations"][0]["grouping"]
-    summary = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
+    summary = deliver(mocker, agent, ENVOIS, VERDICTS)
     assert [e["status"] for e in summary] == ["recorded", "recorded", "discarded", "recorded"]
-    assert all("digest" not in store.json(f"{SLUG}/envois/{e['id']}.json") for e in summary)
+    assert all(d["digest_id"] is None for d in store.deliveries())
 
 
 def test_dod_7_an_unknown_grouping_is_refused_and_a_digest_is_shown_at_review():

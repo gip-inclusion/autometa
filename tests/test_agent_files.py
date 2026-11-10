@@ -1,38 +1,49 @@
 import pytest
+from sqlalchemy import select
 
 from lib import agent_files
-from tests.test_agent_delivery import FakeStore
-
-SLUG = "veille-backlog"
+from tests.test_agent_delivery import make_agent, registered
+from web.db import get_db
+from web.db import test_transaction as _test_tx
+from web.models import Agent
 
 
 @pytest.fixture
-def store(mocker):
-    fake = FakeStore()
-    mocker.patch("lib.agent_delivery.s3.agents", fake)
-    return fake
+def store(_db):
+    """The session and id of a registered agent, rolled back after the test."""
+    with _test_tx():
+        registered(make_agent(("produit.signal_faible", "background")))
+        with get_db() as session:
+            yield session, session.scalar(select(Agent.id))
 
 
+def add_entries(store, name, entries, origin):
+    content = agent_files.read(*store, name)["content"]
+    return agent_files.write_version(*store, name, agent_files.with_entries(content, entries), origin)
+
+
+@pytest.mark.integration
 def test_dod_16_every_write_is_a_new_version_and_the_history_keeps_them_all(store, caplog):
-    assert agent_files.read(SLUG, "notes.md") == {"name": "notes.md", "version": 0, "content": ""}
+    assert agent_files.read(*store, "notes.md") == {"name": "notes.md", "version": 0, "content": ""}
     with caplog.at_level("INFO"):
-        assert agent_files.write_version(SLUG, "notes.md", "Première idée.", "run r1") == 1
-        assert agent_files.write_version(SLUG, "notes.md", "Première idée.", "run r1") == 1
-        assert agent_files.write_version(SLUG, "notes.md", "Idée revue.", "run r2") == 2
-    assert [(v["version"], v["origin"], v["size"]) for v in agent_files.history(SLUG, "notes.md")] == [
+        assert agent_files.write_version(*store, "notes.md", "Première idée.", "run r1") == 1
+        assert agent_files.write_version(*store, "notes.md", "Première idée.", "run r1") == 1
+        assert agent_files.write_version(*store, "notes.md", "Idée revue.", "run r2") == 2
+    assert [(v["version"], v["origin"], v["size"]) for v in agent_files.history(*store, "notes.md")] == [
         (1, "run r1", 14),
         (2, "run r2", 11),
     ]
-    assert agent_files.read(SLUG, "notes.md")["content"] == "Idée revue."
-    assert agent_files.read(SLUG, "notes.md", 1)["content"] == "Première idée."
+    assert agent_files.read(*store, "notes.md")["content"] == "Idée revue."
+    assert agent_files.read(*store, "notes.md", 1)["content"] == "Première idée."
     assert "Idée" not in caplog.text
     assert "notes.md version 2, 11 caractères" in caplog.text
 
 
+@pytest.mark.integration
 def test_dod_16_two_versions_compare_as_a_unified_diff(store):
-    agent_files.write_version(SLUG, "notes.md", "a\nb\n", "run r1")
-    agent_files.write_version(SLUG, "notes.md", "a\nc\n", "run r2")
-    assert agent_files.compare(SLUG, "notes.md", 1, 2).splitlines() == [
+    agent_files.write_version(*store, "notes.md", "a\nb\n", "run r1")
+    agent_files.write_version(*store, "notes.md", "a\nc\n", "run r2")
+    assert agent_files.compare(*store, "notes.md", 1, 2).splitlines() == [
         "--- notes.md version 1",
         "+++ notes.md version 2",
         "@@ -1,2 +1,2 @@",
@@ -42,32 +53,33 @@ def test_dod_16_two_versions_compare_as_a_unified_diff(store):
     ]
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("version", [-1, 3])
 def test_dod_16_an_unknown_version_is_refused(store, version):
-    agent_files.write_version(SLUG, "notes.md", "a", "run r1")
+    agent_files.write_version(*store, "notes.md", "a", "run r1")
     with pytest.raises(ValueError, match=f"version {version} inconnue, versions 1 à 1"):
-        agent_files.read(SLUG, "notes.md", version)
+        agent_files.read(*store, "notes.md", version)
 
 
+@pytest.mark.integration
 def test_dod_16_a_file_beyond_its_size_is_refused(store):
     with pytest.raises(ValueError, match="100000 au plus"):
-        agent_files.write_version(SLUG, "notes.md", "x" * 100_001, "run r1")
-    assert agent_files.history(SLUG, "notes.md") == []
+        agent_files.write_version(*store, "notes.md", "x" * 100_001, "run r1")
+    assert agent_files.history(*store, "notes.md") == []
 
 
+@pytest.mark.integration
 def test_dod_16_entries_are_appended_and_an_entry_with_a_known_key_is_replaced_in_place(store):
-    agent_files.write_version(SLUG, "tickets.md", "# Tickets\n\n", "run r0")
-    agent_files.add_entries(SLUG, "tickets.md", [("export", "Export", "v1"), ("carte", "Carte", "texte")], "run r1")
-    agent_files.add_entries(
-        SLUG, "tickets.md", [("export", "Export CSV", "v2\n"), ("relance", "Relance", "r")], "run r2"
-    )
-    assert agent_files.read(SLUG, "tickets.md")["content"] == (
+    agent_files.write_version(*store, "tickets.md", "# Tickets\n\n", "run r0")
+    add_entries(store, "tickets.md", [("export", "Export", "v1"), ("carte", "Carte", "texte")], "run r1")
+    add_entries(store, "tickets.md", [("export", "Export CSV", "v2\n"), ("relance", "Relance", "r")], "run r2")
+    assert agent_files.read(*store, "tickets.md")["content"] == (
         "# Tickets\n\n"
         "<!-- entree: export -->\n## Export CSV\n\nv2\n\n"
         "<!-- entree: carte -->\n## Carte\n\ntexte\n\n"
         "<!-- entree: relance -->\n## Relance\n\nr\n\n"
     )
-    assert len(agent_files.history(SLUG, "tickets.md")) == 3
+    assert len(agent_files.history(*store, "tickets.md")) == 3
 
 
 @pytest.mark.parametrize(

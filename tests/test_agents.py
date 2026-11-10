@@ -5,12 +5,18 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from lib import agents
 from skills.agents.scripts import agents as cli
 from tests.test_agent_connectors import FakeGitHub
-from tests.test_agent_delivery import FakeStore
+from tests.test_agent_delivery import Rows
 from web.database import store as conversations
+from web.db import get_db
+from web.db import test_transaction as _test_tx
+from web.models import Agent, AgentFileVersion
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 SLUG = "signaux-faibles-mep"
 PIPELINE_ID = "22222222-2222-2222-2222-222222222222"
@@ -41,11 +47,10 @@ class Conversation:
 
 @pytest.fixture
 def store(mocker):
-    fake = FakeStore()
-    mocker.patch("lib.agent_delivery.s3.agents", fake)
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {"produit.signal_faible": "C0SLACK"})
     mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "agent-bot-token")
-    return fake
+    with _test_tx():
+        yield Rows()
 
 
 @pytest.fixture
@@ -74,6 +79,13 @@ def created_agent(conversation):
     return agents.apply(proposal["id"])
 
 
+def retire(conversation, changeset_id):
+    """Retire as the skill does: shown first, then confirmed in a later message."""
+    agents.present_retire(changeset_id)
+    conversation.user_replies()
+    return agents.revert(changeset_id)
+
+
 def test_dod_1_proposal_shows_the_agent_and_creates_no_job(store, conversation, engine):
     proposal = agents.plan(CONFIG, "Tu es analyste produit.")
     assert proposal["status"] == "planned"
@@ -95,22 +107,22 @@ def test_dod_1_proposal_shows_the_agent_and_creates_no_job(store, conversation, 
 def test_dod_2_refused_configuration_gives_no_proposal(store, conversation, engine, config_yaml, prompt, message):
     with pytest.raises(ValueError, match=message):
         agents.plan(config_yaml, prompt)
-    assert store.files == {}
+    assert store.size() == 0
 
 
 def test_dod_2_slug_of_a_retired_agent_gives_no_proposal(store, conversation, engine):
-    agents.revert(created_agent(conversation)["id"])
-    count = len(store.files)
+    retire(conversation, created_agent(conversation)["id"])
+    count = store.size()
     with pytest.raises(ValueError, match="déjà pris par un agent retiré"):
         agents.plan(CONFIG, "Tu es analyste produit.")
-    assert len(store.files) == count
+    assert store.size() == count
 
 
 def test_dod_3_proposal_outside_a_conversation_is_refused(store, conversation, engine):
     conversation.id = None
     with pytest.raises(ValueError, match="dans une conversation"):
         agents.plan(CONFIG, "Consigne.")
-    assert store.files == {}
+    assert store.size() == 0
 
 
 @pytest.mark.parametrize(
@@ -140,8 +152,8 @@ def test_dod_4_approval_creates_the_agent_job_with_its_output_contract(store, co
     assert "destination : une de produit.signal_faible, aucune autre." in prompt
     assert overrides == {"output_format": "json"}
     assert applied["status"] == "applied"
-    assert store.json(f"{SLUG}/agent.json")["approved_by"] == "lj@example.org"
-    assert store.json(f"{SLUG}/agent.json")["status"] == "active"
+    assert store.agent(SLUG)["owner_email"] == "lj@example.org"
+    assert store.agent(SLUG)["status"] == "active"
 
 
 def test_dod_4_jobs_engine_failure_leaves_the_proposal_planned(store, conversation, engine):
@@ -151,7 +163,7 @@ def test_dod_4_jobs_engine_failure_leaves_the_proposal_planned(store, conversati
     with pytest.raises(httpx.ConnectError):
         agents.apply(proposal["id"])
     assert agents.show(proposal["id"])["status"] == "planned"
-    assert f"{SLUG}/agent.json" not in store.files
+    assert store.agent(SLUG) is None
 
 
 def test_dod_5_second_approval_creates_nothing(store, conversation, engine):
@@ -164,8 +176,8 @@ def test_dod_5_second_approval_creates_nothing(store, conversation, engine):
 
 def test_dod_6_retired_agent_runs_are_no_longer_delivered(store, conversation, engine, post):
     applied = created_agent(conversation)
-    assert agents.revert(applied["id"])["status"] == "reverted"
-    assert store.json(f"{SLUG}/agent.json")["status"] == "retired"
+    assert retire(conversation, applied["id"])["status"] == "reverted"
+    assert store.agent(SLUG)["status"] == "retired"
     with pytest.raises(ValueError, match="aucun agent actif"):
         agents.deliver_run(SLUG, RUN_ID)
     post.assert_not_called()
@@ -175,7 +187,7 @@ def test_dod_6_retired_agent_runs_are_no_longer_delivered(store, conversation, e
 def test_dod_6_retiring_a_proposal_not_applied_changes_nothing(store, conversation, engine, applied_first):
     proposal = created_agent(conversation) if applied_first else agents.plan(CONFIG, "Consigne.")
     if applied_first:
-        agents.revert(proposal["id"])
+        retire(conversation, proposal["id"])
     expected = "reverted" if applied_first else "planned"
     with pytest.raises(ValueError, match=f"est {expected}, attendu applied"):
         agents.revert(proposal["id"])
@@ -191,7 +203,7 @@ def test_dod_7_completed_run_of_the_agent_job_is_delivered(store, conversation, 
     created_agent(conversation)
     assert agents.deliver_run(SLUG, RUN_ID) == [
         {
-            "id": f"{RUN_ID}-0",
+            "id": store.delivery()["id"],
             "destination": "produit.signal_faible",
             "mode": "conversational",
             "status": "pending_review",
@@ -205,9 +217,9 @@ def test_dod_7_completed_run_of_the_agent_job_is_delivered(store, conversation, 
     ("run", "output", "message"),
     [
         ({"pipeline_id": "autre", "status": "completed"}, "{}", "n'appartient pas"),
-        ({"pipeline_id": PIPELINE_ID, "status": "running"}, "{}", "est running, attendu completed"),
+        ({"pipeline_id": PIPELINE_ID, "status": "running"}, "{}", "est launched : pas encore terminé"),
         ({"pipeline_id": PIPELINE_ID, "status": "completed"}, "Voici le résultat", "illisible"),
-        ({"pipeline_id": PIPELINE_ID, "status": "completed"}, "[]", "sans liste deliveries"),
+        ({"pipeline_id": PIPELINE_ID, "status": "completed"}, "[]", "deliveries : attendu une liste"),
     ],
 )
 def test_dod_7_other_runs_and_unreadable_outputs_are_refused(store, conversation, engine, post, run, output, message):
@@ -227,8 +239,8 @@ def test_dod_7_unknown_agent_is_refused(store):
 def test_dod_8_review_is_written_only_when_approved_in_a_later_message(store, conversation, engine, post):
     created_agent(conversation)
     agents.deliver_run(SLUG, RUN_ID)
-    delivery_id = f"{RUN_ID}-0"
-    with pytest.raises(PermissionError, match="jamais présenté"):
+    delivery_id = str(store.delivery()["id"])
+    with pytest.raises(PermissionError, match="envoi jamais proposé"):
         agents.approve_delivery(SLUG, delivery_id)
 
     assert agents.present_delivery(SLUG, delivery_id)["text"] == "Effet nul."
@@ -239,7 +251,7 @@ def test_dod_8_review_is_written_only_when_approved_in_a_later_message(store, co
     conversation.user_replies()
     assert agents.approve_delivery(SLUG, delivery_id)["status"] == "sent"
     post.assert_called_once()
-    assert store.json(f"{SLUG}/envois/{delivery_id}.json")["approved_by"] == "lj@example.org"
+    assert store.delivery()["approved_by"] == "lj@example.org"
 
 
 def test_the_skill_runs_its_script_as_a_module_with_the_python_on_path(capsys):
@@ -272,10 +284,14 @@ def test_skill_walks_the_whole_flow_and_reports_refusals(store, conversation, en
     conversation.user_replies()
     for argv in (["create", proposal], ["show", proposal], ["deliver", "--agent", SLUG, "--run", RUN_ID]):
         assert cli.main(argv) == 0
-    delivery = ["--agent", SLUG, "--delivery", f"{RUN_ID}-0"]
+    delivery = ["--agent", SLUG, "--delivery", str(store.delivery()["id"])]
     assert cli.main(["show-delivery", *delivery]) == 0
     conversation.user_replies()
     assert cli.main(["approve-delivery", *delivery]) == 0
+    assert cli.main(["retire", proposal]) == 1
+    assert "retrait jamais proposé" in capsys.readouterr().err
+    assert cli.main(["propose-retire", proposal]) == 0
+    conversation.user_replies()
     assert cli.main(["retire", proposal]) == 0
     post.assert_called_once()
 
@@ -329,8 +345,8 @@ def preparations(mocker):
     mocker.patch("lib.notion.query_database", return_value=[{"properties": {}}])
     mocker.patch("lib.notion.extract_page_properties", return_value={"Nom": "Export CSV"})
     mocker.patch("lib.notion.NOTION_TOKEN", "notion-token")
-    mocker.patch("lib.agents.s3.job_inputs.get_url", return_value="https://s3/services.sqlite")
-    mocker.patch("lib.agents.s3.job_inputs.exists", return_value=True)
+    mocker.patch("web.s3.job_inputs.get_url", return_value="https://s3/services.sqlite")
+    mocker.patch("web.s3.job_inputs.exists", return_value=True)
     publish = mocker.patch("lib.agents.job_inputs.publish_dataset", return_value={"url": "https://s3/entree.jsonl"})
     mocker.patch("lib.agents.jobs.trigger_run", return_value={"id": NEW_RUN})
     return publish
@@ -403,15 +419,15 @@ def test_dod_10_productions_under_the_threshold_are_kept_but_not_delivered(store
     summary = agents.deliver_run(SLUG_V2, RUN_ID)
     assert [s["status"] for s in summary] == ["pending_review", "discarded"]
     assert [s["calls"] for s in summary] == [2, 1]
-    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")["text"] == "Résumé."
-    kept = store.json(f"{SLUG_V2}/envois/{RUN_ID}-1.json")
-    assert kept["subagents"] == [
+    assert store.delivery(0)["text"] == "Résumé."
+    kept = store.delivery(1)
+    assert kept["subagent_steps"] == [
         {"type": "classifier", "model": "clef:27b", "probability": 0.2, "threshold": 0.7, "kept": False}
     ]
     assert kept["text"] == "Bruit, détails."
-    assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["subagent_calls"] == 3
+    assert store.run().subagent_calls == 3
     with pytest.raises(ValueError, match="est discarded"):
-        agents.agent_delivery.approve(SLUG_V2, f"{RUN_ID}-1", "lj@example.org")
+        agents.agent_delivery.approve(store.delivery(1)["id"], "lj@example.org")
 
 
 def test_dod_10_a_failing_sub_agent_delivers_nothing_of_that_production_and_is_retried(
@@ -422,17 +438,17 @@ def test_dod_10_a_failing_sub_agent_delivers_nothing_of_that_production_and_is_r
     mocker.patch("lib.agent_subagents.config.OLLAMA_API_KEY", "")
     with caplog.at_level("INFO"):
         summary = agents.deliver_run(SLUG_V2, RUN_ID)
-    assert [s["status"] for s in summary] == ["subagent_failed"]
-    record = store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")
+    assert [s["status"] for s in summary] == ["pending_subagents"]
+    record = store.delivery(0)
     assert "sous-agent 1 (classifier clef:27b) en échec : OLLAMA_API_KEY absent" in record["error"]
     assert "Export CSV" not in caplog.text
-    with pytest.raises(ValueError, match="est subagent_failed"):
-        agents.agent_delivery.approve(SLUG_V2, f"{RUN_ID}-0", "lj@example.org")
+    with pytest.raises(ValueError, match="est pending_subagents"):
+        agents.agent_delivery.approve(store.delivery(0)["id"], "lj@example.org")
 
     ollama_says(mocker, 0.9)
     assert [s["status"] for s in agents.deliver_run(SLUG_V2, RUN_ID)] == ["pending_review"]
-    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")["text"] == "Résumé."
-    assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["subagent_calls"] == 3
+    assert store.delivery(0)["text"] == "Résumé."
+    assert store.run().subagent_calls == 3
 
 
 def test_dod_11_preparations_feed_the_run_in_order_from_their_three_types(
@@ -460,7 +476,7 @@ def test_dod_11_preparations_feed_the_run_in_order_from_their_three_types(
     agents.jobs.trigger_run.assert_called_once_with(
         PIPELINE_ID, input_uri="https://s3/entree.jsonl", idempotency_key=None
     )
-    assert store.json(f"{SLUG_V2}/agent.json")["pending_runs"] == [NEW_RUN]
+    assert store.launched() == [NEW_RUN]
 
 
 def test_dod_11_agent_without_preparations_runs_without_input(store, conversation, engine, mocker, preparations):
@@ -492,7 +508,7 @@ def test_dod_11_a_preparation_without_content_launches_no_run(
 
 def test_dod_11_missing_s3_dataset_launches_no_run(store, conversation, engine, mocker, preparations):
     created_v2(conversation, mocker, CONFIG_V2 + "  - type: s3\n    dataset: absent.csv\n")
-    mocker.patch("lib.agents.s3.job_inputs.exists", return_value=False)
+    mocker.patch("web.s3.job_inputs.exists", return_value=False)
     with pytest.raises(ValueError, match="s3 absent.csv : jeu introuvable"):
         agents.execute(SLUG_V2)
     agents.jobs.trigger_run.assert_not_called()
@@ -510,8 +526,8 @@ def test_dod_12_generic_cron_delivers_finished_runs_then_launches_due_agents(
 
     agents.tick()
 
-    assert store.json(f"{SLUG_V2}/envois/{NEW_RUN}-0.json")["status"] == "pending_review"
-    assert store.json(f"{SLUG_V2}/agent.json")["pending_runs"] == ["44444444-4444-4444-4444-444444444444"]
+    assert store.delivery(0, NEW_RUN)["status"] == "pending_review"
+    assert store.launched() == ["44444444-4444-4444-4444-444444444444"]
     assert agents.jobs.trigger_run.call_args.kwargs["idempotency_key"].startswith(f"agent-{SLUG_V2}-")
 
 
@@ -525,12 +541,11 @@ def test_dod_12_a_run_whose_sub_agent_failed_stays_pending_and_the_cron_reports_
     runs_output(engine, "Export")
     agents.jobs.trigger_run.return_value = {"id": "44444444-4444-4444-4444-444444444444"}
 
-    with pytest.raises(RuntimeError, match=f"agents en échec : {SLUG_V2}"):
+    with pytest.raises(RuntimeError, match="sous-agent en échec"):
         agents.tick()
 
-    assert store.json(f"{SLUG_V2}/envois/{NEW_RUN}-0.json")["status"] == "subagent_failed"
-    pending = store.json(f"{SLUG_V2}/agent.json")["pending_runs"]
-    assert pending == [NEW_RUN, "44444444-4444-4444-4444-444444444444"]
+    assert store.delivery(0, NEW_RUN)["status"] == "pending_subagents"
+    assert store.launched() == ["44444444-4444-4444-4444-444444444444"]
     post.assert_not_called()
 
 
@@ -543,9 +558,9 @@ def test_dod_12_generic_cron_skips_running_runs_retired_and_on_demand_agents(
     engine.get_run.return_value = {"pipeline_id": PIPELINE_ID, "status": "running"}
     agents.tick()
     assert agents.jobs.trigger_run.call_count == 1
-    assert store.json(f"{SLUG}/agent.json")["pending_runs"] == [NEW_RUN]
+    assert store.launched() == [NEW_RUN]
 
-    agents.revert(applied["id"])
+    retire(conversation, applied["id"])
     agents.tick()
     assert agents.jobs.trigger_run.call_count == 1
 
@@ -554,8 +569,10 @@ def test_dod_12_one_failing_agent_does_not_stop_the_others(store, conversation, 
     created_v2(conversation, mocker)
     agents.execute(SLUG_V2)
     engine.get_run.side_effect = httpx.ConnectError("coupé")
-    with pytest.raises(RuntimeError, match=f"agents en échec : {SLUG_V2}"):
+    mocker.patch("lib.agents.cron.is_due", return_value=True)
+    with pytest.raises(RuntimeError, match="collecte en échec : coupé"):
         agents.tick()
+    assert agents.jobs.trigger_run.call_count == 2
 
 
 def test_dod_13_a_run_now_needs_a_later_message_and_the_confirmation_is_spent(
@@ -583,18 +600,18 @@ def test_dod_13_changing_an_agent_is_a_confirmed_proposal_and_reverts_to_what_it
     engine.create_pipeline.reset_mock()
     weekly = agents.plan(CONFIG_V2.replace("daily", "weekly"), "Tu lis le backlog produit.")
     assert weekly["kind"] == "update"
-    assert store.json(f"{SLUG_V2}/agent.json")["config"]["schedule"] == "daily"
+    assert store.agent(SLUG_V2)["config"]["schedule"] == "daily"
     with pytest.raises(PermissionError, match="message ultérieur"):
         agents.apply(weekly["id"])
 
     conversation.user_replies()
     agents.apply(weekly["id"])
-    agent = store.json(f"{SLUG_V2}/agent.json")
+    agent = store.agent(SLUG_V2)
     assert (agent["config"]["schedule"], agent["version"], agent["pipeline_id"]) == ("weekly", 2, PIPELINE_ID)
     engine.create_pipeline.assert_not_called()
 
-    agents.revert(weekly["id"])
-    assert store.json(f"{SLUG_V2}/agent.json")["config"]["schedule"] == "daily"
+    retire(conversation, weekly["id"])
+    assert store.agent(SLUG_V2)["config"]["schedule"] == "daily"
 
 
 def test_dod_13_a_changed_prompt_is_a_new_pipeline_and_a_stale_proposal_is_refused(store, conversation, engine, mocker):
@@ -605,11 +622,25 @@ def test_dod_13_a_changed_prompt_is_a_new_pipeline_and_a_stale_proposal_is_refus
     conversation.user_replies()
     agents.apply(first["id"])
     assert engine.create_pipeline.call_args.args[0] == f"agent-{SLUG_V2}-v2"
-    assert store.json(f"{SLUG_V2}/agent.json")["pipeline_id"] == "55555555-5555-5555-5555-555555555555"
+    assert store.agent(SLUG_V2)["pipeline_id"] == "55555555-5555-5555-5555-555555555555"
     with pytest.raises(ValueError, match="a changé depuis cette proposition"):
         agents.apply(stale["id"])
     with pytest.raises(ValueError, match="n'est plus la dernière appliquée"):
         agents.revert(create["id"])
+
+
+def test_review_3_retiring_needs_its_own_confirmation_and_the_owner_is_recorded(store, conversation, engine):
+    applied = created_agent(conversation)
+    assert store.agent(SLUG)["owner_email"] == "lj@example.org"
+    with pytest.raises(PermissionError, match="retrait jamais proposé"):
+        agents.revert(applied["id"])
+    assert agents.present_retire(applied["id"])["effect"] == "retire l'agent"
+    with pytest.raises(PermissionError, match="message ultérieur"):
+        agents.revert(applied["id"])
+    assert store.agent(SLUG)["status"] == "active"
+    conversation.user_replies()
+    agents.revert(applied["id"])
+    assert store.agent(SLUG)["status"] == "retired"
 
 
 CONFIG_FILES = (
@@ -661,7 +692,7 @@ def test_dod_16_the_run_receives_its_files_and_the_github_cursor_moves_on(
     store, conversation, engine, mocker, preparations
 ):
     created_v2(conversation, mocker, CONFIG_FILES)
-    agents.agent_files.write_version(SLUG_V2, "notes.md", "Définitions v1", "run r0")
+    write_file(SLUG_V2, "notes.md", "Définitions v1")
     prepare = mocker.patch(
         "lib.agents.agent_connectors.prepare",
         side_effect=[{"source": "a", "content": "A", "next_cursor": 4}, {"source": "b", "content": "B"}],
@@ -671,10 +702,16 @@ def test_dod_16_the_run_receives_its_files_and_the_github_cursor_moves_on(
     rows = preparations.call_args.args[2]
     assert rows[2:] == [[3, "file", "notes.md", "Définitions v1"], [4, "file", "suivi.md", ""]]
     assert result["preparations"][2:] == ["file notes.md", "file suivi.md"]
-    assert store.json(f"{SLUG_V2}/agent.json")["cursors"] == {"0": 4}
+    assert store.agent(SLUG_V2)["cursors"] == {"0": 4}
     prepare.side_effect = [{"source": "a", "content": "A", "next_cursor": 1}, {"source": "b", "content": "B"}]
     agents.execute(SLUG_V2)
     assert prepare.call_args_list[2].args[1] == 4
+
+
+def write_file(slug, name, content):
+    with get_db() as session:
+        agent_id = session.scalar(select(Agent.id).where(Agent.slug == slug))
+        agents.agent_files.write_version(session, agent_id, name, content, "run r")
 
 
 def files_output(engine, deliveries, files=None):
@@ -700,8 +737,8 @@ def test_dod_16_a_run_rewrites_a_file_and_files_labelled_productions_in_another(
     assert suivi["content"] == (
         f"<!-- entree: export-csv -->\n## Export CSV\n\nRésumé.\n\n<!-- entree: {RUN_ID}-1 -->\n## Carte\n\nRésumé.\n\n"
     )
-    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")["labels"] == ["rapide"]
-    assert store.json(f"{SLUG_V2}/envois/{RUN_ID}-1.json")["version"] == 1
+    assert store.delivery(0)["labels"] == ["rapide"]
+    assert store.delivery(1)["file_version"] == 1
     assert agents.read_file(SLUG_V2, "notes.md")["content"].startswith("# Définitions")
     assert [s["status"] for s in agents.deliver_run(SLUG_V2, RUN_ID)] == ["filed", "filed", "pending_review"]
     assert len(agents.file_history(SLUG_V2, "suivi.md")) == 1
@@ -726,7 +763,7 @@ def test_dod_16_a_run_writing_an_undeclared_file_writes_nothing(
     files_output(engine, deliveries, files)
     with pytest.raises(ValueError, match=message):
         agents.deliver_run(SLUG_V2, RUN_ID)
-    assert not [p for p in store.files if "/fichiers/" in p or "/envois/" in p]
+    assert (store.count(), store.count(AgentFileVersion)) == (0, 0)
 
 
 def test_dod_16_a_production_to_an_undeclared_file_refuses_the_run(store, conversation, engine, mocker):
@@ -741,7 +778,7 @@ def test_dod_16_files_are_read_compared_and_reverted_only_after_a_later_yes(
 ):
     created_v2(conversation, mocker, CONFIG_FILES)
     for text in ("v1\n", "v2\n"):
-        agents.agent_files.write_version(SLUG_V2, "notes.md", text, "run r")
+        write_file(SLUG_V2, "notes.md", text)
     file_args = ["--agent", SLUG_V2, "--name", "notes.md"]
     assert cli.main(["file", *file_args, "--version", "1"]) == 0
     assert json.loads(capsys.readouterr().out)["content"] == "v1\n"
@@ -787,7 +824,7 @@ def test_dod_16_the_proposal_shows_files_labels_and_days_and_the_contract_explai
         "Tes fichiers de travail, gardés et versionnés par Autometa, jamais envoyés ailleurs : notes.md, suivi.md."
         in prompt
     )
-    assert "cron sync-connectors, fichier notes.md, fichier suivi.md." in prompt
+    assert "cron sync-connectors, file notes.md, file suivi.md." in prompt
 
 
 def ollama_cloud(*probabilities):
@@ -872,10 +909,10 @@ def test_dod_14_guide_me_to_an_agent_with_a_classifier_a_summary_and_two_crons(
         ["api", "chat"],
         ["v1", "systemone"],
     ]
-    delivered = store.json(f"{SLUG_V2}/envois/{RUN_ID}-0.json")
+    delivered = store.delivery(0)
     assert delivered["text"] == "Une demande d'export CSV."
-    assert [e["type"] for e in delivered["subagents"]] == ["classifier", "summary"]
-    assert store.json(f"{SLUG_V2}/runs/{RUN_ID}.json")["subagent_calls"] == 3
+    assert [e["type"] for e in delivered["subagent_steps"]] == ["classifier", "summary"]
+    assert store.run().subagent_calls == 3
 
 
 BACKLOG_DB = "2715f321b60480e1827df1529ea754f1"

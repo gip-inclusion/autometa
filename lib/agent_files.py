@@ -1,42 +1,74 @@
-"""An agent's own files, kept by Autometa in S3 and versioned: never sent outside, written only if declared."""
+"""An agent's own files, kept by Autometa in Postgres and versioned: never sent outside, written only if declared."""
 
 import difflib
 import logging
 import re
-from datetime import datetime
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from lib.agent_config import AGENT_FILE_MAX
-from lib.agent_delivery import read_json, write_json
+from web.models import AgentFileVersion
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["read", "history", "compare", "write_version", "add_entries", "output_errors"]
+__all__ = ["read", "history", "compare", "write_version", "with_entries", "output_errors"]
 
 ENTRY = re.compile(r"(?m)^<!-- entree: ([0-9a-z-]+) -->\n")
 
 
-def index_path(slug: str, name: str) -> str:
-    return f"{slug}/fichiers/{name}/index.json"
-
-
-def history(slug: str, name: str) -> list[dict]:
+def history(session: Session, agent_id: int, name: str) -> list[dict]:
     """Every version of a file, oldest first: number, date, origin, size; never the content."""
-    return (read_json(index_path(slug, name)) or {"versions": []})["versions"]
+    rows = session.execute(
+        select(
+            AgentFileVersion.version,
+            AgentFileVersion.created_at,
+            AgentFileVersion.origin,
+            func.length(AgentFileVersion.content),
+        )
+        .where(AgentFileVersion.agent_id == agent_id, AgentFileVersion.name == name)
+        .order_by(AgentFileVersion.version)
+    )
+    return [
+        {"version": v, "written_at": at.isoformat(timespec="seconds"), "origin": origin, "size": size}
+        for v, at, origin, size in rows
+    ]
 
 
-def read(slug: str, name: str, version: int | None = None) -> dict:
+def read(session: Session, agent_id: int, name: str, version: int | None = None) -> dict:
     """A version of a file, the latest by default; version 0 is the empty file before any write."""
-    versions = history(slug, name)
-    number = version if version is not None else len(versions)
-    if not 0 <= number <= len(versions):
-        raise ValueError(f"fichier {name} : version {number} inconnue, versions 1 à {len(versions)}")
+    latest = latest_version(session, agent_id, name)
+    number = latest if version is None else version
+    if not 0 <= number <= latest:
+        raise ValueError(f"fichier {name} : version {number} inconnue, versions 1 à {latest}")
     if number == 0:
         return {"name": name, "version": 0, "content": ""}
-    return {**versions[number - 1], "name": name, **read_json(f"{slug}/fichiers/{name}/{number:04d}.json")}
+    row = session.scalar(
+        select(AgentFileVersion).where(
+            AgentFileVersion.agent_id == agent_id, AgentFileVersion.name == name, AgentFileVersion.version == number
+        )
+    )
+    return {
+        "name": name,
+        "version": number,
+        "written_at": row.created_at.isoformat(timespec="seconds"),
+        "origin": row.origin,
+        "size": len(row.content),
+        "content": row.content,
+    }
 
 
-def compare(slug: str, name: str, old: int, new: int) -> str:
-    before, after = read(slug, name, old), read(slug, name, new)
+def latest_version(session: Session, agent_id: int, name: str) -> int:
+    found = session.scalar(
+        select(func.max(AgentFileVersion.version)).where(
+            AgentFileVersion.agent_id == agent_id, AgentFileVersion.name == name
+        )
+    )
+    return found or 0
+
+
+def compare(session: Session, agent_id: int, name: str, old: int, new: int) -> str:
+    before, after = read(session, agent_id, name, old), read(session, agent_id, name, new)
     return "".join(
         difflib.unified_diff(
             before["content"].splitlines(keepends=True),
@@ -47,34 +79,27 @@ def compare(slug: str, name: str, old: int, new: int) -> str:
     )
 
 
-def write_version(slug: str, name: str, content: str, origin: str) -> int:
+def write_version(session: Session, agent_id: int, name: str, content: str, origin: str) -> int:
     """A new version, unless the content is the latest one already; logs the size, never the content."""
     if len(content) > AGENT_FILE_MAX:
         raise ValueError(f"fichier {name} : {len(content)} caractères, {AGENT_FILE_MAX} au plus")
-    versions = history(slug, name)
-    if versions and read(slug, name)["content"] == content:
-        return len(versions)
-    number = len(versions) + 1
-    write_json(f"{slug}/fichiers/{name}/{number:04d}.json", {"content": content})
-    meta = {
-        "version": number,
-        "written_at": datetime.now().isoformat(timespec="seconds"),
-        "origin": origin,
-        "size": len(content),
-    }
-    write_json(index_path(slug, name), {"versions": [*versions, meta]})
-    logger.info("agent %s fichier %s version %d, %d caractères, %s", slug, name, number, len(content), origin)
+    current = read(session, agent_id, name)
+    if current["version"] and current["content"] == content:
+        return current["version"]
+    number = current["version"] + 1
+    session.add(AgentFileVersion(agent_id=agent_id, name=name, version=number, content=content, origin=origin))
+    session.flush()
+    logger.info("agent %s fichier %s version %d, %d caractères, %s", agent_id, name, number, len(content), origin)
     return number
 
 
-def add_entries(slug: str, name: str, entries: list[tuple[str, str, str]], origin: str) -> int:
-    """Put each (key, title, text) in the file: a key already there is replaced in place, a new one appended."""
-    parts = ENTRY.split(read(slug, name)["content"])
+def with_entries(content: str, entries: list[tuple[str, str, str]]) -> str:
+    """The file with each (key, title, text): a key already there is replaced in place, a new one appended."""
+    parts = ENTRY.split(content)
     keyed = dict(zip(parts[1::2], parts[2::2]))
     for key, title, text in entries:
         keyed[key] = f"## {title}\n\n{text.strip()}\n\n"
-    content = parts[0] + "".join(f"<!-- entree: {k} -->\n{block}" for k, block in keyed.items())
-    return write_version(slug, name, content, origin)
+    return parts[0] + "".join(f"<!-- entree: {k} -->\n{block}" for k, block in keyed.items())
 
 
 def output_errors(files: object, declared: list[str], fed: set[str]) -> list[str]:

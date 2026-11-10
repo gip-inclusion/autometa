@@ -438,11 +438,10 @@ def title_property(database_id: str) -> str:
     return next(name for name, prop in schema["properties"].items() if prop["type"] == "title")
 
 
-def create_page(database_id: str, title: str, content: str) -> dict:
-    """Create a page in a database from markdown; returns its id and url."""
+def create_page(database_id: str, title: str) -> dict:
+    """Create an empty page in a database; returns its id and url, to be kept before any content is added."""
     properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
     page = notion_request("POST", "pages", {"parent": {"database_id": database_id}, "properties": properties})
-    append_markdown(page["id"], content)
     return {"id": page["id"], "url": page["url"]}
 
 

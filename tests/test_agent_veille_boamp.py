@@ -9,9 +9,10 @@ import pytest
 from lib import agent_config, agents
 from skills.agents.scripts import agents as cli
 from tests.test_agent_connectors import PUBLIC, addresses
-from tests.test_agent_delivery import FakeStore
-from tests.test_agents import PIPELINE_ID, RUN_ID, Conversation, labels_cloud
+from tests.test_agent_delivery import Rows
+from tests.test_agents import PIPELINE_ID, RUN_ID, Conversation, labels_cloud, write_file
 from web import config
+from web.db import test_transaction as _test_tx
 
 AGENTS_DIR = config.BASE_DIR / "agents"
 CONFIG = (AGENTS_DIR / "veille-boamp.yaml").read_text()
@@ -87,11 +88,10 @@ class Boamp:
 
 
 @pytest.fixture
-def store(mocker):
-    fake = FakeStore()
-    mocker.patch("lib.agent_delivery.s3.agents", fake)
+def store(_db, mocker):
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {"bizdev.marche": "C0BIZDEV"})
-    return fake
+    with _test_tx():
+        yield Rows()
 
 
 def registered(mocker) -> dict:
@@ -146,6 +146,7 @@ def test_dod_2_nothing_carries_a_long_dash(text):
     assert not re.search("[–—]", text)
 
 
+@pytest.mark.integration
 def test_dod_4_repository_agent_registers_with_its_rules_as_first_version(store, mocker):
     conversation = Conversation(mocker)
     create = mocker.patch("lib.agents.jobs.create_pipeline", return_value={"id": PIPELINE_ID})
@@ -163,6 +164,7 @@ def test_dod_4_repository_agent_registers_with_its_rules_as_first_version(store,
     assert agents.read_file("veille-boamp", "regles.md")["content"] == REGLES
 
 
+@pytest.mark.integration
 def test_dod_4_the_skill_proposes_the_repository_files_as_they_are(store, mocker, capsys):
     Conversation(mocker)
     folder = AGENTS_DIR / "veille-boamp"
@@ -171,6 +173,7 @@ def test_dod_4_the_skill_proposes_the_repository_files_as_they_are(store, mocker
     assert json.loads(capsys.readouterr().out)["initial_files"] == {"regles.md": REGLES}
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("initial_files", "message"),
     [
@@ -178,19 +181,21 @@ def test_dod_4_the_skill_proposes_the_repository_files_as_they_are(store, mocker
         ({"regles.md": "x" * 100_001}, "fichier initial regles.md : 100001 caractères, 100000 au plus."),
     ],
 )
+@pytest.mark.integration
 def test_an_initial_value_outside_the_declared_files_is_refused(store, mocker, initial_files, message):
     Conversation(mocker)
     with pytest.raises(ValueError, match=re.escape(message)):
         agents.plan(CONFIG, CONSIGNE, initial_files)
 
 
+@pytest.mark.integration
 def test_an_initial_value_never_overwrites_what_the_agent_wrote(store, mocker):
     registered(mocker)
-    agents.agent_files.write_version("veille-boamp", "regles.md", "# Revu par l'agent", "run x")
+    write_file("veille-boamp", "regles.md", "# Revu par l'agent")
     registered(mocker)
     assert [v["origin"][:15] for v in agents.file_history("veille-boamp", "regles.md")] == [
         "valeur initiale",
-        "run x",
+        "run r",
     ]
 
 
@@ -200,6 +205,7 @@ def test_dod_6_the_generic_cron_launches_it_on_mondays_only(mocker, day, due):
     assert agents.due(agent_config.parse(CONFIG)["schedule"]) is due
 
 
+@pytest.mark.integration
 def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_by_heading(store, mocker):
     """BOAMP and Ollama are mocked at the HTTP level; Slack and Notion are never called."""
     registered(mocker)
@@ -234,11 +240,11 @@ def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_b
         ("recorded", 0),
     ]
     assert ollama.call_count == 5
-    records = [store.json(f"veille-boamp/envois/{RUN_ID}-{i}.json") for i in range(3)]
-    assert [r.get("labels") for r in records] == [["outils-numeriques"], None, ["prestations-insertion"]]
+    records = [store.delivery(i) for i in range(3)]
+    assert [r["labels"] for r in records] == [["outils-numeriques"], [], ["prestations-insertion"]]
     assert records[0]["text"].endswith("idweb:26-000001\n\nÉtiquettes : outils-numeriques")
-    assert records[1]["subagents"][0]["probability"] == 0.18
-    digest = store.json(f"veille-boamp/envois/{summary[-1]['id']}.json")
+    assert records[1]["subagent_steps"][0]["probability"] == 0.18
+    digest = store.delivery(None)
     assert digest["title"].endswith(" : retenus 2, écartés 1")
     assert digest["text"] == (
         "## outils-numeriques\n"
