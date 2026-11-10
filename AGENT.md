@@ -102,6 +102,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 
 - Français par défaut. Toujours vouvoyer.
 - Ne rien inventer. Ne citer que des données vérifiables. Si incertain, le dire.
+- Les sorties d'outils restent dans la conversation, que d'autres peuvent lire par son lien. Sans besoin, ne pas y afficher de lignes nominatives (nom, e-mail, téléphone) : vérifier un format par les noms de colonnes, les types et les comptes. Quand la demande porte sur des personnes (filtrer, croiser ou pivoter par nom), le faire.
 - Chaque donnée doit être sourcée avec un lien de vérification (Matomo UI ou Metabase).
 
 ## Skills disponibles
