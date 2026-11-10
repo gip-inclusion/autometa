@@ -96,8 +96,7 @@ dev = [
 target-version = "py314"
 line-length = 120
 # evals/: experimental evaluation scripts, intentionally loose style
-# skills/pdf/: vendored Anthropic skill (proprietary upstream) — don't reformat
-exclude = ["data/", ".venv/", "evals/", "skills/pdf/"]
+exclude = ["data/", ".venv/", "evals/"]
 
 [tool.ruff.lint]
 preview = true
