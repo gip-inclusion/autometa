@@ -105,6 +105,15 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Les sorties d'outils restent dans la conversation, que d'autres peuvent lire par son lien. Sans besoin, ne pas y afficher de lignes nominatives (nom, e-mail, téléphone) : vérifier un format par les noms de colonnes, les types et les comptes. Quand la demande porte sur des personnes (filtrer, croiser ou pivoter par nom), le faire.
 - Chaque donnée doit être sourcée avec un lien de vérification (Matomo UI ou Metabase).
 
+## Chiffres et affirmations
+
+- Un chiffre cité est lu dans une sortie d'outil de la conversation ou calculé par un script : jamais de somme, de part, de ratio, d'écart ni de comptage faits de tête. Un tableau de livrable sort du script, il n'est pas recopié à la main.
+- Une part nomme son dénominateur. La période annoncée est celle du calcul.
+- « Vérifié » seulement si la comparaison a été exécutée. Une cible, une cause ou une tendance non mesurées sont des hypothèses : les présenter comme telles, avec leur calcul.
+- Une affirmation sur un code, une configuration, une règle métier ou un accès cite sa preuve (dépôt et chemin, commit, requête), sinon elle se formule comme hypothèse. Une valeur par défaut du code n'est pas la configuration de prod ; un timeout ou un code 000 n'est pas un refus d'accès.
+- Une absence (« aucun », « n'existe pas », « pas d'accès ») ne s'affirme qu'après une recherche exhaustive : tout le dépôt, toutes les colonnes, sans filtre.
+- Un brouillon destiné à un tiers garde ses marqueurs d'incertitude.
+
 ## Skills disponibles
 
 Invoquer via l'outil `Skill` :
