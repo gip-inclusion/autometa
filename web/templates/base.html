@@ -35,7 +35,12 @@
   {% block head %}{% endblock %}
 </head>
 
-<body id="top" class="{% block body_class %}has-sidebar{% endblock %}">
+<body id="top" class="{% block body_class %}has-sidebar{% endblock %}{% if shows_staging_banner %} is-staging{% endif %}">
+  {% if shows_staging_banner %}
+  <div class="staging-banner" role="alert">
+    <span>Version de test, ne pas utiliser. <a href="https://autometa.inclusion.gouv.fr/">Aller en production</a></span>
+  </div>
+  {% endif %}
   <nav role="navigation" aria-label="Accès rapide" tabindex="0" class="c-skiplinks">
     <ul>
       <li><a href="#nav-primary">Aller au menu principal</a></li>

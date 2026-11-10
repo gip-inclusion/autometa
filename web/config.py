@@ -83,6 +83,9 @@ DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
+# Adresse publique de l'application de prod : liens vers ses conversations produits depuis un poste local.
+PROD_URL = os.getenv("PROD_URL", "https://autometa.inclusion.gouv.fr").rstrip("/")
+
 # Default user for local development (when oauth-proxy not present)
 DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 
@@ -290,6 +293,11 @@ def agent_conversation_id() -> str | None:
 def agent_user_email() -> str | None:
     """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_USER_EMAIL")
+
+
+def query_failures_path() -> str | None:
+    """Fichier où un cron de TDB note ses requêtes en échec, injecté par web/cron.py:execute_task()."""
+    return os.getenv("AUTOMETA_QUERY_FAILURES_FILE")
 
 
 def dashboard_slug() -> str | None:

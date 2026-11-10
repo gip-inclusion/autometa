@@ -2,19 +2,20 @@
 
 import hashlib
 import logging
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Optional
 
-import httpx
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 from sqlalchemy.exc import ProgrammingError
 
 from web import config
 
-from . import notion
+from . import github, notion
 from .airtable import AirtableClient
 from .data_inclusion import execute_sql as _di_execute_sql
 from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
@@ -75,6 +76,19 @@ class QueryResult:
     invalid_request: bool = False
 
 
+def record_query_failure(error: str) -> None:
+    """Signale au runner de cron une requête en échec, que le script s'en remette ou non."""
+    path = config.query_failures_path()
+    if not path:
+        return
+    try:
+        with Path(path).open("a", encoding="utf-8") as failures:
+            failures.write(error.partition("\n")[0][:200] + "\n")
+    # Why: la façade promet de ne jamais lever ; perdre ce signal ne vaut pas de casser le TDB.
+    except OSError as e:
+        logger.warning("échec de requête non signalé au runner (%s)", e)
+
+
 def _run_traced_query(
     span_name: str,
     attrs: dict,
@@ -94,9 +108,10 @@ def _run_traced_query(
                 data=None,
                 error=str(e),
                 execution_time_ms=int((time.time() - start) * 1000),
-                # Why: SQL invalide, table ou schéma absent, droit manquant — la faute est à la requête, pas à la source.
-                invalid_request=isinstance(e, ProgrammingError),
+                # Why: SQL invalide, table absente, droit manquant, motif refusé — la faute est à la requête, pas à la source.
+                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern)),
             )
+            record_query_failure(result.error)
         _record_result(span, result)
         log_attrs: dict[str, Any] = {
             **attrs,
@@ -123,8 +138,9 @@ def execute_metabase_query(
     database_id: Optional[int] = None,
     card_id: Optional[int] = None,
     timeout: int = 60,
+    params: Optional[dict[str, int | str]] = None,
 ) -> QueryResult:
-    """Execute a Metabase query (sql+database_id or card_id). Returns QueryResult, never raises."""
+    """Execute a Metabase query (sql+database_id or card_id), `{{name}}` bound from params. Never raises."""
     attrs: dict[str, Any] = {
         "db.system": "metabase",
         "metabase.instance": instance,
@@ -139,7 +155,7 @@ def execute_metabase_query(
         api = get_metabase(instance, database_id=database_id)
         api.caller = caller.value
         if sql:
-            return _wrap_columns_rows(api.execute_sql(sql, timeout=timeout))
+            return _wrap_columns_rows(api.execute_sql(sql, timeout=timeout, params=params))
         if card_id is not None:
             return _wrap_columns_rows(api.execute_card(card_id, timeout=timeout))
         raise ValueError("Either sql+database_id or card_id must be provided")
@@ -468,30 +484,57 @@ def execute_airtable_query(
     return _run_traced_query("airtable.query", attrs, _do)
 
 
+def refused(error: ValueError) -> QueryResult:
+    """Une requête refusée avant tout appel : la faute est à la requête, pas à la source."""
+    return QueryResult(success=False, data=None, error=str(error), invalid_request=True)
+
+
 def execute_github_query(
     path: str, caller: CallerType, params: Optional[dict] = None, timeout: int = 30
 ) -> QueryResult:
-    """GET on the GitHub REST API (read-only), gip-inclusion repositories only. Returns QueryResult, never raises."""
-    path = str(path).lstrip("/")
-    # Why: the app token can read every repository it sees, private ones included — a dashboard may publish what it reads.
-    if not path.startswith("repos/gip-inclusion/") or ".." in path:
-        return QueryResult(
-            success=False,
-            data=None,
-            error=f"{path} : seuls les chemins repos/gip-inclusion/… sont permis",
-            invalid_request=True,
-        )
-    attrs = {"db.system": "github", "caller": caller.value, "github.path": path}
+    """GET on the GitHub REST API (read-only), public repositories of github.ORGS only. Returns QueryResult, never raises."""
+    try:
+        github.repository_of(path)
+    except ValueError as e:
+        return refused(e)
+    attrs = {"db.system": "github", "caller": caller.value, "github.path": str(path)}
+    return _run_traced_query("github.query", attrs, lambda: github.api(path, params, timeout=timeout))
+
+
+def execute_github_file(repo: str, path: str, caller: CallerType, ref: Optional[str] = None) -> QueryResult:
+    """Text content of a file of a public repository of github.ORGS. Returns QueryResult, never raises."""
+    try:
+        repo = github.repository(repo)
+    except ValueError as e:
+        return refused(e)
+    attrs = {"db.system": "github", "caller": caller.value, "github.repo": repo, "github.file": str(path)}
+    return _run_traced_query("github.file", attrs, lambda: github.read(repo, path, ref))
+
+
+def execute_github_search(
+    repo: str,
+    pattern: str,
+    caller: CallerType,
+    ref: Optional[str] = None,
+    glob: Optional[str] = None,
+    ignore_case: bool = False,
+    max_results: int = 200,
+) -> QueryResult:
+    """Regex search in a public repository of github.ORGS, through a throwaway clone. Returns QueryResult, never raises."""
+    try:
+        repo, ref = github.repository(repo), github.reference(ref)
+    except ValueError as e:
+        return refused(e)
+    attrs = {"db.system": "github", "caller": caller.value, "github.repo": repo}
 
     def _do():
-        headers = {"Accept": "application/vnd.github+json"}
-        if config.GITHUB_TOKEN:
-            headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
-        response = httpx.get(f"https://api.github.com/{path}", params=params, headers=headers, timeout=timeout)
-        response.raise_for_status()
-        return response.json()
+        github.sweep()
+        with tempfile.TemporaryDirectory() as root:
+            # Why: un cron tué à l'expiration de son délai laisse son clone ; rangé sous github/, le ménage le retrouve.
+            path, commit = github.clone(repo, Path(root) / "github", ref)
+            return {"commit": commit, **github.grep(path, pattern, glob, ignore_case, max_results)}
 
-    return _run_traced_query("github.query", attrs, _do)
+    return _run_traced_query("github.search", attrs, _do)
 
 
 def execute_notion_query(

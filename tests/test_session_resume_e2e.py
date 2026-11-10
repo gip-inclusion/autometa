@@ -119,7 +119,8 @@ async def _run_consumer_cycle(runner, fake_redis, turns=1):
     expected = len(runner._calls) + turns
     consumer = asyncio.create_task(runner._consumer_loop())
     # Why: une attente fixe échoue quand la suite sature les cœurs (xdist) — on attend la fin réelle des tours.
-    async with asyncio.timeout(10):
+    # Le plafond n'est qu'un garde-fou contre un blocage : large, il ne coûte rien quand le test passe.
+    async with asyncio.timeout(60):
         while len(runner._calls) < expected or runner._running:
             await asyncio.sleep(0.01)
     consumer.cancel()
