@@ -99,17 +99,24 @@ Mapping statut :
 
 ---
 
-### Les Emplois — Recherche d'offre
+### Les Emplois — Recherche d'offre d'emploi
 
 **Instance :** Matomo · **ID site :** 117
-**Méthode :** vues de page sur `/search/employers/results`
+**Méthode :** visites (`nb_visits`) comportant au moins une page `/search/employers/results`. Jamais les pages vues : chaque filtre ou page de résultats compterait une fois de plus.
 
 | Type acte | Catégorie | Statut |
 |-----------|-----------|--------|
-| Recherche d'offre | Support à l'accompagnement | Accompli et accepté |
+| Recherche d'offre d'emploi | Support à l'accompagnement | Accompli et accepté |
 
 **Note :** Cet acte est tracé via Matomo (pas de table DB). Le département est estimé
 par enrichissement — voir section « Dimension territoriale » ci-dessous.
+
+### Les Emplois — Recherche d'offre de service
+
+**Instance :** Matomo · **ID site :** 117
+**Méthode :** visites (`nb_visits`) comportant au moins une page `/search/services/results`.
+
+Type acte : « Recherche d'offre de service, hors emploi solidaire ». Le même acte existe pour Dora (source `dora`). À compter avec la recherche d'offre d'emploi dès qu'on mesure les recherches.
 
 ---
 
