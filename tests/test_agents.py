@@ -576,6 +576,49 @@ def test_dod_12_one_failing_agent_does_not_stop_the_others(store, conversation, 
     assert agents.jobs.trigger_run.call_count == 2
 
 
+@pytest.mark.parametrize("status", ["failed", "cancelled"])
+def test_review_2_1_a_failed_or_cancelled_run_is_closed_once_and_launching_goes_on(
+    store, conversation, engine, mocker, preparations, status
+):
+    created_v2(conversation, mocker)
+    agents.execute(SLUG_V2)
+    engine.get_run.return_value = {"pipeline_id": PIPELINE_ID, "status": status}
+    mocker.patch("lib.agents.cron.is_due", return_value=True)
+    with pytest.raises(RuntimeError, match=f"run {status} côté moteur de jobs"):
+        agents.tick()
+    assert store.run(NEW_RUN).status == status
+    assert agents.jobs.trigger_run.call_count == 2
+    mocker.patch("lib.agents.cron.is_due", return_value=False)
+    agents.tick()
+
+
+def test_review_2_1_a_run_waiting_while_the_instructions_change_is_still_delivered(
+    store, conversation, engine, mocker, preparations
+):
+    """Review 2.1: a new prompt is a new pipeline; the run launched on the old one used to be refused for ever."""
+    created_v2(conversation, mocker)
+    agents.execute(SLUG_V2)
+    engine.create_pipeline.return_value = {"id": "55555555-5555-5555-5555-555555555555"}
+    changed = agents.plan(CONFIG_V2, "Tu lis le backlog produit et les retours.")
+    conversation.user_replies()
+    agents.apply(changed["id"])
+    runs_output(engine, "Export CSV")
+    ollama_says(mocker, 0.9)
+    assert [s["status"] for s in agents.deliver_run(SLUG_V2, NEW_RUN)] == ["pending_review"]
+
+
+def test_review_2_1_a_file_that_its_entries_would_overflow_refuses_the_run_before_anything_is_written(
+    store, conversation, engine, mocker
+):
+    created_v2(conversation, mocker, CONFIG_FILES)
+    write_file(SLUG_V2, "suivi.md", "x" * (agents.agent_config.AGENT_FILE_MAX - 10))
+    files_output(engine, [{"destination": "file:suivi.md", "title": "Export CSV", "text": "Trois demandes."}])
+    with pytest.raises(ValueError, match="le fichier passerait 100000 caractères"):
+        agents.deliver_run(SLUG_V2, RUN_ID)
+    assert store.count() == 0
+    assert store.run().status == "refused"
+
+
 def test_dod_13_a_run_now_needs_a_later_message_and_the_confirmation_is_spent(
     store, conversation, engine, mocker, preparations
 ):
