@@ -209,7 +209,7 @@ En Docker, le répertoire de travail est `/app`.
 - Ne jamais créer ni modifier de fichiers sous `/app/web/` ou `/app/lib/` — perdu au redémarrage
 - Fichiers publics dans `/app/data/interactive/`, servis à `/interactive/`
 - Toujours utiliser des URLs relatives (`/interactive/...`)
-- Ne jamais utiliser WebFetch/curl sur les URLs `matometa.osc-fr1.scalingo.io` — ces pages sont derrière oauthproxy et retourneront 403. Lire les fichiers directement depuis `/app/data/interactive/` ou les télécharger depuis S3.
+- Ne jamais utiliser WebFetch/curl sur les URLs `autometa.inclusion.gouv.fr` ou de l'ancien domaine `matometa.osc-fr1.scalingo.io` — ces pages sont derrière oauthproxy et retourneront 403. Lire les fichiers directement depuis `/app/data/interactive/` ou les télécharger depuis S3.
 - Utiliser `/tmp/` pour le scratch
 
 ## Dépôts GitHub
