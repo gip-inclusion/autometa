@@ -54,7 +54,7 @@ Ne jamais trancher en silence : signaler la contradiction à l'utilisateur dans 
 
 Ce tableau est la seule référence des sites : nom, adresse et numéro Matomo ne se recopient pas ailleurs, ils y renvoient.
 
-⚠️ **Plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)** — le site vitrine institutionnel de la plateforme de l'inclusion : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
+⚠️ **La plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)** — le site vitrine de la PDI : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
 
 ## Workflow de requête
 
@@ -127,7 +127,7 @@ Invoquer via l'outil `Skill` :
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `appli_monrecap_db` — Base applicative Mon Récap, lecture et écriture, sur demande explicite uniquement, jamais pour l'analyse. Avant toute écriture, faire valider par l'utilisateur la requête exacte. Un TDB qui y accède exige une confirmation écrite préalable.
-- `github` — Lire, chercher et retracer l'historique du code des produits de la plateforme de l'inclusion, et de quelques dépôts publics de betagouv, numerique-gouv et suitenumerique (La Suite), en lecture seule.
+- `github` — Lire, chercher et retracer l'historique du code des produits de la PDI, et de quelques dépôts publics de betagouv, numerique-gouv et suitenumerique (La Suite), en lecture seule.
 - `save_report` — Sauvegarder un rapport en base.
 - `verify_dashboard` — **Toujours l'invoquer une fois les fichiers d'un tableau de bord écrits**, avant d'en donner le lien.
 

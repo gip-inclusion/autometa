@@ -7,7 +7,7 @@ verifie_le: 2026-06-17
 **URL:** https://datalake.inclusion.beta.gouv.fr
 **Instance name:** `datalake`
 
-Cross-product analytics for la Plateforme de l'inclusion. Contains aggregated user data across multiple services (Plateforme ex-Emplois, Pilotage, GPS, Dora, Mon Recap, etc.).
+Cross-product analytics for the PDI's services. Contains aggregated user data across multiple services (La plateforme ex-Emplois, Pilotage, GPS, Dora, Mon Recap, etc.).
 
 ## Usage
 
@@ -131,7 +131,7 @@ Do not use this table, instead use the data in the **stats** database
 **Mise à jour :** Quotidienne via n8n  
 **Clé commune :** `email` (identifiant unique cross-services)
 
-Base unifiée des utilisateurs professionnels de tous les services de la Plateforme de l'inclusion.
+Base unifiée des utilisateurs professionnels de tous les services de la PDI.
 
 #### Sources de données
 

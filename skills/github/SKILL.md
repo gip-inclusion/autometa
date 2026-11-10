@@ -1,6 +1,6 @@
 ---
 name: github
-description: Lire, chercher et retracer l'historique du code des dépôts publics GitHub de gip-inclusion, betagouv, numerique-gouv et suitenumerique — fichiers, recherche dans tout un dépôt, historique, blame, pull requests. Lecture seule. À utiliser dès qu'une question porte sur le code d'un produit de la plateforme de l'inclusion (comment est calculé un indicateur, d'où vient un événement Matomo, quand un comportement a changé) ; les autres dépôts, seulement quand l'utilisateur les nomme.
+description: Lire, chercher et retracer l'historique du code des dépôts publics GitHub de gip-inclusion, betagouv, numerique-gouv et suitenumerique — fichiers, recherche dans tout un dépôt, historique, blame, pull requests. Lecture seule. À utiliser dès qu'une question porte sur le code d'un produit de la PDI (comment est calculé un indicateur, d'où vient un événement Matomo, quand un comportement a changé) ; les autres dépôts, seulement quand l'utilisateur les nomme.
 ---
 
 # GitHub — lire le code des produits
@@ -9,7 +9,7 @@ Dépôts **publics** des organisations `gip-inclusion`, `betagouv`, `numerique-g
 
 ## Quand l'utiliser
 
-- **Produits de la plateforme de l'inclusion** (tableau « Dépôts GitHub » des instructions de l'agent) : de sa propre initiative, dès qu'une question porte sur leur code. Le cas typique : vérifier quelque chose dans La plateforme de l'inclusion (ex-Emplois, `gip-inclusion/les-emplois`) ou RDV-Insertion (`gip-inclusion/rdv-insertion`).
+- **Produits de la PDI** (tableau « Dépôts GitHub » des instructions de l'agent) : de sa propre initiative, dès qu'une question porte sur leur code. Le cas typique : vérifier quelque chose dans La plateforme de l'inclusion (ex-Emplois, `gip-inclusion/les-emplois`) ou RDV-Insertion (`gip-inclusion/rdv-insertion`).
 - **Produits voisins**, quand l'utilisateur les nomme clairement :
 
 | Produit | Dépôt |

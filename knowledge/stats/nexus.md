@@ -2,13 +2,13 @@
 source: metabase:stats
 verifie_le: 2026-03-04
 ---
-# Nexus (Le portail de la Plateforme de l’inclusion)
+# Nexus (Le portail des services de la PDI)
 
 ## Description du service
-Nexus est une fonctionnalité de la Plateforme (ex-Emplois) qui permet aux utilisateurs
+Nexus est une fonctionnalité de La plateforme (ex-Emplois) qui permet aux utilisateurs
 professionnels (prescripteurs, employeurs/SIAE, offreurs de service) de consulter
-de manière centralisée leur présence sur l'ensemble des services de la Plateforme.
-Le portail facilite l’accès aux services numériques de la Plateforme de l’inclusion pour les structures d’insertion et les accompagnateurs.
+de manière centralisée leur présence sur l'ensemble des services de la PDI.
+Le portail facilite l’accès aux services numériques de la PDI pour les structures d’insertion et les accompagnateurs.
 Il réunit toutes les données et actions métiers pertinentes dans un seul interface web et met fin à la multiplication des mots de passe et à la répétition d’informations.
 
 ## Publics cibles
@@ -34,7 +34,7 @@ La clé de jointure est `id_unique` (format `{source}--{id_source}`, ex: `dora--
 
 ### public.structures
 
-Liste des structures présentes sur au moins un service de la Plateforme.
+Liste des structures présentes sur au moins un service de la PDI.
 
 **Volumétrie :** 52 573 lignes · 30 142 SIRETs distincts · 21 835 doublons cross-services
 

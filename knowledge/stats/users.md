@@ -4,7 +4,7 @@ verifie_le: 2026-07-15
 ---
 # Utilisateurs (les pros)
 
-Les utilisateurs professionnels des services de la Plateforme de l'inclusion :
+Les utilisateurs professionnels des services de la PDI :
 employeurs, prescripteurs, inspecteurs du travail.
 
 **Les candidats (demandeurs d'emploi) ne sont pas dans cette table** — voir [candidats.md](candidats.md).
@@ -13,7 +13,7 @@ employeurs, prescripteurs, inspecteurs du travail.
 
 **Table :** `public.utilisateurs` (instance stats, database 2 ; aussi dans `autometa_tables_db`)
 **Volumétrie :** ~92 000 comptes pour ~106 000 lignes : **une ligne par rattachement** (structure, organisation ou institution), jusqu'à plusieurs centaines pour un même compte. Compter `COUNT(DISTINCT id)` et dédupliquer par `id` avant toute jointure, sinon les lignes jointes (candidatures, orientations…) sont multipliées. Contrôler le total brut contre le total après jointure.
-**Scope :** Utilisateurs pros de la Plateforme (ex-Emplois) exclusivement (mais les plus nombreux de la plateforme).
+**Scope :** Utilisateurs pros de La plateforme (ex-Emplois) exclusivement (mais les plus nombreux de la PDI).
 
 ### Colonnes clés
 

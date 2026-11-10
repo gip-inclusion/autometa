@@ -9,7 +9,7 @@ verifie_le: 2026-09-23
 - GitHub: https://github.com/gip-inclusion/les-emplois
 - Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
 
-⚠️ Ne pas confondre avec le **Site institutionnel** (ID Matomo 212, `inclusion.gouv.fr`, [site-institutionnel.md](site-institutionnel.md)) — le site vitrine de La plateforme de l'inclusion : deux sites distincts malgré le nom proche.
+⚠️ Ne pas confondre avec le **Site institutionnel** (ID Matomo 212, `inclusion.gouv.fr`, [site-institutionnel.md](site-institutionnel.md)) — le site vitrine de la PDI : deux sites distincts malgré le nom proche.
 
 ## Key Concepts: Two Dimensions of the IAE Workflow
 
