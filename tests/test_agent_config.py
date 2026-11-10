@@ -1,8 +1,11 @@
+import importlib
+
 import pytest
 import yaml
 
 from lib import agent_config
 from lib.agent_connectors import cron as cron_connector
+from web import config
 
 SLUG = "signaux-faibles-mep"
 
@@ -292,3 +295,18 @@ def test_dod_17_labels_days_and_files_compose_freely_and_are_described_for_the_r
     ]
     assert agent_config.describe(make_agent(schedule="weekly"))[-1] == "cadence : weekly"
     assert agent_config.describe(make_agent())[-1] == "cadence : à la demande"
+
+
+@pytest.mark.parametrize("raw", ["{pas du json", '["C0SLACK"]', '{"produit.signal_faible": 12}'])
+def test_review_2_6_invalid_destination_targets_warn_and_never_break_the_import(monkeypatch, caplog, raw):
+    """Review 2.6: a malformed AGENT_DESTINATION_TARGETS used to make the import fail, so the web and every cron."""
+    monkeypatch.setenv("AGENT_DESTINATION_TARGETS", raw)
+    try:
+        with caplog.at_level("WARNING"):
+            importlib.reload(config)
+        assert config.AGENT_DESTINATION_TARGETS == {}
+        assert "AGENT_DESTINATION_TARGETS" in caplog.text
+        assert raw not in caplog.text
+    finally:
+        monkeypatch.delenv("AGENT_DESTINATION_TARGETS")
+        importlib.reload(config)
