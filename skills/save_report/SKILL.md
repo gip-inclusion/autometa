@@ -12,7 +12,7 @@ Create, update, or append reports to the PostgreSQL database.
 **Step 1:** Write report content to a file using the Write tool:
 
 ```markdown
-# /tmp/report.md
+# /tmp/$AUTOMETA_CONVERSATION_ID/report.md
 ---
 date: 2026-01-07
 website: emplois
@@ -30,7 +30,7 @@ Report content...
 ```bash
 # Create new report (ALWAYS include --tags)
 python skills/save_report/scripts/save_report.py \
-    --file /tmp/report.md \
+    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
     --title "Monthly traffic analysis" \
     --website emplois \
     --category "Traffic analysis" \
@@ -38,14 +38,14 @@ python skills/save_report/scripts/save_report.py \
 
 # Append to conversation (ALWAYS include --tags)
 python skills/save_report/scripts/save_report.py \
-    --file /tmp/report.md \
+    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
     --conversation-id "uuid-here" \
     --title "Follow-up analysis" \
     --tags "explo,emplois,prescripteurs"
 
 # Update existing report
 python skills/save_report/scripts/save_report.py \
-    --file /tmp/report.md \
+    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
     --report-id 42
 
 # List recent reports

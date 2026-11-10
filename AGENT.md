@@ -210,7 +210,7 @@ En Docker, le répertoire de travail est `/app`.
 - Fichiers publics dans `/app/data/interactive/`, servis à `/interactive/`
 - Toujours utiliser des URLs relatives (`/interactive/...`)
 - Ne jamais utiliser WebFetch/curl sur les URLs `autometa.inclusion.gouv.fr` ou de l'ancien domaine `matometa.osc-fr1.scalingo.io` — ces pages sont derrière oauthproxy et retourneront 403. Lire les fichiers directement depuis `/app/data/interactive/` ou les télécharger depuis S3.
-- Utiliser `/tmp/` pour le scratch
+- Scratch dans `/tmp/$AUTOMETA_CONVERSATION_ID/`, jamais à la racine de `/tmp` : `/tmp` est partagé entre toutes les conversations du conteneur. Ne jamais exécuter, écraser ni supprimer un fichier de `/tmp` qu'on n'a pas créé dans la conversation.
 
 ## Dépôts GitHub
 

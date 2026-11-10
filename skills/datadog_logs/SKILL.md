@@ -36,7 +36,7 @@ python skills/datadog_logs/scripts/query.py \
 # Dump massif en JSONL, pour analyser en local
 python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @usr.id:*' --days 30 --chunk 5 \
-    --dump /tmp/logs.jsonl --field http.url --field usr.id
+    --dump /tmp/$AUTOMETA_CONVERSATION_ID/logs.jsonl --field http.url --field usr.id
 ```
 
 Sortie : JSON sur stdout. `--dump` écrit un JSONL (une ligne par événement) et renvoie un récapitulatif.
