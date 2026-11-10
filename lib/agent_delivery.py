@@ -241,7 +241,7 @@ def build_digests(session: Session, agent: dict, run: AgentRun) -> None:
             status=initial_status(mode),
             title=f"{agent['title']}, run du {datetime.now():%d/%m/%Y} : retenus {len(kept)}, "
             f"écartés {len(members) - len(kept)}",
-            text=digest_text(agent, kept),
+            text=digest_text(agent, kept, run.files_written),
         )
         session.add(digest)
         session.flush()
@@ -249,7 +249,7 @@ def build_digests(session: Session, agent: dict, run: AgentRun) -> None:
             m.digest_id = digest.id
 
 
-def digest_text(agent: dict, kept: list[AgentDelivery]) -> str:
+def digest_text(agent: dict, kept: list[AgentDelivery], files_written: list[dict]) -> str:
     labels = [e["name"] for o in agent.get("subagents", []) for e in o.get("labels", [])]
     sections: dict[str, list[str]] = {heading: [] for heading in [*labels, "Autres"]}
     for row in kept:
@@ -258,7 +258,14 @@ def digest_text(agent: dict, kept: list[AgentDelivery]) -> str:
         # Why: a production stands in every section of its labels, and under Autres only without any.
         for heading in [label for label in labels if label in row.labels] or ["Autres"]:
             sections[heading].append(line)
-    return digest_lines({h: rows for h, rows in sections.items() if rows}) or "Aucune production retenue."
+    text = digest_lines({h: rows for h, rows in sections.items() if rows}) or "Aucune production retenue."
+    # Why: a file the worker rewrote after reading untrusted sources becomes its next instructions; say so.
+    rewritten = [
+        f"- {f['name']} : version {f['version']}, {f['size']} caractères (avant : {f['previous_size']}) ; "
+        f"comparer avec la commande diff du skill agents"
+        for f in files_written
+    ]
+    return text + ("\n\n## Fichiers réécrits par ce run, à relire\n" + "\n".join(rewritten) if rewritten else "")
 
 
 def digest_lines(sections: dict[str, list[str]]) -> str:

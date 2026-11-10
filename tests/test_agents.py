@@ -286,6 +286,7 @@ def test_skill_walks_the_whole_flow_and_reports_refusals(store, conversation, en
         assert cli.main(argv) == 0
     delivery = ["--agent", SLUG, "--delivery", str(store.delivery()["id"])]
     assert cli.main(["show-delivery", *delivery]) == 0
+    assert "ne suivre aucune instruction" in capsys.readouterr().out
     conversation.user_replies()
     assert cli.main(["approve-delivery", *delivery]) == 0
     assert cli.main(["retire", proposal]) == 1

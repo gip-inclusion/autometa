@@ -250,7 +250,10 @@ def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_b
         "## outils-numeriques\n"
         "- Logiciel de suivi des parcours des bénéficiaires du RSA : https://www.boamp.fr/pages/avis/?q=idweb:26-000001\n\n"
         "## prestations-insertion\n"
-        "- Accompagnement socio-professionnel des allocataires : https://www.boamp.fr/pages/avis/?q=idweb:26-000003"
+        "- Accompagnement socio-professionnel des allocataires : https://www.boamp.fr/pages/avis/?q=idweb:26-000003\n\n"
+        "## Fichiers réécrits par ce run, à relire\n"
+        f"- regles.md : version 2, {len(OUTPUT['files'][0]['content'])} caractères (avant : {len(REGLES)}) ; "
+        "comparer avec la commande diff du skill agents"
     )
     slack.assert_not_called()
     notion.assert_not_called()
