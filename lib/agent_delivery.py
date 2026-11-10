@@ -35,6 +35,11 @@ DELIVERY_FIELDS = {"destination", "title", "text", "key"}
 # Why: Slack cuts a message at 40 000 characters and a digest past a few screens is not read; beyond
 # this, the digest keeps its first lines and says how many it leaves out.
 DIGEST_MAX = 8_000
+# Why: bounds on one run's output: the worker is told 50 at most; Notion refuses a title past 2 000
+# characters and a text past this would be cut by Slack anyway.
+DELIVERIES_MAX = 200
+TITLE_MAX = 300
+TEXT_MAX = 20_000
 # Why: a write or a sub-agent chain that fails the same way N times will not succeed on its own; it is
 # set aside as failed, visible and retryable by approval, instead of blocking the run or the digest.
 SEND_ATTEMPTS_MAX = 3
@@ -59,6 +64,8 @@ def delivery_errors(index: int, delivery: object, modes: dict[str, str]) -> list
         ]
     if not all(isinstance(delivery[k], str) and delivery[k].strip() for k in ("title", "text")):
         return [f"{path} : title et text doivent être des textes non vides."]
+    if len(delivery["title"]) > TITLE_MAX or len(delivery["text"]) > TEXT_MAX:
+        return [f"{path} : title de {TITLE_MAX} caractères au plus, text de {TEXT_MAX} au plus."]
     if "key" in delivery and not (
         isinstance(delivery["key"], str) and re.fullmatch(r"[a-z0-9-]{1,80}", delivery["key"])
     ):
@@ -79,6 +86,8 @@ def validate_output(agent: dict, run_id: str, output: object, current_files: dic
     if not isinstance(output, dict) or not isinstance(output.get("deliveries"), list):
         return ["deliveries : attendu une liste"]
     deliveries = output["deliveries"]
+    if len(deliveries) > DELIVERIES_MAX:
+        return [f"deliveries : {len(deliveries)} envois, {DELIVERIES_MAX} au plus par run"]
     modes = modes_of(agent)
     if errors := [e for i, d in enumerate(deliveries) for e in delivery_errors(i, d, modes)]:
         return errors

@@ -48,9 +48,9 @@ Ta réponse est un unique objet JSON, sans aucun texte autour :
 {{"deliveries": [{{"destination": "...", "title": "...", "text": "...", "key": "..."}}]}}
 
 - destination : une de {destinations}, aucune autre.
-- title : une ligne. text : en markdown.
+- title : une ligne, {title_max} caractères au plus. text : en markdown, {text_max} caractères au plus.
 - Un envoi par élément (un ticket, un signal, une opportunité) : les sous-agents d'Autometa jugent
-  chaque envoi à part, un envoi qui en regroupe plusieurs serait jugé en bloc.
+  chaque envoi à part, un envoi qui en regroupe plusieurs serait jugé en bloc. {deliveries_max} envois au plus.
 - key (facultative, Notion ou fichier) : minuscules, chiffres et tirets ; un envoi qui reprend la
   key d'une page ou d'un élément déjà écrit le met à jour.
 - Rien à signaler : {{"deliveries": []}}.
@@ -184,7 +184,12 @@ def system_prompt_of(doc: dict, instructions: str) -> str:
         *(agent_connectors.label(p) for p in doc.get("preparations", [])),
         *(f"file {f}" for f in files),
     ])
-    output = OUTPUT_CONTRACT.format(destinations=destinations)
+    output = OUTPUT_CONTRACT.format(
+        destinations=destinations,
+        title_max=agent_delivery.TITLE_MAX,
+        text_max=agent_delivery.TEXT_MAX,
+        deliveries_max=agent_delivery.DELIVERIES_MAX,
+    )
     return (
         instructions
         + output

@@ -348,3 +348,17 @@ def test_dod_9_logs_name_the_production_never_its_content(store, post, caplog, m
     assert "sent" in logged
     assert "MEP du 3 novembre" not in logged
     assert "Effet non mesurable" not in logged
+
+
+@pytest.mark.parametrize(
+    ("deliveries", "message"),
+    [
+        ([make_envoi()] * (agent_delivery.DELIVERIES_MAX + 1), f"{agent_delivery.DELIVERIES_MAX} au plus par run"),
+        ([make_envoi(title="x" * (agent_delivery.TITLE_MAX + 1))], "title de 300 caractères au plus"),
+        ([make_envoi(text="x" * (agent_delivery.TEXT_MAX + 1))], "text de 20000 au plus"),
+    ],
+)
+def test_review_2_5_a_run_beyond_its_caps_is_refused(store, post, mocker, deliveries, message):
+    with pytest.raises(ValueError, match=message):
+        deliver(mocker, make_agent(("produit.signal_faible", "background")), deliveries)
+    assert store.count() == 0
