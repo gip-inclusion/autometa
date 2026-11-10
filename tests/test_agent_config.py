@@ -13,7 +13,7 @@ def make_agent(**overrides):
         "slug": SLUG,
         "title": "Signaux faibles des mises en production",
         "mission": "Signaler à l'équipe produit les MEP dont l'effet n'est pas mesurable.",
-        "destinations": [{"id": "produit.signal_faible", "mode": "shadow"}],
+        "destinations": [{"id": "produit.signal_faible", "mode": "background"}],
         **overrides,
     }
 
@@ -31,11 +31,11 @@ def test_dod_2_valid_configuration_is_accepted():
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
-        ({"destinations": [{"id": "produit.signal_faibl", "mode": "shadow"}]}, "'produit.signal_faible'"),
-        ({"destinations": [{"id": "#general", "mode": "shadow"}]}, "n'est pas une destination"),
+        ({"destinations": [{"id": "produit.signal_faibl", "mode": "background"}]}, "'produit.signal_faible'"),
+        ({"destinations": [{"id": "#general", "mode": "background"}]}, "n'est pas une destination"),
         ({"destinations": [{"id": "produit.signal_faible", "mode": "direct"}]}, "modes permis"),
-        ({"destinations": [{"id": "produit.signal_faible", "mode": "live"}]}, "autonomous_allowed"),
-        ({"destinations": [{"id": "produit.signal_faible", "mode": "shadow", "channel": "C0123"}]}, "id et mode"),
+        ({"destinations": [{"id": "produit.signal_faible", "mode": "autonomous"}]}, "autonomous_allowed"),
+        ({"destinations": [{"id": "produit.signal_faible", "mode": "background", "channel": "C0123"}]}, "id et mode"),
         ({"destinations": []}, "de 1 à 6"),
         ({"webhook": "https://hooks.slack.com/x"}, "webhook : champ inconnu"),
         ({"titr": "x"}, "Vouliez-vous dire 'title'"),
@@ -61,7 +61,10 @@ def test_dod_2_missing_fields_and_non_mapping_are_refused():
 
 
 def test_dod_2_duplicate_destination_is_refused():
-    contacts = [{"id": "produit.signal_faible", "mode": "shadow"}, {"id": "produit.signal_faible", "mode": "review"}]
+    contacts = [
+        {"id": "produit.signal_faible", "mode": "background"},
+        {"id": "produit.signal_faible", "mode": "conversational"},
+    ]
     assert agent_config.validate(make_agent(destinations=contacts)) == [
         "destinations : 'produit.signal_faible' apparaît plusieurs fois."
     ]
@@ -71,7 +74,7 @@ def test_dod_6_real_mode_is_accepted_for_an_agent_named_in_autonomous_allowed(mo
     destinations = agent_config.known_destinations()
     destinations["produit.signal_faible"]["autonomous_allowed"] = [SLUG]
     mocker.patch("lib.agent_config.known_destinations", return_value=destinations)
-    contacts = [{"id": "produit.signal_faible", "mode": "live"}]
+    contacts = [{"id": "produit.signal_faible", "mode": "autonomous"}]
     assert agent_config.validate(make_agent(destinations=contacts)) == []
 
 

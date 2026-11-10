@@ -22,7 +22,7 @@ title: Signaux faibles des mises en production
 mission: Signaler à l'équipe produit les MEP dont l'effet n'est pas mesurable.
 destinations:
   - id: produit.signal_faible
-    mode: review
+    mode: conversational
 """
 
 
@@ -77,7 +77,7 @@ def created_agent(conversation):
 def test_dod_1_proposal_shows_the_agent_and_creates_no_job(store, conversation, engine):
     proposal = agents.plan(CONFIG, "Tu es analyste produit.")
     assert proposal["status"] == "planned"
-    assert proposal["config"]["destinations"] == [{"id": "produit.signal_faible", "mode": "review"}]
+    assert proposal["config"]["destinations"] == [{"id": "produit.signal_faible", "mode": "conversational"}]
     assert proposal["system_prompt"].startswith("Tu es analyste produit.")
     assert proposal["shown"] == {"conversation_id": "conv-1", "after_message_id": 7}
     engine.create_pipeline.assert_not_called()
@@ -193,7 +193,7 @@ def test_dod_7_completed_run_of_the_agent_job_is_delivered(store, conversation, 
         {
             "id": f"{RUN_ID}-0",
             "destination": "produit.signal_faible",
-            "mode": "review",
+            "mode": "conversational",
             "status": "pending_review",
             "calls": 0,
         }
@@ -771,7 +771,7 @@ def test_dod_16_the_proposal_shows_files_labels_and_days_and_the_contract_explai
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {})
     proposal = agents.plan(CONFIG_FILES, "Tu lis le backlog produit.")
     assert proposal["review"] == [
-        "destination produit.opportunite en mode review",
+        "destination produit.opportunite en mode conversational",
         "sous-agent 1 : classifier clef:27b, étiquettes rapide au seuil 0.7, sans rien écarter",
         "sous-agent 2 : summary glm-5.2, 400 caractères au plus",
         "préparation 1 : cron sync-tags",
@@ -836,7 +836,7 @@ def test_dod_14_guide_me_to_an_agent_with_a_classifier_a_summary_and_two_crons(
         conversations.add_message(conv.id, "user", text)
 
     user_says("Guide-moi pour créer un agent équipé d'un sous-agent classificateur et de 2 crons")
-    (tmp_path / "agent.yaml").write_text(CONFIG_V2.replace("mode: review", "mode: shadow"))
+    (tmp_path / "agent.yaml").write_text(CONFIG_V2.replace("mode: conversational", "mode: background"))
     (tmp_path / "consigne.md").write_text("Tu lis le backlog produit.")
     assert cli.main(["destinations"]) == 0
     capsys.readouterr()
@@ -865,7 +865,7 @@ def test_dod_14_guide_me_to_an_agent_with_a_classifier_a_summary_and_two_crons(
     )
 
     assert cli.main(["deliver", "--agent", SLUG_V2, "--run", RUN_ID]) == 0
-    assert [e["status"] for e in json.loads(capsys.readouterr().out)] == ["shadow", "discarded"]
+    assert [e["status"] for e in json.loads(capsys.readouterr().out)] == ["recorded", "discarded"]
     post.assert_not_called()
     assert [c.args[0].rsplit("/", 2)[-2:] for c in ollama.call_args_list] == [
         ["v1", "systemone"],

@@ -1,6 +1,6 @@
 # Agent déclaré dans le dépôt : ce fichier, sa consigne (veille-boamp.md) et la valeur initiale de ses
 # fichiers (veille-boamp/) arrivent par PR, `make test` les valide (tests/test_agents_repo.py). Il
-# s'enregistre par le skill `agents` (propose puis create). Le mode réel s'ouvre par une PR sur
+# s'enregistre par le skill `agents` (propose puis create). Le mode autonomous s'ouvre par une PR sur
 # config/agent_destinations.yaml.
 #
 # Exemple de référence d'un agent composé de briques génériques : Autometa lit le BOAMP (préparations
@@ -17,7 +17,7 @@ mission: >-
 # regroupe les avis retenus du run en un seul message, par rubrique.
 destinations:
   - id: bizdev.marche
-    mode: shadow
+    mode: background
     grouping: digest
 schedule:
   weekdays: [monday]
@@ -39,7 +39,7 @@ preparations:
     cap: 120000
 # Why: le worker trie large par mots-clés (rappel), clef juge chaque avis à part (précision). Le filtre
 # à 0,7 écarte un avis seulement quand clef le juge nettement hors sujet ; l'écart reste enregistré avec
-# sa probabilité, lisible en ombre pour régler le seuil. Les étiquettes ne retirent rien : 0,5 veut dire
+# sa probabilité, lisible en mode background pour régler le seuil. Les étiquettes ne retirent rien : 0,5 veut dire
 # « plus probable que non », un avis peut porter les deux rubriques ou aucune.
 subagents:
   - type: classifier

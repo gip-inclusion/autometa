@@ -37,7 +37,7 @@ def repo_errors(path: Path) -> list[str]:
     return [f"{path.name} : {error}" for error in found]
 
 
-def agent_file(directory: Path, slug: str, destination: str = "bizdev.marche", mode: str = "shadow") -> Path:
+def agent_file(directory: Path, slug: str, destination: str = "bizdev.marche", mode: str = "background") -> Path:
     path = directory / f"{slug}.yaml"
     path.write_text(
         f"format: pdi.agent/1\nslug: {slug}\ntitle: Veille des marchés\n"
@@ -59,8 +59,8 @@ def test_dod_3_the_check_finds_the_repository_agents():
 @pytest.mark.parametrize(
     ("destination", "mode", "field", "message"),
     [
-        ("bizdev.marches", "shadow", "id", "'bizdev.marches' n'est pas une destination"),
-        ("bizdev.marche", "live", "mode", "le mode live sur 'bizdev.marche' n'est pas ouvert à cet agent"),
+        ("bizdev.marches", "background", "id", "'bizdev.marches' n'est pas une destination"),
+        ("bizdev.marche", "autonomous", "mode", "le mode autonomous sur 'bizdev.marche' n'est pas ouvert à cet agent"),
         ("bizdev.marche", "direct", "mode", "'direct' inconnu"),
     ],
 )

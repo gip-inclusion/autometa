@@ -30,7 +30,7 @@ def post(mocker):
     return mocker.patch("lib.agent_delivery.slack.post_message", return_value=True)
 
 
-def digest_agent(mode="shadow", grouping="digest"):
+def digest_agent(mode="background", grouping="digest"):
     agent = make_agent((DESTINATION, mode))
     agent["destinations"][0]["grouping"] = grouping
     return {**agent, "subagents": [LABELS]}
@@ -82,7 +82,7 @@ def test_dod_7_digest_gathers_kept_productions_by_label_with_their_links(store, 
         (f"{RUN_ID}-1", "grouped"),
         (f"{RUN_ID}-2", "discarded"),
         (f"{RUN_ID}-3", "grouped"),
-        (DIGEST_ID, "shadow"),
+        (DIGEST_ID, "recorded"),
     ]
     digest = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")
     assert digest["title"].startswith("Signaux faibles des mises en production, run du ")
@@ -118,11 +118,17 @@ def test_dod_7_digest_beyond_its_cap_keeps_the_first_lines_and_counts_the_others
 
 def test_dod_7_real_digest_is_posted_once_and_never_rebuilt_on_redelivery(store, post, mocker):
     open_real_mode(mocker)
-    agent = digest_agent("live")
+    agent = digest_agent("autonomous")
     first = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
     second = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
 
-    assert first[-1] == {"id": DIGEST_ID, "destination": DESTINATION, "mode": "live", "status": "sent", "calls": 0}
+    assert first[-1] == {
+        "id": DIGEST_ID,
+        "destination": DESTINATION,
+        "mode": "autonomous",
+        "status": "sent",
+        "calls": 0,
+    }
     assert [e["status"] for e in second] == [e["status"] for e in first]
     post.assert_called_once()
     assert "Plateforme insertion" in post.call_args.args[2]
@@ -142,7 +148,7 @@ def test_dod_7_digest_waits_for_productions_whose_sub_agents_failed(store, post)
 
 def test_dod_7_digest_in_review_is_written_once_approved(store, post, mocker):
     open_real_mode(mocker)
-    agent_delivery.deliver(digest_agent("review"), RUN_ID, ENVOIS, chain(VERDICTS))
+    agent_delivery.deliver(digest_agent("conversational"), RUN_ID, ENVOIS, chain(VERDICTS))
     assert agent_delivery.show(SLUG, DIGEST_ID)["status"] == "pending_review"
     post.assert_not_called()
 
@@ -156,7 +162,7 @@ def test_dod_7_unit_delivery_is_unchanged_without_digest(store, post, grouping):
     if grouping is None:
         del agent["destinations"][0]["grouping"]
     summary = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
-    assert [e["status"] for e in summary] == ["shadow", "shadow", "discarded", "shadow"]
+    assert [e["status"] for e in summary] == ["recorded", "recorded", "discarded", "recorded"]
     assert all("digest" not in store.json(f"{SLUG}/envois/{e['id']}.json") for e in summary)
 
 
@@ -165,5 +171,5 @@ def test_dod_7_an_unknown_grouping_is_refused_and_a_digest_is_shown_at_review():
         "destinations[0].grouping : 'hebdo' inconnu, attendu single ou digest."
     ]
     assert agent_config.describe(digest_agent())[0] == (
-        "destination produit.signal_faible en mode shadow, un digest par run (productions retenues regroupées par étiquette)"
+        "destination produit.signal_faible en mode background, un digest par run (productions retenues regroupées par étiquette)"
     )

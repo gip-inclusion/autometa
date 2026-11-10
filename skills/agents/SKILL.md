@@ -8,12 +8,16 @@ description: Créer un agent (un job récurrent ou à la demande qui lit des sou
 Un agent est un job du moteur de jobs (page `/jobs`, nommé `agent-<slug>`) accompagné d'une
 configuration au format `pdi.agent/1`. Le worker du job n'écrit nulle part : il rend un JSON
 d'envois, et c'est Autometa qui les livre, seulement vers les destinations de la liste fermée
-`config/agent_destinations.yaml`, selon le mode choisi pour chacune :
+`config/agent_destinations.yaml`, selon le mode choisi pour chacune. Un mode règle deux choses :
+publier ou non (`can_publish`), faire relire ou non (`review_required`).
 
-- `shadow` : l'envoi est enregistré, rien n'est écrit. Mode par défaut d'un nouvel agent.
-- `review` : rien n'est écrit tant qu'une personne n'a pas approuvé l'envoi.
-- `live` : écrit directement ; refusé tant que l'agent n'est pas dans `autonomous_allowed` de la
-  destination, ce qui s'ouvre par une PR, jamais depuis une conversation.
+- `background` (ne publie pas, sans relecture) : l'envoi est enregistré, rien n'est écrit. Mode
+  par défaut d'un nouvel agent.
+- `conversational` (publie, après relecture) : rien n'est écrit tant qu'une personne n'a pas
+  approuvé l'envoi.
+- `autonomous` (publie, sans relecture) : écrit directement ; refusé tant que l'agent n'est pas
+  dans `autonomous_allowed` de la destination, ce qui s'ouvre par une PR, jamais depuis une
+  conversation.
 
 ## Commencer par la liste
 
@@ -44,7 +48,7 @@ répondre qu'une demande est impossible, la décomposer :
 
 Ce qui reste vraiment hors de portée : une source d'un type absent de la liste (un nouveau type
 de préparation est un connecteur ajouté par une PR), une destination absente de la liste (une
-PR), une heure de passage (le cron des agents tourne une fois par jour, le matin). Une destination sans cible reste proposable : ses envois en mode `live`
+PR), une heure de passage (le cron des agents tourne une fois par jour, le matin). Une destination sans cible reste proposable : ses envois en mode `autonomous`
 seront en échec tant que la cible manque, ce qu'il faut dire à l'utilisateur.
 
 ## Configuration
@@ -57,7 +61,7 @@ mission: >-                           # 20 à 400 caractères, ni lien, ni @pers
   Signaler à l'équipe produit les MEP dont l'effet n'est pas mesurable.
 destinations:                         # 0 à 6 destinations de la liste ; 0 seulement avec des fichiers
   - id: produit.signal_faible
-    mode: shadow
+    mode: background
     grouping: digest                  # facultatif : single (défaut), un envoi par production ;
                                       # digest, un envoi par run regroupant les productions retenues
 schedule:                             # facultatif ; absent = à la demande
@@ -168,7 +172,7 @@ disparaît. Aucun agent n'a de cron à lui : avec une `schedule`, le seul cron d
 | lire (configuration, runs, envois) | aucune |
 | lancer un run maintenant | `propose-launch`, puis `launch` au tour suivant, après le oui |
 | modifier la configuration, la consigne ou la cadence | `propose` avec le même slug (une modification), `create` après le oui, `retire` pour revenir en arrière |
-| passer une destination en réel | jamais depuis la conversation : une PR sur `autonomous_allowed` |
+| passer une destination en `autonomous` | jamais depuis la conversation : une PR sur `autonomous_allowed` |
 
 ```bash
 python -m skills.agents.scripts.agents propose-launch --agent <slug>     # montre les préparations, ne lance rien
@@ -189,7 +193,7 @@ python -m skills.agents.scripts.agents approve-delivery --agent <slug> --deliver
 
 `deliver` n'accepte qu'un run terminé du job de l'agent ; relivrer le même run n'écrit rien de
 plus. Une seule destination hors liste fait refuser tout le run. Rendre compte de chaque envoi
-(destination, mode, statut : `shadow`, `pending_review`, `sent`, `failed`, `discarded` quand le
+(destination, mode, statut : `recorded`, `pending_review`, `sent`, `failed`, `discarded` quand le
 classifier l'a jugée sous le seuil, `subagent_failed` quand un sous-agent a échoué : rien
 n'est livré de cette production, et relancer `deliver` sur le même run la refait passer par ses
 sous-agents) et le nombre d'appels aux sous-agents. Pour un envoi `pending_review`,

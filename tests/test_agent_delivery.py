@@ -108,28 +108,28 @@ def open_real_mode(mocker):
 def test_dod_3_production_outside_the_list_refuses_the_whole_run(store, post, mocker, deliveries, message):
     open_real_mode(mocker)
     with pytest.raises(ValueError, match=message):
-        agent_delivery.deliver(make_agent(("produit.signal_faible", "live")), RUN_ID, deliveries)
+        agent_delivery.deliver(make_agent(("produit.signal_faible", "autonomous")), RUN_ID, deliveries)
     assert store.files == {}
     post.assert_not_called()
 
 
 def test_dod_3_invalid_agent_configuration_is_refused(store, post):
     with pytest.raises(ValueError, match="configuration d'agent refusée"):
-        agent_delivery.deliver(make_agent(("#general", "live")), RUN_ID, [make_envoi("#general")])
+        agent_delivery.deliver(make_agent(("#general", "autonomous")), RUN_ID, [make_envoi("#general")])
     assert store.files == {}
 
 
 def test_dod_4_shadow_mode_records_and_writes_nothing(store, post, fake_notion):
-    agent = make_agent(("produit.signal_faible", "shadow"), ("produit.opportunite", "shadow"))
+    agent = make_agent(("produit.signal_faible", "background"), ("produit.opportunite", "background"))
     summary = agent_delivery.deliver(agent, RUN_ID, [make_envoi(), make_envoi("produit.opportunite")])
-    assert [s["status"] for s in summary] == ["shadow", "shadow"]
+    assert [s["status"] for s in summary] == ["recorded", "recorded"]
     assert store.json(f"{SLUG}/envois/{RUN_ID}-0.json")["text"] == "Effet non mesurable."
     post.assert_not_called()
     assert fake_notion.calls == []
 
 
 def test_dod_5_review_mode_writes_once_and_only_after_approval(store, post):
-    agent_delivery.deliver(make_agent(("produit.signal_faible", "review")), RUN_ID, [make_envoi()])
+    agent_delivery.deliver(make_agent(("produit.signal_faible", "conversational")), RUN_ID, [make_envoi()])
     post.assert_not_called()
     delivery_id = f"{RUN_ID}-0"
     assert agent_delivery.show(SLUG, delivery_id)["status"] == "pending_review"
@@ -151,8 +151,8 @@ def test_dod_5_approving_an_unknown_production_is_refused(store, post, slug, del
 
 
 def test_dod_5_shadow_production_cannot_be_approved(store, post):
-    agent_delivery.deliver(make_agent(("produit.signal_faible", "shadow")), RUN_ID, [make_envoi()])
-    with pytest.raises(ValueError, match="est shadow"):
+    agent_delivery.deliver(make_agent(("produit.signal_faible", "background")), RUN_ID, [make_envoi()])
+    with pytest.raises(ValueError, match="est recorded"):
         agent_delivery.approve(SLUG, f"{RUN_ID}-0", "lj@example.org")
     post.assert_not_called()
 
@@ -160,9 +160,15 @@ def test_dod_5_shadow_production_cannot_be_approved(store, post):
 def test_dod_6_real_mode_posts_to_slack_with_control_sequences_escaped(store, post, mocker):
     open_real_mode(mocker)
     delivery = make_envoi(title="<!channel> MEP", text="voir <https://x.example|ici> & co")
-    summary = agent_delivery.deliver(make_agent(("produit.signal_faible", "live")), RUN_ID, [delivery])
+    summary = agent_delivery.deliver(make_agent(("produit.signal_faible", "autonomous")), RUN_ID, [delivery])
     assert summary == [
-        {"id": f"{RUN_ID}-0", "destination": "produit.signal_faible", "mode": "live", "status": "sent", "calls": 0}
+        {
+            "id": f"{RUN_ID}-0",
+            "destination": "produit.signal_faible",
+            "mode": "autonomous",
+            "status": "sent",
+            "calls": 0,
+        }
     ]
     text = post.call_args.args[2]
     assert "<" not in text
@@ -171,7 +177,9 @@ def test_dod_6_real_mode_posts_to_slack_with_control_sequences_escaped(store, po
 
 def test_dod_6_real_mode_creates_a_notion_page_in_the_database(store, fake_notion, mocker):
     open_real_mode(mocker)
-    agent_delivery.deliver(make_agent(("produit.opportunite", "live")), RUN_ID, [make_envoi("produit.opportunite")])
+    agent_delivery.deliver(
+        make_agent(("produit.opportunite", "autonomous")), RUN_ID, [make_envoi("produit.opportunite")]
+    )
     assert fake_notion.writes() == [("POST", "pages"), ("PATCH", "blocks/page-1/children")]
     _, _, payload = fake_notion.calls[1]
     assert payload == {
@@ -195,7 +203,7 @@ def test_dod_6_failed_write_is_recorded_and_can_be_retried(store, post, mocker, 
         mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", failure["target"])
     post.return_value = failure.get("slack_ok", True)
     post.side_effect = failure.get("slack_raises")
-    summary = agent_delivery.deliver(make_agent(("produit.signal_faible", "live")), RUN_ID, [make_envoi()])
+    summary = agent_delivery.deliver(make_agent(("produit.signal_faible", "autonomous")), RUN_ID, [make_envoi()])
     assert summary[0]["status"] == "failure"
     assert error in store.json(f"{SLUG}/envois/{RUN_ID}-0.json")["error"]
 
@@ -204,13 +212,13 @@ def test_dod_6_failed_write_is_recorded_and_can_be_retried(store, post, mocker, 
     assert agent_delivery.approve(SLUG, f"{RUN_ID}-0", "lj@example.org")["status"] == "sent"
 
 
-@pytest.mark.parametrize("mode", ["live", "review"])
+@pytest.mark.parametrize("mode", ["autonomous", "conversational"])
 def test_dod_10_slack_writes_need_the_agents_bot_and_never_fall_back_to_the_alerts_bot(store, post, mocker, mode):
     open_real_mode(mocker)
     mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "")
     mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "alerts-bot-token")
     summary = agent_delivery.deliver(make_agent(("produit.signal_faible", mode)), RUN_ID, [make_envoi()])
-    if mode == "review":
+    if mode == "conversational":
         assert summary[0]["status"] == "pending_review"
         summary = [agent_delivery.approve(SLUG, f"{RUN_ID}-0", "lj@example.org")]
     assert summary[0]["status"] == "failure"
@@ -220,7 +228,7 @@ def test_dod_10_slack_writes_need_the_agents_bot_and_never_fall_back_to_the_aler
 
 def test_dod_7_same_key_updates_the_notion_page_instead_of_creating_another(store, fake_notion, mocker):
     open_real_mode(mocker)
-    agent = make_agent(("produit.opportunite", "live"))
+    agent = make_agent(("produit.opportunite", "autonomous"))
     agent_delivery.deliver(agent, RUN_ID, [make_envoi("produit.opportunite", key="mep-2026-11")])
     fake_notion.calls.clear()
     second_run = "22222222-2222-2222-2222-222222222222"
@@ -240,7 +248,7 @@ def test_dod_7_same_key_updates_the_notion_page_instead_of_creating_another(stor
 
 def test_dod_8_delivering_the_same_run_twice_writes_nothing_more(store, post, mocker):
     open_real_mode(mocker)
-    agent = make_agent(("produit.signal_faible", "live"))
+    agent = make_agent(("produit.signal_faible", "autonomous"))
     first = agent_delivery.deliver(agent, RUN_ID, [make_envoi()])
     second = agent_delivery.deliver(agent, RUN_ID, [make_envoi()])
     assert first == second
@@ -249,12 +257,12 @@ def test_dod_8_delivering_the_same_run_twice_writes_nothing_more(store, post, mo
 
 def test_dod_9_logs_name_the_production_never_its_content(store, post, caplog):
     caplog.set_level(logging.INFO, logger="lib.agent_delivery")
-    agent_delivery.deliver(make_agent(("produit.signal_faible", "review")), RUN_ID, [make_envoi()])
+    agent_delivery.deliver(make_agent(("produit.signal_faible", "conversational")), RUN_ID, [make_envoi()])
     agent_delivery.approve(SLUG, f"{RUN_ID}-0", "lj@example.org")
     logged = caplog.text
     assert SLUG in logged
     assert "produit.signal_faible" in logged
-    assert "review" in logged
+    assert "conversational" in logged
     assert "pending_review" in logged
     assert "sent" in logged
     assert "MEP du 3 novembre" not in logged

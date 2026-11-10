@@ -30,7 +30,12 @@ __all__ = [
 ]
 
 FORMAT = "pdi.agent/1"
-MODES = ("shadow", "review", "live")
+# Why: a mode is a preset of the two flags that matter; reviewing what is never published makes no sense.
+MODES = {
+    "background": {"can_publish": False, "review_required": False},
+    "conversational": {"can_publish": True, "review_required": True},
+    "autonomous": {"can_publish": True, "review_required": False},
+}
 GROUPINGS = ("single", "digest")
 FIELDS = ("format", "slug", "title", "mission", "destinations")
 OPTIONAL_FIELDS = ("schedule", "subagents", "preparations", "files")
@@ -244,9 +249,9 @@ def destination_errors(slug: object, index: int, contact: object, known: dict[st
         ]
     if contact["mode"] not in MODES:
         return [f"{path}.mode : {contact['mode']!r} inconnu, modes permis : {', '.join(MODES)}."]
-    if contact["mode"] == "live" and slug not in destination["autonomous_allowed"]:
+    if contact["mode"] == "autonomous" and slug not in destination["autonomous_allowed"]:
         return [
-            f"{path}.mode : le mode live sur {contact['id']!r} n'est pas ouvert à cet agent. "
+            f"{path}.mode : le mode autonomous sur {contact['id']!r} n'est pas ouvert à cet agent. "
             "Il s'ouvre par une PR qui l'ajoute à autonomous_allowed dans config/agent_destinations.yaml."
         ]
     return []

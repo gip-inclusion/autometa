@@ -1,4 +1,4 @@
-"""Deliver an agent's productions to its Slack and Notion destinations, by mode: shadow, review or real."""
+"""Deliver an agent's productions to its Slack and Notion destinations, as its mode allows: publish or not, review or not."""
 
 import json
 import logging
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["deliver", "approve", "show", "read_json", "write_json"]
 
 # Why: a production aimed at one of the agent's own files stays in Autometa, so it needs no mode.
-STATUS_BY_MODE = {"shadow": "shadow", "review": "pending_review", "live": "pending_send", "file": "to_file"}
+FILE_MODE = "file"
 DELIVERY_FIELDS = {"destination", "title", "text", "key"}
 # Why: Slack cuts a message at 40 000 characters and a digest past a few screens is not read; beyond
 # this, the digest keeps its first lines and says how many it leaves out.
@@ -57,6 +57,16 @@ def delivery_errors(index: int, delivery: object, modes: dict[str, str]) -> list
     ):
         return [f"{path} : key en minuscules, chiffres et tirets, 80 caractères au plus."]
     return []
+
+
+def initial_status(mode: str) -> str:
+    """Recorded only, awaiting review, or ready to send, by the mode's two flags; to_file for an agent's file."""
+    if mode == FILE_MODE:
+        return "to_file"
+    flags = agent_config.MODES[mode]
+    if not flags["can_publish"]:
+        return "recorded"
+    return "pending_review" if flags["review_required"] else "pending_send"
 
 
 def slack_text(title: str, text: str) -> str:
@@ -113,13 +123,13 @@ def log(slug: str, delivery_id: str, record: dict) -> dict:
 
 
 def deliver(agent: dict, run_id: str, deliveries: list, chain: Optional[Callable[[dict], dict]] = None) -> list[dict]:
-    """Record every production of a run through its sub-agents, writing only in real mode; failed chains rerun."""
+    """Record every production of a run through its sub-agents, publishing only what its mode allows; failed chains rerun."""
     run_id = str(uuid.UUID(run_id))
     if errors := agent_config.validate(agent):
         raise ValueError("configuration d'agent refusée : " + " ; ".join(errors))
     modes = {c["id"]: c["mode"] for c in agent["destinations"]}
     digests = {c["id"] for c in agent["destinations"] if c.get("grouping") == "digest"}
-    modes.update({f"file:{name}": "file" for name in agent.get("files", [])})
+    modes.update({f"file:{name}": FILE_MODE for name in agent.get("files", [])})
     if not isinstance(deliveries, list):
         raise ValueError("deliveries : attendu une liste")
     if errors := [e for i, delivery in enumerate(deliveries) for e in delivery_errors(i, delivery, modes)]:
@@ -130,7 +140,7 @@ def deliver(agent: dict, run_id: str, deliveries: list, chain: Optional[Callable
         record = read_json(f"{slug}/envois/{delivery_id}.json")
         if record is None or record["status"] == "subagent_failed":
             mode = modes[delivery["destination"]]
-            record = {**delivery, "run_id": run_id, "mode": mode, "status": STATUS_BY_MODE[mode]}
+            record = {**delivery, "run_id": run_id, "mode": mode, "status": initial_status(mode)}
             if chain:
                 trace = chain(delivery)
                 calls = trace["calls"]
@@ -193,7 +203,7 @@ def deliver_digest(agent: dict, run_id: str, destination: str, mode: str, member
         "text": digest_text({h: rows for h, rows in sections.items() if rows}) or "Aucune production retenue.",
         "run_id": run_id,
         "mode": mode,
-        "status": STATUS_BY_MODE[mode],
+        "status": initial_status(mode),
         "productions": kept,
     }
     write_json(f"{slug}/envois/{delivery_id}.json", record)

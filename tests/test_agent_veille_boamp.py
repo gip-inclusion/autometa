@@ -105,7 +105,7 @@ def registered(mocker) -> dict:
 def test_dod_1_boamp_agent_is_composed_of_generic_bricks_only():
     doc = agent_config.parse(CONFIG)
     assert agent_config.validate(doc) == []
-    assert doc["destinations"] == [{"id": "bizdev.marche", "mode": "shadow", "grouping": "digest"}]
+    assert doc["destinations"] == [{"id": "bizdev.marche", "mode": "background", "grouping": "digest"}]
     assert agent_config.known_destinations()["bizdev.marche"]["channel"] == "slack"
     assert doc["schedule"] == {"weekdays": ["monday"]}
     assert {urlsplit(p["url"]).hostname for p in doc["preparations"]} == {BOAMP}
@@ -231,7 +231,7 @@ def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_b
         ("grouped", 2),
         ("discarded", 1),
         ("grouped", 2),
-        ("shadow", 0),
+        ("recorded", 0),
     ]
     assert ollama.call_count == 5
     records = [store.json(f"veille-boamp/envois/{RUN_ID}-{i}.json") for i in range(3)]
