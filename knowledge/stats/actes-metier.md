@@ -4,7 +4,7 @@ verifie_le: 2026-07-15
 ---
 # Actes métiers — Indicateur transverse
 
-Objectif central de la Plateforme : augmenter le volume des actes métiers réalisés
+Objectif central de la PDI : augmenter le volume des actes métiers réalisés
 par les utilisateurs professionnels sur l'ensemble des services.
 
 Un « acte métier » est une action à valeur métier significative : orientation d'un
@@ -83,7 +83,7 @@ Mapping statut : `seen` → Accompli et accepté · `unknown` → En cours · au
 
 ---
 
-### Les Emplois — Candidatures
+### La plateforme (ex-Emplois) — Candidatures
 
 **Instance :** stats · **DB :** 2
 **Table :** `candidatures_echelle_locale`
@@ -99,7 +99,7 @@ Mapping statut :
 
 ---
 
-### Les Emplois — Recherche d'offre d'emploi
+### La plateforme — Recherche d'offre d'emploi
 
 **Instance :** Matomo · **ID site :** 117
 **Méthode :** visites (`nb_visits`) comportant au moins une page `/search/employers/results`. Jamais les pages vues : chaque filtre ou page de résultats compterait une fois de plus.
@@ -111,7 +111,7 @@ Mapping statut :
 **Note :** Cet acte est tracé via Matomo (pas de table DB). Le département est estimé
 par enrichissement — voir section « Dimension territoriale » ci-dessous.
 
-### Les Emplois — Recherche d'offre de service
+### La plateforme — Recherche d'offre de service
 
 **Instance :** Matomo · **ID site :** 117
 **Méthode :** visites (`nb_visits`) comportant au moins une page `/search/services/results`.
@@ -235,8 +235,8 @@ Mapping statut : `SENT` → accepté · autres → En cours
 | Source | Actes couverts | Méthode | Taux géolocalisation |
 |--------|---------------|---------|---------------------|
 | RDV-Insertion | Tous | Champ `departement` en DB | ~95 % |
-| Les Emplois — Candidatures | Candidature... | Département candidat en DB | ~90 % |
-| Les Emplois — Recherche d'offre | Recherche d'offre | Estimation via Matomo dim. 4 | ~71 % |
+| La plateforme — Candidatures | Candidature... | Département candidat en DB | ~90 % |
+| La plateforme — Recherche d'offre | Recherche d'offre | Estimation via Matomo dim. 4 | ~71 % |
 | GPS | Tous | Département structure en DB | ~85 % |
 | Dora | Tous | Département structure en DB | ~90 % |
 | Mon Récap | Tous | Département structure en DB | ~80 % |

@@ -450,7 +450,7 @@ container_xg8aydM9.js   → container xg8aydM9, donc site 210 (Dora_Preprod)
 
 | Site | ID | Container ID | Triggers actifs | Tags | Variables |
 |------|----|-------------|---------|------|-----------|
-| Emplois | 117 | TlN6Ou1K | 1 (sans tag) | 0 | 0 |
+| La plateforme (ex-Emplois) | 117 | TlN6Ou1K | 1 (sans tag) | 0 | 0 |
 | Marché | 136 | RBvmJtrU | 57 | 57 | 1 |
 | Pilotage | 146 | czDcW7tH | 6 | 4 | 1 |
 | Communauté | 206 | GTln5jDH | 3 | 3 | 1 |
@@ -463,8 +463,8 @@ container_xg8aydM9.js   → container xg8aydM9, donc site 210 (Dora_Preprod)
 
 Conteneurs : `config/sources.yaml` fait foi. Le relevé du 2026-03-16 donnait `oBBrLa4S` pour le site 117 ; la configuration (mai 2026) porte `TlN6Ou1K` — à reconfirmer dans Matomo si l'écart importe.
 
-**Emplois** n'utilise pas MTM au 2026-03-16 : tracking natif dans les templates Django.
-La recette des Emplois (site 220) 
+**La plateforme** n'utilise pas MTM au 2026-03-16 : tracking natif dans les templates Django.
+La recette de La plateforme (site 220) 
 
 ### Accueil Plateforme (site 226) — tracking sans cookie, temporaire
 

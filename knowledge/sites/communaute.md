@@ -87,10 +87,10 @@ Suivi principal de l'engagement utilisateur. Principaux événements par volume 
 | contribute | new_topic_after_search | 22 | Création d'un topic après une recherche |
 | upvote | post | 6 | Vote positif pour un post |
 | show | fichestechniques | 1 105 | Affichage de la liste des fiches techniques |
-| emplois | search-prescriber | 132 | Liens vers recherche prescripteur Emplois |
-| emplois | search-company-header | 43 | Liens vers recherche entreprise Emplois |
-| emplois | search-company | 21 | Liens vers recherche entreprise Emplois |
-| emplois | search-prescriber-header | 13 | Liens vers recherche prescripteur Emplois |
+| emplois | search-prescriber | 132 | Liens vers la recherche de prescripteurs de La plateforme |
+| emplois | search-company-header | 43 | Liens vers la recherche d'entreprises de La plateforme |
+| emplois | search-company | 21 | Liens vers la recherche d'entreprises de La plateforme |
+| emplois | search-prescriber-header | 13 | Liens vers la recherche de prescripteurs de La plateforme |
 | topic-create-check | itou-jobseeker | 12 | Validation topic demandeur d'emploi |
 | landing | devenircip | 18 | Page d'atterrissage CIP |
 
@@ -100,7 +100,7 @@ Liens vers ressources externes.
 
 | Action | Nom | Description |
 |--------|-----|-------------|
-| site_emplois | footer | Lien footer vers support Emplois |
+| site_emplois | footer | Lien footer vers le support de La plateforme |
 
 #### promotion-partenaires (14 événements/mois)
 
@@ -184,7 +184,7 @@ La Communauté est un forum communautaire basé sur Django pour les professionne
 - Outil de diagnostic DSP (Diagnostic Socio-Professionnel)
 - Calendrier d'événements
 - Profils utilisateurs avec votes positifs
-- Liens d'intégration vers la plateforme Emplois
+- Liens d'intégration vers La plateforme (ex-Emplois)
 
 **Stack technologique :**
 - Django (Python)

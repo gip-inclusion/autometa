@@ -2,9 +2,9 @@
 source: metabase:stats
 verifie_le: 2026-03-05
 ---
-# Support Emplois de l'Inclusion
+# Support de La plateforme de l'inclusion (ex-Emplois)
 
-Données du support utilisateurs des Emplois de l'Inclusion, issues de **Zendesk**.
+Données du support utilisateurs de La plateforme, issues de **Zendesk**.
 
 **Schéma :** `public` sur Metabase STATS (`database_id = 2`)
 **Mise à jour :** En temps réel via webhooks n8n à chaque création ou modification de ticket
@@ -160,7 +160,7 @@ WHERE m.solved_at IS NULL
 ORDER BY i.ticket_cree_date;
 ```
 
-### Lien avec les utilisateurs Emplois
+### Lien avec les utilisateurs de La plateforme
 
 L'email du demandeur peut être croisé avec `public.utilisateurs` pour identifier son profil (employeur, prescripteur…). `type` ne le distingue plus : le profil se lit au rattachement, et la table a une ligne par rattachement, donc un e-mail se ramène d'abord à une ligne :
 

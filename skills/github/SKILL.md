@@ -9,7 +9,7 @@ Dépôts **publics** des organisations `gip-inclusion`, `betagouv`, `numerique-g
 
 ## Quand l'utiliser
 
-- **Produits de la plateforme de l'inclusion** (tableau « Dépôts GitHub » des instructions de l'agent) : de sa propre initiative, dès qu'une question porte sur leur code. Le cas typique : vérifier quelque chose dans la Plateforme de l'inclusion (`gip-inclusion/les-emplois`) ou RDV-Insertion (`gip-inclusion/rdv-insertion`).
+- **Produits de la plateforme de l'inclusion** (tableau « Dépôts GitHub » des instructions de l'agent) : de sa propre initiative, dès qu'une question porte sur leur code. Le cas typique : vérifier quelque chose dans La plateforme de l'inclusion (ex-Emplois, `gip-inclusion/les-emplois`) ou RDV-Insertion (`gip-inclusion/rdv-insertion`).
 - **Produits voisins**, quand l'utilisateur les nomme clairement :
 
 | Produit | Dépôt |

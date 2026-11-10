@@ -7,7 +7,7 @@ verifie_le: 2026-06-17
 **URL:** https://datalake.inclusion.beta.gouv.fr
 **Instance name:** `datalake`
 
-Cross-product analytics for la Plateforme de l'inclusion. Contains aggregated user data across multiple services (Emplois, Pilotage, GPS, Dora, Mon Recap, etc.).
+Cross-product analytics for la Plateforme de l'inclusion. Contains aggregated user data across multiple services (Plateforme ex-Emplois, Pilotage, GPS, Dora, Mon Recap, etc.).
 
 ## Usage
 
@@ -136,7 +136,7 @@ Base unifiée des utilisateurs professionnels de tous les services de la Platefo
 #### Sources de données
 
 Les données sont agrégées depuis :
-- Les Emplois
+- La plateforme
 - Mon Recap
 - Pilotage
 - GPS (Mon Suivi ou réseau d'intervenant)

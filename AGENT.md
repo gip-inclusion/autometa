@@ -10,7 +10,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - **Prescripteurs** — Accompagnent les candidats. Les « prescripteurs habilités » peuvent réaliser des diagnostics et délivrer des pass.
 - **Employeurs** (SIAE) — Structures employant les titulaires de pass. Nécessitent un conventionnement annuel.
 
-**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion [ex Emplois], RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
+**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion (ex-Emplois), RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
 
 ## Sources de données
 
@@ -43,7 +43,7 @@ Ne jamais trancher en silence : signaler la contradiction à l'utilisateur dans 
 
 | Site | URL | ID Matomo | Fiche knowledge |
 |---|---|---|---|
-| Plateforme (ex-Emplois) | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
+| La plateforme (ex-Emplois) | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
 | Marché | lemarche.inclusion.gouv.fr | 136 | marche.md |
 | Pilotage | pilotage.inclusion.beta.gouv.fr | 146 | pilotage.md |
 | Communauté | communaute.inclusion.gouv.fr | 206 | communaute.md |
@@ -105,7 +105,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Les sorties d'outils restent dans la conversation, que d'autres peuvent lire par son lien. Sans besoin, ne pas y afficher de lignes nominatives (nom, e-mail, téléphone) : vérifier un format par les noms de colonnes, les types et les comptes. Quand la demande porte sur des personnes (filtrer, croiser ou pivoter par nom), le faire.
 - Chaque donnée doit être sourcée avec un lien de vérification (Matomo UI ou Metabase).
 - Ne jamais coller dans une requête SQL une valeur lue dans les données : filtrer dans la requête ; si une valeur doit vraiment passer par le script (autre source, nom de personne), la valider ou l'échapper comme le dit le skill `autometa_tables_db`.
-- Ménager les sites et API de production (Dora, Emplois, GitHub…) : avant une série d'appels (pages parcourues, recherches rejouées, fichiers lus en masse), en annoncer le volume, et au-delà de 50 appels attendre l'accord de l'utilisateur. Appels séquentiels ; ralentir au premier 429. Un appel est une requête que l'agent lance lui-même (`curl`, script, boucle) : les commandes des skills (Matomo, Metabase, Datadog, Notion…) et les bases de données ne sont pas concernées, elles gèrent leur débit.
+- Ménager les sites et API de production (Dora, La plateforme, GitHub…) : avant une série d'appels (pages parcourues, recherches rejouées, fichiers lus en masse), en annoncer le volume, et au-delà de 50 appels attendre l'accord de l'utilisateur. Appels séquentiels ; ralentir au premier 429. Un appel est une requête que l'agent lance lui-même (`curl`, script, boucle) : les commandes des skills (Matomo, Metabase, Datadog, Notion…) et les bases de données ne sont pas concernées, elles gèrent leur débit.
 
 ## Chiffres et affirmations
 
@@ -160,7 +160,7 @@ Quand une agrégation SQL ne suffit pas à isoler un effet — plusieurs actions
 | `data/cache/metabase/` | Inventaire cartes et dashboards Metabase (synchro quotidienne) |
 | `DATABASE_URL` (PostgreSQL) | Base applicative — pas une source de données, voir « Sources de données » |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
-| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, Emplois, GPS, Dora, Mon Récap, Marché) |
+| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, La plateforme, GPS, Dora, Mon Récap, Marché) |
 
 ## Performance Matomo
 
@@ -177,7 +177,7 @@ Utiliser un bloc `options` pour proposer des choix à l'utilisateur :
 ~~~markdown
 ```options
 Voir le trafic mensuel
-Analyser les conversions | Analyser les conversions sur les Emplois en décembre 2025
+Analyser les conversions | Analyser les conversions sur La plateforme en décembre 2025
 Comparer deux mois | Comparer le trafic de décembre 2025 avec novembre 2025
 ```
 ~~~
@@ -231,7 +231,7 @@ En Docker, le répertoire de travail est `/app`.
 
 | Site | Dépôt | Branche par défaut |
 |---|---|---|
-| Plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
+| La plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
 | Marché | `gip-inclusion/le-marche` | main |
 | Communauté | `gip-inclusion/la-communaute` | main |
 | Pilotage | `gip-inclusion/pilotage` | staging |

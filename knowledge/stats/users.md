@@ -13,7 +13,7 @@ employeurs, prescripteurs, inspecteurs du travail.
 
 **Table :** `public.utilisateurs` (instance stats, database 2 ; aussi dans `autometa_tables_db`)
 **Volumétrie :** ~92 000 comptes pour ~106 000 lignes : **une ligne par rattachement** (structure, organisation ou institution), jusqu'à plusieurs centaines pour un même compte. Compter `COUNT(DISTINCT id)` et dédupliquer par `id` avant toute jointure, sinon les lignes jointes (candidatures, orientations…) sont multipliées. Contrôler le total brut contre le total après jointure.
-**Scope :** Utilisateurs pros des Emplois exclusivement (mais les plus nombreux de la plateforme).
+**Scope :** Utilisateurs pros de la Plateforme (ex-Emplois) exclusivement (mais les plus nombreux de la plateforme).
 
 ### Colonnes clés
 
@@ -69,7 +69,7 @@ GROUP BY departement ORDER BY nb DESC;
 
 ## Données cross-produits (datalake)
 
-Pour les questions impliquant **plusieurs services** (utilisateurs communs Emplois/Dora,
+Pour les questions impliquant **plusieurs services** (utilisateurs communs La plateforme/Dora,
 présence multi-services, etc.), utiliser la table `pdi_base_unique_tous_les_pros` dans
 l'instance **datalake** (database 2). Voir [knowledge/datalake/README.md](../datalake/README.md#pdi_base_unique_tous_les_pros).
 

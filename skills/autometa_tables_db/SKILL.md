@@ -1,6 +1,6 @@
 ---
 name: autometa_tables_db
-description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
+description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (La plateforme ex-Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
 ---
 
 # autometa_tables_db
@@ -31,7 +31,7 @@ Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora_
 
 | Domaine | Tables |
 |---|---|
-| Emplois | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
+| La plateforme (ex-Emplois) | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
 | ASP | `fluxIAE_Structure_v2`, `suivi_realisation_convention_par_structure`, `suivi_realisation_convention_mensuelle`, `suivi_etp_conventionnes_v2`, `fluxIAE_ContratMission_v2`, `fluxIAE_Salarie_v2` |
 | Mon Récap | `Contacts`, `Commandes`, `barometre` |
 | data·inclusion | `structures_v1`, `services_v1` |

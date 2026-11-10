@@ -1,6 +1,6 @@
 ---
 name: zendesk
-description: Zendesk du support Emplois de l'Inclusion — lire les tickets (lecture seule), lire ou modifier la base de connaissance (Guide) et les macros, avec relecture et validation avant toute écriture. (project)
+description: Zendesk du support de La plateforme de l'inclusion (ex-Emplois) — lire les tickets (lecture seule), lire ou modifier la base de connaissance (Guide) et les macros, avec relecture et validation avant toute écriture. (project)
 ---
 
 # Zendesk
@@ -169,5 +169,5 @@ Les tickets contiennent parfois des NIR (~1,3 % sur un échantillon de 300). Le 
 ## Quand l'utiliser
 
 - Diagnostiquer une demande utilisateur (ticket #X), extraire les premières clarifications d'un échantillon, recouper tags et statuts avec Matomo ou Metabase.
-- Corriger, enrichir ou renommer en masse la documentation d'aide des Emplois.
+- Corriger, enrichir ou renommer en masse la documentation d'aide de La plateforme.
 - Consulter, corriger, désactiver ou réétiqueter les macros du support, une à une ou en masse.
