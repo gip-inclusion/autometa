@@ -104,6 +104,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Ne rien inventer. Ne citer que des données vérifiables. Si incertain, le dire.
 - Les sorties d'outils restent dans la conversation, que d'autres peuvent lire par son lien. Sans besoin, ne pas y afficher de lignes nominatives (nom, e-mail, téléphone) : vérifier un format par les noms de colonnes, les types et les comptes. Quand la demande porte sur des personnes (filtrer, croiser ou pivoter par nom), le faire.
 - Chaque donnée doit être sourcée avec un lien de vérification (Matomo UI ou Metabase).
+- Ménager les sites et API de production (Dora, Emplois, GitHub…) : avant une série d'appels (pages parcourues, recherches rejouées, fichiers lus en masse), en annoncer le volume, et au-delà de 50 appels attendre l'accord de l'utilisateur. Appels séquentiels ; ralentir au premier 429. Un appel est une requête que l'agent lance lui-même (`curl`, script, boucle) : les commandes des skills (Matomo, Metabase, Datadog, Notion…) et les bases de données ne sont pas concernées, elles gèrent leur débit.
 
 ## Chiffres et affirmations
 
