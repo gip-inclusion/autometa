@@ -51,7 +51,7 @@ DOD-7 — Un point de contact peut regrouper ses productions (`regroupement: dig
 
 ## Sources lues
 
-- `lib/agent_config.py`, `config/agent_destinations.yaml`, `config/agent_modeles.yaml`,
+- `lib/agent_config.py`, `config/agent_destinations.yaml`, `config/agent_models.yaml`,
   `config/agent_preparations.yaml` : le format, la liste fermée, les sous-agents et les types de
   préparation permis (`DOD-1`).
 - `lib/agent_connectors/url.py` : une adresse https publique, lue en texte, refusée au-delà de

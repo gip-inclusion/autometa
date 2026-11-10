@@ -84,9 +84,9 @@ def test_container_memory_reads_cgroup_v2(mocker, tmp_path):
     (tmp_path / "memory.peak").write_text("536870912\n")
     (tmp_path / "memory.events").write_text("low 0\nhigh 0\nmax 12\noom 1\noom_kill 1\n")
     assert memory_introspect.container_memory() == {
-        "limite": "536870912",
-        "utilisee": "536862720",
-        "pic": "536870912",
+        "limit": "536870912",
+        "used": "536862720",
+        "peak": "536870912",
         "oom_kill": "1",
     }
 
@@ -97,9 +97,9 @@ def test_container_memory_falls_back_to_cgroup_v1(mocker, tmp_path):
     (tmp_path / "memory" / "memory.limit_in_bytes").write_text("1073741824")
     (tmp_path / "memory" / "memory.oom_control").write_text("oom_kill_disable 0\nunder_oom 0\noom_kill 2\n")
     assert memory_introspect.container_memory() == {
-        "limite": "1073741824",
-        "utilisee": None,
-        "pic": None,
+        "limit": "1073741824",
+        "used": None,
+        "peak": None,
         "oom_kill": "2",
     }
 

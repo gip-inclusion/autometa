@@ -13,16 +13,16 @@ from web import config
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "CADENCES",
-    "CHAMP_TYPES",
-    "FICHIER_MAX",
+    "SCHEDULES",
+    "FIELD_TYPES",
+    "AGENT_FILE_MAX",
     "FORMAT",
-    "JOURS",
+    "WEEKDAYS",
     "MODES",
     "describe",
-    "destinations",
+    "known_destinations",
     "initial_errors",
-    "modeles",
+    "models",
     "parse",
     "target_gaps",
     "validate",
@@ -30,23 +30,23 @@ __all__ = [
 ]
 
 FORMAT = "pdi.agent/1"
-MODES = ("ombre", "relecture", "reel")
-REGROUPEMENTS = ("unitaire", "digest")
-FIELDS = ("format", "slug", "titre", "mission", "points_de_contact")
-OPTIONAL_FIELDS = ("cadence", "outils_modeles", "preparations", "fichiers")
-CADENCES = {"quotidienne": "daily", "hebdomadaire": "weekly", "mensuelle": "monthly"}
-JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
-FICHIER_MAX = 100_000
-# Why: what an extraction may declare, flat on purpose; each maps to its JSON Schema type for Ollama.
-CHAMP_TYPES = {"texte": "string", "nombre": "number", "entier": "integer", "booleen": "boolean"}
-# Why: the type-specific fields of a sub-agent, besides type and modele.
+MODES = ("shadow", "review", "live")
+GROUPINGS = ("single", "digest")
+FIELDS = ("format", "slug", "title", "mission", "destinations")
+OPTIONAL_FIELDS = ("schedule", "subagents", "preparations", "files")
+SCHEDULES = ("daily", "weekly", "monthly")
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+AGENT_FILE_MAX = 100_000
+# Why: what an extraction may declare, flat on purpose: JSON Schema types, handed to Ollama as they are.
+FIELD_TYPES = ("string", "number", "integer", "boolean")
+# Why: the type-specific fields of a sub-agent, besides type and model.
 SUBAGENT_FIELDS = {
-    "classificateur": (("question", "seuil"), ("etiquettes", "seuil")),
+    "classifier": (("question", "threshold"), ("labels", "threshold")),
     "extraction": (("schema",),),
-    "resume": (("longueur_max",),),
+    "summary": (("max_length",),),
 }
 # Why: clef answers up to 64 questions in one call; ten labels keep one production's verdict readable.
-ETIQUETTES_MAX = 10
+LABELS_MAX = 10
 NAME = r"[a-z][a-z0-9_-]{0,39}"
 # Why: the mission is the only free text an LLM writes; a link, a person or a channel there would bypass
 # the closed destination list.
@@ -85,19 +85,19 @@ def closed_list(name: str) -> dict[str, dict]:
     return {d["id"]: d for d in read_config(name)[name]}
 
 
-def destinations() -> dict[str, dict]:
+def known_destinations() -> dict[str, dict]:
     """The closed list of destinations, by id."""
     return closed_list("destinations")
 
 
-def modeles() -> dict[str, list[str]]:
+def models() -> dict[str, list[str]]:
     """The closed list of sub-agent types, each with the Ollama Cloud models it may use."""
-    return {t["type"]: t["modeles"] for t in read_config("modeles")["types"]}
+    return {t["type"]: t["models"] for t in read_config("models")["types"]}
 
 
 def target_gaps() -> tuple[list[str], list[str]]:
     """Destinations without a real id in AGENT_DESTINATION_TARGETS, and ids there naming no known destination."""
-    known, targets = set(destinations()), config.AGENT_DESTINATION_TARGETS
+    known, targets = set(known_destinations()), config.AGENT_DESTINATION_TARGETS
     return sorted(d for d in known if not targets.get(d)), sorted(set(targets) - known)
 
 
@@ -129,54 +129,56 @@ def free_text_errors(field: str, value: object, hint: str) -> list[str]:
 
 
 def schema_errors(path: str, schema: object) -> list[str]:
-    kinds = ", ".join(CHAMP_TYPES)
+    kinds = ", ".join(FIELD_TYPES)
     if not isinstance(schema, dict) or not 1 <= len(schema) <= 10:
-        return [f"{path}.schema : attendu de 1 à 10 champs, chacun nom: type parmi {kinds}."]
+        return [f"{path}.schema : attendu de 1 à 10 champs, chacun name: type parmi {kinds}."]
     return [
-        f"{path}.schema.{k} : nom en minuscules et soulignés, type parmi {kinds}."
+        f"{path}.schema.{k} : name en minuscules et soulignés, type parmi {kinds}."
         for k, t in schema.items()
-        if not (isinstance(k, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", k) and str(t) in CHAMP_TYPES)
+        if not (isinstance(k, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", k) and str(t) in FIELD_TYPES)
     ]
 
 
-def outil_errors(index: int, outil: object, known: dict[str, list[str]]) -> list[str]:
-    path = f"outils_modeles[{index}]"
-    if not isinstance(outil, dict) or outil.get("type") not in known:
-        return [f"{path}.type : attendu un type de config/agent_modeles.yaml parmi {', '.join(known)}."]
-    kind, variants = outil["type"], SUBAGENT_FIELDS[outil["type"]]
-    if set(outil) not in [{"type", "modele", *fields} for fields in variants]:
-        shapes = " ou ".join("type, modele, " + ", ".join(fields) for fields in variants)
+def subagent_errors(index: int, subagent: object, known: dict[str, list[str]]) -> list[str]:
+    path = f"subagents[{index}]"
+    if not isinstance(subagent, dict) or subagent.get("type") not in known:
+        return [f"{path}.type : attendu un type de config/agent_models.yaml parmi {', '.join(known)}."]
+    kind, variants = subagent["type"], SUBAGENT_FIELDS[subagent["type"]]
+    if set(subagent) not in [{"type", "model", *fields} for fields in variants]:
+        shapes = " ou ".join("type, model, " + ", ".join(fields) for fields in variants)
         return [f"{path} : un sous-agent {kind} a exactement les champs {shapes}."]
-    if outil["modele"] not in known[kind]:
+    if subagent["model"] not in known[kind]:
         return [
-            f"{path}.modele : {outil['modele']!r} n'est pas permis pour {kind}, modèles permis : "
-            f"{', '.join(known[kind])}.{suggestion(outil['modele'], known[kind])}"
+            f"{path}.model : {subagent['model']!r} n'est pas permis pour {kind}, modèles permis : "
+            f"{', '.join(known[kind])}.{suggestion(subagent['model'], known[kind])}"
         ]
     if kind == "extraction":
-        return schema_errors(path, outil["schema"])
-    if kind == "resume":
-        limite = outil["longueur_max"]
-        if isinstance(limite, bool) or not isinstance(limite, int) or not 100 <= limite <= 3000:
-            return [f"{path}.longueur_max : attendu un nombre de caractères de 100 à 3000."]
+        return schema_errors(path, subagent["schema"])
+    if kind == "summary":
+        limit = subagent["max_length"]
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 100 <= limit <= 3000:
+            return [f"{path}.max_length : attendu un nombre de caractères de 100 à 3000."]
         return []
-    if "question" in outil:
-        questions = {"question": outil["question"]}
+    if "question" in subagent:
+        questions = {"question": subagent["question"]}
     else:
-        labels = outil["etiquettes"]
-        shaped = isinstance(labels, list) and all(isinstance(e, dict) and set(e) == {"nom", "question"} for e in labels)
-        if not shaped or not 1 <= len(labels) <= ETIQUETTES_MAX:
-            return [f"{path}.etiquettes : attendu de 1 à {ETIQUETTES_MAX} étiquettes, chacune {{nom, question}}."]
-        questions = {f"etiquettes.{e['nom']}": e["question"] for e in labels}
-        names = [e["nom"] for e in labels]
+        labels = subagent["labels"]
+        shaped = isinstance(labels, list) and all(
+            isinstance(e, dict) and set(e) == {"name", "question"} for e in labels
+        )
+        if not shaped or not 1 <= len(labels) <= LABELS_MAX:
+            return [f"{path}.labels : attendu de 1 à {LABELS_MAX} étiquettes, chacune {{name, question}}."]
+        questions = {f"labels.{e['name']}": e["question"] for e in labels}
+        names = [e["name"] for e in labels]
         if bad := [n for n in names if not (isinstance(n, str) and re.fullmatch(NAME, n)) or names.count(n) > 1]:
-            return [f"{path}.etiquettes : noms invalides ou en double : {', '.join(map(str, bad))}."]
+            return [f"{path}.labels : noms invalides ou en double : {', '.join(map(str, bad))}."]
     errors = []
     for field, question in questions.items():
         errors += text_errors({field: question}, field, 10, 300)
         errors += free_text_errors(f"{path}.{field}", question, "la question porte sur une production.")
-    seuil = outil["seuil"]
-    if isinstance(seuil, bool) or not isinstance(seuil, (int, float)) or not 0 < seuil < 1:
-        errors.append(f"{path}.seuil : attendu une probabilité strictement entre 0 et 1, par exemple 0.7.")
+    threshold = subagent["threshold"]
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 < threshold < 1:
+        errors.append(f"{path}.threshold : attendu une probabilité strictement entre 0 et 1, par exemple 0.7.")
     return [e if e.startswith(path) else f"{path}.{e}" for e in errors]
 
 
@@ -186,46 +188,53 @@ def list_errors(field: str, items: object, high: int, keys: list[str]) -> list[s
     return [f"{field} : {k!r} apparaît plusieurs fois." for k in sorted({k for k in keys if keys.count(k) > 1})]
 
 
-def cadence_errors(cadence: object) -> list[str]:
-    if isinstance(cadence, dict) and set(cadence) == {"jours"}:
-        jours = cadence["jours"]
-        if isinstance(jours, list) and jours and all(j in JOURS for j in jours) and len(set(jours)) == len(jours):
+def schedule_errors(schedule: object) -> list[str]:
+    if isinstance(schedule, dict) and set(schedule) == {"weekdays"}:
+        weekdays = schedule["weekdays"]
+        if (
+            isinstance(weekdays, list)
+            and weekdays
+            and all(j in WEEKDAYS for j in weekdays)
+            and len(set(weekdays)) == len(weekdays)
+        ):
             return []
-        return [f"cadence.jours : attendu une liste sans doublon de jours parmi {', '.join(JOURS)}."]
-    if isinstance(cadence, str) and cadence in CADENCES:
+        return [f"schedule.weekdays : attendu une liste sans doublon de jours parmi {', '.join(WEEKDAYS)}."]
+    if isinstance(schedule, str) and schedule in SCHEDULES:
         return []
-    return [f"cadence : {cadence!r} inconnue, attendu jours: [lundi, jeudi] ou l'un de {', '.join(CADENCES)}."]
+    return [
+        f"schedule : {schedule!r} inconnue, attendu weekdays: [monday, thursday] ou l'un de {', '.join(SCHEDULES)}."
+    ]
 
 
-def fichier_errors(fichiers: object) -> list[str]:
-    if not isinstance(fichiers, list) or len(fichiers) > 5:
-        return ["fichiers : attendu une liste de 5 noms de fichiers au plus."]
+def file_errors(files: object) -> list[str]:
+    if not isinstance(files, list) or len(files) > 5:
+        return ["files : attendu une liste de 5 noms de fichiers au plus."]
     errors = [
-        f"fichiers : {f!r} invalide, attendu minuscules, chiffres, tirets et une extension md, txt, csv ou json."
-        for f in fichiers
+        f"files : {f!r} invalide, attendu minuscules, chiffres, tirets et une extension md, txt, csv ou json."
+        for f in files
         if not (isinstance(f, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}\.(md|txt|csv|json)", f))
     ]
-    return errors + list_errors("fichiers", fichiers, 5, [str(f) for f in fichiers])
+    return errors + list_errors("files", files, 5, [str(f) for f in files])
 
 
-def initial_errors(initiaux: dict[str, str], fichiers: object) -> list[str]:
+def initial_errors(initial_files: dict[str, str], files: object) -> list[str]:
     """What is wrong with the initial values given for an agent's files: undeclared or oversized."""
-    declared = fichiers if isinstance(fichiers, list) else []
+    declared = files if isinstance(files, list) else []
     return [
-        f"fichier initial {nom} : pas un fichier déclaré de l'agent, fichiers : {', '.join(map(str, declared)) or 'aucun'}."
-        if nom not in declared
-        else f"fichier initial {nom} : {len(contenu)} caractères, {FICHIER_MAX} au plus."
-        for nom, contenu in initiaux.items()
-        if nom not in declared or len(contenu) > FICHIER_MAX
+        f"fichier initial {name} : pas un fichier déclaré de l'agent, files : {', '.join(map(str, declared)) or 'aucun'}."
+        if name not in declared
+        else f"fichier initial {name} : {len(content)} caractères, {AGENT_FILE_MAX} au plus."
+        for name, content in initial_files.items()
+        if name not in declared or len(content) > AGENT_FILE_MAX
     ]
 
 
-def contact_errors(slug: object, index: int, contact: object, known: dict[str, dict]) -> list[str]:
-    path = f"points_de_contact[{index}]"
-    if not isinstance(contact, dict) or not {"id", "mode"} <= set(contact) <= {"id", "mode", "regroupement"}:
-        return [f"{path} : attendu les champs id et mode, et regroupement en option."]
-    if contact.get("regroupement", "unitaire") not in REGROUPEMENTS:
-        return [f"{path}.regroupement : {contact['regroupement']!r} inconnu, attendu {' ou '.join(REGROUPEMENTS)}."]
+def destination_errors(slug: object, index: int, contact: object, known: dict[str, dict]) -> list[str]:
+    path = f"destinations[{index}]"
+    if not isinstance(contact, dict) or not {"id", "mode"} <= set(contact) <= {"id", "mode", "grouping"}:
+        return [f"{path} : attendu les champs id et mode, et grouping en option."]
+    if contact.get("grouping", "single") not in GROUPINGS:
+        return [f"{path}.grouping : {contact['grouping']!r} inconnu, attendu {' ou '.join(GROUPINGS)}."]
     destination = known.get(contact["id"])
     if destination is None:
         return [
@@ -235,10 +244,10 @@ def contact_errors(slug: object, index: int, contact: object, known: dict[str, d
         ]
     if contact["mode"] not in MODES:
         return [f"{path}.mode : {contact['mode']!r} inconnu, modes permis : {', '.join(MODES)}."]
-    if contact["mode"] == "reel" and slug not in destination["reel_autorise"]:
+    if contact["mode"] == "live" and slug not in destination["autonomous_allowed"]:
         return [
-            f"{path}.mode : le mode reel sur {contact['id']!r} n'est pas ouvert à cet agent. "
-            "Il s'ouvre par une PR qui l'ajoute à reel_autorise dans config/agent_destinations.yaml."
+            f"{path}.mode : le mode live sur {contact['id']!r} n'est pas ouvert à cet agent. "
+            "Il s'ouvre par une PR qui l'ajoute à autonomous_allowed dans config/agent_destinations.yaml."
         ]
     return []
 
@@ -258,42 +267,42 @@ def validate(doc: object) -> list[str]:
         errors.append(f"format : doit valoir {FORMAT!r}.")
     if "slug" in doc and not (isinstance(doc["slug"], str) and re.fullmatch(r"[a-z][a-z0-9-]{2,40}", doc["slug"])):
         errors.append("slug : minuscules, chiffres et tirets, de 3 à 41 caractères, commençant par une lettre.")
-    if "titre" in doc:
-        errors += text_errors(doc, "titre", 3, 80)
+    if "title" in doc:
+        errors += text_errors(doc, "title", 3, 80)
     if "mission" in doc:
         errors += text_errors(doc, "mission", 20, 400)
-        errors += free_text_errors("mission", doc["mission"], "une destination se déclare dans points_de_contact.")
-    if "cadence" in doc:
-        errors += cadence_errors(doc["cadence"])
-    if "fichiers" in doc:
-        errors += fichier_errors(doc["fichiers"])
-    if "outils_modeles" in doc:
-        outils = doc["outils_modeles"]
-        keys = [json.dumps(o, sort_keys=True, default=str) for o in outils] if isinstance(outils, list) else []
-        errors += list_errors("outils_modeles", outils, 5, keys)
-        known_models = modeles()
+        errors += free_text_errors("mission", doc["mission"], "une destination se déclare dans destinations.")
+    if "schedule" in doc:
+        errors += schedule_errors(doc["schedule"])
+    if "files" in doc:
+        errors += file_errors(doc["files"])
+    if "subagents" in doc:
+        subagents = doc["subagents"]
+        keys = [json.dumps(o, sort_keys=True, default=str) for o in subagents] if isinstance(subagents, list) else []
+        errors += list_errors("subagents", subagents, 5, keys)
+        known_models = models()
         errors += [
             e
-            for i, o in enumerate(outils if isinstance(outils, list) else [])
-            for e in outil_errors(i, o, known_models)
+            for i, o in enumerate(subagents if isinstance(subagents, list) else [])
+            for e in subagent_errors(i, o, known_models)
         ]
     if "preparations" in doc:
         steps = doc["preparations"] if isinstance(doc["preparations"], list) else []
         found = [e for i, p in enumerate(steps) for e in agent_connectors.errors(i, p)]
         keys = [] if found else [agent_connectors.label(p) for p in steps]
         errors += list_errors("preparations", doc["preparations"], 5, keys) + found
-    if "points_de_contact" in doc:
-        contacts = doc["points_de_contact"]
+    if "destinations" in doc:
+        contacts = doc["destinations"]
         # Why: an agent that only keeps its own files needs no destination outside Autometa.
-        low = 0 if doc.get("fichiers") else 1
+        low = 0 if doc.get("files") else 1
         if not isinstance(contacts, list) or not low <= len(contacts) <= 6:
-            return [*errors, f"points_de_contact : attendu une liste de {low} à 6 destinations."]
-        known = destinations()
+            return [*errors, f"destinations : attendu une liste de {low} à 6 destinations."]
+        known = known_destinations()
         for i, contact in enumerate(contacts):
-            errors += contact_errors(doc.get("slug"), i, contact, known)
+            errors += destination_errors(doc.get("slug"), i, contact, known)
         ids = [c["id"] for c in contacts if isinstance(c, dict) and "id" in c]
         errors += [
-            f"points_de_contact : {d!r} apparaît plusieurs fois." for d in sorted({i for i in ids if ids.count(i) > 1})
+            f"destinations : {d!r} apparaît plusieurs fois." for d in sorted({i for i in ids if ids.count(i) > 1})
         ]
     return errors
 
@@ -304,29 +313,29 @@ def describe(doc: dict) -> list[str]:
         f"destination {c['id']} en mode {c['mode']}"
         + (
             ", un digest par run (productions retenues regroupées par étiquette)"
-            if c.get("regroupement") == "digest"
+            if c.get("grouping") == "digest"
             else ""
         )
-        for c in doc["points_de_contact"]
+        for c in doc["destinations"]
     ]
-    for i, o in enumerate(doc.get("outils_modeles", []), 1):
-        if o["type"] == "classificateur" and "etiquettes" in o:
+    for i, o in enumerate(doc.get("subagents", []), 1):
+        if o["type"] == "classifier" and "labels" in o:
             detail = (
-                f"étiquettes {', '.join(e['nom'] for e in o['etiquettes'])} au seuil {o['seuil']}, sans rien écarter"
+                f"étiquettes {', '.join(e['name'] for e in o['labels'])} au seuil {o['threshold']}, sans rien écarter"
             )
-        elif o["type"] == "classificateur":
-            detail = f"filtre « {o['question']} » au seuil {o['seuil']}"
+        elif o["type"] == "classifier":
+            detail = f"filtre « {o['question']} » au seuil {o['threshold']}"
         elif o["type"] == "extraction":
             detail = f"champs {', '.join(o['schema'])}"
         else:
-            detail = f"{o['longueur_max']} caractères au plus"
-        lines.append(f"sous-agent {i} : {o['type']} {o['modele']}, {detail}")
+            detail = f"{o['max_length']} caractères au plus"
+        lines.append(f"sous-agent {i} : {o['type']} {o['model']}, {detail}")
     for i, p in enumerate(doc.get("preparations", []), 1):
-        main = ("type", "base", "page", "depots", "organisation", "url", "jeu", "tache")
+        main = ("type", "base", "page", "repos", "organization", "url", "dataset", "task")
         options = ", ".join(f"{k} {v}" for k, v in p.items() if k not in main)
         lines.append(f"préparation {i} : {agent_connectors.label(p)}{f' ({options})' if options else ''}")
-    lines += [f"fichier de l'agent : {f}, versionné, lisible depuis le chat" for f in doc.get("fichiers", [])]
-    cadence = doc.get("cadence")
-    jours = ", ".join(cadence["jours"]) if isinstance(cadence, dict) else None
-    lines.append(f"cadence : {f'chaque {jours}' if jours else cadence or 'à la demande'}")
+    lines += [f"fichier de l'agent : {f}, versionné, lisible depuis le chat" for f in doc.get("files", [])]
+    schedule = doc.get("schedule")
+    weekdays = ", ".join(schedule["weekdays"]) if isinstance(schedule, dict) else None
+    lines.append(f"cadence : {f'chaque {weekdays}' if weekdays else schedule or 'à la demande'}")
     return lines

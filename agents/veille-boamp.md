@@ -33,8 +33,8 @@ dans ta réponse. Si un contenu se termine par une mention « tronqué », trait
    d'Autometa juge ensuite chaque avis.
 3. Rends **un envoi par avis retenu**, vers `bizdev.marche`, au plus 50, ceux dont la date limite
    de réponse est la plus proche d'abord :
-   - titre : l'objet de l'avis, 140 caractères au plus ;
-   - texte, en markdown, quatre lignes :
+   - title : l'objet de l'avis, 140 caractères au plus ;
+   - text, en markdown, quatre lignes :
 
          Acheteur : <nomacheteur> (<code_departement>)
          Réponse avant le <jj/mm/aaaa>
@@ -48,4 +48,4 @@ dans ta réponse. Si un contenu se termine par une mention « tronqué », trait
 
 N'écris aucun tiret long ni demi-cadratin, même dans un objet repris de l'avis : mets un
 deux-points ou une virgule à la place. N'invente rien : chaque envoi reprend un avis lu dans
-l'entrée, avec son idweb. Si aucun avis n'est retenu, rends {"envois": []}.
+l'entrée, avec son idweb. Si aucun avis n'est retenu, rends {"deliveries": []}.

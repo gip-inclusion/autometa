@@ -31,9 +31,9 @@ def container_memory() -> dict:
     events = cgroup_file("memory.events", "memory/memory.oom_control") or ""
     oom = next((line.split()[1] for line in events.splitlines() if line.startswith("oom_kill ")), None)
     return {
-        "limite": cgroup_file("memory.max", "memory/memory.limit_in_bytes"),
-        "utilisee": cgroup_file("memory.current", "memory/memory.usage_in_bytes"),
-        "pic": cgroup_file("memory.peak", "memory/memory.max_usage_in_bytes"),
+        "limit": cgroup_file("memory.max", "memory/memory.limit_in_bytes"),
+        "used": cgroup_file("memory.current", "memory/memory.usage_in_bytes"),
+        "peak": cgroup_file("memory.peak", "memory/memory.max_usage_in_bytes"),
         "oom_kill": oom,
     }
 

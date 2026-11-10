@@ -31,16 +31,16 @@ CSV = {
 
 
 def avis(idweb, objet, acheteur, departement, date, descripteurs):
-    texte = (
+    text = (
         f"Acheteur : {acheteur} ({departement})\nRéponse avant le {date}\nDescripteurs : {descripteurs}\n"
         f"https://www.boamp.fr/pages/avis/?q=idweb:{idweb}"
     )
-    return {"destination": "bizdev.marche", "titre": objet, "texte": texte}
+    return {"destination": "bizdev.marche", "title": objet, "text": text}
 
 
 # Why: a worker that read regles.md keeps three avis, including one that clef will judge off topic.
 OUTPUT = {
-    "envois": [
+    "deliveries": [
         avis(
             "26-000001",
             "Logiciel de suivi des parcours des bénéficiaires du RSA",
@@ -66,7 +66,7 @@ OUTPUT = {
             "Insertion",
         ),
     ],
-    "fichiers": [{"nom": "regles.md", "contenu": REGLES + "- 2026-11-09 : ajout du terme « mission locale »."}],
+    "files": [{"name": "regles.md", "content": REGLES + "- 2026-11-09 : ajout du terme « mission locale »."}],
 }
 
 
@@ -105,17 +105,17 @@ def registered(mocker) -> dict:
 def test_dod_1_boamp_agent_is_composed_of_generic_bricks_only():
     doc = agent_config.parse(CONFIG)
     assert agent_config.validate(doc) == []
-    assert doc["points_de_contact"] == [{"id": "bizdev.marche", "mode": "ombre", "regroupement": "digest"}]
-    assert agent_config.destinations()["bizdev.marche"]["canal"] == "slack"
-    assert doc["cadence"] == {"jours": ["lundi"]}
+    assert doc["destinations"] == [{"id": "bizdev.marche", "mode": "shadow", "grouping": "digest"}]
+    assert agent_config.known_destinations()["bizdev.marche"]["channel"] == "slack"
+    assert doc["schedule"] == {"weekdays": ["monday"]}
     assert {urlsplit(p["url"]).hostname for p in doc["preparations"]} == {BOAMP}
-    assert [o["type"] for o in doc["outils_modeles"]] == ["classificateur", "classificateur"]
-    assert doc["fichiers"] == ["regles.md"]
+    assert [o["type"] for o in doc["subagents"]] == ["classifier", "classifier"]
+    assert doc["files"] == ["regles.md"]
     assert agent_config.describe(doc)[1:3] == [
-        "sous-agent 1 : classificateur clef:27b, filtre « L'avis achète-t-il une prestation ou un outil au "
+        "sous-agent 1 : classifier clef:27b, filtre « L'avis achète-t-il une prestation ou un outil au "
         "service de l'insertion professionnelle, de l'IAE, de l'accompagnement des bénéficiaires du RSA ou du "
         "retour à l'emploi ? » au seuil 0.7",
-        "sous-agent 2 : classificateur clef:27b, étiquettes outils-numeriques, prestations-insertion au seuil 0.5, "
+        "sous-agent 2 : classifier clef:27b, étiquettes outils-numeriques, prestations-insertion au seuil 0.5, "
         "sans rien écarter",
     ]
 
@@ -132,7 +132,7 @@ def test_dod_2_job_prompt_reads_its_input_and_rules_and_calls_no_api():
     hosts = {urlsplit(url).hostname for url in re.findall(r"https?://\S+", CONSIGNE)}
     assert hosts == {"www.boamp.fr"}
     assert "curl" not in CONSIGNE
-    for rule in ("regles.md", "un envoi par avis retenu", '{"envois": []}', "idweb"):
+    for rule in ("regles.md", "un envoi par avis retenu", '{"deliveries": []}', "idweb"):
         assert rule in CONSIGNE
 
 
@@ -152,43 +152,43 @@ def test_dod_4_repository_agent_registers_with_its_rules_as_first_version(store,
     proposal = agents.plan(CONFIG, CONSIGNE, {"regles.md": REGLES})
     create.assert_not_called()
     assert proposal["system_prompt"].startswith(CONSIGNE)
-    assert "destination : une de bizdev.marche, fichier:regles.md, aucune autre." in proposal["system_prompt"]
-    assert proposal["relecture"][-2:] == [
-        "cadence : chaque lundi",
+    assert "destination : une de bizdev.marche, file:regles.md, aucune autre." in proposal["system_prompt"]
+    assert proposal["review"][-2:] == [
+        "cadence : chaque monday",
         f"valeur initiale de regles.md : {len(REGLES)} caractères, écrite à la création si le fichier est vide",
     ]
     conversation.user_replies()
     agents.apply(proposal["id"])
     create.assert_called_once_with("agent-veille-boamp", proposal["system_prompt"], {"output_format": "json"})
-    assert agents.read_file("veille-boamp", "regles.md")["contenu"] == REGLES
+    assert agents.read_file("veille-boamp", "regles.md")["content"] == REGLES
 
 
 def test_dod_4_the_skill_proposes_the_repository_files_as_they_are(store, mocker, capsys):
     Conversation(mocker)
     folder = AGENTS_DIR / "veille-boamp"
-    args = ["--config", str(AGENTS_DIR / "veille-boamp.yaml"), "--consigne", str(AGENTS_DIR / "veille-boamp.md")]
-    assert cli.main(["proposer", *args, "--fichier", str(folder / "regles.md")]) == 0
-    assert json.loads(capsys.readouterr().out)["fichiers_initiaux"] == {"regles.md": REGLES}
+    args = ["--config", str(AGENTS_DIR / "veille-boamp.yaml"), "--instructions", str(AGENTS_DIR / "veille-boamp.md")]
+    assert cli.main(["propose", *args, "--file", str(folder / "regles.md")]) == 0
+    assert json.loads(capsys.readouterr().out)["initial_files"] == {"regles.md": REGLES}
 
 
 @pytest.mark.parametrize(
-    ("initiaux", "message"),
+    ("initial_files", "message"),
     [
-        ({"notes.md": "x"}, "fichier initial notes.md : pas un fichier déclaré de l'agent, fichiers : regles.md."),
+        ({"notes.md": "x"}, "fichier initial notes.md : pas un fichier déclaré de l'agent, files : regles.md."),
         ({"regles.md": "x" * 100_001}, "fichier initial regles.md : 100001 caractères, 100000 au plus."),
     ],
 )
-def test_an_initial_value_outside_the_declared_files_is_refused(store, mocker, initiaux, message):
+def test_an_initial_value_outside_the_declared_files_is_refused(store, mocker, initial_files, message):
     Conversation(mocker)
     with pytest.raises(ValueError, match=re.escape(message)):
-        agents.plan(CONFIG, CONSIGNE, initiaux)
+        agents.plan(CONFIG, CONSIGNE, initial_files)
 
 
 def test_an_initial_value_never_overwrites_what_the_agent_wrote(store, mocker):
     registered(mocker)
     agents.agent_files.write_version("veille-boamp", "regles.md", "# Revu par l'agent", "run x")
     registered(mocker)
-    assert [v["origine"][:15] for v in agents.file_history("veille-boamp", "regles.md")] == [
+    assert [v["origin"][:15] for v in agents.file_history("veille-boamp", "regles.md")] == [
         "valeur initiale",
         "run x",
     ]
@@ -197,7 +197,7 @@ def test_an_initial_value_never_overwrites_what_the_agent_wrote(store, mocker):
 @pytest.mark.parametrize(("day", "due"), [("2026-11-09T07:00:00", True), ("2026-11-10T07:00:00", False)])
 def test_dod_6_the_generic_cron_launches_it_on_mondays_only(mocker, day, due):
     mocker.patch("lib.agents.cron.utcnow", return_value=datetime.fromisoformat(day).replace(tzinfo=timezone.utc))
-    assert agents.due(agent_config.parse(CONFIG)["cadence"]) is due
+    assert agents.due(agent_config.parse(CONFIG)["schedule"]) is due
 
 
 def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_by_heading(store, mocker):
@@ -222,25 +222,25 @@ def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_b
         ("url", CSV["SERVICES"]),
         ("url", CSV["SERVICES"]),
         ("url", CSV["FOURNITURES"]),
-        ("fichier", REGLES),
+        ("file", REGLES),
     ]
 
     summary = agents.deliver_run("veille-boamp", RUN_ID)
 
-    assert [(e["statut"], e["appels"]) for e in summary] == [
-        ("regroupe", 2),
-        ("ecarte", 1),
-        ("regroupe", 2),
-        ("ombre", 0),
+    assert [(e["status"], e["calls"]) for e in summary] == [
+        ("grouped", 2),
+        ("discarded", 1),
+        ("grouped", 2),
+        ("shadow", 0),
     ]
     assert ollama.call_count == 5
     records = [store.json(f"veille-boamp/envois/{RUN_ID}-{i}.json") for i in range(3)]
-    assert [r.get("etiquettes") for r in records] == [["outils-numeriques"], None, ["prestations-insertion"]]
-    assert records[0]["texte"].endswith("idweb:26-000001\n\nÉtiquettes : outils-numeriques")
-    assert records[1]["sous_agents"][0]["probabilite"] == 0.18
+    assert [r.get("labels") for r in records] == [["outils-numeriques"], None, ["prestations-insertion"]]
+    assert records[0]["text"].endswith("idweb:26-000001\n\nÉtiquettes : outils-numeriques")
+    assert records[1]["subagents"][0]["probability"] == 0.18
     digest = store.json(f"veille-boamp/envois/{summary[-1]['id']}.json")
-    assert digest["titre"].endswith(" : retenus 2, écartés 1")
-    assert digest["texte"] == (
+    assert digest["title"].endswith(" : retenus 2, écartés 1")
+    assert digest["text"] == (
         "## outils-numeriques\n"
         "- Logiciel de suivi des parcours des bénéficiaires du RSA : https://www.boamp.fr/pages/avis/?q=idweb:26-000001\n\n"
         "## prestations-insertion\n"
@@ -249,4 +249,4 @@ def test_dod_5_a_simulated_run_judges_each_notice_then_sends_one_shadow_digest_b
     slack.assert_not_called()
     notion.assert_not_called()
     assert [v["version"] for v in agents.file_history("veille-boamp", "regles.md")] == [1, 2]
-    assert agents.read_file("veille-boamp", "regles.md")["contenu"].endswith("« mission locale ».")
+    assert agents.read_file("veille-boamp", "regles.md")["content"].endswith("« mission locale ».")

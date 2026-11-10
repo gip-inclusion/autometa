@@ -93,7 +93,7 @@ Notion, ni GitHub, ni cadence bihebdomadaire, ni fichier, et un classificateur q
 
 ## Sous-agents (option a, après le run)
 
-Liste fermée `config/agent_modeles.yaml` : trois types, chacun avec ses modèles Ollama Cloud
+Liste fermée `config/agent_models.yaml` : trois types, chacun avec ses modèles Ollama Cloud
 permis (noms relevés dans `https://ollama.com/api/tags`).
 
 | Type | Ce qu'il fait | API | Modèles |

@@ -383,12 +383,12 @@ class CLIBackend(AgentBackend):
 
             # Why: a negative code is a signal; ours only on cancel, otherwise the system (memory) killed it.
             if process.returncode < 0 and conversation_id not in self._cancelled:
-                outcome["killed"] = {"signal": -process.returncode, "memoire": memory_introspect.container_memory()}
+                outcome["killed"] = {"signal": -process.returncode, "memory": memory_introspect.container_memory()}
                 logger.error(
                     "CLI tué par le système : conversation=%s signal=%s memoire_conteneur=%s",
                     conversation_id,
                     -process.returncode,
-                    outcome["killed"]["memoire"],
+                    outcome["killed"]["memory"],
                 )
             self._cancelled.discard(conversation_id)
 

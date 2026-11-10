@@ -4,12 +4,11 @@ import json
 
 import httpx
 
-from lib.agent_config import CHAMP_TYPES
 from web import config
 
 __all__ = ["run_chain"]
 
-PYTHON_TYPES = {"texte": str, "nombre": (int, float), "entier": int, "booleen": bool}
+PYTHON_TYPES = {"string": str, "number": (int, float), "integer": int, "boolean": bool}
 
 
 def ollama(path: str, payload: dict) -> dict:
@@ -26,15 +25,15 @@ def ollama(path: str, payload: dict) -> dict:
     return resp.json()
 
 
-def chat(modele: str, consigne: str, envoi: dict, **options) -> str:
+def chat(model: str, instructions: str, delivery: dict, **options) -> str:
     body = ollama(
         "api/chat",
         {
-            "model": modele,
+            "model": model,
             "stream": False,
             "messages": [
-                {"role": "system", "content": consigne},
-                {"role": "user", "content": f"# {envoi['titre']}\n\n{envoi['texte']}"},
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": f"# {delivery['title']}\n\n{delivery['text']}"},
             ],
             **options,
         },
@@ -45,93 +44,93 @@ def chat(modele: str, consigne: str, envoi: dict, **options) -> str:
         raise RuntimeError(f"réponse illisible : {type(exc).__name__}") from exc
 
 
-def classify(outil: dict, envoi: dict) -> tuple[dict, dict]:
+def classify(subagent: dict, delivery: dict) -> tuple[dict, dict]:
     """A filter asks one yes/no question; a labeller asks one per label, in one call, and never sets aside."""
-    labels = outil.get("etiquettes") or [{"nom": "retenir", "question": outil["question"]}]
+    labels = subagent.get("labels") or [{"name": "retenir", "question": subagent["question"]}]
     body = ollama(
         "v1/systemone",
         {
-            "model": outil["modele"],
-            "state": {"titre": envoi["titre"], "texte": envoi["texte"]},
-            "questions": {e["nom"]: {"type": "noul", "instructions": e["question"]} for e in labels},
+            "model": subagent["model"],
+            "state": {"title": delivery["title"], "text": delivery["text"]},
+            "questions": {e["name"]: {"type": "noul", "instructions": e["question"]} for e in labels},
         },
     )
     try:
-        probabilites = {e["nom"]: round(float(body["answers"][e["nom"]]["noul"]), 4) for e in labels}
+        probabilities = {e["name"]: round(float(body["answers"][e["name"]]["noul"]), 4) for e in labels}
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError(f"réponse illisible : {type(exc).__name__}") from exc
-    seuil = outil["seuil"]
-    if "question" in outil:
-        return envoi, {
-            "probabilite": probabilites["retenir"],
-            "seuil": seuil,
-            "retenu": probabilites["retenir"] >= seuil,
+    threshold = subagent["threshold"]
+    if "question" in subagent:
+        return delivery, {
+            "probability": probabilities["retenir"],
+            "threshold": threshold,
+            "kept": probabilities["retenir"] >= threshold,
         }
-    retenues = [nom for nom, p in probabilites.items() if p >= seuil]
-    etiquettes = [*envoi.get("etiquettes", []), *(n for n in retenues if n not in envoi.get("etiquettes", []))]
-    texte = f"{envoi['texte']}\n\nÉtiquettes : {', '.join(retenues) or 'aucune'}"
-    return {**envoi, "texte": texte, "etiquettes": etiquettes}, {
-        "probabilites": probabilites,
-        "seuil": seuil,
-        "etiquettes": retenues,
+    kept_labels = [name for name, p in probabilities.items() if p >= threshold]
+    labels = [*delivery.get("labels", []), *(n for n in kept_labels if n not in delivery.get("labels", []))]
+    text = f"{delivery['text']}\n\nÉtiquettes : {', '.join(kept_labels) or 'aucune'}"
+    return {**delivery, "text": text, "labels": labels}, {
+        "probabilities": probabilities,
+        "threshold": threshold,
+        "labels": kept_labels,
     }
 
 
 def well_typed(value: object, kind: str) -> bool:
-    """Why: a JSON true is a Python int too; only a booleen field takes a boolean."""
-    return isinstance(value, PYTHON_TYPES[kind]) and isinstance(value, bool) == (kind == "booleen")
+    """Why: a JSON true is a Python int too; only a boolean field takes a boolean."""
+    return isinstance(value, PYTHON_TYPES[kind]) and isinstance(value, bool) == (kind == "boolean")
 
 
-def extract(outil: dict, envoi: dict) -> tuple[dict, dict]:
-    schema = outil["schema"]
+def extract(subagent: dict, delivery: dict) -> tuple[dict, dict]:
+    schema = subagent["schema"]
     json_schema = {
         "type": "object",
-        "properties": {k: {"type": CHAMP_TYPES[t]} for k, t in schema.items()},
+        "properties": {k: {"type": t} for k, t in schema.items()},
         "required": list(schema),
         "additionalProperties": False,
     }
-    consigne = "Extrais de ce texte les champs demandés. Réponds par l'objet JSON seul, sans rien inventer."
-    raw = chat(outil["modele"], consigne, envoi, format=json_schema, options={"temperature": 0})
+    instructions = "Extrais de ce texte les champs demandés. Réponds par l'objet JSON seul, sans rien inventer."
+    raw = chat(subagent["model"], instructions, delivery, format=json_schema, options={"temperature": 0})
     try:
-        champs = json.loads(raw)
+        fields = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise RuntimeError("extraction : sortie qui n'est pas du JSON") from exc
     if not (
-        isinstance(champs, dict)
-        and set(champs) == set(schema)
-        and all(well_typed(champs[k], t) for k, t in schema.items())
+        isinstance(fields, dict)
+        and set(fields) == set(schema)
+        and all(well_typed(fields[k], t) for k, t in schema.items())
     ):
         raise RuntimeError("extraction : sortie hors du schéma déclaré")
-    lignes = "\n".join(f"- {k} : {v}" for k, v in champs.items())
-    return {**envoi, "texte": f"{envoi['texte']}\n\n{lignes}"}, {"champs": champs}
+    lines = "\n".join(f"- {k} : {v}" for k, v in fields.items())
+    return {**delivery, "text": f"{delivery['text']}\n\n{lines}"}, {"fields": fields}
 
 
-def summarize(outil: dict, envoi: dict) -> tuple[dict, dict]:
-    limite = outil["longueur_max"]
-    consigne = (
-        f"Résume ce texte en français, en {limite} caractères au plus. Garde les faits, n'ajoute ni lien, "
+def summarize(subagent: dict, delivery: dict) -> tuple[dict, dict]:
+    limit = subagent["max_length"]
+    instructions = (
+        f"Résume ce texte en français, en {limit} caractères au plus. Garde les faits, n'ajoute ni lien, "
         "ni mention de personne, ni canal. Réponds par le résumé seul."
     )
     # Why: about 3 characters per token in French; the cap keeps a runaway answer bounded.
-    texte = chat(outil["modele"], consigne, envoi, options={"temperature": 0.2, "num_predict": limite // 2 + 64})
-    if not texte or len(texte) > limite:
-        raise RuntimeError(f"résumé de {len(texte)} caractères, attendu 1 à {limite}")
-    return {**envoi, "texte": texte}, {"longueur": len(texte)}
+    text = chat(subagent["model"], instructions, delivery, options={"temperature": 0.2, "num_predict": limit // 2 + 64})
+    if not text or len(text) > limit:
+        raise RuntimeError(f"résumé de {len(text)} caractères, attendu 1 à {limit}")
+    return {**delivery, "text": text}, {"length": len(text)}
 
 
-STEPS = {"classificateur": classify, "extraction": extract, "resume": summarize}
+STEPS = {"classifier": classify, "extraction": extract, "summary": summarize}
 
 
-def run_chain(outils: list[dict], envoi: dict) -> dict:
+def run_chain(subagents: list[dict], delivery: dict) -> dict:
     """The production after each sub-agent in order: stops on a classifier below threshold or on a failing link."""
-    etapes = []
-    for i, outil in enumerate(outils):
+    steps = []
+    for i, subagent in enumerate(subagents):
         try:
-            envoi, etape = STEPS[outil["type"]](outil, envoi)
+            delivery, step = STEPS[subagent["type"]](subagent, delivery)
         except (RuntimeError, httpx.HTTPError) as exc:
-            echec = f"sous-agent {i + 1} ({outil['type']} {outil['modele']}) en échec : {exc}"
-            return {"envoi": envoi, "etapes": etapes, "appels": i + 1, "echec": echec}
-        etapes.append({"type": outil["type"], "modele": outil["modele"], **etape})
-        if etape.get("retenu") is False:
+            failure = f"sous-agent {i + 1} ({subagent['type']} {subagent['model']}) en échec : {exc}"
+            return {"delivery": delivery, "steps": steps, "calls": i + 1, "failure": failure}
+        steps.append({"type": subagent["type"], "model": subagent["model"], **step})
+        if step.get("kept") is False:
             break
-    return {"envoi": envoi, "etapes": etapes, "appels": len(etapes), "echec": None}
+    return {"delivery": delivery, "steps": steps, "calls": len(steps), "failure": None}

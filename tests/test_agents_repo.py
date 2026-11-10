@@ -26,21 +26,23 @@ def repo_errors(path: Path) -> list[str]:
         return [f"{path.name} : YAML illisible : {exc}"]
     found = agent_config.validate(doc)
     if isinstance(doc, dict):
-        found += agent_config.initial_errors(initial_files(path), doc.get("fichiers", []))
+        found += agent_config.initial_errors(initial_files(path), doc.get("files", []))
     if isinstance(doc, dict) and "slug" in doc and doc["slug"] != path.stem:
         found.append(f"slug : {doc['slug']!r} diffère du nom du fichier, attendu {path.stem!r}.")
-    consigne = path.with_suffix(".md")
-    if not consigne.is_file() or not consigne.read_text().strip():
-        found.append(f"consigne : {consigne.name} absente ou vide, la consigne du job vit à côté de la configuration.")
+    instructions = path.with_suffix(".md")
+    if not instructions.is_file() or not instructions.read_text().strip():
+        found.append(
+            f"consigne : {instructions.name} absente ou vide, la consigne du job vit à côté de la configuration."
+        )
     return [f"{path.name} : {error}" for error in found]
 
 
-def agent_file(directory: Path, slug: str, destination: str = "bizdev.marche", mode: str = "ombre") -> Path:
+def agent_file(directory: Path, slug: str, destination: str = "bizdev.marche", mode: str = "shadow") -> Path:
     path = directory / f"{slug}.yaml"
     path.write_text(
-        f"format: pdi.agent/1\nslug: {slug}\ntitre: Veille des marchés\n"
+        f"format: pdi.agent/1\nslug: {slug}\ntitle: Veille des marchés\n"
         "mission: Repérer les avis de marchés publics utiles à l'équipe bizdev.\n"
-        f"points_de_contact:\n  - id: {destination}\n    mode: {mode}\n"
+        f"destinations:\n  - id: {destination}\n    mode: {mode}\n"
     )
     return path
 
@@ -57,8 +59,8 @@ def test_dod_3_the_check_finds_the_repository_agents():
 @pytest.mark.parametrize(
     ("destination", "mode", "field", "message"),
     [
-        ("bizdev.marches", "ombre", "id", "'bizdev.marches' n'est pas une destination"),
-        ("bizdev.marche", "reel", "mode", "le mode reel sur 'bizdev.marche' n'est pas ouvert à cet agent"),
+        ("bizdev.marches", "shadow", "id", "'bizdev.marches' n'est pas une destination"),
+        ("bizdev.marche", "live", "mode", "le mode live sur 'bizdev.marche' n'est pas ouvert à cet agent"),
         ("bizdev.marche", "direct", "mode", "'direct' inconnu"),
     ],
 )
@@ -66,7 +68,7 @@ def test_dod_3_a_wrong_destination_or_mode_is_refused(tmp_path, destination, mod
     path = agent_file(tmp_path, "veille-marches", destination, mode)
     path.with_suffix(".md").write_text(CONSIGNE)
     [error] = repo_errors(path)
-    assert error.startswith(f"veille-marches.yaml : points_de_contact[0].{field} : ")
+    assert error.startswith(f"veille-marches.yaml : destinations[0].{field} : ")
     assert message in error
 
 
@@ -78,35 +80,35 @@ def test_dod_3_a_slug_other_than_the_file_name_is_refused(tmp_path):
     ]
 
 
-@pytest.mark.parametrize("consigne", [None, "  \n"])
-def test_dod_3_an_agent_without_a_job_prompt_is_refused(tmp_path, consigne):
+@pytest.mark.parametrize("instructions", [None, "  \n"])
+def test_dod_3_an_agent_without_a_job_prompt_is_refused(tmp_path, instructions):
     path = agent_file(tmp_path, "veille-marches")
-    if consigne is not None:
-        path.with_suffix(".md").write_text(consigne)
+    if instructions is not None:
+        path.with_suffix(".md").write_text(instructions)
     assert repo_errors(path) == [
         "veille-marches.yaml : consigne : veille-marches.md absente ou vide, "
         "la consigne du job vit à côté de la configuration."
     ]
 
 
-def agent_with_initial_file(directory: Path, fichiers: str, contenu: str) -> Path:
+def agent_with_initial_file(directory: Path, files: str, content: str) -> Path:
     path = agent_file(directory, "veille-marches")
-    path.write_text(path.read_text() + fichiers)
+    path.write_text(path.read_text() + files)
     path.with_suffix(".md").write_text(CONSIGNE)
     (directory / "veille-marches").mkdir()
-    (directory / "veille-marches" / "regles.md").write_text(contenu)
+    (directory / "veille-marches" / "regles.md").write_text(content)
     return path
 
 
 def test_an_initial_value_for_an_undeclared_file_is_refused(tmp_path):
     path = agent_with_initial_file(tmp_path, "", "# Règles")
     assert repo_errors(path) == [
-        "veille-marches.yaml : fichier initial regles.md : pas un fichier déclaré de l'agent, fichiers : aucun."
+        "veille-marches.yaml : fichier initial regles.md : pas un fichier déclaré de l'agent, files : aucun."
     ]
 
 
 def test_an_oversized_initial_value_is_refused(tmp_path):
-    path = agent_with_initial_file(tmp_path, "fichiers: [regles.md]\n", "x" * 100_001)
+    path = agent_with_initial_file(tmp_path, "files: [regles.md]\n", "x" * 100_001)
     assert repo_errors(path) == ["veille-marches.yaml : fichier initial regles.md : 100001 caractères, 100000 au plus."]
 
 

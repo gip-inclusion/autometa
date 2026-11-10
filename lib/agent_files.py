@@ -5,7 +5,7 @@ import logging
 import re
 from datetime import datetime
 
-from lib.agent_config import FICHIER_MAX
+from lib.agent_config import AGENT_FILE_MAX
 from lib.agent_delivery import read_json, write_json
 
 logger = logging.getLogger(__name__)
@@ -15,83 +15,83 @@ __all__ = ["read", "history", "compare", "write_version", "add_entries", "output
 ENTRY = re.compile(r"(?m)^<!-- entree: ([0-9a-z-]+) -->\n")
 
 
-def index_path(slug: str, nom: str) -> str:
-    return f"{slug}/fichiers/{nom}/index.json"
+def index_path(slug: str, name: str) -> str:
+    return f"{slug}/fichiers/{name}/index.json"
 
 
-def history(slug: str, nom: str) -> list[dict]:
+def history(slug: str, name: str) -> list[dict]:
     """Every version of a file, oldest first: number, date, origin, size; never the content."""
-    return (read_json(index_path(slug, nom)) or {"versions": []})["versions"]
+    return (read_json(index_path(slug, name)) or {"versions": []})["versions"]
 
 
-def read(slug: str, nom: str, version: int | None = None) -> dict:
+def read(slug: str, name: str, version: int | None = None) -> dict:
     """A version of a file, the latest by default; version 0 is the empty file before any write."""
-    versions = history(slug, nom)
+    versions = history(slug, name)
     number = version if version is not None else len(versions)
     if not 0 <= number <= len(versions):
-        raise ValueError(f"fichier {nom} : version {number} inconnue, versions 1 à {len(versions)}")
+        raise ValueError(f"fichier {name} : version {number} inconnue, versions 1 à {len(versions)}")
     if number == 0:
-        return {"nom": nom, "version": 0, "contenu": ""}
-    return {**versions[number - 1], "nom": nom, **read_json(f"{slug}/fichiers/{nom}/{number:04d}.json")}
+        return {"name": name, "version": 0, "content": ""}
+    return {**versions[number - 1], "name": name, **read_json(f"{slug}/fichiers/{name}/{number:04d}.json")}
 
 
-def compare(slug: str, nom: str, de: int, a: int) -> str:
-    before, after = read(slug, nom, de), read(slug, nom, a)
+def compare(slug: str, name: str, old: int, new: int) -> str:
+    before, after = read(slug, name, old), read(slug, name, new)
     return "".join(
         difflib.unified_diff(
-            before["contenu"].splitlines(keepends=True),
-            after["contenu"].splitlines(keepends=True),
-            f"{nom} version {de}",
-            f"{nom} version {a}",
+            before["content"].splitlines(keepends=True),
+            after["content"].splitlines(keepends=True),
+            f"{name} version {old}",
+            f"{name} version {new}",
         )
     )
 
 
-def write_version(slug: str, nom: str, contenu: str, origine: str) -> int:
+def write_version(slug: str, name: str, content: str, origin: str) -> int:
     """A new version, unless the content is the latest one already; logs the size, never the content."""
-    if len(contenu) > FICHIER_MAX:
-        raise ValueError(f"fichier {nom} : {len(contenu)} caractères, {FICHIER_MAX} au plus")
-    versions = history(slug, nom)
-    if versions and read(slug, nom)["contenu"] == contenu:
+    if len(content) > AGENT_FILE_MAX:
+        raise ValueError(f"fichier {name} : {len(content)} caractères, {AGENT_FILE_MAX} au plus")
+    versions = history(slug, name)
+    if versions and read(slug, name)["content"] == content:
         return len(versions)
     number = len(versions) + 1
-    write_json(f"{slug}/fichiers/{nom}/{number:04d}.json", {"contenu": contenu})
+    write_json(f"{slug}/fichiers/{name}/{number:04d}.json", {"content": content})
     meta = {
         "version": number,
-        "ecrit_le": datetime.now().isoformat(timespec="seconds"),
-        "origine": origine,
-        "taille": len(contenu),
+        "written_at": datetime.now().isoformat(timespec="seconds"),
+        "origin": origin,
+        "size": len(content),
     }
-    write_json(index_path(slug, nom), {"versions": [*versions, meta]})
-    logger.info("agent %s fichier %s version %d, %d caractères, %s", slug, nom, number, len(contenu), origine)
+    write_json(index_path(slug, name), {"versions": [*versions, meta]})
+    logger.info("agent %s fichier %s version %d, %d caractères, %s", slug, name, number, len(content), origin)
     return number
 
 
-def add_entries(slug: str, nom: str, entries: list[tuple[str, str, str]], origine: str) -> int:
+def add_entries(slug: str, name: str, entries: list[tuple[str, str, str]], origin: str) -> int:
     """Put each (key, title, text) in the file: a key already there is replaced in place, a new one appended."""
-    parts = ENTRY.split(read(slug, nom)["contenu"])
+    parts = ENTRY.split(read(slug, name)["content"])
     keyed = dict(zip(parts[1::2], parts[2::2]))
-    for key, titre, texte in entries:
-        keyed[key] = f"## {titre}\n\n{texte.strip()}\n\n"
-    contenu = parts[0] + "".join(f"<!-- entree: {k} -->\n{block}" for k, block in keyed.items())
-    return write_version(slug, nom, contenu, origine)
+    for key, title, text in entries:
+        keyed[key] = f"## {title}\n\n{text.strip()}\n\n"
+    content = parts[0] + "".join(f"<!-- entree: {k} -->\n{block}" for k, block in keyed.items())
+    return write_version(slug, name, content, origin)
 
 
-def output_errors(fichiers: object, declared: list[str], fed: set[str]) -> list[str]:
+def output_errors(files: object, declared: list[str], fed: set[str]) -> list[str]:
     """What is wrong with the files a run hands back: undeclared, oversized, duplicated, or also fed by productions."""
-    if not isinstance(fichiers, list):
-        return ["fichiers : attendu une liste de {nom, contenu}."]
+    if not isinstance(files, list):
+        return ["files : attendu une liste de {name, content}."]
     errors, seen = [], set()
-    for i, f in enumerate(fichiers):
-        path = f"fichiers[{i}]"
-        if not (isinstance(f, dict) and set(f) == {"nom", "contenu"} and isinstance(f["contenu"], str)):
-            errors.append(f"{path} : attendu exactement nom et contenu (un texte).")
-        elif f["nom"] not in declared:
-            errors.append(f"{path} : {f['nom']!r} n'est pas un fichier déclaré de l'agent.")
-        elif len(f["contenu"]) > FICHIER_MAX:
-            errors.append(f"{path} : {len(f['contenu'])} caractères, {FICHIER_MAX} au plus.")
-        elif f["nom"] in seen or f["nom"] in fed:
-            errors.append(f"{path} : {f['nom']} est rendu deux fois ou reçoit aussi des productions de ce run.")
+    for i, f in enumerate(files):
+        path = f"files[{i}]"
+        if not (isinstance(f, dict) and set(f) == {"name", "content"} and isinstance(f["content"], str)):
+            errors.append(f"{path} : attendu exactement name et content (un texte).")
+        elif f["name"] not in declared:
+            errors.append(f"{path} : {f['name']!r} n'est pas un fichier déclaré de l'agent.")
+        elif len(f["content"]) > AGENT_FILE_MAX:
+            errors.append(f"{path} : {len(f['content'])} caractères, {AGENT_FILE_MAX} au plus.")
+        elif f["name"] in seen or f["name"] in fed:
+            errors.append(f"{path} : {f['name']} est rendu deux fois ou reçoit aussi des productions de ce run.")
         else:
-            seen.add(f["nom"])
+            seen.add(f["name"])
     return errors

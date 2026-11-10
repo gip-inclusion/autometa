@@ -6,13 +6,13 @@ from tests.test_agent_delivery import RUN_ID, SLUG, TARGETS, FakeStore, make_age
 DESTINATION = "produit.signal_faible"
 DIGEST_ID = f"{RUN_ID}-digest-{DESTINATION}"
 LABELS = {
-    "type": "classificateur",
-    "modele": "clef:27b",
-    "etiquettes": [
-        {"nom": "outils", "question": "La production porte-t-elle sur un outil numérique ?"},
-        {"nom": "prestations", "question": "La production porte-t-elle sur une prestation ?"},
+    "type": "classifier",
+    "model": "clef:27b",
+    "labels": [
+        {"name": "outils", "question": "La production porte-t-elle sur un outil numérique ?"},
+        {"name": "prestations", "question": "La production porte-t-elle sur une prestation ?"},
     ],
-    "seuil": 0.5,
+    "threshold": 0.5,
 }
 
 
@@ -30,31 +30,31 @@ def post(mocker):
     return mocker.patch("lib.agent_delivery.slack.post_message", return_value=True)
 
 
-def digest_agent(mode="ombre", regroupement="digest"):
+def digest_agent(mode="shadow", grouping="digest"):
     agent = make_agent((DESTINATION, mode))
-    agent["points_de_contact"][0]["regroupement"] = regroupement
-    return {**agent, "outils_modeles": [LABELS]}
+    agent["destinations"][0]["grouping"] = grouping
+    return {**agent, "subagents": [LABELS]}
 
 
-def production(titre, lien=None):
-    texte = f"Détails de {titre}." + (f"\n{lien}" if lien else "")
-    return {"destination": DESTINATION, "titre": titre, "texte": texte}
+def production(title, lien=None):
+    text = f"Détails de {title}." + (f"\n{lien}" if lien else "")
+    return {"destination": DESTINATION, "title": title, "text": text}
 
 
 def chain(verdicts):
     """Sub-agents faked by title: a list of labels, « ecarte » below the filter, « echec » for a failing link."""
 
-    def run(envoi):
-        verdict = verdicts[envoi["titre"]]
-        if verdict == "echec":
-            return {"envoi": envoi, "etapes": [], "appels": 1, "echec": "sous-agent 1 en échec"}
-        if verdict == "ecarte":
-            return {"envoi": envoi, "etapes": [{"retenu": False}], "appels": 1, "echec": None}
+    def run(delivery):
+        verdict = verdicts[delivery["title"]]
+        if verdict == "failure":
+            return {"delivery": delivery, "steps": [], "calls": 1, "failure": "sous-agent 1 en échec"}
+        if verdict == "discarded":
+            return {"delivery": delivery, "steps": [{"kept": False}], "calls": 1, "failure": None}
         return {
-            "envoi": {**envoi, "etiquettes": verdict},
-            "etapes": [{"etiquettes": verdict}],
-            "appels": 1,
-            "echec": None,
+            "delivery": {**delivery, "labels": verdict},
+            "steps": [{"labels": verdict}],
+            "calls": 1,
+            "failure": None,
         }
 
     return run
@@ -63,7 +63,7 @@ def chain(verdicts):
 VERDICTS = {
     "Logiciel RSA": ["outils"],
     "Plateforme insertion": ["outils", "prestations"],
-    "Nettoyage": "ecarte",
+    "Nettoyage": "discarded",
     "Divers": [],
 }
 ENVOIS = [
@@ -77,40 +77,40 @@ ENVOIS = [
 def test_dod_7_digest_gathers_kept_productions_by_label_with_their_links(store, post):
     summary = agent_delivery.deliver(digest_agent(), RUN_ID, ENVOIS, chain(VERDICTS))
 
-    assert [(e["id"], e["statut"]) for e in summary] == [
-        (f"{RUN_ID}-0", "regroupe"),
-        (f"{RUN_ID}-1", "regroupe"),
-        (f"{RUN_ID}-2", "ecarte"),
-        (f"{RUN_ID}-3", "regroupe"),
-        (DIGEST_ID, "ombre"),
+    assert [(e["id"], e["status"]) for e in summary] == [
+        (f"{RUN_ID}-0", "grouped"),
+        (f"{RUN_ID}-1", "grouped"),
+        (f"{RUN_ID}-2", "discarded"),
+        (f"{RUN_ID}-3", "grouped"),
+        (DIGEST_ID, "shadow"),
     ]
     digest = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")
-    assert digest["titre"].startswith("Signaux faibles des mises en production, run du ")
-    assert digest["titre"].endswith(" : retenus 3, écartés 1")
-    assert digest["texte"] == (
+    assert digest["title"].startswith("Signaux faibles des mises en production, run du ")
+    assert digest["title"].endswith(" : retenus 3, écartés 1")
+    assert digest["text"] == (
         "## outils\n- Logiciel RSA : https://exemple.fr/avis/1\n- Plateforme insertion : https://exemple.fr/avis/2\n\n"
         "## prestations\n- Plateforme insertion : https://exemple.fr/avis/2\n\n"
         "## Autres\n- Divers"
     )
     assert digest["productions"] == [f"{RUN_ID}-0", f"{RUN_ID}-1", f"{RUN_ID}-3"]
     assert store.json(f"{SLUG}/envois/{RUN_ID}-0.json")["digest"] == DIGEST_ID
-    assert store.json(f"{SLUG}/envois/{RUN_ID}-2.json")["statut"] == "ecarte"
+    assert store.json(f"{SLUG}/envois/{RUN_ID}-2.json")["status"] == "discarded"
     post.assert_not_called()
 
 
 def test_dod_7_digest_with_nothing_kept_says_so(store, post):
     agent_delivery.deliver(digest_agent(), RUN_ID, [production("Nettoyage")], chain(VERDICTS))
     digest = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")
-    assert (digest["titre"][-22:], digest["texte"]) == (": retenus 0, écartés 1", "Aucune production retenue.")
+    assert (digest["title"][-22:], digest["text"]) == (": retenus 0, écartés 1", "Aucune production retenue.")
 
 
 def test_dod_7_digest_beyond_its_cap_keeps_the_first_lines_and_counts_the_others(store, post, mocker):
     mocker.patch("lib.agent_delivery.DIGEST_MAX", 90)
-    envois = [production(f"Avis {n:02d}", f"https://exemple.fr/{n}") for n in range(10)]
-    agent_delivery.deliver(digest_agent(), RUN_ID, envois, chain({e["titre"]: ["outils"] for e in envois}))
+    deliveries = [production(f"Avis {n:02d}", f"https://exemple.fr/{n}") for n in range(10)]
+    agent_delivery.deliver(digest_agent(), RUN_ID, deliveries, chain({e["title"]: ["outils"] for e in deliveries}))
 
-    texte = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")["texte"]
-    kept, _, omitted = texte.rpartition("\n\n")
+    text = store.json(f"{SLUG}/envois/{DIGEST_ID}.json")["text"]
+    kept, _, omitted = text.rpartition("\n\n")
     assert kept == "## outils\n- Avis 00 : https://exemple.fr/0\n- Avis 01 : https://exemple.fr/1"
     assert len(kept) <= 90
     assert omitted == "8 lignes omises au-delà de 90 caractères."
@@ -118,52 +118,52 @@ def test_dod_7_digest_beyond_its_cap_keeps_the_first_lines_and_counts_the_others
 
 def test_dod_7_real_digest_is_posted_once_and_never_rebuilt_on_redelivery(store, post, mocker):
     open_real_mode(mocker)
-    agent = digest_agent("reel")
+    agent = digest_agent("live")
     first = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
     second = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
 
-    assert first[-1] == {"id": DIGEST_ID, "destination": DESTINATION, "mode": "reel", "statut": "envoyee", "appels": 0}
-    assert [e["statut"] for e in second] == [e["statut"] for e in first]
+    assert first[-1] == {"id": DIGEST_ID, "destination": DESTINATION, "mode": "live", "status": "sent", "calls": 0}
+    assert [e["status"] for e in second] == [e["status"] for e in first]
     post.assert_called_once()
     assert "Plateforme insertion" in post.call_args.args[2]
 
 
 def test_dod_7_digest_waits_for_productions_whose_sub_agents_failed(store, post):
     agent = digest_agent()
-    failing = {**VERDICTS, "Divers": "echec"}
+    failing = {**VERDICTS, "Divers": "failure"}
     first = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(failing))
     assert [e["id"] for e in first][-1] == f"{RUN_ID}-3"
     assert f"{SLUG}/envois/{DIGEST_ID}.json" not in store.files
 
     second = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
     assert second[-1]["id"] == DIGEST_ID
-    assert store.json(f"{SLUG}/envois/{DIGEST_ID}.json")["texte"].endswith("## Autres\n- Divers")
+    assert store.json(f"{SLUG}/envois/{DIGEST_ID}.json")["text"].endswith("## Autres\n- Divers")
 
 
 def test_dod_7_digest_in_review_is_written_once_approved(store, post, mocker):
     open_real_mode(mocker)
-    agent_delivery.deliver(digest_agent("relecture"), RUN_ID, ENVOIS, chain(VERDICTS))
-    assert agent_delivery.show(SLUG, DIGEST_ID)["statut"] == "a_relire"
+    agent_delivery.deliver(digest_agent("review"), RUN_ID, ENVOIS, chain(VERDICTS))
+    assert agent_delivery.show(SLUG, DIGEST_ID)["status"] == "pending_review"
     post.assert_not_called()
 
-    assert agent_delivery.approve(SLUG, DIGEST_ID, "lj@example.org")["statut"] == "envoyee"
+    assert agent_delivery.approve(SLUG, DIGEST_ID, "lj@example.org")["status"] == "sent"
     post.assert_called_once()
 
 
-@pytest.mark.parametrize("regroupement", [None, "unitaire"])
-def test_dod_7_unit_delivery_is_unchanged_without_digest(store, post, regroupement):
-    agent = digest_agent(regroupement=regroupement)
-    if regroupement is None:
-        del agent["points_de_contact"][0]["regroupement"]
+@pytest.mark.parametrize("grouping", [None, "single"])
+def test_dod_7_unit_delivery_is_unchanged_without_digest(store, post, grouping):
+    agent = digest_agent(grouping=grouping)
+    if grouping is None:
+        del agent["destinations"][0]["grouping"]
     summary = agent_delivery.deliver(agent, RUN_ID, ENVOIS, chain(VERDICTS))
-    assert [e["statut"] for e in summary] == ["ombre", "ombre", "ecarte", "ombre"]
+    assert [e["status"] for e in summary] == ["shadow", "shadow", "discarded", "shadow"]
     assert all("digest" not in store.json(f"{SLUG}/envois/{e['id']}.json") for e in summary)
 
 
 def test_dod_7_an_unknown_grouping_is_refused_and_a_digest_is_shown_at_review():
-    assert agent_config.validate(digest_agent(regroupement="hebdo")) == [
-        "points_de_contact[0].regroupement : 'hebdo' inconnu, attendu unitaire ou digest."
+    assert agent_config.validate(digest_agent(grouping="hebdo")) == [
+        "destinations[0].grouping : 'hebdo' inconnu, attendu single ou digest."
     ]
     assert agent_config.describe(digest_agent())[0] == (
-        "destination produit.signal_faible en mode ombre, un digest par run (productions retenues regroupées par étiquette)"
+        "destination produit.signal_faible en mode shadow, un digest par run (productions retenues regroupées par étiquette)"
     )

@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import httpx
 
 DESCRIPTION = "une page ou un fichier texte public en https (HTML rendu en texte)"
-CHAMPS = {"url": "obligatoire, une adresse https publique"}
+FIELDS = {"url": "obligatoire, une adresse https publique"}
 TEXT_TYPES = ("text/", "application/json", "application/xml")
 
 
@@ -83,14 +83,14 @@ def read(url: str, address: str, limit: int) -> tuple[str, str]:
     return kind, body.decode(resp.encoding or "utf-8", errors="replace")
 
 
-def prepare(step: dict, plafond: int, debut: int) -> dict:
+def prepare(step: dict, cap: int, cursor: int) -> dict:
     host = urlsplit(step["url"]).hostname or ""
     if not (address := public_address(host)):
         raise ValueError(f"préparation url : {host} ne résout pas vers une adresse publique, le run n'est pas lancé")
     # Why: HTML weighs up to about ten times its text; beyond that, the page cannot fit the cap anyway.
-    limit = 10 * plafond
+    limit = 10 * cap
     try:
         kind, text = read(step["url"], address, limit)
     except httpx.HTTPError as exc:
         raise ValueError(f"préparation url {host} : lecture impossible ({exc})") from exc
-    return {"contenu": html_text(text) if "html" in kind else text}
+    return {"content": html_text(text) if "html" in kind else text}

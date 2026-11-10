@@ -1,20 +1,20 @@
-# Liste fermée des sous-agents qu'un agent peut déclarer (champ outils_modeles du format pdi.agent/1),
+# Liste fermée des sous-agents qu'un agent peut déclarer (champ subagents du format pdi.agent/1),
 # par type, avec les modèles Ollama Cloud permis pour chacun. Une configuration qui cite un autre type
 # ou un autre modèle est refusée.
 #
 # Les sous-agents sont appelés par Autometa après le run, avant la livraison, dans l'ordre de la
 # configuration, avec la clé OLLAMA_API_KEY d'Autometa : le worker ne détient aucune clé.
-# - classificateur : question oui/non, probabilité du oui (point d'entrée /v1/systemone) ; sous le
+# - classifier : question oui/non, probabilité du oui (point d'entrée /v1/systemone) ; sous le
 #   seuil, la production n'est pas livrée et la chaîne s'arrête.
 # - extraction : champs structurés selon le schéma déclaré par l'agent (/api/chat, sortie contrainte).
-# - resume : réécrit la production en une longueur maximale (/api/chat).
+# - summary : réécrit la production en une longueur maximale (/api/chat).
 #
 # Noms vérifiés le 05/11 dans le catalogue d'Ollama Cloud (https://ollama.com/api/tags).
 
 types:
-  - type: classificateur
-    modeles: ["clef:27b"]
+  - type: classifier
+    models: ["clef:27b"]
   - type: extraction
-    modeles: [glm-5.2, "gemma4:31b"]
-  - type: resume
-    modeles: [glm-5.2, "gemma4:31b"]
+    models: [glm-5.2, "gemma4:31b"]
+  - type: summary
+    models: [glm-5.2, "gemma4:31b"]

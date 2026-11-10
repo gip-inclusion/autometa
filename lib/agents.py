@@ -29,8 +29,8 @@ __all__ = [
     "launch",
     "execute",
     "deliver_run",
-    "present_envoi",
-    "approve_envoi",
+    "present_delivery",
+    "approve_delivery",
     "tick",
     "read_file",
     "file_history",
@@ -44,25 +44,25 @@ OUTPUT_CONTRACT = """
 ## Contrat de sortie
 
 Ta réponse est un unique objet JSON, sans aucun texte autour :
-{{"envois": [{{"destination": "...", "titre": "...", "texte": "...", "cle": "..."}}]}}
+{{"deliveries": [{{"destination": "...", "title": "...", "text": "...", "key": "..."}}]}}
 
 - destination : une de {destinations}, aucune autre.
-- titre : une ligne. texte : en markdown.
+- title : une ligne. text : en markdown.
 - Un envoi par élément (un ticket, un signal, une opportunité) : les sous-agents d'Autometa jugent
   chaque envoi à part, un envoi qui en regroupe plusieurs serait jugé en bloc.
-- cle (facultative, Notion ou fichier) : minuscules, chiffres et tirets ; un envoi qui reprend la
-  cle d'une page ou d'un élément déjà écrit le met à jour.
-- Rien à signaler : {{"envois": []}}.
+- key (facultative, Notion ou fichier) : minuscules, chiffres et tirets ; un envoi qui reprend la
+  key d'une page ou d'un élément déjà écrit le met à jour.
+- Rien à signaler : {{"deliveries": []}}.
 """
 
 FILES_CONTRACT = """
 ## Tes fichiers
 
-Tes fichiers de travail, gardés et versionnés par Autometa, jamais envoyés ailleurs : {fichiers}.
-Leur dernière version est dans ton entrée (type fichier ; vide avant la première écriture).
+Tes fichiers de travail, gardés et versionnés par Autometa, jamais envoyés ailleurs : {files}.
+Leur dernière version est dans ton entrée (type file ; vide avant la première écriture).
 - Pour réécrire un fichier en entier, ajoute à ta réponse
-  "fichiers": [{{"nom": "...", "contenu": "..."}}] ({taille} caractères au plus par fichier).
-- Pour y ranger des éléments un par un, un envoi par élément avec "destination": "fichier:<nom>" ;
+  "files": [{{"name": "...", "content": "..."}}] ({size} caractères au plus par fichier).
+- Pour y ranger des éléments un par un, un envoi par élément avec "destination": "file:<nom>" ;
   Autometa l'y ajoute après ses sous-agents (étiquettes comprises).
 - Un même fichier ne reçoit pas les deux dans un même run.
 """
@@ -72,7 +72,7 @@ INPUT_CONTRACT = """
 
 Avant chacun de tes runs, Autometa fait tourner tes préparations, dans cet ordre : {preparations}.
 Leurs contenus sont le fichier d'entrée du run (input_uri) : un JSON lines, une ligne par préparation
-puis une par fichier, champs ordre, type, source, contenu (en Markdown ; pour s3, l'URL du jeu à
+puis une par fichier, champs order, type, source, content (en Markdown ; pour s3, l'URL du jeu à
 télécharger). Ne lance aucune préparation ni aucun cron toi-même.
 """
 
@@ -116,45 +116,45 @@ def manifest_path(changeset_id: str) -> str:
     return f"_creations/{changeset_id}.json"
 
 
-def plan(config_yaml: str, system_prompt: str, initiaux: Optional[dict[str, str]] = None) -> dict:
+def plan(config_yaml: str, system_prompt: str, initial_files: Optional[dict[str, str]] = None) -> dict:
     """Validate an agent and record its creation as a proposal; nothing is created in the jobs engine."""
     doc = agent_config.parse(config_yaml)
-    initiaux = initiaux or {}
-    if errors := agent_config.validate(doc) + agent_config.initial_errors(initiaux, doc.get("fichiers", [])):
+    initial_files = initial_files or {}
+    if errors := agent_config.validate(doc) + agent_config.initial_errors(initial_files, doc.get("files", [])):
         raise ValueError("configuration refusée : " + " ; ".join(errors))
     if not system_prompt.strip():
         raise ValueError("consigne du job vide")
     current = read_json(agent_path(doc["slug"]))
-    if current is not None and current["status"] != "actif":
+    if current is not None and current["status"] != "active":
         raise ValueError(f"l'identifiant {doc['slug']} est déjà pris par un agent retiré")
     changeset_id = f"{datetime.now().strftime('%Y-%m-%d-%H%M%S')}-{doc['slug']}-{uuid.uuid4().hex[:6]}"
-    fichiers = doc.get("fichiers", [])
-    destinations = ", ".join([*(c["id"] for c in doc["points_de_contact"]), *(f"fichier:{f}" for f in fichiers)])
+    files = doc.get("files", [])
+    destinations = ", ".join([*(c["id"] for c in doc["destinations"]), *(f"file:{f}" for f in files)])
     steps = ", ".join([
         *(agent_connectors.label(p) for p in doc.get("preparations", [])),
-        *(f"fichier {f}" for f in fichiers),
+        *(f"fichier {f}" for f in files),
     ])
     manifest = {
         "id": changeset_id,
         "status": "planned",
-        "nature": "modification" if current else "creation",
+        "kind": "update" if current else "create",
         "config": doc,
         "system_prompt": system_prompt
         + OUTPUT_CONTRACT.format(destinations=destinations)
         + (INPUT_CONTRACT.format(preparations=steps) if steps else "")
-        + (FILES_CONTRACT.format(fichiers=", ".join(fichiers), taille=agent_config.FICHIER_MAX) if fichiers else ""),
-        "relecture": agent_config.describe(doc)
+        + (FILES_CONTRACT.format(files=", ".join(files), size=agent_config.AGENT_FILE_MAX) if files else ""),
+        "review": agent_config.describe(doc)
         + [
-            f"valeur initiale de {nom} : {len(c)} caractères, écrite à la création si le fichier est vide"
-            for nom, c in initiaux.items()
+            f"valeur initiale de {name} : {len(c)} caractères, écrite à la création si le fichier est vide"
+            for name, c in initial_files.items()
         ],
-        "fichiers_initiaux": initiaux,
+        "initial_files": initial_files,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "shown": mark(),
     }
     if current:
         manifest["avant"] = {k: current[k] for k in ("config", "system_prompt", "pipeline_id")}
-        manifest["avant_changeset"] = current["changeset_id"]
+        manifest["previous_changeset"] = current["changeset_id"]
     write_json(manifest_path(changeset_id), manifest)
     return manifest
 
@@ -172,7 +172,7 @@ def apply(changeset_id: str) -> dict:
     approved_by = require_confirmation(manifest["shown"])
     slug = manifest["config"]["slug"]
     current = read_json(agent_path(slug)) or {}
-    if manifest["nature"] == "modification" and current.get("changeset_id") != manifest["avant_changeset"]:
+    if manifest["kind"] == "update" and current.get("changeset_id") != manifest["previous_changeset"]:
         raise ValueError(f"l'agent {slug} a changé depuis cette proposition : en proposer une nouvelle")
     version = current.get("version", 0) + 1
     pipeline_id = current.get("pipeline_id")
@@ -188,16 +188,16 @@ def apply(changeset_id: str) -> dict:
             "system_prompt": manifest["system_prompt"],
             "pipeline_id": pipeline_id,
             "version": version,
-            "status": "actif",
+            "status": "active",
             "changeset_id": changeset_id,
             "approved_by": approved_by,
             "approved_at": datetime.now().isoformat(timespec="seconds"),
         },
     )
-    for nom, contenu in manifest.get("fichiers_initiaux", {}).items():
+    for name, content in manifest.get("initial_files", {}).items():
         # Why: a file the agent already wrote is its own work; an initial value never overwrites it.
-        if not agent_files.history(slug, nom):
-            agent_files.write_version(slug, nom, contenu, f"valeur initiale, proposition {changeset_id}")
+        if not agent_files.history(slug, name):
+            agent_files.write_version(slug, name, content, f"valeur initiale, proposition {changeset_id}")
     manifest.update(status="applied", pipeline_id=pipeline_id, approved_by=approved_by)
     write_json(manifest_path(changeset_id), manifest)
     return manifest
@@ -210,10 +210,10 @@ def revert(changeset_id: str) -> dict:
     agent = read_json(agent_path(slug))
     if agent["changeset_id"] != changeset_id:
         raise ValueError(f"proposition {changeset_id} n'est plus la dernière appliquée à l'agent {slug}")
-    if manifest["nature"] == "creation":
-        write_json(agent_path(slug), {**agent, "status": "retire"})
+    if manifest["kind"] == "create":
+        write_json(agent_path(slug), {**agent, "status": "retired"})
     else:
-        write_json(agent_path(slug), {**agent, **manifest["avant"], "changeset_id": manifest["avant_changeset"]})
+        write_json(agent_path(slug), {**agent, **manifest["avant"], "changeset_id": manifest["previous_changeset"]})
     manifest["status"] = "reverted"
     write_json(manifest_path(changeset_id), manifest)
     return manifest
@@ -228,7 +228,7 @@ def show(changeset_id: str) -> dict:
 
 def active_agent(slug: str) -> dict:
     agent: Optional[dict] = read_json(agent_path(slug)) if re.fullmatch(r"[a-z][a-z0-9-]{2,40}", slug) else None
-    if agent is None or agent["status"] != "actif":
+    if agent is None or agent["status"] != "active":
         raise ValueError(f"aucun agent actif {slug}")
     return agent
 
@@ -238,32 +238,32 @@ def catalogue() -> dict:
     targets = config.AGENT_DESTINATION_TARGETS
     return {
         "destinations": [
-            {"id": d["id"], "canal": d["canal"], "cible_configuree": bool(targets.get(d["id"]))}
-            for d in agent_config.destinations().values()
+            {"id": d["id"], "channel": d["channel"], "target_configured": bool(targets.get(d["id"]))}
+            for d in agent_config.known_destinations().values()
         ],
-        "sous_agents": agent_config.modeles(),
+        "subagents": agent_config.models(),
         "preparations": agent_connectors.catalogue(),
-        "taches_cron": agent_connectors.connector("cron").tasks(),
-        "cadences": {"jours": list(agent_config.JOURS), "raccourcis": list(agent_config.CADENCES)},
-        "fichiers": {"au_plus": 5, "taille_max": agent_config.FICHIER_MAX},
-        "sous_agents_configures": bool(config.OLLAMA_API_KEY),
+        "cron_tasks": agent_connectors.connector("cron").tasks(),
+        "schedules": {"weekdays": list(agent_config.WEEKDAYS), "shortcuts": list(agent_config.SCHEDULES)},
+        "files": {"at_most": 5, "max_size": agent_config.AGENT_FILE_MAX},
+        "subagents_configured": bool(config.OLLAMA_API_KEY),
     }
 
 
 def present_launch(slug: str) -> dict:
     """What a run launched now would do, marked as shown so that only a later message may launch it."""
     agent = active_agent(slug)
-    write_json(agent_path(slug), {**agent, "lancement": mark()})
+    write_json(agent_path(slug), {**agent, "launch": mark()})
     return {"agent": slug, "preparations": agent["config"].get("preparations", []), "version": agent.get("version")}
 
 
 def launch(slug: str) -> dict:
     """Run the agent now, only when confirmed in a later message; the confirmation is spent, never replayed."""
     agent = active_agent(slug)
-    if "lancement" not in agent:
+    if "launch" not in agent:
         raise PermissionError("lancement jamais proposé : le proposer d'abord, puis attendre la confirmation")
-    require_confirmation(agent["lancement"])
-    write_json(agent_path(slug), {k: v for k, v in agent.items() if k != "lancement"})
+    require_confirmation(agent["launch"])
+    write_json(agent_path(slug), {k: v for k, v in agent.items() if k != "launch"})
     return execute(slug)
 
 
@@ -271,22 +271,22 @@ def execute(slug: str, idempotency_key: Optional[str] = None) -> dict:
     """Gather the agent's preparations in order, publish them, then trigger its job's run with them."""
     agent = active_agent(slug)
     steps = agent["config"].get("preparations", [])
-    curseurs = agent.get("curseurs", {})
-    found = [agent_connectors.prepare(step, curseurs.get(str(i), 0)) for i, step in enumerate(steps)]
-    rows = [[i + 1, step["type"], f["source"], f["contenu"]] for i, (step, f) in enumerate(zip(steps, found))]
+    cursors = agent.get("cursors", {})
+    found = [agent_connectors.prepare(step, cursors.get(str(i), 0)) for i, step in enumerate(steps)]
+    rows = [[i + 1, step["type"], f["source"], f["content"]] for i, (step, f) in enumerate(zip(steps, found))]
     rows += [
-        [len(rows) + i + 1, "fichier", nom, agent_files.read(slug, nom)["contenu"]]
-        for i, nom in enumerate(agent["config"].get("fichiers", []))
+        [len(rows) + i + 1, "file", name, agent_files.read(slug, name)["content"]]
+        for i, name in enumerate(agent["config"].get("files", []))
     ]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    columns = ["ordre", "type", "source", "contenu"]
+    columns = ["order", "type", "source", "content"]
     dataset = job_inputs.publish_dataset(f"agent-{slug}-{stamp}", columns, rows, fmt="jsonl") if rows else None
     run = jobs.trigger_run(
         agent["pipeline_id"], input_uri=dataset["url"] if dataset else None, idempotency_key=idempotency_key
     )
-    curseurs = {**curseurs, **{str(i): f["suivant"] for i, f in enumerate(found) if "suivant" in f}}
-    runs = [*agent.get("runs_a_livrer", []), run["id"]]
-    write_json(agent_path(slug), {**agent, "runs_a_livrer": runs, **({"curseurs": curseurs} if curseurs else {})})
+    cursors = {**cursors, **{str(i): f["next_cursor"] for i, f in enumerate(found) if "next_cursor" in f}}
+    runs = [*agent.get("pending_runs", []), run["id"]]
+    write_json(agent_path(slug), {**agent, "pending_runs": runs, **({"cursors": cursors} if cursors else {})})
     logger.info("agent %s run %s lancé, entrée de %d caractères", slug, run["id"], sum(len(str(r[3])) for r in rows))
     return {"agent": slug, "run_id": run["id"], "preparations": [f"{r[1]} {r[2]}" for r in rows]}
 
@@ -303,29 +303,29 @@ def deliver_run(slug: str, run_id: str) -> list[dict]:
         output = json.loads(jobs.get_run_output(run_id))
     except json.JSONDecodeError as exc:
         raise ValueError(f"sortie du run {run_id} illisible : {exc}") from exc
-    if not isinstance(output, dict) or "envois" not in output:
-        raise ValueError(f"sortie du run {run_id} sans liste envois")
-    declared = agent["config"].get("fichiers", [])
+    if not isinstance(output, dict) or "deliveries" not in output:
+        raise ValueError(f"sortie du run {run_id} sans liste deliveries")
+    declared = agent["config"].get("files", [])
     fed = {
-        e["destination"][8:]
-        for e in output["envois"]
-        if isinstance(e, dict) and str(e.get("destination")).startswith("fichier:")
+        e["destination"][5:]
+        for e in output["deliveries"]
+        if isinstance(e, dict) and str(e.get("destination")).startswith("file:")
     }
-    if errors := agent_files.output_errors(output.get("fichiers", []), declared, fed):
+    if errors := agent_files.output_errors(output.get("files", []), declared, fed):
         raise ValueError(f"sortie du run {run_id} refusée, rien n'est écrit : " + " ; ".join(errors))
-    outils = agent["config"].get("outils_modeles")
-    chain = partial(agent_subagents.run_chain, outils) if outils else None
-    summary = agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["envois"], chain)
+    subagents = agent["config"].get("subagents")
+    chain = partial(agent_subagents.run_chain, subagents) if subagents else None
+    summary = agent_delivery.deliver(agent["config"], str(uuid.UUID(run_id)), output["deliveries"], chain)
     summary = file_entries(slug, run_id, summary)
-    for f in output.get("fichiers", []):
-        agent_files.write_version(slug, f["nom"], f["contenu"], f"run {run_id}")
+    for f in output.get("files", []):
+        agent_files.write_version(slug, f["name"], f["content"], f"run {run_id}")
     trace_path = f"{slug}/runs/{run_id}.json"
-    appels = (read_json(trace_path) or {}).get("appels_sous_agents", 0) + sum(e["appels"] for e in summary)
-    write_json(trace_path, {"livre_le": datetime.now().isoformat(timespec="seconds"), "appels_sous_agents": appels})
-    logger.info("agent %s run %s livré, %d appels aux sous-agents au total", slug, run_id, appels)
-    retry = any(e["statut"] == "echec_sous_agent" for e in summary)
-    pending = [r for r in agent.get("runs_a_livrer", []) if r != run_id or retry]
-    write_json(agent_path(slug), {**agent, "runs_a_livrer": pending})
+    calls = (read_json(trace_path) or {}).get("subagent_calls", 0) + sum(e["calls"] for e in summary)
+    write_json(trace_path, {"delivered_at": datetime.now().isoformat(timespec="seconds"), "subagent_calls": calls})
+    logger.info("agent %s run %s livré, %d appels aux sous-agents au total", slug, run_id, calls)
+    retry = any(e["status"] == "subagent_failed" for e in summary)
+    pending = [r for r in agent.get("pending_runs", []) if r != run_id or retry]
+    write_json(agent_path(slug), {**agent, "pending_runs": pending})
     return summary
 
 
@@ -333,24 +333,24 @@ def file_entries(slug: str, run_id: str, summary: list[dict]) -> list[dict]:
     """Put the run's productions aimed at a file into it, one new version per file; they become range."""
     ranged = {}
     for item in summary:
-        if item["statut"] == "a_ranger":
-            ranged.setdefault(item["destination"][8:], []).append(item)
-    for nom, items in ranged.items():
+        if item["status"] == "to_file":
+            ranged.setdefault(item["destination"][5:], []).append(item)
+    for name, items in ranged.items():
         records = [agent_delivery.show(slug, item["id"]) for item in items]
-        entries = [(r.get("cle") or item["id"], r["titre"], r["texte"]) for item, r in zip(items, records)]
-        version = agent_files.add_entries(slug, nom, entries, f"run {run_id}")
+        entries = [(r.get("key") or item["id"], r["title"], r["text"]) for item, r in zip(items, records)]
+        version = agent_files.add_entries(slug, name, entries, f"run {run_id}")
         for item, record in zip(items, records):
-            write_json(f"{slug}/envois/{item['id']}.json", {**record, "statut": "range", "version": version})
-            item["statut"] = "range"
+            write_json(f"{slug}/envois/{item['id']}.json", {**record, "status": "filed", "version": version})
+            item["status"] = "filed"
     return summary
 
 
-def due(cadence: object) -> bool:
+def due(schedule: object) -> bool:
     """Why: the one daily batch decides the day; days of the week cover every rhythm the batch can honour."""
-    if isinstance(cadence, dict):
+    if isinstance(schedule, dict):
         day = cron.last_batch_start("maintenance", cron.utcnow()).weekday()
-        return agent_config.JOURS[day] in cadence["jours"]
-    return cron.is_due(agent_config.CADENCES[cadence], "maintenance")
+        return agent_config.WEEKDAYS[day] in schedule["weekdays"]
+    return cron.is_due(schedule, "maintenance")
 
 
 def tick() -> None:
@@ -358,17 +358,17 @@ def tick() -> None:
     failed = []
     for slug in s3.agents.list_directories(""):
         agent = None if slug.startswith("_") else read_json(agent_path(slug))
-        if agent is None or agent["status"] != "actif":
+        if agent is None or agent["status"] != "active":
             continue
         try:
             retry = [
                 run_id
-                for run_id in agent.get("runs_a_livrer", [])
+                for run_id in agent.get("pending_runs", [])
                 if jobs.get_run(run_id).get("status") == "completed"
-                and any(e["statut"] == "echec_sous_agent" for e in deliver_run(slug, run_id))
+                and any(e["status"] == "subagent_failed" for e in deliver_run(slug, run_id))
             ]
-            cadence = agent["config"].get("cadence")
-            if cadence and due(cadence):
+            schedule = agent["config"].get("schedule")
+            if schedule and due(schedule):
                 execute(slug, idempotency_key=f"agent-{slug}-{datetime.now():%Y-%m-%d}")
             if retry:
                 raise RuntimeError(
@@ -381,66 +381,66 @@ def tick() -> None:
         raise RuntimeError(f"agents en échec : {', '.join(failed)}")
 
 
-def present_envoi(slug: str, envoi_id: str) -> dict:
+def present_delivery(slug: str, delivery_id: str) -> dict:
     """A production awaiting review, marked as shown so that only a later message may approve it."""
     active_agent(slug)
-    record = agent_delivery.show(slug, envoi_id)
+    record = agent_delivery.show(slug, delivery_id)
     record["shown"] = mark()
-    write_json(f"{slug}/envois/{envoi_id}.json", record)
+    write_json(f"{slug}/envois/{delivery_id}.json", record)
     return record
 
 
-def approve_envoi(slug: str, envoi_id: str) -> dict:
+def approve_delivery(slug: str, delivery_id: str) -> dict:
     active_agent(slug)
-    record = agent_delivery.show(slug, envoi_id)
+    record = agent_delivery.show(slug, delivery_id)
     if "shown" not in record:
         raise PermissionError("envoi jamais présenté : le montrer d'abord, puis attendre la confirmation")
-    return agent_delivery.approve(slug, envoi_id, require_confirmation(record["shown"]))
+    return agent_delivery.approve(slug, delivery_id, require_confirmation(record["shown"]))
 
 
-def agent_file(slug: str, nom: str) -> dict:
+def agent_file(slug: str, name: str) -> dict:
     agent = active_agent(slug)
-    if nom not in agent["config"].get("fichiers", []):
+    if name not in agent["config"].get("files", []):
         raise ValueError(
-            f"l'agent {slug} n'a pas de fichier {nom} ; fichiers : {', '.join(agent['config'].get('fichiers', []))}"
+            f"l'agent {slug} n'a pas de fichier {name} ; fichiers : {', '.join(agent['config'].get('files', []))}"
         )
     return agent
 
 
-def read_file(slug: str, nom: str, version: Optional[int] = None) -> dict:
-    agent_file(slug, nom)
-    return agent_files.read(slug, nom, version)
+def read_file(slug: str, name: str, version: Optional[int] = None) -> dict:
+    agent_file(slug, name)
+    return agent_files.read(slug, name, version)
 
 
-def file_history(slug: str, nom: str) -> list[dict]:
-    agent_file(slug, nom)
-    return agent_files.history(slug, nom)
+def file_history(slug: str, name: str) -> list[dict]:
+    agent_file(slug, name)
+    return agent_files.history(slug, name)
 
 
-def compare_file(slug: str, nom: str, de: int, a: int) -> str:
-    agent_file(slug, nom)
-    return agent_files.compare(slug, nom, de, a)
+def compare_file(slug: str, name: str, old: int, new: int) -> str:
+    agent_file(slug, name)
+    return agent_files.compare(slug, name, old, new)
 
 
-def present_file_revert(slug: str, nom: str, version: int) -> dict:
+def present_file_revert(slug: str, name: str, version: int) -> dict:
     """What a return to an earlier version would change, marked as shown so that only a later message may apply it."""
-    agent = agent_file(slug, nom)
-    current = agent_files.read(slug, nom)["version"]
-    diff = agent_files.compare(slug, nom, current, version)
-    write_json(agent_path(slug), {**agent, "retour_fichier": {"nom": nom, "version": version, "shown": mark()}})
-    return {"agent": slug, "fichier": nom, "de": current, "vers": version, "difference": diff}
+    agent = agent_file(slug, name)
+    current = agent_files.read(slug, name)["version"]
+    diff = agent_files.compare(slug, name, current, version)
+    write_json(agent_path(slug), {**agent, "file_revert": {"name": name, "version": version, "shown": mark()}})
+    return {"agent": slug, "file": name, "old": current, "new": version, "diff": diff}
 
 
-def revert_file(slug: str, nom: str) -> dict:
+def revert_file(slug: str, name: str) -> dict:
     """Write the proposed earlier version as a new one, only when confirmed in a later message; history is kept."""
-    agent = agent_file(slug, nom)
-    proposed = agent.get("retour_fichier")
-    if not proposed or proposed["nom"] != nom:
+    agent = agent_file(slug, name)
+    proposed = agent.get("file_revert")
+    if not proposed or proposed["name"] != name:
         raise PermissionError("retour jamais proposé : le proposer d'abord, puis attendre la confirmation")
     approved_by = require_confirmation(proposed["shown"])
-    write_json(agent_path(slug), {k: v for k, v in agent.items() if k != "retour_fichier"})
-    contenu = agent_files.read(slug, nom, proposed["version"])["contenu"]
+    write_json(agent_path(slug), {k: v for k, v in agent.items() if k != "file_revert"})
+    content = agent_files.read(slug, name, proposed["version"])["content"]
     version = agent_files.write_version(
-        slug, nom, contenu, f"retour à la version {proposed['version']} par {approved_by}"
+        slug, name, content, f"retour à la version {proposed['version']} par {approved_by}"
     )
-    return {"agent": slug, "fichier": nom, "version": version}
+    return {"agent": slug, "file": name, "version": version}

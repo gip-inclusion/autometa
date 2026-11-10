@@ -445,7 +445,7 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
 
 
-MEMOIRE = {"limite": "536870912", "utilisee": "536862720", "pic": "536870912", "oom_kill": "1"}
+MEMOIRE = {"limit": "536870912", "used": "536862720", "peak": "536870912", "oom_kill": "1"}
 
 
 def test_a_cli_killed_by_the_system_says_so_and_logs_the_container_memory(stub_config, mocker, caplog):
@@ -457,7 +457,7 @@ def test_a_cli_killed_by_the_system_says_so_and_logs_the_container_memory(stub_c
     assert "tué par le système (signal 9, SIGKILL), probablement faute de mémoire" in messages[-1].content
     assert "Process exited" not in messages[-1].content
     assert messages[-1].raw["signal"] == 9
-    assert messages[-1].raw["memoire"] == MEMOIRE
+    assert messages[-1].raw["memory"] == MEMOIRE
     assert "CLI tué par le système : conversation=c1 signal=9" in caplog.text
     assert "'oom_kill': '1'" in caplog.text
 
