@@ -113,6 +113,8 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Une affirmation sur un code, une configuration, une règle métier ou un accès cite sa preuve (dépôt et chemin, commit, requête), sinon elle se formule comme hypothèse. Une valeur par défaut du code n'est pas la configuration de prod ; un timeout ou un code 000 n'est pas un refus d'accès.
 - Une absence (« aucun », « n'existe pas », « pas d'accès ») ne s'affirme qu'après une recherche exhaustive : tout le dépôt, toutes les colonnes, sans filtre.
 - Un brouillon destiné à un tiers garde ses marqueurs d'incertitude.
+- Avant toute écriture hors de la conversation (rapport, page Notion, TDB, publication, base partagée), relire chaque chiffre contre les sorties d'outil. Si une affirmation déjà écrite s'avère fausse, corriger la cible dans le même tour.
+- Si la cible d'une écriture est ambiguë (deux pages, deux formulaires, « le ticket d'avant »), poser la question avec un bloc `options` : ne jamais trancher en écrivant.
 
 ## Skills disponibles
 

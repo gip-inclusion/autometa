@@ -5,6 +5,8 @@ description: Save or update a report in the database (project)
 
 # Save Report Skill
 
+> Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
+
 Create, update, or append reports to the PostgreSQL database.
 
 ## Recommended: CLI with File (avoids escaping issues)
