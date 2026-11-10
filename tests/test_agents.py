@@ -258,7 +258,7 @@ def test_the_skill_runs_its_script_as_a_module_with_the_python_on_path(capsys):
     """Scalingo has no .venv: the skill calls `python -m`, resolved from the repository root."""
     skill = Path("skills/agents/SKILL.md").read_text()
     lines = [line.split() for line in skill.splitlines() if line.startswith("python")]
-    assert len(lines) == 15
+    assert len(lines) == 16
     assert ".venv" not in skill
     with pytest.raises(SystemExit):
         cli.main(["--help"])

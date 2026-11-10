@@ -9,6 +9,10 @@ qu'agent par agent, par une PR.
 
 ## Ce qui devra marcher
 
+> Après la revue de #277 (§ 4) : les modes ombre, relecture et réel s'appellent `background`,
+> `conversational` et `autonomous`, trois préréglages de `{can_publish, review_required}` ;
+> `reel_autorise` devient `autonomous_allowed`. Les critères ci-dessous gardent leur sens.
+
 DOD-1 — La liste des destinations où un agent peut écrire est un fichier du dépôt : chaque
   destination a un identifiant et un canal (Slack ou Notion), et l'identifiant réel du canal ou de
   la base vit dans la configuration de l'instance, pas dans le dépôt.

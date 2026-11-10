@@ -19,7 +19,12 @@ DOD-2 — Une configuration refusée par le validateur `pdi.agent/1`, ou dont l'
 DOD-3 — L'agent n'est créé que si je l'approuve dans un message ultérieur de la même
   conversation : approuver dans le tour même de la proposition, depuis une autre conversation ou
   hors conversation est refusé et ne crée rien. Une proposition que je ne valide pas reste sans
-  effet, indéfiniment.
+  effet, indéfiniment ; une proposition de création devenue périmée (l'agent existe déjà) est
+  refusée.
+  Portée (revue de #277, § 3) : c'est une **garde** contre un agent de chat trop pressé, pas une
+  barrière. L'identifiant de conversation et l'email viennent de l'environnement de l'agent de
+  chat, qui peut les changer, appeler le code directement ou écrire en base. Une barrière
+  demande une approbation par une route web authentifiée par la session (page `/agents`, à venir).
 
 DOD-4 — Quand j'approuve, un job nommé `agent-<identifiant>` est créé dans le moteur de jobs, sa
   consigne porte le contrat de sortie qui liste ses seules destinations, et l'agent garde trace
@@ -30,6 +35,7 @@ DOD-5 — Approuver une seconde fois une proposition déjà appliquée ne crée 
 
 DOD-6 — Après création, je peux retirer l'agent : ses runs ne sont plus livrés nulle part.
   Retirer une proposition jamais appliquée, ou déjà retirée, ne change rien et me dit son état.
+  Retirer se confirme comme le reste, dans un message ultérieur ; l'agent garde son propriétaire.
 
 DOD-7 — Livrer un run d'un agent n'accepte qu'un run terminé de son propre job, et passe sa
   sortie par la livraison de `agents-ecriture` (liste fermée, modes).
@@ -106,8 +112,9 @@ DOD-19 — L'exemple d'Alexis va au bout avec les seules briques génériques : 
 ## Sources lues
 
 - `lib/zendesk_changeset.py`, `skills/zendesk/SKILL.md`, `paved-road/zendesk-write/` — patron
-  plan / apply / revert sur S3 sans table, états `planned`, `applied`, `reverted`, refus d'un
-  état inattendu : repris pour `DOD-1`, `DOD-5` et `DOD-6`. La règle « jamais `apply` dans le tour
+  plan / apply / revert, états `planned`, `applied`, `reverted`, refus d'un état inattendu :
+  repris pour `DOD-1`, `DOD-5` et `DOD-6`, d'abord sur S3, puis en base (`agent_proposals`) après la
+  revue de #277. La règle « jamais `apply` dans le tour
   du `plan` » n'y est qu'une consigne du skill ; ici elle est vérifiée par le code (`DOD-3`).
 - `web/agents/cli.py`, `web/config.py` — le CLI de l'agent reçoit `AUTOMETA_CONVERSATION_ID` et
   `AUTOMETA_USER_EMAIL` : ils permettent de vérifier qu'un nouveau message de l'utilisateur est
