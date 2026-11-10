@@ -225,6 +225,7 @@ En Docker, le répertoire de travail est `/app`.
 - Ne jamais utiliser WebFetch/curl sur les URLs `autometa.inclusion.gouv.fr` ou de l'ancien domaine `matometa.osc-fr1.scalingo.io` — ces pages sont derrière oauthproxy et retourneront 403. Lire les fichiers directement depuis `/app/data/interactive/` ou les télécharger depuis S3.
 - Scratch dans `/tmp/$AUTOMETA_CONVERSATION_ID/`, jamais à la racine de `/tmp` : `/tmp` est partagé entre toutes les conversations du conteneur. Ne jamais exécuter, écraser ni supprimer un fichier de `/tmp` qu'on n'a pas créé dans la conversation.
 - Ne jamais installer de logiciel : ni paquet pip, npm ou apt, ni binaire ou archive téléchargés (Node.js, navigateur, `.deb`). Si un outil manque, le dire à l'utilisateur. Le rendu d'un TDB se vérifie avec le skill `verify_dashboard`.
+- Outils présents en production : `python` (ni `uv` ni `.venv`), pandas, openpyxl et xlrd (Excel), pdfplumber (lire un PDF), pypdfium2 (rendre une page en image), reportlab (en produire un), pillow, matplotlib, et les bibliothèques de la section « Modélisation statistique ». Absents : `pdftotext`, `pdfinfo`, `pypdf`, `fitz`, `gh`.
 
 ## Dépôts GitHub
 
