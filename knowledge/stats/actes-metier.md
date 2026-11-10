@@ -14,7 +14,7 @@ L'acte métier est l'**unité de compte unique** et le **North Star** (étape Im
 
 **Dashboard interactif :** `/interactive/actes-metier/`
 **Conversation source :** `aa66951a` (Page stat V2)
-**Script de génération :** `/app/data/scripts/actes_metier_data_v3.py`
+**Script de référence :** `data/interactive/actes-metier/actes_metier_data_v5.py`, mis à jour par `actes_metier_update.py` (lancé par le `cron.py` du TDB). En cas d'écart entre ce fichier et le script, le script fait foi.
 
 ## Structure de la donnée
 
@@ -292,7 +292,7 @@ de l'acte comme proxy de ventilation.
 
 ## Mise à jour des données
 
-Le script `/app/data/scripts/actes_metier_data_v3.py` génère le fichier
+Le `cron.py` du TDB (`actes_metier_update.py`, le 1er du mois) génère le fichier
 `/app/data/interactive/actes-metier/data.json` utilisé par le dashboard.
 
 Après chaque regénération de `data.json`, relancer l'enrichissement département :
