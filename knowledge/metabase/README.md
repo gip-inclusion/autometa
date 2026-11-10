@@ -261,6 +261,8 @@ Candidats (demandeurs d'emploi) du service Emplois.
 
 **⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs`.
 
+**⚠️ Purge RGPD.** Les Emplois anonymisent les comptes candidats sans rien de récent depuis ~700 jours (deux ans moins 30 jours de grâce : ni connexion, ni candidature, ni diagnostic ou pass IAE encore valide) ; ils sortent de `candidats`. Les cohortes de plus de deux ans ne gardent presque que les candidats embauchés (95 à 97 % avec `total_embauches > 0` pour les diagnostics prescripteurs 2021-2023, 46 % pour 2025). Tout taux ou volume par cohorte remontant à plus de deux ans est biaisé : le dire, ou borner la période.
+
 ### suivi_utilisateurs_tb_prive_semaine
 
 Utilisateurs du service Pilotage (tableaux de bord privés).
