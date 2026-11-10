@@ -226,9 +226,16 @@ Pour croiser avec les tables Emplois (`public.utilisateurs`, `public.structures_
 utiliser l'`email` (users) ou le `siret` (structures), **en filtrant sur `source = 'emplois-de-linclusion'`**.
 
 ```sql
--- Enrichir les users Nexus (Emplois) avec leur type Emplois
-SELECT n.email, n.type as type_nexus, u.type as type_emplois
+-- Enrichir les users Nexus (Emplois) avec leur profil Emplois (une ligne par e-mail)
+SELECT n.email, n.type as type_nexus, p.profil
 FROM public.users n
-LEFT JOIN public.utilisateurs u ON n.email = u.email
+LEFT JOIN (
+    SELECT email,
+        CASE WHEN bool_or(id_structure IS NOT NULL) THEN 'employeur'
+             WHEN bool_or(id_organisation IS NOT NULL) THEN 'prescripteur ou orienteur'
+             WHEN bool_or(id_institution IS NOT NULL) THEN 'institution' END AS profil
+    FROM public.utilisateurs
+    GROUP BY email
+) p ON n.email = p.email
 WHERE n.source = 'emplois-de-linclusion';
 ```
