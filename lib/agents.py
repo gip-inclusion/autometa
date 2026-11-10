@@ -237,6 +237,8 @@ def apply(changeset_id: str) -> dict:
         proposal = load(session, changeset_id, "planned")
         current = find_agent(session, slug)
         payload = proposal.payload
+        if proposal.action == "create" and current is not None:
+            raise ValueError(f"l'agent {slug} existe depuis cette proposition : en proposer une nouvelle")
         if proposal.action == "update" and (current is None or current.changeset_id != payload["previous_changeset"]):
             raise ValueError(f"l'agent {slug} a changé depuis cette proposition : en proposer une nouvelle")
         approved_by = confirm(session, proposal)

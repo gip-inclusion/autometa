@@ -629,6 +629,20 @@ def test_dod_13_a_changed_prompt_is_a_new_pipeline_and_a_stale_proposal_is_refus
         agents.revert(create["id"])
 
 
+def test_review_2_3_a_stale_creation_proposal_neither_overwrites_nor_retires_the_agent(store, conversation, engine):
+    """Review 2.3: propose A, propose B, create B, then create A used to overwrite B, and retire A to retire it all."""
+    first = agents.plan(CONFIG, "Consigne A.")
+    second = agents.plan(CONFIG, "Consigne B.")
+    conversation.user_replies()
+    agents.apply(second["id"])
+    with pytest.raises(ValueError, match="existe depuis cette proposition"):
+        agents.apply(first["id"])
+    with pytest.raises(ValueError, match="est planned, attendu applied"):
+        agents.present_retire(first["id"])
+    assert store.agent(SLUG)["system_prompt"].startswith("Consigne B.")
+    assert store.agent(SLUG)["status"] == "active"
+
+
 def test_review_3_retiring_needs_its_own_confirmation_and_the_owner_is_recorded(store, conversation, engine):
     applied = created_agent(conversation)
     assert store.agent(SLUG)["owner_email"] == "lj@example.org"
