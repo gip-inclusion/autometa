@@ -29,10 +29,10 @@ Les enregistrements contiennent des **données personnelles** (noms, emails, té
 
 ```bash
 # Tables d'une base, avec leurs champs et leurs vues
-.venv/bin/python skills/airtable/scripts/query.py tables BASE_ID
+python skills/airtable/scripts/query.py tables BASE_ID
 
 # Enregistrements d'une table, ou d'une vue (ordre et filtres de la vue appliqués)
-.venv/bin/python skills/airtable/scripts/query.py records BASE_ID TABLE \
+python skills/airtable/scripts/query.py records BASE_ID TABLE \
     [--view VIEW] [--field "Nom" --field "Statut"] [--formula "{Statut} = 'À valider'"] [--max-pages 100]
 ```
 

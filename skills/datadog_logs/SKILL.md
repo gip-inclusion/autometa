@@ -21,20 +21,20 @@ Le jeton est **strictement limité à la lecture des logs** (permission `logs_re
 
 ```bash
 # Combien d'événements, et combien d'utilisateurs distincts
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @http.method:GET' --days 7 --distinct '@usr.id'
 
 # Échantillon d'événements bruts (pour découvrir la forme des logs)
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod' --days 1 --search --limit 5
 
 # Répartition par facette (une ou plusieurs)
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @http.status_code:200' --days 7 \
     --group-by '@http.url_details.view_name' --distinct '@usr.id' --top 40
 
 # Dump massif en JSONL, pour analyser en local
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @usr.id:*' --days 30 --chunk 5 \
     --dump /tmp/logs.jsonl --field http.url --field usr.id
 ```
