@@ -310,3 +310,13 @@ def test_review_2_6_invalid_destination_targets_warn_and_never_break_the_import(
     finally:
         monkeypatch.delenv("AGENT_DESTINATION_TARGETS")
         importlib.reload(config)
+
+
+def test_review_1_6_validating_again_reads_no_closed_list_again(mocker):
+    agent_config.validate(make_agent())
+    read = mocker.spy(agent_config.yaml, "safe_load")
+    for _ in range(3):
+        assert (
+            agent_config.validate(make_agent(preparations=[{"type": "url", "url": "https://example.org/a.md"}])) == []
+        )
+    read.assert_not_called()

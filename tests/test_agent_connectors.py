@@ -21,7 +21,7 @@ def errors(step):
 
 
 def test_dod_15_types_are_the_closed_list_of_the_config_each_with_one_interface():
-    assert agent_connectors.types() == ["notion", "github", "url", "s3", "cron"]
+    assert agent_connectors.types() == ("notion", "github", "url", "s3", "cron")
     for kind, entry in agent_connectors.catalogue().items():
         module = agent_connectors.connector(kind)
         assert entry["description"] and "cap" in entry["fields"]

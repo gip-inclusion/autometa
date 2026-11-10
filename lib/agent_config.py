@@ -4,6 +4,7 @@ import difflib
 import json
 import logging
 import re
+from functools import cache
 
 import yaml
 
@@ -82,12 +83,14 @@ def parse(text: str) -> object:
         loader.dispose()
 
 
+@cache
 def read_config(name: str) -> dict:
+    """Why: the closed lists ship with the code; they are read once per process, not at every validation."""
     return yaml.safe_load((config.BASE_DIR / "config" / f"agent_{name}.yaml").read_text())
 
 
 def closed_list(name: str) -> dict[str, dict]:
-    return {d["id"]: d for d in read_config(name)[name]}
+    return {d["id"]: dict(d) for d in read_config(name)[name]}
 
 
 def known_destinations() -> dict[str, dict]:
@@ -97,7 +100,7 @@ def known_destinations() -> dict[str, dict]:
 
 def models() -> dict[str, list[str]]:
     """The closed list of sub-agent types, each with the Ollama Cloud models it may use."""
-    return {t["type"]: t["models"] for t in read_config("models")["types"]}
+    return {t["type"]: list(t["models"]) for t in read_config("models")["types"]}
 
 
 def target_gaps() -> tuple[list[str], list[str]]:

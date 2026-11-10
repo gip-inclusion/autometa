@@ -1,6 +1,7 @@
 """Preparation connectors: one generic interface, one file per type, the closed list of types in config."""
 
 import importlib
+from functools import cache
 from types import ModuleType
 
 import yaml
@@ -13,8 +14,10 @@ __all__ = ["types", "catalogue", "errors", "label", "prepare", "bounded_int", "n
 CAP = (1_000, 200_000, 60_000)
 
 
-def types() -> list[str]:
-    return yaml.safe_load((config.BASE_DIR / "config" / "agent_preparations.yaml").read_text())["types"]
+@cache
+def types() -> tuple[str, ...]:
+    """Why: the closed list ships with the code; it is read once per process, not at every validation."""
+    return tuple(yaml.safe_load((config.BASE_DIR / "config" / "agent_preparations.yaml").read_text())["types"])
 
 
 def connector(kind: str) -> ModuleType:
