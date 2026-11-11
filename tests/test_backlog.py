@@ -56,9 +56,21 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
         "e2": response(page("t3", ""), page("t2", "Fiche salarié")),
     }
 
+    epic_status = {
+        "options": [{"id": "s1", "name": "𝗣𝗥𝗘𝗩𝗨 ce trimestre"}, {"id": "s2", "name": "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre"}],
+        "groups": [
+            {"name": "To-do", "option_ids": ["s1"]},
+            {"name": "In progress", "option_ids": []},
+            {"name": "Complete", "option_ids": ["s2"]},
+        ],
+    }
+
     def notion(method, path, payload=None):
         if method == "GET":
-            return schema
+            return {
+                "databases/backlog": schema,
+                "databases/epics": {"properties": {"Statut": {"type": "status", "status": epic_status}}},
+            }[path]
         base = path.split("/")[1]
         payloads[base] = payload
         if base == "backlog":
@@ -94,10 +106,7 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
         ]
     }
     assert payloads["epics"]["filter"] == {
-        "and": [
-            {"property": "Statut", "status": {"does_not_equal": "Archivé"}},
-            {"property": "Statut", "status": {"does_not_equal": "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre"}},
-        ]
+        "and": [{"property": "Statut", "status": {"does_not_equal": "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre"}}]
     }
     assert payloads["backlog"]["sorts"] == [{"timestamp": "created_time", "direction": "descending"}]
     assert payloads["backlog"]["filter"]["and"][1] == {"property": "Statut", "select": {"does_not_equal": "Annulé"}}

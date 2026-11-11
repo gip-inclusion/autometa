@@ -10,7 +10,6 @@ from urllib.parse import quote
 from lib import notion
 from web import config
 
-INACTIVE_EPIC_STATUSES = ("Archivé", "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre")
 # Why: Priorité, Période, Estimation et les statuts d'avancement de dev sont des décisions d'équipe.
 ALLOWED_STATUSES = (
     "Bac à sable 🏝️",
@@ -88,6 +87,35 @@ def backlog_schema() -> dict:
     }
 
 
+def active_teams(teams_database: str) -> list[dict]:
+    """Équipes produit actives."""
+    return notion.query_database(
+        teams_database,
+        filter={
+            "and": [
+                {"property": "Activité", "select": {"equals": "Actif"}},
+                {"property": "Type", "select": {"equals": "Équipe produit"}},
+            ]
+        },
+    )
+
+
+def active_epics(epics_database: str) -> list[dict]:
+    """Épics dont le statut n'est pas dans le groupe Complete (en prod, archivé…) du schéma de leur base."""
+    status = notion.notion_request("GET", f"databases/{epics_database}")["properties"]["Statut"]["status"]
+    done = next(g["option_ids"] for g in status["groups"] if g["name"] == "Complete")
+    return notion.query_database(
+        epics_database,
+        filter={
+            "and": [
+                {"property": "Statut", "status": {"does_not_equal": o["name"]}}
+                for o in status["options"]
+                if o["id"] in done
+            ]
+        },
+    )
+
+
 def recent_titles(team_id: str, count: int) -> list[str]:
     """Titres non vides des tickets non annulés les plus récents d'une équipe."""
     pages = notion.query_database(
@@ -106,21 +134,8 @@ def recent_titles(team_id: str, count: int) -> list[str]:
 def load_context(per_team: int = 15) -> dict:
     """Statuts et types du backlog, équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
     schema = backlog_schema()
-    teams = notion.query_database(
-        schema["teams"],
-        filter={
-            "and": [
-                {"property": "Activité", "select": {"equals": "Actif"}},
-                {"property": "Type", "select": {"equals": "Équipe produit"}},
-            ]
-        },
-    )
-    epics = notion.query_database(
-        schema["epics"],
-        filter={
-            "and": [{"property": "Statut", "status": {"does_not_equal": status}} for status in INACTIVE_EPIC_STATUSES]
-        },
-    )
+    teams = active_teams(schema["teams"])
+    epics = active_epics(schema["epics"])
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "statuses": schema["statuses"],
