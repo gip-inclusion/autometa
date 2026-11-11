@@ -106,7 +106,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 
 ## Concepts transverses
 
-- **Acte métier** — Action à valeur métier au bénéfice direct ou indirect d'un bénéficiaire. **Unité de compte centrale, North Star = l'Impact du funnel.** 2 catégories : accompagnement (action directe) et support (prépare/facilite). Source de vérité de la liste : `knowledge/stats/actes-metier.md`. Règle North Star : **70 jours** de délai de consolidation.
+- **Acte métier** — Action à valeur métier au bénéfice direct ou indirect d'un bénéficiaire. **Unité de compte centrale, North Star = l'Impact du funnel.** 2 catégories : accompagnement (action directe) et support (prépare/facilite). Source de vérité de la liste : `knowledge/stats/actes-metier.md`. North Star : actes de rang 1 ayant reçu un retour humain (pour une candidature, une réponse dans les **30 jours**), sur des mois consolidés.
 - **Utilisateur actif** — A réalisé **>=1 acte métier** sur la période de référence (mois calendaire). La définition « >=1 connexion » est explicitement déclassée (proxy web inflationniste).
 - **Funnel** — La séquence AARRI elle-même. Un funnel = instanciation produit du AARRI à un niveau (institutionnel ou individuel). Les funnels détaillés par produit vivent en couche 2.
 - **Taux de conversion / transformation** — Passage d'une étape AARRI à la suivante. Convention : « **conversion** » pour les funnels web (clic, commande), « **transformation** » pour les funnels B2B institutionnels (CD vers acquisition). Toujours documenter numérateur et dénominateur.

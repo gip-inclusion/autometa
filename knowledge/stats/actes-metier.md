@@ -1,6 +1,6 @@
 ---
-source: [metabase:stats, metabase:dora, metabase:rdvi, autometa_tables_db, matomo]
-verifie_le: 2026-07-15
+source: [metabase:stats, metabase:dora, metabase:rdvi, metabase:datalake, autometa_tables_db, matomo]
+verifie_le: 2026-11-10
 ---
 # Actes métiers — Indicateur transverse
 
@@ -13,55 +13,50 @@ bénéficiaire, candidature, mise en relation, distribution d'un outil, etc.
 L'acte métier est l'**unité de compte unique** et le **North Star** (étape Impact) du funnel bizdev — voir [glossaire AARRI](../bizdev/glossaire.md). Ce fichier est la source de vérité de la liste des types d'actes.
 
 **Dashboard interactif :** `/interactive/actes-metier/`
-**Conversation source :** `aa66951a` (Page stat V2)
-**Script de référence :** `data/interactive/actes-metier/actes_metier_data_v5.py`, mis à jour par `actes_metier_update.py` (lancé par le `cron.py` du TDB). En cas d'écart entre ce fichier et le script, le script fait foi.
+**Calcul :** le `cron.py` du TDB lance `actes_metier_update.py` le 1er de chaque mois. Ce fichier décrit ce que calculent les scripts de production au 2026-11-06 ; en cas d'écart, le script fait foi.
 
 ## Structure de la donnée
 
-Granularité : `mois × source × type_acte × categorie_acte × statut × departement`
+`data.json` couvre une fenêtre glissante de 14 mois. Granularité :
+`mois × source × type_acte × north_star × north_star_70 × traite × type_structure × departement`.
 
 | Colonne | Valeurs |
 |---------|---------|
-| `mois` | YYYY-MM |
-| `source` | rdvi, emplois, GPS, dora, monrecap, marche |
-| `type_acte` | Voir tableau par source ci-dessous |
-| `categorie_acte` | `Accompagnement` ou `Support à l'accompagnement` |
-| `statut` | `Accompli et accepté`, `Accompli et refusé`, `En cours` |
-| `departement` | Code INSEE (ex. `75`, `59`, `971`) ou `Inconnu` |
-| `nombre_actes` | Entier |
+| `mois` | YYYY-MM, mois de l'acte |
+| `source` | `rdvi`, `emplois` (La plateforme), `GPS`, `dora`, `marche`, `monrecap`, `data-inclusion` |
+| `type_acte` | Libellés exacts dans les tableaux ci-dessous, apostrophes typographiques (’) comprises |
+| `categorie_acte` | `Accompagnement` (action directe auprès d'un bénéficiaire) ou `Support` (action qui la prépare ou la facilite) |
+| `north_star` | Acte de rang 1 ayant reçu un retour humain, selon la règle de l'acte (tableaux ci-dessous). Seules les candidatures ont une condition de délai : réponse dans les 30 jours |
+| `north_star_70` | Idem avec un délai de **59** jours pour les candidatures, malgré son nom ; égal à `north_star` pour les autres actes |
+| `traite` | Candidatures : réponse reçue, quel que soit le délai ; autres actes : égal à `north_star` |
+| `type_structure` | Type de la structure qui fait l'acte (`FRANCE_TRAVAIL`, `MISSION_LOCALE`, `SIAE`, `CONSEIL_DEPARTEMENTAL`…, `Autre`, `Inconnu`) |
+| `departement` | Code INSEE (`75`, `2A`, `971`) ou `Inconnu` |
+| `nombre_actes` | Entier ; estimé pour les actes par proxy |
 
-## Catégories
+`yoy_ref` porte, pour le mois situé 12 mois avant M-2, les actes de rang 1 en North Star : c'est la référence de la croissance annuelle, hors fenêtre.
 
-| Catégorie | Description |
-|-----------|-------------|
-| **Accompagnement** | Action directe auprès d'un bénéficiaire |
-| **Support à l'accompagnement** | Action qui facilite ou prépare l'accompagnement |
+## Rangs et North Star
 
-## Règles de calcul
+Le rang n'est pas une colonne : il découle du type d'acte.
 
-### Consolidation temporelle (North Star uniquement)
+| Rang | Sens |
+|------|------|
+| 1 — Intermédiation | Mise en contact effective entre acteurs : candidatures, prolongations de PASS IAE, invitations à un RDV, orientations, intentions d'orientation, diffusion d'offre du Marché |
+| 2 — Engagement pro | Usage des outils d'accompagnement : recherches, diagnostics, GPS, Mon Récap, bilans de fin de parcours |
+| 3 — Qualité de l'offre | Création et mise à jour de fiches (offres, services, structures) |
 
-Certains actes changent de statut après la date de réalisation (ex. : une candidature
-initialement « en attente » peut être acceptée ou refusée des semaines plus tard).
-Pour mesurer la performance North Star, des délais de consolidation sont appliqués.
+**North Star = actes de rang 1 ayant reçu un retour humain**, selon la règle propre à chaque acte (colonne « North Star » des tableaux). La référence est `north_star` (candidatures traitées dans les 30 jours) ; `north_star_70` (59 jours pour les candidatures) sert au volume consolidé de l'onglet North Star. « Intention d'orientation » est de rang 1 mais jamais North Star, et sort du taux rang 1 → North Star.
 
-| Calcul | Périmètre | Délai appliqué |
-|--------|-----------|----------------|
-| Volume North Star (KPI principal) | Actes NS uniquement | 70 jours |
-| Croissance mensuelle North Star | Actes NS uniquement | 30 jours |
-| Croissance mensuelle moyenne (hors NS) | Tous les actes | Aucun |
-| Comparaison 3 derniers mois vs 3 précédents | Tous les actes | Aucun |
-| Volumes et taux hors NS | Tous les actes | Aucun |
+Un indicateur North Star ne retient que des **mois consolidés** : mois dont la fin date d'au moins 30 jours (59 jours pour `north_star_70`) à la génération des données.
 
-**Règle pratique :** seuls les calculs qui pilotent la North Star utilisent des mois
-consolidés. Tous les autres indicateurs (croissance, comparaisons, treemap) utilisent
-les données complètes jusqu'au mois le plus récent disponible.
+## Mise à jour des données
 
-Exemple avec `generated_at = 2026-05-06` :
-- Mois consolidés NS (70 j) : jusqu'à février 2026
-- Mois consolidés croissance NS (30 j) : jusqu'à mars 2026
-- Derniers 3 mois (hors NS) : février, mars, avril 2026
-- 3 mois précédents (hors NS) : novembre 2025, décembre 2025, janvier 2026
+- Le 1er de chaque mois, le mois écoulé entre dans la fenêtre, et chaque mois est recalculé quand 30 puis 59 jours se sont écoulés depuis sa fin : les délais de traitement s'y complètent.
+- Les actes de mise à jour d'une fiche déjà présents ne sont pas recalculés, sauf s'ils valaient 0 : ils sont datés par la dernière modification, qu'une modification ultérieure déplacerait.
+- Mon Récap est recalculé sur toute la fenêtre.
+- Si le total d'actes baisse de plus de 10 %, `data.json` n'est pas écrit.
+- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`. L'historique de croissance annuelle au-delà de la fenêtre en est tiré.
+- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025.
 
 ---
 
@@ -69,237 +64,144 @@ Exemple avec `generated_at = 2026-05-06` :
 
 ### RDV-Insertion
 
-**Instance :** rdvi · **DB :** 2
-**Table :** `rdvi.participations` + `rdvi.rdvs` + `rdvi.motif_categories`
+**Instance :** rdvi · **DB :** 2 (invitations) ; `autometa_tables_db`, schéma `raw_rdvi` (orientations)
 
-| Type acte | Catégorie | Statuts possibles |
-|-----------|-----------|-------------------|
-| RDV d'orientation | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
-| RDV d'accompagnement | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
-| Entretien SIAE | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
-| Autre RDV | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
+| Type acte | Catégorie | Rang | Donnée, date | North Star |
+|-----------|-----------|------|--------------|------------|
+| Invitation à un RDV d’orientation | Accompagnement | 1 | Invitations, date de création ; type selon la catégorie de motif | Le suivi de l'invitation compte au moins un RDV, sans condition de délai (même antérieur à l'invitation) |
+| Invitation à un RDV d’accompagnement | Accompagnement | 1 | idem | idem |
+| Invitation à un Entretien SIAE | Accompagnement | 1 | idem | idem |
+| Invitation à un Autre RDV | Accompagnement | 1 | idem | idem |
+| Orientation vers service | Accompagnement | 1 | `orientations` et `post_rdv_orientations` (ces dernières depuis mai 2026), date de création | **Proxy** : 80 % comptées traitées (taux moyen des RDV d'orientation) ; l'acceptation par l'usager n'est pas tracée |
 
-Mapping statut : `seen` → Accompli et accepté · `unknown` → En cours · autres → Accompli et refusé
-
----
-
-### La plateforme (ex-Emplois) — Candidatures
-
-**Instance :** stats · **DB :** 2
-**Table :** `candidatures_echelle_locale`
-
-| Type acte | Catégorie | Statuts possibles |
-|-----------|-----------|-------------------|
-| Candidature auprès d'un employeur solidaire | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
-
-Mapping statut :
-- Accompli et accepté : `Candidature acceptée`, `Embauché ailleurs`, `Action préalable à l'embauche`, `Embauche annulée`
-- Accompli et refusé : `Candidature déclinée`, `Candidature en vivier`
-- En cours : tous les autres états (en attente, à l'étude, etc.)
+Type de structure : type de l'organisation. Département : celui de l'invitation, ou de l'organisation pour les orientations.
 
 ---
 
-### La plateforme — Recherche d'offre d'emploi
+### La plateforme (ex-Emplois)
 
-**Instance :** Matomo · **ID site :** 117
-**Méthode :** visites (`nb_visits`) comportant au moins une page `/search/employers/results`. Jamais les pages vues : chaque filtre ou page de résultats compterait une fois de plus.
+**Instance :** stats · **DB :** 2 ; `autometa_tables_db`, schéma `raw_emplois` (prolongations, bilans ; schéma brut : accord de l'utilisateur requis, voir le skill `autometa_tables_db`) ; Matomo site 117 (recherches)
 
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Recherche d'offre d'emploi | Support à l'accompagnement | Accompli et accepté |
+| Type acte | Catégorie | Rang | Donnée, date | North Star |
+|-----------|-----------|------|--------------|------------|
+| Candidature auprès d’un employeur solidaire | Accompagnement | 1 | `candidatures_echelle_locale`, date de candidature, hors candidatures injectées par l'IA | Réponse (ni nouvelle, ni en attente, ni à l'étude) dans les 30 jours |
+| Prolongation de PASS IAE | Accompagnement | 1 | `raw_emplois.prolongations`, date de création | Toujours (accordée à la demande) |
+| Diagnostic IAE | Accompagnement | 2 | `public.candidats`, date du diagnostic, candidats distincts | — |
+| Création d’un bilan de fin de parcours | Accompagnement | 2 | `raw_emplois.bilans_accompagnement_v0`, date de création (heure de Paris) ; depuis le 28/10/2026 | — |
+| Consultation d’un bilan de fin de parcours | Support | 2 | Lectures réussies par un membre d'une organisation prescriptrice, collectées dans Datadog par le TDB `fin-parcours-adoption` ; un couple bilan × lecteur compte une fois, au mois de la première lecture | — |
+| Recherche d’offre d’emploi | Support | 2 | Matomo : **visites** comportant une page `/search/employers/results` | — |
+| Recherche d’offre de service, hors emploi solidaire | Support | 2 | Matomo : visites comportant une page `/search/services/results` ; depuis janvier 2026 | — |
+| Création offre d’emploi | Support | 3 | `fiches_de_poste`, date de création | — |
+| Mise à jour offre d’emploi | Support | 3 | `fiches_de_poste`, date de dernière modification, si postérieure à la création | — |
+| Création employeur solidaire | Support | 3 | `structures`, date d'inscription | — |
 
-**Note :** Cet acte est tracé via Matomo (pas de table DB). Le département est estimé
-par enrichissement — voir section « Dimension territoriale » ci-dessous.
+Département d'une candidature : celui de l'organisation prescriptrice, à défaut celui de la SIAE employeuse. Prolongation : SIAE déclarante. Consultation de bilan : organisation du lecteur.
 
-### La plateforme — Recherche d'offre de service
-
-**Instance :** Matomo · **ID site :** 117
-**Méthode :** visites (`nb_visits`) comportant au moins une page `/search/services/results`.
-
-Type acte : « Recherche d'offre de service, hors emploi solidaire ». Le même acte existe pour Dora (source `dora`). À compter avec la recherche d'offre d'emploi dès qu'on mesure les recherches.
+Les recherches comptent des visites, jamais des pages vues : chaque filtre ou page de résultats compterait une fois de plus. Le département d'une recherche d'offre d'emploi est estimé en répartissant le total selon la dimension Matomo 4 (`UserDepartment`) des visites concernées ; le reste demeure `Inconnu`. Pour la recherche d'offre de service, département et type restent `Inconnu`.
 
 ---
 
 ### GPS (Mon Suivi)
 
-**Instance :** stats · **DB :** 2
-**Table :** `gps_logs_users` (filtre : `group_id IS NOT NULL` et `view_name != 'gps:group_list'`)
+| Type acte | Catégorie | Rang | Donnée, date |
+|-----------|-----------|------|--------------|
+| Consultation groupe de suivi | Support | 2 | Jusqu'au 31/08/2026 : `gps_logs_users` (stats, DB 2), vues `gps:group_memberships`, `gps:group_beneficiary`, `gps:display_contact_info`, `gps:old_group_list`. Depuis le 01/09/2026 : événements Matomo du site 117, collectés chaque jour |
+| Mise à jour groupe de suivi | Support | 2 | Mêmes sources, toutes les autres vues |
 
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Consultation groupe de suivi | Support à l'accompagnement | Accompli et accepté |
-| Mise à jour groupe de suivi | Support à l'accompagnement | Accompli et accepté |
-
-Mapping type :
-- Consultation : `gps:group_memberships`, `gps:group_beneficiary`, `gps:display_contact_info`, `gps:old_group_list`
-- Mise à jour : tous les autres `view_name`
+**Rupture de série au 1er septembre 2026** : GPS a rejoint La plateforme et ses logs ne sont plus alimentés. Les deux sources n'ont pas été rapprochées. Juillet et août 2026 sont fortement sous-estimés (les logs ne captent plus qu'une partie de l'activité), le 29 au 31 août 2026 n'a aucune donnée, les volumes Matomo sont très faibles du 1er au 8 septembre 2026 (montée en charge probable du marquage) et nuls le 7 septembre.
 
 ---
 
 ### Dora — Orientations
 
-**Instance :** dora · **DB :** 2
-**Table :** `public_intermediate.int_orientation_user_service`
+**Source :** `autometa_tables_db`, `public.fct_dora__orientations`
 
-| Type acte | Catégorie | Statuts possibles |
-|-----------|-----------|-------------------|
-| Orientation vers service | Accompagnement | Accompli et accepté, Accompli et refusé, En cours |
+| Type acte | Catégorie | Rang | Donnée, date | North Star |
+|-----------|-----------|------|--------------|------------|
+| Orientation vers service | Accompagnement | 1 | Date de création ; la `source` est l'origine de l'orientation (`dora`, ou `emplois` depuis juillet 2026) | Orientation `VALIDÉE` ou `REFUSÉE`, **sans condition de délai** |
 
-Mapping statut : `VALIDÉE` → accepté · `REFUSÉE`/`EXPIRÉE` → refusé · autres → En cours
+Type et département : structure prescriptrice (Dora, ou organisation de La plateforme).
 
 ---
 
 ### Dora — iMER (intention de mise en relation)
 
-**Instance :** dora · **DB :** 2
-**Table utilisée par le script du TDB :** `public_intermediate.int_iMER`
-**Filtre :** `user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur')`
+**Source :** `autometa_tables_db`, `public.fct_dora__imer`
+**Filtre :** `user_kind IN ('accompagnateur', 'accompagnateur_offreur', 'offreur', 'emplois_prescriber', 'emplois_employer')`
 
-⚠️ Ce calcul n'est pas l'iMER complet. La définition de référence (cinq composantes, connectés et anonymes, avec les consultations de coordonnées) est dans `knowledge/dora/README.md`, section « Key Metrics ». `int_iMER` ne contient que les mobilisations et orientations des connectés, et ses orientations recouvrent l'acte « Dora — Orientations » ci-dessus : sommer les deux actes fait un double compte. Pour une question iMER hors de ce TDB, suivre la route de `knowledge/dora/README.md` ; corriger le script du TDB se fait hors de ce dépôt.
+| Type acte | Catégorie | Rang | Donnée, date | North Star |
+|-----------|-----------|------|--------------|------------|
+| Intention d’orientation | Support | 1 | Date de l'iMER ; `source` `dora` ou `emplois` selon l'origine | Jamais |
 
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Mise en relation (iMER) | Support à l'accompagnement | Accompli et accepté |
-
----
-
-### Dora — Mise à jour fiche service
-
-**Instance :** dora · **DB :** 2
-**Table :** `services_service`
-**Filtre :** `last_editor_id IS NOT NULL`
-
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Mise à jour fiche service | Support à l'accompagnement | Accompli et accepté |
+⚠️ Ce calcul n'est pas l'iMER complet : il ne retient que les professionnels connectés des types filtrés. La définition de référence (cinq composantes, connectés et anonymes) est dans `knowledge/dora/README.md`, section « Key Metrics ». `fct_dora__imer` contient des orientations (`kind = 'service_orientation'`) et des mobilisations rattachées à une orientation (constaté sur septembre 2026) : sommer cet acte et « Dora — Orientations » fait un double compte. Pour une question iMER hors de ce TDB, suivre la route de `knowledge/dora/README.md`.
 
 ---
 
-### Mon Récap — Distribution
+### Dora — Offre de service
 
-**Instance :** stats · **DB :** 2
-**Table :** `monrecap."Commandes"`
+**Instance :** dora · **DB :** 2 ; instance stats, DB 2, schéma `raw_dora` (recherches)
 
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Distribution carnet Mon Récap | Accompagnement | Accompli et accepté |
-
-**⚠️ Proxy :** Faute de données directes, l'acte est estimé à 10 % des carnets
-distribués sur une fenêtre glissante de 9 mois (taux de distribution moyen).
-
----
-
-### Mon Récap — Remplissage
-
-**Instance :** stats · **DB :** 2
-**Table :** `monrecap."Commandes"`
-
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Remplissage carnet Mon Récap | Support à l'accompagnement | Accompli et accepté |
-
-**⚠️ Proxy :** Estimé à partir d'un taux de remplissage moyen de 62 % par carnet,
-réparti sur une fenêtre de 6 à 16 mois après distribution.
+| Type acte | Catégorie | Rang | Donnée, date |
+|-----------|-----------|------|--------------|
+| Recherche d’offre de service, hors emploi solidaire | Support | 2 | `raw_dora.stats_searchview` : une ligne par recherche, anonymes compris, sans dédoublonnage |
+| Création ou diffusion offre de service, hors emploi solidaire | Support | 3 | `services_service`, date de création |
+| Mise à jour offre de service, hors emploi solidaire | Support | 3 | `services_service` modifiés par un utilisateur (`last_editor_id` renseigné), date de modification |
+| Création structure, hors employeur solidaire | Support | 3 | `structures_structure`, date de création |
+| Mise à jour d’une structure d’offre de service, hors employeur solidaire | Support | 3 | `structures_structure`, date de modification, si postérieure à la création |
 
 ---
 
-### Le Marché — Diffusion d'offre
+### Le Marché
 
 **Instance :** stats · **DB :** 6
-**Table :** `tenders_tender`
-**Filtre :** `kind IN ('TENDER', 'PROJ', 'QUOTE')` et `status IN ('SUBMITTED', 'SENT')`
 
-| Type acte | Catégorie | Statuts possibles |
-|-----------|-----------|-------------------|
-| Diffusion d'offre inclusive | Support à l'accompagnement | Accompli et accepté, En cours |
+| Type acte | Catégorie | Rang | Donnée, date | North Star |
+|-----------|-----------|------|--------------|------------|
+| Diffusion d’offre inclusive | Support | 1 | `tenders_tender`, `kind IN ('TENDER', 'PROJ', 'QUOTE')` et `status IN ('SUBMITTED', 'SENT')`, date de création | Besoin reçu par au moins une structure (`siae_count > 0`), sans condition de délai |
+| Mise à jour fiche entreprise | Support | 3 | `siaes_siaeoffer` (prestations), date de modification | — |
 
-Mapping statut : `SENT` → accepté · autres → En cours
+Type de structure d'une diffusion : `SIAE` si l'auteur est un compte SIAE, sinon `Autre`. Département : lieu du besoin ; pour une mise à jour, celui de la structure.
 
----
-
-### Le Marché — Mise à jour fiche entreprise
-
-**Instance :** stats · **DB :** 6
-**Table :** `siaes_siaeoffer` + `siaes_siae`
-
-| Type acte | Catégorie | Statut |
-|-----------|-----------|--------|
-| Mise à jour fiche entreprise | Support à l'accompagnement | Accompli et accepté |
+⚠️ **Les besoins importés par l'API partenaire sont comptés** : ils restent `SUBMITTED` et ne sont jamais diffusés. De janvier à octobre 2026, ils font 5 048 des 5 533 diffusions comptées, aucune en North Star (319 diffusions North Star sur la période). Un volume « tous actes » du Marché est donc gonflé environ dix fois ; la North Star ne l'est pas.
 
 ---
 
-## Dimension territoriale
+### Mon Récap
 
-### Couverture par source
+**Instance :** stats · **DB :** 2 · **Table :** `monrecap."Commandes"`
 
-| Source | Actes couverts | Méthode | Taux géolocalisation |
-|--------|---------------|---------|---------------------|
-| RDV-Insertion | Tous | Champ `departement` en DB | ~95 % |
-| La plateforme — Candidatures | Candidature... | Département candidat en DB | ~90 % |
-| La plateforme — Recherche d'offre | Recherche d'offre | Estimation via Matomo dim. 4 | ~71 % |
-| GPS | Tous | Département structure en DB | ~85 % |
-| Dora | Tous | Département structure en DB | ~90 % |
-| Mon Récap | Tous | Département structure en DB | ~80 % |
-| Le Marché | Tous | Département structure en DB | ~85 % |
+| Type acte | Catégorie | Rang | Donnée |
+|-----------|-----------|------|--------|
+| Distribution carnet Mon Récap | Accompagnement | 2 | **Proxy** : 10 % des carnets expédiés sont distribués chaque mois pendant 10 mois, à partir du mois d'expédition |
+| Remplissage carnet Mon Récap | Support | 2 | **Proxy** : pendant 6 mois à partir du mois d'expédition, 1,093 remplissage par mois et par carnet déjà distribué |
 
-### Enrichissement « Recherche d'offre » via Matomo dimension 4
-
-**Problème :** l'acte « Recherche d'offre » (source `emplois`) est tracé via Matomo comme
-vue de page sur `/search/employers/results`. L'événement Matomo ne capture pas le
-département de l'utilisateur — toutes les lignes étaient stockées avec `departement='Inconnu'`.
-
-**Solution (appliquée depuis mai 2026) :** la dimension custom Matomo 4 (`UserDepartment`,
-action-scoped) filtrée sur la page de résultats donne la distribution des visites
-géolocalisées par département. Cette distribution est appliquée au volume mensuel total
-de l'acte comme proxy de ventilation.
-
-| Paramètre | Valeur |
-|-----------|--------|
-| Site | emplois (idSite=117) |
-| Dimension | 4 (UserDepartment) |
-| Segment | `pageUrl=@/search/employers/results` |
-| Métrique | `nb_visits` par département |
-| `filter_limit` | 200 |
-
-**Méthode de calcul :**
-1. Pour chaque mois, requête Matomo dim4 → distribution `{dept: fraction_du_total_visites}`
-2. Seules les visites avec département connu (hors `Value not defined`) contribuent à la distribution
-3. Chaque fraction est appliquée au volume mensuel total de l'acte
-4. Le volume résiduel (arrondi) est conservé en `Inconnu`
-
-**Résultats observés (13 mois, avril 2025 – avril 2026) :**
-- ~71 % des actes géolocalisés (102–104 départements selon les mois)
-- ~29 % conservés en `Inconnu` (sessions sans dimension département)
-- Le Nord (59) est le premier département (~5–8 % du total géolocalisé)
-
-**Limites :**
-- Distribution proxy (visiteurs de la page), pas attribution exacte par acte
-- Un visiteur qui consulte la page plusieurs fois dans le mois compte plusieurs fois
-- Ne couvre pas « Recherche de service » (déjà géolocalisé à 95 % via DB)
+Date d'expédition : celle de la commande, ou à défaut la date de fabrication plus 7 jours (non saisie depuis les commandes d'avril 2026). Les volumes Mon Récap sont des estimations, pas des mesures.
 
 ---
+
+### data·inclusion
+
+**Instance :** datalake · **DB :** 2 · **Table :** `"stats_pdi-actes_metiers-data_inclusion"` (hebdomadaire, depuis avril 2025), hors contextes de test
+
+| Type acte | Catégorie | Rang | Donnée | North Star |
+|-----------|-----------|------|--------|------------|
+| Recherche data·inclusion | Support | 2 | Recherches ; type de structure selon le contexte de l'acte | — |
+| Mise à jour offre de service, hors emploi solidaire | Support | 3 | Type de structure selon le réseau porteur, `Autre` à défaut (~40 %) | — |
+| Mise à jour d’une structure d’offre de service, hors employeur solidaire | Support | 3 | idem | — |
+| Orientation vers service | Accompagnement | 1 | **Proxy** : 0,3 % des recherches du mois, réparties comme elles | **Proxy** : 55 % comptées traitées (taux Dora moyen sur 12 mois) |
+
+---
+
+## Pièges
+
+- `north_star` vaut aussi `True` pour « Création offre d'emploi » et « Mise à jour offre d'emploi », qui sont de rang 3 : filtrer sur les actes de rang 1 avant de sommer la North Star, dans `data.json` comme dans le snapshot.
+- « Orientation vers service » existe pour quatre sources (`dora`, `emplois`, `rdvi`, `data-inclusion`) : filtrer aussi sur `source`.
+- Les actes par proxy (orientations RDV-i et data·inclusion, Mon Récap) sont des estimations : ne pas les présenter comme des mesures.
 
 ## Services non couverts
 
 | Service | Raison |
 |---------|--------|
 | Pilotage | Pas d'acte métier direct identifié |
-| data·inclusion | Accès Metabase non disponible au moment de la création |
-| Communauté | Non inclus dans la V1 |
-| Site institutionnel (inclusion.gouv.fr) | Non inclus dans la V1 |
-
----
-
-## Mise à jour des données
-
-Le `cron.py` du TDB (`actes_metier_update.py`, le 1er du mois) génère le fichier
-`/app/data/interactive/actes-metier/data.json` utilisé par le dashboard.
-
-Après chaque regénération de `data.json`, relancer l'enrichissement département :
-
-```bash
-cd /app && python data/interactive/actes-metier/enrich_dept.py
-Le script enrich_dept.py remplace les lignes departement='Inconnu' de
-« Recherche d'offre » par une ventilation départementale estimée via Matomo dim4
-(une requête Matomo par mois, ~13 requêtes pour un historique complet).
-```
+| Communauté | Non inclus |
+| Site institutionnel (inclusion.gouv.fr) | Non inclus |

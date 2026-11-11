@@ -160,7 +160,7 @@ Quand une agrégation SQL ne suffit pas à isoler un effet — plusieurs actions
 | `data/cache/metabase/` | Inventaire cartes et dashboards Metabase (synchro quotidienne) |
 | `DATABASE_URL` (PostgreSQL) | Base applicative — pas une source de données, voir « Sources de données » |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
-| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, La plateforme, GPS, Dora, Mon Récap, Marché) |
+| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, La plateforme, GPS, Dora, Mon Récap, Marché, data·inclusion) |
 
 ## Performance Matomo
 
