@@ -182,6 +182,8 @@ def test_check_relations_without_epic_does_not_read_epics(mocker):
     ("fields", "message"),
     [
         ({"body": "x" * 2000}, "2000 caractères ou plus"),
+        ({"body": "| A | B |\n|---|---|\n| court | " + "c" * 2000 + " |"}, "cellule ou bloc de code de 2000"),
+        ({"title": "t" * 2000}, "Titre refusé : 2000 caractères ou plus"),
         ({"body": "a" * 1500 + "\n" + "b" * 1500}, "2000 caractères ou plus"),
         ({"body": "```\n" + "\n".join("c" * 50 for _ in range(60)) + "\n```"}, "2000 caractères ou plus"),
         ({"body": "\n".join(f"- point {i}" for i in range(101))}, "Ticket trop long"),

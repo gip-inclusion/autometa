@@ -42,7 +42,7 @@ def build_properties(ticket: Ticket, schema: dict) -> dict:
     if not ticket.teams:
         raise ValueError("Au moins une équipe est requise")
     props = {
-        "Nom": {"title": [{"text": {"content": ticket.title[:2000]}}]},
+        "Nom": {"title": [{"text": {"content": ticket.title}}]},
         "Pizza team": {"relation": [{"id": e} for e in ticket.teams]},
         "Statut": {"select": {"name": ticket.status}},
         "Type": {"multi_select": [{"name": t} for t in ticket.types]},
@@ -60,6 +60,8 @@ def build_properties(ticket: Ticket, schema: dict) -> dict:
 
 def check_body(ticket: Ticket) -> None:
     """Refuse un corps que Notion tronquerait ou n'accepterait pas, un lien non http(s) ou un lien Figma invalide."""
+    if len(ticket.title) >= MAX_TEXT_LENGTH:
+        raise ValueError(f"Titre refusé : {MAX_TEXT_LENGTH} caractères ou plus")
     first_line = next((row for row in ticket.body.splitlines() if row.strip()), "")
     if first_line.startswith("# "):
         raise ValueError("Corps refusé : le titre ne va pas dans le corps")
@@ -68,13 +70,20 @@ def check_body(ticket: Ticket) -> None:
     # le marqueur peut ajouter un paragraphe.
     if len(blocks) >= MAX_BLOCKS:
         raise ValueError(f"Ticket trop long : {len(blocks)} blocs, {MAX_BLOCKS - 1} au plus")
-    for block in blocks:
-        for chunk in block[block["type"]].get("rich_text", []):
-            if len(chunk.get("text", {}).get("content", "")) >= MAX_TEXT_LENGTH:
-                raise ValueError(
-                    f"Corps refusé : paragraphe ou bloc de code de {MAX_TEXT_LENGTH} caractères ou plus, "
-                    "le découper avec des lignes vides"
-                )
+    chunks = [c for b in blocks for c in b[b["type"]].get("rich_text", [])]
+    chunks += [
+        c
+        for b in blocks
+        if b["type"] == "table"
+        for row in b["table"]["children"]
+        for cell in row["table_row"]["cells"]
+        for c in cell
+    ]
+    if any(len(c.get("text", {}).get("content", "")) >= MAX_TEXT_LENGTH for c in chunks):
+        raise ValueError(
+            f"Corps refusé : paragraphe, cellule ou bloc de code de {MAX_TEXT_LENGTH} caractères ou plus, "
+            "le découper avec des lignes vides"
+        )
     for url in re.findall(r"\]\(([^)]+)\)", ticket.body):
         if not url.strip().startswith(("http://", "https://")):
             raise ValueError(f"Lien refusé : {url}")

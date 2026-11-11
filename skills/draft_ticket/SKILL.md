@@ -131,7 +131,7 @@ Pose les questions en texte (pas d'outil de question). Ne répète pas une quest
 }
 ```
 
-Le script refuse, avant toute écriture : un corps de plus de 100 blocs, une ligne de 2 000 caractères ou plus (découpe les longs textes recopiés en paragraphes), un lien qui n'est pas en `http://` ou `https://`, un lien Figma illisible, une équipe ou un épic qui ne correspond pas à Notion. Corrige et relance la vérification.
+Le script refuse, avant toute écriture : un corps de 100 blocs ou plus, un paragraphe ou une cellule de tableau de 2 000 caractères ou plus (découpe les longs textes recopiés en paragraphes), un lien qui n'est pas en `http://` ou `https://`, un lien Figma illisible, une équipe ou un épic qui ne correspond pas à Notion. Corrige et relance la vérification.
 
 ## Liste de vérification finale
 
