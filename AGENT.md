@@ -54,7 +54,7 @@ Ne jamais trancher en silence : signaler la contradiction à l'utilisateur dans 
 
 Ce tableau est la seule référence des sites : nom, adresse et numéro Matomo ne se recopient pas ailleurs, ils y renvoient.
 
-⚠️ **La plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)** — le site vitrine de la PDI : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
+⚠️ **La plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)**, le site vitrine de la PDI (Plateforme de l'inclusion : l'organisation qui porte tous ces services, à ne pas confondre avec La plateforme, l'application ex-Emplois) : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
 
 ## Workflow de requête
 
