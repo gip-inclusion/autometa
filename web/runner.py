@@ -134,6 +134,7 @@ class TaskRunner:
 
     async def cancel(self, conv_id: str) -> bool:
         r = await get_redis()
+        question_id = store.last_user_message_id(conv_id)
         # Why: clear needs_response before the up-to-5s backend.cancel so an immediate
         # resend doesn't race the in-flight cancel and get a 409 "already running".
         store.update_conversation(conv_id, needs_response=False)
@@ -147,7 +148,7 @@ class TaskRunner:
                 self._cancelled_runs.add(cancelled)
                 await r.delete(f"{PREFIX}:running:{conv_id}")
         store.add_message(conv_id, "assistant", "*Interrompu.*")
-        await self._notify_done(conv_id)
+        await self.notify_done(conv_id, question_id)
         return True
 
     async def _cancel_all_backends(self, conv_id: str) -> None:
@@ -158,17 +159,15 @@ class TaskRunner:
         r = await get_redis()
         await r.publish(f"{PREFIX}:conv:{conv_id}", "update")
 
-    async def notify_done(self, conv_id: str):
-        await self._notify_done(conv_id)
-
-    async def _notify_done(self, conv_id: str):
+    async def notify_done(self, conv_id: str, question_id: int):
         r = await get_redis()
-        await r.set(f"{PREFIX}:done:{conv_id}", "1", ex=600)
-        await r.publish(f"{PREFIX}:conv:{conv_id}", "done")
+        await r.set(f"{PREFIX}:done:{conv_id}", str(question_id), ex=600)
+        await r.publish(f"{PREFIX}:conv:{conv_id}", f"done:{question_id}")
 
-    async def is_done(self, conv_id: str) -> bool:
+    async def is_done(self, conv_id: str, question_id: int) -> bool:
         r = await get_redis()
-        return await r.exists(f"{PREFIX}:done:{conv_id}") > 0
+        closed = await r.get(f"{PREFIX}:done:{conv_id}")
+        return closed is not None and int(closed) >= question_id
 
     async def cleanup(self, conv_id: str):
         r = await get_redis()
@@ -289,11 +288,12 @@ class TaskRunner:
             logger.exception("release after failure failed (conv=%s)", conv_id)
 
     async def _release_conversation(self, r, conv_id, note):
-        """Un-stick a conversation: clear the running flag, tell the user, close the stream, drop the key."""
+        """Un-stick a conversation: drop the key, clear the running flag, tell the user, close the stream."""
+        question_id = store.last_user_message_id(conv_id)
+        await r.delete(f"{PREFIX}:running:{conv_id}")
         store.update_conversation(conv_id, needs_response=False)
         store.add_message(conv_id, "assistant", note)
-        await self.notify_done(conv_id)
-        await r.delete(f"{PREFIX}:running:{conv_id}")
+        await self.notify_done(conv_id, question_id)
 
     async def _reconcile_stuck(self, r, min_age_seconds, note, skip_queued=False):
         stuck = store.get_running_conversation_ids(older_than_seconds=min_age_seconds)
@@ -610,11 +610,15 @@ class TaskRunner:
                     # Why: quand un rejeu suit, libérer ici fermerait le flux SSE avant que le
                     # moteur de secours ait répondu — seule la passe que personne ne reprend libère.
                     if (release or limit_reset is None) and not cancelled:
-                        store.update_conversation(conversation_id, needs_response=False)
-                        await self.notify_done(conversation_id)
+                        # Why: libérer le créneau avant de baisser needs_response — un envoi accepté entre les
+                        # deux serait sinon écarté par le consommateur, qui croirait la conversation déjà prise.
                         self._running.pop(conversation_id, None)
-                        r = await get_redis()
-                        await r.delete(f"{PREFIX}:running:{conversation_id}")
+                        try:
+                            r = await get_redis()
+                            await r.delete(f"{PREFIX}:running:{conversation_id}")
+                        finally:
+                            store.update_conversation(conversation_id, needs_response=False)
+                        await self.notify_done(conversation_id, turn.question_id)
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)

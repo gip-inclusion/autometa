@@ -103,8 +103,9 @@ def _simulate_pm(conv_id, messages, delay=0.1):
             store.add_message(conv_id, msg_type, content if isinstance(content, str) else json.dumps(content))
             r.publish(f"autometa:conv:{conv_id}", "update")
         store.update_conversation(conv_id, needs_response=False)
-        r.set(f"autometa:done:{conv_id}", "1", ex=600)
-        r.publish(f"autometa:conv:{conv_id}", "done")
+        question_id = store.last_user_message_id(conv_id)
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
         r.close()
 
     t = threading.Thread(target=_run, daemon=True)
@@ -213,8 +214,8 @@ def test_race_condition_pm_finishes_before_sse_connect(app, client):
     r = _sync_redis()
     r.publish(f"autometa:conv:{conv.id}", "update")
     store.update_conversation(conv.id, needs_response=False)
-    r.set(f"autometa:done:{conv.id}", "1", ex=600)
-    r.publish(f"autometa:conv:{conv.id}", "done")
+    r.set(f"autometa:done:{conv.id}", str(user_msg.id), ex=600)
+    r.publish(f"autometa:conv:{conv.id}", f"done:{user_msg.id}")
     r.close()
 
     response = client.get(
@@ -440,3 +441,35 @@ def test_client_disconnect_agent_survives_client_disconnect(app, conversation):
 
     conv = store.get_conversation(conversation.id, include_messages=False)
     assert conv.needs_response, "Agent was stopped by client disconnect!"
+
+
+def test_a_done_for_an_older_question_does_not_close_the_stream(app, client):
+    from web.database import store
+
+    conv = store.create_conversation(user_id="test@example.com")
+    older = store.add_message(conv.id, "user", "Première question")
+    store.add_message(conv.id, "user", "Seconde question")
+    store.update_conversation(conv.id, needs_response=True)
+
+    def stale_then_real():
+        r = _sync_redis()
+        while not r.pubsub_numsub(f"autometa:conv:{conv.id}")[0][1]:
+            time.sleep(0.01)
+        r.publish(f"autometa:conv:{conv.id}", f"done:{older.id}")
+        time.sleep(0.2)
+        store.add_message(conv.id, "assistant", "Réponse à la seconde")
+        r.publish(f"autometa:conv:{conv.id}", "update")
+        store.update_conversation(conv.id, needs_response=False)
+        newest = store.last_user_message_id(conv.id)
+        r.set(f"autometa:done:{conv.id}", str(newest), ex=600)
+        r.publish(f"autometa:conv:{conv.id}", f"done:{newest}")
+        r.close()
+
+    t = threading.Thread(target=stale_then_real, daemon=True)
+    t.start()
+    response = client.get(f"/api/conversations/{conv.id}/stream", headers={"X-Forwarded-Email": "test@example.com"})
+    t.join()
+    events = _parse_sse_events(response.content)
+
+    assert [e["event"] for e in events if e["event"] != "heartbeat"] == ["assistant", "done"]
+    assert events[-1]["data"]["question_id"] == store.last_user_message_id(conv.id)

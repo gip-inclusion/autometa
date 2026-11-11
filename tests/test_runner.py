@@ -208,13 +208,14 @@ def test_cancel_all_backends_calls_get_agent_for_both_backends_when_fallback_con
 
 def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, mocker):
     """submit() must clear the done marker a prior cancel left behind."""
-    mocker.patch("web.runner.store")
+    mock_store = mocker.patch("web.runner.store")
+    mock_store.last_user_message_id.return_value = 3
 
     async def _run():
         await runner.cancel("c1")
-        assert await runner.is_done("c1")  # stale marker left by cancel (TTL 600s)
+        assert await runner.is_done("c1", 3)  # stale marker left by cancel (TTL 600s)
         await runner.submit("c1", "nouvelle question", [])
-        assert not await runner.is_done("c1"), "new run must not inherit the previous cancel's done marker"
+        assert not await runner.is_done("c1", 3), "new run must not inherit the previous cancel's done marker"
 
     asyncio.run(_run())
 
@@ -222,7 +223,7 @@ def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, m
 def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
     """An old run finishing must not clobber a same-conv restart."""
     runner = make_runner(mocker, fake_redis)
-    mocker.patch("web.runner.store")
+    mocker.patch("web.runner.store").last_user_message_id.return_value = 1
 
     old_can_finish = asyncio.Event()
 
@@ -255,7 +256,7 @@ def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
         await asyncio.sleep(0.1)
 
         assert runner._running.get("c1") is new_task, "old run's finally evicted the restarted run"
-        assert not await runner.is_done("c1"), "old run's finally marked the restarted run as done"
+        assert not await runner.is_done("c1", 1), "old run's finally marked the restarted run as done"
 
         new_task.cancel()
         old_task.cancel()
@@ -268,6 +269,7 @@ def test_cancelled_run_ending_late_leaves_a_resend_in_preparation_alone(mocker, 
     """A cancelled run still uploading its session must not release the resend the consumer is preparing."""
     runner = make_runner(mocker, fake_redis)
     mock_store = mocker.patch("web.runner.store")
+    mock_store.last_user_message_id.return_value = 1
     old_can_finish = asyncio.Event()
 
     async def old_stream(**kwargs):
@@ -289,7 +291,7 @@ def test_cancelled_run_ending_late_leaves_a_resend_in_preparation_alone(mocker, 
         old_can_finish.set()
         await asyncio.wait_for(old_task, 1)
 
-        assert not await runner.is_done("c1"), "the late cancelled run closed the resend's stream"
+        assert not await runner.is_done("c1", 1), "the late cancelled run closed the resend's stream"
         released = [c for c in mock_store.update_conversation.call_args_list if c.kwargs.get("needs_response") is False]
         assert not released, "the late cancelled run cleared needs_response under the resend"
         assert await fake_redis.get("autometa:running:c1") == "worker-preparing-the-resend"
@@ -331,28 +333,57 @@ def test_notify_publishes_update(runner, fake_redis):
     asyncio.run(_run())
 
 
-def test_notify_done_sets_key_and_publishes(runner, fake_redis):
+@pytest.mark.parametrize(
+    ("stored", "asked", "done"), [(None, 5, False), ("4", 5, False), ("5", 5, True), ("6", 5, True)]
+)
+def test_is_done_only_for_the_asked_question_or_later(runner, fake_redis, stored, asked, done):
     async def _run():
-        await runner.notify_done("c1")
-        assert await fake_redis.exists("autometa:done:c1")
-        assert await runner.is_done("c1")
+        if stored is not None:
+            await fake_redis.set("autometa:done:c1", stored)
+        return await runner.is_done("c1", asked)
 
-    asyncio.run(_run())
+    assert asyncio.run(_run()) is done
 
 
-def test_is_done_false_for_unknown(runner):
+def test_notify_done_publishes_the_question_it_closes(runner, fake_redis):
     async def _run():
-        assert not await runner.is_done("nonexistent")
+        pubsub = fake_redis.pubsub()
+        await pubsub.subscribe("autometa:conv:c1")
+        await pubsub.get_message()
+        await runner.notify_done("c1", 42)
+        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1)
+        return msg["data"], await fake_redis.get("autometa:done:c1")
 
-    asyncio.run(_run())
+    assert asyncio.run(_run()) == ("done:42", "42")
+
+
+def test_a_finished_turn_leaves_the_slot_before_clearing_needs_response(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    seen = {}
+
+    def record(conv_id, **kwargs):
+        if kwargs.get("needs_response") is False:
+            seen["slot_free"] = conv_id not in runner._running
+
+    mock_store.update_conversation.side_effect = record
+
+    async def _run():
+        task = asyncio.create_task(runner._run_agent("c1", "hi", None, None, make_turn("cli", question_id=9)))
+        runner._running["c1"] = task
+        await asyncio.wait_for(task, 1)
+        return await fake_redis.get("autometa:done:c1")
+
+    assert asyncio.run(_run()) == "9"
+    assert seen == {"slot_free": True}
 
 
 def test_cleanup_removes_done_key(runner, fake_redis):
     async def _run():
-        await runner.notify_done("c1")
-        assert await runner.is_done("c1")
+        await runner.notify_done("c1", 1)
+        assert await runner.is_done("c1", 1)
         await runner.cleanup("c1")
-        assert not await runner.is_done("c1")
+        assert not await runner.is_done("c1", 1)
 
     asyncio.run(_run())
 
@@ -626,6 +657,7 @@ def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
     """A task erroring mid-setup is un-stuck (needs_response + running key), the user is told, the stream closes."""
     runner = make_runner(mocker, fake_redis)
     mock_store = mocker.patch("web.runner.store")
+    mock_store.last_user_message_id.return_value = 0
     conv = mocker.MagicMock()
     conv.needs_response = True
     mock_store.get_conversation.return_value = conv
@@ -645,7 +677,7 @@ def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
             c.args[0] == "boom" and c.args[1] == "assistant" and "erreur" in c.args[2].lower()
             for c in mock_store.add_message.call_args_list
         ), "no error message was shown to the user"
-        assert await runner.is_done("boom"), "stream never closed; client waits forever"
+        assert await runner.is_done("boom", 0), "stream never closed; client waits forever"
 
     asyncio.run(_run())
 
@@ -667,7 +699,7 @@ def test_run_agent_notifies_and_cleans_up(runner, mocker, fake_redis):
     async def _run():
         await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
-        assert await runner.is_done("c1")
+        assert await runner.is_done("c1", 1)
 
     asyncio.run(_run())
 
@@ -684,7 +716,7 @@ def test_run_agent_clears_needs_response_on_error(runner, mocker, fake_redis):
     async def _run():
         await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
         mock_store.update_conversation.assert_called_with("c1", needs_response=False)
-        assert await runner.is_done("c1")
+        assert await runner.is_done("c1", 1)
 
     asyncio.run(_run())
 
@@ -718,6 +750,7 @@ def test_reconcile_clears_aged_stuck_conversations(mocker, fake_redis):
     """Periodic reconcile must query with the age threshold (race protection) and clear dead-worker convs."""
     runner = make_runner(mocker, fake_redis)
     mock_store = mocker.patch("web.runner.store")
+    mock_store.last_user_message_id.return_value = 0
     mock_store.get_running_conversation_ids.return_value = ["zombie"]
 
     async def _run():
@@ -725,7 +758,7 @@ def test_reconcile_clears_aged_stuck_conversations(mocker, fake_redis):
         mock_store.get_running_conversation_ids.assert_called_once_with(older_than_seconds=300)
         mock_store.update_conversation.assert_called_once_with("zombie", needs_response=False)
         mock_store.add_message.assert_called_once_with("zombie", "assistant", "*Interrompu.*")
-        assert await runner.is_done("zombie"), "swept conv's SSE stream was never closed"
+        assert await runner.is_done("zombie", 0), "swept conv's SSE stream was never closed"
         assert cleared == 1
 
     asyncio.run(_run())
@@ -1242,3 +1275,31 @@ def test_run_agent_limit_event_stores_verbatim_and_alerts(runner, mocker, fake_r
     # Not stored as a generic assistant/error message — it renders as its own callout.
     assert not any(a[1] == "assistant" for a in mock_store.add_message.call_args_list)
     alert.assert_awaited_once_with("2026-07-20T17:00:00+00:00")
+
+
+def test_a_redis_failure_at_turn_end_still_clears_needs_response(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    mocker.patch.object(fake_redis, "delete", side_effect=ConnectionError("redis down"))
+
+    async def _run():
+        task = asyncio.create_task(runner._run_agent("c1", "hi", None, None, make_turn("cli")))
+        runner._running["c1"] = task
+        await asyncio.wait_for(task, 1)
+
+    asyncio.run(_run())
+
+    mock_store.update_conversation.assert_any_call("c1", needs_response=False)
+
+
+def test_cancel_closes_the_question_that_was_running(runner, fake_redis, mocker):
+    mock_store = mocker.patch("web.runner.store")
+    latest = {"question": 5}
+    mock_store.last_user_message_id.side_effect = lambda conv_id: latest["question"]
+    mock_store.update_conversation.side_effect = lambda conv_id, **kwargs: latest.update(question=9)
+
+    async def _run():
+        await runner.cancel("c1")
+        return await fake_redis.get("autometa:done:c1")
+
+    assert asyncio.run(_run()) == "5"

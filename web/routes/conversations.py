@@ -557,12 +557,12 @@ async def stream_conversation(
                 logger.debug("JSON parse failed for system message: %s", exc)
         return _sse_event(msg.type, sse_data)
 
-    async def _drain_unseen(last_msg_id: int) -> list[str]:
+    async def _drain_unseen(last_msg_id: int, question_id: int) -> list[str]:
         chunks = []
         final = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
         for msg in final:
             chunks.append(_format_msg(msg))
-        chunks.append(_sse_event("done", {"conversation_id": conv_id}))
+        chunks.append(_sse_event("done", {"conversation_id": conv_id, "question_id": question_id}))
         return chunks
 
     async def generate():
@@ -572,8 +572,9 @@ async def stream_conversation(
         start = time.monotonic()
         last_fallback = start
 
-        if await runner.is_done(conv_id) or not conv.needs_response:
-            for chunk in await _drain_unseen(last_msg_id):
+        question_id = await asyncio.to_thread(store.last_user_message_id, conv_id)
+        if await runner.is_done(conv_id, question_id) or not conv.needs_response:
+            for chunk in await _drain_unseen(last_msg_id, question_id):
                 yield chunk
             return
 
@@ -589,8 +590,8 @@ async def stream_conversation(
                         last_msg_id = m.id
                         yield _format_msg(m)
 
-                    if msg["data"] == "done":
-                        for chunk in await _drain_unseen(last_msg_id):
+                    if msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id:
+                        for chunk in await _drain_unseen(last_msg_id, question_id):
                             yield chunk
                         return
 
@@ -601,8 +602,8 @@ async def stream_conversation(
                         last_msg_id = m.id
                         yield _format_msg(m)
 
-                    if await runner.is_done(conv_id):
-                        for chunk in await _drain_unseen(last_msg_id):
+                    if await runner.is_done(conv_id, question_id):
+                        for chunk in await _drain_unseen(last_msg_id, question_id):
                             yield chunk
                         return
 
