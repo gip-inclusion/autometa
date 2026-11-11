@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, transient_api_error, usage_limit_reset
+from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, signal_name, transient_api_error, usage_limit_reset
 
 
 def make_backend():
@@ -443,3 +443,45 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
 
     argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
+
+
+MEMOIRE = {"limit": "536870912", "used": "536862720", "peak": "536870912", "oom_kill": "1"}
+
+
+def test_a_cli_killed_by_the_system_says_so_and_logs_the_container_memory(stub_config, mocker, caplog):
+    """Le code -9 de la review app de #278 : « Process exited with code -9: » vide ne disait rien de la cause."""
+    mocker.patch("web.agents.cli.memory_introspect.container_memory", return_value=MEMOIRE)
+    stub_config("kill -KILL $$")
+    messages = collect_messages(make_backend())
+    assert messages[-1].type == "error"
+    assert "tué par le système (signal 9, SIGKILL), probablement faute de mémoire" in messages[-1].content
+    assert "Process exited" not in messages[-1].content
+    assert messages[-1].raw["signal"] == 9
+    assert messages[-1].raw["memory"] == MEMOIRE
+    assert "CLI tué par le système : conversation=c1 signal=9" in caplog.text
+    assert "'oom_kill': '1'" in caplog.text
+
+
+def test_a_cli_we_cancelled_is_not_reported_as_killed_by_the_system(stub_config, mocker):
+    container_memory = mocker.patch("web.agents.cli.memory_introspect.container_memory")
+    stub_config("kill -TERM $$")
+    backend = make_backend()
+    backend._cancelled.add("c1")
+    messages = collect_messages(backend)
+    assert "Process exited with code -15" in messages[-1].content
+    container_memory.assert_not_called()
+    assert backend._cancelled == set()
+
+
+def test_cancel_marks_the_conversation_as_cancelled_by_us(mocker):
+    backend = make_backend()
+    process = mocker.MagicMock()
+    process.wait = mocker.AsyncMock()
+    backend._processes["c1"] = process
+    asyncio.run(backend.cancel("c1"))
+    assert backend._cancelled == {"c1"}
+
+
+@pytest.mark.parametrize(("number", "name"), [(9, "SIGKILL"), (15, "SIGTERM"), (200, "inconnu")])
+def test_signal_name(number, name):
+    assert signal_name(number) == name
