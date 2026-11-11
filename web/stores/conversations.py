@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 
 from web import config, session_sync
 from web.db import get_db
@@ -22,6 +22,30 @@ from web.stores.records import (
     model_to_message,
     model_to_report,
 )
+
+
+def insert_message(session, conv: ConvModel, type: str, content: str) -> Message:
+    """Ajoute un message à une conversation chargée dans la session ; la première question la titre."""
+    msg = Message(conversation_id=conv.id, type=type, content=content)
+    model = MsgModel(conversation_id=conv.id, type=type, role=type, content=content, timestamp=msg.created_at)
+    session.add(model)
+    session.flush()
+    msg.id = model.id
+    if conv.title is None and type == "user":
+        conv.title = content[:80] + ("..." if len(content) > 80 else "")
+    conv.updated_at = utcnow()
+    return msg
+
+
+def claim_turn(session, conv_id: str) -> bool:
+    """Passe la conversation en cours si aucun tour n'y tourne ; faux sinon."""
+    claimed = session.execute(
+        update(ConvModel)
+        .where(ConvModel.id == conv_id, ConvModel.needs_response == 0)
+        .values(needs_response=1, updated_at=utcnow())
+        .returning(ConvModel.id)
+    )
+    return claimed.first() is not None
 
 
 class ConversationsMixin:
@@ -537,34 +561,31 @@ class ConversationsMixin:
         content: str,
     ) -> Optional[Message]:
         """Add a message to a conversation. Returns the message with ID."""
-        msg = Message(
-            conversation_id=conv_id,
-            type=type,
-            content=content,
-        )
-
         with get_db() as session:
             c = session.get(ConvModel, conv_id)
             if not c:
                 return None
+            return insert_message(session, c, type, content)
 
-            model = MsgModel(
-                conversation_id=conv_id,
-                type=type,
-                role=type,
-                content=content,
-                timestamp=msg.created_at,
+    def start_turn(self, conv_id: str, content: str) -> Optional[Message]:
+        """Passe la conversation en cours et y ajoute la question, ensemble ; None si un tour y tourne déjà."""
+        with get_db() as session:
+            if not claim_turn(session, conv_id):
+                return None
+            return insert_message(session, session.get(ConvModel, conv_id), "user", content)
+
+    def restart_turn(self, conv_id: str) -> bool:
+        """Passe la conversation en cours pour rejouer sa dernière question ; faux si un tour y tourne déjà."""
+        with get_db() as session:
+            return claim_turn(session, conv_id)
+
+    def last_user_message_id(self, conv_id: str) -> int:
+        """Id de la dernière question de la conversation, 0 sans question."""
+        with get_db() as session:
+            last = session.scalar(
+                select(func.max(MsgModel.id)).where(MsgModel.conversation_id == conv_id, MsgModel.type == "user")
             )
-            session.add(model)
-            session.flush()
-            msg.id = model.id
-
-            now = utcnow()
-            if c.title is None and type == "user":
-                c.title = content[:80] + ("..." if len(content) > 80 else "")
-            c.updated_at = now
-
-        return msg
+            return last or 0
 
     def update_message(self, message_id: int, content: str) -> bool:
         with get_db() as session:
