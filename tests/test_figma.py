@@ -25,7 +25,11 @@ def node(type_, name="n", children=None, text=None, visible=True, width=None, id
         (f"https://www.figma.com/board/{KEY}/Notifications?t=x", figma.FigmaLink(KEY, None)),
         (f"https://www.figma.com/design/{KEY}/branch/{BRANCH}/x?node-id=1-5", figma.FigmaLink(BRANCH, "1:5")),
         (f"https://www.figma.com/design/{KEY}/x/branch/{BRANCH}/x?node-id=1-5", figma.FigmaLink(BRANCH, "1:5")),
+        (f"https://figma.com/design/{KEY}/x?node-id=1-2", figma.FigmaLink(KEY, "1:2")),
         ("https://exemple.fr/design/abc", None),
+        (f"https://evil.example/?u=figma.com/design/{KEY}", None),
+        (f"https://evil.example/figma.com/design/{KEY}", None),
+        (f"http://www.figma.com/design/{KEY}/x", None),
     ],
 )
 def test_parse_link(url, expected):
@@ -53,7 +57,7 @@ def test_dod_1_visible_texts_ignores_hidden_layers():
             node("SECTION", name="S", children=[node("FRAME", name="Vue pro"), node("FRAME", name="Vue candidat")]),
             ["Vue pro", "Vue candidat"],
         ),
-        (node("CANVAS", children=[node("FRAME", name=str(i)) for i in range(8)]), ["0", "1", "2", "3", "4", "5"]),
+        (node("CANVAS", children=[node("FRAME", name=str(i)) for i in range(8)]), [str(i) for i in range(8)]),
         (
             node("CANVAS", children=[node("FRAME", name="masqué", visible=False), node("FRAME", name="visible")]),
             ["visible"],

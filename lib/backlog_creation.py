@@ -76,7 +76,7 @@ def check_body(ticket: Ticket) -> None:
     for url in re.findall(r"\]\(([^)]+)\)", ticket.body):
         if not url.strip().startswith(("http://", "https://")):
             raise ValueError(f"Lien refusé : {url}")
-    if ticket.figma and not (ticket.figma.startswith("https://www.figma.com/") and figma.parse_link(ticket.figma)):
+    if ticket.figma and not figma.parse_link(ticket.figma):
         raise ValueError(f"Ce n'est pas un lien Figma : {ticket.figma}")
 
 

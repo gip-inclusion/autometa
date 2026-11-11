@@ -12,8 +12,10 @@ from web import config
 def error_message(error: httpx.HTTPError) -> str:
     if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429:
         return "Maquette non lue : Figma limite les appels (429), réessayer dans une minute."
-    if isinstance(error, httpx.HTTPStatusError) and error.response.status_code in (403, 404):
-        return f"Maquette non lue : Figma répond {error.response.status_code} (accès refusé ou fichier introuvable)."
+    if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 403:
+        return "Maquette non lue : Figma répond 403 (fichier non partagé avec le jeton, ou jeton expiré)."
+    if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 404:
+        return "Maquette non lue : Figma répond 404 (fichier introuvable)."
     if isinstance(error, httpx.HTTPStatusError):
         return f"Maquette non lue : Figma répond {error.response.status_code}."
     return "Maquette non lue : Figma ne répond pas."
@@ -35,15 +37,19 @@ def run(args: argparse.Namespace) -> str:
         return error_message(error)
     if not frames:
         return "Cadre introuvable dans ce fichier Figma (supprimé, ou lien vers un autre fichier) : demander un lien vers le cadre."
+    # Why: 6 cadres au plus, décision 4 de paved-road/rediger-ticket/definition-of-done.md.
+    shown = frames[:6]
     lines = [f"# Maquette : {args.url}", ""]
+    if len(shown) < len(frames):
+        lines.extend([f"{len(shown)} cadres sur {len(frames)} : si celui de la demande manque, demander son lien.", ""])
     try:
         images = figma.export_images(
-            link, frames, conversation_folder() / "figma" / f"{link.key}-{link.node.replace(':', '-')}"
+            link, shown, conversation_folder() / "figma" / f"{link.key}-{link.node.replace(':', '-')}"
         )
     except httpx.HTTPError as error:
         images = None
         lines.extend([f"Images non rendues ({error_message(error)}) : se fier aux textes.", ""])
-    for rank, frame in enumerate(frames, start=1):
+    for rank, frame in enumerate(shown, start=1):
         lines.append(f"## Cadre {rank} : {frame.name}")
         if images is not None and frame.id in images:
             lines.append(f"Image à regarder : {images[frame.id]}")

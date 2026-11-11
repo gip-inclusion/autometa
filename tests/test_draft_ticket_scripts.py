@@ -154,7 +154,11 @@ REQUEST = httpx.Request("GET", "https://api.figma.com")
     [
         (
             httpx.HTTPStatusError("403", request=REQUEST, response=httpx.Response(403)),
-            "Maquette non lue : Figma répond 403 (accès refusé ou fichier introuvable).",
+            "Maquette non lue : Figma répond 403 (fichier non partagé avec le jeton, ou jeton expiré).",
+        ),
+        (
+            httpx.HTTPStatusError("404", request=REQUEST, response=httpx.Response(404)),
+            "Maquette non lue : Figma répond 404 (fichier introuvable).",
         ),
         (
             httpx.HTTPStatusError("429", request=REQUEST, response=httpx.Response(429)),
@@ -598,3 +602,18 @@ def test_dod_1_mockup_without_conversation_says_so(mocker):
     read = mocker.patch.object(mockup.figma, "read_frames")
     assert mockup.run(Namespace(url=FRAME_LINK)).startswith("AUTOMETA_CONVERSATION_ID absent")
     read.assert_not_called()
+
+
+def test_dod_1_mockup_shows_6_frames_and_says_how_many_it_left_out(mocker, tmp_path):
+    mockup = load("mockup")
+    mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
+    mocker.patch.object(mockup, "conversation_folder", return_value=tmp_path)
+    frames = [Frame(id=f"2:{i}", name=f"Écran {i}", texts=[], width=100) for i in range(8)]
+    mocker.patch.object(mockup.figma, "read_frames", return_value=frames)
+    export = mocker.patch.object(mockup.figma, "export_images", return_value={})
+    output = mockup.run(Namespace(url=FRAME_LINK))
+    assert "6 cadres sur 8 : si celui de la demande manque, demander son lien." in output
+    assert "## Cadre 6 : Écran 5" in output
+    assert "Écran 6" not in output
+    assert export.call_args.args[1] == frames[:6]

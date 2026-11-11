@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -18,8 +19,8 @@ MAX_WIDTH = 1600
 FRAME_TYPES = {"FRAME", "SECTION", "COMPONENT", "COMPONENT_SET"}
 SCREEN_TYPES = {"FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"}
 LINK = re.compile(
-    r"figma\.com/(?:design|file|board|proto)/(?P<key>[0-9A-Za-z]{22,128})"
-    r"(?:(?:/[^/?]*)?/branch/(?P<branch>[0-9A-Za-z]{22,128}))?"
+    r"/(?:design|file|board|proto)/(?P<key>[0-9A-Za-z]{22,128})"
+    r"(?:(?:/[^/]*)?/branch/(?P<branch>[0-9A-Za-z]{22,128}))?"
 )
 NODE_ID = re.compile(r"[?&]node-id=(\d+)(?:-|:|%3A)(\d+)", re.IGNORECASE)
 
@@ -39,8 +40,10 @@ class Frame:
 
 
 def parse_link(url: str) -> FigmaLink | None:
-    """Fichier et nœud d'un lien Figma, ou None si ce n'en est pas un."""
-    link = LINK.search(url)
+    """Fichier et nœud d'un lien https vers figma.com, ou None si ce n'en est pas un."""
+    parts = urlsplit(url.strip())
+    on_figma = parts.scheme == "https" and parts.hostname in ("figma.com", "www.figma.com")
+    link = LINK.match(parts.path) if on_figma else None
     if not link:
         return None
     node = NODE_ID.search(url)
@@ -61,12 +64,12 @@ def visible_texts(node: dict) -> list[str]:
     return texts
 
 
-def pick_frames(node: dict, maximum: int = 6) -> list[dict]:
+def pick_frames(node: dict) -> list[dict]:
     """Le nœud s'il est un écran, sinon ses cadres enfants visibles."""
     if node.get("type") in SCREEN_TYPES:
         return [node]
     children = [e for e in node.get("children", []) if e.get("type") in FRAME_TYPES and e.get("visible") is not False]
-    return (children or [node])[:maximum]
+    return children or [node]
 
 
 def call_api(path: str, params: dict | None = None) -> dict:

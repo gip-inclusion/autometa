@@ -200,6 +200,11 @@ def test_dod_4_check_body_refuses_before_any_request(mocker, fields, message):
     call.assert_not_called()
 
 
+@pytest.mark.parametrize("url", [FIGMA, "https://figma.com/design/AbCdEfGhIjKlMnOpQrStUv/Maquette?node-id=1-2"])
+def test_check_body_accepts_figma_links_with_or_without_www(url):
+    assert creation.check_body(ticket(figma=url)) is None
+
+
 def test_dod_4_check_body_accepts_http_links_and_short_lines():
     assert (
         creation.check_body(ticket(body="voir [a](https://x.fr/a) et [b](http://x.fr)\n\n" + "y" * 1999, figma=FIGMA))
