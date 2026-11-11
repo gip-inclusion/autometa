@@ -26,9 +26,12 @@ with pdfplumber.open(chemin) as pdf:  # password="…" pour un PDF protégé
 Une page scannée rend un texte vide ou illisible : c'est une image. La rendre en PNG, puis lire l'image.
 
 ```python
+import os
+
 import pypdfium2 as pdfium
 
 # dossier : le dossier de travail de la conversation, /tmp/$AUTOMETA_CONVERSATION_ID
+os.makedirs(dossier, exist_ok=True)
 pdfium.PdfDocument(chemin)[0].render(scale=2).to_pil().save(f"{dossier}/page-1.png")
 ```
 
