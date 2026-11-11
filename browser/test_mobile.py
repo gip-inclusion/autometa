@@ -1,5 +1,7 @@
 """Preuves navigateur — sur téléphone : en-tête sur une ligne, menu « … », ni défilement horizontal ni zoom iOS."""
 
+from collections.abc import Callable
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -7,6 +9,16 @@ pytestmark = pytest.mark.browser
 
 PHONE = {"width": 375, "height": 667}
 MENU_ITEMS = {"Signaler un problème": "#flagDialog", "Renommer": "#convTitleInput"}
+WIDE_TABLE = (
+    "| colonne A | colonne B | colonne C | colonne D | colonne E | colonne F | colonne G | colonne H |\n"
+    "|---|---|---|---|---|---|---|---|\n"
+    "| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |"
+)
+OTHER_PAGES = {
+    "/conversations": ".search-filter-bar .rechercher-type-btn",
+    "/dashboards": ".section-header .btn-primary",
+    "/knowledge/bizdev/glossaire.md": ".markdown-body table",
+}
 
 
 def test_the_header_fits_on_one_line(conversation: str, page: Page):
@@ -53,3 +65,21 @@ def test_the_actions_stay_inline_on_a_desktop(conversation: str, page: Page):
     expect(page.locator(".feedback-badge")).to_be_visible()
     expect(page.locator(".conv-menu-btn")).to_be_hidden()
     expect(page.locator("#convMenuFlagBtn")).to_be_hidden()
+
+
+def right_edge(page: Page, selector: str) -> float:
+    return max(page.locator(selector).evaluate_all("els => els.map((el) => el.getBoundingClientRect().right)"))
+
+
+def test_nothing_sticks_out_sideways_on_a_small_phone(conversation: str, ask: Callable[[str], None], page: Page):
+    page.set_viewport_size({"width": 320, "height": 640})
+    ask(f"Un tableau large\n\n{WIDE_TABLE}")
+    table = page.locator(".event-final-answer table")
+    expect(table).to_be_visible()
+
+    for selector in (".chat-bar-container", ".chat-output", ".event-user", ".event-final-answer table"):
+        assert right_edge(page, selector) <= 320, selector
+    assert table.evaluate("t => t.scrollWidth > t.clientWidth")
+    for path, selector in OTHER_PAGES.items():
+        page.goto(path, wait_until="domcontentloaded")
+        assert right_edge(page, selector) <= 320, path

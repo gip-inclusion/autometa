@@ -223,6 +223,7 @@ body.has-sidebar {
 #section-explorations {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -232,6 +233,7 @@ body.has-sidebar {
 #section-dashboards {
   display: grid;
   grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -1124,6 +1126,15 @@ body.has-sidebar {
   text-align: left;
 }
 
+@media (max-width: 767.98px) {
+  /* Why: the page never scrolls sideways on a phone, so a table wider than the screen scrolls within itself. */
+  .event-assistant table,
+  .knowledge-content .markdown-body table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
 .event-assistant th {
   background: var(--bs-tertiary-bg);
   font-weight: 600;
@@ -1361,6 +1372,7 @@ body.has-sidebar {
 
   .event-user {
     margin-left: 2rem;
+    margin-right: 0;
   }
 
   .event-tool_use,
@@ -1398,6 +1410,11 @@ body.has-sidebar {
   .chat-cancel-btn {
     width: calc((var(--composer-height) - 0.375rem) / 2);
     height: calc((var(--composer-height) - 0.375rem) / 2);
+  }
+
+  html,
+  body {
+    overflow-x: clip;
   }
 }
 
@@ -1830,6 +1847,12 @@ body.has-sidebar {
 
 .search-filter-bar .rechercher-type-btn {
   width: auto;
+}
+
+@media (max-width: 767.98px) {
+  .search-filter-bar .rechercher-type-list {
+    flex-wrap: wrap;
+  }
 }
 
 .search-filter-bar .filter-reset {
