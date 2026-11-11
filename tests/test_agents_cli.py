@@ -9,6 +9,10 @@ import pytest
 
 from web.agents import cli
 from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, signal_name, transient_api_error, usage_limit_reset
+from web.environment import Environment
+
+UUID_A = "21e937fb-0000-4000-8000-000000000001"
+UUID_B = "21e937fb-0000-4000-8000-000000000002"
 
 
 def make_backend():
@@ -136,7 +140,7 @@ def test_build_env_points_tmpdir_to_the_conversation_folder(tmp_path):
     assert env["TMPDIR"] == str(tmp_path / "c1")
 
 
-@pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "x" * 81])
+@pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "bench-sonnet", "c1"])
 def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation_id):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
     assert cli.conversation_workdir(conversation_id) is None
@@ -145,24 +149,20 @@ def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation
 
 def test_reusing_a_conversation_folder_refreshes_its_date_so_the_prune_spares_it(mocker, tmp_path):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    (tmp_path / "c1").mkdir()
+    (tmp_path / UUID_A).mkdir()
     week_ago = time.time() - 8 * 24 * 3600
-    os.utime(tmp_path / "c1", (week_ago, week_ago))
+    os.utime(tmp_path / UUID_A, (week_ago, week_ago))
 
-    cli.conversation_workdir("c1")
+    cli.conversation_workdir(UUID_A)
 
-    assert time.time() - (tmp_path / "c1").stat().st_mtime < 60
+    assert time.time() - (tmp_path / UUID_A).stat().st_mtime < 60
 
 
 def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_path):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    workdir = cli.conversation_workdir("c1")
-    assert workdir == tmp_path / "c1"
+    workdir = cli.conversation_workdir(UUID_A)
+    assert workdir == tmp_path / UUID_A
     assert workdir.stat().st_mode & 0o777 == 0o700
-
-
-UUID_A = "21e937fb-0000-4000-8000-000000000001"
-UUID_B = "21e937fb-0000-4000-8000-000000000002"
 
 
 def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
@@ -513,6 +513,20 @@ def test_the_agent_runs_with_its_own_folder_and_is_told_its_path(stub_config, tm
     argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
     appended = argv[argv.index("--append-system-prompt") + 1]
     assert str(workdir) in appended
+
+
+@pytest.mark.parametrize(("env", "kept"), [(Environment.DEV, True), (Environment.PROD, False)])
+def test_idle_folders_are_pruned_on_servers_only(stub_config, mocker, tmp_path, env, kept):
+    mocker.patch.object(cli.config, "ENV", env)
+    stub_config('echo \'{"type": "result", "subtype": "success"}\'')
+    idle = tmp_path / "tmp" / UUID_B
+    idle.mkdir()
+    week_ago = time.time() - 8 * 24 * 3600
+    os.utime(idle, (week_ago, week_ago))
+
+    collect_messages(make_backend(), conversation_id=UUID_A)
+
+    assert idle.exists() is kept
 
 
 MEMOIRE = {"limit": "536870912", "used": "536862720", "peak": "536870912", "oom_kill": "1"}

@@ -32,13 +32,13 @@ _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
 
 WORKDIR_MAX_AGE = timedelta(days=7)
-WORKDIR_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def conversation_workdir(conversation_id: str) -> Path | None:
-    """Le dossier de travail de la conversation, créé au besoin et réservé au compte du processus."""
-    if not WORKDIR_NAME_RE.fullmatch(conversation_id):
+    """Le dossier de travail d'une vraie conversation, créé au besoin et réservé au compte du processus."""
+    # Why: un identifiant de conversation est un UUID — c'est aussi ce que le ménage reconnaît, et ce qui écarte `../`.
+    if not CONVERSATION_ID_RE.fullmatch(conversation_id):
         return None
     workdir = config.WORKDIR_ROOT / conversation_id
     workdir.mkdir(mode=0o700, exist_ok=True)
@@ -255,8 +255,10 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
-        # Why: effacer un gros dossier (clones GitHub) bloquerait la boucle d'événements de toutes les conversations.
-        await asyncio.to_thread(prune_workdirs, time.time())
+        if config.ENV.is_server:
+            # Why: hors du thread de la boucle — effacer des clones GitHub la bloquerait pour toutes les conversations ;
+            # et jamais sur un poste, dont le /tmp contient d'autres dossiers nommés comme des UUID.
+            await asyncio.to_thread(prune_workdirs, time.time())
         workdir = conversation_workdir(conversation_id)
         if workdir:
             # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.
