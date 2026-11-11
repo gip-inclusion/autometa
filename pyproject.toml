@@ -60,7 +60,6 @@ sync-sites = "skills.sync_sites.scripts.sync_sites:main"
 sync-inventory = "skills.sync_metabase.scripts.sync_inventory:main"
 sync-webinaires = "lib.webinaires:main"
 sync-connectors = "lib.source_inventory:main"
-slack-feedback = "web.slack_feedback:main"
 
 [tool.uv]
 # urllib3 < 2.8 : GHSA Dependabot #24-26 ; cryptography < 50 : PYSEC-2026-3552 (via paramiko)

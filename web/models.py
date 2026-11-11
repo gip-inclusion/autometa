@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -334,6 +335,121 @@ class FacadeAuditState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     slugs: Mapped[list] = mapped_column(JSONB, nullable=False)
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Agent(Base):
+    """Un agent créé après confirmation : sa configuration pdi.agent/1, son job et son propriétaire."""
+
+    __tablename__ = "agents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    pipeline_id: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_email: Mapped[str] = mapped_column(Text, nullable=False)
+    changeset_id: Mapped[str] = mapped_column(Text, nullable=False)
+    cursors: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AgentProposal(Base):
+    """Ce qui attend un oui dans un message ultérieur : création, modification, retrait, lancement, retour, approbation."""
+
+    __tablename__ = "agent_proposals"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    agent_slug: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    conversation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    after_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    decided_by: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("idx_agent_proposals_slug_action", "agent_slug", "action", "status"),)
+
+
+class AgentRun(Base):
+    """Un run du job d'un agent, de son lancement à sa collecte ; un refus est un état, pas une exception."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    pipeline_id: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    subagent_calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    files_written: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    launched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("idx_agent_runs_status", "status"),)
+
+
+class AgentDelivery(Base):
+    """Une production d'un run, ou le digest d'un run vers une destination (rank nul) ; prise une seule fois à l'envoi."""
+
+    __tablename__ = "agent_deliveries"
+    # Why: the text column shadows sqlalchemy.text in this class body, hence sa.text below.
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    destination: Mapped[str] = mapped_column(Text, nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    key: Mapped[str | None] = mapped_column(Text)
+    labels: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=sa.text("'[]'::jsonb"))
+    subagent_steps: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=sa.text("'[]'::jsonb"))
+    subagent_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    digest_id: Mapped[int | None] = mapped_column(ForeignKey("agent_deliveries.id", ondelete="SET NULL"))
+    notion_page_id: Mapped[str | None] = mapped_column(Text)
+    notion_page_url: Mapped[str | None] = mapped_column(Text)
+    file_version: Mapped[int | None] = mapped_column(Integer)
+    approved_by: Mapped[str | None] = mapped_column(Text)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "rank", name="uq_agent_deliveries_run_rank"),
+        # Why: NULL ranks never collide in a unique constraint; this index keeps one digest per run and destination.
+        Index(
+            "uq_agent_deliveries_run_digest",
+            "run_id",
+            "destination",
+            unique=True,
+            postgresql_where=sa.text("rank IS NULL"),
+        ),
+        Index("idx_agent_deliveries_status", "status"),
+    )
+
+
+class AgentFileVersion(Base):
+    """Une version d'un fichier d'un agent ; rien ne s'efface, un retour écrit une version nouvelle."""
+
+    __tablename__ = "agent_file_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("agent_id", "name", "version", name="uq_agent_file_versions_version"),)
 
 
 class PinnedItem(Base):
