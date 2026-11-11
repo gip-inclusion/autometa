@@ -31,9 +31,6 @@ tracer = trace.get_tracer(__name__)
 _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
 
-# Why: /tmp est partagé par toutes les conversations du conteneur — scripts réexécutés, fichiers écrasés,
-# exports jamais nettoyés. Chaque conversation reçoit son dossier, au chemin que citent AGENT.md et les skills.
-WORKDIR_ROOT = Path("/tmp")
 WORKDIR_MAX_AGE = timedelta(days=7)
 WORKDIR_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -43,14 +40,16 @@ def conversation_workdir(conversation_id: str) -> Path | None:
     """Le dossier de travail de la conversation, créé au besoin et réservé au compte du processus."""
     if not WORKDIR_NAME_RE.fullmatch(conversation_id):
         return None
-    workdir = WORKDIR_ROOT / conversation_id
+    workdir = config.WORKDIR_ROOT / conversation_id
     workdir.mkdir(mode=0o700, exist_ok=True)
+    # Why: l'âge du ménage se lit sur la date du dossier, que l'écriture dans un sous-dossier ne change pas.
+    os.utime(workdir)
     return workdir
 
 
 def prune_workdirs(now: float) -> None:
     """Efface les dossiers de travail de conversation restés une semaine sans changement."""
-    for path in WORKDIR_ROOT.iterdir():
+    for path in config.WORKDIR_ROOT.iterdir():
         if not CONVERSATION_ID_RE.fullmatch(path.name):
             continue
         try:
@@ -256,7 +255,8 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
-        prune_workdirs(time.time())
+        # Why: effacer un gros dossier (clones GitHub) bloquerait la boucle d'événements de toutes les conversations.
+        await asyncio.to_thread(prune_workdirs, time.time())
         workdir = conversation_workdir(conversation_id)
         if workdir:
             # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.

@@ -138,13 +138,24 @@ def test_build_env_points_tmpdir_to_the_conversation_folder(tmp_path):
 
 @pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "x" * 81])
 def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation_id):
-    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path)
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
     assert cli.conversation_workdir(conversation_id) is None
     assert list(tmp_path.iterdir()) == []
 
 
+def test_reusing_a_conversation_folder_refreshes_its_date_so_the_prune_spares_it(mocker, tmp_path):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    (tmp_path / "c1").mkdir()
+    week_ago = time.time() - 8 * 24 * 3600
+    os.utime(tmp_path / "c1", (week_ago, week_ago))
+
+    cli.conversation_workdir("c1")
+
+    assert time.time() - (tmp_path / "c1").stat().st_mtime < 60
+
+
 def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_path):
-    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path)
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
     workdir = cli.conversation_workdir("c1")
     assert workdir == tmp_path / "c1"
     assert workdir.stat().st_mode & 0o777 == 0o700
@@ -155,7 +166,7 @@ UUID_B = "21e937fb-0000-4000-8000-000000000002"
 
 
 def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
-    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path)
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
     week_ago = time.time() - 8 * 24 * 3600
     for name in (UUID_A, UUID_B, "pas-une-conversation"):
         (tmp_path / name).mkdir()
@@ -234,7 +245,7 @@ def stub_config(mocker, tmp_path):
     mocker.patch("web.agents.cli.config.ADDITIONAL_DIRS", [])
     mocker.patch("web.agents.cli.config.BASE_DIR", tmp_path)
     (tmp_path / "tmp").mkdir()
-    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path / "tmp")
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path / "tmp")
 
     def _install(body):
         mocker.patch("web.agents.cli.config.CLAUDE_CLI", make_stub_cli(tmp_path, body))
