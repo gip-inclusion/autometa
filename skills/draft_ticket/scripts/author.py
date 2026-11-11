@@ -4,7 +4,7 @@ import argparse
 
 import httpx
 
-from lib import backlog, backlog_storage
+from lib import backlog, backlog_storage, notion
 from skills.draft_ticket.scripts.common import check_config, run_cli
 from web import config
 
@@ -18,7 +18,7 @@ def run(args: argparse.Namespace) -> str:
         return "Personne connectée inconnue : l'auteur ne sera pas inscrit."
     try:
         author = backlog.find_author(email)
-    except httpx.HTTPError, RuntimeError:
+    except httpx.HTTPError, notion.NotionRateLimitError:
         return "Auteur non inscrit : annuaire ou comptes Notion illisibles."
     if author is None:
         return "Absent de l'Annuaire et de Notion : l'auteur ne sera pas inscrit."

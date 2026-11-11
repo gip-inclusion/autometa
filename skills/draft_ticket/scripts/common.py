@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 
+from lib import notion
 from web import config
 
 
@@ -35,5 +36,5 @@ def run_cli(run: Callable[[argparse.Namespace], str], parser: argparse.ArgumentP
         sys.exit(f"Notion répond {error.response.status_code} : {error.response.text[:300]}")
     except httpx.TransportError:
         sys.exit("Notion ne répond pas.")
-    except RuntimeError:
+    except notion.NotionRateLimitError:
         sys.exit("Notion limite les appels : réessayer dans une minute.")

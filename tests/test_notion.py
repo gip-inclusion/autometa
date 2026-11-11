@@ -427,7 +427,7 @@ def test_notion_request_raises_after_persistent_429(mocker):
     req = mocker.patch("lib.notion.httpx.request", return_value=r429)
     mocker.patch("lib.notion.time.sleep")
 
-    with pytest.raises(RuntimeError, match="rate-limited"):
+    with pytest.raises(notion.NotionRateLimitError, match="rate-limited"):
         notion.notion_request("GET", "users/me")
     assert req.call_count == 4
 

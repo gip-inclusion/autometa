@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from lib import backlog, backlog_creation, backlog_storage
+from lib import backlog, backlog_creation, backlog_storage, notion
 from skills.draft_ticket.scripts.common import check_config, conversation_folder
 from web import config
 
@@ -72,7 +72,7 @@ def run(args: argparse.Namespace) -> str:
     if email:
         try:
             author = backlog.find_author(email)
-        except httpx.HTTPError, RuntimeError:
+        except httpx.HTTPError, notion.NotionRateLimitError:
             warnings.append("Auteur non inscrit : annuaire ou comptes Notion illisibles.")
     ticket = resolve(draft, backlog_storage.current_context(), author)
     if not args.go:
@@ -109,7 +109,7 @@ def main() -> None:
         sys.exit(f"Notion répond {error.response.status_code} : {error.response.text[:300]}")
     except httpx.TransportError:
         sys.exit("Notion ne répond pas : vérifier dans Notion si le ticket existe avant de relancer --go.")
-    except RuntimeError:
+    except notion.NotionRateLimitError:
         sys.exit("Notion limite les appels : réessayer dans une minute, après avoir vérifié si le ticket existe.")
 
 

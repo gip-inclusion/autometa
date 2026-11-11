@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from lib import backlog
+from lib import backlog, notion
 from lib.figma import Frame
 from skills.draft_ticket.scripts import common
 
@@ -468,11 +468,11 @@ def test_create_refuses_a_draft_that_is_not_an_object(mocker, tmp_path):
 
 def test_create_goes_on_without_author_after_429_retries(mocker, tmp_path):
     create, _ = setup_create(mocker)
-    mocker.patch.object(create.backlog, "find_author", side_effect=RuntimeError("429"))
+    mocker.patch.object(create.backlog, "find_author", side_effect=notion.NotionRateLimitError("429"))
     assert "Auteur non inscrit" in create.run(Namespace(draft=draft(tmp_path), go=True))
 
 
-@pytest.mark.parametrize("error", [httpx.ReadTimeout("lent", request=REQUEST), RuntimeError("429")])
+@pytest.mark.parametrize("error", [httpx.ReadTimeout("lent", request=REQUEST), notion.NotionRateLimitError("429")])
 def test_author_unreadable_does_not_exit_with_an_error(mocker, error):
     author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
@@ -514,7 +514,7 @@ def test_read_scripts_cli_print_their_result(mocker, capsys, name, arguments, ex
             "Notion répond 401 : unauthorized",
         ),
         (httpx.ConnectTimeout("lent", request=REQUEST), "Notion ne répond pas."),
-        (RuntimeError("429"), "Notion limite les appels : réessayer dans une minute."),
+        (notion.NotionRateLimitError("429"), "Notion limite les appels : réessayer dans une minute."),
     ],
 )
 def test_run_cli_turns_notion_errors_into_one_line(mocker, error, message):
@@ -548,7 +548,7 @@ def test_check_config_names_the_missing_variable(mocker, base, directory, reques
 
 def test_create_cli_reports_notion_rate_limiting(mocker, tmp_path):
     create, creation = setup_create(mocker)
-    creation.side_effect = RuntimeError("429")
+    creation.side_effect = notion.NotionRateLimitError("429")
     with pytest.raises(SystemExit, match="Notion limite les appels"):
         call_main(mocker, create, draft(tmp_path), "--go")
 
@@ -617,3 +617,9 @@ def test_dod_1_mockup_shows_6_frames_and_says_how_many_it_left_out(mocker, tmp_p
     assert "## Cadre 6 : Écran 5" in output
     assert "Écran 6" not in output
     assert export.call_args.args[1] == frames[:6]
+
+
+def test_run_cli_lets_an_unrelated_runtime_error_through(mocker):
+    mocker.patch("sys.argv", ["script.py"])
+    with pytest.raises(RuntimeError, match="bogue"):
+        common.run_cli(mocker.Mock(side_effect=RuntimeError("bogue")), argparse.ArgumentParser())

@@ -16,6 +16,10 @@ def is_configured() -> bool:
     return bool(NOTION_TOKEN and NOTION_REPORTS_DB)
 
 
+class NotionRateLimitError(RuntimeError):
+    """Notion still answers 429 after the retries."""
+
+
 def notion_request(method: str, endpoint: str, payload: dict | None = None) -> dict:
     headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -30,7 +34,7 @@ def notion_request(method: str, endpoint: str, payload: dict | None = None) -> d
             resp.raise_for_status()
             return resp.json()
         time.sleep(float(resp.headers.get("Retry-After", 1)))
-    raise RuntimeError(f"Notion API rate-limited after retries: {endpoint}")
+    raise NotionRateLimitError(f"Notion API rate-limited after retries: {endpoint}")
 
 
 def db_id_from_url(url: str) -> str:
