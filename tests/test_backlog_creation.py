@@ -44,6 +44,7 @@ def test_dod_4_build_properties_sets_only_allowed_fields():
         ({"types": []}, "Type inconnu"),
         ({"teams": []}, "Au moins une équipe"),
         ({"author_field": "Responsable(s)", "author_notion_id": "u1"}, "Champ d'auteur inconnu"),
+        ({"author_field": "Responsable(s)"}, "Champ d'auteur inconnu"),
     ],
 )
 def test_dod_4_build_properties_refuses(fields, message):

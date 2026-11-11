@@ -49,9 +49,9 @@ def build_properties(ticket: Ticket, schema: dict) -> dict:
         props["Figma"] = {"url": ticket.figma}
     if ticket.epic:
         props["Epic - feuille de route"] = {"relation": [{"id": ticket.epic}]}
+    if ticket.author_field and ticket.author_field not in ("POM", "UX", "Développeurs", "Contributeurs"):
+        raise ValueError(f"Champ d'auteur inconnu : {ticket.author_field}")
     if ticket.author_field and ticket.author_notion_id:
-        if ticket.author_field not in ("POM", "UX", "Développeurs", "Contributeurs"):
-            raise ValueError(f"Champ d'auteur inconnu : {ticket.author_field}")
         props[ticket.author_field] = {"people": [{"id": ticket.author_notion_id}]}
     return props
 
