@@ -74,6 +74,8 @@
               {% elif task.last_run %}
                 {% if task.last_run.status == 'success' %}
                 <span class="badge bg-success">OK</span>
+                {% elif task.last_run.status == 'degraded' %}
+                <span class="badge bg-warning text-dark">dégradé</span>
                 {% elif task.last_run.status == 'timeout' %}
                 <span class="badge bg-warning text-dark">timeout</span>
                 {% elif task.last_run.status == 'skipped' %}
@@ -216,6 +218,8 @@ async function showLogs(slug) {
     for (const run of runs) {
       const statusBadge = run.status === 'success'
         ? '<span class="badge bg-success">OK</span>'
+        : run.status === 'degraded'
+          ? '<span class="badge bg-warning text-dark">dégradé</span>'
         : run.status === 'timeout'
           ? '<span class="badge bg-warning text-dark">timeout</span>'
           : run.status === 'skipped'

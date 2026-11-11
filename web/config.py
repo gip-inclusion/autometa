@@ -1,5 +1,7 @@
 """Configuration for the Autometa web application."""
 
+import json
+import logging
 import os
 from pathlib import Path
 
@@ -81,6 +83,9 @@ DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 # Base URL for generating absolute links
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
+
+# Adresse publique de l'application de prod : liens vers ses conversations produits depuis un poste local.
+PROD_URL = os.getenv("PROD_URL", "https://autometa.inclusion.gouv.fr").rstrip("/")
 
 # Default user for local development (when oauth-proxy not present)
 DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
@@ -188,6 +193,25 @@ NOTION_TAGS_DB = os.getenv("NOTION_TAGS_DB")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
+
+def destination_targets(raw: str) -> dict[str, str]:
+    """The JSON object id -> target of AGENT_DESTINATION_TARGETS; anything else warns and gives none."""
+    try:
+        found = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        found = None
+    if isinstance(found, dict) and all(isinstance(v, str) for v in found.values()):
+        return found
+    # Why: a malformed value only fails the deliveries, never the import of the web app and of every cron.
+    logging.getLogger(__name__).warning("AGENT_DESTINATION_TARGETS ignorée : attendu un objet JSON id -> identifiant")
+    return {}
+
+
+# Agents — identifiant réel (canal Slack, base Notion) de chaque destination de config/agent_destinations.yaml.
+AGENT_DESTINATION_TARGETS = destination_targets(os.getenv("AGENT_DESTINATION_TARGETS", ""))
+# Why: a bot of its own, invited only to the agents' channels, so an agent cannot reach the alert channels.
+AGENT_SLACK_BOT_TOKEN = os.getenv("AGENT_SLACK_BOT_TOKEN", "")
+
 # Scalingo — lancement d'un conteneur one-off pour les runs manuels de cron.
 SCALINGO_API_TOKEN = os.getenv("SCALINGO_API_TOKEN", "")
 # Why: Scalingo injecte `APP` dans chaque conteneur — la lire évite de recopier un nom d'app par
@@ -284,6 +308,11 @@ def agent_conversation_id() -> str | None:
 def agent_user_email() -> str | None:
     """User email injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_USER_EMAIL")
+
+
+def query_failures_path() -> str | None:
+    """Fichier où un cron de TDB note ses requêtes en échec, injecté par web/cron.py:execute_task()."""
+    return os.getenv("AUTOMETA_QUERY_FAILURES_FILE")
 
 
 def dashboard_slug() -> str | None:

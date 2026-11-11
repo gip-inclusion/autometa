@@ -37,7 +37,9 @@ __all__ = [
     "query_notion",
     "query_storage",
     "query_tally",
+    "read_github_file",
     "sample_datadog",
+    "search_github_code",
     "search_zendesk_tickets",
     "zendesk_view_ticket_dates",
 ]
@@ -149,8 +151,33 @@ def query_appli_monrecap(sql: str, params: dict | None = None, timeout: int = 60
 
 
 def query_github(path: str, params: dict | None = None, timeout: int = 30) -> QueryResult:
-    """Lit l'API REST GitHub (GET seulement) des dépôts gip-inclusion, `path` en `repos/gip-inclusion/…`. Ne lève jamais."""
+    """Lit l'API REST GitHub (GET seulement) d'un dépôt public permis, `path` en `repos/<org>/<dépôt>/…`. Ne lève jamais."""
     return query.execute_github_query(path=path, caller=CallerType.APP, params=params, timeout=timeout)
+
+
+def read_github_file(repo: str, path: str, ref: str | None = None) -> QueryResult:
+    """Contenu texte d'un fichier d'un dépôt public permis (`repo` en `org/dépôt`). Ne lève jamais."""
+    return query.execute_github_file(repo=repo, path=path, caller=CallerType.APP, ref=ref)
+
+
+def search_github_code(
+    repo: str,
+    pattern: str,
+    ref: str | None = None,
+    glob: str | None = None,
+    ignore_case: bool = False,
+    max_results: int = 200,
+) -> QueryResult:
+    """Cherche une expression régulière étendue dans un dépôt public permis : `{commit, total, matches}`. Ne lève jamais."""
+    return query.execute_github_search(
+        repo=repo,
+        pattern=pattern,
+        caller=CallerType.APP,
+        ref=ref,
+        glob=glob,
+        ignore_case=ignore_case,
+        max_results=max_results,
+    )
 
 
 def query_notion(database_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> QueryResult:

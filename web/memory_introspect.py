@@ -8,10 +8,34 @@ import os
 import tempfile
 import tracemalloc
 from collections import Counter
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _last_rss = 0
+CGROUP = Path("/sys/fs/cgroup")
+
+
+def cgroup_file(*names: str) -> str | None:
+    """First readable file among cgroup v2 then v1 names, stripped; None when none is readable."""
+    for name in names:
+        try:
+            return (CGROUP / name).read_text().strip()
+        except OSError:
+            continue
+    return None
+
+
+def container_memory() -> dict:
+    """The container's memory limit, use, peak and OOM kills from its cgroup (v2, else v1); None where unreadable."""
+    events = cgroup_file("memory.events", "memory/memory.oom_control") or ""
+    oom = next((line.split()[1] for line in events.splitlines() if line.startswith("oom_kill ")), None)
+    return {
+        "limit": cgroup_file("memory.max", "memory/memory.limit_in_bytes"),
+        "used": cgroup_file("memory.current", "memory/memory.usage_in_bytes"),
+        "peak": cgroup_file("memory.peak", "memory/memory.max_usage_in_bytes"),
+        "oom_kill": oom,
+    }
 
 
 def process_memory() -> dict:

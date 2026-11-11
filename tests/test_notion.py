@@ -518,3 +518,74 @@ def test_extract_page_properties_by_type(ptype, payload, expected):
     page = {"properties": {"Prop": {"type": ptype, **payload}}}
 
     assert extract_page_properties(page)["Prop"] == expected
+
+
+def test_dod_15_page_markdown_renders_blocks_and_opens_sub_pages_only_to_the_depth(mocker):
+    from lib import notion
+
+    def text(t):
+        return {"rich_text": [{"plain_text": t}]}
+
+    children = {
+        "root": [
+            {"id": "h", "type": "heading_2", "heading_2": text("Objectifs")},
+            {"id": "b", "type": "bulleted_list_item", "bulleted_list_item": text("Point"), "has_children": True},
+            {"id": "t", "type": "to_do", "to_do": {**text("Fait"), "checked": True}},
+            {"id": "c", "type": "code", "code": text("x = 1")},
+            {"id": "s1", "type": "child_page", "child_page": {"title": "Équipe"}},
+            {"id": "db", "type": "child_database", "child_database": {"title": "Suivi"}},
+        ],
+        "b": [{"id": "n", "type": "paragraph", "paragraph": text("Détail")}],
+        "s1": [
+            {"id": "p", "type": "paragraph", "paragraph": text("Texte équipe")},
+            {"id": "s2", "type": "child_page", "child_page": {"title": "Profonde"}},
+        ],
+        "s2": [{"id": "q", "type": "paragraph", "paragraph": text("Jamais lu")}],
+    }
+
+    def request(method, endpoint, payload=None):
+        if endpoint.startswith("pages/"):
+            return {"properties": {"Titre": {"type": "title", "title": [{"plain_text": "OKR"}]}}}
+        return {"results": children[endpoint.split("/")[1]], "has_more": False}
+
+    mocker.patch("lib.notion.notion_request", side_effect=request)
+    assert notion.page_markdown("root", 2).splitlines() == [
+        "# OKR",
+        "",
+        "## Objectifs",
+        "- Point",
+        "  Détail",
+        "- [x] Fait",
+        "```",
+        "x = 1",
+        "```",
+        "",
+        "## Sous-page : Équipe",
+        "Texte équipe",
+        "",
+        "## Sous-page : Profonde",
+        "(base Notion : Suivi)",
+    ]
+
+
+def test_dod_15_extract_page_properties_reads_status_numbers_and_dates():
+    from lib import notion
+
+    page = {
+        "properties": {
+            "Statut": {"type": "status", "status": {"name": "À faire"}},
+            "Vide": {"type": "status", "status": None},
+            "Score": {"type": "number", "number": 3},
+            "Créé": {"type": "created_time", "created_time": "2026-11-01T10:00:00Z"},
+            "ID": {"type": "unique_id", "unique_id": {"prefix": "TCK", "number": 42}},
+            "Num": {"type": "unique_id", "unique_id": {"prefix": None, "number": 7}},
+        }
+    }
+    assert notion.extract_page_properties(page) == {
+        "Statut": "À faire",
+        "Vide": None,
+        "Score": 3,
+        "Créé": "2026-11-01T10:00:00Z",
+        "ID": "TCK-42",
+        "Num": "7",
+    }
