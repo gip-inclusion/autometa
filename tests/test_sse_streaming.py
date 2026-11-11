@@ -531,6 +531,24 @@ def test_the_stream_rotation_sends_a_timeout_event(app, client, conversation, mo
     assert events[-1] == "timeout"
 
 
+def test_a_resumed_stream_sends_the_rows_it_missed_at_once(app, client, conversation, monkeypatch):
+    from web.database import store
+
+    monkeypatch.setattr("web.routes.conversations.config.SSE_MAX_SECONDS", 0.2)
+    seen = store.last_user_message_id(conversation.id)
+    store.add_message(conversation.id, "assistant", "Écrit pendant la coupure")
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream?after={seen}", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    events = [e for e in _parse_sse_events(response.content) if e["event"] != "heartbeat"]
+
+    assert [(e["event"], e["data"].get("content")) for e in events] == [
+        ("user", "Hello agent"),
+        ("assistant", "Écrit pendant la coupure"),
+        ("timeout", None),
+    ]
+
+
 def test_a_turn_ending_just_before_the_stream_subscribes_closes_it_at_once(app, client, conversation, monkeypatch):
     from web.database import store
     from web.runner import runner

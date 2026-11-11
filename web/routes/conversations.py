@@ -579,36 +579,29 @@ async def stream_conversation(
         # personne, et le flux ne le verrait qu'au sondage suivant.
         pubsub = await runner.subscribe(conv_id)
         try:
-            if await runner.is_done(conv_id, question_id) or not conv.needs_response:
-                for chunk in [*await fresh(), done]:
-                    yield chunk
-                return
+            ended = await runner.is_done(conv_id, question_id) or not conv.needs_response
+            check = True
+            while True:
+                # Why: lire les lignes après avoir appris la fin du tour — le runner les écrit avant de la signaler.
+                if check:
+                    for chunk in await fresh():
+                        yield chunk
+                    if ended:
+                        yield done
+                        return
+                if time.monotonic() - start >= config.SSE_MAX_SECONDS:
+                    yield _sse_event("timeout", {})
+                    return
 
-            while (time.monotonic() - start) < config.SSE_MAX_SECONDS:
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
-                now = time.monotonic()
-
-                if msg and msg["type"] == "message":
-                    for chunk in await fresh():
-                        yield chunk
-                    if msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id:
-                        for chunk in [*await fresh(), done]:
-                            yield chunk
-                        return
-
-                if not msg and (now - last_fallback) >= fallback_interval:
-                    last_fallback = now
-                    for chunk in await fresh():
-                        yield chunk
-                    if await runner.is_done(conv_id, question_id):
-                        for chunk in [*await fresh(), done]:
-                            yield chunk
-                        return
-
-                if not msg:
+                check = bool(msg) or time.monotonic() - last_fallback >= fallback_interval
+                if msg:
+                    ended = msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id
+                else:
                     yield _sse_event("heartbeat", {})
-
-            yield _sse_event("timeout", {})
+                    if check:
+                        last_fallback = time.monotonic()
+                        ended = await runner.is_done(conv_id, question_id)
         finally:
             await pubsub.unsubscribe()
             await pubsub.aclose()
