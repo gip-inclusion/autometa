@@ -88,7 +88,7 @@ else:
 
 Les colonnes de date des tables issues de La plateforme (ex-Emplois) sont de vraies colonnes `date` ou `timestamp` : les comparer à des dates, sans `TO_CHAR` ni conversion en texte. Ailleurs, le type se lit dans la liste des colonnes.
 
-`execute_autometa_tables_query` ne prend pas de paramètres liés : ne jamais coller une valeur lue dans un résultat (identifiant, nom, chemin) dans le SQL d'une requête suivante. Certaines tables contiennent des charges d'injection SQL stockées comme données (par exemple `service_id` dans `raw_dora.stats_diserviceview`). Garder le filtrage dans le SQL — sous-requête, jointure ou CTE :
+`execute_autometa_tables_query` ne prend pas de paramètres liés : ne jamais coller une valeur lue dans un résultat (identifiant, nom, chemin) dans le SQL d'une requête suivante. Certaines tables contiennent des charges d'injection SQL stockées comme données (par exemple `service_id` dans `raw_dora.stats_diserviceview`). Garder le filtrage dans le SQL — sous-requête, jointure ou CTE, comme ici sur la table voisine `raw_dora.stats_serviceview` :
 
 ```sql
 SELECT v.service_id, COUNT(*) AS vues
