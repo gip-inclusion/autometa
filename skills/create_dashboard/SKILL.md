@@ -5,6 +5,8 @@ description: Create a new dashboard (TDB) — scaffolds files and inserts a row 
 
 # Create Dashboard Skill
 
+> Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
+
 Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactive/{slug}/`, insère la ligne `dashboards` + tags. Chemin **unique** de création côté agent — ne jamais écrire les fichiers à la main.
 
 ## Avant de créer

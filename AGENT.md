@@ -104,6 +104,19 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Ne rien inventer. Ne citer que des données vérifiables. Si incertain, le dire.
 - Les sorties d'outils restent dans la conversation, que d'autres peuvent lire par son lien. Sans besoin, ne pas y afficher de lignes nominatives (nom, e-mail, téléphone) : vérifier un format par les noms de colonnes, les types et les comptes. Quand la demande porte sur des personnes (filtrer, croiser ou pivoter par nom), le faire.
 - Chaque donnée doit être sourcée avec un lien de vérification (Matomo UI ou Metabase).
+- Ne jamais coller dans une requête SQL une valeur lue dans les données : filtrer dans la requête ; si une valeur doit vraiment passer par le script (autre source, nom de personne), la valider ou l'échapper comme le dit le skill `autometa_tables_db`.
+- Ménager les sites et API de production (Dora, Emplois, GitHub…) : avant une série d'appels (pages parcourues, recherches rejouées, fichiers lus en masse), en annoncer le volume, et au-delà de 50 appels attendre l'accord de l'utilisateur. Appels séquentiels ; ralentir au premier 429. Un appel est une requête que l'agent lance lui-même (`curl`, script, boucle) : les commandes des skills (Matomo, Metabase, Datadog, Notion…) et les bases de données ne sont pas concernées, elles gèrent leur débit.
+
+## Chiffres et affirmations
+
+- Un chiffre cité est lu dans une sortie d'outil de la conversation ou calculé par un script : jamais de somme, de part, de ratio, d'écart ni de comptage faits de tête. Un tableau de livrable sort du script, il n'est pas recopié à la main.
+- Une part nomme son dénominateur. La période annoncée est celle du calcul.
+- « Vérifié » seulement si la comparaison a été exécutée. Une cible, une cause ou une tendance non mesurées sont des hypothèses : les présenter comme telles, avec leur calcul.
+- Une affirmation sur un code, une configuration, une règle métier ou un accès cite sa preuve (dépôt et chemin, commit, requête), sinon elle se formule comme hypothèse. Une valeur par défaut du code n'est pas la configuration de prod ; un timeout ou un code 000 n'est pas un refus d'accès.
+- Une absence (« aucun », « n'existe pas », « pas d'accès ») ne s'affirme qu'après une recherche exhaustive : tout le dépôt, toutes les colonnes, sans filtre.
+- Un brouillon destiné à un tiers garde ses marqueurs d'incertitude.
+- Avant toute écriture hors de la conversation (rapport, page Notion, TDB, publication, base partagée), relire chaque chiffre contre les sorties d'outil. Si une affirmation déjà écrite s'avère fausse, corriger la cible dans le même tour.
+- Si la cible d'une écriture est ambiguë (deux pages, deux formulaires, « le ticket d'avant »), poser la question avec un bloc `options` : ne jamais trancher en écrivant.
 
 ## Skills disponibles
 
@@ -211,6 +224,8 @@ En Docker, le répertoire de travail est `/app`.
 - Toujours utiliser des URLs relatives (`/interactive/...`)
 - Ne jamais utiliser WebFetch/curl sur les URLs `autometa.inclusion.gouv.fr` ou de l'ancien domaine `matometa.osc-fr1.scalingo.io` — ces pages sont derrière oauthproxy et retourneront 403. Lire les fichiers directement depuis `/app/data/interactive/` ou les télécharger depuis S3.
 - Scratch dans `/tmp/$AUTOMETA_CONVERSATION_ID/`, jamais à la racine de `/tmp` : `/tmp` est partagé entre toutes les conversations du conteneur. Le créer au premier usage (`mkdir -p "/tmp/$AUTOMETA_CONVERSATION_ID"`). Les outils Write et Read ne développent pas les variables : leur donner le chemin complet, lu avec `echo "/tmp/$AUTOMETA_CONVERSATION_ID"`. Ne jamais exécuter, écraser ni supprimer un fichier de `/tmp` qu'on n'a pas créé dans la conversation.
+- Ne jamais installer de logiciel : ni paquet pip, npm ou apt, ni binaire ou archive téléchargés (Node.js, navigateur, `.deb`). Si un outil manque, le dire à l'utilisateur. Le rendu d'un TDB se vérifie avec le skill `verify_dashboard`.
+- Outils présents en production (Scalingo) : `python` (ni `uv` ni `.venv`, qui n'existent que dans l'image Docker locale), pandas, openpyxl et xlrd (Excel), pdfplumber (lire un PDF), pypdfium2 (rendre une page en image), reportlab (en produire un), pillow, matplotlib, et les bibliothèques de la section « Modélisation statistique ». Absents : `pdftotext`, `pdfinfo`, `pypdf`, `fitz`, `gh`.
 
 ## Dépôts GitHub
 

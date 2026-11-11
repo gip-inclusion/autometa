@@ -5,6 +5,8 @@ description: Lire et écrire dans Notion — interroger une base de données ou 
 
 # Notion
 
+> Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
+
 Client unique pour l'API Notion : `lib.notion` (lecture + écriture). Ne pas réinventer de client httpx ad hoc.
 
 **Ne jamais `WebFetch` une URL Notion** (`app.notion.com`, ou ancien `notion.so`) : l'app web est authentifiée et rendue en JS, on ne récupère qu'un écran de connexion. Toujours passer par l'API via `lib.notion`.
