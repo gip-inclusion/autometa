@@ -183,7 +183,7 @@ def reject_delivery(delivery_id: int, user_email: str = Depends(get_current_user
         return refused
     try:
         agent_delivery.reject(delivery_id, user_email)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+    except agent_delivery.DeliveryNotPending as exc:
+        return not_pending(exc)
     logger.info("agent envoi %s refusé à la relecture", delivery_id)
     return {"id": delivery_id, "status": "rejected"}

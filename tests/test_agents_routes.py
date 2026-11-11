@@ -117,7 +117,9 @@ def test_approving_sends_once_and_records_the_approver(client, post, user):
     )
 
 
-@pytest.mark.parametrize(("first", "second"), [("approve", "approve"), ("reject", "approve")])
+@pytest.mark.parametrize(
+    ("first", "second"), [("approve", "approve"), ("reject", "approve"), ("approve", "reject"), ("reject", "reject")]
+)
 def test_a_delivery_already_taken_is_not_decided_twice(client, post, first, second):
     delivery_id = make_delivery()
     assert decide(client, delivery_id, first).status_code == 200
@@ -176,14 +178,14 @@ def test_a_delivery_not_awaiting_review_is_not_decided(client, post, status, mod
         ("sent", "conversational", "envoi déjà décidé"),
     ],
 )
-@pytest.mark.parametrize("decision", ["approve"])
+@pytest.mark.parametrize("decision", ["approve", "reject"])
 def test_a_refused_decision_answers_a_fixed_message_never_the_exception(client, post, status, mode, error, decision):
     response = decide(client, make_delivery(status, mode), decision)
     assert response.json() == {"error": error}
     assert "attendu" not in response.text
 
 
-@pytest.mark.parametrize("decision", ["approve"])
+@pytest.mark.parametrize("decision", ["approve", "reject"])
 def test_a_delivery_gone_after_the_permission_check_is_not_found(client, post, mocker, decision):
     delivery_id = make_delivery()
     mocker.patch("web.routes.agents.reviewed", return_value=None)

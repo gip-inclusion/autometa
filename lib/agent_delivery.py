@@ -507,8 +507,8 @@ def reject(delivery_id: int, rejected_by: str) -> None:
     """Set aside a delivery awaiting review, writing nothing anywhere; anything else is refused."""
     with get_db() as session:
         row = session.get(AgentDelivery, delivery_id, with_for_update=True)
-        if row.status != "pending_review":
-            raise ValueError(f"envoi {delivery_id} est {row.status}, attendu pending_review")
+        if row is None or row.status != "pending_review":
+            raise DeliveryNotPending(delivery_id, row and row.status, "pending_review")
         row.status, row.error = "rejected", f"refusé à la relecture par {rejected_by}"
 
 
