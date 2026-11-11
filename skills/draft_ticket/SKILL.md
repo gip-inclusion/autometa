@@ -1,5 +1,5 @@
 ---
-name: rediger_ticket
+name: draft_ticket
 description: Rédiger un ticket du Backlog unifié à partir de notes, d'un vocal transcrit, d'un fil Slack ou d'un lien Figma ; le montrer avec l'équipe, le statut et l'épic recommandés ; le créer dans Notion seulement après l'accord explicite de l'auteur. (project)
 ---
 
@@ -11,15 +11,15 @@ Règle d'or : **tu n'inventes jamais de solution**. Tout ce que le ticket dit vi
 
 ## Déroulé
 
-1. **Maquette** : pour chaque lien Figma, `.venv/bin/python skills/rediger_ticket/scripts/maquette.py "<lien>"`, puis regarde chaque image citée avec l'outil Read. Suis `skills/rediger_ticket/maquette.md`.
-2. **Contexte** : `.venv/bin/python skills/rediger_ticket/scripts/contexte.py` (équipes actives, épics actifs, tickets récents).
-3. **Rédaction** : trie l'entrée, rédige, relis avec la liste finale. Exemples : `skills/rediger_ticket/exemples.md`.
-4. **Doublons** : `.venv/bin/python skills/rediger_ticket/scripts/doublons.py "<titre>"`.
-5. **Auteur** : `.venv/bin/python skills/rediger_ticket/scripts/auteur.py --equipe "<équipe recommandée>"`. Si ses rôles sont inconnus, demande-lui son rôle (PM, design, dev ou data, autre) et mets le champ correspondant dans le brouillon (`champ_auteur`). Correspondance : PM de l'équipe destinataire → `POM` ; PM d'une autre équipe → `Contributeurs` ; design → `UX` ; dev ou data → `Développeurs` ; tout autre rôle → `Contributeurs`. Sans compte Notion, dis-lui que le ticket sera créé sans auteur inscrit.
+1. **Maquette** : pour chaque lien Figma, `.venv/bin/python skills/draft_ticket/scripts/mockup.py "<lien>"`, puis regarde chaque image citée avec l'outil Read. Suis `skills/draft_ticket/mockup.md`.
+2. **Contexte** : `.venv/bin/python skills/draft_ticket/scripts/context.py` (équipes actives, épics actifs, tickets récents).
+3. **Rédaction** : trie l'entrée, rédige, relis avec la liste finale. Exemples : `skills/draft_ticket/examples.md`.
+4. **Doublons** : `.venv/bin/python skills/draft_ticket/scripts/duplicates.py "<titre>"`.
+5. **Auteur** : `.venv/bin/python skills/draft_ticket/scripts/author.py --team "<équipe recommandée>"`. Si ses rôles sont inconnus, demande-lui son rôle (PM, design, dev ou data, autre) et mets le champ correspondant dans le brouillon (`author_field`). Correspondance : PM de l'équipe destinataire → `POM` ; PM d'une autre équipe → `Contributeurs` ; design → `UX` ; dev ou data → `Développeurs` ; tout autre rôle → `Contributeurs`. Sans compte Notion, dis-lui que le ticket sera créé sans auteur inscrit.
 6. **Proposition** (format plus bas). Attends un accord explicite (« go », « crée-le », « ok »). Applique les corrections demandées et remontre si elles sont importantes.
-7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/rediger_ticket/${AUTOMETA_CONVERSATION_ID:-local} && cat > /tmp/rediger_ticket/${AUTOMETA_CONVERSATION_ID:-local}/brouillon.json <<'EOF'` … `EOF`. Lance `.venv/bin/python skills/rediger_ticket/scripts/creer.py` (vérification, rien n'est créé), puis `.venv/bin/python skills/rediger_ticket/scripts/creer.py --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
+7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local} && cat > /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local}/draft.json <<'EOF'` … `EOF`. Lance `.venv/bin/python skills/draft_ticket/scripts/create.py` (vérification, rien n'est créé), puis `.venv/bin/python skills/draft_ticket/scripts/create.py --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
 
-Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Sauf « Un ticket au même titre vient d'être créé » : donne ce lien à l'auteur et ne relance pas, même sous un autre titre. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`.venv/bin/python skills/rediger_ticket/scripts/doublons.py "<titre>"`, ou dans Notion) avant de relancer.
+Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Sauf « Un ticket au même titre vient d'être créé » : donne ce lien à l'auteur et ne relance pas, même sous un autre titre. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`.venv/bin/python skills/draft_ticket/scripts/duplicates.py "<titre>"`, ou dans Notion) avant de relancer.
 
 Tu ne poses jamais `Priorité`, `Période` ni `Estimation`. Tu peux recommander `𝗗𝗘𝗩 Prêt à développer` ; l'auteur choisit.
 
@@ -116,18 +116,18 @@ Pose les questions en texte (pas d'outil de question). Ne répète pas une quest
 
 ## 6. Brouillon pour la création
 
-`/tmp/rediger_ticket/${AUTOMETA_CONVERSATION_ID:-local}/brouillon.json` (écrit avec Bash) :
+`/tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local}/draft.json` (écrit avec Bash) :
 
 ```json
 {
-  "titre": "<titre, sans #>",
-  "corps": "<le ticket sans la ligne de titre, en commençant par :autometa:>",
-  "equipes": ["<nom exact d'équipe du contexte>"],
-  "statut": "<statut exact>",
+  "title": "<titre, sans #>",
+  "body": "<le ticket sans la ligne de titre, en commençant par :autometa:>",
+  "teams": ["<nom exact d'équipe du contexte>"],
+  "status": "<statut exact>",
   "types": ["Fonctionnalité|Bug|Sécurité|Technique|Tâche"],
   "epic": "<nom exact d'un épic actif de ces équipes, ou absent>",
   "figma": "<lien Figma ou absent>",
-  "champ_auteur": "<POM|UX|Développeurs|Contributeurs, seulement si l'auteur a donné son rôle>"
+  "author_field": "<POM|UX|Développeurs|Contributeurs, seulement si l'auteur a donné son rôle>"
 }
 ```
 

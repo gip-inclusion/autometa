@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 SCHEMA = "dashboard_storage"
 
 _metadata = MetaData(schema=SCHEMA)
-backlog_contexte = Table(
-    "backlog_contexte",
+backlog_context = Table(
+    "backlog_context",
     _metadata,
-    Column("cle", String, primary_key=True),
-    Column("contenu", JSONB, nullable=False),
-    Column("genere_le", DateTime(timezone=True), nullable=False),
+    Column("key", String, primary_key=True),
+    Column("content", JSONB, nullable=False),
+    Column("generated_at", DateTime(timezone=True), nullable=False),
 )
 
 
@@ -33,16 +33,16 @@ def ensure_schema() -> None:
     _metadata.create_all(engine)
 
 
-def enregistrer_contexte(contexte: dict) -> None:
+def save_context(context: dict) -> None:
     """Range le contexte, sauf si un chargement plus récent est déjà rangé."""
     ensure_schema()
-    statement = pg_insert(backlog_contexte).values(
-        cle="courant", contenu=contexte, genere_le=datetime.fromisoformat(contexte["genere_le"])
+    statement = pg_insert(backlog_context).values(
+        key="current", content=context, generated_at=datetime.fromisoformat(context["generated_at"])
     )
     statement = statement.on_conflict_do_update(
-        index_elements=["cle"],
-        set_={"contenu": statement.excluded.contenu, "genere_le": statement.excluded.genere_le},
-        where=backlog_contexte.c.genere_le < statement.excluded.genere_le,
+        index_elements=["key"],
+        set_={"content": statement.excluded.content, "generated_at": statement.excluded.generated_at},
+        where=backlog_context.c.generated_at < statement.excluded.generated_at,
     )
     with get_engine().begin() as conn:
         conn.execute(statement)
@@ -50,32 +50,32 @@ def enregistrer_contexte(contexte: dict) -> None:
 
 # Why: le cron tourne chaque jour ; 24 h strictes laisseraient un trou chaque nuit, et un cron en échec
 # renverrait toutes les conversations vers Notion.
-def lire_contexte(age_max: timedelta = timedelta(hours=30)) -> dict | None:
-    """Le contexte rangé s'il a moins de age_max, sinon None."""
+def read_context(max_age: timedelta = timedelta(hours=30)) -> dict | None:
+    """Le contexte rangé s'il a moins de max_age, sinon None."""
     try:
         with get_engine().connect() as conn:
-            ligne = conn.execute(
-                select(backlog_contexte.c.contenu, backlog_contexte.c.genere_le).where(
-                    backlog_contexte.c.cle == "courant"
+            row = conn.execute(
+                select(backlog_context.c.content, backlog_context.c.generated_at).where(
+                    backlog_context.c.key == "current"
                 )
             ).first()
-    except ProgrammingError as erreur:
+    except ProgrammingError as error:
         # Why: seule la table absente (première lecture avant toute écriture) est attendue ; le reste remonte.
-        if erreur.orig.pgcode != "42P01":
+        if error.orig.pgcode != "42P01":
             raise
         return None
-    if ligne is None or datetime.now(UTC) - ligne.genere_le > age_max:
+    if row is None or datetime.now(UTC) - row.generated_at > max_age:
         return None
-    return ligne.contenu
+    return row.content
 
 
-def contexte_courant() -> dict:
+def current_context() -> dict:
     """Le contexte rangé s'il est frais, sinon un contexte relu dans Notion, puis rangé."""
-    contexte = lire_contexte()
-    if contexte is None:
-        contexte = backlog.charger_contexte()
-        enregistrer_contexte(contexte)
-    return contexte
+    context = read_context()
+    if context is None:
+        context = backlog.load_context()
+        save_context(context)
+    return context
 
 
 def main() -> None:
@@ -83,6 +83,6 @@ def main() -> None:
     if not config.NOTION_BACKLOG_DB:
         logger.warning("NOTION_BACKLOG_DB absent : contexte du backlog non rafraîchi")
         return
-    contexte = backlog.charger_contexte()
-    enregistrer_contexte(contexte)
-    logger.info("Contexte du backlog rangé : %d équipes", len(contexte["equipes"]))
+    context = backlog.load_context()
+    save_context(context)
+    logger.info("Contexte du backlog rangé : %d équipes", len(context["teams"]))

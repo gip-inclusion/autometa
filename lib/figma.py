@@ -14,111 +14,109 @@ logger = logging.getLogger(__name__)
 API = "https://api.figma.com/v1"
 # Why: Figma met plusieurs secondes à sérialiser un gros nœud ou à rendre un cadre, au-delà du délai par défaut de 5 s.
 TIMEOUT = 30
-LARGEUR_MAX = 1600
-TYPES_CADRE = {"FRAME", "SECTION", "COMPONENT", "COMPONENT_SET"}
-TYPES_ECRAN = {"FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"}
-LIEN = re.compile(
-    r"figma\.com/(?:design|file|board|proto)/(?P<cle>[0-9A-Za-z]{22,128})"
-    r"(?:(?:/[^/?]*)?/branch/(?P<branche>[0-9A-Za-z]{22,128}))?"
+MAX_WIDTH = 1600
+FRAME_TYPES = {"FRAME", "SECTION", "COMPONENT", "COMPONENT_SET"}
+SCREEN_TYPES = {"FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"}
+LINK = re.compile(
+    r"figma\.com/(?:design|file|board|proto)/(?P<key>[0-9A-Za-z]{22,128})"
+    r"(?:(?:/[^/?]*)?/branch/(?P<branch>[0-9A-Za-z]{22,128}))?"
 )
-NOEUD = re.compile(r"[?&]node-id=(\d+)(?:-|:|%3A)(\d+)", re.IGNORECASE)
+NODE_ID = re.compile(r"[?&]node-id=(\d+)(?:-|:|%3A)(\d+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
-class LienFigma:
-    cle: str
-    noeud: str | None
+class FigmaLink:
+    key: str
+    node: str | None
 
 
 @dataclass(frozen=True)
-class Cadre:
+class Frame:
     id: str
-    nom: str
-    textes: list[str]
-    largeur: float
+    name: str
+    texts: list[str]
+    width: float
 
 
-def analyser_lien(url: str) -> LienFigma | None:
+def parse_link(url: str) -> FigmaLink | None:
     """Fichier et nœud d'un lien Figma, ou None si ce n'en est pas un."""
-    lien = LIEN.search(url)
-    if not lien:
+    link = LINK.search(url)
+    if not link:
         return None
-    noeud = NOEUD.search(url)
-    return LienFigma(
-        cle=lien.group("branche") or lien.group("cle"),
-        noeud=f"{noeud.group(1)}:{noeud.group(2)}" if noeud else None,
+    node = NODE_ID.search(url)
+    return FigmaLink(
+        key=link.group("branch") or link.group("key"),
+        node=f"{node.group(1)}:{node.group(2)}" if node else None,
     )
 
 
-def textes_visibles(noeud: dict) -> list[str]:
+def visible_texts(node: dict) -> list[str]:
     """Textes des calques visibles, dans l'ordre du document."""
-    if noeud.get("visible") is False:
+    if node.get("visible") is False:
         return []
-    texte = noeud.get("characters", "").strip()
-    textes = [texte] if texte else []
-    for enfant in noeud.get("children", []):
-        textes.extend(textes_visibles(enfant))
-    return textes
+    text = node.get("characters", "").strip()
+    texts = [text] if text else []
+    for child in node.get("children", []):
+        texts.extend(visible_texts(child))
+    return texts
 
 
-def choisir_cadres(noeud: dict, maximum: int = 6) -> list[dict]:
+def pick_frames(node: dict, maximum: int = 6) -> list[dict]:
     """Le nœud s'il est un écran, sinon ses cadres enfants visibles."""
-    if noeud.get("type") in TYPES_ECRAN:
-        return [noeud]
-    enfants = [e for e in noeud.get("children", []) if e.get("type") in TYPES_CADRE and e.get("visible") is not False]
-    return (enfants or [noeud])[:maximum]
+    if node.get("type") in SCREEN_TYPES:
+        return [node]
+    children = [e for e in node.get("children", []) if e.get("type") in FRAME_TYPES and e.get("visible") is not False]
+    return (children or [node])[:maximum]
 
 
-def appeler_api(chemin: str, params: dict | None = None) -> dict:
+def call_api(path: str, params: dict | None = None) -> dict:
     """GET sur l'API Figma avec le jeton de plan."""
-    reponse = httpx.get(
-        f"{API}/{chemin}",
+    response = httpx.get(
+        f"{API}/{path}",
         params=params,
         headers={"X-Figma-Token": config.FIGMA_ACCESS_TOKEN or ""},
         timeout=TIMEOUT,
     )
-    reponse.raise_for_status()
-    return reponse.json()
+    response.raise_for_status()
+    return response.json()
 
 
-def lire_cadres(lien: LienFigma) -> list[Cadre]:
+def read_frames(link: FigmaLink) -> list[Frame]:
     """Cadres du nœud lié, avec leurs textes visibles."""
-    if not lien.noeud:
+    if not link.node:
         return []
-    document = (appeler_api(f"files/{lien.cle}/nodes", {"ids": lien.noeud})["nodes"].get(lien.noeud) or {}).get(
-        "document"
-    )
+    document = (call_api(f"files/{link.key}/nodes", {"ids": link.node})["nodes"].get(link.node) or {}).get("document")
     if not document:
         return []
     return [
-        Cadre(
-            id=cadre["id"],
-            nom=cadre.get("name", ""),
-            textes=textes_visibles(cadre),
-            largeur=(cadre.get("absoluteBoundingBox") or {}).get("width") or 0,
+        Frame(
+            id=frame["id"],
+            name=frame.get("name", ""),
+            texts=visible_texts(frame),
+            width=(frame.get("absoluteBoundingBox") or {}).get("width") or 0,
         )
-        for cadre in choisir_cadres(document)
+        for frame in pick_frames(document)
     ]
 
 
-def exporter_images(lien: LienFigma, cadres: list[Cadre], dossier: Path) -> dict[str, Path]:
-    """Une image PNG par cadre, réduite à LARGEUR_MAX pixels, rangée par identifiant de cadre."""
-    dossier.mkdir(parents=True, exist_ok=True)
-    echelles = {c.id: max(0.01, round(min(1.0, LARGEUR_MAX / c.largeur), 3)) if c.largeur else 1.0 for c in cadres}
+def export_images(link: FigmaLink, frames: list[Frame], folder: Path) -> dict[str, Path]:
+    """Une image PNG par cadre, réduite à MAX_WIDTH pixels, rangée par identifiant de cadre."""
+    folder.mkdir(parents=True, exist_ok=True)
+    scales = {c.id: max(0.01, round(min(1.0, MAX_WIDTH / c.width), 3)) if c.width else 1.0 for c in frames}
     urls = {}
-    for echelle in sorted(set(echelles.values())):
-        ids = [i for i, e in echelles.items() if e == echelle]
-        reponse = appeler_api(f"images/{lien.cle}", {"ids": ",".join(ids), "format": "png", "scale": echelle})
-        urls.update(reponse["images"] or {})
+    for scale in sorted(set(scales.values())):
+        ids = [i for i, e in scales.items() if e == scale]
+        response = call_api(f"images/{link.key}", {"ids": ",".join(ids), "format": "png", "scale": scale})
+        urls.update(response["images"] or {})
     images = {}
-    for rang, cadre in enumerate(cadres, start=1):
-        url = urls.get(cadre.id)
+    for rank, frame in enumerate(frames, start=1):
+        url = urls.get(frame.id)
         if not url:
-            logger.warning("Figma n'a pas rendu le cadre %s", cadre.id)
+            logger.warning("Figma n'a pas rendu le cadre %s", frame.id)
             continue
         image = httpx.get(url, timeout=TIMEOUT)
         image.raise_for_status()
-        chemin = dossier / f"cadre-{rang}.png"
-        chemin.write_bytes(image.content)
-        images[cadre.id] = chemin
+        path = folder / f"frame-{rank}.png"
+        path.write_bytes(image.content)
+        images[frame.id] = path
     return images

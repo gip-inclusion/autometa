@@ -10,11 +10,11 @@ from urllib.parse import quote
 from lib import notion
 from web import config
 
-STATUTS_EPIC_INACTIFS = ("Archivé", "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre")
-ROLES_PM = {"Responsable d'équipe", "Gestionnaire de produit", "Product Owner", "Produit", "Responsable de Mission"}
-ROLES_DESIGN = {"Designer", "Design"}
-ROLES_DEV = {"Dev", "Data", "Data analyst"}
-MOTS_VIDES = {
+INACTIVE_EPIC_STATUSES = ("Archivé", "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre")
+PM_ROLES = {"Responsable d'équipe", "Gestionnaire de produit", "Product Owner", "Produit", "Responsable de Mission"}
+DESIGN_ROLES = {"Designer", "Design"}
+DEV_ROLES = {"Dev", "Data", "Data analyst"}
+STOP_WORDS = {
     "pour",
     "dans",
     "avec",
@@ -48,52 +48,52 @@ MOTS_VIDES = {
 
 
 @dataclass(frozen=True)
-class Auteur:
-    nom: str
+class Author:
+    name: str
     roles: list[str]
-    equipes: list[str]
+    teams: list[str]
     notion_id: str | None
 
 
-def titre(page: dict) -> str:
+def title(page: dict) -> str:
     """Titre d'une page, sans espaces aux bords."""
     return notion.extract_page_title(page).strip()
 
 
-def ids_relation(page: dict, propriete: str) -> list[str]:
+def relation_ids(page: dict, prop: str) -> list[str]:
     """Identifiants des pages liées par une relation."""
-    return [r["id"] for r in page["properties"].get(propriete, {}).get("relation", [])]
+    return [r["id"] for r in page["properties"].get(prop, {}).get("relation", [])]
 
 
-def bases_liees() -> dict[str, str]:
+def linked_databases() -> dict[str, str]:
     """Bases Équipes et Épics, lues dans le schéma du backlog."""
     schema = notion.notion_request("GET", f"databases/{config.NOTION_BACKLOG_DB}")
     return {
-        "equipes": schema["properties"]["Pizza team"]["relation"]["database_id"],
+        "teams": schema["properties"]["Pizza team"]["relation"]["database_id"],
         "epics": schema["properties"]["Epic - feuille de route"]["relation"]["database_id"],
     }
 
 
-def tickets_recents(equipe_id: str, nombre: int) -> list[str]:
+def recent_titles(team_id: str, count: int) -> list[str]:
     """Titres non vides des tickets non annulés les plus récents d'une équipe."""
     pages = notion.query_database(
         config.NOTION_BACKLOG_DB,
         filter={
             "and": [
-                {"property": "Pizza team", "relation": {"contains": equipe_id}},
+                {"property": "Pizza team", "relation": {"contains": team_id}},
                 {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
             ]
         },
         sorts=[{"timestamp": "created_time", "direction": "descending"}],
     )
-    return [t for t in (titre(p) for p in pages) if t][:nombre]
+    return [t for t in (title(p) for p in pages) if t][:count]
 
 
-def charger_contexte(par_equipe: int = 15) -> dict:
+def load_context(per_team: int = 15) -> dict:
     """Équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
-    bases = bases_liees()
-    equipes = notion.query_database(
-        bases["equipes"],
+    bases = linked_databases()
+    teams = notion.query_database(
+        bases["teams"],
         filter={
             "and": [
                 {"property": "Activité", "select": {"equals": "Actif"}},
@@ -104,128 +104,128 @@ def charger_contexte(par_equipe: int = 15) -> dict:
     epics = notion.query_database(
         bases["epics"],
         filter={
-            "and": [{"property": "Statut", "status": {"does_not_equal": statut}} for statut in STATUTS_EPIC_INACTIFS]
+            "and": [{"property": "Statut", "status": {"does_not_equal": status}} for status in INACTIVE_EPIC_STATUSES]
         },
     )
     return {
-        "genere_le": datetime.now(UTC).isoformat(),
-        "equipes": [
+        "generated_at": datetime.now(UTC).isoformat(),
+        "teams": [
             {
-                "id": equipe["id"],
-                "nom": titre(equipe),
+                "id": team["id"],
+                "name": title(team),
                 "epics": [
-                    {"id": e["id"], "nom": titre(e)} for e in epics if equipe["id"] in ids_relation(e, "Pizza team")
+                    {"id": e["id"], "name": title(e)} for e in epics if team["id"] in relation_ids(e, "Pizza team")
                 ],
-                "tickets_recents": tickets_recents(equipe["id"], par_equipe),
+                "recent_titles": recent_titles(team["id"], per_team),
             }
-            for equipe in equipes
+            for team in teams
         ],
     }
 
 
-def formater_contexte(contexte: dict) -> str:
+def format_context(context: dict) -> str:
     """Le contexte des équipes en Markdown, pour l'agent."""
-    lignes = [f"# Équipes produit actives (au {contexte['genere_le'][:10]})", ""]
-    for equipe in sorted(contexte["equipes"], key=lambda e: e["nom"]):
-        lignes.append(f"## {equipe['nom']}")
-        if equipe["epics"]:
-            lignes.append("- Épics actifs : " + " ; ".join(e["nom"] for e in equipe["epics"]))
-        if equipe["tickets_recents"]:
-            lignes.append("- Tickets récents :")
-            lignes.extend(f"  - {t}" for t in equipe["tickets_recents"])
+    lines = [f"# Équipes produit actives (au {context['generated_at'][:10]})", ""]
+    for team in sorted(context["teams"], key=lambda e: e["name"]):
+        lines.append(f"## {team['name']}")
+        if team["epics"]:
+            lines.append("- Épics actifs : " + " ; ".join(e["name"] for e in team["epics"]))
+        if team["recent_titles"]:
+            lines.append("- Tickets récents :")
+            lines.extend(f"  - {t}" for t in team["recent_titles"])
         else:
-            lignes.append("- Tickets récents : aucun")
-        lignes.append("")
-    return "\n".join(lignes)
+            lines.append("- Tickets récents : aucun")
+        lines.append("")
+    return "\n".join(lines)
 
 
-def normaliser(texte: str) -> str:
+def normalize(text: str) -> str:
     """Texte en minuscules, sans accents."""
-    return unicodedata.normalize("NFKD", texte.replace("’", "'")).encode("ascii", "ignore").decode().lower()
+    return unicodedata.normalize("NFKD", text.replace("’", "'")).encode("ascii", "ignore").decode().lower()
 
 
-def mots_cles(texte: str, maximum: int = 8) -> list[str]:
+def keywords(text: str, maximum: int = 8) -> list[str]:
     """Mots porteurs de sens d'un titre, sans doublon."""
-    mots: list[str] = []
-    texte = re.sub(r"^\s*\[[^\]]*\]\s*", "", texte)
-    for mot in re.findall(r"[^\W\d_][\w-]{3,}", texte):
-        if normaliser(mot) not in MOTS_VIDES and normaliser(mot) not in {normaliser(m) for m in mots}:
-            mots.append(mot)
-    return mots[:maximum]
+    words: list[str] = []
+    text = re.sub(r"^\s*\[[^\]]*\]\s*", "", text)
+    for word in re.findall(r"[^\W\d_][\w-]{3,}", text):
+        if normalize(word) not in STOP_WORDS and normalize(word) not in {normalize(m) for m in words}:
+            words.append(word)
+    return words[:maximum]
 
 
-def chercher_doublons(texte: str, limite: int = 5) -> list[dict]:
-    """Tickets non annulés dont le titre partage au moins la moitié des mots-clés de texte (et deux), les plus proches d'abord."""
-    mots = mots_cles(texte)
-    if len(mots) < 2:
+def find_duplicates(text: str, limit: int = 5) -> list[dict]:
+    """Tickets non annulés dont le titre partage au moins la moitié des mots-clés de text (et deux), les plus proches d'abord."""
+    words = keywords(text)
+    if len(words) < 2:
         return []
     pages = notion.query_database(
         config.NOTION_BACKLOG_DB,
         filter={
             "and": [
                 {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
-                {"or": [{"property": "Nom", "title": {"contains": mot}} for mot in mots]},
+                {"or": [{"property": "Nom", "title": {"contains": word}} for word in words]},
             ]
         },
     )
-    cibles = {normaliser(m) for m in mots}
+    targets = {normalize(m) for m in words}
     # Why: seuil mesuré sur le backlog réel, voir la décision 3 de paved-road/rediger-ticket/definition-of-done.md.
-    seuil = max(2, math.ceil(len(cibles) / 2))
-    notes = [(sum(1 for c in cibles if re.search(rf"\b{re.escape(c)}", normaliser(titre(p)))), p) for p in pages]
-    notes.sort(key=lambda note: note[0], reverse=True)
+    threshold = max(2, math.ceil(len(targets) / 2))
+    scores = [(sum(1 for c in targets if re.search(rf"\b{re.escape(c)}", normalize(title(p)))), p) for p in pages]
+    scores.sort(key=lambda score: score[0], reverse=True)
     return [
         {
-            "titre": titre(p),
+            "title": title(p),
             "url": p.get("url", ""),
-            "statut": (p["properties"].get("Statut", {}).get("select") or {}).get("name", ""),
-            "communs": communs,
+            "status": (p["properties"].get("Statut", {}).get("select") or {}).get("name", ""),
+            "shared": shared,
         }
-        for communs, p in notes[:limite]
-        if communs >= seuil
+        for shared, p in scores[:limit]
+        if shared >= threshold
     ]
 
 
-def utilisateur_notion(email: str) -> tuple[str, str] | None:
+def notion_user(email: str) -> tuple[str, str] | None:
     """Identifiant et nom du compte Notion qui porte cet e-mail."""
     cursor = None
     while True:
-        suffixe = f"&start_cursor={quote(cursor, safe='')}" if cursor else ""
-        response = notion.notion_request("GET", "users?page_size=100" + suffixe)
-        for compte in response["results"]:
+        suffix = f"&start_cursor={quote(cursor, safe='')}" if cursor else ""
+        response = notion.notion_request("GET", "users?page_size=100" + suffix)
+        for account in response["results"]:
             if (
-                compte.get("type") == "person"
-                and (compte.get("person") or {}).get("email", "").lower() == email.lower()
+                account.get("type") == "person"
+                and (account.get("person") or {}).get("email", "").lower() == email.lower()
             ):
-                return compte["id"], compte.get("name", "")
+                return account["id"], account.get("name", "")
         if not response.get("has_more"):
             return None
         cursor = response["next_cursor"]
 
 
-def trouver_auteur(email: str) -> Auteur | None:
+def find_author(email: str) -> Author | None:
     """Rôles et équipes de l'auteur d'après l'Annuaire, et son compte Notion."""
-    fiches = notion.query_database(config.NOTION_ANNUAIRE_DB, filter={"property": "Email", "email": {"equals": email}})[
-        :1
-    ]
-    compte = utilisateur_notion(email)
-    if not fiches and not compte:
+    records = notion.query_database(
+        config.NOTION_ANNUAIRE_DB, filter={"property": "Email", "email": {"equals": email}}
+    )[:1]
+    account = notion_user(email)
+    if not records and not account:
         return None
-    proprietes = notion.extract_page_properties(fiches[0]) if fiches else {}
-    return Auteur(
-        nom=compte[1] if compte else titre(fiches[0]),
-        roles=proprietes.get("Rôle") or [],
-        equipes=ids_relation(fiches[0], "🍕 Équipes") if fiches else [],
-        notion_id=compte[0] if compte else None,
+    props = notion.extract_page_properties(records[0]) if records else {}
+    return Author(
+        name=account[1] if account else title(records[0]),
+        roles=props.get("Rôle") or [],
+        teams=relation_ids(records[0], "🍕 Équipes") if records else [],
+        notion_id=account[0] if account else None,
     )
 
 
-def champ_auteur(auteur: Auteur, equipes_destinataires: list[str]) -> str:
+def author_field(author: Author, target_teams: list[str]) -> str:
     """Propriété de personne où inscrire l'auteur, selon son rôle et l'équipe destinataire."""
-    roles = set(auteur.roles)
-    if roles & ROLES_PM:
-        return "POM" if set(auteur.equipes) & set(equipes_destinataires) else "Contributeurs"
-    if roles & ROLES_DESIGN:
+    roles = set(author.roles)
+    if roles & PM_ROLES:
+        return "POM" if set(author.teams) & set(target_teams) else "Contributeurs"
+    if roles & DESIGN_ROLES:
         return "UX"
-    if roles & ROLES_DEV:
+    if roles & DEV_ROLES:
         return "Développeurs"
     return "Contributeurs"

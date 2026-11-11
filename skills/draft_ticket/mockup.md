@@ -1,6 +1,6 @@
 # Lire une maquette Figma
 
-Le script `maquette.py` donne, pour chaque cadre, son nom, ses textes visibles et une image. **Regarde chaque image** avant d'écrire.
+Le script `mockup.py` donne, pour chaque cadre, son nom, ses textes visibles et une image. **Regarde chaque image** avant d'écrire.
 
 ## Ce que la maquette apporte
 
