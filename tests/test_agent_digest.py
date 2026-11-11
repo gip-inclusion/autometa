@@ -1,9 +1,13 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from lib import agent_config, agent_delivery
-from tests.test_agent_delivery import TARGETS, Rows, make_agent, open_real_mode
+from tests.test_agent_delivery import RUN_ID, TARGETS, Rows, make_agent, open_real_mode, registered
 from tests.test_agent_delivery import deliver as deliver_run
+from web.db import get_db
 from web.db import test_transaction as _test_tx
+from web.models import AgentRun
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -145,6 +149,15 @@ def test_dod_7_digest_waits_for_productions_whose_sub_agents_failed(store, post,
     second = deliver(mocker, agent, ENVOIS, VERDICTS)
     assert second[-1]["id"] == digest(store)["id"]
     assert digest(store)["text"].endswith("## Autres\n- Divers")
+
+
+def test_tutorial_gap_2_digest_is_dated_by_its_run_not_by_its_building(store, post, mocker):
+    agent = digest_agent()
+    registered(agent)
+    with get_db() as session:
+        session.get(AgentRun, RUN_ID).launched_at = datetime(2026, 11, 9, 8, tzinfo=timezone.utc)
+    deliver(mocker, agent, ENVOIS, VERDICTS)
+    assert "run du 09/11/2026 :" in digest(store)["title"]
 
 
 def test_review_2_5_a_sub_agent_failing_every_time_is_set_aside_and_the_digest_goes_on(store, post, mocker):

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from lib import agent_config, agent_files, notion, slack
 from web import config
 from web.db import get_db
+from web.helpers import to_local
 from web.models import Agent, AgentDelivery, AgentRun
 
 logger = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ def build_digests(session: Session, agent: dict, run: AgentRun) -> None:
             destination=destination,
             mode=mode,
             status=initial_status(mode),
-            title=f"{agent['title']}, run du {datetime.now():%d/%m/%Y} : retenus {len(kept)}, "
+            title=f"{agent['title']}, run du {to_local(run.launched_at):%d/%m/%Y} : retenus {len(kept)}, "
             f"écartés {len(members) - len(kept)}",
             text=digest_text(agent, kept, run.files_written),
         )
