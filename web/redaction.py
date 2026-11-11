@@ -19,8 +19,11 @@ SENSITIVE_NAME = (
 # (jeton de prod lu depuis un poste local, clé d'un autre service collée dans une conversation).
 PATTERNS = {
     # Why: un mot de passe peut contenir `? # & =` ; un port suivi d'une requête (`https://h:8080?email=a@b.fr`)
-    # n'en est pas un.
-    "mot de passe de DSN": (re.compile(rf"://[^/\s:@]*:(?!\d+[/?#]){NOT_A_PLACEHOLDER}[^/\s@]+@"), "://***@"),
+    # n'en est pas un, ni une URL suivie d'une adresse dans du JSON compact (`"https://h","contact":"a@b.fr"`).
+    "mot de passe de DSN": (
+        re.compile(rf"://[^/\s:@\"'\\]*:(?!\d+[/?#]){NOT_A_PLACEHOLDER}[^/\s@\"'\\]+@"),
+        "://***@",
+    ),
     # Why: un extrait tronqué (« … so_3314:<mot de passe>@hôte ») perd le schéma. Une adresse e-mail précédée d'un
     # libellé (`requester:prenom.nom@…`) n'en est pas un : le mot de passe mêle lettres et chiffres, sans point.
     "identifiants user:mot de passe": (
@@ -65,6 +68,9 @@ PATTERNS = {
     "clé Anthropic": (re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"), "sk-ant-***"),
 }
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Why: un lien présigné est fait pour être remis à l'utilisateur (diff Zendesk, export) ; sa signature n'ouvre que ce
+# fichier, et pour peu de temps. La masquer rend le lien mort.
+PRESIGNED_URL = re.compile(r"(https://[^\s\"'<>\\]+[?&]X-Amz-Expires=\d+[^\s\"'<>\\]*)")
 
 
 def known_secrets() -> list[str]:
@@ -98,7 +104,8 @@ def known_secrets() -> list[str]:
 
 
 def secret_kinds(text: str) -> list[str]:
-    """Les sortes de secrets présents en clair dans le texte."""
+    """Les sortes de secrets présents en clair dans le texte, liens présignés exceptés."""
+    text = PRESIGNED_URL.sub("", text)
     kinds = [kind for kind, (rx, _) in PATTERNS.items() if any("***" not in m.group(0) for m in rx.finditer(text))]
     if any(secret in text for secret in known_secrets()):
         kinds.append("secret de configuration")
@@ -106,9 +113,16 @@ def secret_kinds(text: str) -> list[str]:
 
 
 def redact(text: str) -> str:
-    """Retire d'un texte tout ce qui pourrait être un secret."""
+    """Retire d'un texte tout ce qui pourrait être un secret, liens présignés exceptés."""
+    secrets = known_secrets()
+    parts = PRESIGNED_URL.split(text)
+    return "".join(part if index % 2 else mask(part, secrets) for index, part in enumerate(parts))
+
+
+def mask(text: str, secrets: list[str]) -> str:
+    """Le texte, formes de secrets et valeurs connues remplacées."""
     for rx, replacement in PATTERNS.values():
         text = rx.sub(replacement, text)
-    for secret in known_secrets():
+    for secret in secrets:
         text = text.replace(secret, "***")
     return text

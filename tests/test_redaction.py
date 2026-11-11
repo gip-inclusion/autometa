@@ -10,6 +10,11 @@ from web.redaction import redact, secret_kinds
 
 FAUX = "valeur-factice-de-test"  # gitleaks:allow
 HEX = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
+PRESIGNED = (
+    "https://bucket.s3.fr-par.scw.cloud/zendesk/x/diff.md?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+    "&X-Amz-Credential=SCWFAUXFAUXFAUXFAUX%2F20261111%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261111T200000Z"
+    f"&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature={HEX}{HEX}"  # gitleaks:allow
+)
 
 
 @pytest.mark.parametrize(
@@ -63,6 +68,12 @@ HEX = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
 def test_redact_removes_each_family_of_secret(text, secret, kind):
     assert secret not in redact(text)
     assert kind in secret_kinds(text)
+
+
+def test_a_secret_next_to_a_presigned_link_is_still_masked():
+    masked = redact(f"diff : {PRESIGNED} ; base : postgresql://u:{FAUX}@h/db")
+
+    assert masked == f"diff : {PRESIGNED} ; base : postgresql://***@h/db"
 
 
 def test_masking_escaped_json_keeps_it_valid():
@@ -127,6 +138,12 @@ def test_database_urls_are_known_secrets(mocker, setting):
         '"password": "<mot de passe>"',
         "le password: est requis",
         "Le serveur exige une Basic authentification pour cette API.",
+        # Du JSON compact : une URL suivie d'une adresse n'est pas un DSN à mot de passe.
+        '{"url":"redis://cache:6379","owner":"a@b.fr"}',
+        '{"url":"https://example.org","contact":"a@b.fr"}',
+        '{\\"url\\":\\"https://example.org\\",\\"contact\\":\\"a@b.fr\\"}',
+        # Un lien présigné est fait pour être remis à l'utilisateur.
+        f"Le diff complet : {PRESIGNED}",
     ],
 )
 def test_plain_text_is_left_alone(text):
