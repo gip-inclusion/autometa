@@ -172,6 +172,8 @@ function appendEvent(type, data) {
   if (wasAtBottom) {
     scrollToBottom();
   }
+
+  return block;
 }
 
 // =============================================================================

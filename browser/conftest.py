@@ -1,10 +1,11 @@
 """Parcours de navigateur — la même suite contre une URL locale ou contre une review app."""
 
 import os
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Iterator
 
 import pytest
-from playwright.sync_api import Page
+from playwright.sync_api import Page, expect
 
 # La cible et les identifiants viennent de l'environnement du runner, pas de web/config.py :
 # la suite s'exécute hors du processus servi, et ne connaît de l'application que son URL.
@@ -41,3 +42,25 @@ def fake_agent(page: Page) -> None:
     """Les tours ne se jouent que contre le moteur factice : ailleurs ils dépenseraient un vrai modèle."""
     if page.request.get("/api/auth/status").json().get("backend") != "fake":
         pytest.skip("cible servie sans AGENT_BACKEND=fake")
+
+
+@pytest.fixture
+def ask(page: Page) -> Callable[[str], None]:
+    """Envoie un message par la barre de saisie."""
+
+    def _ask(text: str) -> None:
+        page.locator("#chatInput").fill(text)
+        page.locator("#chatSendBtn").click()
+
+    return _ask
+
+
+@pytest.fixture
+def conversation(fake_agent, visit: Callable[[str], None], ask: Callable[[str], None], page: Page) -> Iterator[str]:
+    """Une conversation dont le premier tour (agent factice) est terminé ; un tour laissé en cours est arrêté."""
+    visit("/explorations/new")
+    ask("Première question")
+    expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question", timeout=15000)
+    conversation_id = re.search(r"/explorations/([0-9a-f-]{36})", page.url).group(1)
+    yield conversation_id
+    page.request.post(f"/api/conversations/{conversation_id}/cancel")
