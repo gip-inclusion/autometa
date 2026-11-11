@@ -128,9 +128,14 @@ def _upload_subagents(session_id: str):
     if not subagents_dir.exists():
         return
 
+    remote = {entry["path"]: entry["etag"] for entry in s3.sessions.list_files(f"{session_id}/subagents/")}
     for path in subagents_dir.rglob("*.jsonl"):
         relative = path.relative_to(get_session_dir() / session_id)
-        s3.sessions.upload(f"{session_id}/{relative}", path.read_bytes(), "application/x-ndjson")
+        key = f"{session_id}/{relative}"
+        content = path.read_bytes()
+        if remote.get(key) == hashlib.md5(content, usedforsecurity=False).hexdigest():
+            continue
+        s3.sessions.upload(key, content, "application/x-ndjson")
         logger.debug("Uploaded subagent file: %s", relative)
 
 

@@ -3,6 +3,7 @@
 import hashlib
 import threading
 
+import pytest
 from botocore.exceptions import BotoCoreError
 
 from web import session_sync
@@ -50,7 +51,11 @@ def test_download_and_upload_roundtrip(monkeypatch, mocker, tmp_path):
         return stored.get(path)
 
     def mock_list_files(prefix=""):
-        return [{"path": k, "size": len(v)} for k, v in stored.items() if k.startswith(prefix)]
+        return [
+            {"path": k, "size": len(v), "etag": hashlib.md5(v).hexdigest()}
+            for k, v in stored.items()
+            if k.startswith(prefix)
+        ]
 
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
     mocker.patch.object(session_sync.s3.sessions, "head", return_value=None)
@@ -80,6 +85,33 @@ def test_download_and_upload_roundtrip(monkeypatch, mocker, tmp_path):
     assert session_file.exists()
     assert session_file.read_text() == '{"type":"message","content":"hello"}\n'
     assert (subagent_dir / "agent-abc.jsonl").read_text() == '{"type":"subagent"}\n'
+
+
+@pytest.mark.parametrize(
+    ("etag_in_s3", "uploaded"),
+    [
+        (hashlib.md5(b'{"a":1}\n').hexdigest(), False),
+        (hashlib.md5(b'{"a":0}\n').hexdigest(), True),
+        ("9b2cf535f27731c974343645a3985328-2", True),
+        (None, True),
+    ],
+)
+def test_upload_session_sends_only_subagent_files_s3_does_not_hold(monkeypatch, mocker, tmp_path, etag_in_s3, uploaded):
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    (tmp_path / "sess.jsonl").write_bytes(b"{}\n")
+    subagent = tmp_path / "sess" / "subagents" / "agent-1.jsonl"
+    subagent.parent.mkdir(parents=True)
+    subagent.write_bytes(b'{"a":1}\n')
+    listing = [] if etag_in_s3 is None else [{"path": "sess/subagents/agent-1.jsonl", "etag": etag_in_s3}]
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=listing)
+    upload = mocker.patch.object(session_sync.s3.sessions, "upload", return_value=True)
+
+    assert session_sync.upload_session("sess") is True
+
+    sent = [c.args[0] for c in upload.call_args_list]
+    assert "sess.jsonl" in sent
+    assert ("sess/subagents/agent-1.jsonl" in sent) is uploaded
 
 
 def test_download_nonexistent_session(monkeypatch, mocker, tmp_path):
