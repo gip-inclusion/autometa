@@ -8,15 +8,11 @@ from pathlib import Path
 import httpx
 
 from lib import backlog, backlog_creation, backlog_storage
-from skills.draft_ticket.scripts.common import check_config
+from skills.draft_ticket.scripts.common import check_config, conversation_folder
 from web import config
 
 LIST_FIELDS = ("teams", "types")
 TEXT_FIELDS = ("title", "body", "status")
-
-
-def draft_path() -> Path:
-    return Path("/tmp/draft_ticket") / (config.agent_conversation_id() or "local") / "draft.json"
 
 
 def check_fields(draft: dict) -> None:
@@ -69,7 +65,7 @@ def run(args: argparse.Namespace) -> str:
     missing = check_config(directory=False)
     if missing:
         raise ValueError(missing)
-    path = Path(args.draft) if args.draft else draft_path()
+    path = Path(args.draft) if args.draft else conversation_folder() / "ticket-draft.json"
     draft = json.loads(path.read_text(encoding="utf-8"))
     email = config.agent_user_email()
     author, warnings = None, []

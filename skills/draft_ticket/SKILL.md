@@ -17,7 +17,7 @@ Règle d'or : **tu n'inventes jamais de solution**. Tout ce que le ticket dit vi
 4. **Doublons** : `python -m skills.draft_ticket.scripts.duplicates "<titre>"`.
 5. **Auteur** : `python -m skills.draft_ticket.scripts.author --team "<équipe recommandée>"`. Si ses rôles sont inconnus, demande-lui son rôle (PM, design, dev ou data, autre) et mets le champ correspondant dans le brouillon (`author_field`). Correspondance : PM de l'équipe destinataire → `POM` ; PM d'une autre équipe → `Contributeurs` ; design → `UX` ; dev ou data → `Développeurs` ; tout autre rôle → `Contributeurs`. Sans compte Notion, dis-lui que le ticket sera créé sans auteur inscrit.
 6. **Proposition** (format plus bas). Attends un accord explicite (« go », « crée-le », « ok »). Applique les corrections demandées et remontre si elles sont importantes.
-7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local} && cat > /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local}/draft.json <<'EOF'` … `EOF`. Lance `python -m skills.draft_ticket.scripts.create` (vérification, rien n'est créé), puis `python -m skills.draft_ticket.scripts.create --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
+7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p "/tmp/$AUTOMETA_CONVERSATION_ID" && cat > "/tmp/$AUTOMETA_CONVERSATION_ID/ticket-draft.json" <<'EOF'` … `EOF`. Lance `python -m skills.draft_ticket.scripts.create` (vérification, rien n'est créé), puis `python -m skills.draft_ticket.scripts.create --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
 
 Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Après « Statut non proposable », « Type inconnu » ou « Relation refusée », relis d'abord le contexte dans Notion (`python -m skills.draft_ticket.scripts.context --refresh`) : un nom a pu changer depuis la dernière synchronisation. Sauf « Un ticket au même titre vient d'être créé » : donne ce lien à l'auteur et ne relance pas, même sous un autre titre. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`python -m skills.draft_ticket.scripts.duplicates "<titre>"`, ou dans Notion) avant de relancer.
 
@@ -116,7 +116,7 @@ Pose les questions en texte (pas d'outil de question). Ne répète pas une quest
 
 ## 6. Brouillon pour la création
 
-`/tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local}/draft.json` (écrit avec Bash) :
+`/tmp/$AUTOMETA_CONVERSATION_ID/ticket-draft.json` (écrit avec Bash) :
 
 ```json
 {

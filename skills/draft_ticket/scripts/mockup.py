@@ -1,16 +1,12 @@
 """Lit une maquette Figma : cadres, textes visibles et une image par cadre à regarder."""
 
 import argparse
-from pathlib import Path
 
 import httpx
 
 from lib import figma
+from skills.draft_ticket.scripts.common import conversation_folder
 from web import config
-
-
-def images_folder() -> Path:
-    return Path("/tmp/draft_ticket") / (config.agent_conversation_id() or "local")
 
 
 def error_message(error: httpx.HTTPError) -> str:
@@ -31,6 +27,8 @@ def run(args: argparse.Namespace) -> str:
         return "Lien Figma sans cadre précis (pas de node-id) : maquette non lue. Demander un lien vers le cadre."
     if not config.FIGMA_ACCESS_TOKEN:
         return "FIGMA_ACCESS_TOKEN absent : maquette non lue."
+    if not config.agent_conversation_id():
+        return "AUTOMETA_CONVERSATION_ID absent : maquette non lue (pas de dossier pour les images)."
     try:
         frames = figma.read_frames(link)
     except httpx.HTTPError as error:
@@ -39,7 +37,9 @@ def run(args: argparse.Namespace) -> str:
         return "Cadre introuvable dans ce fichier Figma (supprimé, ou lien vers un autre fichier) : demander un lien vers le cadre."
     lines = [f"# Maquette : {args.url}", ""]
     try:
-        images = figma.export_images(link, frames, images_folder() / f"{link.key}-{link.node.replace(':', '-')}")
+        images = figma.export_images(
+            link, frames, conversation_folder() / "figma" / f"{link.key}-{link.node.replace(':', '-')}"
+        )
     except httpx.HTTPError as error:
         images = None
         lines.extend([f"Images non rendues ({error_message(error)}) : se fier aux textes.", ""])

@@ -124,6 +124,7 @@ def test_create_refuses_an_unknown_name(mocker, tmp_path, fields, message):
 def test_dod_1_mockup_does_not_read_an_unusable_link(mocker, url, prefix):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     read = mocker.patch.object(mockup.figma, "read_frames")
     assert mockup.run(Namespace(url=url)).startswith(prefix)
     read.assert_not_called()
@@ -132,7 +133,8 @@ def test_dod_1_mockup_does_not_read_an_unusable_link(mocker, url, prefix):
 def test_dod_1_mockup_lists_frames_texts_and_images(mocker, tmp_path):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
-    mocker.patch.object(mockup, "images_folder", return_value=tmp_path)
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
+    mocker.patch.object(mockup, "conversation_folder", return_value=tmp_path)
     mocker.patch.object(
         mockup.figma, "read_frames", return_value=[Frame(id="2:2", name="Choix 1", texts=["Accepter"], width=100)]
     )
@@ -164,6 +166,7 @@ REQUEST = httpx.Request("GET", "https://api.figma.com")
 def test_dod_1_mockup_says_why_it_is_not_read(mocker, error, expected):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup.figma, "read_frames", side_effect=error)
     assert mockup.run(Namespace(url=FRAME_LINK)) == expected
 
@@ -171,6 +174,7 @@ def test_dod_1_mockup_says_why_it_is_not_read(mocker, error, expected):
 def test_dod_1_mockup_reports_a_missing_frame(mocker):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup.figma, "read_frames", return_value=[])
     assert mockup.run(Namespace(url=FRAME_LINK)).startswith("Cadre introuvable dans ce fichier Figma")
 
@@ -178,6 +182,7 @@ def test_dod_1_mockup_reports_a_missing_frame(mocker):
 def test_dod_1_mockup_keeps_the_texts_when_images_fail(mocker):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(
         mockup.figma, "read_frames", return_value=[Frame(id="2:2", name="Choix 1", texts=["Accepter"], width=100)]
     )
@@ -236,18 +241,25 @@ def call_main(mocker, script, *arguments):
 
 def test_create_without_argument_reads_and_consumes_the_conversation_draft(mocker, tmp_path):
     create, creation = setup_create(mocker)
-    path = tmp_path / "draft.json"
+    path = tmp_path / "ticket-draft.json"
     path.write_text(Path(draft(tmp_path)).read_text())
-    mocker.patch.object(create, "draft_path", return_value=path)
+    mocker.patch.object(create, "conversation_folder", return_value=tmp_path)
     assert create.run(Namespace(draft=None, go=True)).startswith("Ticket créé")
     assert not path.exists()
     creation.assert_called_once()
 
 
-def test_create_default_path_depends_on_the_conversation(mocker):
-    create = load("create")
-    mocker.patch.object(create.config, "agent_conversation_id", return_value="conv-1")
-    assert create.draft_path() == Path("/tmp/draft_ticket/conv-1/draft.json")
+def test_create_without_argument_or_conversation_refuses(mocker):
+    create, creation = setup_create(mocker)
+    mocker.patch.object(common.config, "agent_conversation_id", return_value=None)
+    with pytest.raises(ValueError, match="AUTOMETA_CONVERSATION_ID absent"):
+        create.run(Namespace(draft=None, go=True))
+    creation.assert_not_called()
+
+
+def test_conversation_folder_is_the_conversation_folder_under_tmp(mocker):
+    mocker.patch.object(common.config, "agent_conversation_id", return_value="conv-1")
+    assert common.conversation_folder() == Path("/tmp/conv-1")
 
 
 def test_create_deletes_the_draft_after_creation(mocker, tmp_path):
@@ -404,6 +416,7 @@ def test_dod_1_mockup_without_figma_token_says_so(mocker):
 def test_dod_1_mockup_does_not_claim_access_denied_on_a_500(mocker):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     error = httpx.HTTPStatusError("500", request=REQUEST, response=httpx.Response(500))
     mocker.patch.object(mockup.figma, "read_frames", side_effect=error)
     assert mockup.run(Namespace(url=FRAME_LINK)) == "Maquette non lue : Figma répond 500."
@@ -412,7 +425,8 @@ def test_dod_1_mockup_does_not_claim_access_denied_on_a_500(mocker):
 def test_dod_1_mockup_reports_frames_without_text_or_image(mocker, tmp_path):
     mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
-    mocker.patch.object(mockup, "images_folder", return_value=tmp_path)
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
+    mocker.patch.object(mockup, "conversation_folder", return_value=tmp_path)
     frames = [
         Frame(id="2:2", name="Vide", texts=[], width=100),
         Frame(id="2:3", name="Autre", texts=["Ok"], width=100),
@@ -575,3 +589,12 @@ def test_scripts_run_as_modules_from_the_repository_root(name):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("usage:")
+
+
+def test_dod_1_mockup_without_conversation_says_so(mocker):
+    mockup = load("mockup")
+    mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
+    mocker.patch.object(mockup.config, "agent_conversation_id", return_value=None)
+    read = mocker.patch.object(mockup.figma, "read_frames")
+    assert mockup.run(Namespace(url=FRAME_LINK)).startswith("AUTOMETA_CONVERSATION_ID absent")
+    read.assert_not_called()

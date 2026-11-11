@@ -3,6 +3,7 @@
 import argparse
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 
@@ -16,6 +17,14 @@ def check_config(directory: bool = False) -> str | None:
     if directory and not config.NOTION_ANNUAIRE_DB:
         return "NOTION_ANNUAIRE_DB absent : lecture de l'Annuaire impossible (variable d'environnement à renseigner)."
     return None
+
+
+def conversation_folder() -> Path:
+    """Dossier de travail de la conversation, sous /tmp."""
+    conversation = config.agent_conversation_id()
+    if not conversation:
+        raise ValueError("AUTOMETA_CONVERSATION_ID absent : dossier de la conversation inconnu")
+    return Path("/tmp") / conversation
 
 
 def run_cli(run: Callable[[argparse.Namespace], str], parser: argparse.ArgumentParser) -> None:
