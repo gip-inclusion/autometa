@@ -5,8 +5,11 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import AsyncIterator
 
 import sentry_sdk
@@ -27,6 +30,37 @@ tracer = trace.get_tracer(__name__)
 # un changement de format du status (les deux surfaces restent couplées au texte stdout du CLI).
 _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
+
+# Why: /tmp est partagé par toutes les conversations du conteneur — scripts réexécutés, fichiers écrasés,
+# exports jamais nettoyés. Chaque conversation reçoit son dossier, au chemin que citent AGENT.md et les skills.
+WORKDIR_ROOT = Path("/tmp")
+WORKDIR_MAX_AGE = timedelta(days=7)
+WORKDIR_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
+CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def conversation_workdir(conversation_id: str) -> Path | None:
+    """Le dossier de travail de la conversation, créé au besoin et réservé au compte du processus."""
+    if not WORKDIR_NAME_RE.fullmatch(conversation_id):
+        return None
+    workdir = WORKDIR_ROOT / conversation_id
+    workdir.mkdir(mode=0o700, exist_ok=True)
+    return workdir
+
+
+def prune_workdirs(now: float) -> None:
+    """Efface les dossiers de travail de conversation restés une semaine sans changement."""
+    for path in WORKDIR_ROOT.iterdir():
+        if not CONVERSATION_ID_RE.fullmatch(path.name):
+            continue
+        try:
+            idle = now - path.stat().st_mtime
+        except FileNotFoundError:
+            logger.debug("Dossier de travail déjà effacé : %s", path.name)
+            continue
+        if path.is_dir() and idle > WORKDIR_MAX_AGE.total_seconds():
+            shutil.rmtree(path, ignore_errors=True)
+
 
 API_DOWN_MESSAGE = (
     "L'API Anthropic est momentanément indisponible. "
@@ -94,7 +128,9 @@ class CLIBackend(AgentBackend):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
 
-    def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
+    def _build_env(
+        self, *, conversation_id: str | None = None, user_email: str | None = None, workdir: Path | None = None
+    ) -> dict:
         # Why: transmission de l'environnement complet au sous-processus, pas une lecture
         # de configuration — seul ANTHROPIC_API_KEY est retiré.
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}  # noqa: TID251
@@ -102,6 +138,8 @@ class CLIBackend(AgentBackend):
             env["AUTOMETA_CONVERSATION_ID"] = conversation_id
         if user_email:
             env["AUTOMETA_USER_EMAIL"] = user_email
+        if workdir:
+            env["TMPDIR"] = str(workdir)
         return env
 
     def _extra_cmd_args(self) -> list[str]:
@@ -218,6 +256,12 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
+        prune_workdirs(time.time())
+        workdir = conversation_workdir(conversation_id)
+        if workdir:
+            # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.
+            cmd.extend(["--append-system-prompt", f"Dossier de travail de cette conversation, déjà créé : {workdir}/"])
+
         cmd.extend(self._tool_permission_args())
 
         cmd.extend(self._extra_cmd_args())
@@ -231,7 +275,7 @@ class CLIBackend(AgentBackend):
             len(prompt),
         )
 
-        env = self._build_env(conversation_id=conversation_id, user_email=user_email)
+        env = self._build_env(conversation_id=conversation_id, user_email=user_email, workdir=workdir)
 
         with tracer.start_as_current_span(
             "agent.cli.process",

@@ -2,9 +2,12 @@
 
 import asyncio
 import json
+import os
+import time
 
 import pytest
 
+from web.agents import cli
 from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, signal_name, transient_api_error, usage_limit_reset
 
 
@@ -120,10 +123,48 @@ def test_build_prompt_formats_history_as_transcript():
 
 def test_build_env_strips_api_key_and_sets_context(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setenv("TMPDIR", "/srv/tmp")
     env = make_backend()._build_env(conversation_id="c1", user_email="a@b.c")
     assert "ANTHROPIC_API_KEY" not in env
     assert env["AUTOMETA_CONVERSATION_ID"] == "c1"
     assert env["AUTOMETA_USER_EMAIL"] == "a@b.c"
+    assert env["TMPDIR"] == "/srv/tmp", "sans dossier de conversation, TMPDIR reste celui du processus"
+
+
+def test_build_env_points_tmpdir_to_the_conversation_folder(tmp_path):
+    env = make_backend()._build_env(conversation_id="c1", workdir=tmp_path / "c1")
+    assert env["TMPDIR"] == str(tmp_path / "c1")
+
+
+@pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "x" * 81])
+def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation_id):
+    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path)
+    assert cli.conversation_workdir(conversation_id) is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_path):
+    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path)
+    workdir = cli.conversation_workdir("c1")
+    assert workdir == tmp_path / "c1"
+    assert workdir.stat().st_mode & 0o777 == 0o700
+
+
+UUID_A = "21e937fb-0000-4000-8000-000000000001"
+UUID_B = "21e937fb-0000-4000-8000-000000000002"
+
+
+def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
+    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path)
+    week_ago = time.time() - 8 * 24 * 3600
+    for name in (UUID_A, UUID_B, "pas-une-conversation"):
+        (tmp_path / name).mkdir()
+    for name in (UUID_A, "pas-une-conversation"):
+        os.utime(tmp_path / name, (week_ago, week_ago))
+
+    cli.prune_workdirs(time.time())
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([UUID_B, "pas-une-conversation"])
 
 
 def test_drain_stderr_keeps_tail_when_over_limit():
@@ -192,6 +233,8 @@ def stub_config(mocker, tmp_path):
     mocker.patch("web.agents.cli.build_system_prompt", return_value="")
     mocker.patch("web.agents.cli.config.ADDITIONAL_DIRS", [])
     mocker.patch("web.agents.cli.config.BASE_DIR", tmp_path)
+    (tmp_path / "tmp").mkdir()
+    mocker.patch.object(cli, "WORKDIR_ROOT", tmp_path / "tmp")
 
     def _install(body):
         mocker.patch("web.agents.cli.config.CLAUDE_CLI", make_stub_cli(tmp_path, body))
@@ -443,6 +486,22 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
 
     argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
+
+
+def test_the_agent_runs_with_its_own_folder_and_is_told_its_path(stub_config, tmp_path):
+    stub_config(
+        'printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\n'
+        'echo \'{"type": "result", "subtype": "success"}\''
+    )
+
+    collect_messages(make_backend(), conversation_id=UUID_A)
+
+    workdir = tmp_path / "tmp" / UUID_A
+    assert workdir.is_dir()
+    assert (tmp_path / "tmpdir.txt").read_text().strip() == str(workdir)
+    argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
+    appended = argv[argv.index("--append-system-prompt") + 1]
+    assert str(workdir) in appended
 
 
 MEMOIRE = {"limit": "536870912", "used": "536862720", "peak": "536870912", "oom_kill": "1"}
