@@ -33,6 +33,12 @@ function isMainSwap(e) {
 }
 
 // htmx navigation handler
+// Why: restored from the back-forward cache after creating a conversation, /explorations/new would keep its
+// send in progress and the id of the conversation it created.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && sending) window.location.reload();
+});
+
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
@@ -42,6 +48,10 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
 
   closeEventSource();
   currentConversationId = convId;
+  // Why: the composer is replaced by the swap, module state is not.
+  turnState = 'idle';
+  sending = false;
+  clearPendingFiles();
 
   initChat();
   initKnowledge();
@@ -115,6 +125,9 @@ function initChat() {
 
   // Skip on knowledge pages - they have their own chat handling
   if (document.getElementById('knowledgeContent')) return;
+
+  // Why: Firefox restores a button's disabled state across reloads.
+  renderComposer();
 
   // Check for conversation ID in URL (skip if already loaded by inline script)
   const urlParams = new URLSearchParams(window.location.search);
@@ -423,43 +436,34 @@ function updatePendingFilesUI() {
 }
 
 /**
- * Upload pending files to the conversation
+ * Upload pending files to a conversation
  * Returns array of context messages for the uploaded files
  */
-async function uploadPendingFiles() {
-  if (pendingFiles.length === 0) return [];
-  if (!currentConversationId) return [];
+async function uploadPendingFiles(convId) {
+  if (!isValidConversationId(convId)) return [];
 
+  const files = pendingFiles;
+  pendingFiles = [];
   const contextMessages = [];
 
-  if (!isValidConversationId(currentConversationId)) return [];
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file);
 
-  for (const file of pendingFiles) {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`/api/conversations/${currentConversationId}/files`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        showError(`Erreur upload ${file.name}: ${err.error || 'Échec'}`);
-        continue;
-      }
-
+      const response = await fetch(`/api/conversations/${convId}/files`, { method: 'POST', body: formData });
       const data = await response.json();
-      contextMessages.push(data.context_message);
+      if (response.ok) {
+        contextMessages.push(data.context_message);
+      } else {
+        showError(`Erreur upload ${file.name}: ${data.error || 'Échec'}`);
+      }
     } catch (error) {
       console.error(`Failed to upload ${file.name}:`, error);
       showError(`Erreur upload ${file.name}`);
     }
   }
 
-  // Clear pending files
-  pendingFiles = [];
   updatePendingFilesUI();
 
   return contextMessages;

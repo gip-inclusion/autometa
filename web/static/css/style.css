@@ -560,6 +560,23 @@ body.has-sidebar {
   background: #c82333;
 }
 
+.chat-bar-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.chat-send-btn:disabled {
+  background: #adb5bd;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.chat-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 /* Pending files: top section of the rounded rect */
 .chat-pending-files {
   display: none;
