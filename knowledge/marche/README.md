@@ -31,6 +31,7 @@ Types de comptes (`users_user.kind`) : `BUYER`, `SIAE`, `PARTNER` (facilitateurs
 |---|---|
 | `tenders_tender` | Besoins d'achat |
 | `tenders_tendersiae` | Une ligne par couple besoin × structure ciblée : l'entonnoir de diffusion |
+| `tenders_tender_perimeters`, `perimeters_perimeter` | Périmètres ciblés par chaque besoin ; lieux (`kind` : `CITY`, `DEPARTMENT`, `REGION` ; `insee_code`, `department_code`, `region_code`) |
 | `tenders_tenderquestion`, `tenders_questionanswer` | Questions de l'acheteur, réponses des structures |
 | `tenders_tenderstepsdata` | Parcours du formulaire en étapes **abandonnés** (la ligne est supprimée quand le dépôt aboutit ; aucun lien vers `tenders_tender`) |
 | `tenders_partnersharetender` | Partenaires destinataires des besoins |
@@ -50,6 +51,30 @@ Types de comptes (`users_user.kind`) : `BUYER`, `SIAE`, `PARTNER` (facilitateurs
 - **Diffusion** : par lots, en semaine en journée, quelques minutes après la validation.
 - **Dates** : `published_at` et `validated_at` sont **écrasés** à chaque nouvelle soumission ou validation. L'historique fiable des transitions est le champ JSON `logs` (actions `validate`, `send`, `reject`, demandes de modification, relances).
 - **Compteurs** `siae_*_count` : recalculés seulement jusqu'à un mois après l'échéance, puis figés. Recompter depuis `tenders_tendersiae`.
+
+## Ciblage géographique d'un besoin
+
+Le Marché choisit les structures destinataires selon le premier cas qui s'applique :
+
+| Cas | Champs de `tenders_tender` | Structures ciblées | Besoins diffusés en 2026 |
+|---|---|---|---|
+| 1. France entière | `is_country_area` | Seulement celles dont la zone d'intervention est la France entière | 12 |
+| 2. Rayon | `location_id` est une ville et `distance_location` > 0 (en km) | Celles dont l'adresse est dans le rayon ; **les périmètres sont ignorés** | 20 (rayon médian : 60 km) |
+| 3. Périmètres | au moins une ligne dans `tenders_tender_perimeters` | Celles dont la zone d'intervention couvre un des périmètres (ou son département, sa région), ou dont l'adresse s'y trouve ; sans les structures « France entière » | 242 |
+| 4. Aucun ciblage | rien de ce qui précède | **Aucun filtre géographique** : tout le pays | 46 |
+
+`include_country_area` ajoute les structures « France entière » aux cas 2 et 3 ; seul, il ne cible qu'elles (5 besoins en 2026).
+
+Volumes : besoins `SENT` hors API créés en 2026, base du Marché au 11/11/2026.
+
+- **Un besoin sans périmètre n'est pas « national »** : il peut viser un rayon autour d'une ville (cas 2) ou n'avoir aucun filtre (cas 4, structures de 61 départements en médiane). « France entière » (cas 1) est plus étroit que l'absence de filtre.
+- **Le lieu d'intervention (`location_id`) ne sert au ciblage qu'avec une distance.** Au dépôt, il est recopié dans les périmètres ; l'équipe peut ensuite modifier l'un sans l'autre.
+- **Un rayon déborde** sur les départements voisins : un besoin ciblé dans un rayon autour d'une ville n'est pas réservé au département de cette ville.
+- **La géographie d'un besoin n'est pas celle des structures touchées** : un besoin ciblé par périmètres atteint des structures de 7 départements en médiane, dont la zone d'intervention couvre le périmètre. Pour savoir où un besoin a réellement été diffusé, passer par `tenders_tendersiae` → `siaes_siae`.
+
+## Localisation des acheteurs
+
+Les comptes acheteurs n'ont **aucune localisation** : ni adresse, ni code postal, ni département dans `users_user` ou `companies_company`, et le SIRET des entreprises n'est jamais renseigné (0 sur 1 493 au 11/11/2026). Seule approximation en base : le lieu des besoins que l'acheteur a déposés, connu pour 506 des 8 460 comptes acheteurs actifs. Une liste d'acheteurs par territoire ne peut donc pas sortir de la base : le dire, et proposer le nom de l'organisation (`companies_company.name`, `users_user.company_name`) comme indice à vérifier hors base.
 
 ## Entonnoir côté structures (`tenders_tendersiae`)
 
