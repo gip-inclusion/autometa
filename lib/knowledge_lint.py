@@ -61,8 +61,7 @@ class Site:
 
 def documents(root: Path) -> list[Path]:
     """Ce que l'agent lit comme consigne ou connaissance."""
-    # Why: le skill pdf est un skill tiers sous licence propriétaire, recopié tel quel — on ne le corrige pas.
-    skills = [p for p in sorted(root.glob("skills/*/SKILL.md")) if p.parent.name != "pdf"]
+    skills = sorted(root.glob("skills/*/SKILL.md"))
     return (
         [root / name for name in ("AGENT.md", "CLAUDE.md") if (root / name).is_file()] + skills + knowledge_files(root)
     )

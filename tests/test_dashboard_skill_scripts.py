@@ -1,7 +1,8 @@
-"""Les scripts des skills create_dashboard et update_dashboard : options des déclinaisons."""
+"""Les scripts des skills de tableaux de bord : options des déclinaisons, liste des publications."""
 
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -108,8 +109,6 @@ def test_dod_12_a_duplicate_key_is_refused_before_any_declaration(runtime, monke
 
 def test_dod_9_create_dashboard_multi_source_flag(runtime, monkeypatch, mocker, capsys):
     cli = _load("create_dashboard")
-    from datetime import datetime, timezone
-
     dashboard = mocker.Mock(
         slug="multi",
         first_author_email="bob@x",
@@ -246,3 +245,20 @@ def test_dod_4_publish_dashboard_refresh_reports_the_sync(monkeypatch, mocker, c
     refresh.assert_called_once_with("live01")
     out, err = capsys.readouterr()
     assert (json.loads(out) == {"refreshed": "live01"}) if code == 0 else ("live01" in err)
+
+
+def test_list_serializes_every_date_of_a_refreshed_publication(monkeypatch, mocker, capsys):
+    cli = _load("publish_dashboard")
+    refreshed = datetime(2026, 10, 12, 6, 0, tzinfo=timezone.utc)
+    mocker.patch.object(
+        cli.publications,
+        "list_publications",
+        return_value=[
+            {"id": 1, "published_at": refreshed, "last_successful_refresh_at": refreshed, "unpublished_at": None}
+        ],
+    )
+    monkeypatch.setattr("sys.argv", ["x", "list", "--slug", "tdb"])
+
+    assert cli.main() == 0
+    [row] = json.loads(capsys.readouterr().out)
+    assert row["last_successful_refresh_at"] == "2026-10-12T06:00:00+00:00"
