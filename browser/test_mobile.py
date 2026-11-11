@@ -83,3 +83,16 @@ def test_nothing_sticks_out_sideways_on_a_small_phone(conversation: str, ask: Ca
     for path, selector in OTHER_PAGES.items():
         page.goto(path, wait_until="domcontentloaded")
         assert right_edge(page, selector) <= 320, path
+
+
+@pytest.mark.parametrize("viewport", [PHONE, {"width": 844, "height": 390}], ids=["portrait", "paysage"])
+def test_text_fields_are_large_enough_for_ios_not_to_zoom(conversation: str, page: Page, base_url: str, viewport: dict):
+    touch = page.context.browser.new_page(base_url=base_url, viewport=viewport, is_mobile=True, has_touch=True)
+    touch.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+
+    sizes = touch.locator("input[type=text], textarea, select").evaluate_all(
+        "fields => fields.map((field) => parseFloat(getComputedStyle(field).fontSize))"
+    )
+    assert len(sizes) >= 3
+    assert min(sizes) >= 16
+    touch.close()
