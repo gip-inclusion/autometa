@@ -799,6 +799,16 @@ def test_cron_alert_fires_only_on_status_change(mocker, status, previous, should
     assert notify.called == should_notify
 
 
+def test_a_cron_failure_alert_carries_no_secret(mocker):
+    notify = mocker.patch("web.cron.alerts.notify_alert_channel")
+    dsn = "postgresql://lecteur:motdepasse-factice-42@base.example/prod"  # gitleaks:allow
+
+    notify_cron_status_change("my-app", "failure", None, f"OperationalError: connexion refusée à {dsn}")
+
+    assert "postgresql://***@base.example/prod" in notify.call_args.args[0]
+    assert "motdepasse-factice-42" not in notify.call_args.args[0]
+
+
 @pytest.mark.parametrize(
     ("status", "previous", "should_notify"),
     [
