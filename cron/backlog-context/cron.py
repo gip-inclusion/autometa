@@ -1,4 +1,4 @@
-"""Range chaque jour le contexte des équipes du backlog pour la rédaction de tickets. Périodique."""
+"""Range le contexte du backlog pour la rédaction de tickets. Périodique."""
 
 from lib.backlog_storage import main
 from web.cron_task import run

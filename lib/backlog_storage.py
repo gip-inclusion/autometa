@@ -1,4 +1,4 @@
-"""Contexte des équipes du backlog, rangé dans dashboard_storage et rafraîchi chaque jour."""
+"""Contexte du backlog, rangé dans dashboard_storage et rafraîchi périodiquement."""
 
 import logging
 from datetime import UTC, datetime, timedelta
@@ -79,7 +79,7 @@ def current_context() -> dict:
 
 
 def main() -> None:
-    """Point d'entrée du cron quotidien."""
+    """Point d'entrée du cron."""
     if not config.NOTION_BACKLOG_DB:
         logger.warning("NOTION_BACKLOG_DB absent : contexte du backlog non rafraîchi")
         return
