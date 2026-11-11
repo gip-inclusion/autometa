@@ -300,6 +300,11 @@ EMBEDDING_BATCH_SIZE = int(os.environ.get("EMBEDDING_BATCH_SIZE", "32"))
 EMBEDDING_CRON_LIMIT = int(os.environ.get("EMBEDDING_CRON_LIMIT", "1000"))
 
 
+# Why: /tmp est partagé par toutes les conversations du conteneur : chacune y a son dossier de travail, créé par
+# web/agents/cli.py. Fixe, et non tempfile.gettempdir() : dans l'agent, TMPDIR pointe déjà sur ce dossier.
+WORKDIR_ROOT = Path("/tmp")
+
+
 def agent_conversation_id() -> str | None:
     """Conversation id injected by web/agents/cli.py:_build_env() into the agent subprocess."""
     return os.getenv("AUTOMETA_CONVERSATION_ID")
