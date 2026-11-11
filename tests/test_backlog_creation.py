@@ -212,16 +212,14 @@ def test_dod_4_check_body_accepts_http_links_and_short_lines():
     )
 
 
-def test_dod_4_create_ticket_refuses_a_body_over_100_blocks(mocker):
-    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
-    mocker.patch.object(creation, "check_relations")
-    mocker.patch.object(creation, "autometa_emoji", return_value=None)
-    mocker.patch("lib.notion.query_database", return_value=[])
-    mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraph(str(i)) for i in range(101)])
-    call = mocker.patch("lib.notion.notion_request")
-    with pytest.raises(ValueError, match="Ticket trop long"):
-        creation.create_ticket(ticket())
-    call.assert_not_called()
+@pytest.mark.parametrize(("count", "refused"), [(99, False), (100, True)])
+def test_dod_4_check_body_keeps_room_for_the_marker_under_100_blocks(count, refused):
+    body = "\n\n".join(f"Paragraphe {i}" for i in range(count))
+    if refused:
+        with pytest.raises(ValueError, match="Ticket trop long : 100 blocs, 99 au plus"):
+            creation.check_body(ticket(body=body))
+    else:
+        creation.check_body(ticket(body=body))
 
 
 def test_dod_4_create_ticket_sends_a_single_creation(mocker):
@@ -261,16 +259,6 @@ def test_prepare_returns_the_real_payload_with_the_marker_without_writing(mocker
     assert payload["parent"] == {"database_id": "backlog"}
     assert payload["properties"]["Nom"]["title"][0]["text"]["content"] == "Masquer les candidatures anciennes"
     assert payload["children"][0]["paragraph"]["rich_text"][0] == MENTION
-
-
-def test_prepare_refuses_a_body_over_100_blocks(mocker):
-    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
-    mocker.patch.object(creation, "check_relations")
-    mocker.patch.object(creation, "autometa_emoji", return_value=None)
-    mocker.patch("lib.notion.query_database", return_value=[])
-    mocker.patch("lib.notion.markdown_to_blocks", return_value=[paragraph(str(i)) for i in range(101)])
-    with pytest.raises(ValueError, match="Ticket trop long"):
-        creation.prepare(ticket())
 
 
 def test_prepare_refuses_a_recent_ticket_with_the_same_title(mocker):

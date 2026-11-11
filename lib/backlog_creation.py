@@ -64,8 +64,10 @@ def check_body(ticket: Ticket) -> None:
     if first_line.startswith("# "):
         raise ValueError("Corps refusé : le titre ne va pas dans le corps")
     blocks = notion.markdown_to_blocks(ticket.body)
-    if len(blocks) > MAX_BLOCKS:
-        raise ValueError(f"Ticket trop long : {len(blocks)} blocs, {MAX_BLOCKS} au plus")
+    # Why: au-delà de 100 blocs il faudrait un second appel, et un échec laisserait un ticket écrit à moitié ;
+    # le marqueur peut ajouter un paragraphe.
+    if len(blocks) >= MAX_BLOCKS:
+        raise ValueError(f"Ticket trop long : {len(blocks)} blocs, {MAX_BLOCKS - 1} au plus")
     for block in blocks:
         for chunk in block[block["type"]].get("rich_text", []):
             if len(chunk.get("text", {}).get("content", "")) >= MAX_TEXT_LENGTH:
@@ -157,9 +159,6 @@ def prepare(ticket: Ticket) -> dict:
             "Corriger dans Notion plutôt que relancer --go."
         )
     blocks = place_marker(notion.markdown_to_blocks(ticket.body), autometa_emoji())
-    # Why: au-delà de 100 blocs il faudrait un second appel, et un échec laisserait un ticket écrit à moitié.
-    if len(blocks) > MAX_BLOCKS:
-        raise ValueError(f"Ticket trop long : {len(blocks)} blocs, {MAX_BLOCKS} au plus")
     return {"parent": {"database_id": config.NOTION_BACKLOG_DB}, "properties": props, "children": blocks}
 
 
