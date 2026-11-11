@@ -120,3 +120,16 @@ def test_option_button_appends_to_the_draft(conversation: str, ask: Callable[[st
     option.click()
 
     expect(draft).to_have_value("Brouillon\n\nJe confirme")
+
+
+def test_composer_buttons_stack_on_a_phone(conversation: str, ask: Callable[[str], None], page: Page):
+    page.set_viewport_size({"width": 375, "height": 667})
+    ask("[hang] tour sans fin")
+    expect(page.locator("#chatCancelBtn")).to_be_visible()
+
+    buttons = ("chatFlagBtn", "chatSendBtn", "chatCancelBtn")
+    flag, send, stop = (page.locator(f"#{name}").bounding_box() for name in buttons)
+    assert flag["x"] == send["x"] == stop["x"]
+    assert flag["y"] < send["y"] < stop["y"]
+    assert page.locator("#chatInput").bounding_box()["width"] > 220
+    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
