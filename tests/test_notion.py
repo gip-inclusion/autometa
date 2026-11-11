@@ -363,6 +363,30 @@ def test_query_database_paginates(mocker):
 
 
 @pytest.mark.parametrize(
+    ("limit", "pages", "calls", "expected"),
+    [
+        (15, [["a", "b"]], 1, ["a", "b"]),
+        (3, [["a", "b"], ["c", "d"], ["e"]], 2, ["a", "b", "c"]),
+        (150, [["a"] * 100, ["b"] * 100, ["c"]], 2, ["a"] * 100 + ["b"] * 50),
+    ],
+)
+def test_query_database_stops_at_the_limit(mocker, limit, pages, calls, expected):
+    from lib import notion
+
+    req = mocker.patch(
+        "lib.notion.notion_request",
+        side_effect=[
+            {"results": [{"id": i} for i in ids], "has_more": n < len(pages) - 1, "next_cursor": "c"}
+            for n, ids in enumerate(pages)
+        ],
+    )
+
+    assert [p["id"] for p in notion.query_database("db1", limit=limit)] == expected
+    assert req.call_count == calls
+    assert req.call_args_list[0].args[2]["page_size"] == min(limit, 100)
+
+
+@pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
         ({}, {"page_size": 100}),

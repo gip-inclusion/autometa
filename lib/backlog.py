@@ -116,22 +116,24 @@ def active_epics(epics_database: str) -> list[dict]:
     )
 
 
-def recent_titles(team_id: str, count: int) -> list[str]:
-    """Titres non vides des tickets non annulés les plus récents d'une équipe."""
+def recent_titles(team_id: str) -> list[str]:
+    """Titres des 15 tickets non annulés et titrés les plus récents d'une équipe."""
     pages = notion.query_database(
         config.NOTION_BACKLOG_DB,
         filter={
             "and": [
                 {"property": "Pizza team", "relation": {"contains": team_id}},
                 {"property": "Statut", "select": {"does_not_equal": "Annulé"}},
+                {"property": "Nom", "title": {"is_not_empty": True}},
             ]
         },
         sorts=[{"timestamp": "created_time", "direction": "descending"}],
+        limit=15,
     )
-    return [t for t in (title(p) for p in pages) if t][:count]
+    return [title(p) for p in pages]
 
 
-def load_context(per_team: int = 15) -> dict:
+def load_context() -> dict:
     """Statuts et types du backlog, équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
     schema = backlog_schema()
     teams = active_teams(schema["teams"])
@@ -147,7 +149,7 @@ def load_context(per_team: int = 15) -> dict:
                 "epics": [
                     {"id": e["id"], "name": title(e)} for e in epics if team["id"] in relation_ids(e, "Pizza team")
                 ],
-                "recent_titles": recent_titles(team["id"], per_team),
+                "recent_titles": recent_titles(team["id"]),
             }
             for team in teams
         ],

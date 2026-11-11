@@ -24,12 +24,12 @@ def response(*pages, cursor=None):
     return {"results": list(pages), "has_more": cursor is not None, "next_cursor": cursor}
 
 
-def test_recent_titles_reads_through_query_database_and_cuts_to_the_count(mocker):
-    query = mocker.patch(
-        "lib.notion.query_database", return_value=[page("a", "A"), page("b", ""), page("c", "C"), page("d", "D")]
-    )
-    assert backlog.recent_titles("e1", 2) == ["A", "C"]
+def test_recent_titles_asks_notion_for_the_15_latest_titled_tickets(mocker):
+    query = mocker.patch("lib.notion.query_database", return_value=[page("a", "A "), page("c", "C")])
+    assert backlog.recent_titles("e1") == ["A", "C"]
+    assert query.call_args.kwargs["limit"] == 15
     assert query.call_args.kwargs["sorts"] == [{"timestamp": "created_time", "direction": "descending"}]
+    assert {"property": "Nom", "title": {"is_not_empty": True}} in query.call_args.kwargs["filter"]["and"]
 
 
 def test_find_author_keeps_only_the_first_record(mocker):
@@ -53,7 +53,7 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
     payloads = {}
     tickets = {
         "e1": response(page("t1", "Modale DORA")),
-        "e2": response(page("t3", ""), page("t2", "Fiche salarié")),
+        "e2": response(page("t2", "Fiche salarié")),
     }
 
     epic_status = {
