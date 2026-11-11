@@ -12,12 +12,8 @@ from web import config
 
 logger = logging.getLogger(__name__)
 
-API = "https://api.figma.com/v1"
 # Why: Figma met plusieurs secondes à sérialiser un gros nœud ou à rendre un cadre, au-delà du délai par défaut de 5 s.
 TIMEOUT = 30
-MAX_WIDTH = 1600
-FRAME_TYPES = {"FRAME", "SECTION", "COMPONENT", "COMPONENT_SET"}
-SCREEN_TYPES = {"FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"}
 LINK = re.compile(
     r"/(?:design|file|board|proto)/(?P<key>[0-9A-Za-z]{22,128})"
     r"(?:(?:/[^/]*)?/branch/(?P<branch>[0-9A-Za-z]{22,128}))?"
@@ -66,16 +62,20 @@ def visible_texts(node: dict) -> list[str]:
 
 def pick_frames(node: dict) -> list[dict]:
     """Le nœud s'il est un écran, sinon ses cadres enfants visibles."""
-    if node.get("type") in SCREEN_TYPES:
+    if node.get("type") in {"FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"}:
         return [node]
-    children = [e for e in node.get("children", []) if e.get("type") in FRAME_TYPES and e.get("visible") is not False]
+    children = [
+        e
+        for e in node.get("children", [])
+        if e.get("type") in {"FRAME", "SECTION", "COMPONENT", "COMPONENT_SET"} and e.get("visible") is not False
+    ]
     return children or [node]
 
 
 def call_api(path: str, params: dict | None = None) -> dict:
     """GET sur l'API Figma avec le jeton de plan."""
     response = httpx.get(
-        f"{API}/{path}",
+        f"https://api.figma.com/v1/{path}",
         params=params,
         headers={"X-Figma-Token": config.FIGMA_ACCESS_TOKEN or ""},
         timeout=TIMEOUT,
@@ -103,9 +103,10 @@ def read_frames(link: FigmaLink) -> list[Frame]:
 
 
 def export_images(link: FigmaLink, frames: list[Frame], folder: Path) -> dict[str, Path]:
-    """Une image PNG par cadre, réduite à MAX_WIDTH pixels, rangée par identifiant de cadre."""
+    """Une image PNG par cadre, réduite à 1 600 pixels de large, rangée par identifiant de cadre."""
     folder.mkdir(parents=True, exist_ok=True)
-    scales = {c.id: max(0.01, round(min(1.0, MAX_WIDTH / c.width), 3)) if c.width else 1.0 for c in frames}
+    # Why: 1 600 pixels de large au plus, décision 4 de paved-road/rediger-ticket/definition-of-done.md.
+    scales = {c.id: max(0.01, round(min(1.0, 1600 / c.width), 3)) if c.width else 1.0 for c in frames}
     urls = {}
     for scale in sorted(set(scales.values())):
         ids = [i for i, e in scales.items() if e == scale]

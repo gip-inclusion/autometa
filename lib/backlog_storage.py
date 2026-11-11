@@ -48,10 +48,8 @@ def save_context(context: dict) -> None:
         conn.execute(statement)
 
 
-# Why: le cron tourne chaque jour ; 24 h strictes laisseraient un trou chaque nuit, et un cron en échec
-# renverrait toutes les conversations vers Notion.
-def read_context(max_age: timedelta = timedelta(hours=30)) -> dict | None:
-    """Le contexte rangé s'il a moins de max_age, sinon None."""
+def read_context() -> dict | None:
+    """Le contexte rangé s'il a moins de 30 heures, sinon None."""
     try:
         with get_engine().connect() as conn:
             row = conn.execute(
@@ -64,7 +62,9 @@ def read_context(max_age: timedelta = timedelta(hours=30)) -> dict | None:
         if error.orig.pgcode != "42P01":
             raise
         return None
-    if row is None or datetime.now(UTC) - row.generated_at > max_age:
+    # Why: le cron tourne chaque jour ; 24 h strictes laisseraient un trou chaque nuit, et un cron en échec
+    # renverrait toutes les conversations vers Notion.
+    if row is None or datetime.now(UTC) - row.generated_at > timedelta(hours=30):
         return None
     return row.content
 

@@ -76,11 +76,10 @@ class TestStorage:
         ("offset", "expected_present"),
         [(timedelta(minutes=-1), True), (timedelta(minutes=1), False)],
     )
-    def test_dod_2_freshness_around_the_limit(self, offset, expected_present):
-        max_age = timedelta(hours=30)
-        ctx = context(max_age + offset)
+    def test_dod_2_freshness_around_30_hours(self, offset, expected_present):
+        ctx = context(timedelta(hours=30) + offset)
         backlog_storage.save_context(ctx)
-        assert (backlog_storage.read_context(max_age) == ctx) is expected_present
+        assert (backlog_storage.read_context() == ctx) is expected_present
 
     def test_an_older_load_does_not_overwrite_a_newer_one(self):
         recent = context(timedelta(hours=1), [{"id": "recent"}])
@@ -88,10 +87,3 @@ class TestStorage:
         backlog_storage.save_context(recent)
         backlog_storage.save_context(older)
         assert backlog_storage.read_context() == recent
-
-
-def test_read_context_serves_a_25_hour_old_context_by_default(mocker):
-    row = mocker.Mock(content={"teams": []}, generated_at=datetime.now(UTC) - timedelta(hours=25))
-    engine = mocker.patch.object(backlog_storage, "get_engine")
-    engine.return_value.connect.return_value.__enter__.return_value.execute.return_value.first.return_value = row
-    assert backlog_storage.read_context() == {"teams": []}

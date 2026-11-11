@@ -185,17 +185,17 @@ def normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text.replace("’", "'")).encode("ascii", "ignore").decode().lower()
 
 
-def keywords(text: str, maximum: int = 8) -> list[str]:
+def keywords(text: str) -> list[str]:
     """Mots porteurs de sens d'un titre, sans doublon."""
     words: list[str] = []
     text = re.sub(r"^\s*\[[^\]]*\]\s*", "", text)
     for word in re.findall(r"[^\W\d_][\w-]{3,}", text):
         if normalize(word) not in STOP_WORDS and normalize(word) not in {normalize(m) for m in words}:
             words.append(word)
-    return words[:maximum]
+    return words[:8]
 
 
-def find_duplicates(text: str, limit: int = 5) -> list[dict]:
+def find_duplicates(text: str) -> list[dict]:
     """Tickets non annulés dont le titre partage au moins la moitié des mots-clés de text (et deux), les plus proches d'abord."""
     words = keywords(text)
     if len(words) < 2:
@@ -221,7 +221,7 @@ def find_duplicates(text: str, limit: int = 5) -> list[dict]:
             "status": (p["properties"].get("Statut", {}).get("select") or {}).get("name", ""),
             "shared": shared,
         }
-        for shared, p in scores[:limit]
+        for shared, p in scores[:5]
         if shared >= threshold
     ]
 

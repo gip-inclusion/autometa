@@ -13,8 +13,6 @@ logger = logging.getLogger(__name__)
 MARKER = ":autometa:"
 MAX_TEXT_LENGTH = 2000
 MAX_BLOCKS = 100
-HEADINGS = ("heading_1", "heading_2", "heading_3")
-AUTHOR_FIELDS = ("POM", "UX", "Développeurs", "Contributeurs")
 
 
 @dataclass(frozen=True)
@@ -52,7 +50,7 @@ def build_properties(ticket: Ticket, schema: dict) -> dict:
     if ticket.epic:
         props["Epic - feuille de route"] = {"relation": [{"id": ticket.epic}]}
     if ticket.author_field and ticket.author_notion_id:
-        if ticket.author_field not in AUTHOR_FIELDS:
+        if ticket.author_field not in ("POM", "UX", "Développeurs", "Contributeurs"):
             raise ValueError(f"Champ d'auteur inconnu : {ticket.author_field}")
         props[ticket.author_field] = {"people": [{"id": ticket.author_notion_id}]}
     return props
@@ -106,7 +104,7 @@ def place_marker(blocks: list[dict], emoji_id: str | None) -> list[dict]:
     )
     space = {"type": "text", "text": {"content": " "}}
     # Why: le marqueur ouvre le ticket ; un paragraphe plus loin (« Version A » sous Attendu) ne doit pas le porter.
-    index = 1 if blocks and blocks[0].get("type") in HEADINGS else 0
+    index = 1 if blocks and blocks[0].get("type") in ("heading_1", "heading_2", "heading_3") else 0
     first = blocks[index] if index < len(blocks) and blocks[index].get("type") == "paragraph" else None
     if first is None:
         blocks.insert(0, {"type": "paragraph", "paragraph": {"rich_text": [marker]}})

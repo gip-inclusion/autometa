@@ -12,13 +12,12 @@ from skills.draft_ticket.scripts.common import check_config, conversation_folder
 from web import config
 
 LIST_FIELDS = ("teams", "types")
-TEXT_FIELDS = ("title", "body", "status")
 
 
 def check_fields(draft: dict) -> None:
     if not isinstance(draft, dict):
         raise ValueError("Le brouillon doit être un objet JSON")
-    for field in (*TEXT_FIELDS, *LIST_FIELDS):
+    for field in ("title", "body", "status", *LIST_FIELDS):
         if not draft.get(field):
             raise ValueError(f"Champ manquant dans le brouillon : {field}")
     for field in LIST_FIELDS:
@@ -30,7 +29,8 @@ def opening(blocks: list[dict]) -> str:
     """Texte brut du premier paragraphe, le marqueur Autometa compris."""
     first = next(b for b in blocks if b["type"] == "paragraph")
     return "".join(
-        ":autometa:" if t["type"] == "mention" else t["text"]["content"] for t in first["paragraph"]["rich_text"]
+        backlog_creation.MARKER if t["type"] == "mention" else t["text"]["content"]
+        for t in first["paragraph"]["rich_text"]
     )
 
 
