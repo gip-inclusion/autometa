@@ -510,6 +510,8 @@ def reject(delivery_id: int, rejected_by: str) -> None:
         if row is None or row.status != "pending_review":
             raise DeliveryNotPending(delivery_id, row and row.status, "pending_review")
         row.status, row.error = "rejected", f"refusé à la relecture par {rejected_by}"
+        rejected = row.id
+    logger.info("agent envoi %d refusé à la relecture", rejected)
 
 
 def summary(session: Session, run_id: str, calls: dict[int, int]) -> list[dict]:

@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from sqlalchemy import select
 
@@ -134,6 +136,14 @@ def test_rejecting_writes_nothing_and_records_who(client, post):
     row = delivery(delivery_id)
     assert (row["status"], row["error"], row["approved_by"]) == ("rejected", f"refusé à la relecture par {OWNER}", None)
     post.assert_not_called()
+
+
+def test_a_rejection_is_logged_from_the_stored_row_never_from_the_request(client, post, caplog):
+    caplog.set_level(logging.INFO)
+    delivery_id = make_delivery()
+    decide(client, delivery_id, "reject")
+    logged = [(r.name, r.msg, r.args) for r in caplog.records if "refusé à la relecture" in r.msg]
+    assert logged == [("lib.agent_delivery", "agent envoi %d refusé à la relecture", (delivery_id,))]
 
 
 @pytest.mark.parametrize("decision", ["approve", "reject"])
