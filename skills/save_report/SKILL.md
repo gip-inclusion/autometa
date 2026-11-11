@@ -9,7 +9,7 @@ Create, update, or append reports to the PostgreSQL database.
 
 ## Recommended: CLI with File (avoids escaping issues)
 
-**Step 1:** Write report content to a file using the Write tool:
+**Step 1:** Write report content to a file using the Write tool, with the expanded path (`echo "/tmp/$AUTOMETA_CONVERSATION_ID"`, after `mkdir -p` on it):
 
 ```markdown
 # /tmp/$AUTOMETA_CONVERSATION_ID/report.md
