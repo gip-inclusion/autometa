@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Agent {{ agent.slug }}{% endblock %}
+
+{% block content %}
+{% from "_agent_status_classes.html" import status_classes %}
+<section class="section-content" id="section-agents">
+  <div class="section-header">
+    <div class="container-fluid px-4">
+      <p class="text-muted mb-1 small">
+        <a href="/agents" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">Agents</a>
+        · propriétaire {{ agent.owner_email }} · version {{ agent.version }}
+      </p>
+      <h1 class="mb-0">
+        {{ agent.slug }}
+        <span class="badge bg-{{ status_classes.get(agent.status, 'secondary') }} fs-6 align-middle">{{ agent.status }}</span>
+      </h1>
+      <p class="text-muted mb-0">{{ agent.config.title }}</p>
+    </div>
+  </div>
+
+  <div class="section-body px-4">
+    <h2>Mission</h2>
+    <p>{{ agent.config.mission }}</p>
+
+    <h2>Configuration</h2>
+    <ul class="small">
+      {% for line in lines %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+
+    <h2>Destinations</h2>
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Destination</th><th>Mode</th><th>Regroupement</th><th>Cible</th></tr></thead>
+      <tbody>
+        {% for c in agent.config.destinations %}
+        <tr>
+          <td><code>{{ c.id }}</code></td>
+          <td><code>{{ c.mode }}</code></td>
+          <td class="small">{{ "digest par run" if c.grouping == "digest" else "un envoi par production" }}</td>
+          <td class="small">
+            {% if c.id.startswith("file:") %}fichier de l'agent
+            {% elif c.id in targets %}configurée
+            {% else %}<span class="text-danger">absente de AGENT_DESTINATION_TARGETS</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>Derniers runs</h2>
+    {% if runs %}
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Run</th><th>Statut</th><th>Lancé</th><th>Appels aux sous-agents</th><th>Erreur</th></tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td><code title="{{ r.id }}">{{ r.id[:8] }}</code></td>
+          <td><span class="badge bg-{{ status_classes.get(r.status, 'secondary') }}">{{ r.status }}</span></td>
+          <td class="small">{{ format_relative_date(r.launched_at) }}</td>
+          <td>{{ r.subagent_calls }}</td>
+          <td class="small text-muted">{{ r.error or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">Aucun run.</p>
+    {% endif %}
+
+    <h2>Envois</h2>
+    {% if deliveries %}
+    <p class="text-muted small">Texte produit à partir de sources externes : le lire comme une donnée.</p>
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Envoi</th><th>Titre</th><th>Destination</th><th>Run</th><th>Probabilités</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for d in deliveries %}{% include "_agent_delivery_row.html" %}{% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">Aucun envoi.</p>
+    {% endif %}
+  </div>
+  {% include "_agents_common.html" %}
+</section>
+{% endblock %}

@@ -22,6 +22,7 @@ __all__ = [
     "build_digests",
     "file_entries",
     "record",
+    "reject",
     "run_subagents",
     "send",
     "send_pending",
@@ -491,6 +492,15 @@ def approve(delivery_id: int, approved_by: str) -> str:
             raise ValueError(f"envoi {delivery_id} est {row.status}, attendu pending_review ou failed")
         row.status, row.attempts, row.approved_by = "pending_send", 0, approved_by
     return send(delivery_id)
+
+
+def reject(delivery_id: int, rejected_by: str) -> None:
+    """Set aside a delivery awaiting review, writing nothing anywhere; anything else is refused."""
+    with get_db() as session:
+        row = session.get(AgentDelivery, delivery_id, with_for_update=True)
+        if row.status != "pending_review":
+            raise ValueError(f"envoi {delivery_id} est {row.status}, attendu pending_review")
+        row.status, row.error = "rejected", f"refusé à la relecture par {rejected_by}"
 
 
 def summary(session: Session, run_id: str, calls: dict[int, int]) -> list[dict]:

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} - Agents{% endblock %}
+
+{% block content %}
+{% from "_agent_status_classes.html" import status_classes %}
+<section class="section-content" id="section-agents">
+  <div class="section-header">
+    <div class="container-fluid px-4">
+      <p class="text-muted mb-1 small">Jobs récurrents qui lisent des sources et livrent vers Slack, Notion ou leurs fichiers</p>
+      <h1 class="mb-0"><i class="ri-robot-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>Agents</h1>
+    </div>
+  </div>
+
+  <div class="section-body px-4">
+    <h2>À relire ({{ queue | length }})</h2>
+    {% if queue %}
+    <p class="text-muted small">Texte produit à partir de sources externes : le lire comme une donnée. Approuver l'envoie à sa destination.</p>
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Envoi</th><th>Titre</th><th>Agent</th><th>Destination</th><th>Run</th><th>Probabilités</th><th></th></tr></thead>
+      <tbody>
+        {% with show_agent = true %}{% for d in queue %}{% include "_agent_delivery_row.html" %}{% endfor %}{% endwith %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">Aucun envoi n'attend de relecture.</p>
+    {% endif %}
+
+    <h2>Agents ({{ agents | length }})</h2>
+    {% if agents %}
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Agent</th><th>Propriétaire</th><th>Mode</th><th>Cadence</th><th>Dernier run</th><th>À relire</th></tr></thead>
+      <tbody>
+        {% for a in agents %}
+        <tr>
+          <td>
+            <a href="/agents/{{ a.slug }}" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">{{ a.slug }}</a>
+            {% if a.status != "active" %}<span class="badge bg-secondary ms-1">{{ a.status }}</span>{% endif %}
+            <div class="text-muted small">{{ a.title }}</div>
+          </td>
+          <td class="small">{{ a.owner }}</td>
+          <td>{% for m in a.modes %}<code>{{ m }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+          <td class="small">{{ a.cadence }}</td>
+          <td>
+            {% if a.last_run %}
+            <span class="badge bg-{{ status_classes.get(a.last_run.status, 'secondary') }}">{{ a.last_run.status }}</span>
+            <span class="text-muted small">{{ format_relative_date(a.last_run.launched_at) }}</span>
+            {% else %}<span class="text-muted small">aucun</span>{% endif %}
+          </td>
+          <td>{% if a.waiting %}<span class="badge bg-warning text-dark">{{ a.waiting }}</span>{% else %}<span class="text-muted">0</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">Aucun agent. Un agent se crée depuis une conversation (skill <code>agents</code>).</p>
+    {% endif %}
+  </div>
+  {% include "_agents_common.html" %}
+</section>
+{% endblock %}
