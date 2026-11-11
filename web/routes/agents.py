@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Why: a status reached once someone has decided; any other means the delivery never awaited review.
+DECIDED = ("pending_send", "sending", "sent", "failed", "refused", "rejected")
+
 Slug = Annotated[str, PathParam(pattern=r"^[a-z][a-z0-9-]{2,40}$")]
 
 
@@ -153,14 +156,24 @@ def reviewed(delivery_id: int, user_email: str) -> JSONResponse | None:
     return None
 
 
+def not_pending(exc: agent_delivery.DeliveryNotPending) -> JSONResponse:
+    """A fixed answer for each refusal; the exception's text stays on the server."""
+    logger.info("agent envoi : décision refusée, statut %s", exc.status)
+    if exc.status is None:
+        return JSONResponse({"error": "envoi introuvable"}, status_code=404)
+    if exc.status in DECIDED:
+        return JSONResponse({"error": "envoi déjà décidé"}, status_code=409)
+    return JSONResponse({"error": "cet envoi n'attend pas de relecture"}, status_code=409)
+
+
 @router.post("/api/agents/deliveries/{delivery_id}/approve", dependencies=[Depends(same_origin)])
 def approve_delivery(delivery_id: int, user_email: str = Depends(get_current_user)):
     if refused := reviewed(delivery_id, user_email):
         return refused
     try:
         status = agent_delivery.approve(delivery_id, user_email)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+    except agent_delivery.DeliveryNotPending as exc:
+        return not_pending(exc)
     return {"id": delivery_id, "status": status, "approved_by": user_email}
 
 

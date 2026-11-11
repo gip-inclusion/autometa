@@ -117,14 +117,13 @@ def test_approving_sends_once_and_records_the_approver(client, post, user):
     )
 
 
-@pytest.mark.parametrize("decision", ["approve", "reject"])
-def test_a_delivery_already_taken_is_not_decided_twice(client, post, decision):
+@pytest.mark.parametrize(("first", "second"), [("approve", "approve"), ("reject", "approve")])
+def test_a_delivery_already_taken_is_not_decided_twice(client, post, first, second):
     delivery_id = make_delivery()
-    assert decide(client, delivery_id, decision).status_code == 200
-    second = decide(client, delivery_id, "approve")
-    assert second.status_code == 409
-    assert "attendu pending_review" in second.json()["error"]
-    assert post.call_count == (decision == "approve")
+    assert decide(client, delivery_id, first).status_code == 200
+    response = decide(client, delivery_id, second)
+    assert (response.status_code, response.json()) == (409, {"error": "envoi déjà décidé"})
+    assert post.call_count == (first == "approve")
 
 
 def test_rejecting_writes_nothing_and_records_who(client, post):
@@ -168,6 +167,28 @@ def test_a_delivery_not_awaiting_review_is_not_decided(client, post, status, mod
     assert decide(client, delivery_id, decision).status_code == 409
     assert delivery(delivery_id)["status"] == status
     post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("status", "mode", "error"),
+    [
+        ("recorded", "background", "cet envoi n'attend pas de relecture"),
+        ("sent", "conversational", "envoi déjà décidé"),
+    ],
+)
+@pytest.mark.parametrize("decision", ["approve"])
+def test_a_refused_decision_answers_a_fixed_message_never_the_exception(client, post, status, mode, error, decision):
+    response = decide(client, make_delivery(status, mode), decision)
+    assert response.json() == {"error": error}
+    assert "attendu" not in response.text
+
+
+@pytest.mark.parametrize("decision", ["approve"])
+def test_a_delivery_gone_after_the_permission_check_is_not_found(client, post, mocker, decision):
+    delivery_id = make_delivery()
+    mocker.patch("web.routes.agents.reviewed", return_value=None)
+    response = decide(client, delivery_id + 1, decision)
+    assert (response.status_code, response.json()) == (404, {"error": "envoi introuvable"})
 
 
 @pytest.mark.parametrize("decision", ["approve", "reject"])

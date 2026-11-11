@@ -18,6 +18,7 @@ from web.models import Agent, AgentDelivery, AgentRun
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "DeliveryNotPending",
     "approve",
     "build_digests",
     "file_entries",
@@ -49,6 +50,14 @@ SUBAGENT_ATTEMPTS_MAX = 3
 # Why: a delivery left sending past this was taken by a process that died before recording the outcome.
 CLAIM_TIMEOUT = timedelta(hours=1)
 LINK = re.compile(r"https?://[^\s)>\]]+")
+
+
+class DeliveryNotPending(ValueError):
+    """A decision on a delivery that does not await it; status is None when the delivery does not exist."""
+
+    def __init__(self, delivery_id: int, status: str | None, expected: str):
+        super().__init__(f"envoi {delivery_id} est {status or 'introuvable'}, attendu {expected}")
+        self.status = status
 
 
 def now() -> datetime:
@@ -488,8 +497,8 @@ def approve(delivery_id: int, approved_by: str) -> str:
     """Send a delivery awaiting review, or retry a failed one; anything else is refused without writing."""
     with get_db() as session:
         row = session.get(AgentDelivery, delivery_id, with_for_update=True)
-        if row.status not in ("pending_review", "failed"):
-            raise ValueError(f"envoi {delivery_id} est {row.status}, attendu pending_review ou failed")
+        if row is None or row.status not in ("pending_review", "failed"):
+            raise DeliveryNotPending(delivery_id, row and row.status, "pending_review ou failed")
         row.status, row.attempts, row.approved_by = "pending_send", 0, approved_by
     return send(delivery_id)
 
