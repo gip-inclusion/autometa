@@ -135,3 +135,15 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | Mon Récap | Total SIAE/structures IAE |
 | La plateforme | à fixer |
 | Le Marché | à fixer |
+
+## Le Marché — proposition de définitions opérationnelles
+
+Proposition du 2026-11-09, à valider : tant qu'elle n'a pas remplacé les lignes « Le Marché » des tableaux par étape, ce sont ces lignes qui s'appliquent.
+
+| Étape | Proposition |
+|---|---|
+| Activation acheteur | 1er besoin diffusé (hors API) |
+| Activation structure | 1re réponse « intéressé » |
+| Rétention acheteur | 2e besoin diffusé dans les 12 mois, ou 2 mois distincts avec un besoin |
+| Rétention structure | Au moins une réponse (intéressé ou pas intéressé) sur 3 mois glissants |
+| Impact | Besoins avec au moins une structure intéressée ; transactions déclarées (déclaratif, peu rempli) |

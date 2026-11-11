@@ -1,14 +1,23 @@
 ---
 source: matomo:136
-verifie_le: 2026-09-11
+verifie_le: 2026-11-09
 ---
-# Marche
+# Le Marché de l'inclusion
 
-- URL: https://lemarche.inclusion.gouv.fr
-- Matomo site ID: 136
-- Tag Manager: yes (both Google Tag Manager and Matomo Tag Manager)
-- GitHub: https://github.com/gip-inclusion/le-marche
-- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
+- URL : https://lemarche.inclusion.gouv.fr (ancienne adresse `lemarche.inclusion.beta.gouv.fr`, encore utilisée comme expéditeur des e-mails)
+- Matomo site ID : 136
+- Tag Manager : oui (Matomo Tag Manager ; c'est lui qui porte tous les événements)
+- GitHub : https://github.com/gip-inclusion/le-marche (branche `main`)
+- Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — archétype marketplace.
+
+## Fiches liées
+
+| Fiche | Contenu |
+|---|---|
+| **Cette fiche** | Matomo : ce que le tracking voit et ne voit pas, dimensions, segments, objectifs, événements, campagnes |
+| `knowledge/marche/README.md` | Base applicative (`raw_marche`), modèle besoin → structure, e-mails (Brevo), logs serveur (Datadog), spam, pièges de mesure |
+
+**Pour l'usage métier (besoins, réponses des structures, mises en relation), partir de la base, pas de Matomo.** Matomo sert au trafic, à l'annuaire et aux campagnes.
 
 ## Références de trafic
 
@@ -17,201 +26,104 @@ d'utilisateur — sont synchronisés chaque nuit dans la base applicative
 (`matomo_baselines`) et consultables par le skill `matomo_query`. Ils ne sont pas recopiés
 ici : une valeur figée dans un fichier devient fausse sans prévenir.
 
+## Ce que Matomo voit — et ne voit pas
+
+- **Les URL sont des motifs de route Django**, pas les URL réelles (`setCustomUrl`) : `/prestataires/<str:slug>/`, `/besoins/<slug>`. Impossible de compter les vues d'une fiche ou d'un besoin précis dans Matomo. Seuls les paramètres `utm_*`, `mtm_*` et `piwik_*` sont conservés.
+- **Les pages du CMS Wagtail** (accueil, `/accueil-structure/`, `/ressources/…`) sont toutes regroupées sous un même libellé de motif.
+- **Chargement après consentement** (tarteaucitron) : une partie des visiteurs humains manque.
+- **Les robots sont invisibles** (ils n'exécutent pas le JavaScript). Les vagues d'inscriptions automatisées ne se voient que dans les logs serveur — voir `knowledge/marche/README.md` § Spam.
+- **`userId` = identifiant utilisateur du Marché**, ce qui permet un rapprochement avec `raw_marche.users_user.id`.
+- **Environ 3 % des visites sont connectées** : les dimensions ne décrivent qu'une petite minorité.
+- **Aucun événement n'est poussé par le code** : tout vient du conteneur Tag Manager, modifiable sans déploiement.
+
 ## Custom Dimensions
 
-| ID | Index | Scope  | Name             | Notes                                          |
-|----|-------|--------|------------------|------------------------------------------------|
-| 1  | 1     | visit  | User Type        | SIAE, BUYER, PARTNER, INDIVIDUAL, ADMIN        |
-| 2  | 2     | visit  | User Type Detail | Combines user kind + detail (e.g., "Acheteur : Grand groupe") |
+| ID | Index | Scope | Nom | Valeurs |
+|---|---|---|---|---|
+| 1 | 1 | visit | User Type | `SIAE`, `BUYER`, `PARTNER`, `INDIVIDUAL`, `ADMIN` (connectés seulement) |
+| 2 | 2 | visit | User Type Detail | Type + détail, libellés accentués : « Structure », « Acheteur : Grand groupe », « Acheteur : PME », « Acheteur : Établissement public », « Acheteur : Collectivité », « Partenaire : Facilitateur clauses sociales », « Prescripteur », « Réseaux IAE »… |
 
-### User Type Distribution (Dec 2025)
-
-Based on dimension 1 values (logged-in users only):
-
-| User Type  | Visits | Actions/Visit | Bounce Rate |
-|------------|--------|---------------|-------------|
-| SIAE       | 458    | 11.2          | 17%         |
-| BUYER      | 222    | 8.2           | 23%         |
-| INDIVIDUAL | 86     | 22.3          | 8%          |
-| PARTNER    | 79     | 9.1           | 14%         |
-| ADMIN      | 68     | 5.0           | 32%         |
-
-**Note:** Most traffic is anonymous (~96% of visits). Logged-in users represent a small fraction but have much higher engagement.
-
-### User Type Detail Distribution (Dec 2025)
-
-Top values from dimension 2:
-
-| User Type Detail                           | Visits |
-|--------------------------------------------|--------|
-| Structure                                  | 458    |
-| Particulier                                | 80     |
-| Acheteur : Etablissement public            | 64     |
-| Acheteur                                   | 62     |
-| Administrateur : Etablissement public      | 45     |
-| Acheteur : Grand groupe                    | 44     |
-| Acheteur : Collectivite                    | 37     |
-| Partenaire : Facilitateur clauses sociales | 25     |
+Les dimensions sont sensibles à la casse : le segment `dimension1==buyer` (minuscules) ne renvoie rien.
 
 ## Saved Segments
 
-*Retrieved 2026-01-06 via Matomo API.*
-
-| Name | Definition |
-|------|------------|
+| Nom | Définition |
+|---|---|
 | ACTION - Recherche non loggée | `eventAction=@recherche;dimension1!@A;dimension1!@E` |
+| Buyer | `dimension1==buyer` (⚠️ casse : vide) |
+| buyer actif | `dimension1==BUYER;pageUrl=@besoins,pageUrl=@login,pageUrl=@p…` |
+| BUYERS | `dimension1==BUYER` |
 | EXIT - Tally | `outlinkUrl=@tally` |
 | PROFILE - Acheteurs + déposer un besoin | `form_name==tender-create-survey-form,dimension1=@BUYER` |
-| PROFILE - BUYER | `dimension1==buyer;outlinkUrl!@tally` |
+| PROFILE - BUYER | `dimension1==buyer;outlinkUrl!@tally` (⚠️ casse) |
 | PROFILE - INDIVIDUAL | `dimension1==INDIVIDUAL` |
 | PROFILE - SIAE | `dimension1==SIAE` |
 | RETENTION - dernière visite 30j | `daysSinceLastVisit<32;daysSinceLastVisit>=1` |
-| RETENTION - dernière visite 30j - Acheteurs | `dimension2=@Acheteur;daysSinceLastVisit<32;daysSinceLastV...` |
-| RETENTION - dernière visite 30j - Structures | `daysSinceLastVisit<32;dimension2=@structure;daysSinceLast...` |
-| RETENTION NON PRO - dernière visite 30j | `daysSinceLastVisit<32;daysSinceLastVisit>=1;outlinkUrl=@t...` |
+| RETENTION - dernière visite 30j - Acheteurs | `dimension2=@Acheteur;daysSinceLastVisit<32;…` |
+| RETENTION - dernière visite 30j - Structures | `daysSinceLastVisit<32;dimension2=@structure;…` (⚠️ casse : « Structure ») |
+| RETENTION NON PRO - dernière visite 30j | `daysSinceLastVisit<32;daysSinceLastVisit>=1;outlinkUrl=@tall…` |
 
 ## Goals
 
-| ID | Name                              | Match Attribute | Pattern                                      |
-|----|-----------------------------------|-----------------|----------------------------------------------|
-| 4  | Inscription utilisateur           | event_action    | Inscription                                  |
-| 5  | Publication de besoin             | event_action    | Publier et diffuser le besoin                |
-| 6  | Afficher les coordonnees          | event_action    | Clic afficher les coordonnees - fiche commerciale |
-| 7  | Telecharger la liste              | event_action    | Clic telecharger la liste - valoriser achats |
-| 8  | Recherche                         | event_action    | Clic rechercher - Moteur recherche           |
-| 9  | Consultation tableau de bord      | url             | `https://lemarche.inclusion.beta.gouv.fr/besoins/` |
+Vérifiés par `Goals.getGoals` le 2026-11-09. Aucun objectif ne compte plusieurs conversions par visite.
 
-## Matomo Events
+| ID | Nom | Déclencheur |
+|---|---|---|
+| 4 | Inscription utilisateur | event_action exact `Inscription` |
+| 5 | Publication de besoin | event_action exact `Publier et diffuser le besoin` |
+| 8 | Recherche | event_action exact `Clic rechercher - Moteur recherche` |
+| 9 | Consultation tableau de bord acheteur | URL exacte `https://lemarche.inclusion.gouv.fr/besoins/` (convertit depuis mars 2026 seulement) |
+| 10 | Demander une démo - LP Auditer vos achats | event_name exact `Clic bouton CTA - Demander une démo` |
+| 11 | Demander une démo - LP analyse prog achats | event_name exact `Clic bouton CTA - Demander une démo - analyse prog achats` |
 
-Events are tracked primarily via **Matomo Tag Manager**, not direct code instrumentation. The Tag Manager automatically captures link clicks with detailed context.
+Les anciens objectifs 6 (« Afficher les coordonnées ») et 7 (« Télécharger la liste ») n'existent plus.
 
-### Event Categories
+L'objectif 5 ne compte que les besoins publiés par le formulaire du site : les besoins venus de Tally, de l'API partenaire ou créés par l'équipe n'y sont pas.
 
-| Category        | Events (Dec 2025) | Description                                |
-|-----------------|-------------------|--------------------------------------------|
-| All link clicks | ~10,700           | Automatic link click tracking via Tag Manager |
-| Clic bouton     | ~2,100            | Button click events                        |
-| Clic lien       | ~1,000            | Specific link click events                 |
-| Formulaire      | ~350              | Form submission events                     |
+## Événements (Tag Manager)
 
-### Event Tracking Implementation
+| Catégorie | Contenu |
+|---|---|
+| All link clicks | Tous les clics de lien, capturés automatiquement. Le **nom** de l'événement est le `href` cliqué (`#`, `/`, `/accounts/login/`, URL externes…) : ce ne sont **pas** des pages vues |
+| Clic bouton | Boutons métier, nommés à la main dans le Tag Manager |
+| Clic lien | Liens métier, dont `Clic website SIAE - fiche commerciale` |
+| Formulaire | Inscription et étapes du dépôt de besoin |
 
-- **Matomo Tag Manager:** Tracks all link clicks automatically with format:
-  `{link_text} -- {page_url} -- {css_classes} -- {element_id}`
-- **Custom dimensions:** Set via `_paq.push` in template for logged-in users
-- **Consent:** Uses Tarteaucitron for cookie consent management
+Actions utiles :
 
-### Top Event Actions (Dec 2025)
+| Action | Sens |
+|---|---|
+| `Clic rechercher - Moteur recherche` | Recherche de prestataires (objectif 8) |
+| `Clic recherche SIRET - Moteur recherche` | Recherche par SIRET |
+| `Clic website SIAE - fiche commerciale` | Clic vers le site d'une structure depuis sa fiche : signal d'intérêt acheteur dans l'annuaire |
+| `Inscription` | Inscription (objectif 4) |
+| `Dépôt de besoin - Step 1`, `Step 3`, `Step 4` | Étapes du formulaire de besoin. **Il n'y a pas d'étape 2** |
+| `Publier et diffuser le besoin` | Fin du formulaire (objectif 5) |
+| `Clic sourcing inversé - Header`, `Clic trouver un facilitateur - Header`, `Clic valoriser vos achats - Header`, `Clic calculer impact social - Header`, `Clic Publier un besoin - Résultats recherche` | Entrées de navigation |
 
-| Action                                        | Events |
-|-----------------------------------------------|--------|
-| Clic rechercher - Moteur recherche            | 1,170  |
-| Clic website SIAE - fiche commerciale         | 995    |
-| Clic recherche SIRET - Moteur recherche       | 785    |
-| Rechercher un fournisseur (homepage)          | 628    |
-| Se connecter (header)                         | 312    |
-| Completer votre fiche (dashboard)             | 194    |
-| Inscription                                   | 170    |
-| Publier un besoin d'achat (homepage)          | 114    |
+## Pages clés (motifs)
 
-### Business Context Event Categories
+| Motif | Rôle |
+|---|---|
+| `/prestataires/` | Recherche dans l'annuaire |
+| `/prestataires/<str:slug>/` | Fiche d'une structure — l'essentiel des pages vues du site |
+| `/besoins/ajouter/` | Formulaire de dépôt de besoin |
+| `/besoins/` | Tableau de bord acheteur, liste de ses besoins (objectif 9) |
+| `/besoins/<slug>` | Détail d'un besoin (vu par acheteurs et structures) |
+| `/besoins/inspirants` | Besoins « inspirants », page apparue en juillet 2026 |
+| `/accounts/signup/`, `/accounts/login/` | Inscription, connexion |
+| `/profil/` | Tableau de bord utilisateur |
 
-#### Clic bouton (Button clicks)
-Manual event tracking for key business actions:
+Il n'existe pas d'URL `/recherche…`.
 
-| Action                                    | Description                     |
-|-------------------------------------------|---------------------------------|
-| Clic rechercher - Moteur recherche        | Main search button              |
-| Clic recherche SIRET - Moteur recherche   | SIRET-specific search           |
-| Clic sourcing inverse - Header            | Reverse sourcing feature        |
-| Clic trouver un facilitateur - Header     | Find facilitator button         |
-| Clic Publier un besoin - Resultats recherche | Post need from search results |
-| Clic valoriser vos achats - Header        | Purchase valorization           |
-| Clic Calculer mon impact - Calcul impact  | Social impact calculator        |
-| Publier et diffuser le besoin             | Publish tender (goal trigger)   |
+## Campagnes et e-mails
 
-#### Formulaire (Form submissions)
-Multi-step form tracking:
+- Les e-mails portent `mtm_campaign` (ou `utm_campaign`) : on lit les campagnes par leur **nom** (`relance-esi-contactees`, `relance-esi-interessees`, `onboarding-acheteurs-*`, `socialProofTender`, `newsletter-*`…). Source et medium ne remontent pas (plugin MarketingCampaignsReporting absent).
+- Referrers de passerelles de messagerie : `*.sendibm*.com` (redirections Brevo), mailinblack, vadesecure.
+- `utm_source=chatgpt.com` apparaît comme une campagne : ce n'est pas un e-mail. La catégorie de referrer « AI Assistants » existe depuis février 2026.
+- Pour remis / ouvert / cliqué, la source est Brevo, pas Matomo : voir `knowledge/marche/README.md` § E-mails.
 
-| Action                  | Description                    |
-|-------------------------|--------------------------------|
-| Inscription             | User registration form         |
-| Depot de besoin - Step 1| Tender creation wizard step 1  |
-| Depot de besoin - Step 3| Tender creation wizard step 3  |
-| Depot de besoin - Step 4| Tender creation wizard step 4  |
+## Pièges
 
-#### Clic lien (Specific link clicks)
-Tracked link interactions:
-
-| Action                              | Description                    |
-|-------------------------------------|--------------------------------|
-| Clic website SIAE - fiche commerciale | Click to SIAE external website |
-
-### Notes
-
-- Events use Matomo Tag Manager container for automatic tracking
-- Most events are auto-captured link clicks with detailed context
-- Button clicks (`Clic bouton`) appear to be manually configured in Tag Manager
-- Form events (`Formulaire`) track multi-step wizard progression
-- Goals are triggered by specific event actions (search, registration, tender publication)
-
-## Event Names
-
-*Data from 2026-02, retrieved 2026-03-29 via Matomo API.*
-
-**200 distinct events tracked.**
-
-| Name | Events | Visits |
-|------|--------|--------|
-| # | 2,124 | 571 |
-| Clic rechercher - Moteur recherche | 1,756 | 890 |
-| Clic website SIAE - fiche commerciale | 1,418 | 1,145 |
-| / | 1,150 | 1,066 |
-| https://lemarche.inclusion.gouv.fr/prestataires/ | 943 | 800 |
-| /accounts/login/ | 854 | 797 |
-| Clic recherche SIRET - Moteur recherche | 742 | 266 |
-| /profil/ | 522 | 458 |
-| /ressources/quest-ce-quun-fournisseur-inclusif/ | 440 | 422 |
-| /accueil-structure/ | 377 | 353 |
-| /besoins/ | 330 | 302 |
-| /accounts/signup/ | 216 | 207 |
-| /besoins/ajouter/ | 216 | 206 |
-| #close | 197 | 89 |
-| Inscription | 192 | 153 |
-| /prestataires/? | 180 | 174 |
-| https://www.hosmoz.fr/ | 164 | 159 |
-| /accounts/password-reset/ | 164 | 141 |
-| /profil/modifier/ | 161 | 144 |
-| https://lemarche.inclusion.gouv.fr/besoins/ajouter/ | 143 | 132 |
-| Dépôt de besoin - Step 1 | 135 | 67 |
-| /profil/prestataires/rechercher/ | 116 | 91 |
-| `https://inclusion.beta.gouv.fr/` | 105 | 99 |
-| /prestataires/ | 102 | 101 |
-| Dépôt de besoin - Step 3 | 83 | 41 |
-| https://lemarche.inclusion.gouv.fr/accounts/signup/ | 73 | 56 |
-| https://docs.google.com/spreadsheets/d/e/2PACX-1vQRtavj-NHym5wjgDu9KRTIDPVZtujFlaSL9Z_BYQ7nWrmkcbGRuL12-VxiNctaOTsgdjQURuPLr57R/pubhtml | 71 | 67 |
-| /ressources/auditer-vos-achats/ | 70 | 67 |
-| Dépôt de besoin - Step 4 | 68 | 40 |
-| /ressources/ | 65 | 65 |
-| /qui-sommes-nous/ | 63 | 63 |
-| Clic Publier un besoin - Résultats recherche | 58 | 56 |
-| /ressources/analyse-programmation-achats/ | 48 | 46 |
-| Clic sourcing inversé - Header | 48 | 44 |
-| javascript:undefined; | 48 | 19 |
-| /ressources/quest-ce-que-linclusion/ | 47 | 46 |
-| /contact/ | 42 | 41 |
-| Clic trouver un facilitateur - Header | 42 | 37 |
-| /calculer-impact-social-achat-inclusif/ | 38 | 38 |
-| /accounts/login/?next=/prestataires/ | 38 | 37 |
-| http://www.lesentreprisesdinsertion.org/ | 38 | 37 |
-| https://tally.so/r/nG1JOz | 37 | 35 |
-| https://tally.so/r/wgMrXd | 37 | 18 |
-| https://tally.so/r/31KJYL | 35 | 33 |
-| http://www.chantierecole.org/ | 34 | 34 |
-| Clic calculer impact social - Header | 33 | 32 |
-| Publier et diffuser le besoin | 32 | 29 |
-| /partenaires/ | 30 | 30 |
-| Clic valoriser vos achats - Header | 30 | 24 |
-| /api/ | 29 | 27 |
-
-*... and 150 more events.*
+- Rafales de robots ponctuelles dans le trafic humain apparent (ex. : semaine du 15 au 21 juin 2026, visites depuis Singapour, ~98 % de rebond) : regarder pays et rebond avant d'interpréter un pic.
+- Les inscriptions Matomo (objectif 4) sont le meilleur proxy des **inscriptions humaines** ; le serveur et la base comptent aussi les robots.
