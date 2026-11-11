@@ -1,6 +1,6 @@
 /**
  * Message rendering: appendEvent dispatcher, format functions, mermaid/options.
- * Depends on: utils.js (escapeHtml, isAtBottom, scrollToBottom, formatFileSize)
+ * Depends on: utils.js (escapeHtml, isAtBottom, scrollToBottom, formatFileSize, appendToComposer)
  *             actions.js (streamingBlock, assistantParts, lastSeenId, pendingToolUses, lastAssistantBlock,
  *                         currentTurnActions, createAndAppendAction, addFootnotesToLastAssistant,
  *                         scanHeadingsForToc, rebuildToc)
@@ -344,16 +344,7 @@ function renderOptions(element) {
       button.textContent = label;
       button.dataset.prompt = fullPrompt;
 
-      button.addEventListener('click', () => {
-        const chatInput = document.getElementById('chatInput');
-        if (chatInput) {
-          chatInput.value = button.dataset.prompt;
-          chatInput.focus();
-          // Auto-resize textarea if needed
-          chatInput.style.height = 'auto';
-          chatInput.style.height = `${chatInput.scrollHeight}px`;
-        }
-      });
+      button.addEventListener('click', () => appendToComposer(button.dataset.prompt));
 
       container.appendChild(button);
     });

@@ -108,3 +108,15 @@ def test_pending_files_do_not_follow_navigation(conversation: str, page: Page):
     expect(page).to_have_url(re.compile(r"/explorations/[0-9a-f-]{36}"))
 
     assert uploads == []
+
+
+def test_option_button_appends_to_the_draft(conversation: str, ask: Callable[[str], None], page: Page):
+    ask("Que faire ?\n```options\nOui | Je confirme\nNon\n```")
+    option = page.locator(".event-assistant .options-buttons button", has_text="Oui")
+    expect(option).to_be_visible()
+
+    draft = page.locator("#chatInput")
+    draft.fill("Brouillon")
+    option.click()
+
+    expect(draft).to_have_value("Brouillon\n\nJe confirme")
