@@ -530,7 +530,7 @@ async function relaunchConversation() {
     const resp = await fetch(`/api/conversations/${currentConversationId}/relaunch`, { method: 'POST' });
     const data = await resp.json();
     if (resp.ok) {
-      startStream(data.after_id);
+      startStream();
     } else {
       alert(data.error || 'Erreur');
       if (btn) {

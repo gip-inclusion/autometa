@@ -1,9 +1,9 @@
 /**
  * Message rendering: appendEvent dispatcher, format functions, mermaid/options.
  * Depends on: utils.js (escapeHtml, isAtBottom, scrollToBottom, formatFileSize)
- *             actions.js (streamingBlock, streamingText, pendingToolUses, lastAssistantBlock,
+ *             actions.js (streamingBlock, assistantParts, lastSeenId, pendingToolUses, lastAssistantBlock,
  *                         currentTurnActions, createAndAppendAction, addFootnotesToLastAssistant,
- *                         scanHeadingsForToc)
+ *                         scanHeadingsForToc, rebuildToc)
  */
 
 /**
@@ -37,12 +37,49 @@ function updateTokenDisplay(usage) {
   tokenDisplay.classList.remove('d-none');
 }
 
+function renderAssistantBlock(block) {
+  const text = block.dataset.msgId
+    .split(' ')
+    .map((id) => assistantParts.get(id))
+    .join('');
+  const reportInfo = detectReport(text);
+  const footnotes = block.querySelector('.action-footnotes');
+  block.dataset.rawContent = text;
+  block.classList.toggle('event-report', Boolean(reportInfo));
+  block.innerHTML = reportInfo ? formatReport(text, reportInfo) : formatAssistantContent(text);
+  if (footnotes) block.appendChild(footnotes);
+}
+
+function updateAssistantBlock(block, partId, content) {
+  const wasAtBottom = isAtBottom();
+  assistantParts.set(partId, content);
+  renderAssistantBlock(block);
+  if (block.isConnected && block.querySelector('h2')) rebuildToc();
+  if (block !== streamingBlock) {
+    renderMermaid(block);
+    renderOptions(block);
+  }
+  if (wasAtBottom) scrollToBottom();
+}
+
 /**
- * Append an event to the chat output
+ * Append an event to the chat output, or update the block that already shows it
  */
 function appendEvent(type, data) {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
+
+  if (data.id) {
+    const known = chatOutput.querySelector(`[data-msg-id~="${data.id}"]`);
+    if (type === 'assistant' && known) {
+      if (assistantParts.get(String(data.id)) !== data.content) {
+        updateAssistantBlock(known, String(data.id), data.content);
+      }
+      return;
+    }
+    if (data.id <= lastSeenId) return;
+    lastSeenId = data.id;
+  }
 
   // System events: check for usage data, then skip display
   if (type === 'system') {
@@ -60,7 +97,6 @@ function appendEvent(type, data) {
     renderMermaid(streamingBlock);
     renderOptions(streamingBlock);
     streamingBlock = null;
-    streamingText = '';
   }
 
   // Tool events: add to sidebar instead of main chat
@@ -90,52 +126,32 @@ function appendEvent(type, data) {
     lastAssistantBlock = null;
   }
 
-  // When assistant speaks, track the block for footnotes
   if (type === 'assistant') {
-    // Add footnotes to previous assistant block if any
     addFootnotesToLastAssistant();
   }
 
-  // Streaming: accumulate assistant chunks into one block
+  // Why: knowledge.html renders its history without message ids.
+  const partId = String(data.id ?? `local-${assistantParts.size}`);
+
   if (type === 'assistant' && streamingBlock) {
-    streamingText += data.content;
-    streamingBlock.dataset.rawContent = streamingText;
-    streamingBlock.innerHTML = formatAssistantContent(streamingText);
+    streamingBlock.dataset.msgId += ` ${partId}`;
+    updateAssistantBlock(streamingBlock, partId, data.content);
     lastAssistantBlock = streamingBlock;
-    // Keep loading indicator below the streaming block
-    const loadingEl = document.getElementById('loadingIndicator');
-    if (loadingEl) {
-      chatOutput.appendChild(loadingEl);
-    }
-    // Scroll if needed
-    if (isAtBottom()) {
-      chatOutput.scrollTop = chatOutput.scrollHeight;
-    }
-    return;
+    return streamingBlock;
   }
 
   const block = document.createElement('div');
   block.className = `event-block event-${type}`;
+  if (data.id) block.dataset.msgId = data.id;
 
   if (type === 'user') {
     // Safe: formatUserContent escapes all user text via escapeHtml()
     block.innerHTML = formatUserContent(data.content);
   } else if (type === 'assistant') {
-    // Start streaming accumulation
-    streamingText = data.content;
     streamingBlock = block;
-    // Store raw markdown for report creation
-    block.dataset.rawContent = data.content;
-    // Check if this is a report (has YAML front-matter)
-    const reportInfo = detectReport(data.content);
-    if (reportInfo) {
-      block.classList.add('event-report');
-      block.innerHTML = formatReport(data.content, reportInfo);
-    } else {
-      block.innerHTML = formatAssistantContent(data.content);
-    }
-    // Track for footnotes
     lastAssistantBlock = block;
+    block.dataset.msgId = partId;
+    updateAssistantBlock(block, partId, data.content);
     // Why: pas de mermaid ici — le contenu est encore partiel pendant le streaming.
     // Les diagrammes sont rendus une fois le bloc complet (fin de stream, chargement d'historique).
     setTimeout(() => renderOptions(block), 0);

@@ -334,9 +334,8 @@
 
     // Send pending message if any
     if (pendingMessage) {
-      appendEvent('user', { content: pendingMessage });
       lastUserMessage = pendingMessage;
-      await sendToAgent(pendingMessage);
+      await sendToAgent(pendingMessage, { bubble: appendEvent('user', { content: pendingMessage }) });
     }
     {% elif is_new %}
     // New conversation mode - prefill input if param present, then focus
