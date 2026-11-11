@@ -15,6 +15,7 @@ from web.models import Message as MsgModel
 from web.models import PinnedItem as PinModel
 from web.models import Report as ReportModel
 from web.models import UsageEvent as UsageEventModel
+from web.redaction import redact
 from web.stores.records import (
     Conversation,
     Message,
@@ -536,7 +537,9 @@ class ConversationsMixin:
         type: str,
         content: str,
     ) -> Optional[Message]:
-        """Add a message to a conversation. Returns the message with ID."""
+        """Add a message to a conversation, secrets masked. Returns the message with ID."""
+        # Why: les sorties d'outil arrivent telles quelles — DSN, jeton Matomo, JWT ont été retrouvés en clair en base.
+        content = redact(content)
         msg = Message(
             conversation_id=conv_id,
             type=type,
@@ -571,7 +574,7 @@ class ConversationsMixin:
             m = session.get(MsgModel, message_id)
             if not m:
                 return False
-            m.content = content
+            m.content = redact(content)
             return True
 
     def get_messages(
