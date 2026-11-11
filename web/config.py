@@ -19,7 +19,7 @@ load_dotenv(BASE_DIR / ".env")
 # Default: ./data (relative to BASE_DIR)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 
-# Agent backend: "cli" or "cli-ollama"
+# Agent backend: "cli", "cli-ollama", or "fake" (scripted turns for the local browser suite only)
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 
 # Moteur de secours quand la limite d'usage du moteur principal est atteinte. Vide = désactivé.
