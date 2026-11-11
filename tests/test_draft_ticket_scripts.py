@@ -1,9 +1,9 @@
 import argparse
-import importlib.util
 import json
 import subprocess
 import sys
 from argparse import Namespace
+from importlib import import_module
 from pathlib import Path
 
 import httpx
@@ -11,17 +11,7 @@ import pytest
 
 from lib import backlog, notion
 from lib.figma import Frame
-from skills.draft_ticket.scripts import common
-
-SCRIPTS = Path(__file__).parent.parent / "skills/draft_ticket/scripts"
-
-
-def load(name):
-    spec = importlib.util.spec_from_file_location(f"draft_ticket_{name}", SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
+from skills.draft_ticket.scripts import author, common, context, create, duplicates, mockup
 
 CONTEXT = {
     "generated_at": "2026-10-30T02:00:00+00:00",
@@ -55,7 +45,6 @@ def draft(tmp_path, **fields):
 
 
 def setup_create(mocker):
-    create = load("create")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(create.backlog_storage, "current_context", return_value=CONTEXT)
     mocker.patch.object(create.config, "agent_user_email", return_value="camille@exemple.fr")
@@ -122,7 +111,6 @@ def test_create_refuses_an_unknown_name(mocker, tmp_path, fields, message):
     ],
 )
 def test_dod_1_mockup_does_not_read_an_unusable_link(mocker, url, prefix):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     read = mocker.patch.object(mockup.figma, "read_frames")
@@ -131,7 +119,6 @@ def test_dod_1_mockup_does_not_read_an_unusable_link(mocker, url, prefix):
 
 
 def test_dod_1_mockup_lists_frames_texts_and_images(mocker, tmp_path):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup, "conversation_folder", return_value=tmp_path)
@@ -168,7 +155,6 @@ REQUEST = httpx.Request("GET", "https://api.figma.com")
     ],
 )
 def test_dod_1_mockup_says_why_it_is_not_read(mocker, error, expected):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup.figma, "read_frames", side_effect=error)
@@ -176,7 +162,6 @@ def test_dod_1_mockup_says_why_it_is_not_read(mocker, error, expected):
 
 
 def test_dod_1_mockup_reports_a_missing_frame(mocker):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup.figma, "read_frames", return_value=[])
@@ -184,7 +169,6 @@ def test_dod_1_mockup_reports_a_missing_frame(mocker):
 
 
 def test_dod_1_mockup_keeps_the_texts_when_images_fail(mocker):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(
@@ -198,7 +182,6 @@ def test_dod_1_mockup_keeps_the_texts_when_images_fail(mocker):
 
 
 def test_author_without_session_says_so(mocker):
-    author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(author.config, "agent_user_email", return_value=None)
@@ -206,7 +189,6 @@ def test_author_without_session_says_so(mocker):
 
 
 def test_dod_3_author_gives_the_field_for_the_target_team(mocker):
-    author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(author.config, "agent_user_email", return_value="camille@exemple.fr")
@@ -218,7 +200,7 @@ def test_dod_3_author_gives_the_field_for_the_target_team(mocker):
 
 
 def test_context_refresh_reads_notion_and_stores(mocker):
-    script = load("context")
+    script = context
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(script.backlog, "load_context", return_value=CONTEXT)
     store = mocker.patch.object(script.backlog_storage, "save_context")
@@ -228,7 +210,6 @@ def test_context_refresh_reads_notion_and_stores(mocker):
 
 
 def test_dod_3_duplicates_lists_similar_tickets(mocker):
-    duplicates = load("duplicates")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(
         duplicates.backlog,
@@ -365,21 +346,20 @@ def test_create_cli_refuses_an_unknown_team(mocker, tmp_path):
 
 @pytest.mark.parametrize("name", ["context", "duplicates", "author"])
 def test_read_scripts_without_backlog_database_say_so(mocker, name):
-    script = load(name)
+    script = import_module(f"skills.draft_ticket.scripts.{name}")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", None)
     output = script.run(Namespace(refresh=False, title="x", team=[]))
     assert output.startswith("NOTION_BACKLOG_DB absent")
 
 
 def test_duplicates_without_result(mocker):
-    duplicates = load("duplicates")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(duplicates.backlog, "find_duplicates", return_value=[])
     assert duplicates.run(Namespace(title="x")) == "Aucun ticket proche."
 
 
 def test_context_without_refresh_reads_the_stored_context(mocker):
-    script = load("context")
+    script = context
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(script.backlog_storage, "current_context", return_value=CONTEXT)
     payload = mocker.patch.object(script.backlog, "load_context")
@@ -388,7 +368,6 @@ def test_context_without_refresh_reads_the_stored_context(mocker):
 
 
 def test_author_not_found_says_so(mocker):
-    author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(author.config, "agent_user_email", return_value="x@exemple.fr")
@@ -397,7 +376,6 @@ def test_author_not_found_says_so(mocker):
 
 
 def test_author_reports_an_unknown_team(mocker):
-    author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(author.config, "agent_user_email", return_value="camille@exemple.fr")
@@ -410,7 +388,6 @@ def test_author_reports_an_unknown_team(mocker):
 
 
 def test_dod_1_mockup_without_figma_token_says_so(mocker):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", None)
     read = mocker.patch.object(mockup.figma, "read_frames")
     assert mockup.run(Namespace(url=FRAME_LINK)).startswith("FIGMA_ACCESS_TOKEN absent")
@@ -418,7 +395,6 @@ def test_dod_1_mockup_without_figma_token_says_so(mocker):
 
 
 def test_dod_1_mockup_does_not_claim_access_denied_on_a_500(mocker):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     error = httpx.HTTPStatusError("500", request=REQUEST, response=httpx.Response(500))
@@ -427,7 +403,6 @@ def test_dod_1_mockup_does_not_claim_access_denied_on_a_500(mocker):
 
 
 def test_dod_1_mockup_reports_frames_without_text_or_image(mocker, tmp_path):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup, "conversation_folder", return_value=tmp_path)
@@ -474,7 +449,6 @@ def test_create_goes_on_without_author_after_429_retries(mocker, tmp_path):
 
 @pytest.mark.parametrize("error", [httpx.ReadTimeout("lent", request=REQUEST), notion.NotionRateLimitError("429")])
 def test_author_unreadable_does_not_exit_with_an_error(mocker, error):
-    author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(author.config, "agent_user_email", return_value="camille@exemple.fr")
@@ -492,7 +466,7 @@ def test_author_unreadable_does_not_exit_with_an_error(mocker, error):
     ],
 )
 def test_read_scripts_cli_print_their_result(mocker, capsys, name, arguments, expected):
-    script = load(name)
+    script = import_module(f"skills.draft_ticket.scripts.{name}")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(common.config, "agent_user_email", return_value="camille@exemple.fr")
@@ -554,7 +528,6 @@ def test_create_cli_reports_notion_rate_limiting(mocker, tmp_path):
 
 
 def test_author_without_notion_account_says_they_will_not_be_set(mocker):
-    author = load("author")
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
     mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(common.config, "agent_user_email", return_value="camille@exemple.fr")
@@ -596,7 +569,6 @@ def test_scripts_run_as_modules_from_the_repository_root(name):
 
 
 def test_dod_1_mockup_without_conversation_says_so(mocker):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value=None)
     read = mocker.patch.object(mockup.figma, "read_frames")
@@ -605,7 +577,6 @@ def test_dod_1_mockup_without_conversation_says_so(mocker):
 
 
 def test_dod_1_mockup_shows_6_frames_and_says_how_many_it_left_out(mocker, tmp_path):
-    mockup = load("mockup")
     mocker.patch.object(mockup.config, "FIGMA_ACCESS_TOKEN", "jeton")
     mocker.patch.object(mockup.config, "agent_conversation_id", return_value="conv-1")
     mocker.patch.object(mockup, "conversation_folder", return_value=tmp_path)
@@ -623,3 +594,65 @@ def test_run_cli_lets_an_unrelated_runtime_error_through(mocker):
     mocker.patch("sys.argv", ["script.py"])
     with pytest.raises(RuntimeError, match="bogue"):
         common.run_cli(mocker.Mock(side_effect=RuntimeError("bogue")), argparse.ArgumentParser())
+
+
+def notion_answers(method, path, payload=None):
+    """Réponses de Notion pour une création complète, sans ticket récent au même titre."""
+    title = {"Nom": {"type": "title", "title": [{"plain_text": "Emplois inclusifs et dispositifs réglementés"}]}}
+    epic = {
+        "Nom": {"type": "title", "title": [{"plain_text": "RUN EMPLOIS"}]},
+        "Pizza team": {"relation": [{"id": "e1"}]},
+    }
+    return {
+        ("GET", "databases/db"): {
+            "properties": {
+                "Pizza team": {"relation": {"database_id": "teams-db"}},
+                "Epic - feuille de route": {"relation": {"database_id": "epics-db"}},
+                "Statut": {"select": {"options": [{"name": "Cadrage"}, {"name": "𝗗𝗘𝗩 En prod"}]}},
+                "Type": {"multi_select": {"options": [{"name": "Fonctionnalité"}]}},
+            }
+        },
+        ("POST", "databases/teams-db/query"): {"results": [{"id": "e1", "properties": title}], "has_more": False},
+        ("GET", "databases/epics-db"): {
+            "properties": {
+                "Statut": {
+                    "status": {
+                        "options": [{"id": "s1", "name": "Archivé"}],
+                        "groups": [{"name": "Complete", "option_ids": ["s1"]}],
+                    }
+                }
+            }
+        },
+        ("POST", "databases/epics-db/query"): {"results": [{"id": "p1", "properties": epic}], "has_more": False},
+        ("POST", "databases/db/query"): {"results": [], "has_more": False},
+        ("GET", "custom_emojis?name=autometa"): {"results": [{"id": "emoji-1", "name": "autometa"}]},
+        ("POST", "pages"): {"id": "p", "url": "https://notion/p"},
+    }[method, path]
+
+
+def test_dod_4_create_with_go_sends_the_real_payload_to_notion(mocker, tmp_path):
+    mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(common.config, "agent_user_email", return_value="camille@exemple.fr")
+    mocker.patch.object(create.backlog_storage, "current_context", return_value=CONTEXT)
+    mocker.patch.object(create.backlog, "find_author", return_value=AUTHOR)
+    request = mocker.patch("lib.notion.notion_request", side_effect=notion_answers)
+    body = ":autometa: Les employeurs gardent l'accès.\n\n## Attendu\n- Masquer après 2 ans\n- Maquette : [lien](https://x.fr)"
+    assert create.run(Namespace(draft=draft(tmp_path, body=body), go=True)) == "Ticket créé : https://notion/p"
+    payload = request.call_args_list[-1].args[2]
+    assert payload["properties"] == {
+        "Nom": {"title": [{"text": {"content": "Masquer les candidatures anciennes"}}]},
+        "Pizza team": {"relation": [{"id": "e1"}]},
+        "Statut": {"select": {"name": "Cadrage"}},
+        "Type": {"multi_select": [{"name": "Fonctionnalité"}]},
+        "Epic - feuille de route": {"relation": [{"id": "p1"}]},
+        "POM": {"people": [{"id": "u1"}]},
+    }
+    assert [b["type"] for b in payload["children"]] == [
+        "paragraph",
+        "heading_2",
+        "bulleted_list_item",
+        "bulleted_list_item",
+    ]
+    opening = payload["children"][0]["paragraph"]["rich_text"]
+    assert opening[0]["mention"]["custom_emoji"]["id"] == "emoji-1"
+    assert opening[2]["text"]["content"] == "Les employeurs gardent l'accès."
