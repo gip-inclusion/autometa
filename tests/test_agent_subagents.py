@@ -130,6 +130,16 @@ def test_dod_10_a_classifier_under_its_threshold_stops_the_chain(ollama):
         ),
         (
             [CLASSIFIEUR],
+            [httpx.Response(200, text="<html>passerelle</html>", request=httpx.Request("POST", "https://ollama.com"))],
+            "réponse qui n'est pas du JSON",
+        ),
+        (
+            [CLASSIFIEUR, RESUME],
+            [clef(0.9), httpx.Response(200, text="<html>", request=httpx.Request("POST", "https://ollama.com"))],
+            "sous-agent 2 (summary gemma4:31b) en échec : réponse qui n'est pas du JSON",
+        ),
+        (
+            [CLASSIFIEUR],
             [httpx.Response(503, request=httpx.Request("POST", "https://ollama.com/v1/systemone"))],
             "503",
         ),

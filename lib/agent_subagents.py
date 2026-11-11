@@ -22,7 +22,11 @@ def ollama(path: str, payload: dict) -> dict:
         timeout=config.OLLAMA_REQUEST_TIMEOUT,
     )
     resp.raise_for_status()
-    return resp.json()
+    # Why: a gateway or a proxy may answer 200 with an HTML page; that is a failing link, not a crash of the tick.
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise RuntimeError("réponse qui n'est pas du JSON") from exc
 
 
 def chat(model: str, instructions: str, delivery: dict, **options) -> str:
