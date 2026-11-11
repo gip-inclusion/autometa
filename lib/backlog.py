@@ -11,6 +11,18 @@ from lib import notion
 from web import config
 
 INACTIVE_EPIC_STATUSES = ("Archivé", "𝗘𝗡 𝗣𝗥𝗢𝗗 ce trimestre")
+# Why: Priorité, Période, Estimation et les statuts d'avancement de dev sont des décisions d'équipe.
+ALLOWED_STATUSES = (
+    "Bac à sable 🏝️",
+    "stand-by",
+    "𝗨𝗫 À faire",
+    "Métier",
+    "Cadrage",
+    "𝗨𝗫/𝗗𝗘𝗩 Conception",
+    "𝗨𝗫 Test utilisateur",
+    "𝗨𝗫 À valider",
+    "𝗗𝗘𝗩 Prêt à développer",
+)
 PM_ROLES = {"Responsable d'équipe", "Gestionnaire de produit", "Product Owner", "Produit", "Responsable de Mission"}
 DESIGN_ROLES = {"Designer", "Design"}
 DEV_ROLES = {"Dev", "Data", "Data analyst"}
@@ -65,12 +77,14 @@ def relation_ids(page: dict, prop: str) -> list[str]:
     return [r["id"] for r in page["properties"].get(prop, {}).get("relation", [])]
 
 
-def linked_databases() -> dict[str, str]:
-    """Bases Équipes et Épics, lues dans le schéma du backlog."""
-    schema = notion.notion_request("GET", f"databases/{config.NOTION_BACKLOG_DB}")
+def backlog_schema() -> dict:
+    """Bases Équipes et Épics, statuts et types du backlog, lus dans son schéma."""
+    props = notion.notion_request("GET", f"databases/{config.NOTION_BACKLOG_DB}")["properties"]
     return {
-        "teams": schema["properties"]["Pizza team"]["relation"]["database_id"],
-        "epics": schema["properties"]["Epic - feuille de route"]["relation"]["database_id"],
+        "teams": props["Pizza team"]["relation"]["database_id"],
+        "epics": props["Epic - feuille de route"]["relation"]["database_id"],
+        "statuses": [o["name"] for o in props["Statut"]["select"]["options"]],
+        "types": [o["name"] for o in props["Type"]["multi_select"]["options"]],
     }
 
 
@@ -90,10 +104,10 @@ def recent_titles(team_id: str, count: int) -> list[str]:
 
 
 def load_context(per_team: int = 15) -> dict:
-    """Équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
-    bases = linked_databases()
+    """Statuts et types du backlog, équipes produit actives, avec leurs épics actifs et leurs titres de tickets récents."""
+    schema = backlog_schema()
     teams = notion.query_database(
-        bases["teams"],
+        schema["teams"],
         filter={
             "and": [
                 {"property": "Activité", "select": {"equals": "Actif"}},
@@ -102,13 +116,15 @@ def load_context(per_team: int = 15) -> dict:
         },
     )
     epics = notion.query_database(
-        bases["epics"],
+        schema["epics"],
         filter={
             "and": [{"property": "Statut", "status": {"does_not_equal": status}} for status in INACTIVE_EPIC_STATUSES]
         },
     )
     return {
         "generated_at": datetime.now(UTC).isoformat(),
+        "statuses": schema["statuses"],
+        "types": schema["types"],
         "teams": [
             {
                 "id": team["id"],
@@ -124,8 +140,16 @@ def load_context(per_team: int = 15) -> dict:
 
 
 def format_context(context: dict) -> str:
-    """Le contexte des équipes en Markdown, pour l'agent."""
-    lines = [f"# Équipes produit actives (au {context['generated_at'][:10]})", ""]
+    """Le contexte du backlog en Markdown, pour l'agent."""
+    lines = [
+        f"# Backlog unifié (au {context['generated_at'][:10]})",
+        "",
+        "- Statuts proposables : " + " ; ".join(s for s in context["statuses"] if s in ALLOWED_STATUSES),
+        "- Types : " + " ; ".join(context["types"]),
+        "",
+        "# Équipes produit actives",
+        "",
+    ]
     for team in sorted(context["teams"], key=lambda e: e["name"]):
         lines.append(f"## {team['name']}")
         if team["epics"]:

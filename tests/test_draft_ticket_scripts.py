@@ -25,6 +25,8 @@ def load(name):
 
 CONTEXT = {
     "generated_at": "2026-10-30T02:00:00+00:00",
+    "statuses": ["Cadrage"],
+    "types": ["Fonctionnalité"],
     "teams": [
         {
             "id": "e1",
@@ -58,6 +60,9 @@ def setup_create(mocker):
     mocker.patch.object(create.backlog_storage, "current_context", return_value=CONTEXT)
     mocker.patch.object(create.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(create.backlog, "find_author", return_value=AUTHOR)
+    mocker.patch.object(
+        create.backlog, "backlog_schema", return_value={"statuses": ["Cadrage"], "types": ["Fonctionnalité"]}
+    )
     mocker.patch.object(create.backlog_creation, "check_relations")
     mocker.patch.object(create.backlog_creation, "autometa_emoji", return_value="emoji-1")
     mocker.patch("lib.notion.query_database", return_value=[])

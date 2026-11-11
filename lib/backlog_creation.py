@@ -11,19 +11,6 @@ from web import config
 logger = logging.getLogger(__name__)
 
 MARKER = ":autometa:"
-# Why: Priorité, Période, Estimation et les statuts d'avancement de dev sont des décisions d'équipe.
-ALLOWED_STATUSES = (
-    "Bac à sable 🏝️",
-    "stand-by",
-    "𝗨𝗫 À faire",
-    "Métier",
-    "Cadrage",
-    "𝗨𝗫/𝗗𝗘𝗩 Conception",
-    "𝗨𝗫 Test utilisateur",
-    "𝗨𝗫 À valider",
-    "𝗗𝗘𝗩 Prêt à développer",
-)
-TYPES = ("Fonctionnalité", "Bug", "Sécurité", "Technique", "Tâche")
 MAX_TEXT_LENGTH = 2000
 MAX_BLOCKS = 100
 HEADINGS = ("heading_1", "heading_2", "heading_3")
@@ -44,12 +31,14 @@ class Ticket:
     names: dict[str, str] = field(default_factory=dict)
 
 
-def build_properties(ticket: Ticket) -> dict:
-    """Propriétés Notion du ticket, limitées à celles que l'auteur peut poser."""
-    if ticket.status not in ALLOWED_STATUSES:
-        raise ValueError(f"Statut non proposable : {ticket.status}. Valeurs : {', '.join(ALLOWED_STATUSES)}")
-    if not ticket.types or not set(ticket.types) <= set(TYPES):
-        raise ValueError(f"Type inconnu : {ticket.types}")
+def build_properties(ticket: Ticket, schema: dict) -> dict:
+    """Propriétés Notion du ticket, limitées à celles que l'auteur peut poser et aux options du schéma."""
+    # Why: Notion crée en silence une option de select inconnue, par exemple un statut renommé depuis.
+    allowed = [s for s in schema["statuses"] if s in backlog.ALLOWED_STATUSES]
+    if ticket.status not in allowed:
+        raise ValueError(f"Statut non proposable : {ticket.status}. Valeurs : {', '.join(allowed)}")
+    if not ticket.types or not set(ticket.types) <= set(schema["types"]):
+        raise ValueError(f"Type inconnu : {ticket.types}. Valeurs : {', '.join(schema['types'])}")
     if not ticket.teams:
         raise ValueError("Au moins une équipe est requise")
     props = {
@@ -122,13 +111,12 @@ def place_marker(blocks: list[dict], emoji_id: str | None) -> list[dict]:
     return blocks
 
 
-def check_relations(ticket: Ticket) -> None:
+def check_relations(ticket: Ticket, schema: dict) -> None:
     """Vérifie dans Notion que chaque équipe et l'épic du ticket sont la page attendue, active, dans la bonne base."""
     # Why: les identifiants viennent d'un contexte rangé hors de Notion ; on ne les écrit qu'après vérification.
-    bases = backlog.linked_databases()
-    expected = [(team, bases["teams"]) for team in ticket.teams]
+    expected = [(team, schema["teams"]) for team in ticket.teams]
     if ticket.epic:
-        expected.append((ticket.epic, bases["epics"]))
+        expected.append((ticket.epic, schema["epics"]))
     for page_id, base in expected:
         page = notion.notion_request("GET", f"pages/{page_id}")
         parent = (page.get("parent") or {}).get("database_id", "")
@@ -146,8 +134,9 @@ def check_relations(ticket: Ticket) -> None:
 def prepare(ticket: Ticket) -> dict:
     """Vérifie le ticket et renvoie le payload exact de la création, sans rien écrire."""
     check_body(ticket)
-    props = build_properties(ticket)
-    check_relations(ticket)
+    schema = backlog.backlog_schema()
+    props = build_properties(ticket, schema)
+    check_relations(ticket, schema)
     # Why: un nouvel essai après un délai dépassé ou une demande de correction ne doit pas créer un doublon.
     since = (datetime.now(UTC) - timedelta(minutes=10)).isoformat(timespec="seconds")
     existing = notion.query_database(

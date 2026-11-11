@@ -46,6 +46,8 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
         "properties": {
             "Pizza team": {"relation": {"database_id": "teams"}},
             "Epic - feuille de route": {"relation": {"database_id": "epics"}},
+            "Statut": {"type": "select", "select": {"options": [{"name": "Cadrage"}, {"name": "Annulé"}]}},
+            "Type": {"type": "multi_select", "multi_select": {"options": [{"name": "Bug"}]}},
         }
     }
     payloads = {}
@@ -70,6 +72,7 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
 
     mocker.patch("lib.notion.notion_request", side_effect=notion)
     context = backlog.load_context()
+    assert (context["statuses"], context["types"]) == (["Cadrage", "Annulé"], ["Bug"])
     assert context["teams"] == [
         {
             "id": "e1",
@@ -100,16 +103,20 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
     assert payloads["backlog"]["filter"]["and"][1] == {"property": "Statut", "select": {"does_not_equal": "Annulé"}}
 
 
-def test_format_context_sorts_teams_and_lists_epics_and_tickets():
+def test_format_context_lists_allowed_statuses_types_and_sorted_teams():
     context = {
         "generated_at": "2026-10-30T02:00:00+00:00",
+        "statuses": ["Archivé", "Bac à sable 🏝️", "Cadrage", "𝗗𝗘𝗩 En prod"],
+        "types": ["Fonctionnalité", "Bug"],
         "teams": [
             {"id": "e2", "name": "Prescription", "epics": [], "recent_titles": ["Modale DORA"]},
             {"id": "e1", "name": "Emplois", "epics": [{"id": "p", "name": "RUN EMPLOIS"}], "recent_titles": []},
         ],
     }
     assert backlog.format_context(context) == (
-        "# Équipes produit actives (au 2026-10-30)\n\n"
+        "# Backlog unifié (au 2026-10-30)\n\n"
+        "- Statuts proposables : Bac à sable 🏝️ ; Cadrage\n- Types : Fonctionnalité ; Bug\n\n"
+        "# Équipes produit actives\n\n"
         "## Emplois\n- Épics actifs : RUN EMPLOIS\n- Tickets récents : aucun\n\n"
         "## Prescription\n- Tickets récents :\n  - Modale DORA\n"
     )

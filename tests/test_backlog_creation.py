@@ -16,10 +16,12 @@ def ticket(**fields):
 
 
 FIGMA = "https://www.figma.com/design/AbCdEfGhIjKlMnOpQrStUv/Maquette"
+STATUSES = ["Archivé", "Bac à sable 🏝️", "Métier", "Cadrage", "𝗗𝗘𝗩 Prêt à développer", "𝗗𝗘𝗩 Ce sprint", "𝗗𝗘𝗩 En prod"]
+SCHEMA = {"teams": "te-ams", "epics": "e-pics", "statuses": STATUSES, "types": ["Fonctionnalité", "Bug"]}
 
 
 def test_dod_4_build_properties_sets_only_allowed_fields():
-    props = creation.build_properties(ticket(figma=FIGMA, epic="p1", author_field="UX", author_notion_id="u1"))
+    props = creation.build_properties(ticket(figma=FIGMA, epic="p1", author_field="UX", author_notion_id="u1"), SCHEMA)
     assert props == {
         "Nom": {"title": [{"text": {"content": "Masquer les candidatures anciennes"}}]},
         "Pizza team": {"relation": [{"id": "e1"}]},
@@ -34,9 +36,11 @@ def test_dod_4_build_properties_sets_only_allowed_fields():
 @pytest.mark.parametrize(
     ("fields", "message"),
     [
-        ({"status": "𝗗𝗘𝗩 En prod"}, "Statut non proposable : .* Valeurs : Bac à sable.*Prêt à développer"),
+        ({"status": "𝗗𝗘𝗩 En prod"}, "Statut non proposable : .* Valeurs : Bac à sable 🏝️, Métier, Cadrage, 𝗗𝗘𝗩 Prêt"),
         ({"status": "𝗗𝗘𝗩 Ce sprint"}, "Statut non proposable"),
-        ({"types": ["Épopée"]}, "Type inconnu"),
+        ({"status": "stand-by"}, "Statut non proposable"),
+        ({"types": ["Épopée"]}, "Type inconnu : .* Valeurs : Fonctionnalité, Bug"),
+        ({"types": ["Tâche"]}, "Type inconnu"),
         ({"types": []}, "Type inconnu"),
         ({"teams": []}, "Au moins une équipe"),
         ({"author_field": "Responsable(s)", "author_notion_id": "u1"}, "Champ d'auteur inconnu"),
@@ -44,7 +48,7 @@ def test_dod_4_build_properties_sets_only_allowed_fields():
 )
 def test_dod_4_build_properties_refuses(fields, message):
     with pytest.raises(ValueError, match=message):
-        creation.build_properties(ticket(**fields))
+        creation.build_properties(ticket(**fields), SCHEMA)
 
 
 def paragraph(text):
@@ -156,19 +160,17 @@ def notion_page(base, title="", archived=False, trashed=False, teams=()):
     ],
 )
 def test_dod_4_check_relations_refuses(mocker, pages, fields, message):
-    mocker.patch.object(creation.backlog, "linked_databases", return_value={"teams": "te-ams", "epics": "epics"})
     mocker.patch("lib.notion.notion_request", side_effect=lambda method, path, payload=None: pages[path.split("/")[1]])
     with pytest.raises(ValueError, match=message):
-        creation.check_relations(ticket(**fields))
+        creation.check_relations(ticket(**fields), SCHEMA)
 
 
 def test_dod_4_check_relations_accepts_the_expected_pages(mocker):
-    mocker.patch.object(creation.backlog, "linked_databases", return_value={"teams": "te-ams", "epics": "e-pics"})
     pages = {"e1": notion_page("teams", "Emplois"), "p1": notion_page("e-pics", "RUN EMPLOIS", teams=("e1",))}
     call = mocker.patch(
         "lib.notion.notion_request", side_effect=lambda method, path, payload=None: pages[path.split("/")[1]]
     )
-    creation.check_relations(ticket(epic="p1", names={"e1": "Emplois", "p1": "RUN EMPLOIS"}))
+    creation.check_relations(ticket(epic="p1", names={"e1": "Emplois", "p1": "RUN EMPLOIS"}), SCHEMA)
     assert [c.args[1] for c in call.call_args_list] == ["pages/e1", "pages/p1"]
 
 
@@ -202,6 +204,7 @@ def test_dod_4_check_body_accepts_http_links_and_short_lines():
 
 
 def test_dod_4_create_ticket_refuses_a_body_over_100_blocks(mocker):
+    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
     mocker.patch.object(creation, "check_relations")
     mocker.patch.object(creation, "autometa_emoji", return_value=None)
     mocker.patch("lib.notion.query_database", return_value=[])
@@ -213,6 +216,7 @@ def test_dod_4_create_ticket_refuses_a_body_over_100_blocks(mocker):
 
 
 def test_dod_4_create_ticket_sends_a_single_creation(mocker):
+    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "autometa_emoji", return_value=None)
     verification = mocker.patch.object(creation, "check_relations")
@@ -228,6 +232,7 @@ def test_dod_4_create_ticket_sends_a_single_creation(mocker):
 
 
 def test_dod_4_create_ticket_writes_nothing_when_checks_fail(mocker):
+    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
     mocker.patch.object(creation, "check_relations", side_effect=ValueError("Relation refusée"))
     call = mocker.patch("lib.notion.notion_request")
     with pytest.raises(ValueError, match="Relation refusée"):
@@ -236,6 +241,7 @@ def test_dod_4_create_ticket_writes_nothing_when_checks_fail(mocker):
 
 
 def test_prepare_returns_the_real_payload_with_the_marker_without_writing(mocker):
+    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "autometa_emoji", return_value="emoji-1")
     mocker.patch.object(creation, "check_relations")
@@ -249,6 +255,7 @@ def test_prepare_returns_the_real_payload_with_the_marker_without_writing(mocker
 
 
 def test_prepare_refuses_a_body_over_100_blocks(mocker):
+    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
     mocker.patch.object(creation, "check_relations")
     mocker.patch.object(creation, "autometa_emoji", return_value=None)
     mocker.patch("lib.notion.query_database", return_value=[])
@@ -258,6 +265,7 @@ def test_prepare_refuses_a_body_over_100_blocks(mocker):
 
 
 def test_prepare_refuses_a_recent_ticket_with_the_same_title(mocker):
+    mocker.patch.object(creation.backlog, "backlog_schema", return_value=SCHEMA)
     mocker.patch.object(creation.config, "NOTION_BACKLOG_DB", "backlog")
     mocker.patch.object(creation, "autometa_emoji", return_value=None)
     mocker.patch.object(creation, "check_relations")
