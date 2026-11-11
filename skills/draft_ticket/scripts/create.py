@@ -7,11 +7,9 @@ from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from lib import backlog, backlog_creation, backlog_storage  # noqa: E402
-from skills.draft_ticket.scripts.common import check_config  # noqa: E402
-from web import config  # noqa: E402
+from lib import backlog, backlog_creation, backlog_storage
+from skills.draft_ticket.scripts.common import check_config
+from web import config
 
 LIST_FIELDS = ("teams", "types")
 TEXT_FIELDS = ("title", "body", "status")

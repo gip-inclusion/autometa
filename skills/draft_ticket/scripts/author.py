@@ -1,16 +1,12 @@
 """Rôle et équipes de la personne connectée, et la propriété où l'inscrire comme auteur."""
 
 import argparse
-import sys
-from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from lib import backlog, backlog_storage  # noqa: E402
-from skills.draft_ticket.scripts.common import check_config, run_cli  # noqa: E402
-from web import config  # noqa: E402
+from lib import backlog, backlog_storage
+from skills.draft_ticket.scripts.common import check_config, run_cli
+from web import config
 
 
 def run(args: argparse.Namespace) -> str:

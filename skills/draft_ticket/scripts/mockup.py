@@ -1,15 +1,12 @@
 """Lit une maquette Figma : cadres, textes visibles et une image par cadre à regarder."""
 
 import argparse
-import sys
 from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from lib import figma  # noqa: E402
-from web import config  # noqa: E402
+from lib import figma
+from web import config
 
 
 def images_folder() -> Path:

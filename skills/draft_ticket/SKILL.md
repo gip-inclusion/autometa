@@ -11,15 +11,15 @@ Règle d'or : **tu n'inventes jamais de solution**. Tout ce que le ticket dit vi
 
 ## Déroulé
 
-1. **Maquette** : pour chaque lien Figma, `.venv/bin/python skills/draft_ticket/scripts/mockup.py "<lien>"`, puis regarde chaque image citée avec l'outil Read. Suis `skills/draft_ticket/mockup.md`.
-2. **Contexte** : `.venv/bin/python skills/draft_ticket/scripts/context.py` (équipes actives, épics actifs, tickets récents).
+1. **Maquette** : pour chaque lien Figma, `python -m skills.draft_ticket.scripts.mockup "<lien>"`, puis regarde chaque image citée avec l'outil Read. Suis `skills/draft_ticket/mockup.md`.
+2. **Contexte** : `python -m skills.draft_ticket.scripts.context` (équipes actives, épics actifs, tickets récents).
 3. **Rédaction** : trie l'entrée, rédige, relis avec la liste finale. Exemples : `skills/draft_ticket/examples.md`.
-4. **Doublons** : `.venv/bin/python skills/draft_ticket/scripts/duplicates.py "<titre>"`.
-5. **Auteur** : `.venv/bin/python skills/draft_ticket/scripts/author.py --team "<équipe recommandée>"`. Si ses rôles sont inconnus, demande-lui son rôle (PM, design, dev ou data, autre) et mets le champ correspondant dans le brouillon (`author_field`). Correspondance : PM de l'équipe destinataire → `POM` ; PM d'une autre équipe → `Contributeurs` ; design → `UX` ; dev ou data → `Développeurs` ; tout autre rôle → `Contributeurs`. Sans compte Notion, dis-lui que le ticket sera créé sans auteur inscrit.
+4. **Doublons** : `python -m skills.draft_ticket.scripts.duplicates "<titre>"`.
+5. **Auteur** : `python -m skills.draft_ticket.scripts.author --team "<équipe recommandée>"`. Si ses rôles sont inconnus, demande-lui son rôle (PM, design, dev ou data, autre) et mets le champ correspondant dans le brouillon (`author_field`). Correspondance : PM de l'équipe destinataire → `POM` ; PM d'une autre équipe → `Contributeurs` ; design → `UX` ; dev ou data → `Développeurs` ; tout autre rôle → `Contributeurs`. Sans compte Notion, dis-lui que le ticket sera créé sans auteur inscrit.
 6. **Proposition** (format plus bas). Attends un accord explicite (« go », « crée-le », « ok »). Applique les corrections demandées et remontre si elles sont importantes.
-7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local} && cat > /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local}/draft.json <<'EOF'` … `EOF`. Lance `.venv/bin/python skills/draft_ticket/scripts/create.py` (vérification, rien n'est créé), puis `.venv/bin/python skills/draft_ticket/scripts/create.py --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
+7. **Création** : écris le brouillon avec Bash, dans le dossier de la conversation : `mkdir -p /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local} && cat > /tmp/draft_ticket/${AUTOMETA_CONVERSATION_ID:-local}/draft.json <<'EOF'` … `EOF`. Lance `python -m skills.draft_ticket.scripts.create` (vérification, rien n'est créé), puis `python -m skills.draft_ticket.scripts.create --go`. Donne le lien du ticket. Le brouillon est supprimé après la création : pour un autre ticket, écris-en un nouveau. Une correction après la création se fait dans Notion, par le lien donné : ne relance jamais `--go` pour corriger.
 
-Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Sauf « Un ticket au même titre vient d'être créé » : donne ce lien à l'auteur et ne relance pas, même sous un autre titre. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`.venv/bin/python skills/draft_ticket/scripts/duplicates.py "<titre>"`, ou dans Notion) avant de relancer.
+Si un script répond « Refusé » ou « Notion répond … », corrige et relance la vérification. Sauf « Un ticket au même titre vient d'être créé » : donne ce lien à l'auteur et ne relance pas, même sous un autre titre. Après « Notion ne répond pas » pendant `--go`, vérifie si le ticket existe (`python -m skills.draft_ticket.scripts.duplicates "<titre>"`, ou dans Notion) avant de relancer.
 
 Tu ne poses jamais `Priorité`, `Période` ni `Estimation`. Tu peux recommander `𝗗𝗘𝗩 Prêt à développer` ; l'auteur choisit.
 

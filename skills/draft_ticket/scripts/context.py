@@ -1,13 +1,9 @@
 """Affiche le contexte des équipes du backlog : équipes produit actives, épics actifs, tickets récents."""
 
 import argparse
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from lib import backlog, backlog_storage  # noqa: E402
-from skills.draft_ticket.scripts.common import check_config, run_cli  # noqa: E402
+from lib import backlog, backlog_storage
+from skills.draft_ticket.scripts.common import check_config, run_cli
 
 
 def run(args: argparse.Namespace) -> str:

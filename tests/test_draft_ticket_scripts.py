@@ -1,6 +1,8 @@
 import argparse
 import importlib.util
 import json
+import subprocess
+import sys
 from argparse import Namespace
 from pathlib import Path
 
@@ -555,3 +557,16 @@ def test_create_without_go_refuses_when_the_ticket_was_just_created(mocker, tmp_
     with pytest.raises(ValueError, match="https://notion/deja"):
         create.run(Namespace(draft=draft(tmp_path), go=False))
     creation.assert_not_called()
+
+
+@pytest.mark.parametrize("name", ["author", "context", "create", "duplicates", "mockup"])
+def test_scripts_run_as_modules_from_the_repository_root(name):
+    result = subprocess.run(
+        [sys.executable, "-m", f"skills.draft_ticket.scripts.{name}", "--help"],
+        cwd=Path(__file__).parent.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("usage:")

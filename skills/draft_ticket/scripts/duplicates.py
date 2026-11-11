@@ -1,13 +1,9 @@
 """Cherche dans le backlog les tickets dont le titre ressemble au titre proposé."""
 
 import argparse
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
-from lib import backlog  # noqa: E402
-from skills.draft_ticket.scripts.common import check_config, run_cli  # noqa: E402
+from lib import backlog
+from skills.draft_ticket.scripts.common import check_config, run_cli
 
 
 def run(args: argparse.Namespace) -> str:
