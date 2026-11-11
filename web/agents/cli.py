@@ -363,7 +363,9 @@ class CLIBackend(AgentBackend):
                     stderr_bytes = b""
                 if session_id:
                     try:
-                        session_sync.upload_session(session_id)
+                        # Why: depuis la boucle, l'envoi (jusqu'à 15 Mo) bloquerait toutes les conversations du
+                        # processus. Attendu : le tour suivant repart de la session sur S3.
+                        await asyncio.to_thread(session_sync.upload_session, session_id)
                     except Exception:
                         # Why: cleanup must complete so span.finish() and the error capture below still run.
                         logger.exception("session upload failed during cleanup")

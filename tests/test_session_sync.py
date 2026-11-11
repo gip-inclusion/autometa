@@ -1,6 +1,7 @@
 """Tests for web/session_sync.py — S3 session file management."""
 
 import hashlib
+import threading
 
 from botocore.exceptions import BotoCoreError
 
@@ -224,6 +225,38 @@ def test_download_session_falls_back_to_get_when_local_read_fails(monkeypatch, m
 
     assert session_sync.download_session("sess-racy") is True
     dl.assert_called_once()
+
+
+def test_download_waits_for_an_upload_of_the_same_session_in_flight(monkeypatch, mocker, tmp_path):
+    local = tmp_path / "sess.jsonl"
+    local.write_bytes(b"turn 1\nturn 2\n")
+    stored = {"sess.jsonl": b"turn 1\n"}
+    upload_started, release_upload = threading.Event(), threading.Event()
+
+    def slow_upload(path, content, content_type=None):
+        upload_started.set()
+        release_upload.wait(2)
+        stored[path] = content
+        return True
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(session_sync.s3.sessions, "upload", side_effect=slow_upload)
+    mocker.patch.object(session_sync.s3.sessions, "head", side_effect=lambda path: _head(stored[path]))
+    mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda path: stored[path])
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+
+    uploader = threading.Thread(target=session_sync.upload_session, args=("sess",))
+    uploader.start()
+    upload_started.wait(2)
+    downloader = threading.Thread(target=session_sync.download_session, args=("sess",))
+    downloader.start()
+    downloader.join(0.2)
+    release_upload.set()
+    uploader.join(2)
+    downloader.join(2)
+
+    assert local.read_bytes() == b"turn 1\nturn 2\n"
 
 
 def test_copy_session_returns_false_without_s3(monkeypatch):
