@@ -575,13 +575,15 @@ async def stream_conversation(
                 last_msg_id, last_content = rows[-1].id, rows[-1].content
             return [_format_msg(m) for m in rows]
 
-        if await runner.is_done(conv_id, question_id) or not conv.needs_response:
-            for chunk in [*await fresh(), done]:
-                yield chunk
-            return
-
+        # Why: s'abonner avant de vérifier la fin du tour — un tour fini entre les deux n'enverrait son signal à
+        # personne, et le flux ne le verrait qu'au sondage suivant.
         pubsub = await runner.subscribe(conv_id)
         try:
+            if await runner.is_done(conv_id, question_id) or not conv.needs_response:
+                for chunk in [*await fresh(), done]:
+                    yield chunk
+                return
+
             while (time.monotonic() - start) < config.SSE_MAX_SECONDS:
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
                 now = time.monotonic()

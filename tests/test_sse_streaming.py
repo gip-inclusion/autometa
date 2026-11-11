@@ -529,3 +529,28 @@ def test_the_stream_rotation_sends_a_timeout_event(app, client, conversation, mo
     events = [e["event"] for e in _parse_sse_events(response.content) if e["event"] != "heartbeat"]
 
     assert events[-1] == "timeout"
+
+
+def test_a_turn_ending_just_before_the_stream_subscribes_closes_it_at_once(app, client, conversation, monkeypatch):
+    from web.database import store
+    from web.runner import runner
+
+    subscribe = runner.subscribe
+
+    async def end_turn_then_subscribe(conv_id):
+        store.update_conversation(conv_id, needs_response=False)
+        question_id = store.last_user_message_id(conv_id)
+        r = _sync_redis()
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
+        r.close()
+        return await subscribe(conv_id)
+
+    monkeypatch.setattr(runner, "subscribe", end_turn_then_subscribe)
+    started = time.monotonic()
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+
+    assert _parse_sse_events(response.content)[-1]["event"] == "done"
+    assert time.monotonic() - started < 2
