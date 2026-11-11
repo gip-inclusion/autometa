@@ -112,23 +112,25 @@ def place_marker(blocks: list[dict], emoji_id: str | None) -> list[dict]:
 
 
 def check_relations(ticket: Ticket, schema: dict) -> None:
-    """Vérifie dans Notion que chaque équipe et l'épic du ticket sont la page attendue, active, dans la bonne base."""
+    """Vérifie dans Notion que chaque équipe est une équipe produit active, et l'épic un épic actif de l'une d'elles."""
     # Why: les identifiants viennent d'un contexte rangé hors de Notion ; on ne les écrit qu'après vérification.
-    expected = [(team, schema["teams"]) for team in ticket.teams]
+    expected = [(ticket.teams, backlog.active_teams(schema["teams"]), "une équipe produit active")]
     if ticket.epic:
-        expected.append((ticket.epic, schema["epics"]))
-    for page_id, base in expected:
-        page = notion.notion_request("GET", f"pages/{page_id}")
-        parent = (page.get("parent") or {}).get("database_id", "")
-        if parent.replace("-", "") != base.replace("-", "") or page.get("archived") or page.get("in_trash"):
-            raise ValueError(f"Relation refusée : {page_id} n'est pas une page active de la base attendue")
-        name = ticket.names.get(page_id)
-        if name is None:
-            raise ValueError(f"Relation refusée : {page_id} : nom non fourni")
-        if backlog.title(page) != name:
-            raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {name} »")
-        if page_id == ticket.epic and not set(backlog.relation_ids(page, "Pizza team")) & set(ticket.teams):
-            raise ValueError("Relation refusée : l'épic n'appartient à aucune des équipes choisies")
+        expected.append(([ticket.epic], backlog.active_epics(schema["epics"]), "un épic actif"))
+    for ids, pages, kind in expected:
+        by_id = {page["id"]: page for page in pages}
+        for page_id in ids:
+            if page_id not in by_id:
+                raise ValueError(f"Relation refusée : {page_id} n'est pas {kind}")
+            name = ticket.names.get(page_id)
+            if name is None:
+                raise ValueError(f"Relation refusée : {page_id} : nom non fourni")
+            if backlog.title(by_id[page_id]) != name:
+                raise ValueError(f"Relation refusée : {page_id} ne s'appelle pas « {name} »")
+            if page_id == ticket.epic and not set(backlog.relation_ids(by_id[page_id], "Pizza team")) & set(
+                ticket.teams
+            ):
+                raise ValueError("Relation refusée : l'épic n'appartient à aucune des équipes choisies")
 
 
 def prepare(ticket: Ticket) -> dict:

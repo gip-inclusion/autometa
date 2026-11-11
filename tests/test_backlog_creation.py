@@ -127,11 +127,9 @@ def test_autometa_emoji_missing(mocker):
     assert creation.autometa_emoji() is None
 
 
-def notion_page(base, title="", archived=False, trashed=False, teams=()):
+def notion_page(id_, title, teams=()):
     return {
-        "parent": {"database_id": base},
-        "archived": archived,
-        "in_trash": trashed,
+        "id": id_,
         "properties": {
             "Nom": {"type": "title", "title": [{"plain_text": title}]},
             "Pizza team": {"relation": [{"id": e} for e in teams]},
@@ -139,39 +137,45 @@ def notion_page(base, title="", archived=False, trashed=False, teams=()):
     }
 
 
+EMPLOIS = notion_page("e1", "Emplois")
+RUN = notion_page("p1", "RUN", teams=("e1",))
+
+
 @pytest.mark.parametrize(
-    ("pages", "fields", "message"),
+    ("teams", "epics", "fields", "message"),
     [
-        ({"e1": notion_page("autre-base", "Emplois")}, {"names": {"e1": "Emplois"}}, "pas une page active"),
+        ([], [], {"names": {"e1": "Emplois"}}, "e1 n'est pas une équipe produit active"),
+        ([EMPLOIS], [], {"epic": "p1", "names": {"e1": "Emplois", "p1": "RUN"}}, "p1 n'est pas un épic actif"),
+        ([notion_page("e1", "Prescription")], [], {"names": {"e1": "Emplois"}}, "ne s'appelle pas « Emplois »"),
+        ([EMPLOIS], [], {}, "nom non fourni"),
         (
-            {"e1": notion_page("teams", "Emplois"), "p1": notion_page("teams", "RUN")},
-            {"epic": "p1", "names": {"e1": "Emplois", "p1": "RUN"}},
-            "pas une page active",
-        ),
-        ({"e1": notion_page("teams", "Emplois", archived=True)}, {"names": {"e1": "Emplois"}}, "pas une page active"),
-        ({"e1": notion_page("teams", "Emplois", trashed=True)}, {"names": {"e1": "Emplois"}}, "pas une page active"),
-        ({"e1": notion_page("teams", "Prescription")}, {"names": {"e1": "Emplois"}}, "ne s'appelle pas"),
-        ({"e1": notion_page("teams", "Emplois")}, {}, "nom non fourni"),
-        (
-            {"e1": notion_page("teams", "Emplois"), "p1": notion_page("epics", "RUN", teams=("autre",))},
+            [EMPLOIS],
+            [notion_page("p1", "RUN", teams=("autre",))],
             {"epic": "p1", "names": {"e1": "Emplois", "p1": "RUN"}},
             "aucune des équipes",
         ),
     ],
 )
-def test_dod_4_check_relations_refuses(mocker, pages, fields, message):
-    mocker.patch("lib.notion.notion_request", side_effect=lambda method, path, payload=None: pages[path.split("/")[1]])
+def test_dod_4_check_relations_refuses(mocker, teams, epics, fields, message):
+    mocker.patch.object(creation.backlog, "active_teams", return_value=teams)
+    mocker.patch.object(creation.backlog, "active_epics", return_value=epics)
     with pytest.raises(ValueError, match=message):
         creation.check_relations(ticket(**fields), SCHEMA)
 
 
-def test_dod_4_check_relations_accepts_the_expected_pages(mocker):
-    pages = {"e1": notion_page("teams", "Emplois"), "p1": notion_page("e-pics", "RUN EMPLOIS", teams=("e1",))}
-    call = mocker.patch(
-        "lib.notion.notion_request", side_effect=lambda method, path, payload=None: pages[path.split("/")[1]]
-    )
-    creation.check_relations(ticket(epic="p1", names={"e1": "Emplois", "p1": "RUN EMPLOIS"}), SCHEMA)
-    assert [c.args[1] for c in call.call_args_list] == ["pages/e1", "pages/p1"]
+def test_dod_4_check_relations_accepts_active_pages_of_the_schema_databases(mocker):
+    teams = mocker.patch.object(creation.backlog, "active_teams", return_value=[EMPLOIS])
+    epics = mocker.patch.object(creation.backlog, "active_epics", return_value=[RUN])
+    creation.check_relations(ticket(epic="p1", names={"e1": "Emplois", "p1": "RUN"}), SCHEMA)
+    teams.assert_called_once_with("te-ams")
+    epics.assert_called_once_with("e-pics")
+
+
+def test_check_relations_without_epic_does_not_read_epics(mocker):
+    mocker.patch.object(creation.backlog, "active_teams", return_value=[EMPLOIS])
+    epics = mocker.patch.object(creation.backlog, "active_epics")
+    creation.check_relations(ticket(names={"e1": "Emplois"}), SCHEMA)
+    epics.assert_not_called()
 
 
 @pytest.mark.parametrize(
