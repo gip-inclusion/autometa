@@ -69,7 +69,7 @@ def test_run_ruff_forces_exclude_on_the_edited_path():
         calls.append(cmd)
         return _Proc(0)
 
-    ruff_edited.run_ruff("skills/pdf/vendored.py", run=run)
+    ruff_edited.run_ruff("data/script.py", run=run)
 
     assert len(calls) == 2
     assert all("--force-exclude" in cmd for cmd in calls)
