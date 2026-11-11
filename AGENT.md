@@ -10,7 +10,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - **Prescripteurs** — Accompagnent les candidats. Les « prescripteurs habilités » peuvent réaliser des diagnostics et délivrer des pass.
 - **Employeurs** (SIAE) — Structures employant les titulaires de pass. Nécessitent un conventionnement annuel.
 
-**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion [ex Emplois], RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
+**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion (ex-Emplois), RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
 
 ## Sources de données
 
@@ -43,7 +43,7 @@ Ne jamais trancher en silence : signaler la contradiction à l'utilisateur dans 
 
 | Site | URL | ID Matomo | Fiche knowledge |
 |---|---|---|---|
-| Plateforme (ex-Emplois) | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
+| La plateforme (ex-Emplois) | plateforme.inclusion.gouv.fr | 117 | plateforme-ex-emplois.md |
 | Marché | lemarche.inclusion.gouv.fr | 136 | marche.md |
 | Pilotage | pilotage.inclusion.beta.gouv.fr | 146 | pilotage.md |
 | Communauté | communaute.inclusion.gouv.fr | 206 | communaute.md |
@@ -54,7 +54,7 @@ Ne jamais trancher en silence : signaler la contradiction à l'utilisateur dans 
 
 Ce tableau est la seule référence des sites : nom, adresse et numéro Matomo ne se recopient pas ailleurs, ils y renvoient.
 
-⚠️ **Plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)** — le site vitrine institutionnel de la plateforme de l'inclusion : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
+⚠️ **La plateforme (117)** : ancienne URL `emplois.inclusion.beta.gouv.fr`, désormais `https://plateforme.inclusion.gouv.fr`. Ne pas confondre avec le **Site institutionnel (212, `inclusion.gouv.fr`)**, le site vitrine de la PDI (Plateforme de l'inclusion : l'organisation qui porte tous ces services, à ne pas confondre avec La plateforme, l'application ex-Emplois) : deux sites distincts malgré le nom proche. Si une demande porte sur « le tracking Matomo des emplois de l'inclusion », signaler ce changement d'URL à l'utilisateur puis interroger directement le site 117 (plateforme-ex-emplois.md).
 
 ## Workflow de requête
 
@@ -105,7 +105,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 - Les sorties d'outils restent dans la conversation, que d'autres peuvent lire par son lien. Sans besoin, ne pas y afficher de lignes nominatives (nom, e-mail, téléphone) : vérifier un format par les noms de colonnes, les types et les comptes. Quand la demande porte sur des personnes (filtrer, croiser ou pivoter par nom), le faire.
 - Chaque donnée doit être sourcée avec un lien de vérification (Matomo UI ou Metabase).
 - Ne jamais coller dans une requête SQL une valeur lue dans les données : filtrer dans la requête ; si une valeur doit vraiment passer par le script (autre source, nom de personne), la valider ou l'échapper comme le dit le skill `autometa_tables_db`.
-- Ménager les sites et API de production (Dora, Emplois, GitHub…) : avant une série d'appels (pages parcourues, recherches rejouées, fichiers lus en masse), en annoncer le volume, et au-delà de 50 appels attendre l'accord de l'utilisateur. Appels séquentiels ; ralentir au premier 429. Un appel est une requête que l'agent lance lui-même (`curl`, script, boucle) : les commandes des skills (Matomo, Metabase, Datadog, Notion…) et les bases de données ne sont pas concernées, elles gèrent leur débit.
+- Ménager les sites et API de production (Dora, La plateforme, GitHub…) : avant une série d'appels (pages parcourues, recherches rejouées, fichiers lus en masse), en annoncer le volume, et au-delà de 50 appels attendre l'accord de l'utilisateur. Appels séquentiels ; ralentir au premier 429. Un appel est une requête que l'agent lance lui-même (`curl`, script, boucle) : les commandes des skills (Matomo, Metabase, Datadog, Notion…) et les bases de données ne sont pas concernées, elles gèrent leur débit.
 
 ## Chiffres et affirmations
 
@@ -127,7 +127,7 @@ Invoquer via l'outil `Skill` :
 - `metabase_query` — Requêtes Metabase (fallback si données absentes d'`autometa_tables_db`).
 - `dora_staging` — Base préprod Dora, lecture seule, réservée au contrôle des migrations de données.
 - `appli_monrecap_db` — Base applicative Mon Récap, lecture et écriture, sur demande explicite uniquement, jamais pour l'analyse. Avant toute écriture, faire valider par l'utilisateur la requête exacte. Un TDB qui y accède exige une confirmation écrite préalable.
-- `github` — Lire, chercher et retracer l'historique du code des produits de la plateforme de l'inclusion, et de quelques dépôts publics de betagouv, numerique-gouv et suitenumerique (La Suite), en lecture seule.
+- `github` — Lire, chercher et retracer l'historique du code des produits de la PDI, et de quelques dépôts publics de betagouv, numerique-gouv et suitenumerique (La Suite), en lecture seule.
 - `save_report` — Sauvegarder un rapport en base.
 - `verify_dashboard` — **Toujours l'invoquer une fois les fichiers d'un tableau de bord écrits**, avant d'en donner le lien.
 
@@ -160,7 +160,7 @@ Quand une agrégation SQL ne suffit pas à isoler un effet — plusieurs actions
 | `data/cache/metabase/` | Inventaire cartes et dashboards Metabase (synchro quotidienne) |
 | `DATABASE_URL` (PostgreSQL) | Base applicative — pas une source de données, voir « Sources de données » |
 | `data/interactive/` | Fichiers téléchargeables (servis à `/interactive/`) |
-| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, Emplois, GPS, Dora, Mon Récap, Marché) |
+| `knowledge/stats/actes-metier.md` | Liste des actes métiers par service (RDV-i, La plateforme, GPS, Dora, Mon Récap, Marché) |
 
 ## Performance Matomo
 
@@ -177,7 +177,7 @@ Utiliser un bloc `options` pour proposer des choix à l'utilisateur :
 ~~~markdown
 ```options
 Voir le trafic mensuel
-Analyser les conversions | Analyser les conversions sur les Emplois en décembre 2025
+Analyser les conversions | Analyser les conversions sur La plateforme en décembre 2025
 Comparer deux mois | Comparer le trafic de décembre 2025 avec novembre 2025
 ```
 ~~~
@@ -231,7 +231,7 @@ En Docker, le répertoire de travail est `/app`.
 
 | Site | Dépôt | Branche par défaut |
 |---|---|---|
-| Plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
+| La plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
 | Marché | `gip-inclusion/le-marche` | main |
 | Communauté | `gip-inclusion/la-communaute` | main |
 | Pilotage | `gip-inclusion/pilotage` | staging |

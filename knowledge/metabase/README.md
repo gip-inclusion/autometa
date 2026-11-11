@@ -102,7 +102,7 @@ ORDER BY nb_siae DESC;
 
 ### public.utilisateurs
 
-Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspecteurs).
+Utilisateurs professionnels de La plateforme (ex-Emplois : employeurs, prescripteurs, inspecteurs).
 **Préférer cette table à `utilisateurs_v0`** qui existe aussi mais contient moins de colonnes.
 
 | Colonne | Description |
@@ -170,7 +170,7 @@ WHERE u.id_organisation IS NOT NULL;
 
 ### public.tmp_utilisateurs_avec_departement
 
-Table enrichie liant les utilisateurs Emplois à leur département via leur structure/organisation.
+Table enrichie liant les utilisateurs de La plateforme à leur département via leur structure/organisation.
 
 | Colonne | Description |
 |---------|-------------|
@@ -186,7 +186,7 @@ Table enrichie liant les utilisateurs Emplois à leur département via leur stru
 
 ### public.structures_v0
 
-Structures SIAE du service Emplois. Aussi accessible via `public.structures`.
+Structures SIAE de La plateforme. Aussi accessible via `public.structures`.
 
 | Colonne | Description |
 |---------|-------------|
@@ -244,7 +244,7 @@ Institutions (prescripteurs institutionnels comme Pôle Emploi, conseils départ
 
 ### public.candidats
 
-Candidats (demandeurs d'emploi) du service Emplois.
+Candidats (demandeurs d'emploi) de La plateforme.
 
 | Colonne | Description |
 |---------|-------------|
@@ -261,7 +261,7 @@ Candidats (demandeurs d'emploi) du service Emplois.
 
 **⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs`.
 
-**⚠️ Purge RGPD.** Les Emplois anonymisent les comptes candidats sans rien de récent depuis ~700 jours (deux ans moins 30 jours de grâce : ni connexion, ni candidature, ni diagnostic ou pass IAE encore valide) ; ils sortent de `candidats`. Les cohortes de plus de deux ans ne gardent presque que les candidats embauchés (95 à 97 % avec `total_embauches > 0` pour les diagnostics prescripteurs 2021-2023, 46 % pour 2025). Tout taux ou volume par cohorte remontant à plus de deux ans est biaisé : le dire, ou borner la période.
+**⚠️ Purge RGPD.** La plateforme anonymise les comptes candidats sans rien de récent depuis ~700 jours (deux ans moins 30 jours de grâce : ni connexion, ni candidature, ni diagnostic ou pass IAE encore valide) ; ils sortent de `candidats`. Les cohortes de plus de deux ans ne gardent presque que les candidats embauchés (95 à 97 % avec `total_embauches > 0` pour les diagnostics prescripteurs 2021-2023, 46 % pour 2025). Tout taux ou volume par cohorte remontant à plus de deux ans est biaisé : le dire, ou borner la période.
 
 ### suivi_utilisateurs_tb_prive_semaine
 
@@ -274,7 +274,7 @@ Utilisateurs du service Pilotage (tableaux de bord privés).
 
 **Volumétrie:** ~15 400 utilisateurs uniques.
 
-**Note:** 100% des utilisateurs Pilotage sont aussi utilisateurs Emplois (service complémentaire).
+**Note:** 100% des utilisateurs Pilotage sont aussi utilisateurs de La plateforme (service complémentaire).
 
 ### GPS Logs (Mon Suivi / GPS)
 
@@ -307,9 +307,9 @@ Logs d'activité de l'application GPS (Mon Suivi), importés depuis Datadog.
 
 **Note :** Contrairement à Matomo (comportement web), ces logs capturent les actions métier côté serveur.
 
-### Support Emplois (Zendesk)
+### Support de La plateforme (Zendesk)
 
-Tickets du support utilisateurs des Emplois de l'Inclusion, alimentés depuis Zendesk
+Tickets du support utilisateurs de La plateforme, alimentés depuis Zendesk
 via webhooks n8n (mise à jour en temps réel).
 
 | Table | Granularité | Description |
@@ -354,7 +354,7 @@ Base dédiée à Nexus, fonctionnalité permettant aux utilisateurs de voir leur
 
 Voir [documentation complète](../stats/nexus.md).
 
-## Tables recommandées pour analyses détaillées (Emplois)
+## Tables recommandées pour analyses détaillées (La plateforme)
 
 Pour des analyses qui dépassent les tables "courantes" (candidatures, structures), voici les tables de référence et leurs jointures :
 

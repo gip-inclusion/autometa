@@ -11,7 +11,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 
 - **Sans produit mentionné** → définition **générale** (couche 1, agnostique du produit).
 - **Produit dans le contexte** → définition **opérationnelle du produit** (couche 2) ; à défaut, la générale.
-- Produits mappés en couche 2 : **RDV-Insertion, Dora, Mon Récap, Les Emplois, Le Marché**.
+- Produits mappés en couche 2 : **RDV-Insertion, Dora, Mon Récap, La plateforme de l'inclusion (ex-Emplois), Le Marché**.
 
 ## Principes
 
@@ -23,7 +23,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
   - Déploiement / Activation = embarquement
   - Adoption = rétention
 - **3 cas de figure** selon l'outil : org + agents convaincus ; agent seul convaincu sans validation de son org ; org décide seule et l'agent embarque par la force des choses.
-- **3 archétypes produit** (expliquent les cases vides du mapping) : SaaS institutionnel (RDV-I, Dora — funnel 2 niveaux complet), transactionnel/physique (Mon Récap — surtout Acquisition→Impact), marketplace (Les Emplois, Le Marché).
+- **3 archétypes produit** (expliquent les cases vides du mapping) : SaaS institutionnel (RDV-I, Dora — funnel 2 niveaux complet), transactionnel/physique (Mon Récap — surtout Acquisition→Impact), marketplace (La plateforme, Le Marché).
 
 ## Les 5 étapes du funnel AARRI
 
@@ -46,7 +46,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | Convention / contrat de sous-traitance des données CD signée |
 | Dora | Référencement d'un GT |
 | Mon Récap | Structure commande un carnet |
-| Les Emplois | Conventionnement SIAE |
+| La plateforme | Conventionnement SIAE |
 | Le Marché | Inscription structure |
 
 ### Activation
@@ -61,7 +61,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | 1er RDV honoré |
 | Dora | 1ère iMER |
 | Mon Récap | Carnet distribué |
-| Les Emplois | 1ère offre publiée |
+| La plateforme | 1ère offre publiée |
 | Le Marché | 1ère offre diffusée |
 
 ### Rétention
@@ -75,7 +75,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | Agent >=1 RDV/mois ; CD >=1 participation/mois |
 | Dora | Utilisateur >=1 iMER/mois |
 | Mon Récap | à définir |
-| Les Emplois | à définir |
+| La plateforme | à définir |
 | Le Marché | à définir |
 
 ### Référence
@@ -89,7 +89,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | CD ambassadeur (non mesuré) |
 | Dora | GT ambassadeur (non mesuré) |
 | Mon Récap | Bouche à oreille |
-| Les Emplois | Non mesuré |
+| La plateforme | Non mesuré |
 | Le Marché | Non mesuré |
 
 ### Impact
@@ -101,7 +101,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | RDV orientation/accompagnement, entretien SIAE |
 | Dora | iMER, orientation |
 | Mon Récap | Distribution + remplissage carnet |
-| Les Emplois | Candidature, recherche offre |
+| La plateforme | Candidature, recherche offre |
 | Le Marché | Diffusion offre, MAJ fiche |
 
 ## Concepts transverses
@@ -133,7 +133,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | 101 CDs |
 | Dora | CDs/territoires potentiels (à fixer) |
 | Mon Récap | Total SIAE/structures IAE |
-| Les Emplois | à fixer |
+| La plateforme | à fixer |
 | Le Marché | à fixer |
 
 ## Le Marché — proposition de définitions opérationnelles

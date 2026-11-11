@@ -2,13 +2,13 @@
 source: metabase:stats
 verifie_le: 2026-03-04
 ---
-# Nexus (Le portail de la Plateforme de l’inclusion)
+# Nexus (Le portail des services de la PDI)
 
 ## Description du service
-Nexus est une fonctionnalité des Emplois de l'Inclusion qui permet aux utilisateurs
+Nexus est une fonctionnalité de La plateforme (ex-Emplois) qui permet aux utilisateurs
 professionnels (prescripteurs, employeurs/SIAE, offreurs de service) de consulter
-de manière centralisée leur présence sur l'ensemble des services de la Plateforme.
-Le portail facilite l’accès aux services numériques de la Plateforme de l’inclusion pour les structures d’insertion et les accompagnateurs.
+de manière centralisée leur présence sur l'ensemble des services de la PDI.
+Le portail facilite l’accès aux services numériques de la PDI pour les structures d’insertion et les accompagnateurs.
 Il réunit toutes les données et actions métiers pertinentes dans un seul interface web et met fin à la multiplication des mots de passe et à la répétition d’informations.
 
 ## Publics cibles
@@ -34,7 +34,7 @@ La clé de jointure est `id_unique` (format `{source}--{id_source}`, ex: `dora--
 
 ### public.structures
 
-Liste des structures présentes sur au moins un service de la Plateforme.
+Liste des structures présentes sur au moins un service de la PDI.
 
 **Volumétrie :** 52 573 lignes · 30 142 SIRETs distincts · 21 835 doublons cross-services
 
@@ -70,22 +70,22 @@ Un préfixe indique parfois la catégorie : `company--ACI`, `prescriber--FT`, et
 
 | Type | Nb | Catégorie |
 |------|----|-----------|
-| `company--ACI` | 5 895 | SIAE (Emplois) |
-| `company--EI` | 3 055 | SIAE (Emplois) |
-| `company--AI` | 1 878 | SIAE (Emplois) |
-| `company--ETTI` | 1 553 | SIAE (Emplois) |
-| `company--GEIQ` | 777 | SIAE (Emplois) |
-| `company--EA` | 3 173 | EA/ESAT (Emplois) |
-| `company--ESAT` | 1 952 | ESAT (Emplois) |
-| `prescriber--Autre` | 3 326 | Prescripteur (Emplois) |
-| `prescriber--CCAS` | 1 132 | Prescripteur (Emplois) |
-| `prescriber--FT` | 1 014 | Prescripteur (Emplois) |
-| `prescriber--CHRS` | 614 | Prescripteur (Emplois) |
-| `prescriber--ML` | 515 | Prescripteur (Emplois) |
-| `prescriber--ODC` | 382 | Prescripteur (Emplois) |
-| `prescriber--DEPT` | 279 | Prescripteur (Emplois) |
-| `prescriber--PLIE` | 265 | Prescripteur (Emplois) |
-| `prescriber--CHU` | 223 | Prescripteur (Emplois) |
+| `company--ACI` | 5 895 | SIAE (La plateforme) |
+| `company--EI` | 3 055 | SIAE (La plateforme) |
+| `company--AI` | 1 878 | SIAE (La plateforme) |
+| `company--ETTI` | 1 553 | SIAE (La plateforme) |
+| `company--GEIQ` | 777 | SIAE (La plateforme) |
+| `company--EA` | 3 173 | EA/ESAT (La plateforme) |
+| `company--ESAT` | 1 952 | ESAT (La plateforme) |
+| `prescriber--Autre` | 3 326 | Prescripteur (La plateforme) |
+| `prescriber--CCAS` | 1 132 | Prescripteur (La plateforme) |
+| `prescriber--FT` | 1 014 | Prescripteur (La plateforme) |
+| `prescriber--CHRS` | 614 | Prescripteur (La plateforme) |
+| `prescriber--ML` | 515 | Prescripteur (La plateforme) |
+| `prescriber--ODC` | 382 | Prescripteur (La plateforme) |
+| `prescriber--DEPT` | 279 | Prescripteur (La plateforme) |
+| `prescriber--PLIE` | 265 | Prescripteur (La plateforme) |
+| `prescriber--CHU` | 223 | Prescripteur (La plateforme) |
 | `ASSO` | 2 222 | Association (Dora/Marché) |
 | `ACI` | 1 956 | SIAE (Dora/Marché) |
 | `EI` | 1 267 | SIAE (Dora/Marché) |
@@ -149,9 +149,9 @@ Liste des utilisateurs professionnels présents sur au moins un service.
 
 | Type | Nb | Description |
 |------|----|-------------|
-| `prescripteur habilité` | 57 095 | Prescripteur avec habilitation légale (Emplois) |
-| `orienteur` | 17 028 | Prescripteur sans habilitation (Emplois) |
-| `employeur` | 16 707 | Employeur SIAE (Emplois) |
+| `prescripteur habilité` | 57 095 | Prescripteur avec habilitation légale (La plateforme) |
+| `orienteur` | 17 028 | Prescripteur sans habilitation (La plateforme) |
+| `employeur` | 16 707 | Employeur SIAE (La plateforme) |
 | `accompagnateur et offreur` | 15 680 | Double rôle (Dora) |
 | `accompagnateur` | 15 639 | Accompagnateur seul (Dora) |
 | `fournisseur` | 8 464 | Fournisseur (Marché) |
@@ -222,11 +222,11 @@ WHERE s.siret = '12345678901234';
 
 ## Lien avec les autres tables Stats
 
-Pour croiser avec les tables Emplois (`public.utilisateurs`, `public.structures_v0`),
+Pour croiser avec les tables de La plateforme (`public.utilisateurs`, `public.structures_v0`),
 utiliser l'`email` (users) ou le `siret` (structures), **en filtrant sur `source = 'emplois-de-linclusion'`**.
 
 ```sql
--- Enrichir les users Nexus (Emplois) avec leur profil Emplois (une ligne par e-mail)
+-- Enrichir les users Nexus venus de La plateforme avec leur profil sur La plateforme (une ligne par e-mail)
 SELECT n.email, n.type as type_nexus, p.profil
 FROM public.users n
 LEFT JOIN (

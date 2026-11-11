@@ -2,9 +2,9 @@
 source: metabase:stats
 verifie_le: 2026-04-07
 ---
-# Candidatures — Emplois de l'Inclusion
+# Candidatures — La plateforme de l'inclusion (ex-Emplois)
 
-Table de référence pour toutes les analyses sur les candidatures du service Emplois.
+Table de référence pour toutes les analyses sur les candidatures de La plateforme.
 
 **Base Metabase :** Stats · `database_id = 2`
 **Table :** `public.candidatures_echelle_locale`

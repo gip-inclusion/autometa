@@ -58,7 +58,7 @@ Les logs Django structurés (`django_datadog_logger`) portent, en plus du messag
 
 **`queryString` écrase les paramètres répétés.** `?states=new&states=processing` est stocké comme `"processing"` : une seule valeur, la dernière. La présence du paramètre et le comptage par utilisateur restent justes, mais toute sélection multiple est aplatie. Dès que les **valeurs** comptent, dumper **`@http.url`** et parser en local (`urllib.parse.parse_qs`). C'est la raison d'être du champ par défaut du dump.
 
-**La présence d'un paramètre ne vaut pas usage.** Les formulaires sérialisent tous leurs champs, vides compris : `?states=new&archived=&start_date=&end_date=`. Filtrer sur `:?*` (valeur non vide), jamais `:*`. Sur les candidatures des Emplois, l'écart était d'un facteur 40 (842 « utilisateurs » de `start_date` contre 18 réels).
+**La présence d'un paramètre ne vaut pas usage.** Les formulaires sérialisent tous leurs champs, vides compris : `?states=new&archived=&start_date=&end_date=`. Filtrer sur `:?*` (valeur non vide), jamais `:*`. Sur les candidatures de La plateforme (ex-Emplois), l'écart était d'un facteur 40 (842 « utilisateurs » de `start_date` contre 18 réels).
 
 **Un `group_by` non trié renvoie les N premières valeurs par ordre alphabétique**, pas les plus grosses. Le tri par volume exige `sort: {aggregation: count, order: desc, type: "measure"}` — et `type: "measure"` est **obligatoire** : sans lui l'API répond 400 « Field 'aggregation' is invalid ». Le helper `by_count()` de `lib/datadog.py` encapsule cette forme ; `--group-by` s'en sert.
 

@@ -235,7 +235,7 @@ NavItem(
 
 | Site | GitHub |
 |------|--------|
-| Emplois | https://github.com/gip-inclusion/les-emplois |
+| La plateforme (ex-Emplois) | https://github.com/gip-inclusion/les-emplois |
 | Marché | https://github.com/gip-inclusion/le-marche |
 | DORA | https://github.com/gip-inclusion/dora |
 | RDV-Insertion | https://github.com/gip-inclusion/rdv-insertion |
