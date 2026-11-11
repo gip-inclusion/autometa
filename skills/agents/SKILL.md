@@ -201,7 +201,9 @@ plus. Une seule destination hors liste, ou une sortie au-delà des plafonds (200
 300 caractères, texte de 20 000), fait refuser tout le run : le run passe à l'état `refused` et
 l'agent continue. Rendre compte de chaque envoi, désigné par son numéro (destination, mode,
 statut : `recorded`, `pending_review`, `pending_send`, `sent`, `failed` après trois essais
-d'écriture, `discarded` quand le classifier l'a jugée sous le seuil, `pending_subagents` quand un
+d'écriture, `refused` quand la configuration de l'agent ne permet plus l'envoi au moment de
+l'écrire (agent retiré, destination retirée de l'agent ou de la liste, mode qui ne publie plus ou
+qui demande une relecture non faite), `discarded` quand le classifier l'a jugée sous le seuil, `pending_subagents` quand un
 sous-agent a échoué et sera réessayé au prochain `deliver` ou passage du cron, `subagent_failed`
 après trois échecs : rien n'est livré de cette production) et le nombre d'appels aux
 sous-agents. Pour un envoi `pending_review`, `show-delivery` puis afficher son titre et son

@@ -371,28 +371,53 @@ def claim(delivery_id: int) -> AgentDelivery | None:
         return row
 
 
+def refusal(agent: Agent, row: AgentDelivery) -> str | None:
+    """Why a delivery taken for sending may no longer go under its agent's current configuration; None when it may."""
+    if agent.status != "active":
+        return f"agent {agent.slug} {agent.status}"
+    found = [(i, c) for i, c in enumerate(agent.config["destinations"]) if c["id"] == row.destination]
+    if not found:
+        return f"{row.destination} n'est plus une destination de l'agent"
+    index, contact = found[0]
+    if errors := agent_config.destination_errors(agent.slug, index, contact, agent_config.known_destinations()):
+        return errors[0]
+    flags = agent_config.MODES[contact["mode"]]
+    if not flags["can_publish"]:
+        return f"le mode {contact['mode']} de {row.destination} ne publie pas"
+    if flags["review_required"] and not row.approved_by:
+        return f"le mode {contact['mode']} de {row.destination} demande une relecture, l'envoi n'est pas approuvé"
+    return None
+
+
 def send(delivery_id: int) -> str:
     """Write a delivery ready to send, recording its outcome; returns its status. A failure is recorded, not raised."""
     row = claim(delivery_id)
     if row is None:
         return show_status(delivery_id)
-    status, error = "sent", None
-    try:
-        write(row.id, row.destination, row.title, row.text)
-    # Why: Slack may answer something that is not JSON (ValueError), Notion an HTTP error; each is an outcome.
-    except (RuntimeError, ValueError, httpx.HTTPError) as exc:
-        status = "failed" if row.attempts >= SEND_ATTEMPTS_MAX else "pending_send"
-        error = str(exc)
-        logger.warning("agent envoi %s vers %s en échec (essai %d) : %s", row.id, row.destination, row.attempts, exc)
+    with get_db() as session:
+        agent = session.scalar(
+            select(Agent).join(AgentRun, AgentRun.agent_id == Agent.id).where(AgentRun.id == row.run_id)
+        )
+        slug, error = agent.slug, refusal(agent, row)
+    # Why: the configuration may have changed since the collect; a delivery goes only as the current one allows.
+    status = "refused" if error else "sent"
+    if error:
+        logger.warning("agent envoi %s vers %s refusé : %s", row.id, row.destination, error)
+    else:
+        try:
+            write(row.id, row.destination, row.title, row.text)
+        # Why: Slack may answer something that is not JSON (ValueError), Notion an HTTP error; each is an outcome.
+        except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+            status = "failed" if row.attempts >= SEND_ATTEMPTS_MAX else "pending_send"
+            error = str(exc)
+            logger.warning(
+                "agent envoi %s vers %s en échec (essai %d) : %s", row.id, row.destination, row.attempts, exc
+            )
     with get_db() as session:
         session.execute(
             update(AgentDelivery)
             .where(AgentDelivery.id == row.id)
             .values(status=status, error=error, sent_at=now() if status == "sent" else None)
-        )
-    with get_db() as session:
-        slug = session.scalar(
-            select(Agent.slug).join(AgentRun, AgentRun.agent_id == Agent.id).where(AgentRun.id == row.run_id)
         )
     logger.info("agent %s envoi %s vers %s, mode %s : %s", slug, row.id, row.destination, row.mode, status)
     return status
@@ -418,7 +443,7 @@ def send_pending(slug: str | None = None, run_id: str | None = None) -> list[str
         if run_id:
             query = query.where(AgentDelivery.run_id == run_id)
         ids = session.scalars(query).all()
-    return [f"envoi {i} en échec" for i in ids if send(i) in ("failed", "pending_send")]
+    return [f"envoi {i} {status}" for i in ids if (status := send(i)) in ("failed", "pending_send", "refused")]
 
 
 def as_dict(row: AgentDelivery) -> dict:

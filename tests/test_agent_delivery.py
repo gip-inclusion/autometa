@@ -3,7 +3,7 @@ import logging
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from lib import agent_config, agent_delivery, agents
 from web.db import get_db
@@ -270,6 +270,78 @@ def test_dod_6_failed_write_is_retried_then_recorded_as_failed_and_can_be_approv
     mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", TARGETS)
     post.return_value, post.side_effect = True, None
     assert agent_delivery.approve(store.delivery()["id"], "lj@example.org") == "sent"
+
+
+def change_agent(**values) -> None:
+    with get_db() as session:
+        agent = session.scalar(select(Agent).where(Agent.slug == SLUG))
+        for name, value in values.items():
+            setattr(agent, name, value)
+
+
+CHANGES = {
+    "removed": (
+        {"config": make_agent(("produit.opportunite", "autonomous"))},
+        "produit.signal_faible n'est plus une destination de l'agent",
+    ),
+    "review": (
+        {"config": make_agent(("produit.signal_faible", "conversational"))},
+        "le mode conversational de produit.signal_faible demande une relecture",
+    ),
+    "background": (
+        {"config": make_agent(("produit.signal_faible", "background"))},
+        "le mode background de produit.signal_faible ne publie pas",
+    ),
+}
+
+
+@pytest.mark.parametrize("change", [*CHANGES, "closed", "unlisted"])
+def test_tutorial_gap_3_a_delivery_waiting_to_be_sent_is_revalidated_when_sent(store, post, mocker, change):
+    open_real_mode(mocker)
+    post.return_value = False
+    deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), [make_envoi()])
+    assert store.delivery()["status"] == "pending_send"
+    values, error = CHANGES.get(change, ({}, ""))
+    change_agent(**values)
+    if change == "closed":
+        mocker.patch("lib.agent_config.known_destinations", return_value=agent_config.closed_list("destinations"))
+        error = "le mode autonomous sur 'produit.signal_faible' n'est pas ouvert à cet agent"
+    if change == "unlisted":
+        mocker.patch("lib.agent_config.known_destinations", return_value={})
+        error = "'produit.signal_faible' n'est pas une destination de config/agent_destinations.yaml"
+    post.return_value = True
+
+    assert agent_delivery.send_pending() == [f"envoi {store.delivery()['id']} refused"]
+    assert store.delivery()["status"] == "refused"
+    assert error in store.delivery()["error"]
+    post.assert_called_once()
+
+
+def test_tutorial_gap_3_a_failed_delivery_approved_again_is_revalidated(store, post, mocker):
+    open_real_mode(mocker)
+    post.return_value = False
+    deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), [make_envoi()])
+    for _ in range(agent_delivery.SEND_ATTEMPTS_MAX - 1):
+        agent_delivery.send_pending()
+    assert store.delivery()["status"] == "failed"
+    change_agent(status="retired")
+    post.return_value = True
+
+    assert agent_delivery.approve(store.delivery()["id"], "lj@example.org") == "refused"
+    assert store.delivery()["error"] == "agent signaux-faibles-mep retired"
+    assert post.call_count == agent_delivery.SEND_ATTEMPTS_MAX
+
+
+def test_tutorial_gap_3_an_approved_delivery_still_goes_when_its_mode_now_asks_for_review(store, post, mocker):
+    open_real_mode(mocker)
+    deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), [make_envoi()])
+    post.reset_mock()
+    with get_db() as session:
+        session.execute(update(AgentDelivery).values(status="failed"))
+    change_agent(config=make_agent(("produit.signal_faible", "conversational")))
+
+    assert agent_delivery.approve(store.delivery()["id"], "lj@example.org") == "sent"
+    post.assert_called_once()
 
 
 @pytest.mark.parametrize("mode", ["autonomous", "conversational"])
