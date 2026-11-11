@@ -14,7 +14,7 @@ L'acte métier est l'**unité de compte unique** et le **North Star** (étape Im
 
 **Dashboard interactif :** `/interactive/actes-metier/`
 **Conversation source :** `aa66951a` (Page stat V2)
-**Script de génération :** `/app/data/scripts/actes_metier_data_v3.py`
+**Script de référence :** `data/interactive/actes-metier/actes_metier_data_v5.py`, mis à jour par `actes_metier_update.py` (lancé par le `cron.py` du TDB). En cas d'écart entre ce fichier et le script, le script fait foi.
 
 ## Structure de la donnée
 
@@ -99,17 +99,24 @@ Mapping statut :
 
 ---
 
-### Les Emplois — Recherche d'offre
+### Les Emplois — Recherche d'offre d'emploi
 
 **Instance :** Matomo · **ID site :** 117
-**Méthode :** vues de page sur `/search/employers/results`
+**Méthode :** visites (`nb_visits`) comportant au moins une page `/search/employers/results`. Jamais les pages vues : chaque filtre ou page de résultats compterait une fois de plus.
 
 | Type acte | Catégorie | Statut |
 |-----------|-----------|--------|
-| Recherche d'offre | Support à l'accompagnement | Accompli et accepté |
+| Recherche d'offre d'emploi | Support à l'accompagnement | Accompli et accepté |
 
 **Note :** Cet acte est tracé via Matomo (pas de table DB). Le département est estimé
 par enrichissement — voir section « Dimension territoriale » ci-dessous.
+
+### Les Emplois — Recherche d'offre de service
+
+**Instance :** Matomo · **ID site :** 117
+**Méthode :** visites (`nb_visits`) comportant au moins une page `/search/services/results`.
+
+Type acte : « Recherche d'offre de service, hors emploi solidaire ». Le même acte existe pour Dora (source `dora`). À compter avec la recherche d'offre d'emploi dès qu'on mesure les recherches.
 
 ---
 
@@ -285,7 +292,7 @@ de l'acte comme proxy de ventilation.
 
 ## Mise à jour des données
 
-Le script `/app/data/scripts/actes_metier_data_v3.py` génère le fichier
+Le `cron.py` du TDB (`actes_metier_update.py`, le 1er du mois) génère le fichier
 `/app/data/interactive/actes-metier/data.json` utilisé par le dashboard.
 
 Après chaque regénération de `data.json`, relancer l'enrichissement département :

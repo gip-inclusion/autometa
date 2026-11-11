@@ -17,9 +17,11 @@ Son ID est fixe et ne change jamais (ex : version 420 pour Dora_Preprod).
 
 ### Les versions publiées
 
-Quand on publie, Matomo crée une **nouvelle version numérotée** (snapshot du draft à l'instant T)
-et la déploie sur l'environnement choisi. Les objets du draft reçoivent de **nouveaux IDs**
-dans la version publiée — les IDs du draft et de la version publiée sont différents.
+`publishContainerVersion` déploie **la version qu'on lui donne, telle quelle**. Appliqué à l'ID du
+draft, il fait pointer l'environnement sur le draft lui-même : toute modification ultérieure du
+draft part alors en ligne sans publication. Toujours créer d'abord une **version figée**
+(`createContainerVersion` depuis le draft), puis publier l'ID qu'elle renvoie. Les objets de la
+version figée reçoivent de **nouveaux IDs** — les IDs du draft et de la version publiée diffèrent.
 
 ```
 draft (v420)              publication              v972 (live)
@@ -230,17 +232,24 @@ print(r.data["value"])
 ### 5. Publier
 
 ```python
-# Crée une nouvelle version numérotée depuis le draft et la pousse sur l'environnement
-matomo_post("TagManager.publishContainerVersion", {
+# 1. Figer le draft dans une nouvelle version numérotée
+version_id = matomo_post("TagManager.createContainerVersion", {
     "idSite": SITE_ID,
     "idContainer": CONTAINER_ID,
     "idContainerVersion": DRAFT_VERSION_ID,
+    "name": "2026-10-12 description courte",
+})["value"]
+
+# 2. Déployer cette version figée — jamais l'ID du draft
+matomo_post("TagManager.publishContainerVersion", {
+    "idSite": SITE_ID,
+    "idContainer": CONTAINER_ID,
+    "idContainerVersion": version_id,
     "environment": "live",   # ou "staging", "dev", etc.
 })
 ```
 
-⚠️ **À savoir :** la publication crée une nouvelle version. Les objets du draft reçoivent
-de **nouveaux IDs** dans la version publiée — garder les anciens IDs (draft) pour toute
+⚠️ **À savoir :** les objets du draft reçoivent de **nouveaux IDs** dans la version figée — garder les anciens IDs (draft) pour toute
 opération ultérieure sur le draft.
 
 ### 6. Vérifier ce qui est déployé

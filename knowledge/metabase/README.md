@@ -109,14 +109,14 @@ Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspe
 |---------|-------------|
 | id | Identifiant unique |
 | email | Email de l'utilisateur |
-| type | Type: `employer`, `prescriber`, `labor_inspector` |
+| type | Vaut `professional` pour tous les comptes ; le profil se lit au rattachement (`id_structure`, `id_organisation`, `id_institution`) |
 | prenom, nom | Prénom et nom |
 | dernière_connexion | Dernière connexion |
 | id_structure | FK vers `structures_v0` (pour les employeurs) |
 | id_organisation | FK vers `organisations_v0` (pour les prescripteurs) |
 | id_institution | FK vers `institutions` (pour certains prescripteurs institutionnels) |
 
-**Volumétrie:** ~91 000 utilisateurs.
+**Volumétrie:** ~92 000 comptes, ~106 000 lignes : une ligne par rattachement. Dédupliquer par `id` avant toute jointure (voir `knowledge/stats/users.md`).
 
 **⚠️ Utilisateurs pros uniquement.** Les candidats (demandeurs d'emploi) ne sont pas dans cette table — ils sont dans `public.candidats` (voir section dédiée).
 
@@ -140,31 +140,31 @@ Voir [documentation complète](../stats/candidatures.md).
 
 Voir aussi [knowledge/stats/users.md](../stats/users.md) pour les requêtes courantes.
 
-#### Jointures selon le type d'utilisateur
+#### Jointures selon le rattachement
 
-Un utilisateur se joint à une table différente selon son type :
+Une ligne d'utilisateur se joint à une table différente selon son rattachement :
 
-| Type utilisateur | Table à joindre | Clé de jointure |
+| Rattachement | Table à joindre | Clé de jointure |
 |------------------|-----------------|-----------------|
-| `employer` | `structures_v0` | `utilisateurs.id_structure = structures.ID` |
-| `prescriber` | `organisations_v0` | `utilisateurs.id_organisation = organisations.id` |
-| `prescriber` (institutionnel) | `institutions` | `utilisateurs.id_institution = institutions.id` |
+| Employeur (`id_structure`) | `structures_v0` | `utilisateurs.id_structure = structures.ID` |
+| Prescripteur ou orienteur (`id_organisation`) | `organisations_v0` | `utilisateurs.id_organisation = organisations.id` |
+| Institution (`id_institution`) | `institutions` | `utilisateurs.id_institution = institutions.id` |
 
 ```sql
 -- Exemple : utilisateurs employeurs avec leur structure
 SELECT u.*, s.nom as structure_nom, s.département
 FROM public.utilisateurs u
 LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
-WHERE u.type = 'employer';
+WHERE u.id_structure IS NOT NULL;
 
 -- Exemple : utilisateurs prescripteurs avec leur organisation
 SELECT u.*, o.nom as organisation_nom
 FROM public.utilisateurs u
 LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id
-WHERE u.type = 'prescriber';
+WHERE u.id_organisation IS NOT NULL;
 ```
 
-**Volumétrie:** ~91 000 utilisateurs (aucun candidat, ils n'ont pas de compte).
+**Volumétrie:** ~92 000 comptes pour ~106 000 lignes, une par rattachement (aucun candidat, ils n'ont pas de compte). Compter `COUNT(DISTINCT u.id)`.
 
 **Note:** Pas de lien direct au département. Utiliser `tmp_utilisateurs_avec_departement` pour les analyses géographiques.
 
@@ -260,6 +260,8 @@ Candidats (demandeurs d'emploi) du service Emplois.
 | critère_n2_résident_qpv | Critère niveau 2 : résident QPV |
 
 **⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs`.
+
+**⚠️ Purge RGPD.** Les Emplois anonymisent les comptes candidats sans rien de récent depuis ~700 jours (deux ans moins 30 jours de grâce : ni connexion, ni candidature, ni diagnostic ou pass IAE encore valide) ; ils sortent de `candidats`. Les cohortes de plus de deux ans ne gardent presque que les candidats embauchés (95 à 97 % avec `total_embauches > 0` pour les diagnostics prescripteurs 2021-2023, 46 % pour 2025). Tout taux ou volume par cohorte remontant à plus de deux ans est biaisé : le dire, ou borner la période.
 
 ### suivi_utilisateurs_tb_prive_semaine
 
@@ -379,12 +381,16 @@ utilisateurs (pros)
 ```sql
 SELECT 
     gps.*,
-    u.type as user_type,
     u.email,
     COALESCE(s.nom, o.nom) as entite_nom,
     COALESCE(s.département, 'N/A') as departement
 FROM gps_logs gps
-LEFT JOIN public.utilisateurs u ON gps."User ID" = u.id
+-- Un rattachement par compte : joint tel quel, utilisateurs multiplierait les logs
+LEFT JOIN (
+    SELECT DISTINCT ON (id) id, email, id_structure, id_organisation
+    FROM public.utilisateurs
+    ORDER BY id, id_structure NULLS LAST
+) u ON gps."User ID" = u.id
 LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
 LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id;
 ```

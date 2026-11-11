@@ -11,17 +11,17 @@ employeurs, prescripteurs, inspecteurs du travail.
 
 ## Source principale
 
-**Table :** `public.utilisateurs` (instance stats, database 2)
-**Volumétrie :** ~91 000 utilisateurs
+**Table :** `public.utilisateurs` (instance stats, database 2 ; aussi dans `autometa_tables_db`)
+**Volumétrie :** ~92 000 comptes pour ~106 000 lignes : **une ligne par rattachement** (structure, organisation ou institution), jusqu'à plusieurs centaines pour un même compte. Compter `COUNT(DISTINCT id)` et dédupliquer par `id` avant toute jointure, sinon les lignes jointes (candidatures, orientations…) sont multipliées. Contrôler le total brut contre le total après jointure.
 **Scope :** Utilisateurs pros des Emplois exclusivement (mais les plus nombreux de la plateforme).
 
 ### Colonnes clés
 
 | Colonne | Description |
 |---------|-------------|
-| `id` | Identifiant unique |
+| `id` | Identifiant du compte, répété sur chacune de ses lignes de rattachement. Égal à `@usr.id` dans les logs Datadog |
 | `email` | Email |
-| `type` | `employer`, `prescriber`, `labor_inspector` |
+| `type` | Vaut `professional` pour tous les comptes : ne distingue plus employeurs et prescripteurs. Le profil se lit au rattachement (voir ci-dessous) |
 | `prenom`, `nom` | Identité |
 | `dernière_connexion` | Date de dernière connexion |
 | `id_structure` | FK → `structures_v0` (employeurs) |
@@ -31,30 +31,28 @@ employeurs, prescripteurs, inspecteurs du travail.
 ### Requêtes courantes
 
 ```sql
--- Utilisateurs actifs (connectés dans les 30 derniers jours)
-SELECT type, COUNT(*) as nb
+-- Utilisateurs actifs (connectés dans les 30 derniers jours), par rattachement
+SELECT CASE WHEN id_structure IS NOT NULL THEN 'employeur'
+            WHEN id_organisation IS NOT NULL THEN 'prescripteur ou orienteur'
+            WHEN id_institution IS NOT NULL THEN 'institution'
+            ELSE 'sans rattachement' END AS profil,
+       COUNT(DISTINCT id) AS nb
 FROM public.utilisateurs
 WHERE dernière_connexion >= CURRENT_DATE - INTERVAL '30 days'
-GROUP BY type ORDER BY nb DESC;
-
--- Dernière connexion par type
-SELECT type,
-       COUNT(*) as total,
-       COUNT(*) FILTER (WHERE dernière_connexion >= CURRENT_DATE - INTERVAL '30 days') as actifs_30j,
-       COUNT(*) FILTER (WHERE dernière_connexion >= CURRENT_DATE - INTERVAL '90 days') as actifs_90j
-FROM public.utilisateurs
-GROUP BY type;
+GROUP BY 1 ORDER BY nb DESC;
 ```
 
 > **Attention — « actif » ≠ « connecté ».** Ci-dessus, `actifs` = ≥1 connexion sur la période. Le [glossaire AARRI](../bizdev/glossaire.md) **déclasse ce proxy** : un utilisateur actif a réalisé **≥1 acte métier** sur le mois. Pour toute analyse de rétention/adoption, compter les actes métiers, pas les connexions.
 
-### Jointures par type d'utilisateur
+### Jointures par rattachement
 
-| Type | Table à joindre | Clé |
+Chaque ligne porte au plus un rattachement. Prescripteur habilité ou orienteur : selon `organisations.habilitée`.
+
+| Profil | Table à joindre | Clé |
 |------|-----------------|-----|
-| `employer` | `structures_v0` | `id_structure = structures."ID"` |
-| `prescriber` | `organisations_v0` | `id_organisation = organisations.id` |
-| `prescriber` (institutionnel) | `institutions` | `id_institution = institutions.id` |
+| Employeur | `structures_v0` | `id_structure = structures."ID"` |
+| Prescripteur ou orienteur | `organisations_v0` | `id_organisation = organisations.id` |
+| Institution (inspection, DDETS, DGEFP…) | `institutions` | `id_institution = institutions.id` |
 
 ## Analyses géographiques
 

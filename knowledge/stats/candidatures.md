@@ -54,6 +54,8 @@ fixe (ex : réponse dans les 30 jours) et exclure les candidatures trop récente
 | `temps_de_prise_en_compte` | Délai de prise en compte en jours (numérique) |
 | `temps_de_reponse_intervalle` | Tranche de délai (ex : "< 7 jours") |
 
+**Réactivité des employeurs** : exclure les candidatures d'`origine = 'Employeur'` (auto-prescriptions, déposées par la structure pour elle-même) de tout indicateur de délai ou de taux de réponse. Elles sont acceptées en moins de 15 jours dans ~99 % des cas et gonflent les taux, surtout pour les ETTI et les AI. `Employeur orienteur` est une autre origine et reste dans le calcul.
+
 ### Structure employeuse
 
 | Colonne | Description |

@@ -16,7 +16,7 @@ Quand vous (l'agent Autometa) préparez un job qui analyse un jeu de données tr
 ## Utilisation
 
 ```bash
-.venv/bin/python skills/publish_dataset/scripts/publish_dataset.py \
+python skills/publish_dataset/scripts/publish_dataset.py \
     --slug dora-services \
     --source autometa_tables_db \
     --sql "SELECT id, nom, type, departement FROM dora.services" \
@@ -43,7 +43,7 @@ Affiche du JSON :
 Des données relationnelles (par ex. les services Dora + leurs structures) doivent tenir dans **plusieurs tables JOIN-ables au sein d'un même fichier sqlite**, pas dans une seule table dénormalisée. Passez à `--tables` une map JSON `{nom_table: sql}` :
 
 ```bash
-.venv/bin/python skills/publish_dataset/scripts/publish_dataset.py \
+python skills/publish_dataset/scripts/publish_dataset.py \
     --slug dora \
     --source autometa_tables_db \
     --tables '{"structures": "SELECT id, nom, departement FROM dora.structures", "services": "SELECT id, structure_id, nom, type FROM dora.services"}'
