@@ -541,7 +541,7 @@ async def stream_conversation(
         return f"event: {msg_type}\ndata: {json.dumps(data)}\n\n"
 
     def _format_msg(msg) -> str:
-        sse_data = {"type": msg.type, "content": msg.content}
+        sse_data = {"id": msg.id, "type": msg.type, "content": msg.content}
         if msg.type in ("tool_use", "tool_result"):
             try:
                 sse_data["content"] = json.loads(msg.content)
@@ -557,60 +557,56 @@ async def stream_conversation(
                 logger.debug("JSON parse failed for system message: %s", exc)
         return _sse_event(msg.type, sse_data)
 
-    async def _drain_unseen(last_msg_id: int, question_id: int) -> list[str]:
-        chunks = []
-        final = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
-        for msg in final:
-            chunks.append(_format_msg(msg))
-        chunks.append(_sse_event("done", {"conversation_id": conv_id, "question_id": question_id}))
-        return chunks
-
     async def generate():
         last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
-        max_seconds = 300
+        last_content = None
         fallback_interval = 5
         start = time.monotonic()
         last_fallback = start
-
         question_id = await asyncio.to_thread(store.last_user_message_id, conv_id)
+        done = _sse_event("done", {"conversation_id": conv_id, "question_id": question_id})
+
+        async def fresh() -> list[str]:
+            """Les messages nouveaux, et le dernier envoyé de nouveau s'il a changé : le runner l'allonge en place."""
+            nonlocal last_msg_id, last_content
+            rows = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id - 1)
+            rows = [m for m in rows if m.id > last_msg_id or m.content != last_content]
+            if rows:
+                last_msg_id, last_content = rows[-1].id, rows[-1].content
+            return [_format_msg(m) for m in rows]
+
         if await runner.is_done(conv_id, question_id) or not conv.needs_response:
-            for chunk in await _drain_unseen(last_msg_id, question_id):
+            for chunk in [*await fresh(), done]:
                 yield chunk
             return
 
         pubsub = await runner.subscribe(conv_id)
         try:
-            while (time.monotonic() - start) < max_seconds:
+            while (time.monotonic() - start) < config.SSE_MAX_SECONDS:
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
                 now = time.monotonic()
 
                 if msg and msg["type"] == "message":
-                    new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
-                    for m in new_messages:
-                        last_msg_id = m.id
-                        yield _format_msg(m)
-
+                    for chunk in await fresh():
+                        yield chunk
                     if msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id:
-                        for chunk in await _drain_unseen(last_msg_id, question_id):
+                        for chunk in [*await fresh(), done]:
                             yield chunk
                         return
 
                 if not msg and (now - last_fallback) >= fallback_interval:
                     last_fallback = now
-                    new_messages = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id)
-                    for m in new_messages:
-                        last_msg_id = m.id
-                        yield _format_msg(m)
-
+                    for chunk in await fresh():
+                        yield chunk
                     if await runner.is_done(conv_id, question_id):
-                        for chunk in await _drain_unseen(last_msg_id, question_id):
+                        for chunk in [*await fresh(), done]:
                             yield chunk
                         return
 
                 if not msg:
                     yield _sse_event("heartbeat", {})
 
-            yield _sse_event("error", {"content": "Timeout waiting for agent"})
+            yield _sse_event("timeout", {})
         finally:
             await pubsub.unsubscribe()
             await pubsub.aclose()
