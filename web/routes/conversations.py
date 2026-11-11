@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations")
 
+TURN_RUNNING = {"error": "Une réponse est déjà en cours dans cette conversation.", "code": "conversation_running"}
+
 
 def can_mutate_conversation(conv, user_email: str) -> bool:
     """NULL-owner conversations are mutable by everyone; otherwise the owner only (same rule as POST /messages and the file endpoints)."""
@@ -407,12 +409,10 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
 
     content = data["content"]
 
-    if conv.needs_response:
-        return JSONResponse({"error": "Conversation already running"}, status_code=409)
-
     is_first_message = len(conv.messages) == 0
-    user_msg = store.add_message(conv_id, "user", content)
-    store.update_conversation(conv_id, needs_response=True)
+    user_msg = store.start_turn(conv_id, content)
+    if user_msg is None:
+        return JSONResponse(TURN_RUNNING, status_code=409)
 
     if is_first_message:
         generate_conversation_title(content, conv_id)
@@ -481,7 +481,7 @@ User request: """
 
     return {
         "status": "started",
-        "after_id": user_msg.id if user_msg else 0,
+        "after_id": user_msg.id,
         "links": {
             "stream": f"/api/conversations/{conv_id}/stream",
             "cancel": f"/api/conversations/{conv_id}/cancel",
@@ -498,8 +498,6 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
     conv = store.get_conversation(conv_id)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    if conv.needs_response:
-        return JSONResponse({"error": "Conversation already running"}, status_code=409)
 
     # Find the last user message
     last_user_msg = None
@@ -518,7 +516,8 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
         if msg.type in ("user", "assistant"):
             history.append({"role": msg.type, "content": msg.content})
 
-    store.update_conversation(conv_id, needs_response=True)
+    if not store.restart_turn(conv_id):
+        return JSONResponse(TURN_RUNNING, status_code=409)
     await runner.submit(conv_id, last_user_msg.content, history, conv.user_id, session_id=conv.session_id)
 
     return {"status": "relaunched", "after_id": last_user_msg.id}
