@@ -4,9 +4,12 @@ import logging
 import re
 
 import httpx
+from sqlalchemy import or_, select
 
 from lib import jobs
 from web import config
+from web.db import get_db
+from web.models import Agent, AgentRun
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,31 @@ def last_output(runs: list[dict]) -> str:
     return f"Dernière sortie réussie (run {done['id']}) :\n<<<\n{output}\n>>>"
 
 
+def agent_slug(pipeline_id: str) -> str | None:
+    """Agent whose job is this pipeline, current or earlier version."""
+    with get_db() as session:
+        return session.scalar(
+            select(Agent.slug)
+            .outerjoin(AgentRun, AgentRun.agent_id == Agent.id)
+            .where(or_(Agent.pipeline_id == pipeline_id, AgentRun.pipeline_id == pipeline_id))
+            .limit(1)
+        )
+
+
+def relaunch(pipeline_id: str) -> str:
+    slug = agent_slug(pipeline_id)
+    if slug:
+        # Why: a bare relaunch skips the agent's preparations and its run is never collected nor delivered.
+        return (
+            f"Job de l'agent {slug} : pour un nouveau run, passer par le skill agents, jamais par launch_job.py : "
+            f"`python -m skills.agents.scripts.agents propose-launch --agent {slug}`, puis `launch` après le oui."
+        )
+    return (
+        "Relance, seulement après un « oui » explicite : "
+        f"`.venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py --relaunch {pipeline_id}`"
+    )
+
+
 def describe(pipeline: dict) -> str:
     runs = sorted(
         jobs.list_runs(pipeline_id=pipeline["id"], limit=20), key=lambda r: r.get("created_at") or "", reverse=True
@@ -53,8 +81,7 @@ def describe(pipeline: dict) -> str:
     run_lines = "\n".join(f"- {r.get('status')} — {r.get('created_at')} — run {r['id']}" for r in runs[:3])
     return f"""### Job @{pipeline["name"]} (pipeline {pipeline["id"]})
 Page : {config.BASE_URL}/jobs/pipelines/{pipeline["id"]}
-Relance, seulement après un « oui » explicite : \
-`.venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py --relaunch {pipeline["id"]}`
+{relaunch(pipeline["id"])}
 Consigne :
 <<<
 {truncate(pipeline.get("system_prompt") or "", 2000)}

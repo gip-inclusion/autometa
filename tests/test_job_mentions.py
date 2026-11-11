@@ -4,6 +4,9 @@ import httpx
 import pytest
 
 from lib import job_mentions
+from web.db import get_db
+from web.db import test_transaction as _test_tx
+from web.models import Agent, AgentRun
 
 PIPELINE_ID = "22222222-2222-2222-2222-222222222222"
 RUN_OK = "11111111-1111-1111-1111-111111111111"
@@ -18,8 +21,7 @@ def make_run(run_id, status, created_at, pipeline_id=PIPELINE_ID):
     return {"id": run_id, "status": status, "created_at": created_at, "pipeline_id": pipeline_id}
 
 
-@pytest.fixture
-def orchestrator(mocker):
+def fake_jobs(mocker):
     """Service de jobs simulé : un pipeline, deux runs, une sortie."""
     jobs = mocker.patch("lib.job_mentions.jobs")
     jobs.list_pipelines.return_value = [make_pipeline()]
@@ -29,6 +31,13 @@ def orchestrator(mocker):
     ]
     jobs.get_run_output.return_value = "## Rapport\n42 services sans horaires."
     return jobs
+
+
+@pytest.fixture
+def orchestrator(mocker):
+    """Service de jobs simulé, aucun pipeline n'étant celui d'un agent."""
+    mocker.patch("lib.job_mentions.agent_slug", return_value=None)
+    return fake_jobs(mocker)
 
 
 @pytest.mark.parametrize(
@@ -135,3 +144,32 @@ def test_dod_4_mention_never_launches_and_asks_for_explicit_yes(orchestrator):
     orchestrator.create_and_run.assert_not_called()
     assert "« oui » explicite" in context
     assert f"--relaunch {PIPELINE_ID}" in context
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+@pytest.mark.parametrize("current", [True, False])
+def test_agent_job_is_relaunched_through_the_agents_skill(mocker, current):
+    orchestrator = fake_jobs(mocker)
+    with _test_tx(), get_db() as session:
+        agent = Agent(
+            slug="veille-boamp",
+            config={},
+            system_prompt="Consigne.",
+            pipeline_id=PIPELINE_ID if current else "nouveau-pipeline",
+            version=1 if current else 2,
+            status="active",
+            owner_email="lj@example.org",
+            changeset_id="c",
+            cursors={},
+        )
+        session.add(agent)
+        session.flush()
+        if not current:
+            session.add(AgentRun(id=RUN_OK, agent_id=agent.id, pipeline_id=PIPELINE_ID, status="collected"))
+        orchestrator.list_pipelines.return_value = [make_pipeline(name="agent-veille-boamp")]
+
+        context = job_mentions.build_context("@agent-veille-boamp")
+
+    assert "--relaunch" not in context
+    assert "propose-launch --agent veille-boamp" in context
