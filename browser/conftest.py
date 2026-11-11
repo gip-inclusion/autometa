@@ -34,3 +34,10 @@ def visit(page: Page) -> Callable[[str], None]:
         page.goto(path, wait_until="domcontentloaded")
 
     return _visit
+
+
+@pytest.fixture
+def fake_agent(page: Page) -> None:
+    """Les tours ne se jouent que contre le moteur factice : ailleurs ils dépenseraient un vrai modèle."""
+    if page.request.get("/api/auth/status").json().get("backend") != "fake":
+        pytest.skip("cible servie sans AGENT_BACKEND=fake")
