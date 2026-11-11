@@ -80,7 +80,7 @@ Type de structure : type de l'organisation. Département : celui de l'invitation
 
 ### La plateforme (ex-Emplois)
 
-**Instance :** stats · **DB :** 2 ; `autometa_tables_db` (prolongations, bilans) ; Matomo site 117 (recherches)
+**Instance :** stats · **DB :** 2 ; `autometa_tables_db`, schéma `raw_emplois` (prolongations, bilans ; schéma brut : accord de l'utilisateur requis, voir le skill `autometa_tables_db`) ; Matomo site 117 (recherches)
 
 | Type acte | Catégorie | Rang | Donnée, date | North Star |
 |-----------|-----------|------|--------------|------------|
