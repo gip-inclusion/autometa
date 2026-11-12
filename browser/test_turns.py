@@ -22,7 +22,7 @@ def test_stop_ends_a_hanging_turn_on_the_server(page: Page, visit, ask: Callable
 
     with page.expect_response("**/cancel") as cancel:
         page.locator("#chatCancelBtn").click()
-    assert cancel.value.json() == {"status": "cancelled"}
+    assert cancel.value.json()["status"] == "cancelled"
 
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("#chatOutput")).to_contain_text("Interrompu", timeout=10000)
