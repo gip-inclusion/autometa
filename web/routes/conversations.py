@@ -556,6 +556,8 @@ async def stream_conversation(
     if after == 0 and not conv.messages:
         return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
+    owner = can_mutate_conversation(conv, user_email)
+
     def _sse_event(msg_type: str, data: dict) -> str:
         return f"event: {msg_type}\ndata: {json.dumps(data)}\n\n"
 
@@ -594,17 +596,38 @@ async def stream_conversation(
                 last_msg_id, last_content = rows[-1].id, rows[-1].content
             return [_format_msg(m) for m in rows]
 
+        shown_queue: list[str] | None = None
+        shown_returned: set[str] = set()
+
+        async def queue_changes() -> list[str]:
+            """La file et les messages rendus, s'ils ont changé depuis le dernier envoi : la page s'en redessine."""
+            nonlocal shown_queue
+            pending = await asyncio.to_thread(store.pending_messages, conv_id)
+            waiting = with_status(pending, "waiting")
+            returned = [e for e in with_status(pending, "returned") if e["id"] not in shown_returned]
+            chunks = []
+            if [e["id"] for e in waiting] != shown_queue:
+                shown_queue = [e["id"] for e in waiting]
+                chunks.append(_sse_event("queue", {"queue": waiting}))
+            if returned:
+                shown_returned.update(e["id"] for e in returned)
+                chunks.append(_sse_event("returned", {"returned": returned}))
+            return chunks
+
         # Why: s'abonner avant de vérifier la fin du tour — un tour fini entre les deux n'enverrait son signal à
         # personne, et le flux ne le verrait qu'au sondage suivant.
         pubsub = await runner.subscribe(conv_id)
         try:
             ended = await runner.is_done(conv_id, question_id) or not conv.needs_response
-            check = True
+            check = queue_due = True
             while True:
                 # Why: lire les lignes après avoir appris la fin du tour — le runner les écrit avant de la signaler.
                 if check:
                     for chunk in await fresh():
                         yield chunk
+                    if owner and queue_due:
+                        for chunk in await queue_changes():
+                            yield chunk
                     if ended:
                         yield done
                         return
@@ -614,6 +637,9 @@ async def stream_conversation(
 
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
                 check = bool(msg) or time.monotonic() - last_fallback >= fallback_interval
+                # Why: les mises à jour de réponse arrivent par dizaines par tour ; seuls les autres signaux et le
+                # sondage de secours relisent la file.
+                queue_due = not msg or msg["data"] != "update"
                 if msg:
                     ended = msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id
                 else:
