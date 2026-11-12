@@ -264,6 +264,39 @@ def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_cancelled_run_ending_late_leaves_a_resend_in_preparation_alone(mocker, fake_redis):
+    """A cancelled run still uploading its session must not release the resend the consumer is preparing."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = mocker.patch("web.runner.store")
+    old_can_finish = asyncio.Event()
+
+    async def old_stream(**kwargs):
+        await old_can_finish.wait()
+        return
+        yield  # noqa: F841
+
+    async def _run():
+        runner.backend.send_message = old_stream
+        old_task = asyncio.create_task(runner._run_agent("c1", "old", None, None, make_turn("cli")))
+        runner._running["c1"] = old_task
+        await asyncio.sleep(0.05)
+
+        await runner.cancel("c1")
+        await runner.submit("c1", "nouvelle question", [])
+        await fake_redis.set("autometa:running:c1", "worker-preparing-the-resend")
+        mock_store.update_conversation.reset_mock()
+
+        old_can_finish.set()
+        await asyncio.wait_for(old_task, 1)
+
+        assert not await runner.is_done("c1"), "the late cancelled run closed the resend's stream"
+        released = [c for c in mock_store.update_conversation.call_args_list if c.kwargs.get("needs_response") is False]
+        assert not released, "the late cancelled run cleared needs_response under the resend"
+        assert await fake_redis.get("autometa:running:c1") == "worker-preparing-the-resend"
+
+    asyncio.run(_run())
+
+
 def test_run_agent_surfaces_backend_error_event(runner, mocker):
     """A backend 'error' event (CLI exit 1 on a dash prompt) must reach the user."""
     mock_store = mocker.patch("web.runner.store")
