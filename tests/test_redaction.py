@@ -55,6 +55,8 @@ PRESIGNED = (
         ("S3_SECRET_KEY=3f2a9c1e-7b6d-4e8f-9a0b-1c2d3e4f5a6b", "3f2a9c1e-7b6d", "variable secrète"),  # gitleaks:allow
         ("PGPASSWORD=supers3cret99", "supers3cret99", "variable secrète"),
         ('"password": "motdepasse-tres-secret"', "motdepasse-tres-secret", "champ secret"),
+        ('{"db_password": "motdepasse-tres-secret"}', "motdepasse-tres-secret", "champ secret"),
+        ("smtp_password=s3cretValue99", "s3cretValue99", "champ secret"),
         ("x-api-key: abc123def456ghi", "abc123def456ghi", "champ secret"),  # gitleaks:allow
         ("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345", "ABCDEFGHIJKLMNOPQRST", "jeton de service"),
         ("cle mb_AbCdEf0123456789XyZaBcD=", "AbCdEf0123456789XyZaBcD", "jeton de service"),
@@ -141,6 +143,7 @@ def test_database_urls_are_known_secrets(mocker, setting):
         "https://x/?author=dupont&keyword=emploi&passage=2",
         'SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")',
         '"password": "<mot de passe>"',
+        '"password_hint": "voir le coffre"',
         "le password: est requis",
         "Le serveur exige une Basic authentification pour cette API.",
         # Du JSON compact : une URL suivie d'une adresse n'est pas un DSN à mot de passe.

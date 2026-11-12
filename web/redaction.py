@@ -41,10 +41,11 @@ PATTERNS = {
         r"\1***",
     ),
     # Why: une valeur entre guillemets peut se trouver dans du JSON échappé (`\"password\": \"…\"`) : la barre
-    # oblique inverse reste en place, sinon le guillemet qu'elle protège ferait éclater le JSON.
+    # oblique inverse reste en place, sinon le guillemet qu'elle protège ferait éclater le JSON. Le nom peut porter un
+    # préfixe (`db_password`).
     "champ secret": (
         re.compile(
-            r"(?i)([\"']?\b(?:password|passwd|pwd|secret|client_secret|x-api-key|api[_-]?key|access[_-]?token"
+            r"(?i)([\"']?(?<![a-z0-9])(?:password|passwd|pwd|secret|client_secret|x-api-key|api[_-]?key|access[_-]?token"
             r"|auth[_-]?token|private[_-]?key)\\?[\"']?\s*[:=]\s*)"
             rf"(?:(\\?[\"']){NOT_A_PLACEHOLDER}[^\"'\\\n]{{6,}}(?=\\?[\"'])|{NOT_A_PLACEHOLDER}(?=[^\s\"',;]*\d)[^\s\"',;\\]{{8,}})"
         ),
