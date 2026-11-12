@@ -220,9 +220,7 @@ def etags_under(bucket: str, prefix: str) -> dict[str, str]:
             for obj in page.get("Contents", []):
                 etags[obj["Key"][len(prefix) :]] = obj["ETag"].strip('"')
     except (ClientError, BotoCoreError) as e:
-        logger.error(
-            "S3 etags failed for %s/%s: %s", _sanitize_for_log(bucket), _sanitize_for_log(prefix), e
-        )
+        logger.error("S3 etags failed for %s/%s: %s", _sanitize_for_log(bucket), _sanitize_for_log(prefix), e)
     return etags
 
 
