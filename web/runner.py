@@ -135,18 +135,17 @@ class TaskRunner:
     async def cancel(self, conv_id: str) -> bool:
         r = await get_redis()
         question_id = store.last_user_message_id(conv_id)
-        # Why: clear needs_response before the up-to-5s backend.cancel so an immediate
-        # resend doesn't race the in-flight cancel and get a 409 "already running".
+        # Why: le créneau, puis needs_response, se libèrent avant les jusqu'à 5 s de l'arrêt des moteurs — un renvoi
+        # accepté entre-temps serait sinon refusé (409) ou écarté par le consommateur, qui croirait la conversation
+        # encore prise. La libération se fait ici, une seule fois ; le run annulé ne libère plus rien à sa fin.
+        cancelled = self._running.pop(conv_id, None)
+        if cancelled:
+            self._cancelled_runs.add(cancelled)
+            await r.delete(f"{PREFIX}:running:{conv_id}")
         store.update_conversation(conv_id, needs_response=False)
         await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
-        if conv_id in self._running:
+        if cancelled:
             await self._cancel_all_backends(conv_id)
-            # Why: le run annulé finit son nettoyage (envoi de la session) après coup, pendant qu'un renvoi peut déjà
-            # être accepté. La libération se fait ici, une seule fois ; ce run ne libère plus rien à sa fin.
-            cancelled = self._running.pop(conv_id, None)
-            if cancelled:
-                self._cancelled_runs.add(cancelled)
-                await r.delete(f"{PREFIX}:running:{conv_id}")
         store.add_message(conv_id, "assistant", "*Interrompu.*")
         await self.notify_done(conv_id, question_id)
         return True

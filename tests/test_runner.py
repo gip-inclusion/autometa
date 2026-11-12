@@ -193,6 +193,40 @@ def test_cancel_clears_needs_response_before_backend_cancel_completes(runner, mo
     asyncio.run(_run())
 
 
+def test_a_resend_accepted_during_a_slow_cancel_is_run(runner, mocker, fake_redis):
+    mocker.patch("web.runner.store").get_conversation.return_value = mocker.MagicMock(needs_response=True)
+    backend_cancel_started = asyncio.Event()
+    backend_cancel_may_finish = asyncio.Event()
+
+    async def slow_backend_cancel(conv_id):
+        backend_cancel_started.set()
+        await backend_cancel_may_finish.wait()
+
+    runner.backend.cancel = slow_backend_cancel
+    run_agent = mocker.patch.object(runner, "_run_agent", new=mocker.AsyncMock())
+
+    async def _run():
+        old_run = runner._running["c1"] = asyncio.create_task(asyncio.sleep(10))
+        cancel_task = asyncio.create_task(runner.cancel("c1"))
+        await backend_cancel_started.wait()
+        await runner.submit("c1", "renvoi", [])
+        consumer = asyncio.create_task(runner._consumer_loop())
+        try:
+            async with asyncio.timeout(3):
+                while not run_agent.called:
+                    await asyncio.sleep(0.01)
+        finally:
+            backend_cancel_may_finish.set()
+            await cancel_task
+            consumer.cancel()
+            old_run.cancel()
+            await asyncio.gather(consumer, old_run, return_exceptions=True)
+
+    asyncio.run(_run())
+
+    assert run_agent.call_args.args[1] == "renvoi"
+
+
 def test_cancel_all_backends_calls_get_agent_for_both_backends_when_fallback_configured(runner, mocker):
     mocker.patch("web.runner.config.AGENT_BACKEND", "cli")
     mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", "cli-ollama")
