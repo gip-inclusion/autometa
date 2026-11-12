@@ -63,6 +63,10 @@ PRESIGNED = (
         ("postgresql://user:Abc=123xy@host/db", "Abc=123xy", "mot de passe de DSN"),
         ("postgresql://user:p&ss1234@host/db", "p&ss1234", "mot de passe de DSN"),
         ("postgres://u:Abc#12345@h/db", "Abc#12345", "mot de passe de DSN"),
+        # Une commande dans un événement d'outil JSON : les guillemets y sont échappés.
+        ('{"command": "export DB_PASSWORD=\\"s3cretValue99\\""}', "s3cretValue99", "variable secrète"),
+        # Un paramètre X-Amz-* ne rend pas le reste du lien inoffensif.
+        (f"https://matomo.x/?X-Amz-Expires=1&token_auth={HEX}", HEX, "paramètre d'URL sensible"),
     ],
 )
 def test_redact_removes_each_family_of_secret(text, secret, kind):
@@ -70,10 +74,11 @@ def test_redact_removes_each_family_of_secret(text, secret, kind):
     assert kind in secret_kinds(text)
 
 
-def test_a_secret_next_to_a_presigned_link_is_still_masked():
-    masked = redact(f"diff : {PRESIGNED} ; base : postgresql://u:{FAUX}@h/db")
+@pytest.mark.parametrize("separator", [" ; base : ", ","])
+def test_a_secret_next_to_a_presigned_link_is_still_masked(separator):
+    masked = redact(f"diff : {PRESIGNED}{separator}postgresql://u:{FAUX}@h/db")
 
-    assert masked == f"diff : {PRESIGNED} ; base : postgresql://***@h/db"
+    assert masked == f"diff : {PRESIGNED}{separator}postgresql://***@h/db"
 
 
 def test_masking_escaped_json_keeps_it_valid():

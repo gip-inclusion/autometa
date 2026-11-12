@@ -35,7 +35,7 @@ PATTERNS = {
     "paramètre d'URL sensible": (re.compile(rf"([?&]{SENSITIVE_NAME}=)[^&\s'\"\\]+"), r"\1***"),
     "variable secrète": (
         re.compile(
-            rf"\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|_KEY|APIKEY)\s*[=:]\s*[\"']?){NOT_A_PLACEHOLDER}"
+            rf"\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|_KEY|APIKEY)\s*[=:]\s*\\?[\"']?){NOT_A_PLACEHOLDER}"
             r"(?=[^\s\"',;]*\d)[\w\-+/=.:]{8,}"
         ),
         r"\1***",
@@ -69,8 +69,9 @@ PATTERNS = {
 }
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # Why: un lien présigné est fait pour être remis à l'utilisateur (diff Zendesk, export) ; sa signature n'ouvre que ce
-# fichier, et pour peu de temps. La masquer rend le lien mort.
-PRESIGNED_URL = re.compile(r"(https://[^\s\"'<>\\]+[?&]X-Amz-Expires=\d+[^\s\"'<>\\]*)")
+# fichier, et pour peu de temps. Seuls ses paramètres X-Amz-* sont épargnés, les masquer rend le lien mort : le reste du
+# lien, et ce qui le suit sans espace (sortie CSV), est masqué comme ailleurs.
+PRESIGNED_PARAM = re.compile(r"([?&]X-Amz-[A-Za-z-]+=[\w%./~-]+)")
 
 
 def known_secrets() -> list[str]:
@@ -104,8 +105,8 @@ def known_secrets() -> list[str]:
 
 
 def secret_kinds(text: str) -> list[str]:
-    """Les sortes de secrets présents en clair dans le texte, liens présignés exceptés."""
-    text = PRESIGNED_URL.sub("", text)
+    """Les sortes de secrets présents en clair dans le texte, paramètres de liens présignés exceptés."""
+    text = PRESIGNED_PARAM.sub("", text)
     kinds = [kind for kind, (rx, _) in PATTERNS.items() if any("***" not in m.group(0) for m in rx.finditer(text))]
     if any(secret in text for secret in known_secrets()):
         kinds.append("secret de configuration")
@@ -113,9 +114,9 @@ def secret_kinds(text: str) -> list[str]:
 
 
 def redact(text: str) -> str:
-    """Retire d'un texte tout ce qui pourrait être un secret, liens présignés exceptés."""
+    """Retire d'un texte tout ce qui pourrait être un secret, paramètres de liens présignés exceptés."""
     secrets = known_secrets()
-    parts = PRESIGNED_URL.split(text)
+    parts = PRESIGNED_PARAM.split(text)
     return "".join(part if index % 2 else mask(part, secrets) for index, part in enumerate(parts))
 
 
