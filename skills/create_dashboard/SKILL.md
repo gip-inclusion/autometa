@@ -5,6 +5,8 @@ description: Create a new dashboard (TDB) — scaffolds files and inserts a row 
 
 # Create Dashboard Skill
 
+> Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
+
 Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactive/{slug}/`, insère la ligne `dashboards` + tags. Chemin **unique** de création côté agent — ne jamais écrire les fichiers à la main.
 
 ## Avant de créer
@@ -13,7 +15,7 @@ Crée un nouveau tableau de bord (TDB) : copie le template dans `data/interactiv
 
 1. Lister les candidats actifs sur le thème :
    ```bash
-   .venv/bin/python skills/list_dashboards.py | grep -i <thème ou mots-clés>
+   python skills/list_dashboards.py | grep -i <thème ou mots-clés>
    ```
 2. **Aucun match** : c'est bien une création — continuer.
 3. **Match proche** (par titre, slug ou sujet) : présenter le candidat à l'utilisateur (titre + lien `/interactive/{slug}/`) et lui demander s'il préfère modifier l'existant via `update_dashboard` plutôt que créer un nouveau TDB.
@@ -59,7 +61,7 @@ disponibles : `docs/interactive-dashboards.md` § La façade `lib.dashboard_api`
 
 ## Usage
 ```bash
-.venv/bin/python skills/create_dashboard/scripts/create_dashboard.py \
+python skills/create_dashboard/scripts/create_dashboard.py \
     --slug mon-tdb \
     --title "Mon tableau de bord" \
     --description "Description courte (une ligne)" \
@@ -148,7 +150,7 @@ _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
 ```bash
-.venv/bin/python -c "
+python -c "
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web.db import get_db
 with get_db() as session:

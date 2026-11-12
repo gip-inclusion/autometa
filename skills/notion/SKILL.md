@@ -5,6 +5,8 @@ description: Lire et écrire dans Notion — interroger une base de données ou 
 
 # Notion
 
+> Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
+
 Client unique pour l'API Notion : `lib.notion` (lecture + écriture). Ne pas réinventer de client httpx ad hoc.
 
 **Ne jamais `WebFetch` une URL Notion** (`app.notion.com`, ou ancien `notion.so`) : l'app web est authentifiée et rendue en JS, on ne récupère qu'un écran de connexion. Toujours passer par l'API via `lib.notion`.
@@ -33,6 +35,15 @@ blocks = notion.get_block_children(page_id)   # récursif, paginé
 text = "\n".join(notion.extract_block_text(b) for b in blocks)
 ```
 
+## Autres endpoints
+
+`notion.notion_request(method, endpoint, payload=None)` couvre tout endpoint que le module n'enveloppe pas (jeton, version d'API, reprise sur 429 inclus) :
+
+```python
+page = notion.notion_request("GET", f"pages/{page_id}")
+props = notion.extract_page_properties(page)
+```
+
 ## Publier un rapport
 
 ```python
@@ -46,3 +57,5 @@ Publie dans la base « Rapports publics » (`NOTION_REPORTS_DB`). Préférer le 
 ## Prérequis d'accès (important)
 
 `NOTION_TOKEN` est l'intégration de publication des rapports. **Elle ne peut lire une page/base que si celle-ci lui a été partagée** dans Notion (menu ⋯ → Connexions). Sinon l'API renvoie `404`/`object_not_found`, quel que soit le code. Si une lecture échoue en 404, demander que la page soit partagée avec l'intégration.
+
+Un `400` « does not contain any data sources accessible by this API bot » sur une base signifie que ce bloc est une **vue liée** à une base rangée ailleurs, non partagée avec l'intégration. Ce n'est pas une limite du client : demander l'URL de la base d'origine ou son partage, plutôt que d'appeler l'API à la main avec une autre version.

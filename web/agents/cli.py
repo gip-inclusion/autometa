@@ -13,7 +13,7 @@ import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from web import config, session_sync
+from web import config, memory_introspect, session_sync
 from web.helpers import format_future_date
 
 from .base import AgentBackend, AgentMessage, build_system_prompt
@@ -58,6 +58,13 @@ _USAGE_LIMIT_RE = re.compile(
 )
 
 
+def signal_name(number: int) -> str:
+    try:
+        return signal.Signals(number).name
+    except ValueError:
+        return "inconnu"
+
+
 def usage_limit_reset(text: str, now: datetime | None = None) -> datetime | None:
     """Si le texte signale une limite d'abonnement atteinte, renvoie l'instant UTC de reprise."""
     match = _USAGE_LIMIT_RE.search(text.strip())
@@ -85,6 +92,7 @@ class CLIBackend(AgentBackend):
 
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
+        self._cancelled: set[str] = set()
 
     def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
         # Why: transmission de l'environnement complet au sous-processus, pas une lecture
@@ -147,6 +155,7 @@ class CLIBackend(AgentBackend):
                 "had_real_output": False,
                 "last_events": [],
                 "prompt": "",
+                "killed": None,
             }
             async for agent_msg in self._run_attempt(
                 conversation_id, message, history, session_id, user_email, outcome
@@ -354,7 +363,9 @@ class CLIBackend(AgentBackend):
                     stderr_bytes = b""
                 if session_id:
                     try:
-                        session_sync.upload_session(session_id)
+                        # Why: depuis la boucle, l'envoi (jusqu'à 15 Mo) bloquerait toutes les conversations du
+                        # processus. Attendu : le tour suivant repart de la session sur S3.
+                        await asyncio.to_thread(session_sync.upload_session, session_id)
                     except Exception:
                         # Why: cleanup must complete so span.finish() and the error capture below still run.
                         logger.exception("session upload failed during cleanup")
@@ -371,6 +382,17 @@ class CLIBackend(AgentBackend):
             if held_limit is not None and process.returncode <= 0:
                 outcome["usage_limit_reset"] = None
                 yield held_limit
+
+            # Why: a negative code is a signal; ours only on cancel, otherwise the system (memory) killed it.
+            if process.returncode < 0 and conversation_id not in self._cancelled:
+                outcome["killed"] = {"signal": -process.returncode, "memory": memory_introspect.container_memory()}
+                logger.error(
+                    "CLI tué par le système : conversation=%s signal=%s memoire_conteneur=%s",
+                    conversation_id,
+                    -process.returncode,
+                    outcome["killed"]["memory"],
+                )
+            self._cancelled.discard(conversation_id)
 
             if process.returncode != 0:
                 stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
@@ -408,6 +430,16 @@ class CLIBackend(AgentBackend):
                 raw={"code": outcome["exit_code"], "transient": True, "api_error": outcome["transient_error"]},
             )
         stderr = outcome["stderr"]
+        if killed := outcome["killed"]:
+            return AgentMessage(
+                type="error",
+                content=(
+                    f"L'agent a été tué par le système (signal {killed['signal']}, {signal_name(killed['signal'])}), "
+                    "probablement faute de mémoire dans le conteneur. Relancez votre demande ; "
+                    "si cela se reproduit, signalez-le à l'équipe."
+                ),
+                raw={"stderr": stderr, "code": outcome["exit_code"], **killed},
+            )
         return AgentMessage(
             type="error",
             content=f"Process exited with code {outcome['exit_code']}: {stderr}",
@@ -557,6 +589,7 @@ class CLIBackend(AgentBackend):
         if not process:
             return False
 
+        self._cancelled.add(conversation_id)
         try:
             process.send_signal(signal.SIGTERM)
             await asyncio.wait_for(process.wait(), timeout=5.0)

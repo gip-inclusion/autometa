@@ -2,14 +2,14 @@
 source: matomo:117
 verifie_le: 2026-09-23
 ---
-# Plateforme de l'inclusion (ex-Emplois)
+# La plateforme de l'inclusion (ex-Emplois)
 
 - URL: https://plateforme.inclusion.gouv.fr (ancienne URL : https://emplois.inclusion.beta.gouv.fr)
 - Matomo site ID: 117
 - GitHub: https://github.com/gip-inclusion/les-emplois
 - Funnel bizdev : [glossaire AARRI](../bizdev/glossaire.md) — définitions opérationnelles couche 2 pour ce produit (archétype marketplace).
 
-⚠️ Ne pas confondre avec le **Site institutionnel** (ID Matomo 212, `inclusion.gouv.fr`, [site-institutionnel.md](site-institutionnel.md)) — le site vitrine de La plateforme de l'inclusion : deux sites distincts malgré le nom proche.
+⚠️ Ne pas confondre avec le **Site institutionnel** (ID Matomo 212, `inclusion.gouv.fr`, [site-institutionnel.md](site-institutionnel.md)) — le site vitrine de la PDI : deux sites distincts malgré le nom proche.
 
 ## Key Concepts: Two Dimensions of the IAE Workflow
 
@@ -81,7 +81,7 @@ Analysis based on Dec 2025 data (`/gps/*`):
 
 For user-level data (accounts, last connection, user counts by type), query `public.utilisateurs` in the **stats** Metabase instance. See [knowledge/stats/users.md](../stats/users.md).
 
-For cross-product queries (users common to Emplois and Dora, multi-service presence), use the **datalake** instance. See [knowledge/datalake/README.md](../datalake/README.md#pdi_base_unique_tous_les_pros).
+For cross-product queries (users common to La plateforme and Dora, multi-service presence), use the **datalake** instance. See [knowledge/datalake/README.md](../datalake/README.md#pdi_base_unique_tous_les_pros).
 
 ## Custom Dimensions
 

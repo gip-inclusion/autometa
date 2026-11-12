@@ -23,16 +23,16 @@ La clé API agit **au nom du compte utilisateur** qui l'a créée : elle voit **
 
 ```bash
 # Workspaces visibles par la clé (périmètre)
-.venv/bin/python skills/tally/scripts/query.py --workspaces
+python skills/tally/scripts/query.py --workspaces
 
 # Lister les formulaires (filtre workspace optionnel, appliqué côté client)
-.venv/bin/python skills/tally/scripts/query.py --list [--workspace WS_ID]
+python skills/tally/scripts/query.py --list [--workspace WS_ID]
 
 # Schéma courant d'un formulaire (questions, types, uuid)
-.venv/bin/python skills/tally/scripts/query.py --schema FORM_ID
+python skills/tally/scripts/query.py --schema FORM_ID
 
 # Réponses d'un formulaire
-.venv/bin/python skills/tally/scripts/query.py --submissions FORM_ID \
+python skills/tally/scripts/query.py --submissions FORM_ID \
     [--filter completed|partial|all] [--since 2026-01-01] [--until 2026-06-30] \
     [--limit 500] [--max-pages 20]
 ```

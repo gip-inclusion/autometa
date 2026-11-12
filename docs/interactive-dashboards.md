@@ -26,7 +26,7 @@ Pour créer un nouveau TDB ou modifier un TDB existant, **toujours** utiliser le
 Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill génère le scaffold de `data/interactive/{slug}/`, insère la ligne `dashboards` + tags, et retourne le chemin créé.
 
 ```bash
-.venv/bin/python skills/create_dashboard/scripts/create_dashboard.py \
+python skills/create_dashboard/scripts/create_dashboard.py \
     --slug mon-tdb \
     --title "Mon tableau de bord" \
     --description "Description courte" \
@@ -40,7 +40,7 @@ Invoquer dès que l'utilisateur demande un nouveau TDB. Le skill génère le sca
 **Point d'entrée canonique** dès qu'un utilisateur exprime le souhait de modifier un TDB existant. Garantit que c'est le bon slug, met à jour la DB, et retourne l'`originating_user_email` (parfois différent) et le chemin des conventions à respecter pour la suite.
 
 ```bash
-.venv/bin/python skills/update_dashboard/scripts/update_dashboard.py \
+python skills/update_dashboard/scripts/update_dashboard.py \
     --slug mon-tdb \
     --title "Nouveau titre" \
     --add-tags trafic --remove-tags ancien-tag \

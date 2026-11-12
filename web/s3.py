@@ -164,6 +164,7 @@ class S3Store:
                         "path": obj["Key"][len(self.prefix) :],
                         "size": obj["Size"],
                         "last_modified": obj["LastModified"],
+                        "etag": obj["ETag"].strip('"'),
                     })
         except (ClientError, BotoCoreError) as e:
             if raise_errors:

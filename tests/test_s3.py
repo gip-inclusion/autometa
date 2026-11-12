@@ -61,10 +61,12 @@ def paginate_pages(mocker, pages):
     return paginator
 
 
-def test_list_files_strips_the_store_prefix(monkeypatch, mocker):
+def test_list_files_strips_the_store_prefix_and_the_etag_quotes(monkeypatch, mocker):
     monkeypatch.setattr("web.s3.config.S3_BUCKET", "test-bucket")
-    paginate_pages(mocker, [{"Contents": [{"Key": "sessions/a/b.jsonl", "Size": 3, "LastModified": "t"}]}])
-    assert s3.sessions.list_files("a/") == [{"path": "a/b.jsonl", "size": 3, "last_modified": "t"}]
+    paginate_pages(
+        mocker, [{"Contents": [{"Key": "sessions/a/b.jsonl", "Size": 3, "LastModified": "t", "ETag": '"abc"'}]}]
+    )
+    assert s3.sessions.list_files("a/") == [{"path": "a/b.jsonl", "size": 3, "last_modified": "t", "etag": "abc"}]
 
 
 @pytest.mark.parametrize("raise_errors", [False, True])

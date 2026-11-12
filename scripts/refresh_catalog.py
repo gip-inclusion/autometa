@@ -10,12 +10,13 @@ from lib.knowledge_lint import catalog_path
 from lib.query import CallerType, execute_autometa_tables_query, execute_metabase_query
 
 ROOT = Path(__file__).parent.parent
-# Why: les schémas autorisés par skills/autometa_tables_db/SKILL.md — l'agent ne lit pas les autres.
+# Why: les schémas autorisés par skills/autometa_tables_db/SKILL.md, dont les raw* lus après accord de
+# l'utilisateur — l'agent ne lit pas les autres.
 AUTOMETA_COLUMNS = """
 SELECT table_schema || '.' || table_name, json_agg(column_name::text ORDER BY ordinal_position)::text
 FROM information_schema.columns
-WHERE table_schema IN ('public', 'monrecap', 'reporting', 'data_inclusion', 'esat', 'seeds', 'raw_dora', 'raw_rdvi',
-                       'documentation')
+WHERE table_schema IN ('public', 'monrecap', 'reporting', 'data_inclusion', 'esat', 'seeds', 'documentation')
+   OR table_schema LIKE 'raw\\_%'
 GROUP BY table_schema, table_name
 """
 METABASE_COLUMNS = """

@@ -5,14 +5,16 @@ description: Save or update a report in the database (project)
 
 # Save Report Skill
 
+> Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
+
 Create, update, or append reports to the PostgreSQL database.
 
 ## Recommended: CLI with File (avoids escaping issues)
 
-**Step 1:** Write report content to a file using the Write tool:
+**Step 1:** Write report content to a file using the Write tool, with the expanded path (`echo "/tmp/$AUTOMETA_CONVERSATION_ID"`, after `mkdir -p` on it):
 
 ```markdown
-# /tmp/report.md
+# /tmp/$AUTOMETA_CONVERSATION_ID/report.md
 ---
 date: 2026-01-07
 website: emplois
@@ -29,27 +31,27 @@ Report content...
 
 ```bash
 # Create new report (ALWAYS include --tags)
-.venv/bin/python skills/save_report/scripts/save_report.py \
-    --file /tmp/report.md \
+python skills/save_report/scripts/save_report.py \
+    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
     --title "Monthly traffic analysis" \
     --website emplois \
     --category "Traffic analysis" \
     --tags "explo,emplois,trafic"
 
 # Append to conversation (ALWAYS include --tags)
-.venv/bin/python skills/save_report/scripts/save_report.py \
-    --file /tmp/report.md \
+python skills/save_report/scripts/save_report.py \
+    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
     --conversation-id "uuid-here" \
     --title "Follow-up analysis" \
     --tags "explo,emplois,prescripteurs"
 
 # Update existing report
-.venv/bin/python skills/save_report/scripts/save_report.py \
-    --file /tmp/report.md \
+python skills/save_report/scripts/save_report.py \
+    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
     --report-id 42
 
 # List recent reports
-.venv/bin/python skills/save_report/scripts/save_report.py --list
+python skills/save_report/scripts/save_report.py --list
 ```
 
 ## CLI Options
@@ -71,7 +73,7 @@ Report content...
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
 ```bash
-.venv/bin/python -c "
+python -c "
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web.db import get_db
 with get_db() as session:

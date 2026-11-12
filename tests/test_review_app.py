@@ -80,8 +80,8 @@ def deployment(status="queued"):
     return {"deployment": {"id": "dep-1", "status": status, "git_ref": "abc123"}}
 
 
-def containers(amount=1, name="web"):
-    return {"containers": [{"name": name, "amount": amount}]}
+def containers(amount=1, name="web", size="XL"):
+    return {"containers": [{"name": name, "amount": amount, "size": size}]}
 
 
 def creation_flow(*, entry_listing, app_name="autometa-staging-pr42"):
@@ -93,6 +93,7 @@ def creation_flow(*, entry_listing, app_name="autometa-staging-pr42"):
         FakeResponse(addons("running", "running")),
         FakeResponse(deployment()),
         FakeResponse(deployment("success")),
+        FakeResponse(containers()),
     ]
 
 
@@ -131,7 +132,7 @@ def stop_app(client):
 
 
 def read_containers(client):
-    return review_app.web_container_amount(client, "jwt", "autometa-staging-pr42")
+    return review_app.web_container(client, "jwt", "autometa-staging-pr42")
 
 
 @pytest.mark.parametrize(
@@ -224,6 +225,7 @@ def test_ensure_creates_then_waits_for_addons_then_deploys():
         ("GET", "/apps/autometa-staging-pr42/addons"),
         ("POST", "/apps/autometa-staging-pr42/scm_repo_link/manual_deploy"),
         ("GET", "/apps/autometa-staging-pr42/deployments/dep-1"),
+        ("GET", "/apps/autometa-staging-pr42/containers"),
     ]
 
 
@@ -250,6 +252,7 @@ def test_ensure_redeploys_an_existing_app_without_creating_it_again():
         FakeResponse(listing(review_app_entry(git_ref="staleref"))),
         FakeResponse(deployment()),
         FakeResponse(deployment("success")),
+        FakeResponse(containers()),
     ])
 
     result = review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")
@@ -260,6 +263,7 @@ def test_ensure_redeploys_an_existing_app_without_creating_it_again():
         ("GET", "/apps/autometa-staging/scm_repo_link/review_apps"),
         ("POST", "/apps/autometa-staging-pr42/scm_repo_link/manual_deploy"),
         ("GET", "/apps/autometa-staging-pr42/deployments/dep-1"),
+        ("GET", "/apps/autometa-staging-pr42/containers"),
     ]
 
 
@@ -294,7 +298,7 @@ def test_ensure_rescales_when_the_sha_matches_but_the_app_was_scaled_to_zero():
     }
     method, url, kwargs = client.calls[3]
     assert (method, url.rsplit("/v1", 1)[-1]) == ("POST", "/apps/autometa-staging-pr42/scale")
-    assert kwargs["json"] == {"containers": [{"name": "web", "amount": 1}]}
+    assert kwargs["json"] == {"containers": [{"name": "web", "amount": 1, "size": "XL"}]}
 
 
 @pytest.mark.parametrize(
@@ -314,6 +318,7 @@ def test_ensure_redeploys_unless_the_sha_is_successfully_deployed(deployment_sta
         FakeResponse(listing(entry)),
         FakeResponse(deployment()),
         FakeResponse(deployment("success")),
+        FakeResponse(containers()),
     ])
 
     assert review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")["action"] == "updated"
@@ -408,10 +413,44 @@ def test_wait_for_addons_gives_up_loudly(mocker):
         review_app.wait_for_addons(client, "jwt", "autometa-staging-pr42")
 
 
-def test_web_container_amount_returns_zero_when_the_web_container_is_absent():
+def test_web_container_is_zero_when_the_web_container_is_absent():
     client = FakeClient([FakeResponse(containers(name="clock"))])
 
-    assert review_app.web_container_amount(client, "jwt", "autometa-staging-pr42") == 0
+    assert review_app.web_container(client, "jwt", "autometa-staging-pr42") == {"amount": 0, "size": None}
+
+
+@pytest.mark.parametrize("size", ["M", "L"])
+def test_ensure_resizes_a_running_review_app_cloned_from_a_smaller_staging(size):
+    """Le code -9 de #278 : le CLI tué faute de mémoire. Une review app déjà créée garde sa taille d'origine."""
+    client = FakeClient([
+        FakeResponse(link()),
+        FakeResponse(listing(review_app_entry(git_ref="abc123"))),
+        FakeResponse(containers(amount=1, size=size)),
+        FakeResponse({}),
+    ])
+
+    assert review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")["action"] == "resized"
+    method, url, kwargs = client.calls[3]
+    assert (method, url.rsplit("/v1", 1)[-1]) == ("POST", "/apps/autometa-staging-pr42/scale")
+    assert kwargs["json"] == {"containers": [{"name": "web", "amount": 1, "size": "XL"}]}
+
+
+def test_ensure_resizes_after_deploying_when_the_web_container_is_not_xl():
+    client = FakeClient([
+        *creation_flow(entry_listing=listing())[:-1],
+        FakeResponse(containers(size="M")),
+        FakeResponse({}),
+    ])
+
+    assert review_app.ensure(client, "jwt", "autometa-staging", 42, "abc123")["action"] == "created"
+    method, url, kwargs = client.calls[-1]
+    assert (method, url.rsplit("/v1", 1)[-1]) == ("POST", "/apps/autometa-staging-pr42/scale")
+    assert kwargs["json"] == {"containers": [{"name": "web", "amount": 1, "size": "XL"}]}
+
+
+def test_review_app_web_size_is_the_formation_of_scalingo_json():
+    manifest = json.loads((Path(__file__).parent.parent / "scalingo.json").read_text())
+    assert manifest["formation"] == {"web": {"amount": 1, "size": review_app.WEB_SIZE}}
 
 
 def test_stop_scales_the_web_containers_to_zero():
