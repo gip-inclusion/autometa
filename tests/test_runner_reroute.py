@@ -70,7 +70,7 @@ def _isolate(mocker, fake_redis):
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner._check_failure")
     mocker.patch("web.runner.prepare_turn", return_value=_turn("cli-ollama", "s2"))
-    mocker.patch.object(runner.store, "update_conversation")
+    mocker.patch.object(runner.store, "end_turn", return_value=[])
     mocker.patch.object(runner.store, "get_conversation", return_value=None)
     mocker.patch.object(runner.store, "add_message", return_value=mocker.Mock(id=1))
     mocker.patch.object(runner.store, "set_engine_state")
@@ -230,7 +230,7 @@ def test_the_conversation_stays_open_until_the_fallback_answers(mocker):
 
     async def fallback_stream(**kwargs):
         observed["done"] = done.await_count
-        observed["released"] = runner.store.update_conversation.call_count
+        observed["released"] = runner.store.end_turn.call_count
         yield AgentMessage(type="assistant", content="repris")
 
     second = mocker.MagicMock()
@@ -241,7 +241,7 @@ def test_the_conversation_stays_open_until_the_fallback_answers(mocker):
 
     assert observed == {"done": 0, "released": 0}
     done.assert_awaited_once_with("c1", mocker.ANY)
-    runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
+    runner.store.end_turn.assert_called_once_with("c1", flush=True)
 
 
 def test_a_successful_first_pass_still_advances_its_marker(mocker):
@@ -301,7 +301,7 @@ def test_an_unresolvable_backend_frees_the_conversation(mocker, fake_redis):
 
     assert asyncio.run(_run()) == 0
     assert r._running == {}
-    runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
+    runner.store.end_turn.assert_called_once_with("c1", flush=False)
 
 
 def test_a_failed_replay_setup_still_releases_the_conversation(mocker, fake_redis):
@@ -318,7 +318,7 @@ def test_a_failed_replay_setup_still_releases_the_conversation(mocker, fake_redi
         return await fake_redis.exists(f"{runner.PREFIX}:running:c1")
 
     assert asyncio.run(_run()) == 0
-    runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
+    runner.store.end_turn.assert_called_once_with("c1", flush=False)
     runner.store.add_message.assert_called_once_with("c1", "assistant", "limite")
     done.assert_awaited_once_with("c1", mocker.ANY)
     assert "c1" not in r._running
@@ -328,7 +328,7 @@ def test_a_failing_recovery_still_hands_the_conversation_back_to_the_sweep(mocke
     mocker.patch("web.runner.mark_backend_limited", new=mocker.AsyncMock())
     mocker.patch("web.runner.get_agent", return_value=_backend(mocker, _limit()))
     mocker.patch("web.runner.prepare_turn", side_effect=RuntimeError("postgres down"))
-    mocker.patch.object(runner.store, "update_conversation", side_effect=RuntimeError("postgres down"))
+    mocker.patch.object(runner.store, "end_turn", side_effect=RuntimeError("postgres down"))
     r = TaskRunner()
 
     async def _run():
@@ -354,7 +354,7 @@ def test_the_replay_is_abandoned_when_a_newer_run_takes_over(mocker):
     _play(r, "c1", "p", None, None, _turn("cli", "s1"))
 
     assert agents.call_count == 1
-    runner.store.update_conversation.assert_not_called()
+    runner.store.end_turn.assert_not_called()
 
 
 def test_a_successful_first_pass_still_releases_the_conversation(mocker):
@@ -364,4 +364,4 @@ def test_a_successful_first_pass_still_releases_the_conversation(mocker):
     _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     done.assert_awaited_once_with("c1", mocker.ANY)
-    runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
+    runner.store.end_turn.assert_called_once_with("c1", flush=True)
