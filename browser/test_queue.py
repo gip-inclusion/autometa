@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 
 pytestmark = pytest.mark.browser
 
@@ -24,6 +24,21 @@ def start_turn(ask: Callable[[str], None], page: Page, question: str) -> None:
 def send_later(page: Page, text: str) -> None:
     page.locator("#chatInput").fill(text)
     page.locator("#chatInput").press("Enter")
+
+
+def hold(page: Page, pattern: str) -> list[Route]:
+    """Retient les requêtes qui correspondent ; la liste se remplit à mesure qu'elles partent."""
+    held: list[Route] = []
+    page.route(pattern, lambda route: held.append(route))
+    return held
+
+
+def first_held(page: Page, held: list[Route]) -> Route:
+    for _ in range(250):
+        if held:
+            return held[0]
+        page.wait_for_timeout(20)
+    raise AssertionError("aucune requête retenue")
 
 
 def come_back(page: Page, conversation: str, how: str) -> Page:
@@ -56,7 +71,7 @@ def test_messages_sent_later_leave_together_when_the_turn_ends(
     conversation: str, ask: Callable[[str], None], page: Page, queued: list[str]
 ):
     send = page.locator("#chatSendBtn")
-    start_turn(ask, page, "[slow:3] q0")
+    start_turn(ask, page, "[slow:5] q0")
     expect(send).to_have_attribute("title", "Envoyer plus tard")
 
     for count, text in enumerate(queued, 1):
@@ -67,7 +82,7 @@ def test_messages_sent_later_leave_together_when_the_turn_ends(
     expect(page.locator("#chatInput")).to_have_value("")
     expect(page.locator(".event-final-answer").last).to_contain_text(f"Réponse factice : {queued[-1]}", timeout=15000)
     expect(page.locator(".event-queued")).to_have_count(0)
-    expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:3] q0", *queued])
+    expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:5] q0", *queued])
     expect(page.locator(".event-final-answer")).to_have_count(3)
     expect(send).to_have_attribute("title", "Envoyer")
 
@@ -104,7 +119,7 @@ def test_another_tab_sees_messages_queued_here(conversation: str, ask: Callable[
 def test_a_waiting_message_can_be_pulled_back_or_dropped(
     conversation: str, ask: Callable[[str], None], page: Page, target: str, bar: str
 ):
-    start_turn(ask, page, "[slow:3] q0")
+    start_turn(ask, page, "[slow:5] q0")
     send_later(page, "q1")
     page.locator("#chatInput").fill("Brouillon")
 
@@ -160,18 +175,16 @@ def test_a_failed_turn_puts_waiting_messages_back_in_the_bar(conversation: str, 
 
 
 def test_nothing_is_sent_while_a_stop_is_in_progress(conversation: str, ask: Callable[[str], None], page: Page):
-    held = []
     start_turn(ask, page, "[hang] q0")
-    page.route("**/cancel", lambda route: held.append(route))
+    held = hold(page, "**/cancel")
     page.locator("#chatCancelBtn").click()
-    while not held:
-        page.wait_for_timeout(20)
+    cancel = first_held(page, held)
 
     send_later(page, "Pendant l'arrêt")
 
     expect(page.locator("#chatSendBtn")).to_be_disabled()
     expect(page.locator("#chatInput")).to_have_value("Pendant l'arrêt")
-    held[0].continue_()
+    cancel.continue_()
     expect(page.locator("#chatCancelBtn")).to_be_hidden()
     expect(page.locator(".event-queued")).to_have_count(0)
 
@@ -183,6 +196,46 @@ def test_files_cannot_be_attached_during_a_turn(conversation: str, ask: Callable
 
     expect(page.locator("#chatUploadBtn")).to_be_disabled()
     expect(page.locator("#chatPendingFiles")).to_be_empty()
+
+
+def test_a_message_sent_later_as_the_turn_ends_starts_the_next_turn(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    start_turn(ask, page, "[slow:1] q0")
+    held = hold(page, "**/messages")
+    send_later(page, "q1")
+    message = first_held(page, held)
+    expect(page.locator("#chatCancelBtn")).to_be_hidden(timeout=15000)
+
+    message.continue_()
+
+    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : q1", timeout=15000)
+    expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:1] q0", "q1"])
+    expect(page.locator(".event-queued")).to_have_count(0)
+
+
+def test_a_message_already_gone_cannot_be_pulled_back(conversation: str, ask: Callable[[str], None], page: Page):
+    start_turn(ask, page, "[slow:2] q0")
+    send_later(page, "q1")
+    held = hold(page, "**/queue/*")
+    page.locator(".event-queued").click()
+    take = first_held(page, held)
+    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : q1", timeout=15000)
+
+    take.continue_()
+
+    expect(page.get_by_text("Ce message est déjà parti.")).to_be_visible()
+    expect(page.locator("#chatInput")).to_have_value("")
+
+
+def test_a_full_queue_gives_the_text_back(conversation: str, ask: Callable[[str], None], page: Page):
+    start_turn(ask, page, "[hang] q0")
+
+    send_later(page, "x" * 20_001)
+
+    expect(page.get_by_text("Trop de messages en attente")).to_be_visible()
+    expect(page.locator("#chatInput")).to_have_value("x" * 20_001)
+    expect(page.locator(".event-queued")).to_have_count(0)
 
 
 def test_a_waiting_message_fits_a_phone(conversation: str, ask: Callable[[str], None], page: Page):
