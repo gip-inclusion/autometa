@@ -183,6 +183,8 @@ async function sendToAgent(message, { bubble, draft } = {}) {
       if (data.code === 'conversation_running') {
         bubble?.remove();
         if (draft) appendToComposer(draft);
+        // Why: a turn started elsewhere (another tab) — follow it, so this page can stop it or send later.
+        startStream();
       }
       showError(data.error || "Erreur lors de l'envoi");
     }
