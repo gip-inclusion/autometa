@@ -615,6 +615,8 @@ document.body.addEventListener('click', (e) => {
   if (e.target.closest('#unpinConvBtn')) return unpinConversation();
   if (e.target.closest('#relaunchBtn')) return relaunchConversation();
   if (e.target.closest('.chat-bar-warning-close')) return dismissPublicWarning();
+  const queued = e.target.closest('.event-queued');
+  if (queued) return takeQueued(queued.dataset.queueId, !e.target.closest('.queued-remove'));
 });
 
 document.body.addEventListener('input', (e) => {

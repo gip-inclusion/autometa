@@ -20,14 +20,12 @@ def test_draft_stays_writable_during_a_turn(conversation: str, ask: Callable[[st
     expect(stop).to_be_visible()
     expect(draft).to_be_enabled()
     draft.fill("Brouillon")
-    expect(send).to_be_disabled()
-    draft.press("Enter")
-    expect(page.locator(".event-user")).to_have_count(2)
-    expect(draft).to_have_value("Brouillon")
+    expect(send).to_have_attribute("title", "Envoyer plus tard")
 
     stop.click()
     expect(stop).to_be_hidden()
     expect(send).to_be_enabled()
+    expect(send).to_have_attribute("title", "Envoyer")
     expect(page.get_by_text("Annulé par l'utilisateur")).to_be_visible()
     expect(draft).to_have_value("Brouillon")
 
@@ -126,6 +124,9 @@ def test_composer_buttons_stack_on_a_phone(conversation: str, ask: Callable[[str
     page.set_viewport_size({"width": 375, "height": 667})
     ask("[hang] tour sans fin")
     expect(page.locator("#chatCancelBtn")).to_be_visible()
+    # Why: once it turns into « Envoyer plus tard », the send button grows under the pointer.
+    page.locator("#chatInput").hover()
+    expect(page.locator("#chatSendBtn")).to_have_css("transform", "none")
 
     expect(page.locator("#chatFlagBtn")).to_be_hidden()
     send, stop = (page.locator(f"#{name}").bounding_box() for name in ("chatSendBtn", "chatCancelBtn"))
