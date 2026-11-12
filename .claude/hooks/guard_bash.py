@@ -21,18 +21,25 @@ BLOCK_INSTALL_MSG = (
 # Why: un glob de préfixe ne peut pas voir `-nm` ni `-am … -n` — un drapeau court vit dans un cluster.
 SHORT_FLAG = re.compile(r"-[a-zA-Z]*n[a-zA-Z]*$")
 SEPARATORS = frozenset(("&&", "||", ";", "|", "&"))
-# Why: le corps d'un heredoc est de la donnée — un commentaire « pas de pip install » n'installe rien.
-HEREDOC_BODY = re.compile(r"<<-?\s*(['\"]?)(\w+)\1([^\n]*)\n.*?^\s*\2\s*$", re.S | re.M)
+# Why: le corps d'un heredoc est de la donnée — un commentaire « pas de pip install » n'installe rien —, sauf quand
+# un shell le lit (`bash <<EOF`).
+HEREDOC = re.compile(r"^([^\n]*?)<<-?\s*(['\"]?)(\w+)\2([^\n]*)\n(.*?)^\s*\3\s*$", re.S | re.M)
+# Why: un `#` en début de mot ouvre un commentaire jusqu'à la fin de la ligne ; ailleurs (`a#b`, URL à ancre) et entre
+# guillemets, c'est du texte. shlex le prend pour un commentaire partout et mange le saut de ligne qui le clôt.
+COMMENT = re.compile(r"""('[^']*'|"(?:\\.|[^"\\])*")|(?<![^\s;|&()])#[^\n]*""")
 OPERATORS = "();<>|&\n"
-WRAPPERS = frozenset(("sudo", "env", "nohup", "time", "exec", "command"))
+# Why: ce qui précède le programme lancé — mots-clés du shell, enveloppes (`sudo -E`, `timeout 120`, `xargs`).
+PREFIXES = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "sudo", "env", "nohup"))
+PREFIXES |= frozenset(("exec", "command", "timeout", "nice", "xargs", "stdbuf"))
 SHELLS = frozenset(("sh", "bash", "zsh", "dash"))
+DOWNLOADERS = frozenset(("curl", "wget"))
 # Why: un téléchargement n'est refusé que s'il vise un paquet ou un binaire (Node.js, roue, .deb), pas une API.
 PACKAGE_URL = re.compile(
     r"nodejs\.org/dist|pythonhosted\.org|registry\.npmjs\.org|archive\.ubuntu\.com|chrome-for-testing"
     r"|/releases/download/|\.(?:whl|deb|rpm)(?:[?#]|$)"
 )
 # Why: une ligne que shlex ne sait pas découper, bash ne l'exécuterait pas non plus ; on la juge sur son texte.
-RAW_INSTALL = re.compile(r"\b(?:install|download|ensurepip|npx|dpkg-deb)\b")
+RAW_INSTALL = re.compile(r"\b(?:install|download|ensurepip|npx|uvx|dpkg-deb)\b")
 
 
 def ends_the_command(token):
@@ -70,10 +77,18 @@ def verdict(command):
     return None
 
 
+def heredoc_read_by_shell(match):
+    """Le heredoc sans son corps, sauf si un shell le lit."""
+    prefix, rest, body = match.group(1, 4, 5)
+    read_by_shell = SHELLS & {Path(word).name for word in re.split(r"[\s;|&()]+", prefix + rest)}
+    return prefix + rest + ("\n" + body if read_by_shell else "")
+
+
 def simple_commands(command):
     """Les commandes simples de la ligne, chacune avec l'opérateur qui la précède."""
-    lexer = shlex.shlex(HEREDOC_BODY.sub(r"\3", command), posix=True, punctuation_chars=OPERATORS)
-    lexer.whitespace, lexer.whitespace_split = " \t\r", True
+    code = COMMENT.sub(r"\1", HEREDOC.sub(heredoc_read_by_shell, command))
+    lexer = shlex.shlex(code, posix=True, punctuation_chars=OPERATORS)
+    lexer.whitespace, lexer.whitespace_split, lexer.commenters = " \t\r", True, ""
     commands, words, operator = [], [], ""
     for token in lexer:
         if set(token) <= set(OPERATORS):
@@ -88,32 +103,48 @@ def simple_commands(command):
 
 
 def program(words):
-    """Le programme et ses arguments, sans affectations ni enveloppes (`sudo`, `env`) ; `python -m x` devient `x`."""
-    while words and ("=" in words[0] and not words[0].startswith("-") or Path(words[0]).name in WRAPPERS):
+    """Le programme lancé et ses arguments, après mots-clés, enveloppes et affectations ; `python -m x` devient `x`."""
+    while words and (
+        Path(words[0]).name in PREFIXES
+        or words[0].startswith("-")
+        or "=" in words[0]
+        or re.fullmatch(r"\d+[smhd]?", words[0])
+    ):
         words = words[1:]
-    if len(words) > 2 and re.fullmatch(r"python[\d.]*", Path(words[0]).name) and words[1] == "-m":
-        words = words[2:]
-    return (Path(words[0]).name, words[1:]) if words else ("", [])
+    if not words:
+        return "", []
+    name, args = Path(words[0]).name, words[1:]
+    if re.fullmatch(r"python[\d.]*", name) and "-m" in args[:-1]:
+        module = args.index("-m") + 1
+        return args[module], args[module + 1 :]
+    return name, args
 
 
 def installs(name, args):
     """Vrai si la commande simple installe ou télécharge un logiciel."""
-    words = [arg for arg in args if not arg.startswith("-")]
-    if name == "uv" and words[:1] == ["pip"]:
-        name, words = "pip", words[1:]
-    # Why: les deux premiers mots, pour `npm --prefix /tmp/x install`.
-    verbs = set(words[:2])
+    # Why: le premier mot en minuscules, pas le premier argument — `npm --prefix /tmp/x install`, `pip -q install`.
+    verb = next((arg for arg in args if re.fullmatch(r"[a-z]+", arg)), "")
     if re.fullmatch(r"pip[\d.]*", name) or name in ("apt", "apt-get"):
-        return bool(verbs & {"install", "download"})
+        return verb in ("install", "download")
     if name in ("npm", "yarn", "pnpm", "bun"):
-        return bool(verbs & {"i", "install", "add", "ci"})
+        return verb in ("i", "install", "add", "ci", "exec", "x", "dlx")
+    if name == "uv":
+        return verb in ("add", "tool") or verb == "pip" and installs("pip", args[args.index("pip") + 1 :])
+    if name == "pipx":
+        return verb in ("install", "run")
     if name == "playwright":
-        return "install" in verbs
+        return verb == "install"
     if name == "dpkg":
         return bool(set(args) & {"-i", "--install"})
-    if name in ("curl", "wget"):
+    if name in DOWNLOADERS:
         return any(PACKAGE_URL.search(arg) for arg in args)
-    return name in ("npx", "bunx", "ensurepip", "dpkg-deb")
+    return name in ("npx", "bunx", "uvx", "ensurepip", "dpkg-deb")
+
+
+def runs_stdin(name, args):
+    """Vrai si la commande exécute ce qu'elle lit sur son entrée : un shell, ou python sans script ni `-c`."""
+    python = re.fullmatch(r"python[\d.]*", name)
+    return name in SHELLS or bool(python) and all(arg.startswith("-") and arg not in ("-c", "-m") for arg in args)
 
 
 def install_verdict(command, on_server):
@@ -127,7 +158,12 @@ def install_verdict(command, on_server):
     previous = ""
     for operator, words in commands:
         name, args = program(words)
-        if installs(name, args) or (operator == "|" and name in SHELLS and previous in ("curl", "wget")):
+        # Why: `curl … | sh` et `bash <(curl …)` exécutent ce qu'ils téléchargent, quelle qu'en soit l'adresse.
+        fetched_and_run = (operator == "|" and previous in DOWNLOADERS and runs_stdin(name, args)) or (
+            operator == "<(" and previous in SHELLS and name in DOWNLOADERS
+        )
+        script = args[args.index("-c") + 1] if name in SHELLS and "-c" in args[:-1] else ""
+        if installs(name, args) or fetched_and_run or install_verdict(script, on_server):
             return BLOCK_INSTALL_MSG
         previous = name
     return None
