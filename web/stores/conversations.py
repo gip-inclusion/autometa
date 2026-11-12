@@ -21,6 +21,7 @@ from web.stores.records import (
     conv_with_report_row,
     model_to_message,
     model_to_report,
+    with_status,
 )
 
 
@@ -46,6 +47,11 @@ def claim_turn(session, conv_id: str) -> bool:
         .returning(ConvModel.id)
     )
     return claimed.first() is not None
+
+
+def lock_conversation(session, conv_id: str) -> Optional[ConvModel]:
+    """La conversation verrouillée jusqu'à la fin de la transaction ; on peut toujours lui ajouter des messages."""
+    return session.scalars(select(ConvModel).where(ConvModel.id == conv_id).with_for_update(key_share=True)).first()
 
 
 class ConversationsMixin:
@@ -119,6 +125,7 @@ class ConversationsMixin:
                 title=c.title,
                 session_id=c.session_id,
                 engine_state=c.engine_state,
+                pending_messages=c.pending_messages or [],
                 conv_type=c.conv_type or "exploration",
                 file_path=c.file_path,
                 status=c.status or "active",
@@ -578,6 +585,61 @@ class ConversationsMixin:
         """Passe la conversation en cours pour rejouer sa dernière question ; faux si un tour y tourne déjà."""
         with get_db() as session:
             return claim_turn(session, conv_id)
+
+    def queue_message(self, conv_id: str, content: str) -> Optional[list[dict]]:
+        """Met le message en attente de la fin du tour en cours ; None si aucun tour n'y tourne."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if not c or not c.needs_response:
+                return None
+            entry = {
+                "id": uuid.uuid4().hex,
+                "content": content,
+                "status": "waiting",
+                "created_at": utcnow().isoformat(),
+            }
+            c.pending_messages = [*(c.pending_messages or []), entry]
+            return with_status(c.pending_messages, "waiting")
+
+    def end_turn(self, conv_id: str, flush: bool) -> list[Message]:
+        """Clôt le tour : avec `flush`, les messages en attente partent et le tour continue ; sinon ils sont rendus."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if not c:
+                return []
+            pending = c.pending_messages or []
+            waiting = with_status(pending, "waiting")
+            returned = with_status(pending, "returned")
+            if flush and waiting:
+                c.pending_messages = returned or None
+                return [insert_message(session, c, "user", e["content"]) for e in waiting]
+            c.pending_messages = [*returned, *({**e, "status": "returned"} for e in waiting)] or None
+            c.needs_response = 0
+            c.updated_at = utcnow()
+            return []
+
+    def take_queued(self, conv_id: str, entry_id: str) -> Optional[str]:
+        """Retire un message en attente ou rendu et donne son texte ; None s'il est déjà parti."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            pending = (c.pending_messages if c else None) or []
+            entry = next((e for e in pending if e["id"] == entry_id), None)
+            if entry is None:
+                return None
+            c.pending_messages = [e for e in pending if e is not entry] or None
+            return entry["content"]
+
+    def ack_returned(self, conv_id: str, entry_ids: list[str]) -> None:
+        """Oublie les messages rendus que la page a remis dans la barre de saisie."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if c and c.pending_messages:
+                kept = [e for e in c.pending_messages if e["status"] != "returned" or e["id"] not in entry_ids]
+                c.pending_messages = kept or None
+
+    def pending_messages(self, conv_id: str) -> list[dict]:
+        with get_db() as session:
+            return session.scalar(select(ConvModel.pending_messages).where(ConvModel.id == conv_id)) or []
 
     def last_user_message_id(self, conv_id: str) -> int:
         """Id de la dernière question de la conversation, 0 sans question."""
