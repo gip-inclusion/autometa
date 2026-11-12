@@ -16,6 +16,10 @@ def is_configured() -> bool:
     return bool(NOTION_TOKEN and NOTION_REPORTS_DB)
 
 
+class NotionRateLimitError(RuntimeError):
+    """Notion still answers 429 after the retries."""
+
+
 def notion_request(method: str, endpoint: str, payload: dict | None = None) -> dict:
     headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -30,7 +34,7 @@ def notion_request(method: str, endpoint: str, payload: dict | None = None) -> d
             resp.raise_for_status()
             return resp.json()
         time.sleep(float(resp.headers.get("Retry-After", 1)))
-    raise RuntimeError(f"Notion API rate-limited after retries: {endpoint}")
+    raise NotionRateLimitError(f"Notion API rate-limited after retries: {endpoint}")
 
 
 def db_id_from_url(url: str) -> str:
@@ -47,21 +51,23 @@ def db_id_from_url(url: str) -> str:
     return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 
 
-def query_database(db_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> list[dict]:
-    """All rows of a Notion database (paginated), optionally filtered and sorted."""
+def query_database(
+    db_id: str, filter: dict | None = None, sorts: list[dict] | None = None, limit: int | None = None
+) -> list[dict]:
+    """Rows of a Notion database (paginated, all or the first `limit`), optionally filtered and sorted."""
     query = {key: value for key, value in (("filter", filter), ("sorts", sorts)) if value}
     pages = []
     cursor = None
     while True:
-        payload = {"page_size": 100, **query}
+        payload = {"page_size": min(limit or 100, 100), **query}
         if cursor:
             payload["start_cursor"] = cursor
         data = notion_request("POST", f"databases/{db_id}/query", payload)
         pages.extend(data["results"])
-        if not data.get("has_more"):
+        if not data.get("has_more") or (limit and len(pages) >= limit):
             break
         cursor = data.get("next_cursor")
-    return pages
+    return pages[:limit]
 
 
 def block_children(block_id: str) -> list[dict]:
