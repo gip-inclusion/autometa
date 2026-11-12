@@ -54,6 +54,7 @@ FACETS = (
     Facet("mesure", "Mesure", 2),
     Facet("source", "Source", None),
     Facet("territoire", "Territoire", None),
+    Facet("nature", "Nature", None, user_extensible=True),
 )
 
 FACETS_BY_NAME = {f.name: f for f in FACETS}
@@ -63,6 +64,7 @@ FACET_PRIORITY = {
     "dashboard": ("usage", "territoire", "feature", "audience", "theme", "mesure", "source"),
     "conversation": ("feature", "audience", "usage", "theme", "mesure", "source", "territoire"),
     "report": ("feature", "audience", "usage", "theme", "mesure", "source", "territoire"),
+    "job": ("nature", "feature", "theme", "territoire"),
 }
 
 

@@ -211,6 +211,17 @@ class DashboardTag(Base):
     )
 
 
+class JobTag(Base):
+    """Tag posé sur un pipeline du service de jobs, qui ne stocke aucune métadonnée éditable."""
+
+    __tablename__ = "job_tags"
+
+    pipeline_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+    __table_args__ = (Index("idx_job_tags_tag", "tag_id"),)
+
+
 class DashboardVariant(Base):
     __tablename__ = "dashboard_variants"
 
