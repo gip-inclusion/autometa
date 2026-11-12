@@ -241,6 +241,14 @@ function startStream() {
     });
   });
 
+  // Why: messages that waited for the end of a turn arrive as questions; the answer before them is complete.
+  eventSource.addEventListener('user', (e) => {
+    const data = JSON.parse(e.data);
+    if (!appendEvent('user', data)) return;
+    markFinalAnswer();
+    lastUserMessage = data.content;
+  });
+
   // Why: the server rotates the stream every few minutes while the agent keeps working.
   eventSource.addEventListener('timeout', () => startStream());
 
