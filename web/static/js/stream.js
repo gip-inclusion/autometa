@@ -1,7 +1,7 @@
 /**
  * SSE streaming, conversation management, composer state, and loading UI.
  * Depends on: utils.js (autoGrow, isAtBottom, scrollToBottom)
- *             queue.js (queueMessage, renderQueue)
+ *             queue.js (queueMessage, renderQueue, takeReturned)
  *             actions.js (streamingBlock, lastSeenId, resetActionsState,
  *                         removeProgressIndicator, markFinalAnswer,
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
@@ -250,6 +250,7 @@ function startStream() {
   });
 
   eventSource.addEventListener('queue', (e) => renderQueue(JSON.parse(e.data).queue));
+  eventSource.addEventListener('returned', (e) => takeReturned(eventSourceConversationId, JSON.parse(e.data).returned));
 
   // Why: messages that waited for the end of a turn arrive as questions; the answer before them is complete.
   eventSource.addEventListener('user', (e) => {
@@ -384,8 +385,10 @@ async function cancelStream() {
 
   setTurnState('cancelling');
 
+  let returned = [];
   try {
-    await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
+    const response = await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
+    returned = (await response.json()).returned ?? [];
   } catch (error) {
     console.error('Failed to cancel:', error);
   }
@@ -396,6 +399,7 @@ async function cancelStream() {
   setTurnState('idle');
   appendEvent('error', { content: "Annulé par l'utilisateur" });
   renderQueue([]);
+  takeReturned(convId, returned);
 }
 
 /**
@@ -755,6 +759,7 @@ async function loadConversation(convId) {
     }
     if (load !== loadSequence) return;
     renderQueue(conv.queue);
+    takeReturned(conv.id, conv.returned);
 
     // Update URL without reload (preserve hash if present)
     const hash = window.location.hash;

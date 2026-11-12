@@ -114,6 +114,38 @@ def test_a_waiting_message_can_be_pulled_back_or_dropped(
     expect(page.locator("#chatOutput .event-user")).to_have_count(2)
 
 
+def test_stop_puts_waiting_messages_back_in_the_bar_once(conversation: str, ask: Callable[[str], None], page: Page):
+    draft = page.locator("#chatInput")
+    held = []
+    start_turn(ask, page, "[hang] q0")
+    send_later(page, "q1")
+    expect(page.locator(".event-queued")).to_have_count(1)
+    draft.fill("Brouillon")
+    # Why: the stream hands the messages back first, then the Stop response does again.
+    page.route("**/cancel", lambda route: held.append((route, route.fetch())))
+
+    with page.expect_response("**/queue/returned/ack"):
+        page.locator("#chatCancelBtn").click()
+    route, response = held[0]
+    route.fulfill(response=response)
+
+    expect(page.get_by_text("Annulé par l'utilisateur")).to_be_visible()
+    expect(draft).to_have_value("Brouillon\n\nq1")
+    expect(page.locator(".event-queued")).to_have_count(0)
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator("#chatOutput .event-user")).to_have_count(2)
+    expect(draft).to_have_value("")
+
+
+def test_a_failed_turn_puts_waiting_messages_back_in_the_bar(conversation: str, ask: Callable[[str], None], page: Page):
+    start_turn(ask, page, "[slow:2] [error] q0")
+    send_later(page, "q1")
+
+    expect(page.get_by_text("Erreur factice")).to_be_visible(timeout=15000)
+    expect(page.locator("#chatInput")).to_have_value("q1")
+    expect(page.locator(".event-queued")).to_have_count(0)
+
+
 def test_nothing_is_sent_while_a_stop_is_in_progress(conversation: str, ask: Callable[[str], None], page: Page):
     held = []
     start_turn(ask, page, "[hang] q0")

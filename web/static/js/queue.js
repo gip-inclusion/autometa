@@ -81,3 +81,26 @@ async function takeQueued(entryId, toComposer) {
     if (currentConversationId === convId) showError('Erreur de connexion');
   }
 }
+
+const returnedTaken = new Set(); // Ids of returned messages already put back in the composer
+
+/**
+ * Put messages the server handed back (Stop, failed turn) in the composer once, then acknowledge them
+ */
+async function takeReturned(convId, entries) {
+  const fresh = entries.filter((entry) => !returnedTaken.has(entry.id));
+  if (!fresh.length || currentConversationId !== convId) return;
+  for (const entry of fresh) {
+    returnedTaken.add(entry.id);
+    appendToComposer(entry.content);
+  }
+  try {
+    await fetch(`/api/conversations/${convId}/queue/returned/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: fresh.map((entry) => entry.id) }),
+    });
+  } catch (error) {
+    console.error('Failed to acknowledge returned messages:', error);
+  }
+}
