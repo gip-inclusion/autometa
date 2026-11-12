@@ -69,12 +69,13 @@ function renderQueue(entries) {
  */
 async function takeQueued(entryId, toComposer) {
   const convId = currentConversationId;
+  // Why: gone at once, so a double click does not ask for it twice; the server's `queue` event redraws the rest.
+  document.querySelector(`[data-queue-id="${entryId}"]`)?.remove();
   try {
     const response = await fetch(`/api/conversations/${convId}/queue/${entryId}`, { method: 'DELETE' });
     const data = await response.json();
     if (currentConversationId !== convId) return;
     if (!response.ok) return showError(data.error || 'Message introuvable');
-    document.querySelector(`[data-queue-id="${entryId}"]`)?.remove();
     if (toComposer) appendToComposer(data.content);
   } catch (error) {
     console.error('Failed to take a queued message:', error);

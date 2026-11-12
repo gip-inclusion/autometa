@@ -8,6 +8,8 @@ from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
 
+NOTE = {"name": "note.txt", "mimeType": "text/plain", "buffer": b"contenu de la note"}
+
 
 def queue_through_the_api(page: Page, conversation: str, text: str) -> None:
     response = page.request.post(f"/api/conversations/{conversation}/messages", data={"content": text, "queue": True})
@@ -114,6 +116,17 @@ def test_a_waiting_message_can_be_pulled_back_or_dropped(
     expect(page.locator("#chatOutput .event-user")).to_have_count(2)
 
 
+def test_a_double_click_pulls_a_message_back_once(conversation: str, ask: Callable[[str], None], page: Page):
+    start_turn(ask, page, "[hang] q0")
+    send_later(page, "q1")
+
+    with page.expect_response("**/queue/*"):
+        page.locator(".event-queued").dblclick()
+
+    expect(page.locator("#chatInput")).to_have_value("q1")
+    expect(page.locator(".event-error")).to_have_count(0)
+
+
 def test_stop_puts_waiting_messages_back_in_the_bar_once(conversation: str, ask: Callable[[str], None], page: Page):
     draft = page.locator("#chatInput")
     held = []
@@ -166,7 +179,10 @@ def test_nothing_is_sent_while_a_stop_is_in_progress(conversation: str, ask: Cal
 def test_files_cannot_be_attached_during_a_turn(conversation: str, ask: Callable[[str], None], page: Page):
     start_turn(ask, page, "[hang] q0")
 
+    page.locator("#chatFileInput").set_input_files(files=[NOTE])
+
     expect(page.locator("#chatUploadBtn")).to_be_disabled()
+    expect(page.locator("#chatPendingFiles")).to_be_empty()
 
 
 def test_a_waiting_message_fits_a_phone(conversation: str, ask: Callable[[str], None], page: Page):
