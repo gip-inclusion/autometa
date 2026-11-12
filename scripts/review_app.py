@@ -111,6 +111,13 @@ def wait_for_deployment(client, bearer, app_name, deployment_id, timeout=DEPLOYM
             headers=headers(bearer),
             timeout=TIMEOUT,
         )
+        # Why: juste après manual_deploy, l'API met un instant à exposer le déploiement par
+        # son id — un 404 transitoire n'est pas un échec, on retente jusqu'à la deadline.
+        if response.status_code == 404:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"déploiement {deployment_id} de {app_name} introuvable après {timeout} s")
+            time.sleep(DEPLOYMENT_POLL_SECONDS)
+            continue
         response.raise_for_status()
         status = response.json()["deployment"]["status"]
         if status not in PENDING_STATUSES:

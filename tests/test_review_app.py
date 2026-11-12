@@ -389,6 +389,29 @@ def test_wait_for_deployment_gives_up_loudly(mocker):
         review_app.wait_for_deployment(client, "jwt", "autometa-staging-pr42", "dep-1")
 
 
+def test_wait_for_deployment_retries_a_transient_404(mocker):
+    """Juste après manual_deploy, l'API peut 404 sur l'id avant de l'exposer : on retente."""
+    sleep = mocker.patch.object(review_app.time, "sleep")
+    client = FakeClient([
+        FakeResponse(status_code=404),
+        FakeResponse(deployment("success")),
+    ])
+
+    review_app.wait_for_deployment(client, "jwt", "autometa-staging-pr42", "dep-1")
+
+    assert len(client.calls) == 2
+    assert sleep.call_count == 1
+
+
+def test_wait_for_deployment_gives_up_when_the_deployment_never_appears(mocker):
+    mocker.patch.object(review_app.time, "sleep")
+    mocker.patch.object(review_app.time, "monotonic", side_effect=[0.0, 10_000.0])
+    client = FakeClient([FakeResponse(status_code=404)])
+
+    with pytest.raises(RuntimeError, match="introuvable"):
+        review_app.wait_for_deployment(client, "jwt", "autometa-staging-pr42", "dep-1")
+
+
 def test_wait_for_addons_polls_until_every_addon_is_running(mocker):
     sleep = mocker.patch.object(review_app.time, "sleep")
     client = FakeClient([
