@@ -3740,6 +3740,21 @@ body.has-sidebar {
   font-size: 0.75rem;
 }
 
+/* Why: without the sidebar, starting a conversation hid behind the menu button. */
+.accueil-button-new {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  padding: 1rem;
+  border-color: var(--bs-primary);
+  background: var(--bs-primary);
+  color: white;
+}
+
+.accueil-button-new:hover,
+.accueil-button-new i {
+  color: white;
+}
+
 .accueil-favorites {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));

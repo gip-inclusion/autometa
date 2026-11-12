@@ -1,5 +1,6 @@
-"""Preuves navigateur — sur téléphone : en-tête sur une ligne, menu « … », ni défilement horizontal ni zoom iOS."""
+"""Preuves navigateur — sur téléphone : en-tête sur une ligne, menu « … », nouvelle conversation depuis l'accueil, ni défilement horizontal ni zoom iOS."""
 
+import re
 from collections.abc import Callable
 
 import pytest
@@ -65,6 +66,26 @@ def test_the_actions_stay_inline_on_a_desktop(conversation: str, page: Page):
     expect(page.locator(".feedback-badge")).to_be_visible()
     expect(page.locator(".conv-menu-btn")).to_be_hidden()
     expect(page.locator("#convMenuFlagBtn")).to_be_hidden()
+
+
+def test_the_home_page_starts_a_conversation_without_the_sidebar(visit: Callable[[str], None], page: Page):
+    page.set_viewport_size(PHONE)
+    visit("/")
+    grid = page.locator(".accueil-button-grid")
+    tile = grid.locator("a:visible").first
+    expect(tile).to_have_text("Nouvelle conversation")
+    assert tile.bounding_box()["width"] == pytest.approx(grid.bounding_box()["width"])
+
+    tile.click()
+
+    expect(page).to_have_url(re.compile(r"/explorations/new$"))
+    expect(page.locator("#chatInput")).to_be_visible()
+
+
+def test_the_home_page_leaves_new_conversations_to_the_sidebar_on_a_desktop(visit: Callable[[str], None], page: Page):
+    visit("/")
+
+    expect(page.locator(".accueil-button-grid a:visible").first).to_have_text("Toutes les conversations")
 
 
 def right_edge(page: Page, selector: str) -> float:
