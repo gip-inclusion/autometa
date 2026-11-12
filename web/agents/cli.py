@@ -31,12 +31,11 @@ tracer = trace.get_tracer(__name__)
 _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
 
-WORKDIR_MAX_AGE = timedelta(days=7)
 CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def conversation_workdir(conversation_id: str) -> Path | None:
-    """Le dossier de travail d'une vraie conversation, créé au besoin et réservé au compte du processus."""
+    """Le dossier de travail d'une vraie conversation, créé au besoin."""
     # Why: un identifiant de conversation est un UUID — c'est aussi ce que le ménage reconnaît, et ce qui écarte `../`.
     if not CONVERSATION_ID_RE.fullmatch(conversation_id):
         return None
@@ -52,13 +51,17 @@ def prune_workdirs(now: float) -> None:
     for path in config.WORKDIR_ROOT.iterdir():
         if not CONVERSATION_ID_RE.fullmatch(path.name):
             continue
+        # Why: renommé avant d'être effacé — une conversation qui reprend pendant l'effacement, lent avec des clones
+        # GitHub, recrée un dossier neuf au lieu de perdre le sien en cours de route.
+        doomed = path.with_name(f"{path.name}.prune-{os.getpid()}")
         try:
-            idle = now - path.stat().st_mtime
+            if not path.is_dir() or now - path.stat().st_mtime < 7 * 24 * 3600:
+                continue
+            path.rename(doomed)
         except FileNotFoundError:
             logger.debug("Dossier de travail déjà effacé : %s", path.name)
             continue
-        if path.is_dir() and idle > WORKDIR_MAX_AGE.total_seconds():
-            shutil.rmtree(path, ignore_errors=True)
+        shutil.rmtree(doomed, ignore_errors=True)
 
 
 API_DOWN_MESSAGE = (
@@ -126,6 +129,8 @@ class CLIBackend(AgentBackend):
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
+        self._pruned_at = 0.0
+        self._prune: asyncio.Task | None = None
 
     def _build_env(
         self, *, conversation_id: str | None = None, user_email: str | None = None, workdir: Path | None = None
@@ -255,11 +260,13 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
-        if config.ENV.is_server:
-            # Why: hors du thread de la boucle — effacer des clones GitHub la bloquerait pour toutes les conversations ;
-            # et jamais sur un poste, dont le /tmp contient d'autres dossiers nommés comme des UUID.
-            await asyncio.to_thread(prune_workdirs, time.time())
         workdir = conversation_workdir(conversation_id)
+        now = time.time()
+        if config.ENV.is_server and now - self._pruned_at > 3600:
+            # Why: une fois l'heure par processus, en tâche de fond — effacer des clones GitHub ferait attendre ce tour ;
+            # et jamais sur un poste, dont le /tmp contient d'autres dossiers nommés comme des UUID.
+            self._pruned_at = now
+            self._prune = asyncio.create_task(asyncio.to_thread(prune_workdirs, now))
         if workdir:
             # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.
             cmd.extend(["--append-system-prompt", f"Dossier de travail de cette conversation, déjà créé : {workdir}/"])

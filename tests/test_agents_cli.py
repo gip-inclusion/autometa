@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import time
 
 import pytest
@@ -13,6 +14,13 @@ from web.environment import Environment
 
 UUID_A = "21e937fb-0000-4000-8000-000000000001"
 UUID_B = "21e937fb-0000-4000-8000-000000000002"
+WEEK_AGO = time.time() - 8 * 24 * 3600
+
+
+def make_idle_folder(path):
+    path.mkdir()
+    os.utime(path, (WEEK_AGO, WEEK_AGO))
+    return path
 
 
 def make_backend():
@@ -149,9 +157,7 @@ def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation
 
 def test_reusing_a_conversation_folder_refreshes_its_date_so_the_prune_spares_it(mocker, tmp_path):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    (tmp_path / UUID_A).mkdir()
-    week_ago = time.time() - 8 * 24 * 3600
-    os.utime(tmp_path / UUID_A, (week_ago, week_ago))
+    make_idle_folder(tmp_path / UUID_A)
 
     cli.conversation_workdir(UUID_A)
 
@@ -167,15 +173,29 @@ def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_p
 
 def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    week_ago = time.time() - 8 * 24 * 3600
-    for name in (UUID_A, UUID_B, "pas-une-conversation"):
-        (tmp_path / name).mkdir()
     for name in (UUID_A, "pas-une-conversation"):
-        os.utime(tmp_path / name, (week_ago, week_ago))
+        make_idle_folder(tmp_path / name)
+    (tmp_path / UUID_B).mkdir()
 
     cli.prune_workdirs(time.time())
 
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted([UUID_B, "pas-une-conversation"])
+
+
+def test_a_conversation_resumed_while_the_prune_deletes_its_old_folder_still_has_one(mocker, tmp_path):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    make_idle_folder(tmp_path / UUID_A)
+    rmtree = shutil.rmtree
+
+    def resume_then_delete(path, **kwargs):
+        cli.conversation_workdir(UUID_A)
+        rmtree(path, **kwargs)
+
+    mocker.patch.object(cli.shutil, "rmtree", side_effect=resume_then_delete)
+
+    cli.prune_workdirs(time.time())
+
+    assert [p.name for p in tmp_path.iterdir()] == [UUID_A]
 
 
 def test_drain_stderr_keeps_tail_when_over_limit():
@@ -519,14 +539,35 @@ def test_the_agent_runs_with_its_own_folder_and_is_told_its_path(stub_config, tm
 def test_idle_folders_are_pruned_on_servers_only(stub_config, mocker, tmp_path, env, kept):
     mocker.patch.object(cli.config, "ENV", env)
     stub_config('echo \'{"type": "result", "subtype": "success"}\'')
-    idle = tmp_path / "tmp" / UUID_B
-    idle.mkdir()
-    week_ago = time.time() - 8 * 24 * 3600
-    os.utime(idle, (week_ago, week_ago))
+    idle = make_idle_folder(tmp_path / "tmp" / UUID_B)
 
     collect_messages(make_backend(), conversation_id=UUID_A)
 
     assert idle.exists() is kept
+
+
+def test_a_conversation_resumed_after_a_week_keeps_its_files(stub_config, mocker, tmp_path):
+    mocker.patch.object(cli.config, "ENV", Environment.PROD)
+    stub_config('echo \'{"type": "result", "subtype": "success"}\'')
+    workdir = make_idle_folder(tmp_path / "tmp" / UUID_A)
+    (workdir / "export.csv").write_text("a;b")
+    os.utime(workdir, (WEEK_AGO, WEEK_AGO))
+
+    collect_messages(make_backend(), conversation_id=UUID_A)
+
+    assert (workdir / "export.csv").exists()
+
+
+def test_a_process_prunes_at_most_once_an_hour(stub_config, mocker, tmp_path):
+    mocker.patch.object(cli.config, "ENV", Environment.PROD)
+    stub_config('echo \'{"type": "result", "subtype": "success"}\'')
+    backend = make_backend()
+    collect_messages(backend, conversation_id=UUID_A)
+    idle = make_idle_folder(tmp_path / "tmp" / UUID_B)
+
+    collect_messages(backend, conversation_id=UUID_A)
+
+    assert idle.exists()
 
 
 MEMOIRE = {"limit": "536870912", "used": "536862720", "peak": "536870912", "oom_kill": "1"}
