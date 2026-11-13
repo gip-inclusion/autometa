@@ -41,6 +41,8 @@ def conversation_workdir(conversation_id: str) -> Path | None:
         return None
     workdir = config.WORKDIR_ROOT / conversation_id
     workdir.mkdir(mode=0o700, exist_ok=True)
+    # Why: `mode` ne vaut qu'à la création ; un dossier déjà créé par l'agent (`mkdir -p`) resterait en 755.
+    workdir.chmod(0o700)
     # Why: l'âge du ménage se lit sur la date du dossier, que l'écriture dans un sous-dossier ne change pas.
     os.utime(workdir)
     return workdir

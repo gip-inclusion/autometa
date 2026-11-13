@@ -164,9 +164,15 @@ def test_reusing_a_conversation_folder_refreshes_its_date_so_the_prune_spares_it
     assert time.time() - (tmp_path / UUID_A).stat().st_mtime < 60
 
 
-def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_path):
+@pytest.mark.parametrize("created_by_the_agent", [False, True])
+def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_path, created_by_the_agent):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    if created_by_the_agent:
+        (tmp_path / UUID_A).mkdir()
+        (tmp_path / UUID_A).chmod(0o755)
+
     workdir = cli.conversation_workdir(UUID_A)
+
     assert workdir == tmp_path / UUID_A
     assert workdir.stat().st_mode & 0o777 == 0o700
 
