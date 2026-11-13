@@ -528,3 +528,14 @@ def test_a_file_still_on_disk_is_not_downloaded_again(mocker):
     restore_conversation_files(result.conversation_id)
 
     download.assert_not_called()
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_uploading_again_a_file_lost_from_disk_stores_it_again():
+    conversation_id = make_conversation()
+    first, _ = upload_file(io.BytesIO(b"same"), "a.txt", conversation_id=conversation_id)
+    Path(first.storage_path).unlink()
+
+    second, _ = upload_file(io.BytesIO(b"same"), "a.txt", conversation_id=conversation_id)
+
+    assert Path(second.storage_path).read_bytes() == b"same"

@@ -285,7 +285,8 @@ def upload_file(
     if check_duplicate:
         # Why: un fichier n'est réutilisé que dans sa conversation, dont le dossier porte son chemin.
         existing = store.get_uploaded_file_by_hash(sha256_hash, conversation_id)
-        if existing:
+        # Why: une copie perdue (envoi S3 échoué, disque vidé) se répare en téléversant de nouveau le fichier.
+        if existing and Path(existing.storage_path).exists():
             logger.info("Found existing file with hash %s...", sha256_hash[:16])
             # Create a new record pointing to the same file
             new_record = store.add_uploaded_file(
