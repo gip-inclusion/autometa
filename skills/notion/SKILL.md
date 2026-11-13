@@ -7,7 +7,7 @@ description: Lire et écrire dans Notion — interroger une base de données ou 
 
 > Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
 
-Client unique pour l'API Notion : `lib.notion` (lecture + écriture). Ne pas réinventer de client httpx ad hoc.
+Client unique pour l'API Notion : `lib.notion` (lecture + écriture), ses fonctions et, pour tout autre endpoint, `notion.notion_request` (voir « Autres endpoints »). Jamais de client httpx ad hoc ni de `NOTION_TOKEN` lu à la main.
 
 **Ne jamais `WebFetch` une URL Notion** (`app.notion.com`, ou ancien `notion.so`) : l'app web est authentifiée et rendue en JS, on ne récupère qu'un écran de connexion. Toujours passer par l'API via `lib.notion`.
 
@@ -26,6 +26,13 @@ rows = [notion.extract_page_properties(p) for p in pages]
 
 `extract_page_properties` aplatit chaque ligne en `dict` Python : `title`/`rich_text` → str, `select` → str, `multi_select`/`relation`/`people` → list, `date` → str ISO.
 
+Une base à plusieurs sources de données (`400` « Databases with multiple data sources are not supported in this API version ») se lit source par source, avec les mêmes `filter` et `sorts` :
+
+```python
+for source in notion.data_sources(db_id):    # [{"id": ..., "name": ...}]
+    pages = notion.query_data_source(source["id"])
+```
+
 ## Lire le contenu d'une page
 
 ```python
@@ -37,12 +44,16 @@ text = "\n".join(notion.extract_block_text(b) for b in blocks)
 
 ## Autres endpoints
 
-`notion.notion_request(method, endpoint, payload=None)` couvre tout endpoint que le module n'enveloppe pas (jeton, version d'API, reprise sur 429 inclus) :
+`notion.notion_request(method, endpoint, payload=None, version=...)` est le point d'entrée générique : il couvre tout endpoint que le module n'enveloppe pas (jeton, version d'API, reprise sur 429 inclus) :
 
 ```python
 page = notion.notion_request("GET", f"pages/{page_id}")
 props = notion.extract_page_properties(page)
+hits = notion.notion_request("POST", "search", {"query": "OKR", "page_size": 20})["results"]
+schema = notion.notion_request("GET", f"data_sources/{source_id}", version=notion.DATA_SOURCES_VERSION)
 ```
+
+La version par défaut est celle de 2022 ; les endpoints apparus avec les sources de données (`data_sources/…`) demandent `version=notion.DATA_SOURCES_VERSION`.
 
 ## Publier un rapport
 
@@ -58,4 +69,4 @@ Publie dans la base « Rapports publics » (`NOTION_REPORTS_DB`). Préférer le 
 
 `NOTION_TOKEN` est l'intégration de publication des rapports. **Elle ne peut lire une page/base que si celle-ci lui a été partagée** dans Notion (menu ⋯ → Connexions). Sinon l'API renvoie `404`/`object_not_found`, quel que soit le code. Si une lecture échoue en 404, demander que la page soit partagée avec l'intégration.
 
-Un `400` « does not contain any data sources accessible by this API bot » sur une base signifie que ce bloc est une **vue liée** à une base rangée ailleurs, non partagée avec l'intégration. Ce n'est pas une limite du client : demander l'URL de la base d'origine ou son partage, plutôt que d'appeler l'API à la main avec une autre version.
+Un `400` « does not contain any data sources accessible by this API bot » sur une base, ou `data_sources` vide, signifie que ce bloc est une **vue liée** à une base rangée ailleurs, non partagée avec l'intégration. Ce n'est pas une limite du client : demander l'URL de la base d'origine ou son partage.
