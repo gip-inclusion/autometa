@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 
 from web import config, session_sync
 from web.db import get_db
@@ -22,7 +22,39 @@ from web.stores.records import (
     conv_with_report_row,
     model_to_message,
     model_to_report,
+    with_status,
 )
+
+
+def insert_message(session, conv: ConvModel, type: str, content: str) -> Message:
+    """Ajoute un message, secrets masqués, à une conversation chargée dans la session ; la première question la titre."""
+    # Why: les sorties d'outil arrivent telles quelles — DSN, jeton Matomo, JWT ont été retrouvés en clair en base.
+    content = redact(content)
+    msg = Message(conversation_id=conv.id, type=type, content=content)
+    model = MsgModel(conversation_id=conv.id, type=type, role=type, content=content, timestamp=msg.created_at)
+    session.add(model)
+    session.flush()
+    msg.id = model.id
+    if conv.title is None and type == "user":
+        conv.title = content[:80] + ("..." if len(content) > 80 else "")
+    conv.updated_at = utcnow()
+    return msg
+
+
+def claim_turn(session, conv_id: str) -> bool:
+    """Passe la conversation en cours si aucun tour n'y tourne ; faux sinon."""
+    claimed = session.execute(
+        update(ConvModel)
+        .where(ConvModel.id == conv_id, ConvModel.needs_response == 0)
+        .values(needs_response=1, updated_at=utcnow())
+        .returning(ConvModel.id)
+    )
+    return claimed.first() is not None
+
+
+def lock_conversation(session, conv_id: str) -> Optional[ConvModel]:
+    """La conversation verrouillée jusqu'à la fin de la transaction ; on peut toujours lui ajouter des messages."""
+    return session.scalars(select(ConvModel).where(ConvModel.id == conv_id).with_for_update(key_share=True)).first()
 
 
 class ConversationsMixin:
@@ -96,6 +128,7 @@ class ConversationsMixin:
                 title=c.title,
                 session_id=c.session_id,
                 engine_state=c.engine_state,
+                pending_messages=c.pending_messages or [],
                 conv_type=c.conv_type or "exploration",
                 file_path=c.file_path,
                 status=c.status or "active",
@@ -537,37 +570,87 @@ class ConversationsMixin:
         type: str,
         content: str,
     ) -> Optional[Message]:
-        """Add a message to a conversation, secrets masked. Returns the message with ID."""
-        # Why: les sorties d'outil arrivent telles quelles — DSN, jeton Matomo, JWT ont été retrouvés en clair en base.
-        content = redact(content)
-        msg = Message(
-            conversation_id=conv_id,
-            type=type,
-            content=content,
-        )
-
+        """Add a message to a conversation. Returns the message with ID."""
         with get_db() as session:
             c = session.get(ConvModel, conv_id)
             if not c:
                 return None
+            return insert_message(session, c, type, content)
 
-            model = MsgModel(
-                conversation_id=conv_id,
-                type=type,
-                role=type,
-                content=content,
-                timestamp=msg.created_at,
+    def start_turn(self, conv_id: str, content: str) -> Optional[Message]:
+        """Passe la conversation en cours et y ajoute la question, ensemble ; None si un tour y tourne déjà."""
+        with get_db() as session:
+            if not claim_turn(session, conv_id):
+                return None
+            return insert_message(session, session.get(ConvModel, conv_id), "user", content)
+
+    def restart_turn(self, conv_id: str) -> bool:
+        """Passe la conversation en cours pour rejouer sa dernière question ; faux si un tour y tourne déjà."""
+        with get_db() as session:
+            return claim_turn(session, conv_id)
+
+    def queue_message(self, conv_id: str, content: str) -> Optional[list[dict]]:
+        """Met le message en attente de la fin du tour en cours ; None si aucun tour n'y tourne."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if not c or not c.needs_response:
+                return None
+            entry = {
+                "id": uuid.uuid4().hex,
+                "content": content,
+                "status": "waiting",
+                "created_at": utcnow().isoformat(),
+            }
+            c.pending_messages = [*(c.pending_messages or []), entry]
+            return with_status(c.pending_messages, "waiting")
+
+    def end_turn(self, conv_id: str, flush: bool) -> list[Message]:
+        """Clôt le tour : avec `flush`, les messages en attente partent et le tour continue ; sinon ils sont rendus."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if not c:
+                return []
+            pending = c.pending_messages or []
+            waiting = with_status(pending, "waiting")
+            returned = with_status(pending, "returned")
+            if flush and waiting:
+                c.pending_messages = returned or None
+                return [insert_message(session, c, "user", e["content"]) for e in waiting]
+            c.pending_messages = [*returned, *({**e, "status": "returned"} for e in waiting)] or None
+            c.needs_response = 0
+            c.updated_at = utcnow()
+            return []
+
+    def take_queued(self, conv_id: str, entry_id: str) -> Optional[str]:
+        """Retire un message en attente ou rendu et donne son texte ; None s'il est déjà parti."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            pending = (c.pending_messages if c else None) or []
+            entry = next((e for e in pending if e["id"] == entry_id), None)
+            if entry is None:
+                return None
+            c.pending_messages = [e for e in pending if e is not entry] or None
+            return entry["content"]
+
+    def ack_returned(self, conv_id: str, entry_ids: list[str]) -> None:
+        """Oublie les messages rendus que la page a remis dans la barre de saisie."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if c and c.pending_messages:
+                kept = [e for e in c.pending_messages if e["status"] != "returned" or e["id"] not in entry_ids]
+                c.pending_messages = kept or None
+
+    def pending_messages(self, conv_id: str) -> list[dict]:
+        with get_db() as session:
+            return session.scalar(select(ConvModel.pending_messages).where(ConvModel.id == conv_id)) or []
+
+    def last_user_message_id(self, conv_id: str) -> int:
+        """Id de la dernière question de la conversation, 0 sans question."""
+        with get_db() as session:
+            last = session.scalar(
+                select(func.max(MsgModel.id)).where(MsgModel.conversation_id == conv_id, MsgModel.type == "user")
             )
-            session.add(model)
-            session.flush()
-            msg.id = model.id
-
-            now = utcnow()
-            if c.title is None and type == "user":
-                c.title = content[:80] + ("..." if len(content) > 80 else "")
-            c.updated_at = now
-
-        return msg
+            return last or 0
 
     def update_message(self, message_id: int, content: str) -> bool:
         with get_db() as session:

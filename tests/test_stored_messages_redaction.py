@@ -49,3 +49,11 @@ def test_a_message_without_secret_is_stored_as_is():
     store.add_message(conv_id, "user", "Combien de candidatures en octobre ?")
 
     assert stored_contents(conv_id) == ["Combien de candidatures en octobre ?"]
+
+
+def test_a_question_that_starts_a_turn_is_stored_without_its_secret():
+    conv_id = make_conversation()
+
+    store.start_turn(conv_id, f"Pourquoi {DSN} refuse-t-elle la connexion ?")
+
+    assert stored_contents(conv_id) == ["Pourquoi postgresql://***@base.example:5432/prod refuse-t-elle la connexion ?"]

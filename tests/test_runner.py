@@ -43,6 +43,13 @@ def _no_fallback_backend(mocker):
     mocker.patch("web.runner.config.AGENT_FALLBACK_BACKEND", "")
 
 
+def patch_store(mocker):
+    """Le store du runner, sans message en attente à la fin des tours."""
+    store = mocker.patch("web.runner.store")
+    store.end_turn.return_value = []
+    return store
+
+
 def make_runner(mocker, fake_redis, max_concurrent=2):
     mock_backend = mocker.MagicMock()
     mock_backend.send_message = _noop_stream
@@ -95,7 +102,7 @@ def test_run_agent_forwards_user_email_to_backend(runner, mocker):
         yield
 
     runner.backend.send_message = capturing_stream
-    mocker.patch("web.runner.store")
+    patch_store(mocker)
 
     async def _run():
         await runner._run_agent("c1", "prompt", "alice@example.com", None, make_turn("cli"))
@@ -116,7 +123,7 @@ def test_run_agent_asks_get_agent_for_the_backend_it_is_given(runner, mocker):
         return backend
 
     mocker.patch("web.runner.get_agent", side_effect=fake_get_agent)
-    mocker.patch("web.runner.store")
+    patch_store(mocker)
 
     async def _run():
         await runner._run_agent("c1", "prompt", None, None, make_turn("cli-ollama"))
@@ -129,7 +136,7 @@ def test_run_agent_asks_get_agent_for_the_backend_it_is_given(runner, mocker):
 def test_consumer_loop_prepares_the_turn_for_the_picked_backend(mocker, fake_redis):
     """The turn (session, catch-up) must be built for the backend pick_backend chose, then run as is."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.get_conversation.return_value = mocker.MagicMock(needs_response=True)
     mocker.patch("web.runner.pick_backend", return_value="cli-ollama")
     turn = make_turn("cli-ollama", "sess-engine")
@@ -159,11 +166,11 @@ def test_consumer_loop_prepares_the_turn_for_the_picked_backend(mocker, fake_red
 
 
 def test_cancel_publishes_and_updates_db(runner, mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
 
     async def _run():
         await runner.cancel("c1")
-        mock_store.update_conversation.assert_called_with("c1", needs_response=False)
+        mock_store.end_turn.assert_called_with("c1", flush=False)
         mock_store.add_message.assert_called_with("c1", "assistant", "*Interrompu.*")
 
     asyncio.run(_run())
@@ -171,7 +178,7 @@ def test_cancel_publishes_and_updates_db(runner, mocker):
 
 def test_cancel_clears_needs_response_before_backend_cancel_completes(runner, mocker):
     """Cancel must mark the conv stopped before the slow backend.cancel."""
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     backend_cancel_started = asyncio.Event()
     backend_cancel_may_finish = asyncio.Event()
 
@@ -185,12 +192,46 @@ def test_cancel_clears_needs_response_before_backend_cancel_completes(runner, mo
     async def _run():
         cancel_task = asyncio.create_task(runner.cancel("c1"))
         await backend_cancel_started.wait()
-        cleared = any(c.kwargs.get("needs_response") is False for c in mock_store.update_conversation.call_args_list)
+        cleared = mock_store.end_turn.called
         backend_cancel_may_finish.set()
         await cancel_task
         assert cleared, "needs_response still True while backend.cancel runs -> immediate resend would 409"
 
     asyncio.run(_run())
+
+
+def test_a_resend_accepted_during_a_slow_cancel_is_run(runner, mocker, fake_redis):
+    mocker.patch("web.runner.store").get_conversation.return_value = mocker.MagicMock(needs_response=True)
+    backend_cancel_started = asyncio.Event()
+    backend_cancel_may_finish = asyncio.Event()
+
+    async def slow_backend_cancel(conv_id):
+        backend_cancel_started.set()
+        await backend_cancel_may_finish.wait()
+
+    runner.backend.cancel = slow_backend_cancel
+    run_agent = mocker.patch.object(runner, "_run_agent", new=mocker.AsyncMock())
+
+    async def _run():
+        old_run = runner._running["c1"] = asyncio.create_task(asyncio.sleep(10))
+        cancel_task = asyncio.create_task(runner.cancel("c1"))
+        await backend_cancel_started.wait()
+        await runner.submit("c1", "renvoi", [])
+        consumer = asyncio.create_task(runner._consumer_loop())
+        try:
+            async with asyncio.timeout(3):
+                while not run_agent.called:
+                    await asyncio.sleep(0.01)
+        finally:
+            backend_cancel_may_finish.set()
+            await cancel_task
+            consumer.cancel()
+            old_run.cancel()
+            await asyncio.gather(consumer, old_run, return_exceptions=True)
+
+    asyncio.run(_run())
+
+    assert run_agent.call_args.args[1] == "renvoi"
 
 
 def test_cancel_all_backends_calls_get_agent_for_both_backends_when_fallback_configured(runner, mocker):
@@ -208,13 +249,14 @@ def test_cancel_all_backends_calls_get_agent_for_both_backends_when_fallback_con
 
 def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, mocker):
     """submit() must clear the done marker a prior cancel left behind."""
-    mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
+    mock_store.last_user_message_id.return_value = 3
 
     async def _run():
         await runner.cancel("c1")
-        assert await runner.is_done("c1")  # stale marker left by cancel (TTL 600s)
+        assert await runner.is_done("c1", 3)  # stale marker left by cancel (TTL 600s)
         await runner.submit("c1", "nouvelle question", [])
-        assert not await runner.is_done("c1"), "new run must not inherit the previous cancel's done marker"
+        assert not await runner.is_done("c1", 3), "new run must not inherit the previous cancel's done marker"
 
     asyncio.run(_run())
 
@@ -222,7 +264,7 @@ def test_submit_clears_stale_done_key_from_previous_cancel(runner, fake_redis, m
 def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
     """An old run finishing must not clobber a same-conv restart."""
     runner = make_runner(mocker, fake_redis)
-    mocker.patch("web.runner.store")
+    patch_store(mocker).last_user_message_id.return_value = 1
 
     old_can_finish = asyncio.Event()
 
@@ -255,7 +297,7 @@ def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
         await asyncio.sleep(0.1)
 
         assert runner._running.get("c1") is new_task, "old run's finally evicted the restarted run"
-        assert not await runner.is_done("c1"), "old run's finally marked the restarted run as done"
+        assert not await runner.is_done("c1", 1), "old run's finally marked the restarted run as done"
 
         new_task.cancel()
         old_task.cancel()
@@ -264,9 +306,42 @@ def test_finishing_old_run_does_not_evict_a_restarted_run(mocker, fake_redis):
     asyncio.run(_run())
 
 
+def test_cancelled_run_ending_late_leaves_a_resend_in_preparation_alone(mocker, fake_redis):
+    """A cancelled run still uploading its session must not release the resend the consumer is preparing."""
+    runner = make_runner(mocker, fake_redis)
+    mock_store = patch_store(mocker)
+    mock_store.last_user_message_id.return_value = 1
+    old_can_finish = asyncio.Event()
+
+    async def old_stream(**kwargs):
+        await old_can_finish.wait()
+        return
+        yield  # noqa: F841
+
+    async def _run():
+        runner.backend.send_message = old_stream
+        old_task = asyncio.create_task(runner._run_agent("c1", "old", None, None, make_turn("cli")))
+        runner._running["c1"] = old_task
+        await asyncio.sleep(0.05)
+
+        await runner.cancel("c1")
+        await runner.submit("c1", "nouvelle question", [])
+        await fake_redis.set("autometa:running:c1", "worker-preparing-the-resend")
+        mock_store.end_turn.reset_mock()
+
+        old_can_finish.set()
+        await asyncio.wait_for(old_task, 1)
+
+        assert not await runner.is_done("c1", 1), "the late cancelled run closed the resend's stream"
+        assert not mock_store.end_turn.called, "the late cancelled run cleared needs_response under the resend"
+        assert await fake_redis.get("autometa:running:c1") == "worker-preparing-the-resend"
+
+    asyncio.run(_run())
+
+
 def test_run_agent_surfaces_backend_error_event(runner, mocker):
     """A backend 'error' event (CLI exit 1 on a dash prompt) must reach the user."""
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_msg = mocker.MagicMock()
     mock_msg.id = 1
     mock_store.add_message.return_value = mock_msg
@@ -298,28 +373,77 @@ def test_notify_publishes_update(runner, fake_redis):
     asyncio.run(_run())
 
 
-def test_notify_done_sets_key_and_publishes(runner, fake_redis):
+@pytest.mark.parametrize(
+    ("stored", "asked", "done"), [(None, 5, False), ("4", 5, False), ("5", 5, True), ("6", 5, True)]
+)
+def test_is_done_only_for_the_asked_question_or_later(runner, fake_redis, stored, asked, done):
     async def _run():
-        await runner.notify_done("c1")
-        assert await fake_redis.exists("autometa:done:c1")
-        assert await runner.is_done("c1")
+        if stored is not None:
+            await fake_redis.set("autometa:done:c1", stored)
+        return await runner.is_done("c1", asked)
 
-    asyncio.run(_run())
+    assert asyncio.run(_run()) is done
 
 
-def test_is_done_false_for_unknown(runner):
+def test_notify_done_publishes_the_question_it_closes(runner, fake_redis):
     async def _run():
-        assert not await runner.is_done("nonexistent")
+        pubsub = fake_redis.pubsub()
+        await pubsub.subscribe("autometa:conv:c1")
+        await pubsub.get_message()
+        await runner.notify_done("c1", 42)
+        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1)
+        return msg["data"], await fake_redis.get("autometa:done:c1")
 
-    asyncio.run(_run())
+    assert asyncio.run(_run()) == ("done:42", "42")
+
+
+def test_a_clean_turn_with_waiting_messages_queues_the_next_turn_without_closing_the_stream(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = patch_store(mocker)
+    mock_store.end_turn.return_value = [Message(id=7, content="q1"), Message(id=8, content="q2")]
+    notify = mocker.patch.object(runner, "notify", new=mocker.AsyncMock())
+
+    async def _run():
+        task = asyncio.create_task(runner._run_agent("c1", "hi", "alice@example.com", None, make_turn("cli")))
+        runner._running["c1"] = task
+        await asyncio.wait_for(task, 1)
+        return await fake_redis.lrange("autometa:tasks", 0, -1), await fake_redis.get("autometa:done:c1")
+
+    tasks, done = asyncio.run(_run())
+
+    mock_store.end_turn.assert_called_once_with("c1", flush=True)
+    assert [(json.loads(t)["prompt"], json.loads(t)["user_email"]) for t in tasks] == [("q2", "alice@example.com")]
+    assert done is None
+    notify.assert_awaited_with("c1", "queue")
+
+
+def test_a_finished_turn_leaves_the_slot_before_clearing_needs_response(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = patch_store(mocker)
+    seen = {}
+
+    def record(conv_id, flush):
+        seen["slot_free"] = conv_id not in runner._running
+        return []
+
+    mock_store.end_turn.side_effect = record
+
+    async def _run():
+        task = asyncio.create_task(runner._run_agent("c1", "hi", None, None, make_turn("cli", question_id=9)))
+        runner._running["c1"] = task
+        await asyncio.wait_for(task, 1)
+        return await fake_redis.get("autometa:done:c1")
+
+    assert asyncio.run(_run()) == "9"
+    assert seen == {"slot_free": True}
 
 
 def test_cleanup_removes_done_key(runner, fake_redis):
     async def _run():
-        await runner.notify_done("c1")
-        assert await runner.is_done("c1")
+        await runner.notify_done("c1", 1)
+        assert await runner.is_done("c1", 1)
         await runner.cleanup("c1")
-        assert not await runner.is_done("c1")
+        assert not await runner.is_done("c1", 1)
 
     asyncio.run(_run())
 
@@ -340,7 +464,7 @@ def test_subscribe_receives_messages(runner, fake_redis):
 
 def test_consumer_picks_task(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_conv = mocker.MagicMock()
     mock_conv.needs_response = True
     mock_store.get_conversation.return_value = mock_conv
@@ -377,7 +501,7 @@ def test_consumer_reads_legacy_sentry_trace_key_for_rolling_deploy(mocker, fake_
     """In-flight Redis payloads queued before this PR use 'sentry_trace';
     the consumer must still extract them so traces aren't dropped during deploy."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_conv = mocker.MagicMock()
     mock_conv.needs_response = True
     mock_store.get_conversation.return_value = mock_conv
@@ -410,7 +534,7 @@ def test_consumer_reads_legacy_sentry_trace_key_for_rolling_deploy(mocker, fake_
 
 def test_consumer_prefers_new_trace_headers_key_over_legacy(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_conv = mocker.MagicMock()
     mock_conv.needs_response = True
     mock_store.get_conversation.return_value = mock_conv
@@ -444,7 +568,7 @@ def test_consumer_prefers_new_trace_headers_key_over_legacy(mocker, fake_redis):
 
 def test_consumer_skips_stale_task(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_conv = mocker.MagicMock()
     mock_conv.needs_response = False
     mock_store.get_conversation.return_value = mock_conv
@@ -473,7 +597,7 @@ def test_consumer_skips_stale_task(mocker, fake_redis):
 def test_consumer_survives_task_handling_exception(mocker, fake_redis):
     """A transient error on one task must not kill the loop; it must keep serving the next task."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     good_conv = mocker.MagicMock()
     good_conv.needs_response = True
     mock_store.get_conversation.side_effect = [RuntimeError("db connection lost"), good_conv]
@@ -502,11 +626,11 @@ def test_consumer_survives_task_handling_exception(mocker, fake_redis):
 def test_consumer_survives_when_recovery_also_fails(mocker, fake_redis):
     """A sustained outage makes the recovery I/O fail too; the loop must still survive and serve the next task."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     good_conv = mocker.MagicMock()
     good_conv.needs_response = True
     mock_store.get_conversation.side_effect = [RuntimeError("db down"), good_conv]
-    mock_store.update_conversation.side_effect = RuntimeError("db still down")
+    mock_store.end_turn.side_effect = RuntimeError("db still down")
     mock_store.get_engine_state.return_value = {"session_id": None, "seen_through": None}
 
     async def slow_stream(*a, **kw):
@@ -573,7 +697,7 @@ def test_dod_4_startup_succeeds_while_redis_is_down_with_conversations_to_releas
     """Le démarrage aboutit quand la file est injoignable et que des conversations restent à débloquer."""
     mocker.patch("web.runner.get_agent")
     mocker.patch("web.runner.schema_ready", return_value=True)
-    mocker.patch("web.runner.store").get_running_conversation_ids.return_value = ["c1"]
+    patch_store(mocker).get_running_conversation_ids.return_value = ["c1"]
     runner = TaskRunner()
 
     async def _run():
@@ -592,7 +716,8 @@ def test_dod_4_startup_succeeds_while_redis_is_down_with_conversations_to_releas
 def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
     """A task erroring mid-setup is un-stuck (needs_response + running key), the user is told, the stream closes."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
+    mock_store.last_user_message_id.return_value = 0
     conv = mocker.MagicMock()
     conv.needs_response = True
     mock_store.get_conversation.return_value = conv
@@ -606,19 +731,19 @@ def test_consumer_recovers_and_notifies_on_setup_failure(mocker, fake_redis):
         await asyncio.sleep(0.3)
         consumer.cancel()
         await asyncio.gather(consumer, return_exceptions=True)
-        mock_store.update_conversation.assert_any_call("boom", needs_response=False)
+        mock_store.end_turn.assert_any_call("boom", flush=False)
         assert not await fake_redis.exists("autometa:running:boom"), "running key left behind for the failed conv"
         assert any(
             c.args[0] == "boom" and c.args[1] == "assistant" and "erreur" in c.args[2].lower()
             for c in mock_store.add_message.call_args_list
         ), "no error message was shown to the user"
-        assert await runner.is_done("boom"), "stream never closed; client waits forever"
+        assert await runner.is_done("boom", 0), "stream never closed; client waits forever"
 
     asyncio.run(_run())
 
 
 def test_run_agent_notifies_and_cleans_up(runner, mocker, fake_redis):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_msg = mocker.MagicMock()
     mock_msg.id = 42
     mock_store.add_message.return_value = mock_msg
@@ -633,14 +758,14 @@ def test_run_agent_notifies_and_cleans_up(runner, mocker, fake_redis):
 
     async def _run():
         await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
-        mock_store.update_conversation.assert_called_with("c1", needs_response=False)
-        assert await runner.is_done("c1")
+        mock_store.end_turn.assert_called_with("c1", flush=False)
+        assert await runner.is_done("c1", 1)
 
     asyncio.run(_run())
 
 
 def test_run_agent_clears_needs_response_on_error(runner, mocker, fake_redis):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
 
     async def mock_stream(*args, **kwargs):
         raise RuntimeError("boom")
@@ -650,14 +775,14 @@ def test_run_agent_clears_needs_response_on_error(runner, mocker, fake_redis):
 
     async def _run():
         await runner._run_agent("c1", "prompt", None, None, make_turn("cli"))
-        mock_store.update_conversation.assert_called_with("c1", needs_response=False)
-        assert await runner.is_done("c1")
+        mock_store.end_turn.assert_called_with("c1", flush=False)
+        assert await runner.is_done("c1", 1)
 
     asyncio.run(_run())
 
 
 def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mocker.patch("web.runner.schema_ready", return_value=True)
     mock_store.get_running_conversation_ids.return_value = ["c1", "c2"]
 
@@ -671,7 +796,7 @@ def test_startup_clears_stuck_conversations(runner, mocker, fake_redis):
 def test_startup_skips_recovery_on_unmigrated_db(runner, mocker, fake_redis):
     """Fresh review-app DB: the schema is created by postdeploy, which Scalingo runs only after the
     container has booted. Recovery must skip the missing table so boot succeeds instead of crashing."""
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mocker.patch("web.runner.schema_ready", return_value=False)
 
     async def _run():
@@ -684,15 +809,16 @@ def test_startup_skips_recovery_on_unmigrated_db(runner, mocker, fake_redis):
 def test_reconcile_clears_aged_stuck_conversations(mocker, fake_redis):
     """Periodic reconcile must query with the age threshold (race protection) and clear dead-worker convs."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
+    mock_store.last_user_message_id.return_value = 0
     mock_store.get_running_conversation_ids.return_value = ["zombie"]
 
     async def _run():
         cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=300, note="*Interrompu.*")
         mock_store.get_running_conversation_ids.assert_called_once_with(older_than_seconds=300)
-        mock_store.update_conversation.assert_called_once_with("zombie", needs_response=False)
+        mock_store.end_turn.assert_called_once_with("zombie", flush=False)
         mock_store.add_message.assert_called_once_with("zombie", "assistant", "*Interrompu.*")
-        assert await runner.is_done("zombie"), "swept conv's SSE stream was never closed"
+        assert await runner.is_done("zombie", 0), "swept conv's SSE stream was never closed"
         assert cleared == 1
 
     asyncio.run(_run())
@@ -701,14 +827,14 @@ def test_reconcile_clears_aged_stuck_conversations(mocker, fake_redis):
 def test_reconcile_skips_conversation_with_live_worker(mocker, fake_redis):
     """A conversation genuinely running on a live worker must never be cleared by reconcile."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.get_running_conversation_ids.return_value = ["live"]
 
     async def _run():
         await fake_redis.set("autometa:running:live", "w1")
         await fake_redis.set("autometa:worker:w1", "1")
         cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=300, note="*x*")
-        mock_store.update_conversation.assert_not_called()
+        mock_store.end_turn.assert_not_called()
         assert cleared == 0
 
     asyncio.run(_run())
@@ -717,13 +843,13 @@ def test_reconcile_skips_conversation_with_live_worker(mocker, fake_redis):
 def test_reconcile_skips_queued_conversation(mocker, fake_redis):
     """A stuck conv whose task is still queued is waiting for a slot, not orphaned — keep it."""
     runner = make_runner(mocker, fake_redis)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.get_running_conversation_ids.return_value = ["waiting"]
 
     async def _run():
         await fake_redis.rpush("autometa:tasks", json.dumps({"conv_id": "waiting", "prompt": "p", "history": []}))
         cleared = await runner._reconcile_stuck(fake_redis, min_age_seconds=900, note="*x*", skip_queued=True)
-        mock_store.update_conversation.assert_not_called()
+        mock_store.end_turn.assert_not_called()
         assert cleared == 0
 
     asyncio.run(_run())
@@ -769,7 +895,7 @@ def _usage_raw_event(msg_id, model, usage):
 
 
 def test_record_usage_inserts_event(mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     state = RunUsage()
     raw = _usage_raw_event(
         "msg_abc",
@@ -798,7 +924,7 @@ def test_record_usage_inserts_event(mocker):
 
 
 def test_record_usage_dedups_same_message_id(mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     state = RunUsage()
     raw = _usage_raw_event("msg_dup", "claude-sonnet-4-7", {"input_tokens": 10, "output_tokens": 5})
 
@@ -810,7 +936,7 @@ def test_record_usage_dedups_same_message_id(mocker):
 
 
 def test_record_usage_noop_when_usage_missing(mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     state = RunUsage()
 
     _record_usage("c1", {"message": {"id": "msg_x", "model": "m"}}, state, "cli")
@@ -820,7 +946,7 @@ def test_record_usage_noop_when_usage_missing(mocker):
 
 
 def test_record_usage_leaves_state_unchanged_on_store_failure(mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.insert_usage_event.side_effect = RuntimeError("db is down")
     state = RunUsage()
     raw = _usage_raw_event("msg_boom", "claude-sonnet-4-7", {"input_tokens": 1, "output_tokens": 42})
@@ -833,7 +959,7 @@ def test_record_usage_leaves_state_unchanged_on_store_failure(mocker):
 
 
 def test_record_thinking_tail_writes_delta(mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     state = RunUsage(output_total=141, last_model="claude-opus-4-7")
 
     _record_thinking_tail("c1", {"output_tokens": 1717, "service_tier": "standard"}, state, "cli")
@@ -848,7 +974,7 @@ def test_record_thinking_tail_writes_delta(mocker):
 
 @pytest.mark.parametrize("total,recorded", [(50, 50), (50, 70), (0, 0)])
 def test_record_thinking_tail_skips_when_no_delta(mocker, total, recorded):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     state = RunUsage(output_total=recorded, last_model="claude-sonnet-4-7")
 
     _record_thinking_tail("c1", {"output_tokens": total}, state, "cli")
@@ -857,7 +983,7 @@ def test_record_thinking_tail_skips_when_no_delta(mocker, total, recorded):
 
 
 def test_record_thinking_tail_leaves_state_unchanged_on_store_failure(mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.insert_usage_event.side_effect = RuntimeError("db is down")
     state = RunUsage(output_total=10, last_model="claude-opus-4-7")
 
@@ -911,7 +1037,7 @@ def test_tool_span_is_current_between_tool_use_and_tool_result(mocker, fake_redi
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
     mocker.patch("web.runner.tracer", trace.get_tracer("web.runner"))
-    mocker.patch("web.runner.store")
+    patch_store(mocker)
 
     inner_tracer = trace.get_tracer("inner")
     inner_parent_ids: list[int] = []
@@ -938,7 +1064,7 @@ def test_run_agent_tool_call_budget_exceeded(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
     mocker.patch("web.runner.config.MAX_TOOL_CALLS", 3)
     mocker.patch("web.runner.config.TOOL_CALL_WARNING", 2)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_msg = mocker.MagicMock()
     mock_msg.id = 1
     mock_store.add_message.return_value = mock_msg
@@ -974,7 +1100,7 @@ def test_run_agent_no_budget_when_disabled(mocker, fake_redis):
     runner = make_runner(mocker, fake_redis)
     mocker.patch("web.runner.config.MAX_TOOL_CALLS", 0)
     mocker.patch("web.runner.config.TOOL_CALL_WARNING", 0)
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_msg = mocker.MagicMock()
     mock_msg.id = 1
     mock_store.add_message.return_value = mock_msg
@@ -1047,7 +1173,7 @@ def test_persist_failure_swallows_db_errors(mocker, caplog):
 def test_run_agent_emits_completion_log(runner, mocker, caplog):
     import logging
 
-    mocker.patch("web.runner.store")
+    patch_store(mocker)
 
     with caplog.at_level(logging.INFO, logger="web.runner"):
         asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
@@ -1069,7 +1195,7 @@ def test_run_agent_emits_tool_completion_log(runner, mocker, caplog):
         yield make_event("tool_result", {"result": "ok"})
 
     runner.backend.send_message = tool_stream
-    mocker.patch("web.runner.store")
+    patch_store(mocker)
 
     with caplog.at_level(logging.INFO, logger="web.runner"):
         asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
@@ -1094,7 +1220,7 @@ def test_run_agent_emits_error_status_on_exception(runner, mocker, caplog):
         yield  # noqa: F841
 
     runner.backend.send_message = failing_stream
-    mocker.patch("web.runner.store")
+    patch_store(mocker)
 
     with caplog.at_level(logging.INFO, logger="web.runner"):
         asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
@@ -1109,7 +1235,7 @@ def _complex_messages(n=41):
 
 
 def test_maybe_alert_complexity_injects_once_when_complex(runner, mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     conv = mocker.MagicMock()
     conv.messages = _complex_messages()
     mock_store.get_conversation.return_value = conv
@@ -1120,7 +1246,7 @@ def test_maybe_alert_complexity_injects_once_when_complex(runner, mocker):
 
 
 def test_maybe_alert_complexity_skips_when_already_alerted(runner, mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     conv = mocker.MagicMock()
     conv.messages = _complex_messages() + [Message(type="assistant", content=complexity.ALERT_MESSAGE)]
     mock_store.get_conversation.return_value = conv
@@ -1131,7 +1257,7 @@ def test_maybe_alert_complexity_skips_when_already_alerted(runner, mocker):
 
 
 def test_maybe_alert_complexity_skips_when_simple(runner, mocker):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     conv = mocker.MagicMock()
     conv.messages = [Message(type="user", content="q")]
     mock_store.get_conversation.return_value = conv
@@ -1143,7 +1269,7 @@ def test_maybe_alert_complexity_skips_when_simple(runner, mocker):
 
 def test_maybe_alert_complexity_swallows_errors(runner, mocker):
     """A failure in the best-effort alert must not propagate and taint a successful turn."""
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.get_conversation.side_effect = RuntimeError("db blip")
 
     asyncio.run(runner._maybe_alert_complexity("c1"))
@@ -1184,7 +1310,7 @@ def test_alert_usage_limit_survives_slack_failure(runner, mocker, caplog):
 
 
 def test_run_agent_limit_event_stores_verbatim_and_alerts(runner, mocker, fake_redis):
-    mock_store = mocker.patch("web.runner.store")
+    mock_store = patch_store(mocker)
     mock_store.add_message.return_value = mocker.MagicMock(id=1)
     alert = mocker.patch.object(runner, "_alert_usage_limit_once", mocker.AsyncMock())
 
@@ -1209,3 +1335,31 @@ def test_run_agent_limit_event_stores_verbatim_and_alerts(runner, mocker, fake_r
     # Not stored as a generic assistant/error message — it renders as its own callout.
     assert not any(a[1] == "assistant" for a in mock_store.add_message.call_args_list)
     alert.assert_awaited_once_with("2026-07-20T17:00:00+00:00")
+
+
+def test_a_redis_failure_at_turn_end_still_clears_needs_response(mocker, fake_redis):
+    runner = make_runner(mocker, fake_redis)
+    mock_store = patch_store(mocker)
+    mocker.patch.object(fake_redis, "delete", side_effect=ConnectionError("redis down"))
+
+    async def _run():
+        task = asyncio.create_task(runner._run_agent("c1", "hi", None, None, make_turn("cli")))
+        runner._running["c1"] = task
+        await asyncio.wait_for(task, 1)
+
+    asyncio.run(_run())
+
+    mock_store.end_turn.assert_called_once_with("c1", flush=False)
+
+
+def test_cancel_closes_the_question_that_was_running(runner, fake_redis, mocker):
+    mock_store = patch_store(mocker)
+    latest = {"question": 5}
+    mock_store.last_user_message_id.side_effect = lambda conv_id: latest["question"]
+    mock_store.end_turn.side_effect = lambda conv_id, flush: latest.update(question=9) or []
+
+    async def _run():
+        await runner.cancel("c1")
+        return await fake_redis.get("autometa:done:c1")
+
+    assert asyncio.run(_run()) == "5"

@@ -95,6 +95,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
     mocker.patch("web.runner.get_agent", return_value=mock_backend)
 
     mock_store = mocker.patch("web.runner.store")
+    mock_store.end_turn.return_value = []
     mock_msg = mocker.MagicMock()
     mock_msg.id = 1
     mock_store.add_message.return_value = mock_msg
