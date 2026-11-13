@@ -162,6 +162,23 @@ n = zd.count_tickets("status:open tags:bug")
 - `iter_tickets(with_comments=True)` fait 2 appels par ticket ; il logue tous les 500 et continue malgré les erreurs ponctuelles.
 - Les commentaires exposent `author_role` (`end-user` / `agent` / `admin`) via sideloading.
 
+### Organisation du support (lecture)
+
+```python
+zd.list_groups() ; zd.list_agents()            # agents et admins, jamais les usagers
+zd.list_ticket_fields() ; zd.list_ticket_forms()
+zd.list_views()                                # vues actives ; zd.count_views(ids) donne leurs tickets
+zd.list_triggers()                             # règles de routage et d'assignation
+zd.lookup("groups", group_id)                  # un objet par identifiant (groups, triggers…), None s'il est supprimé ;
+                                               # "users" seulement pour un agent : un usager y a nom, e-mail et téléphone
+zd.ticket_metrics(ticket_id)                   # délais de réponse et de résolution, réouvertures d'un ticket
+n = zd.count_tickets("group:123 assignee:789 created>2026-10-01")
+```
+
+Compter par groupe ou par agent passe par `count_tickets`, sans lire les tickets. Au-delà de quelques tickets, les délais, canaux et étiquettes sont dans les tables `support_emplois_tickets_*` (`knowledge/stats/support-emplois.md`), sans appel Zendesk.
+
+Ne jamais passer par `zd._get`, `zd._request` ou `zd._client` : ils contournent l'anonymisation des NIR. Une lecture qu'aucune méthode ne couvre est un manque à signaler, pas à contourner ; les exports incrémentaux et les audits de tickets ne sont pas disponibles, pour cette raison.
+
 ### Anonymisation des NIR (activée par défaut)
 
 Les tickets contiennent parfois des NIR (~1,3 % sur un échantillon de 300). Le client les remplace par `[NIR-ANONYMISÉ]` dans sujets et commentaires, en validant la clé INSEE pour épargner téléphones et SIRET. Code dans `lib/pii.py` (`redact_nir`). `ZendeskAPI(..., redact=False)` désactive — jamais pour une restitution à l'utilisateur. Les autres données personnelles (nom, e-mail, téléphone) ne sont pas masquées.

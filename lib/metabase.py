@@ -295,6 +295,24 @@ class MetabaseAPI:
         except MetabaseError:
             return ""
 
+    def list_databases(self) -> list[dict]:
+        return self._request("GET", "/api/database")["data"]
+
+    def list_tables(self, database_id: int) -> list[dict]:
+        """Tables of a database (id, schema, name, description), without their fields."""
+        return self._request("GET", f"/api/database/{database_id}/metadata?skip_fields=true")["tables"]
+
+    def get_table_metadata(self, table_id: int) -> dict:
+        """A table with its fields (id, name, base_type, description)."""
+        return self._request("GET", f"/api/table/{table_id}/query_metadata")
+
+    def get_field(self, field_id: int) -> dict:
+        """A field by the id GUI questions reference it with: name, table_id, base_type."""
+        return self._request("GET", f"/api/field/{field_id}")
+
+    def get_version(self) -> str:
+        return self._request("GET", "/api/session/properties")["version"]["tag"]
+
     # --- Dashboard methods ---
 
     def list_models(self) -> list[dict]:
