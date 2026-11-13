@@ -18,6 +18,7 @@ import re
 import shutil
 import stat
 import subprocess
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import BinaryIO, Optional, Tuple
@@ -190,8 +191,8 @@ def is_text_file(filename: str, mime_type: Optional[str], content: bytes) -> boo
 
 def sanitize_filename(filename: str) -> str:
     """Sanitize a filename to prevent path traversal and other issues."""
-    # Remove path components
-    filename = os.path.basename(filename)
+    # Why: un nom décomposé (NFD, envoyé par les navigateurs macOS) ne se retape pas : l'agent écrit la forme composée.
+    filename = unicodedata.normalize("NFC", os.path.basename(filename))
     # Replace problematic characters
     filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", filename)
     # Limit length

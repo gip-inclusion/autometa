@@ -474,3 +474,10 @@ def test_database_integration_conversation_files():
 
 def test_uploads_are_kept_out_of_the_served_interactive_prefix():
     assert not s3.uploads.key("f.pdf").startswith(s3.interactive.prefix)
+
+
+def test_a_decomposed_accent_is_stored_composed():
+    assert (
+        sanitize_filename("re\u0301sume\u0301 l\u2019e\u0301te\u0301.pdf")
+        == "r\u00e9sum\u00e9 l\u2019\u00e9t\u00e9.pdf"
+    )
