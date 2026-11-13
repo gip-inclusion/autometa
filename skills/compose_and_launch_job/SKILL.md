@@ -52,6 +52,16 @@ L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runne
 
 7. **Rendre le `run_url`** à l'utilisateur pour qu'il suive le run sur `/jobs/runs/{run_id}` (statut, flux d'événements en direct, résumé, artefact). Précisez qu'il tourne en autonomie ; pas besoin de rester.
 
+## Relancer un job existant
+
+Quand l'utilisateur mentionne un job (`@nom`), Autometa joint à son message la consigne du job, ses derniers runs et un extrait de sa dernière sortie réussie. Vous pouvez proposer de le relancer, avec la même règle qu'au point 5 : **aucune relance sans un « oui » explicite**. Après ce oui :
+
+```bash
+.venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py --relaunch <pipeline_id>
+```
+
+La relance réutilise le pipeline et sa consigne, sans en créer un nouveau. Rendez ensuite le `run_url`.
+
 ## Limites
 
 - Un job coûte du quota et un conteneur Scaleway (concurrence 1). Ne lancez pas de job pour un travail trivial.
