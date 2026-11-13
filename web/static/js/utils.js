@@ -17,6 +17,14 @@ function autoGrow(textarea) {
   textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
+function appendToComposer(text) {
+  const input = document.getElementById('chatInput');
+  if (!input) return;
+  input.value = input.value ? `${input.value}\n\n${text}` : text;
+  autoGrow(input);
+  input.focus();
+}
+
 function isAtBottom() {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return true;

@@ -130,15 +130,12 @@ async function sendMessage() {
     setStreamingState(false);
   }
 
-  // Show user message (with file info if any)
-  appendEvent('user', { content: fullMessage });
+  const bubble = appendEvent('user', { content: fullMessage });
 
-  // Save message for potential retry
   lastUserMessage = fullMessage;
   retryCount = 0;
 
-  // Send message to API
-  await sendToAgent(fullMessage);
+  await sendToAgent(fullMessage, { bubble, draft: message });
 }
 
 /**
@@ -160,7 +157,7 @@ function buildMessageWithFiles(userMessage, fileContexts) {
 /**
  * Send message to agent API and start streaming
  */
-async function sendToAgent(message) {
+async function sendToAgent(message, { bubble, draft } = {}) {
   try {
     const response = await fetch(`/api/conversations/${currentConversationId}/messages`, {
       method: 'POST',
@@ -175,11 +172,14 @@ async function sendToAgent(message) {
         await recover({ createNew: true });
         return;
       }
+      if (data.code === 'conversation_running') {
+        bubble?.remove();
+        if (draft) appendToComposer(draft);
+      }
       showError(data.error || "Erreur lors de l'envoi");
       return;
     }
 
-    // Start streaming from after the user message we just sent
     startStream(data.after_id || 0);
   } catch (error) {
     console.error('Failed to send message:', error);

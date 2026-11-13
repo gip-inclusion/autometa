@@ -74,6 +74,7 @@ def _isolate(mocker, fake_redis):
     mocker.patch.object(runner.store, "get_conversation", return_value=None)
     mocker.patch.object(runner.store, "add_message", return_value=mocker.Mock(id=1))
     mocker.patch.object(runner.store, "set_engine_state")
+    mocker.patch.object(runner.store, "last_user_message_id", return_value=1)
     mocker.patch.object(TaskRunner, "_alert_usage_limit_once", new=mocker.AsyncMock())
 
 
@@ -239,7 +240,7 @@ def test_the_conversation_stays_open_until_the_fallback_answers(mocker):
     _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
     assert observed == {"done": 0, "released": 0}
-    done.assert_awaited_once_with("c1")
+    done.assert_awaited_once_with("c1", mocker.ANY)
     runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
 
 
@@ -319,7 +320,7 @@ def test_a_failed_replay_setup_still_releases_the_conversation(mocker, fake_redi
     assert asyncio.run(_run()) == 0
     runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)
     runner.store.add_message.assert_called_once_with("c1", "assistant", "limite")
-    done.assert_awaited_once_with("c1")
+    done.assert_awaited_once_with("c1", mocker.ANY)
     assert "c1" not in r._running
 
 
@@ -362,5 +363,5 @@ def test_a_successful_first_pass_still_releases_the_conversation(mocker):
 
     _play(TaskRunner(), "c1", "p", None, None, _turn("cli", "s1"))
 
-    done.assert_awaited_once_with("c1")
+    done.assert_awaited_once_with("c1", mocker.ANY)
     runner.store.update_conversation.assert_called_once_with("c1", needs_response=False)

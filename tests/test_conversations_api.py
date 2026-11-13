@@ -189,6 +189,23 @@ def test_send_message_conflict_while_running(client, submit_mock):
     r = client.post(f"/api/conversations/{conv.id}/messages", headers=headers(), json={"content": "hi"})
 
     assert r.status_code == 409
+    assert r.json() == {
+        "error": "Une réponse est déjà en cours dans cette conversation.",
+        "code": "conversation_running",
+    }
+    assert store.get_conversation(conv.id).messages == []
+    submit_mock.assert_not_called()
+
+
+def test_relaunch_conflict_while_running(client, submit_mock):
+    conv = store.create_conversation(user_id=ALICE)
+    store.add_message(conv.id, "user", "hi")
+    store.update_conversation(conv.id, needs_response=True)
+
+    r = client.post(f"/api/conversations/{conv.id}/relaunch", headers=headers(ADMIN_USERS[0]))
+
+    assert r.status_code == 409
+    assert r.json()["code"] == "conversation_running"
     submit_mock.assert_not_called()
 
 
