@@ -269,9 +269,15 @@ class CLIBackend(AgentBackend):
             # et jamais sur un poste, dont le /tmp contient d'autres dossiers nommés comme des UUID.
             self._pruned_at = now
             self._prune = asyncio.create_task(asyncio.to_thread(prune_workdirs, now))
+        context = []
         if workdir:
             # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.
-            cmd.extend(["--append-system-prompt", f"Dossier de travail de cette conversation, déjà créé : {workdir}/"])
+            context.append(f"Dossier de travail de cette conversation, déjà créé : {workdir}/")
+        if user_email:
+            # Why: sans elle, l'agent prend l'auteur des messages pour un tiers et refuse de toucher à ses propres objets.
+            context.append(f"Utilisateur courant, auteur des messages : {user_email}")
+        if context:
+            cmd.extend(["--append-system-prompt", "\n".join(context)])
 
         cmd.extend(self._tool_permission_args())
 

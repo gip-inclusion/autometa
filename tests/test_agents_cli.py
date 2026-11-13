@@ -259,6 +259,7 @@ def collect_messages(backend, **kwargs):
                 message=kwargs.get("message", "salut"),
                 history=kwargs.get("history", []),
                 session_id=kwargs.get("session_id"),
+                user_email=kwargs.get("user_email"),
             )
         ]
 
@@ -539,6 +540,18 @@ def test_the_agent_runs_with_its_own_folder_and_is_told_its_path(stub_config, tm
     argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
     appended = argv[argv.index("--append-system-prompt") + 1]
     assert str(workdir) in appended
+
+
+def test_the_agent_is_told_who_writes_to_it(stub_config, tmp_path):
+    stub_config('printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho \'{"type": "result", "subtype": "success"}\'')
+
+    collect_messages(make_backend(), conversation_id=UUID_A, user_email="alice@example.org")
+
+    argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
+    assert argv.count("--append-system-prompt") == 1
+    appended = argv[argv.index("--append-system-prompt") + 1]
+    assert "Utilisateur courant, auteur des messages : alice@example.org" in appended
+    assert str(tmp_path / "tmp" / UUID_A) in appended
 
 
 @pytest.mark.parametrize(("env", "kept"), [(Environment.DEV, True), (Environment.PROD, False)])
