@@ -262,3 +262,40 @@ def test_list_serializes_every_date_of_a_refreshed_publication(monkeypatch, mock
     assert cli.main() == 0
     [row] = json.loads(capsys.readouterr().out)
     assert row["last_successful_refresh_at"] == "2026-10-12T06:00:00+00:00"
+
+
+def test_show_reads_the_dashboard_state_without_runtime_context_or_update(monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    monkeypatch.delenv("AUTOMETA_CONVERSATION_ID", raising=False)
+    update = mocker.patch.object(cli, "update_dashboard")
+    mocker.patch.object(cli, "store").get_dashboard.return_value = {
+        "slug": "tdb",
+        "first_author_email": "a@x",
+        "cron_enabled": True,
+    }
+    runs = mocker.patch.object(
+        cli, "get_app_runs", return_value=[{"status": "failure", "duration_ms": 12, "output": "x" * 1500 + "Boom"}]
+    )
+    mocker.patch.object(cli, "list_publications", return_value=[{"publication_id": "pub01"}])
+    mocker.patch.object(cli, "list_variants", return_value=[])
+
+    _run(cli, ["--slug", "tdb", "--show"], monkeypatch)
+
+    shown = json.loads(capsys.readouterr().out)
+    assert (shown["first_author_email"], shown["cron_enabled"]) == ("a@x", True)
+    assert [len(run["output"]) for run in shown["cron_runs"]] == [1000]
+    assert shown["cron_runs"][0]["output"].endswith("Boom")
+    assert shown["publications"] == [{"publication_id": "pub01"}]
+    runs.assert_called_once_with("tdb", 5)
+    update.assert_not_called()
+
+
+def test_show_of_an_unknown_dashboard_exits_1(monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    mocker.patch.object(cli, "store").get_dashboard.return_value = None
+
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "nope", "--show"], monkeypatch)
+
+    assert exc.value.code == 1
+    assert "nope" in capsys.readouterr().err

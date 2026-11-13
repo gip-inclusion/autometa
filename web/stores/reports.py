@@ -3,13 +3,14 @@
 import json
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from web.db import get_db
 from web.helpers import utcnow
 from web.models import Message as MsgModel
 from web.models import Report as ReportModel
 from web.stores.records import Report, model_to_report
+from web.stores.tags import like_patterns
 
 
 class ReportsMixin:
@@ -98,6 +99,17 @@ class ReportsMixin:
 
             stmt = stmt.order_by(ReportModel.updated_at.desc()).limit(limit)
             models = session.scalars(stmt).all()
+            return [model_to_report(r) for r in models]
+
+    def search_reports(self, query: str) -> list[Report]:
+        """Rapports non archivés dont le titre ou le contenu contient chacun des mots, les plus récents d'abord."""
+        stmt = select(ReportModel).where(or_(ReportModel.archived == 0, ReportModel.archived.is_(None)))
+        for like in like_patterns(query):
+            stmt = stmt.where(
+                or_(ReportModel.title.ilike(like, escape="\\"), ReportModel.content.ilike(like, escape="\\"))
+            )
+        with get_db() as session:
+            models = session.scalars(stmt.order_by(ReportModel.updated_at.desc()).limit(20)).all()
             return [model_to_report(r) for r in models]
 
     def archive_report(self, report_id: int) -> bool:

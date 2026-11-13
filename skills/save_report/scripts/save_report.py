@@ -1,4 +1,4 @@
-"""Save report skill - create, update, or append reports to the database."""
+"""Save report skill - create, update, show or search reports in the database."""
 
 import argparse
 import json
@@ -110,14 +110,29 @@ if __name__ == "__main__":
     )
     parser.add_argument("--report-id", "-r", type=int, help="Report ID to update (for updates)")
     parser.add_argument("--list", "-l", action="store_true", help="List recent reports")
+    parser.add_argument("--search", help="List reports whose title or content contains every word")
+    parser.add_argument("--show", type=int, metavar="REPORT_ID", help="Print a report's metadata and content")
 
     args = parser.parse_args()
 
-    if args.list:
-        reports = list_reports(limit=10)
-        print("Recent reports:")
+    if args.show:
+        report = ConversationStore().get_report(args.show)
+        if not report:
+            print(f"Error: report {args.show} not found", file=sys.stderr)
+            sys.exit(1)
+        conversation = f"/explorations/{report.source_conversation_id}" if report.source_conversation_id else "N/A"
+        print(
+            f"[{report.id}] {report.title} (v{report.version}) - {report.website or 'N/A'} - "
+            f"{report.user_id or 'N/A'} - {conversation} - {report.updated_at:%Y-%m-%d}\n"
+        )
+        print(report.content)
+        sys.exit(0)
+
+    if args.list or args.search:
+        store = ConversationStore()
+        reports = store.search_reports(args.search) if args.search else store.list_reports(limit=10)
         for r in reports:
-            print(f"  [{r['id']}] {r['title']} (v{r['version']}) - {r['website'] or 'N/A'}")
+            print(f"  [{r.id}] {r.title} (v{r.version}) - {r.website or 'N/A'} - {r.updated_at:%Y-%m-%d}")
         sys.exit(0)
 
     if not args.file:

@@ -7,6 +7,8 @@ import sys
 from lib.dashboards import DashboardNotFound, update_dashboard
 from lib.variants import add_variant, list_variants, remove_variant, set_obfuscation, validate_variant
 from web import config
+from web.cron import get_app_runs
+from web.database import store
 from web.publications import list_publications
 
 
@@ -78,7 +80,24 @@ def main() -> None:
     archive_group = parser.add_mutually_exclusive_group()
     archive_group.add_argument("--archive", action="store_true")
     archive_group.add_argument("--unarchive", action="store_true")
+    parser.add_argument(
+        "--show", action="store_true", help="Print owner, flags, last cron runs, publications and variants, then exit"
+    )
     args = parser.parse_args()
+
+    if args.show:
+        dashboard = store.get_dashboard(args.slug)
+        if dashboard is None:
+            print(f"Error: dashboard not found: {args.slug}", file=sys.stderr)
+            sys.exit(1)
+        # Why: l'erreur d'un passage en échec est à la fin de sa sortie.
+        dashboard["cron_runs"] = [
+            {**run, "output": (run["output"] or "")[-1000:]} for run in get_app_runs(args.slug, 5)
+        ]
+        dashboard["publications"] = list_publications(args.slug)
+        dashboard["variants"] = list_variants(args.slug)
+        print(json.dumps(dashboard, default=str, ensure_ascii=False, indent=2))
+        return
 
     conversation_id, user_email = _require_runtime_context()
 
