@@ -29,6 +29,7 @@ def _make(mocker, fake_redis, *events):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner._check_failure")
+    mocker.patch("web.runner.uploads")
     mocker.patch.object(TaskRunner, "_alert_usage_limit_once", new=mocker.AsyncMock())
     mocker.patch.object(runner.store, "update_conversation")
     mocker.patch.object(runner.store, "get_conversation", return_value=None)
@@ -84,7 +85,6 @@ def test_a_primary_back_from_its_limit_catches_up_on_the_fallback_turns(mocker):
     )
     mocker.patch.object(runner.session_sync, "download_session")
     mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: True))
-    mocker.patch.object(runner.uploads, "restore_conversation_files")
 
     turn = runner.prepare_turn("c1", "cli")
 

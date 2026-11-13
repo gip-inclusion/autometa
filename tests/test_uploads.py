@@ -531,6 +531,32 @@ def test_a_file_still_on_disk_is_not_downloaded_again(mocker):
 
 
 @pytest.mark.usefixtures("setup_db")
+def test_a_file_absent_from_s3_does_not_stop_the_others(mocker):
+    conversation_id = make_conversation()
+    lost, _ = upload_file(io.BytesIO(b"un"), "un.txt", conversation_id=conversation_id)
+    kept, _ = upload_file(io.BytesIO(b"deux"), "deux.txt", conversation_id=conversation_id)
+    for uploaded in (lost, kept):
+        Path(uploaded.storage_path).unlink()
+    mocker.patch.object(s3.uploads, "download", side_effect={kept.stored_filename: b"deux"}.get)
+
+    restore_conversation_files(conversation_id)
+
+    assert Path(kept.storage_path).read_bytes() == b"deux"
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_a_file_that_cannot_be_written_is_skipped(mocker):
+    result, _ = upload_file(io.BytesIO(b"un"), "un.txt", conversation_id=make_conversation())
+    Path(result.storage_path).unlink()
+    mocker.patch.object(s3.uploads, "download", return_value=b"un")
+    mocker.patch.object(Path, "write_bytes", side_effect=OSError("disque plein"))
+
+    restore_conversation_files(result.conversation_id)
+
+    assert not Path(result.storage_path).exists()
+
+
+@pytest.mark.usefixtures("setup_db")
 def test_uploading_again_a_file_lost_from_disk_stores_it_again():
     conversation_id = make_conversation()
     first, _ = upload_file(io.BytesIO(b"same"), "a.txt", conversation_id=conversation_id)

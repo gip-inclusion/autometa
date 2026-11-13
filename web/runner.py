@@ -369,6 +369,9 @@ class TaskRunner:
         fallback = config.AGENT_FALLBACK_BACKEND
 
         try:
+            # Why: le disque des serveurs est vidé à chaque redémarrage, et l'agent lit les pièces jointes par leur chemin ;
+            # ici, dans la tâche de la conversation, un téléchargement lent ne retient pas la boucle qui sert tout le monde.
+            await asyncio.to_thread(uploads.restore_conversation_files, conversation_id)
             may_reroute = bool(fallback) and turn.backend != fallback and not await is_limited(fallback)
             limit_reset, limit_message = await self._stream_turn(
                 conversation_id, prompt, user_email, trace_headers, turn, release=not may_reroute
@@ -798,8 +801,6 @@ def limit_notice(limit_message: str, reset_iso: str | None) -> str:
 
 def prepare_turn(conv_id: str, backend: str) -> EngineTurn:
     """Session native du moteur et rattrapage des tours qu'il n'a pas vus, jusqu'à la question du tour."""
-    # Why: le disque des serveurs est vidé à chaque redémarrage, et l'agent lit les pièces jointes par leur chemin.
-    uploads.restore_conversation_files(conv_id)
     state = store.get_engine_state(conv_id, backend)
     session_id = state["session_id"] or str(uuid.uuid4())
     if state["session_id"]:

@@ -410,9 +410,13 @@ def restore_conversation_files(conversation_id: str) -> None:
         if content is None:
             logger.warning("Fichier téléversé absent de S3 : %s", uploaded_file.stored_filename)
             continue
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.write_bytes(content)
-        set_readonly_permissions(local_path)
+        try:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(content)
+            set_readonly_permissions(local_path)
+        except OSError:
+            # Why: un fichier qui ne s'écrit pas prive l'agent de ce fichier seulement, pas la conversation de son tour.
+            logger.warning("Fichier téléversé non restauré : %s", local_path, exc_info=True)
 
 
 def copy_file_for_modification(
