@@ -47,6 +47,8 @@ Le rang n'est pas une colonne : il découle du type d'acte.
 
 **North Star = actes de rang 1 ayant reçu un retour humain**, selon la règle propre à chaque acte (colonne « North Star » des tableaux). La référence est `north_star` (candidatures traitées dans les 30 jours) ; `north_star_70` (59 jours pour les candidatures) sert au volume consolidé de l'onglet North Star. « Intention d'orientation » est de rang 1 mais jamais North Star, et sort du taux rang 1 → North Star.
 
+Les taux par proxy sont appliqués mois par mois, et les volumes répartis en entiers par la méthode des plus forts restes.
+
 Un indicateur North Star ne retient que des **mois consolidés** : mois dont la fin date d'au moins 30 jours (59 jours pour `north_star_70`) à la génération des données.
 
 ## Mise à jour des données
@@ -55,8 +57,8 @@ Un indicateur North Star ne retient que des **mois consolidés** : mois dont la 
 - Les actes de mise à jour d'une fiche déjà présents ne sont pas recalculés, sauf s'ils valaient 0 : ils sont datés par la dernière modification, qu'une modification ultérieure déplacerait.
 - Mon Récap est recalculé sur toute la fenêtre.
 - Si le total d'actes baisse de plus de 10 %, `data.json` n'est pas écrit.
-- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`. L'historique de croissance annuelle au-delà de la fenêtre en est tiré.
-- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025.
+- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`. L'historique de croissance annuelle au-delà de la fenêtre en est tiré. Mars 2025 y est incomplet : il ne sert pas de référence N-1.
+- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025. Les prolongations et les orientations RDV-i directes existent sur toute la période ; les orientations post-RDV (depuis mai 2026), les orientations estimées data·inclusion et les bilans (depuis octobre 2026) n'ont pas d'historique antérieur et comptent donc comme de la croissance. Après ce recalcul, la croissance annuelle de la North Star à 30 jours passe de +20,0 % à +21,2 % en septembre 2026 et de +18,3 % à +22,5 % en août 2026.
 
 ---
 
@@ -85,7 +87,7 @@ Type de structure : type de l'organisation. Département : celui de l'invitation
 | Type acte | Catégorie | Rang | Donnée, date | North Star |
 |-----------|-----------|------|--------------|------------|
 | Candidature auprès d’un employeur solidaire | Accompagnement | 1 | `candidatures_echelle_locale`, date de candidature, hors candidatures injectées par l'IA | Réponse (ni nouvelle, ni en attente, ni à l'étude) dans les 30 jours |
-| Prolongation de PASS IAE | Accompagnement | 1 | `raw_emplois.prolongations`, date de création | Toujours (accordée à la demande) |
+| Prolongation de PASS IAE | Accompagnement | 1 | `raw_emplois.prolongations`, date de création ; environ 1 400 à 2 900 par mois | Toujours (accordée à la demande) |
 | Diagnostic IAE | Accompagnement | 2 | `public.candidats`, date du diagnostic, candidats distincts | — |
 | Création d’un bilan de fin de parcours | Accompagnement | 2 | `raw_emplois.bilans_accompagnement_v0`, date de création (heure de Paris) ; depuis le 28/10/2026 | — |
 | Consultation d’un bilan de fin de parcours | Support | 2 | Lectures réussies par un membre d'une organisation prescriptrice, collectées dans Datadog par le TDB `fin-parcours-adoption` ; un couple bilan × lecteur compte une fois, au mois de la première lecture | — |
@@ -177,6 +179,8 @@ Type de structure d'une diffusion : `SIAE` si l'auteur est un compte SIAE, sinon
 
 Date d'expédition : celle de la commande, ou à défaut la date de fabrication plus 7 jours (non saisie depuis les commandes d'avril 2026). Les volumes Mon Récap sont des estimations, pas des mesures.
 
+⚠️ Tous les actes Mon Récap sont en département `Inconnu` (constaté dans `data.json` le 2026-11-12) : aucune ventilation territoriale n'est possible.
+
 ---
 
 ### data·inclusion
@@ -188,7 +192,7 @@ Date d'expédition : celle de la commande, ou à défaut la date de fabrication 
 | Recherche data·inclusion | Support | 2 | Recherches ; type de structure selon le contexte de l'acte | — |
 | Mise à jour offre de service, hors emploi solidaire | Support | 3 | Type de structure selon le réseau porteur, `Autre` à défaut (~40 %) | — |
 | Mise à jour d’une structure d’offre de service, hors employeur solidaire | Support | 3 | idem | — |
-| Orientation vers service | Accompagnement | 1 | **Proxy** : 0,3 % des recherches du mois, réparties comme elles | **Proxy** : 55 % comptées traitées (taux Dora moyen sur 12 mois) |
+| Orientation vers service | Accompagnement | 1 | **Proxy** : 0,3 % des recherches du mois, réparties comme elles ; environ 50 à 430 par mois | **Proxy** : 55 % comptées traitées (taux Dora moyen sur 12 mois) |
 
 ---
 
@@ -205,3 +209,12 @@ Date d'expédition : celle de la commande, ou à défaut la date de fabrication 
 | Pilotage | Pas d'acte métier direct identifié |
 | Communauté | Non inclus |
 | Site institutionnel (inclusion.gouv.fr) | Non inclus |
+
+## Historique des changements
+
+| Date | Changement |
+|------|------------|
+| 2026-11 | Ajout des prolongations de PASS IAE, des orientations RDV-i et data·inclusion (par proxy) et des bilans de fin de parcours ; recalcul de la fenêtre et du snapshot depuis avril 2025 |
+| 2026-09 | GPS : bascule des logs applicatifs vers Matomo |
+| 2026-07 | Orientations et intentions d'orientation depuis La plateforme |
+| — | North Star longue ramenée de 70 à 59 jours (colonne `north_star_70` conservée) ; la North Star à 30 jours devient la référence |
