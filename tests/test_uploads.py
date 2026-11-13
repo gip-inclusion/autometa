@@ -18,7 +18,7 @@ _tmp_dir = tempfile.mkdtemp()
 os.environ["DATA_DIR"] = _tmp_dir  # noqa: TID251
 
 # Now we can safely import
-from web import config
+from web import config, s3
 from web.database import ConversationStore, UploadedFile
 from web.uploads import (
     BLOCKED_EXTENSIONS,
@@ -470,3 +470,7 @@ def test_database_integration_conversation_files():
     # List files
     files = store.get_conversation_files(conv.id)
     assert len(files) == 3
+
+
+def test_uploads_are_kept_out_of_the_served_interactive_prefix():
+    assert not s3.uploads.key("f.pdf").startswith(s3.interactive.prefix)
