@@ -59,6 +59,7 @@ def make_runner(mocker, fake_redis, max_concurrent=2):
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", max_concurrent)
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner.prepare_turn", return_value=make_turn())
+    mocker.patch("web.runner.uploads")
     r = TaskRunner()
     # Why: production has no `backend` attribute anymore — get_agent above always resolves
     # to mock_backend regardless of name, so this lets the 19 existing `r.backend.*` mutation
@@ -131,6 +132,18 @@ def test_run_agent_asks_get_agent_for_the_backend_it_is_given(runner, mocker):
     asyncio.run(_run())
 
     assert calls == ["cli-ollama"]
+
+
+def test_run_agent_restores_the_attachments_before_the_engine_runs(runner, mocker):
+    order = []
+    uploads = mocker.patch("web.runner.uploads")
+    uploads.restore_conversation_files.side_effect = lambda conv_id: order.append(("restore", conv_id))
+    mocker.patch("web.runner.get_agent", side_effect=lambda name: order.append(("engine", name)) or runner.backend)
+    patch_store(mocker)
+
+    asyncio.run(runner._run_agent("c1", "prompt", None, None, make_turn("cli")))
+
+    assert order[:2] == [("restore", "c1"), ("engine", "cli")]
 
 
 def test_consumer_loop_prepares_the_turn_for_the_picked_backend(mocker, fake_redis):

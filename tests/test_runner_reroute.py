@@ -70,6 +70,7 @@ def _isolate(mocker, fake_redis):
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner._check_failure")
     mocker.patch("web.runner.prepare_turn", return_value=_turn("cli-ollama", "s2"))
+    mocker.patch("web.runner.uploads")
     mocker.patch.object(runner.store, "end_turn", return_value=[])
     mocker.patch.object(runner.store, "get_conversation", return_value=None)
     mocker.patch.object(runner.store, "add_message", return_value=mocker.Mock(id=1))
