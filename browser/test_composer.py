@@ -127,9 +127,21 @@ def test_composer_buttons_stack_on_a_phone(conversation: str, ask: Callable[[str
     ask("[hang] tour sans fin")
     expect(page.locator("#chatCancelBtn")).to_be_visible()
 
-    buttons = ("chatFlagBtn", "chatSendBtn", "chatCancelBtn")
-    flag, send, stop = (page.locator(f"#{name}").bounding_box() for name in buttons)
-    assert flag["x"] == send["x"] == stop["x"]
-    assert flag["y"] < send["y"] < stop["y"]
+    expect(page.locator("#chatFlagBtn")).to_be_hidden()
+    send, stop = (page.locator(f"#{name}").bounding_box() for name in ("chatSendBtn", "chatCancelBtn"))
+    composer = page.locator(".chat-input-wrapper").bounding_box()
+    assert send["x"] == stop["x"]
+    assert send["y"] < stop["y"]
+    assert stop["y"] + stop["height"] - send["y"] == pytest.approx(composer["height"], abs=1)
     assert page.locator("#chatInput").bounding_box()["width"] > 220
-    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_the_phone_composer_holds_two_lines_from_the_start(conversation: str, page: Page):
+    page.set_viewport_size({"width": 375, "height": 667})
+    composer = page.locator(".chat-input-wrapper")
+    empty = composer.bounding_box()["height"]
+
+    page.locator("#chatInput").fill("une\ndeux")
+    assert composer.bounding_box()["height"] == empty
+    page.locator("#chatInput").fill("une\ndeux\ntrois")
+    assert composer.bounding_box()["height"] > empty

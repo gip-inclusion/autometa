@@ -592,9 +592,24 @@ function updateFlagCounter(input) {
   if (counter) counter.textContent = String(input.value.length);
 }
 
+// Why: the menu opens in the top layer, out of the header's flow, so it is placed under its button here.
+document.addEventListener(
+  'beforetoggle',
+  (e) => {
+    if (e.target.id !== 'convMenu' || e.newState !== 'open') return;
+    const button = document.querySelector('[popovertarget="convMenu"]').getBoundingClientRect();
+    e.target.style.setProperty('--menu-top', `${button.bottom + 4}px`);
+  },
+  true,
+);
+
 document.body.addEventListener('click', (e) => {
+  const menu = e.target.closest('#convMenu');
+  if (menu?.hidePopover && menu.matches(':popover-open') && e.target.closest('button, a')) menu.hidePopover();
+
   const flagBtn = e.target.closest('#chatFlagBtn');
   if (flagBtn) return openFlagDialog(flagBtn);
+  if (e.target.closest('#convMenuFlagBtn')) return openFlagDialog(document.getElementById('chatFlagBtn'));
   if (e.target.closest('#flagCancel')) return closeFlagDialog();
   if (e.target.closest('#pinConvBtn')) return pinConversation();
   if (e.target.closest('#unpinConvBtn')) return unpinConversation();
