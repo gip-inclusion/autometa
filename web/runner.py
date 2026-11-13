@@ -142,7 +142,7 @@ class TaskRunner:
         if cancelled:
             self._cancelled_runs.add(cancelled)
             await r.delete(f"{PREFIX}:running:{conv_id}")
-        store.update_conversation(conv_id, needs_response=False)
+        store.end_turn(conv_id, flush=False)
         await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
         if cancelled:
             await self._cancel_all_backends(conv_id)
@@ -154,9 +154,9 @@ class TaskRunner:
         for name in engines():
             await get_agent(name).cancel(conv_id)
 
-    async def notify(self, conv_id: str):
+    async def notify(self, conv_id: str, event: str = "update"):
         r = await get_redis()
-        await r.publish(f"{PREFIX}:conv:{conv_id}", "update")
+        await r.publish(f"{PREFIX}:conv:{conv_id}", event)
 
     async def notify_done(self, conv_id: str, question_id: int):
         r = await get_redis()
@@ -290,7 +290,7 @@ class TaskRunner:
         """Un-stick a conversation: drop the key, clear the running flag, tell the user, close the stream."""
         question_id = store.last_user_message_id(conv_id)
         await r.delete(f"{PREFIX}:running:{conv_id}")
-        store.update_conversation(conv_id, needs_response=False)
+        store.end_turn(conv_id, flush=False)
         store.add_message(conv_id, "assistant", note)
         await self.notify_done(conv_id, question_id)
 
@@ -440,6 +440,7 @@ class TaskRunner:
         agent_status = "ok"
         limit_reset: str | None = None
         limit_message: str | None = None
+        completed = False
         run_usage = RunUsage()
 
         def _close_tool_log():
@@ -567,6 +568,9 @@ class TaskRunner:
 
                     # Why: raw holds the full CLI JSON event — can be MBs for tool results
                     event.raw = {}
+                else:
+                    # Why: le budget d'outils sort par `break` — un tour arrêté là n'est pas fini.
+                    completed = True
 
                 if assistant_text_parts:
                     all_assistant_texts.extend(assistant_text_parts)
@@ -612,12 +616,22 @@ class TaskRunner:
                         # Why: libérer le créneau avant de baisser needs_response — un envoi accepté entre les
                         # deux serait sinon écarté par le consommateur, qui croirait la conversation déjà prise.
                         self._running.pop(conversation_id, None)
+                        flush = False
                         try:
                             r = await get_redis()
                             await r.delete(f"{PREFIX}:running:{conversation_id}")
+                            # Why: seule une fin propre envoie la file — erreur, limite, budget, arrêt du processus,
+                            # créneau repris ou panne Redis (le tour suivant ne partirait pas) la rendent à la page.
+                            flush = completed and agent_status == "ok" and slot is my_task
                         finally:
-                            store.update_conversation(conversation_id, needs_response=False)
-                        await self.notify_done(conversation_id, turn.question_id)
+                            sent = store.end_turn(conversation_id, flush=flush)
+                        if sent:
+                            # Why: le tour suivant passe par la file Redis, pas par cette tâche — choix du moteur,
+                            # rattrapage et équité des créneaux restent ceux de tout tour. Pas de `done` entre les deux.
+                            await self.submit(conversation_id, sent[-1].content, [], user_email)
+                            await self.notify(conversation_id, "queue")
+                        else:
+                            await self.notify_done(conversation_id, turn.question_id)
                 if self._cancel_tasks.get(conversation_id) is cancel_task:
                     self._cancel_tasks.pop(conversation_id, None)
                 duration_ms = round((time.perf_counter() - agent_start) * 1000, 2)

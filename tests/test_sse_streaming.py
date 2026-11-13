@@ -119,7 +119,7 @@ def test_done_stream_already_responded_resends_the_last_row_then_done(app, clien
         f"/api/conversations/{responded_conversation.id}/stream",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
-    events = _parse_sse_events(response.content)
+    events = [e for e in _parse_sse_events(response.content) if e["event"] != "queue"]
     assert [(e["event"], e["data"].get("content")) for e in events] == [
         ("assistant", "Hello! How can I help?"),
         ("done", None),
@@ -276,7 +276,7 @@ def test_needs_response_false_returns_done(app, client):
         f"/api/conversations/{conv.id}/stream",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
-    events = _parse_sse_events(response.content)
+    events = [e for e in _parse_sse_events(response.content) if e["event"] != "queue"]
     assert [e["event"] for e in events] == ["assistant", "done"]
     assert events[0]["data"]["content"] == "Hi there"
 
@@ -473,7 +473,7 @@ def test_a_done_for_an_older_question_does_not_close_the_stream(app, client):
     t.join()
     events = _parse_sse_events(response.content)
 
-    assert [e["event"] for e in events if e["event"] != "heartbeat"] == ["user", "assistant", "done"]
+    assert [e["event"] for e in events if e["event"] not in ("heartbeat", "queue")] == ["user", "assistant", "done"]
     assert events[-1]["data"]["question_id"] == store.last_user_message_id(conv.id)
 
 
@@ -540,7 +540,7 @@ def test_a_resumed_stream_sends_the_rows_it_missed_at_once(app, client, conversa
     response = client.get(
         f"/api/conversations/{conversation.id}/stream?after={seen}", headers={"X-Forwarded-Email": "test@example.com"}
     )
-    events = [e for e in _parse_sse_events(response.content) if e["event"] != "heartbeat"]
+    events = [e for e in _parse_sse_events(response.content) if e["event"] not in ("heartbeat", "queue")]
 
     assert [(e["event"], e["data"].get("content")) for e in events] == [
         ("user", "Hello agent"),
@@ -572,3 +572,82 @@ def test_a_turn_ending_just_before_the_stream_subscribes_closes_it_at_once(app, 
 
     assert _parse_sse_events(response.content)[-1]["event"] == "done"
     assert time.monotonic() - started < 2
+
+
+def _end_turn(conv_id, flush, delay=0.3):
+    """Le runner qui clôt un tour : la file part dans un tour de plus, ou revient à la page."""
+
+    def _run():
+        time.sleep(delay)
+        import redis as sync_redis
+
+        from web import config
+        from web.database import store
+
+        r = sync_redis.from_url(config.REDIS_URL, decode_responses=True)
+        if store.end_turn(conv_id, flush=flush):
+            r.publish(f"autometa:conv:{conv_id}", "queue")
+            time.sleep(0.2)
+            store.add_message(conv_id, "assistant", "Réponse groupée")
+            store.end_turn(conv_id, flush=False)
+        question_id = store.last_user_message_id(conv_id)
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
+        r.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
+
+
+def _queued_stream(client, conv_id, *queued, flush, email="test@example.com"):
+    """Le flux d'un tour pendant lequel des messages attendaient, résumé en (événement, contenu)."""
+    from web.database import store
+
+    for text in queued:
+        store.queue_message(conv_id, text)
+    thread = _end_turn(conv_id, flush=flush)
+    response = client.get(f"/api/conversations/{conv_id}/stream", headers={"X-Forwarded-Email": email})
+    thread.join()
+    summary = {
+        "queue": lambda data: [e["content"] for e in data["queue"]],
+        "returned": lambda data: [e["content"] for e in data["returned"]],
+        "done": lambda data: None,
+    }
+    return [
+        (e["event"], summary.get(e["event"], lambda data: data["content"])(e["data"]))
+        for e in _parse_sse_events(response.content)
+        if e["event"] != "heartbeat"
+    ]
+
+
+def test_a_sent_queue_arrives_as_questions_in_the_same_stream(app, client, conversation):
+    events = _queued_stream(client, conversation.id, "q1", "q2", flush=True)
+
+    assert events == [
+        ("user", "Hello agent"),
+        ("queue", ["q1", "q2"]),
+        ("user", "q1"),
+        ("user", "q2"),
+        ("queue", []),
+        ("assistant", "Réponse groupée"),
+        ("done", None),
+    ]
+
+
+def test_a_returned_queue_arrives_before_the_end_of_the_turn(app, client, conversation):
+    events = _queued_stream(client, conversation.id, "q1", flush=False)
+
+    assert events == [
+        ("user", "Hello agent"),
+        ("queue", ["q1"]),
+        ("queue", []),
+        ("returned", ["q1"]),
+        ("done", None),
+    ]
+
+
+def test_a_reader_never_sees_the_queue(app, client, conversation):
+    events = _queued_stream(client, conversation.id, "q1", flush=False, email="reader@example.com")
+
+    assert events == [("user", "Hello agent"), ("done", None)]

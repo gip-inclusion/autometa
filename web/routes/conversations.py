@@ -16,7 +16,7 @@ from web import config, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
-from web.database import store
+from web.database import store, with_status
 from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
@@ -235,6 +235,8 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
         **conv.to_dict(),
         "is_running": conv.needs_response,
         "is_owner": is_owner,
+        "queue": with_status(conv.pending_messages, "waiting") if is_owner else [],
+        "returned": with_status(conv.pending_messages, "returned") if is_owner else [],
         "links": {
             "self": f"/api/conversations/{conv_id}",
             "messages": f"/api/conversations/{conv_id}/messages",
@@ -409,6 +411,23 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
 
     content = data["content"]
 
+    if data.get("queue") and conv.conv_type != "knowledge":
+        waiting = with_status(conv.pending_messages, "waiting")
+        # Why: les messages d'un groupe, sauf le dernier, passent par le rattrapage, plafonné à 30 000 caractères ;
+        # au-delà, le texte de l'utilisateur serait coupé sans qu'il le sache.
+        if sum(len(e["content"]) for e in waiting) + len(content) > 20_000:
+            return JSONResponse(
+                {
+                    "error": "Trop de messages en attente : attendez la fin de la réponse pour en ajouter.",
+                    "code": "queue_full",
+                },
+                status_code=409,
+            )
+        queue = store.queue_message(conv_id, content)
+        if queue is not None:
+            await runner.notify(conv_id, "queue")
+            return {"status": "queued", "queue": queue}
+
     is_first_message = len(conv.messages) == 0
     user_msg = store.start_turn(conv_id, content)
     if user_msg is None:
@@ -537,6 +556,8 @@ async def stream_conversation(
     if after == 0 and not conv.messages:
         return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
+    owner = can_mutate_conversation(conv, user_email)
+
     def _sse_event(msg_type: str, data: dict) -> str:
         return f"event: {msg_type}\ndata: {json.dumps(data)}\n\n"
 
@@ -575,17 +596,38 @@ async def stream_conversation(
                 last_msg_id, last_content = rows[-1].id, rows[-1].content
             return [_format_msg(m) for m in rows]
 
+        shown_queue: list[str] | None = None
+        shown_returned: set[str] = set()
+
+        async def queue_changes() -> list[str]:
+            """La file et les messages rendus, s'ils ont changé depuis le dernier envoi : la page s'en redessine."""
+            nonlocal shown_queue
+            pending = await asyncio.to_thread(store.pending_messages, conv_id)
+            waiting = with_status(pending, "waiting")
+            returned = [e for e in with_status(pending, "returned") if e["id"] not in shown_returned]
+            chunks = []
+            if [e["id"] for e in waiting] != shown_queue:
+                shown_queue = [e["id"] for e in waiting]
+                chunks.append(_sse_event("queue", {"queue": waiting}))
+            if returned:
+                shown_returned.update(e["id"] for e in returned)
+                chunks.append(_sse_event("returned", {"returned": returned}))
+            return chunks
+
         # Why: s'abonner avant de vérifier la fin du tour — un tour fini entre les deux n'enverrait son signal à
         # personne, et le flux ne le verrait qu'au sondage suivant.
         pubsub = await runner.subscribe(conv_id)
         try:
             ended = await runner.is_done(conv_id, question_id) or not conv.needs_response
-            check = True
+            check = queue_due = True
             while True:
                 # Why: lire les lignes après avoir appris la fin du tour — le runner les écrit avant de la signaler.
                 if check:
                     for chunk in await fresh():
                         yield chunk
+                    if owner and queue_due:
+                        for chunk in await queue_changes():
+                            yield chunk
                     if ended:
                         yield done
                         return
@@ -595,6 +637,9 @@ async def stream_conversation(
 
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
                 check = bool(msg) or time.monotonic() - last_fallback >= fallback_interval
+                # Why: les mises à jour de réponse arrivent par dizaines par tour ; seuls les autres signaux et le
+                # sondage de secours relisent la file.
+                queue_due = not msg or msg["data"] != "update"
                 if msg:
                     ended = msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id
                 else:
@@ -626,7 +671,34 @@ async def cancel_conversation(conv_id: str, user_email: str = Depends(get_curren
         return {"status": "not_running"}
 
     await runner.cancel(conv_id)
-    return {"status": "cancelled"}
+    return {"status": "cancelled", "returned": with_status(store.pending_messages(conv_id), "returned")}
+
+
+@router.delete("/{conv_id}/queue/{entry_id}")
+async def take_queued_message(conv_id: str, entry_id: str, user_email: str = Depends(get_current_user)):
+    """Retire un message de la file et rend son texte, pour la barre de saisie."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    content = store.take_queued(conv_id, entry_id)
+    if content is None:
+        return JSONResponse({"error": "Ce message est déjà parti.", "code": "already_sent"}, status_code=409)
+    await runner.notify(conv_id, "queue")
+    return {"content": content}
+
+
+@router.post("/{conv_id}/queue/returned/ack")
+async def ack_returned_messages(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    """Oublie les messages rendus que la page a remis dans la barre de saisie."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    if not can_mutate_conversation(conv, user_email):
+        return JSONResponse({"error": "Permission denied"}, status_code=403)
+    store.ack_returned(conv_id, (await request.json()).get("ids", []))
+    return {"status": "ok"}
 
 
 @router.get("/{conv_id}/tags")
