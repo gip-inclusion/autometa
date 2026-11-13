@@ -9,6 +9,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from web import config  # noqa: E402
 from web.database import ConversationStore  # noqa: E402
 
 
@@ -18,32 +19,31 @@ def save_report(
     website: str = None,
     category: str = None,
     original_query: str = None,
-    source_conversation_id: str = None,
     tags: list[str] = None,
 ) -> dict:
+    """Crée le rapport au nom de l'utilisateur de la conversation en cours, et l'y rattache."""
     store = ConversationStore()
+    conversation_id = config.agent_conversation_id()
 
-    # Create report with content stored directly
     report = store.create_report(
         title=title,
         content=content,
         website=website,
         category=category,
         original_query=original_query,
-        source_conversation_id=source_conversation_id,
+        source_conversation_id=conversation_id,
+        user_id=config.agent_user_email(),
     )
 
-    # Set tags if provided
     if tags:
         store.set_report_tags(report.id, tags, update_timestamp=False)
 
-    # Add link message to source conversation if provided
-    if source_conversation_id:
-        store.add_message(source_conversation_id, "report", json.dumps({"report_id": report.id, "title": report.title}))
+    if conversation_id:
+        store.add_message(conversation_id, "report", json.dumps({"report_id": report.id, "title": report.title}))
 
     return {
         "report_id": report.id,
-        "source_conversation_id": source_conversation_id,
+        "source_conversation_id": conversation_id,
     }
 
 
@@ -81,27 +81,6 @@ def update_report(
     }
 
 
-def append_report(
-    conversation_id: str,
-    title: str,
-    content: str,
-    website: str = None,
-    category: str = None,
-    original_query: str = None,
-    tags: list[str] = None,
-) -> dict:
-    # Just delegate to save_report with source_conversation_id
-    return save_report(
-        title=title,
-        content=content,
-        website=website,
-        category=category,
-        original_query=original_query,
-        source_conversation_id=conversation_id,
-        tags=tags,
-    )
-
-
 def list_reports(website: str = None, category: str = None, limit: int = 20) -> list:
     store = ConversationStore()
     reports = store.list_reports(website=website, category=category, limit=limit)
@@ -130,7 +109,6 @@ if __name__ == "__main__":
         "--tags", help="Comma-separated tags, all from the synced vocabulary (e.g. 'explo,emplois,trafic')"
     )
     parser.add_argument("--report-id", "-r", type=int, help="Report ID to update (for updates)")
-    parser.add_argument("--conversation-id", help="Source conversation ID to link report to")
     parser.add_argument("--list", "-l", action="store_true", help="List recent reports")
 
     args = parser.parse_args()
@@ -166,23 +144,7 @@ if __name__ == "__main__":
         )
         print(f"Updated report {result['report_id']} to version {result['version']}")
 
-    elif args.conversation_id:
-        # Create report linked to conversation
-        if not args.title:
-            parser.error("--title is required when linking to conversation")
-        result = append_report(
-            conversation_id=args.conversation_id,
-            title=args.title,
-            content=content,
-            website=args.website,
-            category=args.category,
-            original_query=args.query,
-            tags=tags,
-        )
-        print(f"Created report {result['report_id']} linked to conversation {result['source_conversation_id']}")
-
     else:
-        # Create new standalone report
         if not args.title:
             parser.error("--title is required for new reports")
         result = save_report(

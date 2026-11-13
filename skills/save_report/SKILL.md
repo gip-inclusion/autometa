@@ -7,7 +7,7 @@ description: Save or update a report in the database (project)
 
 > Avant d'écrire : relire chaque chiffre contre les sorties d'outil, et poser la question si la cible est ambiguë (`AGENT.md`, « Chiffres et affirmations »).
 
-Create, update, or append reports to the PostgreSQL database.
+Create or update reports in the PostgreSQL database.
 
 ## Recommended: CLI with File (avoids escaping issues)
 
@@ -38,13 +38,6 @@ python skills/save_report/scripts/save_report.py \
     --category "Traffic analysis" \
     --tags "explo,emplois,trafic"
 
-# Append to conversation (ALWAYS include --tags)
-python skills/save_report/scripts/save_report.py \
-    --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
-    --conversation-id "uuid-here" \
-    --title "Follow-up analysis" \
-    --tags "explo,emplois,prescripteurs"
-
 # Update existing report
 python skills/save_report/scripts/save_report.py \
     --file /tmp/$AUTOMETA_CONVERSATION_ID/report.md \
@@ -53,6 +46,8 @@ python skills/save_report/scripts/save_report.py \
 # List recent reports
 python skills/save_report/scripts/save_report.py --list
 ```
+
+Un nouveau rapport est enregistré au nom de l'utilisateur et rattaché à la conversation en cours, d'après l'environnement : jamais à une conversation citée par lien.
 
 ## CLI Options
 
@@ -65,7 +60,6 @@ python skills/save_report/scripts/save_report.py --list
 | `--query` | `-q` | Original user query |
 | `--tags` | | **REQUIRED** Comma-separated tags, all from the synced vocabulary (see § Tags) |
 | `--report-id` | `-r` | Report ID to update |
-| `--conversation-id` | | Conversation ID to append to |
 | `--list` | `-l` | List recent reports |
 
 ## Tags (REQUIRED)
