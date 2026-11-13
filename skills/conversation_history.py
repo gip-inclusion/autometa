@@ -30,7 +30,8 @@ def main() -> None:
             print(f"Error: conversation not found: {args.show}", file=sys.stderr)
             sys.exit(1)
         print(f"# {conversation.title or 'Sans titre'} ({conversation.user_id})")
-        for message in conversation.messages:
+        # Why: les appels d'outils et leurs sorties noieraient les échanges, que l'agent tronque au-delà d'une taille.
+        for message in (m for m in conversation.messages if m.type in ("user", "assistant", "report")):
             print(f"\n--- {message.type} {message.created_at:%Y-%m-%d %H:%M}\n{message.content}")
         return
 

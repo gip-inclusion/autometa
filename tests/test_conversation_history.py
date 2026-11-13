@@ -72,6 +72,18 @@ def test_show_reads_a_conversation_cited_by_its_link(monkeypatch, capsys):
     assert "Taux d'orientation" in out
 
 
+def test_show_leaves_out_tool_calls_and_their_output(monkeypatch, capsys):
+    cited = conversation(BOB, "Combien de candidatures ?")
+    store.add_message(cited.id, "tool_result", '{"output": "1 024 lignes brutes"}')
+    store.add_message(cited.id, "assistant", "12 000 candidatures.")
+
+    run(monkeypatch, "--show", cited.id)
+
+    out = capsys.readouterr().out
+    assert "12 000 candidatures." in out
+    assert "lignes brutes" not in out
+
+
 def test_show_refuses_an_id_prefix(monkeypatch, capsys):
     cited = conversation(BOB, "Taux d'orientation")
 
