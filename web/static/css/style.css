@@ -429,6 +429,12 @@ body.has-sidebar {
   background: rgba(0, 0, 145, 0.1);
 }
 
+.chat-upload-btn:disabled {
+  color: var(--bs-gray-400);
+  background: transparent;
+  cursor: not-allowed;
+}
+
 .chat-bar[data-upload-disabled] .chat-upload-btn {
   display: none;
 }
@@ -870,6 +876,49 @@ body.has-sidebar {
 .file-context-size {
   color: var(--bs-gray-500);
   font-size: 0.75rem;
+}
+
+/* Waiting messages: below the answer being written, outside the transcript */
+.chat-output.chat-queue {
+  padding-top: 1.25rem;
+}
+
+.chat-output:has(+ .chat-queue:not(:empty)) {
+  padding-bottom: 0;
+}
+
+.chat-queue:empty {
+  display: none;
+}
+
+.event-queued {
+  position: relative;
+  padding-right: 2.5rem;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.event-queued:hover {
+  opacity: 0.8;
+}
+
+.event-queued::before {
+  content: "En attente";
+}
+
+.queued-remove {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0 0.25rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--bs-gray-700);
+}
+
+.queued-remove:hover {
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .event-user .user-text > :first-child {

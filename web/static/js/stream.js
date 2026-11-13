@@ -1,6 +1,7 @@
 /**
  * SSE streaming, conversation management, composer state, and loading UI.
  * Depends on: utils.js (autoGrow, isAtBottom, scrollToBottom)
+ *             queue.js (queueMessage, renderQueue, takeReturned)
  *             actions.js (streamingBlock, lastSeenId, resetActionsState,
  *                         removeProgressIndicator, markFinalAnswer,
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
@@ -84,6 +85,13 @@ async function sendMessage() {
   const input = document.getElementById('chatInput');
   const message = input.value.trim();
   const hasFiles = pendingFiles.length > 0;
+
+  if (canQueue()) {
+    if (!message) return input.focus();
+    input.value = '';
+    autoGrow(input);
+    return queueMessage(currentConversationId, message);
+  }
 
   if (!canSend()) return;
 
@@ -175,6 +183,8 @@ async function sendToAgent(message, { bubble, draft } = {}) {
       if (data.code === 'conversation_running') {
         bubble?.remove();
         if (draft) appendToComposer(draft);
+        // Why: a turn started elsewhere (another tab) — follow it, so this page can stop it or send later.
+        startStream();
       }
       showError(data.error || "Erreur lors de l'envoi");
     }
@@ -239,6 +249,17 @@ function startStream() {
       }
       appendEvent(type, data);
     });
+  });
+
+  eventSource.addEventListener('queue', (e) => renderQueue(JSON.parse(e.data).queue));
+  eventSource.addEventListener('returned', (e) => takeReturned(eventSourceConversationId, JSON.parse(e.data).returned));
+
+  // Why: messages that waited for the end of a turn arrive as questions; the answer before them is complete.
+  eventSource.addEventListener('user', (e) => {
+    const data = JSON.parse(e.data);
+    if (!appendEvent('user', data)) return;
+    markFinalAnswer();
+    lastUserMessage = data.content;
   });
 
   // Why: the server rotates the stream every few minutes while the agent keeps working.
@@ -366,8 +387,10 @@ async function cancelStream() {
 
   setTurnState('cancelling');
 
+  let returned = [];
   try {
-    await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
+    const response = await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
+    returned = (await response.json()).returned ?? [];
   } catch (error) {
     console.error('Failed to cancel:', error);
   }
@@ -377,6 +400,8 @@ async function cancelStream() {
   closeEventSource();
   setTurnState('idle');
   appendEvent('error', { content: "Annulé par l'utilisateur" });
+  renderQueue([]);
+  takeReturned(convId, returned);
 }
 
 /**
@@ -417,14 +442,27 @@ function canSend() {
   return turnState === 'idle' && !sending;
 }
 
+function canQueue() {
+  return turnState === 'running' && !sending;
+}
+
 /**
- * The only place that touches the send and stop buttons
+ * The only place that touches the send, upload and stop buttons
  */
 function renderComposer() {
   const sendBtn = document.getElementById('chatSendBtn');
+  const uploadBtn = document.getElementById('chatUploadBtn');
   const cancelBtn = document.getElementById('chatCancelBtn');
+  const later = turnState !== 'idle';
 
-  if (sendBtn) sendBtn.disabled = !canSend();
+  if (sendBtn) {
+    sendBtn.disabled = !(canSend() || canQueue());
+    sendBtn.title = later ? 'Envoyer plus tard' : 'Envoyer';
+    sendBtn.setAttribute('aria-label', sendBtn.title);
+    sendBtn.querySelector('i').className = later ? 'ri-chat-history-line' : 'ri-send-plane-fill';
+  }
+  // Why: a queued message carries text only — a file attached now would be sent with nothing.
+  if (uploadBtn) uploadBtn.disabled = later;
   if (cancelBtn) {
     cancelBtn.classList.toggle('d-none', turnState === 'idle');
     cancelBtn.disabled = turnState === 'cancelling';
@@ -722,6 +760,8 @@ async function loadConversation(convId) {
       streamingBlock = null;
     }
     if (load !== loadSequence) return;
+    renderQueue(conv.queue);
+    takeReturned(conv.id, conv.returned);
 
     // Update URL without reload (preserve hash if present)
     const hash = window.location.hash;
