@@ -260,13 +260,15 @@
             ></textarea>
           </div>
         </div>
-        {% include "_flag_button.html" %}
-        <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
-          <i class="ri-send-plane-fill"></i>
-        </button>
-        <button type="button" class="chat-cancel-btn" id="chatCancelBtn" title="Annuler" style="display: none;">
-          <i class="ri-stop-fill"></i>
-        </button>
+        <div class="chat-bar-actions">
+          {% include "_flag_button.html" %}
+          <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
+            <i class="ri-send-plane-fill"></i>
+          </button>
+          <button type="button" class="chat-cancel-btn d-none" id="chatCancelBtn" title="Annuler">
+            <i class="ri-stop-fill"></i>
+          </button>
+        </div>
       </div>
       {% endif %}
     </div>

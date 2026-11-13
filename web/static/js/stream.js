@@ -1,5 +1,5 @@
 /**
- * SSE streaming, conversation management, and loading UI.
+ * SSE streaming, conversation management, composer state, and loading UI.
  * Depends on: utils.js (autoGrow, isAtBottom, scrollToBottom)
  *             actions.js (streamingBlock, lastSeenId, resetActionsState,
  *                         removeProgressIndicator, markFinalAnswer,
@@ -67,6 +67,8 @@ let retryCount = 0;
 let lastUserMessage = null;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+let turnState = 'idle'; // idle | running | cancelling
+let sending = false; // This tab is uploading files or posting a message
 
 // Track which conversation has the sidebar spinner active
 let _sidebarSpinnerConvId = null;
@@ -83,52 +85,43 @@ async function sendMessage() {
   const message = input.value.trim();
   const hasFiles = pendingFiles.length > 0;
 
+  if (!canSend()) return;
+
   if (!message && !hasFiles) {
     input.focus();
     return;
   }
 
-  // Create conversation if needed
   if (!currentConversationId) {
+    setSending(true);
     try {
       const response = await fetch('/api/conversations', { method: 'POST' });
       const data = await response.json();
       currentConversationId = data.id;
 
-      // If we have pending files, we need to upload them first, then redirect
-      if (hasFiles) {
-        // Upload files to the new conversation
-        const fileContexts = await uploadPendingFiles();
-        const fullMessage = buildMessageWithFiles(message, fileContexts);
-
-        // Redirect with the full message
-        window.location.href = `/explorations/${currentConversationId}?message=${encodeURIComponent(fullMessage)}`;
-      } else {
-        // Redirect to conversation page (refreshes sidebar with new conversation)
-        window.location.href = `/explorations/${currentConversationId}?message=${encodeURIComponent(message)}`;
-      }
-      return;
+      const fullMessage = buildMessageWithFiles(message, await uploadPendingFiles(data.id));
+      // Redirect to conversation page (refreshes sidebar with new conversation)
+      window.location.href = `/explorations/${data.id}?message=${encodeURIComponent(fullMessage)}`;
     } catch (error) {
       console.error('Failed to create conversation:', error);
       showError('Impossible de créer la conversation');
-      return;
+      setSending(false);
     }
+    return;
   }
 
-  // Clear input
+  const convId = currentConversationId;
+
   input.value = '';
   autoGrow(input);
 
-  // Hide empty state
   hideEmptyState();
 
-  // Upload pending files first (if any)
   let fullMessage = message;
   if (hasFiles) {
-    setStreamingState(true); // Show loading during upload
-    const fileContexts = await uploadPendingFiles();
-    fullMessage = buildMessageWithFiles(message, fileContexts);
-    setStreamingState(false);
+    setSending(true);
+    fullMessage = buildMessageWithFiles(message, await uploadPendingFiles(convId));
+    if (currentConversationId !== convId) return;
   }
 
   const bubble = appendEvent('user', { content: fullMessage });
@@ -159,35 +152,38 @@ function buildMessageWithFiles(userMessage, fileContexts) {
  * Send message to agent API and start streaming
  */
 async function sendToAgent(message, { bubble, draft } = {}) {
+  const convId = currentConversationId;
+  setSending(true);
+
   try {
-    const response = await fetch(`/api/conversations/${currentConversationId}/messages`, {
+    const response = await fetch(`/api/conversations/${convId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: message }),
     });
 
     const data = await response.json();
+    if (currentConversationId !== convId) return;
 
-    if (!response.ok) {
-      if (response.status === 404) {
-        await recover({ createNew: true });
-        return;
-      }
+    if (response.ok) {
+      lastSeenId = data.after_id;
+      if (bubble) bubble.dataset.msgId = data.after_id;
+      startStream();
+    } else if (response.status === 404) {
+      await recover({ createNew: true });
+    } else {
       if (data.code === 'conversation_running') {
         bubble?.remove();
         if (draft) appendToComposer(draft);
       }
       showError(data.error || "Erreur lors de l'envoi");
-      return;
     }
-
-    lastSeenId = data.after_id;
-    if (bubble) bubble.dataset.msgId = data.after_id;
-    startStream();
   } catch (error) {
     console.error('Failed to send message:', error);
-    showError('Erreur de connexion');
+    if (currentConversationId === convId) showError('Erreur de connexion');
   }
+
+  setSending(false);
 }
 
 // =============================================================================
@@ -220,7 +216,7 @@ function startStream() {
 
   closeEventSource();
 
-  setStreamingState(true);
+  setTurnState('running');
 
   showLoading();
 
@@ -256,9 +252,7 @@ function startStream() {
   // Completion — server sends this when agent finishes (needs_response cleared)
   eventSource.addEventListener('done', () => {
     closeEventSource();
-    setStreamingState(false);
-    hideLoading();
-    removeProgressIndicator();
+    setTurnState('idle');
 
     markFinalAnswer();
 
@@ -277,9 +271,7 @@ function startStream() {
     closeEventSource();
 
     if (retryCount >= MAX_RETRIES) {
-      setStreamingState(false);
-      hideLoading();
-      removeProgressIndicator();
+      setTurnState('idle');
       appendRecoveryMessage();
       return;
     }
@@ -287,7 +279,7 @@ function startStream() {
     retryCount++;
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
 
-    if (currentConversationId === convId) startStream();
+    if (currentConversationId === convId && turnState === 'running') startStream();
   };
 }
 
@@ -362,8 +354,6 @@ async function recover({ createNew = false } = {}) {
   }
 
   retryCount = 0;
-  setStreamingState(true);
-  showLoading();
   await sendToAgent(lastUserMessage);
 }
 
@@ -371,22 +361,21 @@ async function recover({ createNew = false } = {}) {
  * Cancel the current stream
  */
 async function cancelStream() {
-  if (!currentConversationId) return;
+  const convId = currentConversationId;
+  if (!convId) return;
+
+  setTurnState('cancelling');
 
   try {
-    await fetch(`/api/conversations/${currentConversationId}/cancel`, { method: 'POST' });
+    await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
   } catch (error) {
     console.error('Failed to cancel:', error);
   }
 
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
-  }
+  if (currentConversationId !== convId) return;
 
-  setStreamingState(false);
-  hideLoading();
-  removeProgressIndicator();
+  closeEventSource();
+  setTurnState('idle');
   appendEvent('error', { content: "Annulé par l'utilisateur" });
 }
 
@@ -424,31 +413,46 @@ async function killAgent(convId, alertElement, cardElement) {
 // Streaming UI state
 // =============================================================================
 
+function canSend() {
+  return turnState === 'idle' && !sending;
+}
+
 /**
- * Show/hide streaming state (send/cancel buttons, input, sidebar spinner)
+ * The only place that touches the send and stop buttons
  */
-function setStreamingState(streaming) {
+function renderComposer() {
   const sendBtn = document.getElementById('chatSendBtn');
   const cancelBtn = document.getElementById('chatCancelBtn');
-  const input = document.getElementById('chatInput');
 
-  if (sendBtn) sendBtn.style.display = streaming ? 'none' : 'flex';
-  if (cancelBtn) cancelBtn.style.display = streaming ? 'flex' : 'none';
-  if (input) input.disabled = streaming;
+  if (sendBtn) sendBtn.disabled = !canSend();
+  if (cancelBtn) {
+    cancelBtn.classList.toggle('d-none', turnState === 'idle');
+    cancelBtn.disabled = turnState === 'cancelling';
+  }
+}
 
-  // Manage sidebar spinner
-  if (streaming && currentConversationId) {
-    setSidebarSpinner(currentConversationId, true);
-  } else if (!streaming) {
+function setSending(value) {
+  sending = value;
+  renderComposer();
+}
+
+function setTurnState(state) {
+  turnState = state;
+
+  if (state === 'idle') {
     setSidebarSpinner(_sidebarSpinnerConvId, false);
+    hideLoading();
+    removeProgressIndicator();
+    if (streamingBlock) {
+      renderMermaid(streamingBlock);
+      renderOptions(streamingBlock);
+      streamingBlock = null;
+    }
+  } else if (currentConversationId) {
+    setSidebarSpinner(currentConversationId, true);
   }
 
-  // Finalize streaming block when streaming ends
-  if (!streaming && streamingBlock) {
-    renderMermaid(streamingBlock);
-    renderOptions(streamingBlock);
-    streamingBlock = null;
-  }
+  renderComposer();
 }
 
 /**

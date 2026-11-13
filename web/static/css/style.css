@@ -560,6 +560,23 @@ body.has-sidebar {
   background: #c82333;
 }
 
+.chat-bar-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.chat-send-btn:disabled {
+  background: #adb5bd;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.chat-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 /* Pending files: top section of the rounded rect */
 .chat-pending-files {
   display: none;
@@ -1355,6 +1372,21 @@ body.has-sidebar {
   .chat-input {
     padding: 0.75rem 1rem;
     font-size: 0.875rem;
+  }
+
+  .chat-bar:not(.chat-bar-readonly) {
+    align-items: flex-end;
+  }
+
+  .chat-bar-actions {
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .chat-bar-actions .chat-flag-btn {
+    width: 38px;
+    height: 38px;
+    margin-right: 0;
   }
 
   .chat-send-btn,
