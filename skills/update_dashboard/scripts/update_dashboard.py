@@ -85,6 +85,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.show and any(
+        value not in (None, False, []) for key, value in vars(args).items() if key not in ("slug", "show")
+    ):
+        parser.error("--show only reads: drop the other options")
+
     if args.show:
         dashboard = store.get_dashboard(args.slug)
         if dashboard is None:

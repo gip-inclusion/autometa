@@ -299,3 +299,15 @@ def test_show_of_an_unknown_dashboard_exits_1(monkeypatch, mocker, capsys):
 
     assert exc.value.code == 1
     assert "nope" in capsys.readouterr().err
+
+
+def test_show_refuses_to_be_combined_with_a_change(monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    update = mocker.patch.object(cli, "update_dashboard")
+    mocker.patch.object(cli, "store")
+
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "tdb", "--show", "--archive"], monkeypatch)
+
+    assert exc.value.code == 2
+    update.assert_not_called()
