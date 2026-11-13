@@ -105,14 +105,17 @@ def test_check_metabase_instance_sends_the_configured_basic_auth(mocker):
     assert get.call_args.kwargs["auth"] == ("u", "p")
 
 
-def test_check_matomo_returns_the_version(mocker):
-    mocker.patch.object(httpx, "get", return_value=fake_response(200, {"value": "5.8.0"}))
+def test_check_matomo_returns_the_version_and_keeps_the_token_out_of_the_url(mocker):
+    post = mocker.patch.object(httpx, "post", return_value=fake_response(200, {"value": "5.8.0"}))
+
     assert check_matomo() == (True, "v5.8.0")
+    assert "token_auth" not in post.call_args.kwargs["params"]
+    assert "token_auth" in post.call_args.kwargs["data"]
 
 
 def test_check_matomo_raises_on_http_error_so_the_caller_redacts_it(mocker):
-    """La sonde laisse remonter l'exception httpx — dont l'URL porte le jeton, d'où la rédaction en amont."""
-    mocker.patch.object(httpx, "get", return_value=fake_response(500))
+    """La sonde laisse remonter l'exception httpx ; l'appelant la rédige avant de l'afficher."""
+    mocker.patch.object(httpx, "post", return_value=fake_response(500))
     with pytest.raises(httpx.HTTPStatusError):
         check_matomo()
 

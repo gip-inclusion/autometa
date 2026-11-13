@@ -17,6 +17,7 @@ from web.stores.records import (
     Tag,
     UploadedFile,
     build_update_clause,
+    with_status,
 )
 from web.stores.reports import ReportsMixin
 from web.stores.tags import TagsMixin
@@ -36,6 +37,7 @@ __all__ = [
     "build_update_clause",
     "get_db",
     "store",
+    "with_status",
 ]
 
 
