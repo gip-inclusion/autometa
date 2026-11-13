@@ -31,6 +31,7 @@ from . import alerts, config, publications, s3
 from .database import get_db
 from .log import setup_logging
 from .models import CronBatchRun, CronRun, CronTaskState, Dashboard, DashboardPublication, FacadeAuditState
+from .redaction import redact
 
 logger = logging.getLogger(__name__)
 
@@ -828,7 +829,7 @@ def notify_cron_status_change(
 
     if broke:
         message = f":red_circle: *Cron en échec : {slug}* ({status})"
-        snippet = (error or "").strip()[-500:].replace("```", "ʼʼʼ")
+        snippet = redact((error or "").strip())[-500:].replace("```", "ʼʼʼ")
         if snippet:
             message += f"\n```{snippet}```"
     else:
@@ -881,7 +882,7 @@ def record_run(result: dict, trigger: str, run_id: int | None = None, batch_run_
     fields = {
         "finished_at": result["finished_at"],
         "status": result["status"],
-        "output": result["output"],
+        "output": redact(result["output"]) if result["output"] else result["output"],
         "duration_ms": result["duration_ms"],
     }
     try:

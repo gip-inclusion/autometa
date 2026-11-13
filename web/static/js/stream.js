@@ -1,13 +1,14 @@
 /**
- * SSE streaming, conversation management, and loading UI.
+ * SSE streaming, conversation management, composer state, and loading UI.
  * Depends on: utils.js (autoGrow, isAtBottom, scrollToBottom)
- *             actions.js (streamingBlock, streamingText, resetActionsState,
+ *             actions.js (streamingBlock, lastSeenId, resetActionsState,
  *                         removeProgressIndicator, markFinalAnswer,
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
  */
 
 let currentConversationId = null;
+let loadSequence = 0; // Latest loadConversation call, so an older one finishing late is dropped
 
 /**
  * Validate that a conversation ID is a valid UUID to prevent URL manipulation.
@@ -66,6 +67,8 @@ let retryCount = 0;
 let lastUserMessage = null;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+let turnState = 'idle'; // idle | running | cancelling
+let sending = false; // This tab is uploading files or posting a message
 
 // Track which conversation has the sidebar spinner active
 let _sidebarSpinnerConvId = null;
@@ -82,63 +85,51 @@ async function sendMessage() {
   const message = input.value.trim();
   const hasFiles = pendingFiles.length > 0;
 
+  if (!canSend()) return;
+
   if (!message && !hasFiles) {
     input.focus();
     return;
   }
 
-  // Create conversation if needed
   if (!currentConversationId) {
+    setSending(true);
     try {
       const response = await fetch('/api/conversations', { method: 'POST' });
       const data = await response.json();
       currentConversationId = data.id;
 
-      // If we have pending files, we need to upload them first, then redirect
-      if (hasFiles) {
-        // Upload files to the new conversation
-        const fileContexts = await uploadPendingFiles();
-        const fullMessage = buildMessageWithFiles(message, fileContexts);
-
-        // Redirect with the full message
-        window.location.href = `/explorations/${currentConversationId}?message=${encodeURIComponent(fullMessage)}`;
-      } else {
-        // Redirect to conversation page (refreshes sidebar with new conversation)
-        window.location.href = `/explorations/${currentConversationId}?message=${encodeURIComponent(message)}`;
-      }
-      return;
+      const fullMessage = buildMessageWithFiles(message, await uploadPendingFiles(data.id));
+      // Redirect to conversation page (refreshes sidebar with new conversation)
+      window.location.href = `/explorations/${data.id}?message=${encodeURIComponent(fullMessage)}`;
     } catch (error) {
       console.error('Failed to create conversation:', error);
       showError('Impossible de créer la conversation');
-      return;
+      setSending(false);
     }
+    return;
   }
 
-  // Clear input
+  const convId = currentConversationId;
+
   input.value = '';
   autoGrow(input);
 
-  // Hide empty state
   hideEmptyState();
 
-  // Upload pending files first (if any)
   let fullMessage = message;
   if (hasFiles) {
-    setStreamingState(true); // Show loading during upload
-    const fileContexts = await uploadPendingFiles();
-    fullMessage = buildMessageWithFiles(message, fileContexts);
-    setStreamingState(false);
+    setSending(true);
+    fullMessage = buildMessageWithFiles(message, await uploadPendingFiles(convId));
+    if (currentConversationId !== convId) return;
   }
 
-  // Show user message (with file info if any)
-  appendEvent('user', { content: fullMessage });
+  const bubble = appendEvent('user', { content: fullMessage });
 
-  // Save message for potential retry
   lastUserMessage = fullMessage;
   retryCount = 0;
 
-  // Send message to API
-  await sendToAgent(fullMessage);
+  await sendToAgent(fullMessage, { bubble, draft: message });
 }
 
 /**
@@ -160,31 +151,39 @@ function buildMessageWithFiles(userMessage, fileContexts) {
 /**
  * Send message to agent API and start streaming
  */
-async function sendToAgent(message) {
+async function sendToAgent(message, { bubble, draft } = {}) {
+  const convId = currentConversationId;
+  setSending(true);
+
   try {
-    const response = await fetch(`/api/conversations/${currentConversationId}/messages`, {
+    const response = await fetch(`/api/conversations/${convId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: message }),
     });
 
     const data = await response.json();
+    if (currentConversationId !== convId) return;
 
-    if (!response.ok) {
-      if (response.status === 404) {
-        await recover({ createNew: true });
-        return;
+    if (response.ok) {
+      lastSeenId = data.after_id;
+      if (bubble) bubble.dataset.msgId = data.after_id;
+      startStream();
+    } else if (response.status === 404) {
+      await recover({ createNew: true });
+    } else {
+      if (data.code === 'conversation_running') {
+        bubble?.remove();
+        if (draft) appendToComposer(draft);
       }
       showError(data.error || "Erreur lors de l'envoi");
-      return;
     }
-
-    // Start streaming from after the user message we just sent
-    startStream(data.after_id || 0);
   } catch (error) {
     console.error('Failed to send message:', error);
-    showError('Erreur de connexion');
+    if (currentConversationId === convId) showError('Erreur de connexion');
   }
+
+  setSending(false);
 }
 
 // =============================================================================
@@ -203,13 +202,6 @@ function closeEventSource() {
 }
 
 /**
- * Return the ID of the last message the client already has from a conv payload.
- */
-function lastLoadedMsgId(conv) {
-  return conv?.messages?.length ? conv.messages[conv.messages.length - 1].id : 0;
-}
-
-/**
  * Notify the user (tab badge + sound) that a run has finished. No-op until notify.js loads.
  */
 function signalRunFinished() {
@@ -217,22 +209,20 @@ function signalRunFinished() {
 }
 
 /**
- * Start SSE streaming for the current conversation
+ * Start or resume SSE streaming for the current conversation, from the last message seen
  */
-function startStream(afterMsgId = 0) {
+function startStream() {
   if (!currentConversationId) return;
 
-  // Close any existing connection first
   closeEventSource();
 
-  setStreamingState(true);
+  setTurnState('running');
 
-  // Show loading indicator
   showLoading();
 
-  // Connect to SSE endpoint (after= tells server where client left off)
-  const afterParam = afterMsgId ? `?after=${afterMsgId}` : '';
-  eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream${afterParam}`);
+  // Why: the server re-sends the message named by `after` first, so a reconnect also catches its text
+  // rewritten in place; after=0 means "from the latest stored row".
+  eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream?after=${lastSeenId}`);
   eventSourceConversationId = currentConversationId;
 
   // Content events — reset retry counter (agent is alive and producing output)
@@ -251,17 +241,8 @@ function startStream(afterMsgId = 0) {
     });
   });
 
-  // Server error events — display but do NOT reset retryCount
-  // (resetting would prevent onerror from ever reaching MAX_RETRIES).
-  // Not a run end: this fires on the server's inactivity timeout before the
-  // browser reconnects (conversations.py: "Timeout waiting for agent"), while the
-  // agent keeps working. Real agent errors are stored as an assistant message and
-  // end via the `done` handler below — so only `done` notifies (DOD-5).
-  eventSource.addEventListener('error', (e) => {
-    const data = JSON.parse(e.data);
-    appendEvent('error', data);
-    hideLoading();
-  });
+  // Why: the server rotates the stream every few minutes while the agent keeps working.
+  eventSource.addEventListener('timeout', () => startStream());
 
   // Server heartbeat — resets retry counter during quiet periods (long tool calls)
   eventSource.addEventListener('heartbeat', () => {
@@ -269,18 +250,9 @@ function startStream(afterMsgId = 0) {
   });
 
   // Completion — server sends this when agent finishes (needs_response cleared)
-  eventSource.addEventListener('done', async (e) => {
-    eventSource.close();
-    eventSource = null;
-    eventSourceConversationId = null;
-    setStreamingState(false);
-    hideLoading();
-    removeProgressIndicator();
-
-    // Reload if we reconnected mid-stream (may have missed events)
-    if (retryCount > 0 && currentConversationId) {
-      await loadConversation(currentConversationId, { autoStream: false });
-    }
+  eventSource.addEventListener('done', () => {
+    closeEventSource();
+    setTurnState('idle');
 
     markFinalAnswer();
 
@@ -292,16 +264,14 @@ function startStream(afterMsgId = 0) {
     showRepublishAlert(currentConversationId);
   });
 
-  // Connection lost — just reconnect. The server handles liveness logic.
+  // Connection lost — resume from the last message seen. The server answers `done` at once
+  // when the run ended meanwhile.
   eventSource.onerror = async () => {
-    eventSource.close();
-    eventSource = null;
-    eventSourceConversationId = null;
+    const convId = currentConversationId;
+    closeEventSource();
 
     if (retryCount >= MAX_RETRIES) {
-      setStreamingState(false);
-      hideLoading();
-      removeProgressIndicator();
+      setTurnState('idle');
       appendRecoveryMessage();
       return;
     }
@@ -309,23 +279,7 @@ function startStream(afterMsgId = 0) {
     retryCount++;
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
 
-    // Reload conversation to catch missed messages, then reconnect if still running
-    const reloaded = await loadConversation(currentConversationId, { autoStream: false });
-    if (reloaded?.is_running) {
-      startStream(lastLoadedMsgId(reloaded));
-    } else if (reloaded) {
-      // Conversation finished while we were reconnecting
-      setStreamingState(false);
-      hideLoading();
-      removeProgressIndicator();
-      markFinalAnswer();
-      signalRunFinished();
-    } else {
-      setStreamingState(false);
-      hideLoading();
-      removeProgressIndicator();
-      appendRecoveryMessage();
-    }
+    if (currentConversationId === convId && turnState === 'running') startStream();
   };
 }
 
@@ -400,8 +354,6 @@ async function recover({ createNew = false } = {}) {
   }
 
   retryCount = 0;
-  setStreamingState(true);
-  showLoading();
   await sendToAgent(lastUserMessage);
 }
 
@@ -409,22 +361,21 @@ async function recover({ createNew = false } = {}) {
  * Cancel the current stream
  */
 async function cancelStream() {
-  if (!currentConversationId) return;
+  const convId = currentConversationId;
+  if (!convId) return;
+
+  setTurnState('cancelling');
 
   try {
-    await fetch(`/api/conversations/${currentConversationId}/cancel`, { method: 'POST' });
+    await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
   } catch (error) {
     console.error('Failed to cancel:', error);
   }
 
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
-  }
+  if (currentConversationId !== convId) return;
 
-  setStreamingState(false);
-  hideLoading();
-  removeProgressIndicator();
+  closeEventSource();
+  setTurnState('idle');
   appendEvent('error', { content: "Annulé par l'utilisateur" });
 }
 
@@ -462,32 +413,46 @@ async function killAgent(convId, alertElement, cardElement) {
 // Streaming UI state
 // =============================================================================
 
+function canSend() {
+  return turnState === 'idle' && !sending;
+}
+
 /**
- * Show/hide streaming state (send/cancel buttons, input, sidebar spinner)
+ * The only place that touches the send and stop buttons
  */
-function setStreamingState(streaming) {
+function renderComposer() {
   const sendBtn = document.getElementById('chatSendBtn');
   const cancelBtn = document.getElementById('chatCancelBtn');
-  const input = document.getElementById('chatInput');
 
-  if (sendBtn) sendBtn.style.display = streaming ? 'none' : 'flex';
-  if (cancelBtn) cancelBtn.style.display = streaming ? 'flex' : 'none';
-  if (input) input.disabled = streaming;
+  if (sendBtn) sendBtn.disabled = !canSend();
+  if (cancelBtn) {
+    cancelBtn.classList.toggle('d-none', turnState === 'idle');
+    cancelBtn.disabled = turnState === 'cancelling';
+  }
+}
 
-  // Manage sidebar spinner
-  if (streaming && currentConversationId) {
-    setSidebarSpinner(currentConversationId, true);
-  } else if (!streaming) {
+function setSending(value) {
+  sending = value;
+  renderComposer();
+}
+
+function setTurnState(state) {
+  turnState = state;
+
+  if (state === 'idle') {
     setSidebarSpinner(_sidebarSpinnerConvId, false);
+    hideLoading();
+    removeProgressIndicator();
+    if (streamingBlock) {
+      renderMermaid(streamingBlock);
+      renderOptions(streamingBlock);
+      streamingBlock = null;
+    }
+  } else if (currentConversationId) {
+    setSidebarSpinner(currentConversationId, true);
   }
 
-  // Finalize streaming block when streaming ends
-  if (!streaming && streamingBlock) {
-    renderMermaid(streamingBlock);
-    renderOptions(streamingBlock);
-    streamingBlock = null;
-    streamingText = '';
-  }
+  renderComposer();
 }
 
 /**
@@ -681,14 +646,12 @@ function hideEmptyState() {
 /**
  * Load an existing conversation by ID
  */
-async function loadConversation(convId, { autoStream = true } = {}) {
+async function loadConversation(convId) {
   if (!isValidConversationId(convId)) return;
+  const load = ++loadSequence;
 
   // Close any existing EventSource before loading new conversation
   closeEventSource();
-
-  // Reset actions sidebar state
-  resetActionsState();
 
   // Always clear the template loading spinner (even on error)
   const loadingIndicator = document.getElementById('loadingConversation');
@@ -704,7 +667,9 @@ async function loadConversation(convId, { autoStream = true } = {}) {
     }
 
     const conv = await response.json();
+    if (load !== loadSequence) return;
     currentConversationId = conv.id;
+    resetActionsState();
 
     // Hide empty state
     hideEmptyState();
@@ -717,27 +682,27 @@ async function loadConversation(convId, { autoStream = true } = {}) {
 
       for (const msg of conv.messages) {
         if (msg.type === 'user') {
-          appendEvent('user', { content: msg.content, timestamp: msg.timestamp });
+          appendEvent('user', { id: msg.id, content: msg.content, timestamp: msg.timestamp });
         } else if (msg.type === 'assistant') {
-          appendEvent('assistant', { content: msg.content });
+          appendEvent('assistant', { id: msg.id, content: msg.content });
         } else if (msg.type === 'tool_use') {
           try {
             const content = JSON.parse(msg.content);
-            appendEvent('tool_use', { content });
+            appendEvent('tool_use', { id: msg.id, content });
           } catch {
-            appendEvent('tool_use', { content: { tool: 'unknown', input: msg.content } });
+            appendEvent('tool_use', { id: msg.id, content: { tool: 'unknown', input: msg.content } });
           }
         } else if (msg.type === 'tool_result') {
           try {
             const content = JSON.parse(msg.content);
-            appendEvent('tool_result', { content });
+            appendEvent('tool_result', { id: msg.id, content });
           } catch {
-            appendEvent('tool_result', { content: { output: msg.content } });
+            appendEvent('tool_result', { id: msg.id, content: { output: msg.content } });
           }
         } else if (msg.type === 'report') {
-          appendEvent('report', { content: msg.content });
+          appendEvent('report', { id: msg.id, content: msg.content });
         } else if (msg.type === 'limit') {
-          appendEvent('limit', { content: msg.content });
+          appendEvent('limit', { id: msg.id, content: msg.content });
         }
       }
 
@@ -755,8 +720,8 @@ async function loadConversation(convId, { autoStream = true } = {}) {
 
       // Reset streaming state after DB load — these are static events, not a live stream
       streamingBlock = null;
-      streamingText = '';
     }
+    if (load !== loadSequence) return;
 
     // Update URL without reload (preserve hash if present)
     const hash = window.location.hash;
@@ -782,12 +747,7 @@ async function loadConversation(convId, { autoStream = true } = {}) {
     // selon l'état réel du serveur — sinon elle ne réapparaît qu'à la prochaine réponse.
     showRepublishAlert(convId);
 
-    // If conversation is running, resume the stream (unless caller handles it)
-    if (autoStream && conv.is_running) {
-      console.log('Conversation is running, resuming stream...');
-      const lastMsgId = lastLoadedMsgId(conv);
-      startStream(lastMsgId);
-    }
+    if (conv.is_running) startStream();
 
     return conv;
   } catch (error) {

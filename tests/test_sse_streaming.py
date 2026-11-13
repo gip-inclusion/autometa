@@ -103,8 +103,9 @@ def _simulate_pm(conv_id, messages, delay=0.1):
             store.add_message(conv_id, msg_type, content if isinstance(content, str) else json.dumps(content))
             r.publish(f"autometa:conv:{conv_id}", "update")
         store.update_conversation(conv_id, needs_response=False)
-        r.set(f"autometa:done:{conv_id}", "1", ex=600)
-        r.publish(f"autometa:conv:{conv_id}", "done")
+        question_id = store.last_user_message_id(conv_id)
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
         r.close()
 
     t = threading.Thread(target=_run, daemon=True)
@@ -112,15 +113,17 @@ def _simulate_pm(conv_id, messages, delay=0.1):
     return t
 
 
-def test_done_stream_already_responded_returns_done(app, client, responded_conversation):
-    """Completed conversations get an immediate done event."""
+def test_done_stream_already_responded_resends_the_last_row_then_done(app, client, responded_conversation):
+    """A stream opens by re-sending the row the client last saw, so a reconnect never misses its final text."""
     response = client.get(
         f"/api/conversations/{responded_conversation.id}/stream",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
-    events = _parse_sse_events(response.content)
-    assert len(events) == 1
-    assert events[0]["event"] == "done"
+    events = [e for e in _parse_sse_events(response.content) if e["event"] != "queue"]
+    assert [(e["event"], e["data"].get("content")) for e in events] == [
+        ("assistant", "Hello! How can I help?"),
+        ("done", None),
+    ]
 
 
 def test_sse_format_stream_ends_with_done(app, client, conversation):
@@ -213,8 +216,8 @@ def test_race_condition_pm_finishes_before_sse_connect(app, client):
     r = _sync_redis()
     r.publish(f"autometa:conv:{conv.id}", "update")
     store.update_conversation(conv.id, needs_response=False)
-    r.set(f"autometa:done:{conv.id}", "1", ex=600)
-    r.publish(f"autometa:conv:{conv.id}", "done")
+    r.set(f"autometa:done:{conv.id}", str(user_msg.id), ex=600)
+    r.publish(f"autometa:conv:{conv.id}", f"done:{user_msg.id}")
     r.close()
 
     response = client.get(
@@ -262,7 +265,7 @@ def test_resend_after_cancel_does_not_lose_answer(app, client):
 
 
 def test_needs_response_false_returns_done(app, client):
-    """Conversation with needs_response=False returns immediate done."""
+    """Conversation with needs_response=False re-sends its last row, then done."""
     from web.database import store
 
     conv = store.create_conversation(user_id="test@example.com")
@@ -273,9 +276,9 @@ def test_needs_response_false_returns_done(app, client):
         f"/api/conversations/{conv.id}/stream",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
-    events = _parse_sse_events(response.content)
-    assert len(events) == 1
-    assert events[0]["event"] == "done"
+    events = [e for e in _parse_sse_events(response.content) if e["event"] != "queue"]
+    assert [e["event"] for e in events] == ["assistant", "done"]
+    assert events[0]["data"]["content"] == "Hi there"
 
 
 def test_needs_response_true_streams_messages(app, client):
@@ -440,3 +443,211 @@ def test_client_disconnect_agent_survives_client_disconnect(app, conversation):
 
     conv = store.get_conversation(conversation.id, include_messages=False)
     assert conv.needs_response, "Agent was stopped by client disconnect!"
+
+
+def test_a_done_for_an_older_question_does_not_close_the_stream(app, client):
+    from web.database import store
+
+    conv = store.create_conversation(user_id="test@example.com")
+    older = store.add_message(conv.id, "user", "Première question")
+    store.add_message(conv.id, "user", "Seconde question")
+    store.update_conversation(conv.id, needs_response=True)
+
+    def stale_then_real():
+        r = _sync_redis()
+        while not r.pubsub_numsub(f"autometa:conv:{conv.id}")[0][1]:
+            time.sleep(0.01)
+        r.publish(f"autometa:conv:{conv.id}", f"done:{older.id}")
+        time.sleep(0.2)
+        store.add_message(conv.id, "assistant", "Réponse à la seconde")
+        r.publish(f"autometa:conv:{conv.id}", "update")
+        store.update_conversation(conv.id, needs_response=False)
+        newest = store.last_user_message_id(conv.id)
+        r.set(f"autometa:done:{conv.id}", str(newest), ex=600)
+        r.publish(f"autometa:conv:{conv.id}", f"done:{newest}")
+        r.close()
+
+    t = threading.Thread(target=stale_then_real, daemon=True)
+    t.start()
+    response = client.get(f"/api/conversations/{conv.id}/stream", headers={"X-Forwarded-Email": "test@example.com"})
+    t.join()
+    events = _parse_sse_events(response.content)
+
+    assert [e["event"] for e in events if e["event"] not in ("heartbeat", "queue")] == ["user", "assistant", "done"]
+    assert events[-1]["data"]["question_id"] == store.last_user_message_id(conv.id)
+
+
+def test_message_events_carry_their_id(app, client, conversation):
+    from web.database import store
+
+    t = _simulate_pm(conversation.id, [("assistant", "Bonjour")])
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    t.join()
+    assistant = [e for e in _parse_sse_events(response.content) if e["event"] == "assistant"]
+
+    assert assistant[-1]["data"]["id"] == store.get_messages_since(conversation.id, 0)[-1].id
+
+
+def test_a_row_rewritten_in_place_is_sent_again(app, client, conversation):
+    from web.database import store
+
+    def grow_then_finish():
+        r = _sync_redis()
+        while not r.pubsub_numsub(f"autometa:conv:{conversation.id}")[0][1]:
+            time.sleep(0.01)
+        row = store.add_message(conversation.id, "assistant", "Début")
+        r.publish(f"autometa:conv:{conversation.id}", "update")
+        time.sleep(0.2)
+        store.update_message(row.id, "Début, puis la suite")
+        r.publish(f"autometa:conv:{conversation.id}", "update")
+        time.sleep(0.2)
+        store.update_conversation(conversation.id, needs_response=False)
+        question_id = store.last_user_message_id(conversation.id)
+        r.set(f"autometa:done:{conversation.id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conversation.id}", f"done:{question_id}")
+        r.close()
+
+    t = threading.Thread(target=grow_then_finish, daemon=True)
+    t.start()
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    t.join()
+    assistant = [e["data"] for e in _parse_sse_events(response.content) if e["event"] == "assistant"]
+
+    assert [a["content"] for a in assistant] == ["Début", "Début, puis la suite"]
+    assert assistant[0]["id"] == assistant[1]["id"]
+
+
+def test_the_stream_rotation_sends_a_timeout_event(app, client, conversation, monkeypatch):
+    monkeypatch.setattr("web.routes.conversations.config.SSE_MAX_SECONDS", 0.2)
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    events = [e["event"] for e in _parse_sse_events(response.content) if e["event"] != "heartbeat"]
+
+    assert events[-1] == "timeout"
+
+
+def test_a_resumed_stream_sends_the_rows_it_missed_at_once(app, client, conversation, monkeypatch):
+    from web.database import store
+
+    monkeypatch.setattr("web.routes.conversations.config.SSE_MAX_SECONDS", 0.2)
+    seen = store.last_user_message_id(conversation.id)
+    store.add_message(conversation.id, "assistant", "Écrit pendant la coupure")
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream?after={seen}", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    events = [e for e in _parse_sse_events(response.content) if e["event"] not in ("heartbeat", "queue")]
+
+    assert [(e["event"], e["data"].get("content")) for e in events] == [
+        ("user", "Hello agent"),
+        ("assistant", "Écrit pendant la coupure"),
+        ("timeout", None),
+    ]
+
+
+def test_a_turn_ending_just_before_the_stream_subscribes_closes_it_at_once(app, client, conversation, monkeypatch):
+    from web.database import store
+    from web.runner import runner
+
+    subscribe = runner.subscribe
+
+    async def end_turn_then_subscribe(conv_id):
+        store.update_conversation(conv_id, needs_response=False)
+        question_id = store.last_user_message_id(conv_id)
+        r = _sync_redis()
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
+        r.close()
+        return await subscribe(conv_id)
+
+    monkeypatch.setattr(runner, "subscribe", end_turn_then_subscribe)
+    started = time.monotonic()
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+
+    assert _parse_sse_events(response.content)[-1]["event"] == "done"
+    assert time.monotonic() - started < 2
+
+
+def _end_turn(conv_id, flush, delay=0.3):
+    """Le runner qui clôt un tour : la file part dans un tour de plus, ou revient à la page."""
+
+    def _run():
+        time.sleep(delay)
+        import redis as sync_redis
+
+        from web import config
+        from web.database import store
+
+        r = sync_redis.from_url(config.REDIS_URL, decode_responses=True)
+        if store.end_turn(conv_id, flush=flush):
+            r.publish(f"autometa:conv:{conv_id}", "queue")
+            time.sleep(0.2)
+            store.add_message(conv_id, "assistant", "Réponse groupée")
+            store.end_turn(conv_id, flush=False)
+        question_id = store.last_user_message_id(conv_id)
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
+        r.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
+
+
+def _queued_stream(client, conv_id, *queued, flush, email="test@example.com"):
+    """Le flux d'un tour pendant lequel des messages attendaient, résumé en (événement, contenu)."""
+    from web.database import store
+
+    for text in queued:
+        store.queue_message(conv_id, text)
+    thread = _end_turn(conv_id, flush=flush)
+    response = client.get(f"/api/conversations/{conv_id}/stream", headers={"X-Forwarded-Email": email})
+    thread.join()
+    summary = {
+        "queue": lambda data: [e["content"] for e in data["queue"]],
+        "returned": lambda data: [e["content"] for e in data["returned"]],
+        "done": lambda data: None,
+    }
+    return [
+        (e["event"], summary.get(e["event"], lambda data: data["content"])(e["data"]))
+        for e in _parse_sse_events(response.content)
+        if e["event"] != "heartbeat"
+    ]
+
+
+def test_a_sent_queue_arrives_as_questions_in_the_same_stream(app, client, conversation):
+    events = _queued_stream(client, conversation.id, "q1", "q2", flush=True)
+
+    assert events == [
+        ("user", "Hello agent"),
+        ("queue", ["q1", "q2"]),
+        ("user", "q1"),
+        ("user", "q2"),
+        ("queue", []),
+        ("assistant", "Réponse groupée"),
+        ("done", None),
+    ]
+
+
+def test_a_returned_queue_arrives_before_the_end_of_the_turn(app, client, conversation):
+    events = _queued_stream(client, conversation.id, "q1", flush=False)
+
+    assert events == [
+        ("user", "Hello agent"),
+        ("queue", ["q1"]),
+        ("queue", []),
+        ("returned", ["q1"]),
+        ("done", None),
+    ]
+
+
+def test_a_reader_never_sees_the_queue(app, client, conversation):
+    events = _queued_stream(client, conversation.id, "q1", flush=False, email="reader@example.com")
+
+    assert events == [("user", "Hello agent"), ("done", None)]

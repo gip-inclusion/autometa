@@ -174,6 +174,7 @@ class Conversation:
     title: Optional[str] = None
     session_id: Optional[str] = None
     engine_state: Optional[dict] = None
+    pending_messages: list[dict] = field(default_factory=list)
     conv_type: str = "exploration"
     file_path: Optional[str] = None
     status: str = "active"
@@ -296,6 +297,11 @@ def model_to_message(m: MsgModel) -> Message:
         content=m.content,
         created_at=m.timestamp,
     )
+
+
+def with_status(entries: list[dict], status: str) -> list[dict]:
+    """Les messages de la file encore en attente (« waiting ») ou rendus à la barre de saisie (« returned »)."""
+    return [e for e in entries if e["status"] == status]
 
 
 def conv_with_report_row(row, report_id, report_title) -> Conversation:

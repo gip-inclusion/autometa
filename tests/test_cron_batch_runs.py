@@ -197,6 +197,26 @@ def test_a_running_row_older_than_its_timeout_reads_as_interrupted(age, expected
     assert cron.displayed_status(run, timeout=60) == expected
 
 
+def test_a_recorded_run_keeps_no_secret_from_its_output():
+    dsn = "postgresql://lecteur:motdepasse-factice-42@base.example/prod"  # gitleaks:allow
+    cron.record_run(
+        {
+            "slug": "fuite",
+            "status": "failure",
+            "output": f"OperationalError: connexion refusée à {dsn}",
+            "duration_ms": 1,
+            "started_at": utcnow(),
+            "finished_at": utcnow(),
+        },
+        "scheduled",
+    )
+
+    with get_db() as session:
+        assert session.execute(select(CronRun.output)).scalars().all() == [
+            "OperationalError: connexion refusée à postgresql://***@base.example/prod"
+        ]
+
+
 def record_past_run(slug, status, started_at, trigger="scheduled"):
     cron.record_run(
         {

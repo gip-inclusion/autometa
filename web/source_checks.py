@@ -89,9 +89,10 @@ def check_metabase_instance(instance: str) -> tuple[bool, str]:
 
 def check_matomo() -> tuple[bool, str]:
     api = get_matomo("inclusion")
-    resp = httpx.get(
+    resp = httpx.post(
         f"https://{api.url}/index.php",
-        params={"module": "API", "method": "API.getMatomoVersion", "format": "json", "token_auth": api.token},
+        params={"module": "API", "method": "API.getMatomoVersion", "format": "json"},
+        data={"token_auth": api.token},
         timeout=PROBE_TIMEOUT_SEC,
     )
     resp.raise_for_status()

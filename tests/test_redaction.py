@@ -10,6 +10,11 @@ from web.redaction import redact, secret_kinds
 
 FAUX = "valeur-factice-de-test"  # gitleaks:allow
 HEX = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
+PRESIGNED = (
+    "https://bucket.s3.fr-par.scw.cloud/zendesk/x/diff.md?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+    "&X-Amz-Credential=SCWFAUXFAUXFAUXFAUX%2F20261111%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261111T200000Z"
+    f"&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature={HEX}{HEX}"  # gitleaks:allow
+)
 
 
 @pytest.mark.parametrize(
@@ -50,6 +55,8 @@ HEX = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
         ("S3_SECRET_KEY=3f2a9c1e-7b6d-4e8f-9a0b-1c2d3e4f5a6b", "3f2a9c1e-7b6d", "variable secrète"),  # gitleaks:allow
         ("PGPASSWORD=supers3cret99", "supers3cret99", "variable secrète"),
         ('"password": "motdepasse-tres-secret"', "motdepasse-tres-secret", "champ secret"),
+        ('{"db_password": "motdepasse-tres-secret"}', "motdepasse-tres-secret", "champ secret"),
+        ("smtp_password=s3cretValue99", "s3cretValue99", "champ secret"),
         ("x-api-key: abc123def456ghi", "abc123def456ghi", "champ secret"),  # gitleaks:allow
         ("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345", "ABCDEFGHIJKLMNOPQRST", "jeton de service"),
         ("cle mb_AbCdEf0123456789XyZaBcD=", "AbCdEf0123456789XyZaBcD", "jeton de service"),
@@ -58,11 +65,22 @@ HEX = "0123456789abcdef0123456789abcdef"  # gitleaks:allow
         ("postgresql://user:Abc=123xy@host/db", "Abc=123xy", "mot de passe de DSN"),
         ("postgresql://user:p&ss1234@host/db", "p&ss1234", "mot de passe de DSN"),
         ("postgres://u:Abc#12345@h/db", "Abc#12345", "mot de passe de DSN"),
+        # Une commande dans un événement d'outil JSON : les guillemets y sont échappés.
+        ('{"command": "export DB_PASSWORD=\\"s3cretValue99\\""}', "s3cretValue99", "variable secrète"),
+        # Un paramètre X-Amz-* ne rend pas le reste du lien inoffensif.
+        (f"https://matomo.x/?X-Amz-Expires=1&token_auth={HEX}", HEX, "paramètre d'URL sensible"),
     ],
 )
 def test_redact_removes_each_family_of_secret(text, secret, kind):
     assert secret not in redact(text)
     assert kind in secret_kinds(text)
+
+
+@pytest.mark.parametrize("separator", [" ; base : ", ","])
+def test_a_secret_next_to_a_presigned_link_is_still_masked(separator):
+    masked = redact(f"diff : {PRESIGNED}{separator}postgresql://u:{FAUX}@h/db")
+
+    assert masked == f"diff : {PRESIGNED}{separator}postgresql://***@h/db"
 
 
 def test_masking_escaped_json_keeps_it_valid():
@@ -125,8 +143,15 @@ def test_database_urls_are_known_secrets(mocker, setting):
         "https://x/?author=dupont&keyword=emploi&passage=2",
         'SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")',
         '"password": "<mot de passe>"',
+        '"password_hint": "voir le coffre"',
         "le password: est requis",
         "Le serveur exige une Basic authentification pour cette API.",
+        # Du JSON compact : une URL suivie d'une adresse n'est pas un DSN à mot de passe.
+        '{"url":"redis://cache:6379","owner":"a@b.fr"}',
+        '{"url":"https://example.org","contact":"a@b.fr"}',
+        '{\\"url\\":\\"https://example.org\\",\\"contact\\":\\"a@b.fr\\"}',
+        # Un lien présigné est fait pour être remis à l'utilisateur.
+        f"Le diff complet : {PRESIGNED}",
     ],
 )
 def test_plain_text_is_left_alone(text):
