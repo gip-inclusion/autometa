@@ -329,6 +329,14 @@ class ZendeskAPI:
         data = self._get("search/count.json", {"query": ticket_query(query)})
         return int(data.get("count", 0))
 
+    def ticket_metrics(self, ticket_id: int) -> dict:
+        """Reply, resolution and wait times of a ticket, with its reopens and replies."""
+        return self._get(f"tickets/{ticket_id}/metrics.json")["ticket_metric"]
+
+    def list_views(self) -> list[dict]:
+        """Active views with their conditions; count_views gives how many tickets each holds."""
+        return list(self._iter_pages("views/active.json", "views"))
+
     def count_views(self, view_ids: list[int]) -> dict[int, int]:
         """Number of tickets in each view, by view id."""
         data = self._get("views/count_many", {"ids": ",".join(str(view_id) for view_id in view_ids)})
@@ -428,6 +436,22 @@ class ZendeskAPI:
         """Create an inactive macro; activating it goes through a changeset."""
         macro = {"title": title, "actions": actions, "description": description, "active": False}
         return macro_from_payload(self._request("POST", "macros.json", json={"macro": macro})["macro"])
+
+    def list_groups(self) -> list[dict]:
+        return list(self._iter_pages("groups.json", "groups"))
+
+    def list_agents(self) -> list[dict]:
+        """Agents and admins of the account, never end users."""
+        return list(self._iter_pages("users.json", "users", {"role[]": ["agent", "admin"]}))
+
+    def list_ticket_fields(self) -> list[dict]:
+        return list(self._iter_pages("ticket_fields.json", "ticket_fields"))
+
+    def list_ticket_forms(self) -> list[dict]:
+        return list(self._iter_pages("ticket_forms.json", "ticket_forms"))
+
+    def list_triggers(self) -> list[dict]:
+        return list(self._iter_pages("triggers.json", "triggers"))
 
     def lookup(self, resource: str, item_id: int | str) -> Optional[dict]:
         """One account object (groups, users, ticket_fields, brands, ticket_forms, custom_statuses); None once deleted."""

@@ -505,6 +505,40 @@ def test_view_ticket_dates_follows_pages_and_keeps_only_creation_dates(api_no_si
     assert request.call_args.args[1] == "https://emplois.zendesk.com/api/v2/views/5/tickets?page=2"
 
 
+def test_ticket_metrics_returns_the_ticket_metric(api_no_signal, mocker):
+    metric = {"ticket_id": 42, "reopens": 1, "reply_time_in_minutes": {"calendar": 30, "business": 20}}
+    request = mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, json_data={"ticket_metric": metric})
+    )
+
+    assert api_no_signal.ticket_metrics(42) == metric
+    assert request.call_args.args[1] == "https://emplois.zendesk.com/api/v2/tickets/42/metrics.json"
+
+
+@pytest.mark.parametrize(
+    "method, path, key, params",
+    [
+        ("list_views", "views/active.json", "views", {"per_page": 100}),
+        ("list_groups", "groups.json", "groups", {"per_page": 100}),
+        ("list_agents", "users.json", "users", {"per_page": 100, "role[]": ["agent", "admin"]}),
+        ("list_ticket_fields", "ticket_fields.json", "ticket_fields", {"per_page": 100}),
+        ("list_ticket_forms", "ticket_forms.json", "ticket_forms", {"per_page": 100}),
+        ("list_triggers", "triggers.json", "triggers", {"per_page": 100}),
+    ],
+)
+def test_account_listings_follow_every_page(api_no_signal, mocker, method, path, key, params):
+    base = api_no_signal.base_url
+    pages = [{key: [{"id": 1}], "next_page": f"{base}/{path}?page=2"}, {key: [{"id": 2}], "next_page": None}]
+    request = mocker.patch.object(
+        api_no_signal._client, "request", side_effect=[_mock_response(mocker, json_data=p) for p in pages]
+    )
+
+    assert getattr(api_no_signal, method)() == [{"id": 1}, {"id": 2}]
+    first, second = request.call_args_list
+    assert (first.args[1], first.kwargs["params"]) == (f"{base}/{path}", params)
+    assert (second.args[1], second.kwargs["params"]) == (f"{base}/{path}?page=2", None)
+
+
 def test_count_tickets_calls_count_endpoint(api_no_signal, mocker):
     get = mocker.patch.object(
         api_no_signal._client,
