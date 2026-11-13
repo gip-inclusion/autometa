@@ -112,6 +112,7 @@ CORS_ALLOWED_ORIGINS = {
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").replace("postgres://", "postgresql://")
 
 SSE_MESSAGE_WAIT_TIMEOUT = float(os.getenv("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "3"))
+SSE_MAX_SECONDS = float(os.getenv("AUTOMETA_SSE_MAX_SECONDS", "300"))
 
 # Agent-produced scripts directory
 SCRIPTS_DIR = DATA_DIR / "scripts"
