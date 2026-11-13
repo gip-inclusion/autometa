@@ -1,4 +1,4 @@
-"""Pre-tool-use hook: refuse un `git commit` qui désarme les hooks et, sur les serveurs, toute installation de logiciel."""
+"""Pre-tool-use hook: refuse un `git commit` sans hooks et, sur les serveurs, une installation ou l'environnement listé."""
 
 import json
 import re
@@ -17,6 +17,12 @@ BLOCK_INSTALL_MSG = (
     "navigateur ou archive téléchargés). Le code téléchargé tourne avec tous les secrets du conteneur, et /tmp est "
     "partagé entre les conversations. Si un outil manque, le dire à l'utilisateur ; les outils présents sont listés "
     "dans AGENT.md, section « Environnement container »."
+)
+BLOCK_ENV_MSG = (
+    "Commande refusée : `env`, `printenv` sans nom de variable et un parcours de `os.environ` affichent tous les "
+    "secrets du conteneur, et la sortie reste dans la conversation. L'e-mail de l'utilisateur courant : "
+    '`echo "$AUTOMETA_USER_EMAIL"`. Les identifiants des sources passent par les skills ; pour savoir si une variable '
+    'existe sans l\'afficher : `test -n "$NOM" && echo présente`.'
 )
 # Why: un glob de préfixe ne peut pas voir `-nm` ni `-am … -n` — un drapeau court vit dans un cluster.
 SHORT_FLAG = re.compile(r"-[a-zA-Z]*n[a-zA-Z]*$")
@@ -45,6 +51,13 @@ PACKAGE_URL = re.compile(
 )
 # Why: une ligne que shlex ne sait pas découper, bash ne l'exécuterait pas non plus ; on la juge sur son texte.
 RAW_INSTALL = re.compile(r"\b(?:install|download|ensurepip|npx|uvx|dpkg-deb)\b")
+# Why: lire une variable par son nom est légitime, et `dict(os.environ)` prépare l'environnement d'un sous-processus ;
+# parcourir ou afficher tout os.environ montre tous les secrets.
+ENVIRON_LISTED = re.compile(
+    r"os\.environ\s*\.\s*(?:items|keys|values)\s*\("
+    r"|\bfor\s+\(?\w+(?:\s*,\s*\w+)*\)?\s+in\s+os\.environ\b"
+    r"|\b(?:print|sorted|list)\(\s*(?:dict\(\s*)?os\.environ\s*\)"
+)
 
 
 def ends_the_command(token):
@@ -190,10 +203,30 @@ def install_verdict(command, on_server):
     return None
 
 
+def environ_verdict(command, on_server):
+    """Le message de refus d'une commande qui affiche tout l'environnement sur un serveur, ou None."""
+    if not on_server:
+        return None
+    if ENVIRON_LISTED.search(command):
+        return BLOCK_ENV_MSG
+    try:
+        commands = simple_commands(command)
+    except ValueError:
+        return None
+    for _, words in commands:
+        name, args = program(words)
+        # Why: `env X=1 cmd` lance cmd et `printenv NOM` n'affiche que NOM ; sans programme ni nom, tout s'affiche.
+        bare_env = not name and "env" in {Path(word).name for word in words}
+        if bare_env or (name == "printenv" and all(arg.startswith("-") for arg in args)):
+            return BLOCK_ENV_MSG
+    return None
+
+
 if __name__ == "__main__":
     data = json.load(sys.stdin)
     command = data.get("tool_input", {}).get("command", "")
-    msg = verdict(command) or install_verdict(command, is_server())
+    on_server = is_server()
+    msg = verdict(command) or install_verdict(command, on_server) or environ_verdict(command, on_server)
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)
