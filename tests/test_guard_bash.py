@@ -173,3 +173,52 @@ def test_en_local_les_installations_passent():
 )
 def test_une_ligne_non_analysable_est_jugee_sur_son_texte(commande, attendu):
     assert guard_bash.install_verdict(commande, on_server=True) == attendu
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        "env",
+        "env | grep -iE 'gh_|github_token' 2>/dev/null",
+        'env | grep -E "^S3_" 2>/dev/null; echo "---"',
+        "ls /app\nenv | sort",
+        "sudo env",
+        "/usr/bin/env -0",
+        "printenv",
+        "printenv | grep -i zendesk 2>/dev/null || echo absent",
+        "printenv 2>/dev/null",
+        "env > /tmp/x/env.txt",
+        "python3 -c \"import os; [print(k) for k, v in os.environ.items() if 'git' in k.lower()]\"",
+        'python3 -c "import os; print(sorted(os.environ.keys()))"',
+        "python3 -c \"import os; print([k for k in os.environ if 'S3' in k])\"",
+        "python3 - <<'EOF'\nimport os\nfor k in sorted(os.environ):\n    print(k)\nEOF",
+        'python3 -c "import os; print(dict(os.environ))"',
+    ],
+)
+def test_lister_l_environnement_est_refuse_sur_un_serveur(commande):
+    assert guard_bash.environ_verdict(commande, on_server=True) == guard_bash.BLOCK_ENV_MSG
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        'echo "$AUTOMETA_USER_EMAIL"',
+        'test -n "$GITHUB_TOKEN" && echo présente',
+        "printenv AUTOMETA_CONVERSATION_ID",
+        "printenv HOME 2>/dev/null",
+        "timeout 900 env PYTHONPATH=/app python -I /tmp/x/maj.py 2>&1 | grep -v DEBUG",
+        "python3 -c \"import os; print(os.environ.get('AUTOMETA_CONVERSATION_ID'))\"",
+        "python3 - <<'EOF'\nimport os, subprocess\nenv = dict(os.environ)\nsubprocess.run(['ls'], env={**os.environ})\nEOF",
+        "python3 -c \"import os; print([k for k in ('A', 'B') if k in os.environ])\"",
+        "conda env list",
+        "python -m venv env",
+        "grep -rn printenv skills/",
+        "",
+    ],
+)
+def test_lire_une_variable_par_son_nom_passe_sur_un_serveur(commande):
+    assert guard_bash.environ_verdict(commande, on_server=True) is None
+
+
+def test_en_local_l_environnement_peut_etre_liste():
+    assert guard_bash.environ_verdict("env | grep -i github", on_server=False) is None
