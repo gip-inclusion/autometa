@@ -102,21 +102,21 @@ ORDER BY nb_siae DESC;
 
 ### public.utilisateurs
 
-Utilisateurs professionnels du service Emplois (employeurs, prescripteurs, inspecteurs).
+Utilisateurs professionnels de La plateforme (ex-Emplois : employeurs, prescripteurs, inspecteurs).
 **Préférer cette table à `utilisateurs_v0`** qui existe aussi mais contient moins de colonnes.
 
 | Colonne | Description |
 |---------|-------------|
 | id | Identifiant unique |
 | email | Email de l'utilisateur |
-| type | Type: `employer`, `prescriber`, `labor_inspector` |
+| type | Vaut `professional` pour tous les comptes ; le profil se lit au rattachement (`id_structure`, `id_organisation`, `id_institution`) |
 | prenom, nom | Prénom et nom |
 | dernière_connexion | Dernière connexion |
 | id_structure | FK vers `structures_v0` (pour les employeurs) |
 | id_organisation | FK vers `organisations_v0` (pour les prescripteurs) |
 | id_institution | FK vers `institutions` (pour certains prescripteurs institutionnels) |
 
-**Volumétrie:** ~91 000 utilisateurs.
+**Volumétrie:** ~92 000 comptes, ~106 000 lignes : une ligne par rattachement. Dédupliquer par `id` avant toute jointure (voir `knowledge/stats/users.md`).
 
 **⚠️ Utilisateurs pros uniquement.** Les candidats (demandeurs d'emploi) ne sont pas dans cette table — ils sont dans `public.candidats` (voir section dédiée).
 
@@ -140,37 +140,37 @@ Voir [documentation complète](../stats/candidatures.md).
 
 Voir aussi [knowledge/stats/users.md](../stats/users.md) pour les requêtes courantes.
 
-#### Jointures selon le type d'utilisateur
+#### Jointures selon le rattachement
 
-Un utilisateur se joint à une table différente selon son type :
+Une ligne d'utilisateur se joint à une table différente selon son rattachement :
 
-| Type utilisateur | Table à joindre | Clé de jointure |
+| Rattachement | Table à joindre | Clé de jointure |
 |------------------|-----------------|-----------------|
-| `employer` | `structures_v0` | `utilisateurs.id_structure = structures.ID` |
-| `prescriber` | `organisations_v0` | `utilisateurs.id_organisation = organisations.id` |
-| `prescriber` (institutionnel) | `institutions` | `utilisateurs.id_institution = institutions.id` |
+| Employeur (`id_structure`) | `structures_v0` | `utilisateurs.id_structure = structures.ID` |
+| Prescripteur ou orienteur (`id_organisation`) | `organisations_v0` | `utilisateurs.id_organisation = organisations.id` |
+| Institution (`id_institution`) | `institutions` | `utilisateurs.id_institution = institutions.id` |
 
 ```sql
 -- Exemple : utilisateurs employeurs avec leur structure
 SELECT u.*, s.nom as structure_nom, s.département
 FROM public.utilisateurs u
 LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
-WHERE u.type = 'employer';
+WHERE u.id_structure IS NOT NULL;
 
 -- Exemple : utilisateurs prescripteurs avec leur organisation
 SELECT u.*, o.nom as organisation_nom
 FROM public.utilisateurs u
 LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id
-WHERE u.type = 'prescriber';
+WHERE u.id_organisation IS NOT NULL;
 ```
 
-**Volumétrie:** ~91 000 utilisateurs (aucun candidat, ils n'ont pas de compte).
+**Volumétrie:** ~92 000 comptes pour ~106 000 lignes, une par rattachement (aucun candidat, ils n'ont pas de compte). Compter `COUNT(DISTINCT u.id)`.
 
 **Note:** Pas de lien direct au département. Utiliser `tmp_utilisateurs_avec_departement` pour les analyses géographiques.
 
 ### public.tmp_utilisateurs_avec_departement
 
-Table enrichie liant les utilisateurs Emplois à leur département via leur structure/organisation.
+Table enrichie liant les utilisateurs de La plateforme à leur département via leur structure/organisation.
 
 | Colonne | Description |
 |---------|-------------|
@@ -186,7 +186,7 @@ Table enrichie liant les utilisateurs Emplois à leur département via leur stru
 
 ### public.structures_v0
 
-Structures SIAE du service Emplois. Aussi accessible via `public.structures`.
+Structures SIAE de La plateforme. Aussi accessible via `public.structures`.
 
 | Colonne | Description |
 |---------|-------------|
@@ -244,7 +244,7 @@ Institutions (prescripteurs institutionnels comme Pôle Emploi, conseils départ
 
 ### public.candidats
 
-Candidats (demandeurs d'emploi) du service Emplois.
+Candidats (demandeurs d'emploi) de La plateforme.
 
 | Colonne | Description |
 |---------|-------------|
@@ -261,6 +261,8 @@ Candidats (demandeurs d'emploi) du service Emplois.
 
 **⚠️ Table séparée des utilisateurs pros.** Les candidats n'ont pas de compte utilisateur au sens classique, mais ils ont un compte candidat — ils sont dans cette table dédiée, pas dans `utilisateurs`.
 
+**⚠️ Purge RGPD.** La plateforme anonymise les comptes candidats sans rien de récent depuis ~700 jours (deux ans moins 30 jours de grâce : ni connexion, ni candidature, ni diagnostic ou pass IAE encore valide) ; ils sortent de `candidats`. Les cohortes de plus de deux ans ne gardent presque que les candidats embauchés (95 à 97 % avec `total_embauches > 0` pour les diagnostics prescripteurs 2021-2023, 46 % pour 2025). Tout taux ou volume par cohorte remontant à plus de deux ans est biaisé : le dire, ou borner la période.
+
 ### suivi_utilisateurs_tb_prive_semaine
 
 Utilisateurs du service Pilotage (tableaux de bord privés).
@@ -272,7 +274,7 @@ Utilisateurs du service Pilotage (tableaux de bord privés).
 
 **Volumétrie:** ~15 400 utilisateurs uniques.
 
-**Note:** 100% des utilisateurs Pilotage sont aussi utilisateurs Emplois (service complémentaire).
+**Note:** 100% des utilisateurs Pilotage sont aussi utilisateurs de La plateforme (service complémentaire).
 
 ### GPS Logs (Mon Suivi / GPS)
 
@@ -305,9 +307,9 @@ Logs d'activité de l'application GPS (Mon Suivi), importés depuis Datadog.
 
 **Note :** Contrairement à Matomo (comportement web), ces logs capturent les actions métier côté serveur.
 
-### Support Emplois (Zendesk)
+### Support de La plateforme (Zendesk)
 
-Tickets du support utilisateurs des Emplois de l'Inclusion, alimentés depuis Zendesk
+Tickets du support utilisateurs de La plateforme, alimentés depuis Zendesk
 via webhooks n8n (mise à jour en temps réel).
 
 | Table | Granularité | Description |
@@ -352,7 +354,7 @@ Base dédiée à Nexus, fonctionnalité permettant aux utilisateurs de voir leur
 
 Voir [documentation complète](../stats/nexus.md).
 
-## Tables recommandées pour analyses détaillées (Emplois)
+## Tables recommandées pour analyses détaillées (La plateforme)
 
 Pour des analyses qui dépassent les tables "courantes" (candidatures, structures), voici les tables de référence et leurs jointures :
 
@@ -379,12 +381,16 @@ utilisateurs (pros)
 ```sql
 SELECT 
     gps.*,
-    u.type as user_type,
     u.email,
     COALESCE(s.nom, o.nom) as entite_nom,
     COALESCE(s.département, 'N/A') as departement
 FROM gps_logs gps
-LEFT JOIN public.utilisateurs u ON gps."User ID" = u.id
+-- Un rattachement par compte : joint tel quel, utilisateurs multiplierait les logs
+LEFT JOIN (
+    SELECT DISTINCT ON (id) id, email, id_structure, id_organisation
+    FROM public.utilisateurs
+    ORDER BY id, id_structure NULLS LAST
+) u ON gps."User ID" = u.id
 LEFT JOIN public.structures_v0 s ON u.id_structure = s."ID"
 LEFT JOIN public.organisations_v0 o ON u.id_organisation = o.id;
 ```

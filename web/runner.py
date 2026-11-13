@@ -71,6 +71,7 @@ class RunUsage:
 class TaskRunner:
     def __init__(self):
         self._running: dict[str, asyncio.Task] = {}
+        self._cancelled_runs: set[asyncio.Task] = set()
         self._cancel_tasks: dict[str, asyncio.Task] = {}
         self._worker_id = uuid.uuid4().hex[:12]
         self._consumer_task: asyncio.Task | None = None
@@ -139,7 +140,12 @@ class TaskRunner:
         await r.publish(f"{PREFIX}:cancel:{conv_id}", "1")
         if conv_id in self._running:
             await self._cancel_all_backends(conv_id)
-            self._running.pop(conv_id, None)
+            # Why: le run annulé finit son nettoyage (envoi de la session) après coup, pendant qu'un renvoi peut déjà
+            # être accepté. La libération se fait ici, une seule fois ; ce run ne libère plus rien à sa fin.
+            cancelled = self._running.pop(conv_id, None)
+            if cancelled:
+                self._cancelled_runs.add(cancelled)
+                await r.delete(f"{PREFIX}:running:{conv_id}")
         store.add_message(conv_id, "assistant", "*Interrompu.*")
         await self._notify_done(conv_id)
         return True
@@ -589,6 +595,8 @@ class TaskRunner:
                 # only this run may clear its own state, never clobber the restart (slot is None
                 # means cancel already took ownership, or a direct call with no consumer slot).
                 slot = self._running.get(conversation_id)
+                cancelled = my_task in self._cancelled_runs
+                self._cancelled_runs.discard(my_task)
                 if slot is my_task or slot is None:
                     # Why: la session du moteur contient la question du tour, quelle que soit l'issue. Sur une
                     # limite, la réponse viendra d'un autre moteur : le repère s'arrête juste avant la
@@ -601,7 +609,7 @@ class TaskRunner:
                     )
                     # Why: quand un rejeu suit, libérer ici fermerait le flux SSE avant que le
                     # moteur de secours ait répondu — seule la passe que personne ne reprend libère.
-                    if release or limit_reset is None:
+                    if (release or limit_reset is None) and not cancelled:
                         store.update_conversation(conversation_id, needs_response=False)
                         await self.notify_done(conversation_id)
                         self._running.pop(conversation_id, None)

@@ -16,6 +16,50 @@ function isValidConversationId(id) {
   return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
+/**
+ * Alert the user that a published dashboard they edited in this conversation needs republishing.
+ */
+async function showRepublishAlert(convId) {
+  if (!isValidConversationId(convId)) return;
+  const chatOutput = document.getElementById('chatOutput');
+  if (!chatOutput) return;
+
+  let drifted;
+  try {
+    const res = await fetch(`/api/conversations/${convId}/dashboards`);
+    if (!res.ok) return;
+    drifted = (await res.json()).drifted;
+  } catch (_) {
+    return;
+  }
+
+  // Why: retirer l'alerte périmée même quand il n'y a plus de retard (TDB republié ailleurs),
+  // sinon elle resterait affichée à tort après la réponse suivante.
+  document.getElementById('republish-alert')?.remove();
+  if (!drifted || drifted.length === 0) return;
+
+  const block = document.createElement('div');
+  block.id = 'republish-alert';
+  block.className = 'alert alert-warning mt-3';
+
+  const intro = document.createElement('p');
+  intro.className = 'mb-2';
+  intro.textContent =
+    drifted.length === 1
+      ? 'Ce tableau de bord est publié : republiez-le pour que vos changements soient visibles en ligne.'
+      : 'Ces tableaux de bord sont publiés : republiez-les pour que vos changements soient visibles en ligne.';
+  block.appendChild(intro);
+
+  for (const tdb of drifted) {
+    const link = document.createElement('a');
+    link.href = `/dashboards/${encodeURIComponent(tdb.slug)}/edit`;
+    link.className = 'd-block';
+    link.textContent = `Republier « ${tdb.title} »`;
+    block.appendChild(link);
+  }
+  chatOutput.appendChild(block);
+}
+
 let eventSource = null;
 let eventSourceConversationId = null; // Track which conversation the eventSource belongs to
 let retryCount = 0;
@@ -244,6 +288,8 @@ function startStream(afterMsgId = 0) {
     reconcileSidebarSpinners();
 
     signalRunFinished();
+
+    showRepublishAlert(currentConversationId);
   });
 
   // Connection lost — just reconnect. The server handles liveness logic.
@@ -731,6 +777,10 @@ async function loadConversation(convId, { autoStream = true } = {}) {
 
     // Reconcile sidebar spinners on every conversation load
     reconcileSidebarSpinners();
+
+    // Why: au chargement d'une conversation, réafficher (ou retirer) l'alerte de republication
+    // selon l'état réel du serveur — sinon elle ne réapparaît qu'à la prochaine réponse.
+    showRepublishAlert(convId);
 
     // If conversation is running, resume the stream (unless caller handles it)
     if (autoStream && conv.is_running) {

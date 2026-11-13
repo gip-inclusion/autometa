@@ -21,22 +21,22 @@ Le jeton est **strictement limité à la lecture des logs** (permission `logs_re
 
 ```bash
 # Combien d'événements, et combien d'utilisateurs distincts
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @http.method:GET' --days 7 --distinct '@usr.id'
 
 # Échantillon d'événements bruts (pour découvrir la forme des logs)
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod' --days 1 --search --limit 5
 
 # Répartition par facette (une ou plusieurs)
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @http.status_code:200' --days 7 \
     --group-by '@http.url_details.view_name' --distinct '@usr.id' --top 40
 
 # Dump massif en JSONL, pour analyser en local
-.venv/bin/python skills/datadog_logs/scripts/query.py \
+python skills/datadog_logs/scripts/query.py \
     --query 'service:itou-prod @usr.id:*' --days 30 --chunk 5 \
-    --dump /tmp/logs.jsonl --field http.url --field usr.id
+    --dump /tmp/$AUTOMETA_CONVERSATION_ID/logs.jsonl --field http.url --field usr.id
 ```
 
 Sortie : JSON sur stdout. `--dump` écrit un JSONL (une ligne par événement) et renvoie un récapitulatif.
@@ -58,7 +58,7 @@ Les logs Django structurés (`django_datadog_logger`) portent, en plus du messag
 
 **`queryString` écrase les paramètres répétés.** `?states=new&states=processing` est stocké comme `"processing"` : une seule valeur, la dernière. La présence du paramètre et le comptage par utilisateur restent justes, mais toute sélection multiple est aplatie. Dès que les **valeurs** comptent, dumper **`@http.url`** et parser en local (`urllib.parse.parse_qs`). C'est la raison d'être du champ par défaut du dump.
 
-**La présence d'un paramètre ne vaut pas usage.** Les formulaires sérialisent tous leurs champs, vides compris : `?states=new&archived=&start_date=&end_date=`. Filtrer sur `:?*` (valeur non vide), jamais `:*`. Sur les candidatures des Emplois, l'écart était d'un facteur 40 (842 « utilisateurs » de `start_date` contre 18 réels).
+**La présence d'un paramètre ne vaut pas usage.** Les formulaires sérialisent tous leurs champs, vides compris : `?states=new&archived=&start_date=&end_date=`. Filtrer sur `:?*` (valeur non vide), jamais `:*`. Sur les candidatures de La plateforme (ex-Emplois), l'écart était d'un facteur 40 (842 « utilisateurs » de `start_date` contre 18 réels).
 
 **Un `group_by` non trié renvoie les N premières valeurs par ordre alphabétique**, pas les plus grosses. Le tri par volume exige `sort: {aggregation: count, order: desc, type: "measure"}` — et `type: "measure"` est **obligatoire** : sans lui l'API répond 400 « Field 'aggregation' is invalid ». Le helper `by_count()` de `lib/datadog.py` encapsule cette forme ; `--group-by` s'en sert.
 

@@ -1,8 +1,8 @@
 # Autometa
 
-Assistant IA pour l'analyse des données métier de la Plateforme de l'inclusion.
+Assistant IA pour l'analyse des données métier de la PDI.
 
-Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données métier) pour répondre aux questions sur l'usage des services numériques de la Plateforme.
+Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données métier) pour répondre aux questions sur l'usage des services numériques de la PDI.
 
 ## Fonctionnalités
 
@@ -323,4 +323,4 @@ Les résultats sont stockés dans `evals/` (gitignored).
 
 ## Licence
 
-Projet interne GIP Plateforme de l'inclusion.
+Projet interne de la PDI (Plateforme de l'inclusion).

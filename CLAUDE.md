@@ -35,7 +35,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - **Prescripteurs** — Accompagnent les candidats. Les « prescripteurs habilités » peuvent réaliser des diagnostics et délivrer des pass.
 - **Employeurs** (SIAE) — Structures employant les titulaires de pass. Nécessitent un conventionnement annuel.
 
-**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion [ex Emplois], RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
+**Bizdev / funnel AARRI** : pour tout terme d'étape bizdev (acquisition, activation, déploiement, rétention, adoption, référence, impact, pénétration, power user, maturité, acte métier…), consulter `knowledge/bizdev/glossaire.md`. Sans produit dans le contexte, appliquer la définition **générale** ; avec un produit (La plateforme de l'inclusion (ex-Emplois), RDV-Insertion, Dora, Mon Récap, Le Marché), la définition **opérationnelle du produit**.
 
 **Sources de données** — le choix de la source à interroger, l'ordre de priorité quand deux consignes divergent et le garde-fou d'accès vivent dans `AGENT.md` (sections « Sources de données » et « Quand deux consignes divergent »), injecté tel quel dans le prompt de l'agent de production. Ne pas les recopier ici : une copie diverge, et l'agent lit les deux fichiers. Le choix des tables d'`autometa_tables_db` vit dans le skill `autometa_tables_db`. `make test` vérifie ces règles (`lib/knowledge_lint.py`).
 
@@ -46,7 +46,7 @@ IAE (insertion par l'activité économique) — programme français d'emploi ave
 - Un `cron.py` ne tourne **que** si le TDB est enregistré avec `has_cron` — le système de cron lit la table `dashboards`.
 - Persistance de données : schéma `dashboard_storage` de la DB applicative — frontend via `POST /api/query` `{source: "dashboard_storage", sql, params}`, agent et `cron.py` via `lib.dashboard_api.query_storage` (la façade, seul import autorisé dans un TDB). Voir `docs/interactive-dashboards.md` § Persistance.
 - En prod, un hook de garde bloque les écritures **Edit/Write** hors de `data/`, `.claude/` et `/tmp`. De toute façon `web/`, `lib/`, `knowledge/`, etc. sont baked dans l'image : toute modification (y compris via Bash, non couvert par le hook) est éphémère et perdue au redéploiement.
-- Scratchpad → `/tmp`. Fichiers one-off téléchargeables (csv, xlsx…) → racine de `data/interactive/`, jamais de `.html` hors TDB.
+- Scratchpad → `/tmp/$AUTOMETA_CONVERSATION_ID/`, jamais la racine de `/tmp`. Fichiers one-off téléchargeables (csv, xlsx…) → racine de `data/interactive/`, jamais de `.html` hors TDB.
 
 ## Sites web
 

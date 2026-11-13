@@ -97,7 +97,7 @@ Keys accepted by `--site`. Names, URLs and Matomo IDs are defined once, in the Â
 | mon-recap | 217 |
 | marche | 136 |
 
-The `plateforme` key is a legacy name: it designates the Site institutionnel (212), not the Plateforme (117).
+The `plateforme` key is a legacy name: it designates the Site institutionnel (212), not La plateforme (117).
 
 ## Schedule
 
