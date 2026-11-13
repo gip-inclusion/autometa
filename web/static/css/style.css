@@ -814,6 +814,7 @@ body.has-sidebar {
   border-radius: 0.5rem;
   border: 1px solid var(--bs-border-color);
   margin-top: 1.25rem;
+  overflow-wrap: break-word;
 }
 
 .event-block:first-child {

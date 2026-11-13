@@ -15,6 +15,7 @@ WIDE_TABLE = (
     "|---|---|---|---|---|---|---|---|\n"
     "| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |"
 )
+LONG_URL = "https://matomo.example.org/index.php?module=CoreHome&action=index&idSite=117&period=day&date=yesterday"
 OTHER_PAGES = {
     "/conversations": ".search-filter-bar .rechercher-type-btn",
     "/dashboards": ".section-header .btn-primary",
@@ -94,11 +95,12 @@ def right_edge(page: Page, selector: str) -> float:
 
 def test_nothing_sticks_out_sideways_on_a_small_phone(conversation: str, ask: Callable[[str], None], page: Page):
     page.set_viewport_size({"width": 320, "height": 640})
-    ask(f"Un tableau large\n\n{WIDE_TABLE}")
+    ask(f"Un tableau large et un lien long\n\n{WIDE_TABLE}\n\n<{LONG_URL}>")
     table = page.locator(".event-final-answer table")
     expect(table).to_be_visible()
 
-    for selector in (".chat-bar-container", ".chat-output", ".event-user", ".event-final-answer table"):
+    links = (".event-user a", ".event-final-answer a")
+    for selector in (".chat-bar-container", ".chat-output", ".event-user", ".event-final-answer table", *links):
         assert right_edge(page, selector) <= 320, selector
     assert table.evaluate("t => t.scrollWidth > t.clientWidth")
     for path, selector in OTHER_PAGES.items():
