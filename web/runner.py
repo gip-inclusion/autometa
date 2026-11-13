@@ -27,7 +27,7 @@ from lib.tool_taxonomy import classify_tool
 from web.catchup import build_catchup
 from web.engine_limits import limit_key
 
-from . import complexity, config, session_sync
+from . import complexity, config, session_sync, uploads
 from .agents import get_agent
 from .alerts import notify_alert_channel
 from .database import store
@@ -798,6 +798,8 @@ def limit_notice(limit_message: str, reset_iso: str | None) -> str:
 
 def prepare_turn(conv_id: str, backend: str) -> EngineTurn:
     """Session native du moteur et rattrapage des tours qu'il n'a pas vus, jusqu'à la question du tour."""
+    # Why: le disque des serveurs est vidé à chaque redémarrage, et l'agent lit les pièces jointes par leur chemin.
+    uploads.restore_conversation_files(conv_id)
     state = store.get_engine_state(conv_id, backend)
     session_id = state["session_id"] or str(uuid.uuid4())
     if state["session_id"]:

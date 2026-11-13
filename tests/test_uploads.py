@@ -30,6 +30,7 @@ from web.uploads import (
     format_file_for_context,
     generate_stored_filename,
     is_text_file,
+    restore_conversation_files,
     sanitize_filename,
     upload_file,
 )
@@ -44,6 +45,10 @@ config.MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 config.TEXT_FILE_INLINE_LIMIT = 1024
 
 store = ConversationStore()
+
+
+def make_conversation():
+    return store.create_conversation(user_id="test@example.com").id
 
 
 @pytest.fixture
@@ -191,7 +196,7 @@ def test_upload_file_text_file():
     result, text_content = upload_file(
         file_obj=file_obj,
         filename="hello.txt",
-        conversation_id=None,
+        conversation_id=make_conversation(),
         user_id="test@example.com",
     )
 
@@ -211,7 +216,7 @@ def test_upload_file_binary_file():
     result, text_content = upload_file(
         file_obj=file_obj,
         filename="data.bin",
-        conversation_id=None,
+        conversation_id=make_conversation(),
         user_id="test@example.com",
     )
 
@@ -229,7 +234,7 @@ def test_upload_file_large_text_file_no_inline():
     result, text_content = upload_file(
         file_obj=file_obj,
         filename="large.txt",
-        conversation_id=None,
+        conversation_id=make_conversation(),
         user_id="test@example.com",
     )
 
@@ -251,7 +256,7 @@ def test_upload_file_too_large_rejected():
         upload_file(
             file_obj=file_obj,
             filename="big.txt",
-            conversation_id=None,
+            conversation_id=make_conversation(),
             user_id="test@example.com",
         )
 
@@ -265,7 +270,7 @@ def test_upload_file_blocked_extension_rejected():
         upload_file(
             file_obj=file_obj,
             filename="malware.exe",
-            conversation_id=None,
+            conversation_id=make_conversation(),
             user_id="test@example.com",
         )
 
@@ -276,19 +281,20 @@ def test_upload_file_duplicate_detection():
     content = b"same content"
     file_obj1 = io.BytesIO(content)
     file_obj2 = io.BytesIO(content)
+    conversation_id = make_conversation()
 
     result1, _ = upload_file(
         file_obj=file_obj1,
         filename="file1.txt",
-        conversation_id=None,
+        conversation_id=conversation_id,
         user_id="user1@example.com",
     )
 
     result2, _ = upload_file(
         file_obj=file_obj2,
         filename="file2.txt",  # Different name
-        conversation_id=None,
-        user_id="user2@example.com",
+        conversation_id=conversation_id,
+        user_id="user1@example.com",
     )
 
     # Both should have same hash and stored filename
@@ -308,7 +314,7 @@ def test_upload_file_permissions_readonly():
     result, _ = upload_file(
         file_obj=file_obj,
         filename="test.txt",
-        conversation_id=None,
+        conversation_id=make_conversation(),
         user_id="test@example.com",
     )
 
@@ -407,7 +413,7 @@ def test_database_integration_file_record_stored():
     result, _ = upload_file(
         file_obj=file_obj,
         filename="test.txt",
-        conversation_id=None,
+        conversation_id=make_conversation(),
         user_id="test@example.com",
     )
 
@@ -426,12 +432,12 @@ def test_database_integration_files_by_hash():
     result, _ = upload_file(
         file_obj=file_obj,
         filename="test.txt",
-        conversation_id=None,
+        conversation_id=make_conversation(),
         user_id="test@example.com",
     )
 
     # Find by hash
-    found = store.get_uploaded_file_by_hash(result.sha256_hash)
+    found = store.get_uploaded_file_by_hash(result.sha256_hash, result.conversation_id)
     assert found is not None
     assert found.id == result.id
 
@@ -472,6 +478,25 @@ def test_database_integration_conversation_files():
     assert len(files) == 3
 
 
+@pytest.mark.usefixtures("setup_db")
+def test_an_upload_is_stored_in_its_conversation_folder():
+    conversation_id = make_conversation()
+
+    result, _ = upload_file(io.BytesIO(b"x"), "notes.txt", conversation_id=conversation_id)
+
+    assert Path(result.storage_path).parent == config.UPLOADS_DIR / conversation_id
+    assert result.stored_filename.startswith(f"{conversation_id}/")
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_the_same_file_in_another_conversation_is_stored_again_in_its_folder():
+    first, _ = upload_file(io.BytesIO(b"same"), "a.txt", conversation_id=make_conversation())
+    second, _ = upload_file(io.BytesIO(b"same"), "a.txt", conversation_id=make_conversation())
+
+    assert first.storage_path != second.storage_path
+    assert Path(second.storage_path).exists()
+
+
 def test_uploads_are_kept_out_of_the_served_interactive_prefix():
     assert not s3.uploads.key("f.pdf").startswith(s3.interactive.prefix)
 
@@ -481,3 +506,25 @@ def test_a_decomposed_accent_is_stored_composed():
         sanitize_filename("re\u0301sume\u0301 l\u2019e\u0301te\u0301.pdf")
         == "r\u00e9sum\u00e9 l\u2019\u00e9t\u00e9.pdf"
     )
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_a_file_erased_by_a_restart_is_restored_from_s3(mocker):
+    result, _ = upload_file(io.BytesIO(b"contenu"), "notes.txt", conversation_id=make_conversation())
+    Path(result.storage_path).unlink()
+    download = mocker.patch.object(s3.uploads, "download", return_value=b"contenu")
+
+    restore_conversation_files(result.conversation_id)
+
+    download.assert_called_once_with(result.stored_filename)
+    assert Path(result.storage_path).read_bytes() == b"contenu"
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_a_file_still_on_disk_is_not_downloaded_again(mocker):
+    result, _ = upload_file(io.BytesIO(b"contenu"), "notes.txt", conversation_id=make_conversation())
+    download = mocker.patch.object(s3.uploads, "download")
+
+    restore_conversation_files(result.conversation_id)
+
+    download.assert_not_called()

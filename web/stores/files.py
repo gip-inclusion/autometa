@@ -67,9 +67,13 @@ class FilesMixin:
                 return None
             return model_to_uploaded_file(f)
 
-    def get_uploaded_file_by_hash(self, sha256_hash: str) -> Optional[UploadedFile]:
+    def get_uploaded_file_by_hash(self, sha256_hash: str, conversation_id: str) -> Optional[UploadedFile]:
         with get_db() as session:
-            f = session.scalars(select(FileModel).where(FileModel.sha256_hash == sha256_hash).limit(1)).first()
+            f = session.scalars(
+                select(FileModel)
+                .where(FileModel.sha256_hash == sha256_hash, FileModel.conversation_id == conversation_id)
+                .limit(1)
+            ).first()
             if not f:
                 return None
             return model_to_uploaded_file(f)

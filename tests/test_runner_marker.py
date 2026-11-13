@@ -84,6 +84,7 @@ def test_a_primary_back_from_its_limit_catches_up_on_the_fallback_turns(mocker):
     )
     mocker.patch.object(runner.session_sync, "download_session")
     mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: True))
+    mocker.patch.object(runner.uploads, "restore_conversation_files")
 
     turn = runner.prepare_turn("c1", "cli")
 

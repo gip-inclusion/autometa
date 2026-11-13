@@ -261,7 +261,7 @@ def upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str]
 def upload_file(
     file_obj: BinaryIO,
     filename: str,
-    conversation_id: Optional[str] = None,
+    conversation_id: str,
     user_id: Optional[str] = None,
     check_duplicate: bool = True,
 ) -> Tuple[UploadedFile, Optional[str]]:
@@ -283,7 +283,8 @@ def upload_file(
 
     # Check for existing file with same hash (deduplication)
     if check_duplicate:
-        existing = store.get_uploaded_file_by_hash(sha256_hash)
+        # Why: un fichier n'est réutilisé que dans sa conversation, dont le dossier porte son chemin.
+        existing = store.get_uploaded_file_by_hash(sha256_hash, conversation_id)
         if existing:
             logger.info("Found existing file with hash %s...", sha256_hash[:16])
             # Create a new record pointing to the same file
@@ -318,9 +319,10 @@ def upload_file(
     is_text = is_text_file(filename, mime_type, content)
 
     # Generate stored filename and path
-    stored_filename = generate_stored_filename(filename)
-    uploads_dir = ensure_uploads_dir()
-    storage_path = uploads_dir / stored_filename
+    # Why: un dossier par conversation — l'agent qui liste le sien ne voit pas les fichiers des autres utilisateurs.
+    stored_filename = f"{conversation_id}/{generate_stored_filename(filename)}"
+    storage_path = ensure_uploads_dir() / stored_filename
+    storage_path.parent.mkdir(exist_ok=True)
 
     # Write file
     storage_path.write_bytes(content)
@@ -395,6 +397,21 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
     except ClientError as e:
         logger.error("Failed to download from S3: %s", e)
         return None
+
+
+def restore_conversation_files(conversation_id: str) -> None:
+    """Remet sur le disque, depuis S3, les fichiers de la conversation qu'un redémarrage a effacés."""
+    for uploaded_file in store.get_conversation_files(conversation_id):
+        local_path = Path(uploaded_file.storage_path)
+        if local_path.exists():
+            continue
+        content = s3.uploads.download(uploaded_file.stored_filename)
+        if content is None:
+            logger.warning("Fichier téléversé absent de S3 : %s", uploaded_file.stored_filename)
+            continue
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(content)
+        set_readonly_permissions(local_path)
 
 
 def copy_file_for_modification(

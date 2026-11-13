@@ -23,6 +23,7 @@ def _setup(mocker, transcript, *, session_id="sess-1", seen_through=None, resuma
     )
     mocker.patch.object(runner.session_sync, "download_session")
     mocker.patch.object(runner.session_sync, "get_session_path", return_value=mocker.Mock(exists=lambda: resumable))
+    mocker.patch.object(runner.uploads, "restore_conversation_files")
 
 
 def _contents(turn):
@@ -54,6 +55,14 @@ def test_an_engine_with_state_resumes_its_own_session(mocker):
 
     runner.session_sync.download_session.assert_called_once_with("sess-1")
     assert (turn.session_id, turn.history, turn.question_id) == ("sess-1", [], 3)
+
+
+def test_the_conversation_attachments_are_back_on_disk_before_the_turn(mocker):
+    _setup(mocker, [_msg(1, "user", "Q1")])
+
+    runner.prepare_turn("c1", "cli")
+
+    runner.uploads.restore_conversation_files.assert_called_once_with("c1")
 
 
 def test_only_messages_after_the_marker_are_loaded(mocker):
