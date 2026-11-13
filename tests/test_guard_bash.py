@@ -222,3 +222,47 @@ def test_lire_une_variable_par_son_nom_passe_sur_un_serveur(commande):
 
 def test_en_local_l_environnement_peut_etre_liste():
     assert guard_bash.environ_verdict("env | grep -i github", on_server=False) is None
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        "pkill -f chrom",
+        "pkill -f verify_dashboard; pkill -f chrom; sleep 1",
+        'pkill -f "http.server 8765"',
+        "sudo pkill -9 -f uvicorn",
+        "killall chrome",
+        "ps aux",
+        'ps aux | grep -E "python|uvicorn|gunicorn" | grep -v grep',
+        "ps axww | head",
+        "ps -ef | grep claude",
+        'ps -eo pid,etime,args | grep "python.*okr" | grep -v grep',
+        "ps -A",
+        "ps aux | grep '[c]hrome' | awk '{print $2}' | xargs kill",
+    ],
+)
+def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(commande):
+    assert guard_bash.process_verdict(commande, on_server=True) == guard_bash.BLOCK_PROCESS_MSG
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        'pkill -f "$TMPDIR/zd5.py"',
+        "pkill -f /tmp/0123abcd-0123-4567-89ab-0123456789ab/zd5.py",
+        "until ! pgrep -f events.py >/dev/null; do sleep 5; done",
+        'kill $(pgrep -f "$TMPDIR/dump.py")',
+        "kill $!",
+        "kill 12345",
+        "ps -o pid=,ppid=,args= -p 10199",
+        "ps -p 123 -o args",
+        "grep -n pkill notes.md",
+        "echo 'ps aux'",
+    ],
+)
+def test_suivre_et_arreter_ses_propres_processus_passe_sur_un_serveur(commande):
+    assert guard_bash.process_verdict(commande, on_server=True) is None
+
+
+def test_en_local_les_processus_peuvent_etre_listes():
+    assert guard_bash.process_verdict("ps aux", on_server=False) is None
