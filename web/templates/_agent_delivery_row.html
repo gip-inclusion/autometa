@@ -1,0 +1,37 @@
+{# Texte venu de sources externes : affiché échappé, jamais en markdown ni en HTML. #}
+<tr id="delivery-{{ d.id }}">
+  <td><code>{{ d.id }}</code></td>
+  <td>
+    <details>
+      <summary>{{ d.title }}</summary>
+      <div class="agent-text small text-muted mt-1">{{ d.text }}</div>
+    </details>
+  </td>
+  {% if show_agent %}<td><a href="/agents/{{ d.agent }}" hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">{{ d.agent }}</a></td>{% endif %}
+  <td><code>{{ d.destination }}</code></td>
+  <td><code title="{{ d.run_id }}">{{ d.run_id[:8] }}</code></td>
+  <td class="small">
+    {% for step in d.subagent_steps %}
+      {% if step.probability is defined %}
+      <div>{{ step.model }} : {{ "%.2f"|format(step.probability) }} (seuil {{ step.threshold }})</div>
+      {% elif step.probabilities is defined %}
+      <div>{{ step.model }} : {% for name, p in step.probabilities.items() %}{{ name }} {{ "%.2f"|format(p) }}{% if not loop.last %}, {% endif %}{% endfor %} (seuil {{ step.threshold }})</div>
+      {% endif %}
+    {% else %}
+      <span class="text-muted">sans sous-agent</span>
+    {% endfor %}
+  </td>
+  <td>
+    {% if d.status == "pending_review" and d.may_review %}
+    <div class="d-flex gap-1">
+      <button class="btn btn-sm btn-primary agent-review" data-delivery="{{ d.id }}" data-decision="approve">Approuver</button>
+      <button class="btn btn-sm btn-outline-danger agent-review" data-delivery="{{ d.id }}" data-decision="reject">Refuser</button>
+    </div>
+    {% else %}
+    <span class="badge bg-{{ status_classes.get(d.status, 'secondary') }}">{{ d.status }}</span>
+    {% if d.status == "pending_review" %}<div class="text-muted small">propriétaire ou admin</div>{% endif %}
+    {% if d.approved_by %}<div class="text-muted small">par {{ d.approved_by }}</div>{% endif %}
+    {% if d.error %}<div class="text-muted small">{{ d.error }}</div>{% endif %}
+    {% endif %}
+  </td>
+</tr>

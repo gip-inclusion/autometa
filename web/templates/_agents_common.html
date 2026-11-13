@@ -1,0 +1,28 @@
+<style>
+  #section-agents .section-body { max-width: 1200px; }
+  #section-agents .agent-text { white-space: pre-wrap; max-height: 20em; overflow: auto; }
+  #section-agents h2 { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #6c757d; margin: 1.5rem 0 .75rem; }
+  #section-agents table { font-size: .9rem; }
+</style>
+<script>
+(function initAgentReview() {
+  const root = document.getElementById('section-agents');
+  if (!root) return;
+  root.querySelectorAll('.agent-review').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const verb = btn.dataset.decision === 'approve' ? 'Approuver et envoyer' : 'Refuser';
+      if (!confirm(`${verb} l'envoi ${btn.dataset.delivery} ?`)) return;
+      btn.closest('div').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      try {
+        const resp = await fetch(`/api/agents/deliveries/${btn.dataset.delivery}/${btn.dataset.decision}`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) alert('Erreur : ' + (data.error || data.detail));
+        else if (data.status !== 'sent' && data.status !== 'rejected') alert(`Envoi ${data.id} : ${data.status}`);
+      } catch (err) {
+        alert('Erreur : ' + err.message);
+      }
+      htmx.ajax('GET', window.location.pathname, { target: '#main', select: '#main > *', swap: 'innerHTML' });
+    });
+  });
+})();
+</script>
