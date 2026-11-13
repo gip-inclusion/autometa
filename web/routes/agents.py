@@ -73,7 +73,8 @@ def agent_rows() -> list[dict]:
             session.execute(
                 select(AgentRun.agent_id, func.count(AgentDelivery.id))
                 .join(AgentDelivery, AgentDelivery.run_id == AgentRun.id)
-                .where(AgentDelivery.status == "pending_review")
+                .join(Agent, Agent.id == AgentRun.agent_id)
+                .where(AgentDelivery.status == "pending_review", Agent.status == "active")
                 .group_by(AgentRun.agent_id)
             ).all()
         )
@@ -132,7 +133,10 @@ def agent_page(slug: Slug, request: Request, user_email: str = Depends(get_curre
                 "targets": set(config.AGENT_DESTINATION_TARGETS),
                 "runs": runs,
                 "deliveries": [
-                    {**agent_delivery.as_dict(d), "may_review": may_review(user_email, agent.owner_email)}
+                    {
+                        **agent_delivery.as_dict(d),
+                        "may_review": agent.status == "active" and may_review(user_email, agent.owner_email),
+                    }
                     for d in deliveries
                 ],
                 **get_sidebar_data(user_email, request),

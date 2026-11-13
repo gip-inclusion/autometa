@@ -22,8 +22,8 @@ def post(mocker):
     return mocker.patch("lib.agent_delivery.slack.post_message", return_value=True)
 
 
-def make_delivery(status="pending_review", mode="conversational") -> int:
-    """An active agent owned by OWNER, one collected run, and one delivery of that run."""
+def make_delivery(status="pending_review", mode="conversational", agent_status="active") -> int:
+    """An agent owned by OWNER, one collected run, and one delivery of that run."""
     config = {
         "format": "pdi.agent/1",
         "slug": "veille-test",
@@ -39,7 +39,7 @@ def make_delivery(status="pending_review", mode="conversational") -> int:
             system_prompt="Consigne.",
             pipeline_id="p",
             version=1,
-            status="active",
+            status=agent_status,
             owner_email=OWNER,
             changeset_id="c",
         )
@@ -101,6 +101,15 @@ def test_agent_page_shows_configuration_destinations_runs_and_deliveries(client,
     assert "configurée" in html
     assert "run-1" in html
     assert 'data-decision="reject"' in html
+
+
+def test_a_retired_agent_offers_no_decision_and_nothing_to_review(client, post):
+    make_delivery(agent_status="retired")
+    listing = client.get("/agents", headers={"X-Forwarded-Email": OWNER}).text
+    page = client.get("/agents/veille-test", headers={"X-Forwarded-Email": OWNER}).text
+    assert "À relire (0)" in listing
+    assert '<span class="badge bg-warning text-dark">' not in listing
+    assert 'data-decision="approve"' not in page
 
 
 @pytest.mark.parametrize(("slug", "status"), [("inconnu", 404), ("../x", 404), ("A", 422)])
