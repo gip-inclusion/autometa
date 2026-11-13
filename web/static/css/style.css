@@ -245,12 +245,13 @@ body.has-sidebar {
   overflow: hidden;
 }
 
+/* Why: 100vh is the screen without Safari's toolbars on iOS, so the bottom of the page, composer included, slid under them. */
 @media (max-width: 991.98px) {
   #section-explorations,
   #section-rapports,
   #section-rechercher,
   #section-dashboards {
-    height: calc(100vh - 56px);
+    height: calc(100dvh - 56px);
   }
 }
 
@@ -814,6 +815,7 @@ body.has-sidebar {
   border-radius: 0.5rem;
   border: 1px solid var(--bs-border-color);
   margin-top: 1.25rem;
+  overflow-wrap: break-word;
 }
 
 .event-block:first-child {
@@ -3666,7 +3668,7 @@ body.has-sidebar {
 
 @media (max-width: 991.98px) {
   #section-accueil {
-    height: calc(100vh - 56px);
+    height: calc(100dvh - 56px);
   }
 }
 
