@@ -5,8 +5,11 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import AsyncIterator
 
 import sentry_sdk
@@ -27,6 +30,41 @@ tracer = trace.get_tracer(__name__)
 # un changement de format du status (les deux surfaces restent couplées au texte stdout du CLI).
 _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
+
+CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def conversation_workdir(conversation_id: str) -> Path | None:
+    """Le dossier de travail d'une vraie conversation, créé au besoin."""
+    # Why: un identifiant de conversation est un UUID — c'est aussi ce que le ménage reconnaît, et ce qui écarte `../`.
+    if not CONVERSATION_ID_RE.fullmatch(conversation_id):
+        return None
+    workdir = config.WORKDIR_ROOT / conversation_id
+    workdir.mkdir(mode=0o700, exist_ok=True)
+    # Why: `mode` ne vaut qu'à la création ; un dossier déjà créé par l'agent (`mkdir -p`) resterait en 755.
+    workdir.chmod(0o700)
+    # Why: l'âge du ménage se lit sur la date du dossier, que l'écriture dans un sous-dossier ne change pas.
+    os.utime(workdir)
+    return workdir
+
+
+def prune_workdirs(now: float) -> None:
+    """Efface les dossiers de travail de conversation restés une semaine sans changement."""
+    for path in config.WORKDIR_ROOT.iterdir():
+        if not CONVERSATION_ID_RE.fullmatch(path.name):
+            continue
+        # Why: renommé avant d'être effacé — une conversation qui reprend pendant l'effacement, lent avec des clones
+        # GitHub, recrée un dossier neuf au lieu de perdre le sien en cours de route.
+        doomed = path.with_name(f"{path.name}.prune-{os.getpid()}")
+        try:
+            if not path.is_dir() or now - path.stat().st_mtime < 7 * 24 * 3600:
+                continue
+            path.rename(doomed)
+        except FileNotFoundError:
+            logger.debug("Dossier de travail déjà effacé : %s", path.name)
+            continue
+        shutil.rmtree(doomed, ignore_errors=True)
+
 
 API_DOWN_MESSAGE = (
     "L'API Anthropic est momentanément indisponible. "
@@ -93,8 +131,12 @@ class CLIBackend(AgentBackend):
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
+        self._pruned_at = 0.0
+        self._prune: asyncio.Task | None = None
 
-    def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
+    def _build_env(
+        self, *, conversation_id: str | None = None, user_email: str | None = None, workdir: Path | None = None
+    ) -> dict:
         # Why: transmission de l'environnement complet au sous-processus, pas une lecture
         # de configuration — seul ANTHROPIC_API_KEY est retiré.
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}  # noqa: TID251
@@ -102,6 +144,8 @@ class CLIBackend(AgentBackend):
             env["AUTOMETA_CONVERSATION_ID"] = conversation_id
         if user_email:
             env["AUTOMETA_USER_EMAIL"] = user_email
+        if workdir:
+            env["TMPDIR"] = str(workdir)
         return env
 
     def _extra_cmd_args(self) -> list[str]:
@@ -218,6 +262,17 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
+        workdir = conversation_workdir(conversation_id)
+        now = time.time()
+        if config.ENV.is_server and now - self._pruned_at > 3600:
+            # Why: une fois l'heure par processus, en tâche de fond — effacer des clones GitHub ferait attendre ce tour ;
+            # et jamais sur un poste, dont le /tmp contient d'autres dossiers nommés comme des UUID.
+            self._pruned_at = now
+            self._prune = asyncio.create_task(asyncio.to_thread(prune_workdirs, now))
+        if workdir:
+            # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.
+            cmd.extend(["--append-system-prompt", f"Dossier de travail de cette conversation, déjà créé : {workdir}/"])
+
         cmd.extend(self._tool_permission_args())
 
         cmd.extend(self._extra_cmd_args())
@@ -231,7 +286,7 @@ class CLIBackend(AgentBackend):
             len(prompt),
         )
 
-        env = self._build_env(conversation_id=conversation_id, user_email=user_email)
+        env = self._build_env(conversation_id=conversation_id, user_email=user_email, workdir=workdir)
 
         with tracer.start_as_current_span(
             "agent.cli.process",

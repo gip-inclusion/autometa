@@ -2,10 +2,25 @@
 
 import asyncio
 import json
+import os
+import shutil
+import time
 
 import pytest
 
+from web.agents import cli
 from web.agents.cli import API_DOWN_MESSAGE, CLIBackend, signal_name, transient_api_error, usage_limit_reset
+from web.environment import Environment
+
+UUID_A = "21e937fb-0000-4000-8000-000000000001"
+UUID_B = "21e937fb-0000-4000-8000-000000000002"
+WEEK_AGO = time.time() - 8 * 24 * 3600
+
+
+def make_idle_folder(path):
+    path.mkdir()
+    os.utime(path, (WEEK_AGO, WEEK_AGO))
+    return path
 
 
 def make_backend():
@@ -120,10 +135,73 @@ def test_build_prompt_formats_history_as_transcript():
 
 def test_build_env_strips_api_key_and_sets_context(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setenv("TMPDIR", "/srv/tmp")
     env = make_backend()._build_env(conversation_id="c1", user_email="a@b.c")
     assert "ANTHROPIC_API_KEY" not in env
     assert env["AUTOMETA_CONVERSATION_ID"] == "c1"
     assert env["AUTOMETA_USER_EMAIL"] == "a@b.c"
+    assert env["TMPDIR"] == "/srv/tmp", "sans dossier de conversation, TMPDIR reste celui du processus"
+
+
+def test_build_env_points_tmpdir_to_the_conversation_folder(tmp_path):
+    env = make_backend()._build_env(conversation_id="c1", workdir=tmp_path / "c1")
+    assert env["TMPDIR"] == str(tmp_path / "c1")
+
+
+@pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "bench-sonnet", "c1"])
+def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation_id):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    assert cli.conversation_workdir(conversation_id) is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_reusing_a_conversation_folder_refreshes_its_date_so_the_prune_spares_it(mocker, tmp_path):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    make_idle_folder(tmp_path / UUID_A)
+
+    cli.conversation_workdir(UUID_A)
+
+    assert time.time() - (tmp_path / UUID_A).stat().st_mtime < 60
+
+
+@pytest.mark.parametrize("created_by_the_agent", [False, True])
+def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_path, created_by_the_agent):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    if created_by_the_agent:
+        (tmp_path / UUID_A).mkdir()
+        (tmp_path / UUID_A).chmod(0o755)
+
+    workdir = cli.conversation_workdir(UUID_A)
+
+    assert workdir == tmp_path / UUID_A
+    assert workdir.stat().st_mode & 0o777 == 0o700
+
+
+def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    for name in (UUID_A, "pas-une-conversation"):
+        make_idle_folder(tmp_path / name)
+    (tmp_path / UUID_B).mkdir()
+
+    cli.prune_workdirs(time.time())
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([UUID_B, "pas-une-conversation"])
+
+
+def test_a_conversation_resumed_while_the_prune_deletes_its_old_folder_still_has_one(mocker, tmp_path):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    make_idle_folder(tmp_path / UUID_A)
+    rmtree = shutil.rmtree
+
+    def resume_then_delete(path, **kwargs):
+        cli.conversation_workdir(UUID_A)
+        rmtree(path, **kwargs)
+
+    mocker.patch.object(cli.shutil, "rmtree", side_effect=resume_then_delete)
+
+    cli.prune_workdirs(time.time())
+
+    assert [p.name for p in tmp_path.iterdir()] == [UUID_A]
 
 
 def test_drain_stderr_keeps_tail_when_over_limit():
@@ -192,6 +270,8 @@ def stub_config(mocker, tmp_path):
     mocker.patch("web.agents.cli.build_system_prompt", return_value="")
     mocker.patch("web.agents.cli.config.ADDITIONAL_DIRS", [])
     mocker.patch("web.agents.cli.config.BASE_DIR", tmp_path)
+    (tmp_path / "tmp").mkdir()
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path / "tmp")
 
     def _install(body):
         mocker.patch("web.agents.cli.config.CLAUDE_CLI", make_stub_cli(tmp_path, body))
@@ -443,6 +523,57 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
 
     argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
+
+
+def test_the_agent_runs_with_its_own_folder_and_is_told_its_path(stub_config, tmp_path):
+    stub_config(
+        'printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\n'
+        'echo \'{"type": "result", "subtype": "success"}\''
+    )
+
+    collect_messages(make_backend(), conversation_id=UUID_A)
+
+    workdir = tmp_path / "tmp" / UUID_A
+    assert workdir.is_dir()
+    assert (tmp_path / "tmpdir.txt").read_text().strip() == str(workdir)
+    argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
+    appended = argv[argv.index("--append-system-prompt") + 1]
+    assert str(workdir) in appended
+
+
+@pytest.mark.parametrize(("env", "kept"), [(Environment.DEV, True), (Environment.PROD, False)])
+def test_idle_folders_are_pruned_on_servers_only(stub_config, mocker, tmp_path, env, kept):
+    mocker.patch.object(cli.config, "ENV", env)
+    stub_config('echo \'{"type": "result", "subtype": "success"}\'')
+    idle = make_idle_folder(tmp_path / "tmp" / UUID_B)
+
+    collect_messages(make_backend(), conversation_id=UUID_A)
+
+    assert idle.exists() is kept
+
+
+def test_a_conversation_resumed_after_a_week_keeps_its_files(stub_config, mocker, tmp_path):
+    mocker.patch.object(cli.config, "ENV", Environment.PROD)
+    stub_config('echo \'{"type": "result", "subtype": "success"}\'')
+    workdir = make_idle_folder(tmp_path / "tmp" / UUID_A)
+    (workdir / "export.csv").write_text("a;b")
+    os.utime(workdir, (WEEK_AGO, WEEK_AGO))
+
+    collect_messages(make_backend(), conversation_id=UUID_A)
+
+    assert (workdir / "export.csv").exists()
+
+
+def test_a_process_prunes_at_most_once_an_hour(stub_config, mocker, tmp_path):
+    mocker.patch.object(cli.config, "ENV", Environment.PROD)
+    stub_config('echo \'{"type": "result", "subtype": "success"}\'')
+    backend = make_backend()
+    collect_messages(backend, conversation_id=UUID_A)
+    idle = make_idle_folder(tmp_path / "tmp" / UUID_B)
+
+    collect_messages(backend, conversation_id=UUID_A)
+
+    assert idle.exists()
 
 
 MEMOIRE = {"limit": "536870912", "used": "536862720", "peak": "536870912", "oom_kill": "1"}

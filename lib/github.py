@@ -6,7 +6,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 from datetime import UTC, datetime
@@ -233,7 +232,7 @@ def git(cwd: Path, *args: str, ok: tuple[int, ...] = (0,), timeout: int = 120) -
 
 def workspace() -> Path:
     """Dossier des clones de la conversation, partagé par ses sous-agents."""
-    return Path(tempfile.gettempdir()) / (config.agent_conversation_id() or "autometa") / "github"
+    return config.WORKDIR_ROOT / (config.agent_conversation_id() or "autometa") / "github"
 
 
 def clone(repo: str, root: Path, ref: str | None = None) -> tuple[Path, str]:
@@ -260,7 +259,7 @@ def clone(repo: str, root: Path, ref: str | None = None) -> tuple[Path, str]:
 def sweep(max_age: int = 86400) -> None:
     """Supprime les clones inutilisés depuis `max_age` secondes, toutes conversations confondues."""
     for org in ORGS:
-        for path in Path(tempfile.gettempdir()).glob(f"*/github/{org}/*"):
+        for path in config.WORKDIR_ROOT.glob(f"*/github/{org}/*"):
             if path.is_dir() and time.time() - path.stat().st_mtime > max_age:
                 # Why: les ménages de deux conversations peuvent viser le même clone en même temps.
                 shutil.rmtree(path, ignore_errors=True)
