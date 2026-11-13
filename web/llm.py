@@ -51,6 +51,9 @@ def generate_text(
     if backend == "cli":
         return llm_call(prompt, model=model, timeout=timeout if timeout is not None else 60.0)
 
+    if backend == "fake":
+        return "Conversation factice"
+
     raise LLMError(f"Unsupported LLM backend: {backend}")
 
 
