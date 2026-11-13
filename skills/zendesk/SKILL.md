@@ -169,7 +169,8 @@ zd.list_groups() ; zd.list_agents()            # agents et admins, jamais les us
 zd.list_ticket_fields() ; zd.list_ticket_forms()
 zd.list_views()                                # vues actives ; zd.count_views(ids) donne leurs tickets
 zd.list_triggers()                             # règles de routage et d'assignation
-zd.lookup("users", user_id)                    # un objet par identifiant (users, groups, triggers…), None s'il est supprimé
+zd.lookup("groups", group_id)                  # un objet par identifiant (groups, triggers…), None s'il est supprimé ;
+                                               # "users" seulement pour un agent : un usager y a nom, e-mail et téléphone
 zd.ticket_metrics(ticket_id)                   # délais de réponse et de résolution, réouvertures d'un ticket
 n = zd.count_tickets("group:123 assignee:789 created>2026-10-01")
 ```
