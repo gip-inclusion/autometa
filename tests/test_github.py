@@ -64,7 +64,7 @@ def remote(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.file://{tmp_path / 'remote'}/.insteadOf")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://github.com/")
     (tmp_path / "tmp").mkdir()
-    monkeypatch.setattr(github.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    monkeypatch.setattr(github.config, "WORKDIR_ROOT", tmp_path / "tmp")
     return SimpleNamespace(repo=repo, first=first, second=second)
 
 
@@ -321,8 +321,16 @@ def test_search_github_code_works_in_a_throwaway_clone(remote):
     }
 
 
+def test_the_workspace_ignores_tmpdir_which_points_into_the_conversation_folder(mocker, monkeypatch, tmp_path):
+    mocker.patch.object(github.config, "WORKDIR_ROOT", tmp_path)
+    monkeypatch.setenv("AUTOMETA_CONVERSATION_ID", "c1")
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "c1"))
+
+    assert github.workspace() == tmp_path / "c1" / "github"
+
+
 def test_sweep_removes_only_clones_idle_for_a_day(mocker, tmp_path):
-    mocker.patch.object(github.tempfile, "gettempdir", return_value=str(tmp_path))
+    mocker.patch.object(github.config, "WORKDIR_ROOT", tmp_path)
     idle, recent, foreign = (
         tmp_path / p for p in ("c1/github/betagouv/x", "c2/github/betagouv/y", "c1/github/autre/z")
     )
