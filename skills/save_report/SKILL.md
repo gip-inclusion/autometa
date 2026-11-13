@@ -65,7 +65,7 @@ Un nouveau rapport est enregistré au nom de l'utilisateur et rattaché à la co
 | `--category` | `-c` | Query category |
 | `--query` | `-q` | Original user query |
 | `--tags` | | **REQUIRED** Comma-separated tags, all from the synced vocabulary (see § Tags) |
-| `--report-id` | `-r` | Report ID to update |
+| `--report-id` | `-r` | Report ID to update — only a report of the current user (check with `--show`) |
 | `--list` | `-l` | List recent reports |
 | `--show` | | Report ID to read (read-only) |
 | `--search` | | Words to find in report titles and contents (read-only) |
