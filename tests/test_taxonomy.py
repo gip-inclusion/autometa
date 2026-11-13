@@ -13,6 +13,7 @@ from lib.taxonomy import (
     normalize_tags,
     ordered_facets,
 )
+from skills import list_tags
 from web.db import get_db
 from web.db import test_transaction as _test_tx
 from web.models import Tag, TagImplication
@@ -120,6 +121,20 @@ def test_load_vocabulary_can_include_inactive(db):
         vocabulary = load_vocabulary(session, active_only=False)
 
     assert [t.name for t in vocabulary["facet-a"]] == ["t-retire"]
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+def test_list_tags_prints_the_active_vocabulary(db, capsys):
+    with get_db() as session:
+        _tag(session, "t-usagers", "audience", label="Usagers")
+        _tag(session, "t-retire", "audience", active=False)
+
+    list_tags.main()
+
+    out = capsys.readouterr().out
+    assert "- t-usagers: Usagers" in out
+    assert "t-retire" not in out
 
 
 @pytest.mark.integration

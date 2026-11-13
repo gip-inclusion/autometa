@@ -45,6 +45,12 @@ python skills/save_report/scripts/save_report.py \
 
 # List recent reports
 python skills/save_report/scripts/save_report.py --list
+
+# Read a report (metadata, then content)
+python skills/save_report/scripts/save_report.py --show 42
+
+# Find reports whose title or content contains every word
+python skills/save_report/scripts/save_report.py --search "orientations prescripteurs"
 ```
 
 Un nouveau rapport est enregistré au nom de l'utilisateur et rattaché à la conversation en cours, d'après l'environnement : jamais à une conversation citée par lien.
@@ -54,25 +60,22 @@ Un nouveau rapport est enregistré au nom de l'utilisateur et rattaché à la co
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--file` | `-f` | Path to markdown file (required) |
-| `--title` | `-t` | Report title (required for new/append) |
+| `--title` | `-t` | Report title (required for new reports) |
 | `--website` | `-w` | Website: emplois, dora, etc. |
 | `--category` | `-c` | Query category |
 | `--query` | `-q` | Original user query |
 | `--tags` | | **REQUIRED** Comma-separated tags, all from the synced vocabulary (see § Tags) |
-| `--report-id` | `-r` | Report ID to update |
+| `--report-id` | `-r` | Report ID to update — only a report of the current user (check with `--show`) |
 | `--list` | `-l` | List recent reports |
+| `--show` | | Report ID to read (read-only) |
+| `--search` | | Words to find in report titles and contents (read-only) |
 
 ## Tags (REQUIRED)
 
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
 ```bash
-python -c "
-from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
-from web.db import get_db
-with get_db() as session:
-    print(build_prompt_taxonomy(load_vocabulary(session)))
-"
+python skills/list_tags.py
 ```
 
 ## Alternative: Python API
