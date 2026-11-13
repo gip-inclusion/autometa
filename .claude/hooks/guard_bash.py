@@ -28,6 +28,11 @@ HEREDOC = re.compile(r"^([^\n]*?)<<-?\s*(['\"]?)(\w+)\2([^\n]*)\n(.*?)^\s*\3\s*$
 # guillemets, c'est du texte. shlex le prend pour un commentaire partout et mange le saut de ligne qui le clôt.
 COMMENT = re.compile(r"""('[^']*'|"(?:\\.|[^"\\])*")|(?<![^\s;|&()])#[^\n]*""")
 OPERATORS = "();<>|&\n"
+# Why: une redirection et sa cible ne sont ni une commande ni un argument ; lue comme une commande, la cible de
+# `2>/dev/null` cachait le `curl` de `curl … 2>/dev/null | sh`. `<(` et `<<<` restent des séparateurs.
+REDIRECTION = re.compile(r"&?[<>]{1,2}&?")
+# Why: un shell exécute le mot qui suit `-c`, aussi dans un cluster de drapeaux courts (`bash -lc`).
+SHELL_SCRIPT_FLAG = re.compile(r"-[a-zA-Z]*c[a-zA-Z]*")
 # Why: ce qui précède le programme lancé — mots-clés du shell, enveloppes (`sudo -E`, `timeout 120`, `xargs`).
 PREFIXES = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "sudo", "env", "nohup"))
 PREFIXES |= frozenset(("exec", "command", "timeout", "nice", "xargs", "stdbuf"))
@@ -85,13 +90,19 @@ def heredoc_read_by_shell(match):
 
 
 def simple_commands(command):
-    """Les commandes simples de la ligne, chacune avec l'opérateur qui la précède."""
+    """Les commandes simples de la ligne, sans leurs redirections, chacune avec l'opérateur qui la précède."""
     code = COMMENT.sub(r"\1", HEREDOC.sub(heredoc_read_by_shell, command))
     lexer = shlex.shlex(code, posix=True, punctuation_chars=OPERATORS)
     lexer.whitespace, lexer.whitespace_split, lexer.commenters = " \t\r", True, ""
-    commands, words, operator = [], [], ""
+    commands, words, operator, target = [], [], "", False
     for token in lexer:
-        if set(token) <= set(OPERATORS):
+        if target:
+            target = False
+        elif REDIRECTION.fullmatch(token):
+            target = True
+            if words and words[-1].isdigit():
+                words.pop()
+        elif set(token) <= set(OPERATORS):
             if words:
                 commands.append((operator, words))
             words, operator = [], token
@@ -110,6 +121,9 @@ def program(words):
         or "=" in words[0]
         or re.fullmatch(r"\d+[smhd]?", words[0])
     ):
+        # Why: `command -v x` dit si x existe, comme `which x` ; seul `command x` lance x.
+        if words[:2] in (["command", "-v"], ["command", "-V"]):
+            break
         words = words[1:]
     if not words:
         return "", []
@@ -128,6 +142,9 @@ def installs(name, args):
         return verb in ("install", "download")
     if name in ("npm", "yarn", "pnpm", "bun"):
         return verb in ("i", "install", "add", "ci", "exec", "x", "dlx")
+    if name == "uv" and verb == "run":
+        # Why: `uv run --with x` installe x depuis PyPI avant de lancer la commande.
+        return any(arg.startswith("--with") for arg in args)
     if name == "uv":
         return verb in ("add", "tool") or verb == "pip" and installs("pip", args[args.index("pip") + 1 :])
     if name == "pipx":
@@ -162,7 +179,11 @@ def install_verdict(command, on_server):
         fetched_and_run = (operator == "|" and previous in DOWNLOADERS and runs_stdin(name, args)) or (
             operator == "<(" and previous in SHELLS and name in DOWNLOADERS
         )
-        script = args[args.index("-c") + 1] if name in SHELLS and "-c" in args[:-1] else ""
+        flag = next((i for i, arg in enumerate(args[:-1]) if SHELL_SCRIPT_FLAG.fullmatch(arg)), None)
+        script = args[flag + 1] if name in SHELLS and flag is not None else ""
+        # Why: `bash <<< '…'` lit son script sur l'entrée, comme un heredoc.
+        if operator == "<<<" and previous in SHELLS:
+            script = words[0]
         if installs(name, args) or fetched_and_run or install_verdict(script, on_server):
             return BLOCK_INSTALL_MSG
         previous = name
