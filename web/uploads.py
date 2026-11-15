@@ -18,6 +18,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 import unicodedata
 import uuid
 from pathlib import Path
@@ -412,8 +413,11 @@ def restore_conversation_files(conversation_id: str) -> None:
             continue
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_bytes(content)
-            set_readonly_permissions(local_path)
+            # Why: une conversation et ses forks partagent ce chemin ; l'autre agent ne doit trouver que le fichier entier.
+            with tempfile.NamedTemporaryFile(dir=local_path.parent, suffix=".part", delete=False) as partial:
+                partial.write(content)
+            set_readonly_permissions(Path(partial.name))
+            os.replace(partial.name, local_path)
         except OSError:
             # Why: un fichier qui ne s'écrit pas prive l'agent de ce fichier seulement, pas la conversation de son tour.
             logger.warning("Fichier téléversé non restauré : %s", local_path, exc_info=True)

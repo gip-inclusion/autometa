@@ -32,6 +32,7 @@ from web.uploads import (
     is_text_file,
     restore_conversation_files,
     sanitize_filename,
+    set_readonly_permissions,
     upload_file,
 )
 
@@ -549,11 +550,31 @@ def test_a_file_that_cannot_be_written_is_skipped(mocker):
     result, _ = upload_file(io.BytesIO(b"un"), "un.txt", conversation_id=make_conversation())
     Path(result.storage_path).unlink()
     mocker.patch.object(s3.uploads, "download", return_value=b"un")
-    mocker.patch.object(Path, "write_bytes", side_effect=OSError("disque plein"))
+    mocker.patch("web.uploads.tempfile.NamedTemporaryFile", side_effect=OSError("disque plein"))
 
     restore_conversation_files(result.conversation_id)
 
     assert not Path(result.storage_path).exists()
+
+
+@pytest.mark.usefixtures("setup_db")
+def test_a_file_restored_meanwhile_by_a_fork_is_replaced_without_error(mocker, caplog):
+    result, _ = upload_file(io.BytesIO(b"un"), "un.txt", conversation_id=make_conversation())
+    path = Path(result.storage_path)
+    path.unlink()
+
+    def restored_meanwhile(_):
+        path.write_bytes(b"un")
+        set_readonly_permissions(path)
+        return b"un"
+
+    mocker.patch.object(s3.uploads, "download", side_effect=restored_meanwhile)
+
+    restore_conversation_files(result.conversation_id)
+
+    assert path.read_bytes() == b"un"
+    assert not list(path.parent.glob("*.part"))
+    assert "non restauré" not in caplog.text
 
 
 @pytest.mark.usefixtures("setup_db")
