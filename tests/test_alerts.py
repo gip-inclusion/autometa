@@ -13,11 +13,20 @@ def slack_configured(monkeypatch):
 
 
 def test_notify_alert_channel_posts_to_configured_channel_naming_the_app(mocker, slack_configured):
-    post = mocker.patch("web.alerts.post_message", return_value=True)
+    post = mocker.patch("web.alerts.post_message", return_value="1700000000.000100")
 
-    alerts.notify_alert_channel("hello world")
+    ts = alerts.notify_alert_channel("hello world")
 
-    post.assert_called_once_with("tok", "C0TEST", "[autometa-staging] hello world")
+    post.assert_called_once_with("tok", "C0TEST", "[autometa-staging] hello world", None)
+    assert ts == "1700000000.000100"
+
+
+def test_a_reply_goes_in_the_thread_without_naming_the_app_again(mocker, slack_configured):
+    post = mocker.patch("web.alerts.post_message", return_value="1700000000.000200")
+
+    alerts.notify_alert_channel("details", thread_ts="1700000000.000100")
+
+    post.assert_called_once_with("tok", "C0TEST", "details", "1700000000.000100")
 
 
 @pytest.mark.parametrize("token,channel", [("", "C0TEST"), ("tok", "")])
