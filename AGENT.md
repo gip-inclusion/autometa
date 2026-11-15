@@ -91,7 +91,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 
 ### 3. Ne pas détruire de contenu S3
 
-- Lecture S3 : autorisée.
+- Lecture S3 : autorisée, par l'interface publique de `web.s3` (`from web import s3`) — `s3.interactive.download("<slug>/data.json")` (octets, `None` si absent), `s3.interactive.list_files("<slug>/")`, `s3.publications.download("<slug>/<publication_id>/index.html")` pour un instantané publié. Jamais `s3._client`.
 - Écriture S3 sur une **nouvelle clé** (objet inexistant) : autorisée.
 - Suppression d'objet, écrasement d'un objet existant, ou toute opération qui retire ou remplace du contenu existant en S3 : **interdite par défaut**.
 - Seule exception : l'utilisateur a fourni, **dans le même tour de conversation**, la phrase sentinelle exacte : `I confirm destructive S3 op`. Sans cette phrase verbatim, refuser l'opération destructive et proposer une alternative non destructive (nouvelle clé suffixée d'un timestamp, par exemple).
