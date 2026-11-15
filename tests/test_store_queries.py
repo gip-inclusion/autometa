@@ -134,6 +134,15 @@ def test_report_filter_expands_implications(client):
     assert [r.title for r, _ in results] == ["précis"]
 
 
+@pytest.mark.parametrize(("search_content", "titles"), [(False, []), (True, ["actif"])], ids=["title", "content"])
+def test_list_reports_with_tags_searches_the_content_on_request(client, search_content, titles):
+    make_report(title="actif")
+
+    results = store.list_reports_with_tags(query="contenu", search_content=search_content)
+
+    assert [r.title for r, _ in results] == titles
+
+
 def test_list_reports_with_tags_filters_archived_and_tags(client):
     tagged = make_report(title="actif", tags=["emplois"])
     make_report(title="archivé", tags=["emplois"], archived=True)
