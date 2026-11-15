@@ -1,4 +1,5 @@
-"""Pre-tool-use hook: refuse un `git commit` sans hooks et, sur les serveurs, une installation ou l'environnement listé."""
+"""Pre-tool-use hook: refuse un `git commit` sans hooks et, sur les serveurs, une installation, l'environnement listé
+ou les processus des autres conversations."""
 
 import json
 import re
@@ -24,6 +25,12 @@ BLOCK_ENV_MSG = (
     "L'e-mail de l'utilisateur courant : "
     '`echo "$AUTOMETA_USER_EMAIL"`. Les identifiants des sources passent par les skills ; pour savoir si une variable '
     'existe sans l\'afficher : `test -n "$NOM" && echo présente`.'
+)
+BLOCK_PROCESS_MSG = (
+    "Commande refusée : le conteneur est partagé par les conversations de tous les utilisateurs. `pkill` et `killall` "
+    "arrêtent aussi leurs processus du même nom, et `ps aux` ou `ps -ef` affichent leurs commandes, messages compris. "
+    "Lancer un script d'arrière-plan par son chemin dans le dossier de la conversation, le suivre avec "
+    '`pgrep -f "$TMPDIR/script.py"` et l\'arrêter avec `kill <PID>` ou `pkill -f "$TMPDIR/script.py"`.'
 )
 # Why: un glob de préfixe ne peut pas voir `-nm` ni `-am … -n` — un drapeau court vit dans un cluster.
 SHORT_FLAG = re.compile(r"-[a-zA-Z]*n[a-zA-Z]*$")
@@ -61,6 +68,16 @@ ENVIRON_LISTED = re.compile(
     r"os\.environ\s*\.\s*(?:items|keys|values)\s*\("
     r"|\bfor\s+\(?\w+(?:\s*,\s*\w+)*\)?\s+in\s+os\.environ\b"
     r"|\b(?:print|sorted|list)\(\s*(?:dict\(\s*)?os\.environ\s*\)"
+)
+
+# Why: un motif qui commence par le dossier de la conversation ne vise que ses propres processus — s'il ne propose
+# pas d'autre choix (`$TMPDIR/x|chrom`).
+OWN_FOLDER = re.compile(r"(?:\$\{?TMPDIR\b|/tmp/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)[^|]*")
+# Why: toutes les conversations tournent sous le même compte ; un `ps` ne montre que les siennes s'il s'en tient à des
+# PID (`-p`, `--ppid`, `p` en BSD, `ps 123`), sans autre sélection, qui s'y ajouterait (`-e`, `-u`, `-C`, `aux`…).
+PS_PIDS = re.compile(r"-[a-zA-Z]*[pq]\d*|--(?:pid|ppid|quick-pid)(?:=.*)?|[a-zA-Z]*[pq][a-zA-Z]*|\d[\d,]*")
+PS_OTHERS = re.compile(
+    r"-[a-zA-Z]*[AaCdeGgNsTtUux][a-zA-Z]*|--(?:user|User|group|Group|sid|tty|deselect)\b.*|[a-zA-Z]*[agTtUx][a-zA-Z]*"
 )
 
 
@@ -237,11 +254,36 @@ def environ_verdict(command, on_server):
     return None
 
 
+def process_verdict(command, on_server):
+    """Le message de refus d'une commande qui liste ou arrête les processus des autres conversations, ou None."""
+    if not on_server:
+        return None
+    try:
+        commands = [words for _, _, words in programs(command)]
+    except ValueError:
+        return None
+    for words in commands:
+        name, args = program(words)
+        # Why: une option BSD (sans tiret) ne vient qu'en premier ; plus loin, `args` ou `pid,args` sont des valeurs.
+        options = args[:1] + [arg for arg in args if arg.startswith("-")]
+        selects_pids = any(PS_PIDS.fullmatch(option) for option in options)
+        lists_others = name == "ps" and (not selects_pids or any(PS_OTHERS.fullmatch(option) for option in options))
+        kills_by_name = name == "killall" or name == "pkill" and not any(OWN_FOLDER.fullmatch(arg) for arg in args)
+        if lists_others or kills_by_name:
+            return BLOCK_PROCESS_MSG
+    return None
+
+
 if __name__ == "__main__":
     data = json.load(sys.stdin)
     command = data.get("tool_input", {}).get("command", "")
     on_server = is_server()
-    msg = verdict(command) or install_verdict(command, on_server) or environ_verdict(command, on_server)
+    msg = (
+        verdict(command)
+        or install_verdict(command, on_server)
+        or environ_verdict(command, on_server)
+        or process_verdict(command, on_server)
+    )
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)
