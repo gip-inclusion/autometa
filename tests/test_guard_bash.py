@@ -261,6 +261,15 @@ def test_en_local_l_environnement_peut_etre_liste():
         # Un shell exécute le script qu'on lui passe.
         'bash -c "ps aux"',
         "sh -c 'pkill -f chrom'",
+        # Sans PID, ou avec une autre sélection qui s'y ajoute, `ps` montre les conversations du même compte.
+        "ps",
+        "ps -o pid,args",
+        'ps -u "$USER" -o args',
+        "ps -U app",
+        "ps -C claude -o args",
+        "ps -g 1",
+        "ps -p 123 -e",
+        "ps --user app",
     ],
 )
 def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(commande):
@@ -278,6 +287,12 @@ def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(co
         "kill 12345",
         "ps -o pid=,ppid=,args= -p 10199",
         "ps -p 123 -o args",
+        "ps -fp 123",
+        "ps --ppid $$ -o pid,args",
+        "ps --pid=123",
+        "ps -q 123 -o etime=",
+        "ps p 123",
+        "ps 123",
         "grep -n pkill notes.md",
         "echo 'ps aux'",
     ],

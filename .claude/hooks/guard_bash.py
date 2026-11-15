@@ -72,8 +72,12 @@ ENVIRON_LISTED = re.compile(
 
 # Why: un motif qui contient le dossier de la conversation ne vise que ses propres processus.
 OWN_FOLDER = re.compile(r"\$\{?TMPDIR\b|/tmp/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/")
-# Why: `ps aux` ou `ps ax` (options BSD, sans tiret) et `ps -e`, `-ef`, `-A` montrent tous les processus.
-ALL_PROCESSES = re.compile(r"[a-zA-Z]*[ax][a-zA-Z]*|-[a-zA-Z]*[eAx][a-zA-Z]*")
+# Why: toutes les conversations tournent sous le même compte ; un `ps` ne montre que les siennes s'il s'en tient à des
+# PID (`-p`, `--ppid`, `p` en BSD, `ps 123`), sans autre sélection, qui s'y ajouterait (`-e`, `-u`, `-C`, `aux`…).
+PS_PIDS = re.compile(r"-[a-zA-Z]*[pq]\d*|--(?:pid|ppid|quick-pid)(?:=.*)?|[a-zA-Z]*[pq][a-zA-Z]*|\d[\d,]*")
+PS_OTHERS = re.compile(
+    r"-[a-zA-Z]*[AaCdeGgNsTtUux][a-zA-Z]*|--(?:user|User|group|Group|sid|tty|deselect)\b.*|[a-zA-Z]*[agTtUx][a-zA-Z]*"
+)
 
 
 def ends_the_command(token):
@@ -261,9 +265,10 @@ def process_verdict(command, on_server):
         name, args = program(words)
         # Why: une option BSD (sans tiret) ne vient qu'en premier ; plus loin, `args` ou `pid,args` sont des valeurs.
         options = args[:1] + [arg for arg in args if arg.startswith("-")]
-        lists_all = name == "ps" and any(ALL_PROCESSES.fullmatch(option) for option in options)
+        selects_pids = any(PS_PIDS.fullmatch(option) for option in options)
+        lists_others = name == "ps" and (not selects_pids or any(PS_OTHERS.fullmatch(option) for option in options))
         kills_by_name = name == "killall" or name == "pkill" and not any(OWN_FOLDER.search(arg) for arg in args)
-        if lists_all or kills_by_name:
+        if lists_others or kills_by_name:
             return BLOCK_PROCESS_MSG
     return None
 
