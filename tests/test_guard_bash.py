@@ -193,6 +193,10 @@ def test_une_ligne_non_analysable_est_jugee_sur_son_texte(commande, attendu):
         "python3 -c \"import os; print([k for k in os.environ if 'S3' in k])\"",
         "python3 - <<'EOF'\nimport os\nfor k in sorted(os.environ):\n    print(k)\nEOF",
         'python3 -c "import os; print(dict(os.environ))"',
+        'uv run python -c "import os; print(dict(os.environ))"',
+        "bash -c 'env'",
+        'sh -c "printenv | grep -i token"',
+        "bash <<< 'env | sort'",
     ],
 )
 def test_lister_l_environnement_est_refuse_sur_un_serveur(commande):
@@ -213,6 +217,9 @@ def test_lister_l_environnement_est_refuse_sur_un_serveur(commande):
         "conda env list",
         "python -m venv env",
         "grep -rn printenv skills/",
+        'grep -rn "os.environ.items()" lib/',
+        "rg 'for k in os.environ' web/",
+        "bash -c 'echo ok'",
         "",
     ],
 )
