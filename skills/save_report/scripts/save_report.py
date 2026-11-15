@@ -130,7 +130,11 @@ if __name__ == "__main__":
 
     if args.list or args.search:
         store = ConversationStore()
-        reports = store.search_reports(args.search) if args.search else store.list_reports(limit=10)
+        reports = (
+            [report for report, _ in store.list_reports_with_tags(query=args.search, search_content=True, limit=20)]
+            if args.search
+            else store.list_reports(limit=10)
+        )
         for r in reports:
             print(f"  [{r.id}] {r.title} (v{r.version}) - {r.website or 'N/A'} - {r.updated_at:%Y-%m-%d}")
         sys.exit(0)
