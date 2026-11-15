@@ -14,6 +14,7 @@ from web.models import Conversation as ConvModel
 from web.models import Message as MsgModel
 from web.models import PinnedItem as PinModel
 from web.models import Report as ReportModel
+from web.models import UploadedFile as FileModel
 from web.models import UsageEvent as UsageEventModel
 from web.redaction import redact
 from web.stores.records import (
@@ -228,6 +229,10 @@ class ConversationsMixin:
                 )
                 session.add(new_msg)
                 new_msgs.append(new_msg)
+            # Why: la copie cite les chemins des pièces jointes ; sans leurs lignes, rien ne les remet sur le disque.
+            columns = [c.key for c in FileModel.__table__.columns if c.key not in ("id", "conversation_id")]
+            for f in session.scalars(select(FileModel).where(FileModel.conversation_id == source_conv_id)).all():
+                session.add(FileModel(conversation_id=new_id, **{c: getattr(f, c) for c in columns}))
             session.flush()
 
             for backend, entry in new_engine_state.items():

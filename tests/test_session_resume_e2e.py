@@ -61,6 +61,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
 
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", 4)
+    mocker.patch("web.runner.uploads.restore_conversation_files")
 
     mock_sync = mocker.patch("web.runner.session_sync")
     mock_sync.download_session = mocker.MagicMock(side_effect=sync_funcs["download_session"])
