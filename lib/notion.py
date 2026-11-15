@@ -11,8 +11,8 @@ from web import config
 NOTION_TOKEN = config.NOTION_TOKEN
 NOTION_REPORTS_DB = config.NOTION_REPORTS_DB
 API_VERSION = "2022-06-28"
-# Why: depuis 2025-09-03, une base regroupe des sources de données et ne se requête plus elle-même ; les fonctions
-# qui lisent ou écrivent une base en dépendent et gardent API_VERSION, seules les sources de données passent à celle-ci.
+# Why: depuis 2025-09-03, une base se requête par ses sources de données. create_page, tag_sync et la façade des TDB
+# dépendent de l'ancien format : seules les sources de données passent à la nouvelle version.
 DATA_SOURCES_VERSION = "2026-03-11"
 
 
