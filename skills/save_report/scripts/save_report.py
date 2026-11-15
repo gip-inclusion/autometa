@@ -1,4 +1,4 @@
-"""Save report skill - create, update, or append reports to the database."""
+"""Save report skill - create or update reports in the database."""
 
 import argparse
 import json
