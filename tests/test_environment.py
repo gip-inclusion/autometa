@@ -53,6 +53,19 @@ def test_only_prod_owns_the_shared_db(env, owns):
 
 
 @pytest.mark.parametrize(
+    ("env", "owns"),
+    [
+        (Environment.DEV, False),
+        (Environment.REVIEW, False),
+        (Environment.STAGING, False),
+        (Environment.PROD, True),
+    ],
+)
+def test_only_prod_knows_every_file_of_its_bucket(env, owns):
+    assert env.owns_bucket is owns
+
+
+@pytest.mark.parametrize(
     ("env", "seeds"),
     [
         (Environment.DEV, False),
