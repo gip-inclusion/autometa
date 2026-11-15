@@ -543,6 +543,7 @@ def test_a_file_absent_from_s3_does_not_stop_the_others(mocker):
     restore_conversation_files(conversation_id)
 
     assert Path(kept.storage_path).read_bytes() == b"deux"
+    assert not Path(lost.storage_path).exists()
 
 
 @pytest.mark.usefixtures("setup_db")
