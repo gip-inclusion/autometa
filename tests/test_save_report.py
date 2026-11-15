@@ -82,3 +82,14 @@ def test_search_matches_title_or_content_of_live_reports(monkeypatch, capsys, qu
     out = run(monkeypatch, capsys, "--search", query)
 
     assert {title for title in titles if f"] {title} (" in out} == found
+
+
+@pytest.mark.parametrize("query", ["", "  "], ids=["empty", "blank"])
+def test_search_refuses_a_query_without_words(monkeypatch, capsys, query):
+    monkeypatch.setattr("sys.argv", ["save_report.py", "--search", query])
+
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(cli.__file__, run_name="__main__")
+
+    assert exc.value.code == 2
+    assert "--search needs at least one word" in capsys.readouterr().err

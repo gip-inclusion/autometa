@@ -115,6 +115,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if args.search is not None and not args.search.split():
+        parser.error("--search needs at least one word")
+
     if args.show:
         report = ConversationStore().get_report(args.show)
         if not report:

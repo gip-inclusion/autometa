@@ -17,6 +17,8 @@ def main() -> None:
     action.add_argument("--search", metavar="TEXT", help="Current user's conversations containing every word")
     action.add_argument("--show", metavar="LINK", help="Print a conversation from its link or full id")
     args = parser.parse_args()
+    if args.search is not None and not args.search.split():
+        parser.error("--search needs at least one word")
 
     user_email = config.agent_user_email()
     if not user_email:

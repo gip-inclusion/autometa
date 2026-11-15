@@ -92,3 +92,12 @@ def test_show_refuses_an_id_prefix(monkeypatch, capsys):
 
     assert exc.value.code == 1
     assert "Taux d'orientation" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("query", ["", "  "], ids=["empty", "blank"])
+def test_search_refuses_a_query_without_words(monkeypatch, capsys, query):
+    with pytest.raises(SystemExit) as exc:
+        run(monkeypatch, "--search", query)
+
+    assert exc.value.code == 2
+    assert "--search needs at least one word" in capsys.readouterr().err
