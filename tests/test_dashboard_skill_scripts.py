@@ -301,13 +301,18 @@ def test_show_of_an_unknown_dashboard_exits_1(monkeypatch, mocker, capsys):
     assert "nope" in capsys.readouterr().err
 
 
-def test_show_refuses_to_be_combined_with_a_change(monkeypatch, mocker, capsys):
+@pytest.mark.parametrize(
+    "change",
+    [["--archive"], ["--has-cron", "false"], ["--obfuscate-variants", "false"], ["--set-tags", ""]],
+    ids=["archive", "cron off", "plain tokens", "no tags"],
+)
+def test_show_refuses_to_be_combined_with_a_change(monkeypatch, mocker, capsys, change):
     cli = _load("update_dashboard")
     update = mocker.patch.object(cli, "update_dashboard")
     mocker.patch.object(cli, "store")
 
     with pytest.raises(SystemExit) as exc:
-        _run(cli, ["--slug", "tdb", "--show", "--archive"], monkeypatch)
+        _run(cli, ["--slug", "tdb", "--show", *change], monkeypatch)
 
     assert exc.value.code == 2
     update.assert_not_called()
