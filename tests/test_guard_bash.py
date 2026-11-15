@@ -258,6 +258,9 @@ def test_en_local_l_environnement_peut_etre_liste():
         'ps -eo pid,etime,args | grep "python.*okr" | grep -v grep',
         "ps -A",
         "ps aux | grep '[c]hrome' | awk '{print $2}' | xargs kill",
+        # Un shell exécute le script qu'on lui passe.
+        'bash -c "ps aux"',
+        "sh -c 'pkill -f chrom'",
     ],
 )
 def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(commande):

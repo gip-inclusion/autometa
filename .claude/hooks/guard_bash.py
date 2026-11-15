@@ -254,10 +254,10 @@ def process_verdict(command, on_server):
     if not on_server:
         return None
     try:
-        commands = simple_commands(command)
+        commands = [words for _, _, words in programs(command)]
     except ValueError:
         return None
-    for _, words in commands:
+    for words in commands:
         name, args = program(words)
         # Why: une option BSD (sans tiret) ne vient qu'en premier ; plus loin, `args` ou `pid,args` sont des valeurs.
         options = args[:1] + [arg for arg in args if arg.startswith("-")]
