@@ -454,11 +454,13 @@ class ZendeskAPI:
         return list(self._iter_pages("triggers.json", "triggers"))
 
     def lookup(self, resource: str, item_id: int | str) -> Optional[dict]:
-        """One account object (groups, users, ticket_fields, brands, ticket_forms, custom_statuses); None once deleted."""
+        """One account object (groups, users, ticket_fields, brands, ticket_forms…); None once deleted or for an end user."""
         try:
             data = self._get(f"{resource}/{item_id}.json")
         except ZendeskError as exc:
             if exc.status_code != 404:
                 raise
             return None
-        return next(iter(data.values()))
+        item = next(iter(data.values()))
+        # Why: la fiche d'un usager porte son nom, son e-mail et son téléphone ; seuls les agents et admins se lisent.
+        return None if resource == "users" and item.get("role") == "end-user" else item

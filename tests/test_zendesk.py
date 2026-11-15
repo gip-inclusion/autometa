@@ -954,6 +954,16 @@ def test_dod_2_lookup_returns_the_object_or_none_once_deleted(api_no_signal, moc
     assert request.call_args.args[1].endswith("groups/3.json")
 
 
+@pytest.mark.parametrize(("role", "found"), [("agent", True), ("admin", True), ("end-user", False)])
+def test_lookup_never_returns_an_end_user(api_no_signal, mocker, role, found):
+    user = {"id": 7, "name": "Camille", "email": "camille@example.org", "role": role}
+    mocker.patch.object(
+        api_no_signal._client, "request", return_value=_mock_response(mocker, status_code=200, json_data={"user": user})
+    )
+
+    assert api_no_signal.lookup("users", 7) == (user if found else None)
+
+
 def test_lookup_reraises_other_errors(api_no_signal, mocker):
     mocker.patch.object(api_no_signal._client, "request", return_value=_mock_response(mocker, status_code=500))
     with pytest.raises(ZendeskError):
