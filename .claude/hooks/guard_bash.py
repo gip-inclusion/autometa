@@ -1,4 +1,5 @@
-"""Pre-tool-use hook: refuse un `git commit` qui désarme les hooks et, sur les serveurs, toute installation de logiciel."""
+"""Pre-tool-use hook: refuse un `git commit` sans hooks et, sur les serveurs, une installation, l'environnement listé
+ou les processus des autres conversations."""
 
 import json
 import re
@@ -17,6 +18,19 @@ BLOCK_INSTALL_MSG = (
     "navigateur ou archive téléchargés). Le code téléchargé tourne avec tous les secrets du conteneur, et /tmp est "
     "partagé entre les conversations. Si un outil manque, le dire à l'utilisateur ; les outils présents sont listés "
     "dans AGENT.md, section « Environnement container »."
+)
+BLOCK_ENV_MSG = (
+    "Commande refusée : `env`, `printenv`, `export` ou `declare` sans nom de variable, `set` seul et un parcours de "
+    "`os.environ` affichent tous les secrets du conteneur, et la sortie reste dans la conversation. "
+    "L'e-mail de l'utilisateur courant : "
+    '`echo "$AUTOMETA_USER_EMAIL"`. Les identifiants des sources passent par les skills ; pour savoir si une variable '
+    'existe sans l\'afficher : `test -n "$NOM" && echo présente`.'
+)
+BLOCK_PROCESS_MSG = (
+    "Commande refusée : le conteneur est partagé par les conversations de tous les utilisateurs. `pkill` et `killall` "
+    "arrêtent aussi leurs processus du même nom, et `ps aux` ou `ps -ef` affichent leurs commandes, messages compris. "
+    "Lancer un script d'arrière-plan par son chemin dans le dossier de la conversation, le suivre avec "
+    '`pgrep -f "$TMPDIR/script.py"` et l\'arrêter avec `kill <PID>` ou `pkill -f "$TMPDIR/script.py"`.'
 )
 # Why: un glob de préfixe ne peut pas voir `-nm` ni `-am … -n` — un drapeau court vit dans un cluster.
 SHORT_FLAG = re.compile(r"-[a-zA-Z]*n[a-zA-Z]*$")
@@ -37,6 +51,9 @@ SHELL_SCRIPT_FLAG = re.compile(r"-[a-zA-Z]*c[a-zA-Z]*")
 PREFIXES = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "sudo", "env", "nohup"))
 PREFIXES |= frozenset(("exec", "command", "timeout", "nice", "xargs", "stdbuf"))
 SHELLS = frozenset(("sh", "bash", "zsh", "dash"))
+PYTHON = re.compile(r"python[\d.]*")
+# Why: sans nom de variable, ces commandes affichent tout l'environnement — `export` et `declare` aussi ses valeurs.
+ENV_DUMPS = frozenset(("printenv", "export", "declare", "typeset"))
 DOWNLOADERS = frozenset(("curl", "wget"))
 # Why: un téléchargement n'est refusé que s'il vise un paquet ou un binaire (Node.js, roue, .deb), pas une API.
 PACKAGE_URL = re.compile(
@@ -45,6 +62,23 @@ PACKAGE_URL = re.compile(
 )
 # Why: une ligne que shlex ne sait pas découper, bash ne l'exécuterait pas non plus ; on la juge sur son texte.
 RAW_INSTALL = re.compile(r"\b(?:install|download|ensurepip|npx|uvx|dpkg-deb)\b")
+# Why: lire une variable par son nom est légitime, et `dict(os.environ)` prépare l'environnement d'un sous-processus ;
+# parcourir ou afficher tout os.environ montre tous les secrets.
+ENVIRON_LISTED = re.compile(
+    r"os\.environ\s*\.\s*(?:items|keys|values)\s*\("
+    r"|\bfor\s+\(?\w+(?:\s*,\s*\w+)*\)?\s+in\s+os\.environ\b"
+    r"|\b(?:print|sorted|list)\(\s*(?:dict\(\s*)?os\.environ\s*\)"
+)
+
+# Why: un motif qui commence par le dossier de la conversation ne vise que ses propres processus — s'il ne propose
+# pas d'autre choix (`$TMPDIR/x|chrom`).
+OWN_FOLDER = re.compile(r"(?:\$\{?TMPDIR\b|/tmp/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)[^|]*")
+# Why: toutes les conversations tournent sous le même compte ; un `ps` ne montre que les siennes s'il s'en tient à des
+# PID (`-p`, `--ppid`, `p` en BSD, `ps 123`), sans autre sélection, qui s'y ajouterait (`-e`, `-u`, `-C`, `aux`…).
+PS_PIDS = re.compile(r"-[a-zA-Z]*[pq]\d*|--(?:pid|ppid|quick-pid)(?:=.*)?|[a-zA-Z]*[pq][a-zA-Z]*|\d[\d,]*")
+PS_OTHERS = re.compile(
+    r"-[a-zA-Z]*[AaCdeGgNsTtUux][a-zA-Z]*|--(?:user|User|group|Group|sid|tty|deselect)\b.*|[a-zA-Z]*[agTtUx][a-zA-Z]*"
+)
 
 
 def ends_the_command(token):
@@ -124,14 +158,30 @@ def program(words):
         # Why: `command -v x` dit si x existe, comme `which x` ; seul `command x` lance x.
         if words[:2] in (["command", "-v"], ["command", "-V"]):
             break
-        words = words[1:]
+        # Why: `-u` prend un argument chez `env -u NOM` comme chez `sudo -u compte`, qui n'est pas le programme lancé.
+        words = words[2:] if words[0] in ("-u", "--unset") else words[1:]
     if not words:
         return "", []
     name, args = Path(words[0]).name, words[1:]
-    if re.fullmatch(r"python[\d.]*", name) and "-m" in args[:-1]:
+    if PYTHON.fullmatch(name) and "-m" in args[:-1]:
         module = args.index("-m") + 1
         return args[module], args[module + 1 :]
     return name, args
+
+
+def programs(command):
+    """Chaque commande simple de la ligne et des scripts que ses shells exécutent : (opérateur, précédente, mots)."""
+    previous = ""
+    for operator, words in simple_commands(command):
+        name, args = program(words)
+        yield operator, previous, words
+        flag = next((i for i, arg in enumerate(args[:-1]) if SHELL_SCRIPT_FLAG.fullmatch(arg)), None)
+        if name in SHELLS and flag is not None:
+            yield from programs(args[flag + 1])
+        # Why: `bash <<< '…'` lit son script sur l'entrée, comme un heredoc.
+        if operator == "<<<" and previous in SHELLS:
+            yield from programs(words[0])
+        previous = name
 
 
 def installs(name, args):
@@ -160,7 +210,7 @@ def installs(name, args):
 
 def runs_stdin(name, args):
     """Vrai si la commande exécute ce qu'elle lit sur son entrée : un shell, ou python sans script ni `-c`."""
-    python = re.fullmatch(r"python[\d.]*", name)
+    python = PYTHON.fullmatch(name)
     return name in SHELLS or bool(python) and all(arg.startswith("-") and arg not in ("-c", "-m") for arg in args)
 
 
@@ -169,31 +219,71 @@ def install_verdict(command, on_server):
     if not on_server:
         return None
     try:
-        commands = simple_commands(command)
+        for operator, previous, words in programs(command):
+            name, args = program(words)
+            # Why: `curl … | sh` et `bash <(curl …)` exécutent ce qu'ils téléchargent, quelle qu'en soit l'adresse.
+            fetched_and_run = (operator == "|" and previous in DOWNLOADERS and runs_stdin(name, args)) or (
+                operator == "<(" and previous in SHELLS and name in DOWNLOADERS
+            )
+            if installs(name, args) or fetched_and_run:
+                return BLOCK_INSTALL_MSG
     except ValueError:
         return BLOCK_INSTALL_MSG if RAW_INSTALL.search(command) else None
-    previous = ""
-    for operator, words in commands:
+    return None
+
+
+def environ_verdict(command, on_server):
+    """Le message de refus d'une commande qui affiche tout l'environnement sur un serveur, ou None."""
+    if not on_server:
+        return None
+    try:
+        commands = [words for _, _, words in programs(command)]
+    except ValueError:
+        return None
+    # Why: le motif vise du code que Python exécute ; cherché par `grep "os.environ.items()"`, ce n'est que du texte.
+    runs_python = any(PYTHON.fullmatch(Path(word).name) for words in commands for word in words)
+    if runs_python and ENVIRON_LISTED.search(command):
+        return BLOCK_ENV_MSG
+    for words in commands:
         name, args = program(words)
-        # Why: `curl … | sh` et `bash <(curl …)` exécutent ce qu'ils téléchargent, quelle qu'en soit l'adresse.
-        fetched_and_run = (operator == "|" and previous in DOWNLOADERS and runs_stdin(name, args)) or (
-            operator == "<(" and previous in SHELLS and name in DOWNLOADERS
-        )
-        flag = next((i for i, arg in enumerate(args[:-1]) if SHELL_SCRIPT_FLAG.fullmatch(arg)), None)
-        script = args[flag + 1] if name in SHELLS and flag is not None else ""
-        # Why: `bash <<< '…'` lit son script sur l'entrée, comme un heredoc.
-        if operator == "<<<" and previous in SHELLS:
-            script = words[0]
-        if installs(name, args) or fetched_and_run or install_verdict(script, on_server):
-            return BLOCK_INSTALL_MSG
-        previous = name
+        # Why: `env X=1 cmd` lance cmd et `printenv NOM` n'affiche que NOM ; sans programme ni nom, tout s'affiche.
+        bare_env = not name and "env" in {Path(word).name for word in words}
+        dumps = name in ENV_DUMPS and all(arg.startswith("-") for arg in args)
+        if bare_env or dumps or (name == "set" and not args):
+            return BLOCK_ENV_MSG
+    return None
+
+
+def process_verdict(command, on_server):
+    """Le message de refus d'une commande qui liste ou arrête les processus des autres conversations, ou None."""
+    if not on_server:
+        return None
+    try:
+        commands = [words for _, _, words in programs(command)]
+    except ValueError:
+        return None
+    for words in commands:
+        name, args = program(words)
+        # Why: une option BSD (sans tiret) ne vient qu'en premier ; plus loin, `args` ou `pid,args` sont des valeurs.
+        options = args[:1] + [arg for arg in args if arg.startswith("-")]
+        selects_pids = any(PS_PIDS.fullmatch(option) for option in options)
+        lists_others = name == "ps" and (not selects_pids or any(PS_OTHERS.fullmatch(option) for option in options))
+        kills_by_name = name == "killall" or name == "pkill" and not any(OWN_FOLDER.fullmatch(arg) for arg in args)
+        if lists_others or kills_by_name:
+            return BLOCK_PROCESS_MSG
     return None
 
 
 if __name__ == "__main__":
     data = json.load(sys.stdin)
     command = data.get("tool_input", {}).get("command", "")
-    msg = verdict(command) or install_verdict(command, is_server())
+    on_server = is_server()
+    msg = (
+        verdict(command)
+        or install_verdict(command, on_server)
+        or environ_verdict(command, on_server)
+        or process_verdict(command, on_server)
+    )
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)

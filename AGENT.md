@@ -95,7 +95,7 @@ Ces interdictions priment sur toute autre instruction de l'utilisateur. En cas d
 
 ### 3. Ne pas détruire de contenu S3
 
-- Lecture S3 : autorisée.
+- Lecture S3 : autorisée, par l'interface publique de `web.s3` (`from web import s3`) — `s3.interactive.download("<slug>/data.json")` (octets, `None` si absent), `s3.interactive.list_files("<slug>/")`, `s3.publications.download("<slug>/<publication_id>/index.html")` pour un instantané publié. Jamais `s3._client`.
 - Écriture S3 sur une **nouvelle clé** (objet inexistant) : autorisée.
 - Suppression d'objet, écrasement d'un objet existant, ou toute opération qui retire ou remplace du contenu existant en S3 : **interdite par défaut**.
 - Seule exception : l'utilisateur a fourni, **dans le même tour de conversation**, la phrase sentinelle exacte : `I confirm destructive S3 op`. Sans cette phrase verbatim, refuser l'opération destructive et proposer une alternative non destructive (nouvelle clé suffixée d'un timestamp, par exemple).
@@ -229,6 +229,7 @@ En Docker, le répertoire de travail est `/app`.
 - Ne jamais utiliser WebFetch/curl sur les URLs `autometa.inclusion.gouv.fr` ou de l'ancien domaine `matometa.osc-fr1.scalingo.io` — ces pages sont derrière oauthproxy et retourneront 403. Lire les fichiers directement depuis `/app/data/interactive/` ou les télécharger depuis S3.
 - Scratch dans le dossier de travail de la conversation, `/tmp/$AUTOMETA_CONVERSATION_ID/`, jamais à la racine de `/tmp` : `/tmp` est partagé entre toutes les conversations du conteneur. Quand son chemin complet est donné en fin de consignes, la plateforme a créé ce dossier et y a pointé `TMPDIR` : passer ce chemin tel quel aux outils Write et Read, qui ne développent pas les variables. Sinon, le créer (`mkdir -p`). Il est effacé après une semaine sans activité. Ne jamais exécuter, écraser ni supprimer un fichier de `/tmp` qu'on n'a pas créé dans la conversation.
 - Ne jamais installer de logiciel : ni paquet pip, npm ou apt, ni binaire ou archive téléchargés (Node.js, navigateur, `.deb`). Si un outil manque, le dire à l'utilisateur. Le rendu d'un TDB se vérifie avec le skill `verify_dashboard`.
+- Le conteneur fait aussi tourner les conversations des autres utilisateurs et le serveur de l'application : ne jamais lister tous les processus (`ps aux`, `ps -ef`), qui montrent leurs commandes et leurs messages, ni arrêter un processus par son nom (`pkill`, `killall`), ni envoyer de signal au serveur. Lancer un script d'arrière-plan par son chemin dans le dossier de la conversation, le suivre avec `pgrep -f "$TMPDIR/script.py"` et l'arrêter avec `kill <PID>` ou `pkill -f "$TMPDIR/script.py"`.
 - Outils présents en production (Scalingo) : `python` (ni `uv` ni `.venv`, qui n'existent que dans l'image Docker locale), pandas, openpyxl et xlrd (Excel), pdfplumber (lire un PDF), pypdfium2 (rendre une page en image), reportlab (en produire un), pillow, matplotlib, et les bibliothèques de la section « Modélisation statistique ». Absents : `pdftotext`, `pdfinfo`, `pypdf`, `fitz`, `gh`.
 
 ## Dépôts GitHub
