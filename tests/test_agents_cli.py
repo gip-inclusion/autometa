@@ -526,32 +526,39 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
 
 
-def test_the_agent_runs_with_its_own_folder_and_is_told_its_path(stub_config, tmp_path):
-    stub_config(
-        'printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\n'
-        'echo \'{"type": "result", "subtype": "success"}\''
-    )
+def test_the_agent_runs_in_its_own_folder(stub_config, tmp_path):
+    stub_config('echo "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\necho \'{"type": "result", "subtype": "success"}\'')
 
     collect_messages(make_backend(), conversation_id=UUID_A)
 
     workdir = tmp_path / "tmp" / UUID_A
     assert workdir.is_dir()
     assert (tmp_path / "tmpdir.txt").read_text().strip() == str(workdir)
-    argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
-    appended = argv[argv.index("--append-system-prompt") + 1]
-    assert str(workdir) in appended
 
 
-def test_the_agent_is_told_who_writes_to_it(stub_config, tmp_path):
+FOLDER_LINE = "Dossier de travail de cette conversation, déjà créé : {workdir}/"
+EMAIL_LINE = "Utilisateur courant, auteur des messages : alice@example.org"
+
+
+@pytest.mark.parametrize(
+    ("conversation_id", "user_email", "appended"),
+    [
+        (UUID_A, "alice@example.org", f"{FOLDER_LINE}\n{EMAIL_LINE}"),
+        (UUID_A, None, FOLDER_LINE),
+        ("c1", "alice@example.org", EMAIL_LINE),
+        ("c1", None, None),
+    ],
+)
+def test_the_agent_is_told_its_folder_and_who_writes_to_it(
+    stub_config, tmp_path, conversation_id, user_email, appended
+):
     stub_config('printf \'%s\\0\' "$@" > "$(dirname "$0")/argv.txt"\necho \'{"type": "result", "subtype": "success"}\'')
 
-    collect_messages(make_backend(), conversation_id=UUID_A, user_email="alice@example.org")
+    collect_messages(make_backend(), conversation_id=conversation_id, user_email=user_email)
 
     argv = (tmp_path / "argv.txt").read_bytes().decode().split("\0")[:-1]
-    assert argv.count("--append-system-prompt") == 1
-    appended = argv[argv.index("--append-system-prompt") + 1]
-    assert "Utilisateur courant, auteur des messages : alice@example.org" in appended
-    assert str(tmp_path / "tmp" / UUID_A) in appended
+    flags = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--append-system-prompt"]
+    assert flags == ([appended.format(workdir=tmp_path / "tmp" / conversation_id)] if appended else [])
 
 
 @pytest.mark.parametrize(("env", "kept"), [(Environment.DEV, True), (Environment.PROD, False)])
