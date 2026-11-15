@@ -270,6 +270,11 @@ def test_en_local_l_environnement_peut_etre_liste():
         "ps -g 1",
         "ps -p 123 -e",
         "ps --user app",
+        # Le motif doit commencer par le dossier de la conversation, sans autre choix.
+        'pkill -f "chrom|$TMPDIR"',
+        'pkill -f "chrom.*$TMPDIR"',
+        'pkill -f "$TMPDIR/x.py|chrom"',
+        'pkill -f "python3 $TMPDIR/x.py"',
     ],
 )
 def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(commande):
@@ -293,6 +298,7 @@ def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(co
         "ps -q 123 -o etime=",
         "ps p 123",
         "ps 123",
+        'pkill -f "${TMPDIR}/zd5.py"',
         "grep -n pkill notes.md",
         "echo 'ps aux'",
     ],
