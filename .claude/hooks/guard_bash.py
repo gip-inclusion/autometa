@@ -19,8 +19,9 @@ BLOCK_INSTALL_MSG = (
     "dans AGENT.md, section « Environnement container »."
 )
 BLOCK_ENV_MSG = (
-    "Commande refusée : `env`, `printenv` sans nom de variable et un parcours de `os.environ` affichent tous les "
-    "secrets du conteneur, et la sortie reste dans la conversation. L'e-mail de l'utilisateur courant : "
+    "Commande refusée : `env`, `printenv`, `export` ou `declare` sans nom de variable, `set` seul et un parcours de "
+    "`os.environ` affichent tous les secrets du conteneur, et la sortie reste dans la conversation. "
+    "L'e-mail de l'utilisateur courant : "
     '`echo "$AUTOMETA_USER_EMAIL"`. Les identifiants des sources passent par les skills ; pour savoir si une variable '
     'existe sans l\'afficher : `test -n "$NOM" && echo présente`.'
 )
@@ -44,6 +45,8 @@ PREFIXES = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!",
 PREFIXES |= frozenset(("exec", "command", "timeout", "nice", "xargs", "stdbuf"))
 SHELLS = frozenset(("sh", "bash", "zsh", "dash"))
 PYTHON = re.compile(r"python[\d.]*")
+# Why: sans nom de variable, ces commandes affichent tout l'environnement — `export` et `declare` aussi ses valeurs.
+ENV_DUMPS = frozenset(("printenv", "export", "declare", "typeset"))
 DOWNLOADERS = frozenset(("curl", "wget"))
 # Why: un téléchargement n'est refusé que s'il vise un paquet ou un binaire (Node.js, roue, .deb), pas une API.
 PACKAGE_URL = re.compile(
@@ -138,7 +141,8 @@ def program(words):
         # Why: `command -v x` dit si x existe, comme `which x` ; seul `command x` lance x.
         if words[:2] in (["command", "-v"], ["command", "-V"]):
             break
-        words = words[1:]
+        # Why: `-u` prend un argument chez `env -u NOM` comme chez `sudo -u compte`, qui n'est pas le programme lancé.
+        words = words[2:] if words[0] in ("-u", "--unset") else words[1:]
     if not words:
         return "", []
     name, args = Path(words[0]).name, words[1:]
@@ -227,7 +231,8 @@ def environ_verdict(command, on_server):
         name, args = program(words)
         # Why: `env X=1 cmd` lance cmd et `printenv NOM` n'affiche que NOM ; sans programme ni nom, tout s'affiche.
         bare_env = not name and "env" in {Path(word).name for word in words}
-        if bare_env or (name == "printenv" and all(arg.startswith("-") for arg in args)):
+        dumps = name in ENV_DUMPS and all(arg.startswith("-") for arg in args)
+        if bare_env or dumps or (name == "set" and not args):
             return BLOCK_ENV_MSG
     return None
 
