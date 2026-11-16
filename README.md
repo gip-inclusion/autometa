@@ -301,7 +301,8 @@ tant qu'`OLLAMA_API_KEY` est vide, et Ollama Cloud dès qu'elle est renseignée.
 
 `AGENT_FALLBACK_BACKEND=cli-ollama` fait continuer les conversations sur Ollama quand la limite d'usage
 Claude est atteinte, jusqu'à l'heure de reprise annoncée. Si le secours épuise à son tour son quota,
-l'utilisateur reçoit un message de limite globale. Vide, la fonctionnalité est éteinte.
+l'utilisateur reçoit un message de limite globale. Vide, la fonctionnalité est éteinte. Le secours reçoit le même
+prompt système que Claude, adresse e-mail de l'utilisateur courant comprise.
 
 Simuler une coupure (pour tester la bascule en staging) ou en lever une (faux positif) :
 

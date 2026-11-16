@@ -98,6 +98,7 @@ def test_une_commande_non_analysable_ne_bloque_pas():
         "if ! python -c 'import x'; then pip install x; fi",
         "for p in a b; do pip install $p; done",
         "sudo -E pip install x",
+        "sudo -u app pip install x",
         "python3 -u -m pip install x",
         "xargs pip install < /tmp/x/paquets.txt",
         "{ pip install x; }",
@@ -173,3 +174,138 @@ def test_en_local_les_installations_passent():
 )
 def test_une_ligne_non_analysable_est_jugee_sur_son_texte(commande, attendu):
     assert guard_bash.install_verdict(commande, on_server=True) == attendu
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        "env",
+        "env | grep -iE 'gh_|github_token' 2>/dev/null",
+        'env | grep -E "^S3_" 2>/dev/null; echo "---"',
+        "ls /app\nenv | sort",
+        "sudo env",
+        "/usr/bin/env -0",
+        "printenv",
+        "printenv | grep -i zendesk 2>/dev/null || echo absent",
+        "printenv 2>/dev/null",
+        "env > /tmp/x/env.txt",
+        "python3 -c \"import os; [print(k) for k, v in os.environ.items() if 'git' in k.lower()]\"",
+        'python3 -c "import os; print(sorted(os.environ.keys()))"',
+        "python3 -c \"import os; print([k for k in os.environ if 'S3' in k])\"",
+        "python3 - <<'EOF'\nimport os\nfor k in sorted(os.environ):\n    print(k)\nEOF",
+        'python3 -c "import os; print(dict(os.environ))"',
+        'uv run python -c "import os; print(dict(os.environ))"',
+        "env -u PYTHONPATH",
+        "export",
+        "export -p | grep -i token",
+        "declare -x",
+        "declare -p",
+        "typeset -x",
+        "set",
+        "bash -c 'env'",
+        'sh -c "printenv | grep -i token"',
+        "bash <<< 'env | sort'",
+    ],
+)
+def test_lister_l_environnement_est_refuse_sur_un_serveur(commande):
+    assert guard_bash.environ_verdict(commande, on_server=True) == guard_bash.BLOCK_ENV_MSG
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        'echo "$AUTOMETA_USER_EMAIL"',
+        'test -n "$GITHUB_TOKEN" && echo présente',
+        "printenv AUTOMETA_CONVERSATION_ID",
+        "printenv HOME 2>/dev/null",
+        "timeout 900 env PYTHONPATH=/app python -I /tmp/x/maj.py 2>&1 | grep -v DEBUG",
+        "python3 -c \"import os; print(os.environ.get('AUTOMETA_CONVERSATION_ID'))\"",
+        "python3 - <<'EOF'\nimport os, subprocess\nenv = dict(os.environ)\nsubprocess.run(['ls'], env={**os.environ})\nEOF",
+        "python3 -c \"import os; print([k for k in ('A', 'B') if k in os.environ])\"",
+        "conda env list",
+        "python -m venv env",
+        "grep -rn printenv skills/",
+        'grep -rn "os.environ.items()" lib/',
+        "rg 'for k in os.environ' web/",
+        "env -u PYTHONPATH python3 /tmp/x/run.py",
+        "set -euo pipefail",
+        "export PATH=/tmp/x/bin:$PATH",
+        "declare -a lignes",
+        "bash -c 'echo ok'",
+        "",
+    ],
+)
+def test_lire_une_variable_par_son_nom_passe_sur_un_serveur(commande):
+    assert guard_bash.environ_verdict(commande, on_server=True) is None
+
+
+def test_en_local_l_environnement_peut_etre_liste():
+    assert guard_bash.environ_verdict("env | grep -i github", on_server=False) is None
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        "pkill -f chrom",
+        "pkill -f verify_dashboard; pkill -f chrom; sleep 1",
+        'pkill -f "http.server 8765"',
+        "sudo pkill -9 -f uvicorn",
+        "killall chrome",
+        "ps aux",
+        'ps aux | grep -E "python|uvicorn|gunicorn" | grep -v grep',
+        "ps axww | head",
+        "ps -ef | grep claude",
+        'ps -eo pid,etime,args | grep "python.*okr" | grep -v grep',
+        "ps -A",
+        "ps aux | grep '[c]hrome' | awk '{print $2}' | xargs kill",
+        # Un shell exécute le script qu'on lui passe.
+        'bash -c "ps aux"',
+        "sh -c 'pkill -f chrom'",
+        # Sans PID, ou avec une autre sélection qui s'y ajoute, `ps` montre les conversations du même compte.
+        "ps",
+        "ps -o pid,args",
+        'ps -u "$USER" -o args',
+        "ps -U app",
+        "ps -C claude -o args",
+        "ps -g 1",
+        "ps -p 123 -e",
+        "ps --user app",
+        # Le motif doit commencer par le dossier de la conversation, sans autre choix.
+        'pkill -f "chrom|$TMPDIR"',
+        'pkill -f "chrom.*$TMPDIR"',
+        'pkill -f "$TMPDIR/x.py|chrom"',
+        'pkill -f "python3 $TMPDIR/x.py"',
+    ],
+)
+def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(commande):
+    assert guard_bash.process_verdict(commande, on_server=True) == guard_bash.BLOCK_PROCESS_MSG
+
+
+@pytest.mark.parametrize(
+    "commande",
+    [
+        'pkill -f "$TMPDIR/zd5.py"',
+        "pkill -f /tmp/0123abcd-0123-4567-89ab-0123456789ab/zd5.py",
+        "until ! pgrep -f events.py >/dev/null; do sleep 5; done",
+        'kill $(pgrep -f "$TMPDIR/dump.py")',
+        "kill $!",
+        "kill 12345",
+        "ps -o pid=,ppid=,args= -p 10199",
+        "ps -p 123 -o args",
+        "ps -fp 123",
+        "ps --ppid $$ -o pid,args",
+        "ps --pid=123",
+        "ps -q 123 -o etime=",
+        "ps p 123",
+        "ps 123",
+        'pkill -f "${TMPDIR}/zd5.py"',
+        "grep -n pkill notes.md",
+        "echo 'ps aux'",
+    ],
+)
+def test_suivre_et_arreter_ses_propres_processus_passe_sur_un_serveur(commande):
+    assert guard_bash.process_verdict(commande, on_server=True) is None
+
+
+def test_en_local_les_processus_peuvent_etre_listes():
+    assert guard_bash.process_verdict("ps aux", on_server=False) is None

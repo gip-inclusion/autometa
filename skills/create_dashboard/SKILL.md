@@ -150,10 +150,5 @@ _mtm.push({'mtm.startTime': (new Date().getTime()), 'event': 'mtm.Start'});
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
 ```bash
-python -c "
-from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
-from web.db import get_db
-with get_db() as session:
-    print(build_prompt_taxonomy(load_vocabulary(session)))
-"
+python skills/list_tags.py
 ```
