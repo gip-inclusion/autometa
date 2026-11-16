@@ -1,4 +1,5 @@
-<div id="jobTags" class="d-flex flex-wrap align-items-center gap-2">
+<div id="jobTags" class="d-flex flex-wrap align-items-center gap-2"
+     hx-on::response-error="this.querySelector('.job-tags-error').textContent = (event.detail.xhr.getResponseHeader('content-type') || '').includes('json') && JSON.parse(event.detail.xhr.responseText).error || 'Action refusée, réessayez.'">
   {% for tag in job_tags %}
   <span class="badge badge-tag badge-product job-tag d-inline-flex align-items-center">
     {{ tag.label }}
@@ -27,6 +28,7 @@
            maxlength="80" aria-label="Nouveau terme de nature" required>
     <button type="submit" class="btn btn-sm btn-outline-secondary">Créer</button>
   </form>
+  <span class="job-tags-error small text-danger" role="alert"></span>
 </div>
 {% if oob %}
 <span id="job-tags-{{ pipeline_id }}" hx-swap-oob="true">{% include "_job_tags_badges.html" %}</span>

@@ -361,6 +361,8 @@ def test_dod_8_jobs_page_renders_filters_sort_and_editor(client, mocker):
     assert 'value="agent"' not in html
     assert "Siae" not in html
     assert f'hx-post="/api/jobs/pipelines/{ALPHA}/tags/new"' in html
+    assert "hx-on::response-error=\"this.querySelector('.job-tags-error')" in html
+    assert '<span class="job-tags-error small text-danger" role="alert"></span>' in html
 
 
 @pytest.mark.integration
