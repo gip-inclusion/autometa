@@ -112,6 +112,15 @@ def test_a_retired_agent_offers_no_decision_and_nothing_to_review(client, post):
     assert 'data-decision="approve"' not in page
 
 
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_a_retired_agent_refuses_a_decision_posted_directly(client, post, decision):
+    delivery_id = make_delivery(agent_status="retired")
+    response = decide(client, delivery_id, decision)
+    assert (response.status_code, response.json()) == (409, {"error": "agent retiré : plus aucune décision"})
+    assert delivery(delivery_id)["status"] == "pending_review"
+    post.assert_not_called()
+
+
 @pytest.mark.parametrize(("slug", "status"), [("inconnu", 404), ("../x", 404), ("A", 422)])
 def test_unknown_agent_page(client, slug, status):
     assert client.get(f"/agents/{slug}").status_code == status

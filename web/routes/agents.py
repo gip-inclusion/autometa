@@ -147,16 +147,18 @@ def agent_page(slug: Slug, request: Request, user_email: str = Depends(get_curre
 def reviewed(delivery_id: int, user_email: str) -> JSONResponse | None:
     """The answer refusing this reviewer, or None when they may decide on the delivery."""
     with get_db() as session:
-        owner = session.scalar(
-            select(Agent.owner_email)
+        row = session.execute(
+            select(Agent.owner_email, Agent.status)
             .join(AgentRun, AgentRun.agent_id == Agent.id)
             .join(AgentDelivery, AgentDelivery.run_id == AgentRun.id)
             .where(AgentDelivery.id == delivery_id)
-        )
-    if owner is None:
+        ).first()
+    if row is None:
         return JSONResponse({"error": "envoi introuvable"}, status_code=404)
-    if not may_review(user_email, owner):
+    if not may_review(user_email, row.owner_email):
         return JSONResponse({"error": "seul le propriétaire de l'agent ou un administrateur décide"}, status_code=403)
+    if row.status != "active":
+        return JSONResponse({"error": "agent retiré : plus aucune décision"}, status_code=409)
     return None
 
 
