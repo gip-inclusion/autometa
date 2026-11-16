@@ -88,6 +88,23 @@ def get_run_output(run_id: str) -> str:
     return resp.text
 
 
+def get_run_output_head(run_id: str, limit: int) -> str:
+    """The first `limit` characters of the run's artifact, without downloading the rest."""
+    text = ""
+    with httpx.stream(
+        "GET",
+        f"{config.AUTOMETA_JOBS_URL}/runs/{_safe_id(run_id)}/output",
+        headers={"Authorization": f"Bearer {config.AUTOMETA_JOBS_API_KEY}"},
+        timeout=5,
+    ) as resp:
+        resp.raise_for_status()
+        for chunk in resp.iter_text():
+            text += chunk
+            if len(text) > limit:
+                break
+    return text
+
+
 def get_run_output_url(run_id: str, expires_in: int = 3600) -> dict:
     """A short-lived download URL for the artifact — for the UI to link."""
     return _request("GET", f"/runs/{_safe_id(run_id)}/output", params={"presign": 1, "expires_in": expires_in})

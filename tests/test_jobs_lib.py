@@ -89,6 +89,18 @@ def test_get_run_output_returns_text(mocker):
     assert get.call_args.kwargs["headers"]["Authorization"] == "Bearer pmk_test"
 
 
+def test_get_run_output_head_stops_reading_past_the_limit(mocker):
+    chunks = iter(["a" * 2000, "b" * 2000, "c" * 2000])
+    resp = mocker.MagicMock()
+    resp.iter_text.return_value = chunks
+    stream = mocker.patch("httpx.stream")
+    stream.return_value.__enter__.return_value = resp
+    assert jobs.get_run_output_head(RUN_ID, 3000) == "a" * 2000 + "b" * 2000
+    assert next(chunks) == "c" * 2000
+    assert stream.call_args.args == ("GET", f"https://orch.example/runs/{RUN_ID}/output")
+    assert stream.call_args.kwargs["timeout"] == 5
+
+
 def test_get_run_output_url_presigns(mocker):
     req = mocker.patch("httpx.request", return_value=_fake_response({"url": "https://s3/x", "expires_in": 120}))
     out = jobs.get_run_output_url(RUN_ID, expires_in=120)

@@ -454,7 +454,18 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
             if msg.type in ("user", "assistant"):
                 history.append({"role": msg.type, "content": msg.content})
 
-    prompt = await run_in_thread(job_mentions.build_context, content) + content
+    mentions = None
+    try:
+        # Why: le front n'ouvre le flux qu'au retour de ce POST ; un service de jobs lent ne doit pas le retenir.
+        mentions = await asyncio.wait_for(run_in_thread(job_mentions.build_context, content), timeout=5)
+    except TimeoutError:
+        logger.warning("job mentions context over budget, sent without it")
+        mentions = ""
+    finally:
+        if mentions is None:
+            # Why: le tour est déjà réservé ; une erreur imprévue laisserait la conversation bloquée en needs_response.
+            store.end_turn(conv_id, flush=False)
+    prompt = mentions + content
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:

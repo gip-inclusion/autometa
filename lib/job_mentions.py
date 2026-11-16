@@ -42,7 +42,7 @@ def last_output(runs: list[dict]) -> str:
     if done is None:
         return "Dernière sortie : aucun run réussi parmi les 20 derniers."
     try:
-        output = truncate(jobs.get_run_output(done["id"]), 3000)
+        output = truncate(jobs.get_run_output_head(done["id"], 3000), 3000)
     except httpx.HTTPError as exc:
         logger.warning("autometa-jobs output unavailable for run %s: %s", done["id"], exc)
         output = "(sortie indisponible)"
@@ -100,8 +100,9 @@ def build_context(text: str) -> str:
         by_name = {p["name"]: p for p in jobs.list_pipelines()}
         # Why: borne la taille du prompt et le nombre d'appels au service de jobs.
         blocks = [describe(by_name[name]) for name in [n for n in names if n in by_name][:3]]
-    # Why: ValueError couvre une réponse non JSON du service externe ; le message doit partir quand même.
-    except (httpx.HTTPError, ValueError) as exc:
+    # Why: ValueError et KeyError couvrent une réponse non JSON ou inattendue du service externe ; le message doit
+    # partir quand même.
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
         logger.warning("autometa-jobs unavailable for mentions: %s", exc)
         return ""
     if not blocks:

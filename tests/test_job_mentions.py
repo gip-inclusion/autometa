@@ -29,7 +29,7 @@ def fake_jobs(mocker):
         make_run(RUN_OK, "completed", "2026-11-01T09:00:00"),
         make_run(RUN_KO, "failed", "2026-11-03T09:00:00"),
     ]
-    jobs.get_run_output.return_value = "## Rapport\n42 services sans horaires."
+    jobs.get_run_output_head.return_value = "## Rapport\n42 services sans horaires."
     return jobs
 
 
@@ -64,7 +64,7 @@ def test_dod_1_context_carries_prompt_runs_and_last_output(orchestrator):
     assert context.index(RUN_KO) < context.index(RUN_OK)
     assert "42 services sans horaires." in context
     orchestrator.list_runs.assert_called_once_with(pipeline_id=PIPELINE_ID, limit=20)
-    orchestrator.get_run_output.assert_called_once_with(RUN_OK)
+    orchestrator.get_run_output_head.assert_called_once_with(RUN_OK, 3000)
 
 
 def test_dod_2_context_is_bounded(orchestrator):
@@ -75,7 +75,7 @@ def test_dod_2_context_is_bounded(orchestrator):
     orchestrator.list_runs.return_value = [
         make_run(f"run-{i}", "completed", f"2026-10-{i + 10}T09:00:00") for i in range(10)
     ]
-    orchestrator.get_run_output.return_value = "x" * 500_000
+    orchestrator.get_run_output_head.return_value = "x" * 500_000
 
     context = job_mentions.build_context(" ".join(f"@{n}" for n in names))
 
@@ -83,7 +83,7 @@ def test_dod_2_context_is_bounded(orchestrator):
     assert "[… tronqué]" in context
     assert [n for n in names if f"@{n}" in context] == names[:3]
     assert context.count("run-") == 3 * 3 + 3
-    assert orchestrator.get_run_output.call_count == 3
+    assert orchestrator.get_run_output_head.call_count == 3
 
 
 @pytest.mark.parametrize("text", ["salut @inconnu", "pas de mention", "mail@exemple.fr"])
@@ -97,7 +97,7 @@ def test_dod_3_no_mention_does_not_call_the_service(orchestrator):
     orchestrator.list_pipelines.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", [httpx.ConnectError("down"), ValueError("not JSON")])
+@pytest.mark.parametrize("failure", [httpx.ConnectError("down"), ValueError("not JSON"), KeyError("id")])
 def test_dod_3_service_down_adds_nothing(orchestrator, failure):
     orchestrator.list_pipelines.side_effect = failure
 
@@ -105,7 +105,7 @@ def test_dod_3_service_down_adds_nothing(orchestrator, failure):
 
 
 def test_dod_1_unavailable_output_is_reported(orchestrator):
-    orchestrator.get_run_output.side_effect = httpx.ReadTimeout("slow")
+    orchestrator.get_run_output_head.side_effect = httpx.ReadTimeout("slow")
 
     context = job_mentions.build_context("@veille-dora")
 
@@ -124,7 +124,7 @@ def test_dod_1_last_success_found_beyond_the_three_listed_runs(orchestrator):
     assert "ko-3" in context
     assert f"- completed — 2026-10-01T09:00:00 — run {RUN_OK}" not in context
     assert f"Dernière sortie réussie (run {RUN_OK})" in context
-    orchestrator.get_run_output.assert_called_once_with(RUN_OK)
+    orchestrator.get_run_output_head.assert_called_once_with(RUN_OK, 3000)
 
 
 def test_dod_1_no_completed_run(orchestrator):
@@ -133,7 +133,7 @@ def test_dod_1_no_completed_run(orchestrator):
     context = job_mentions.build_context("@veille-dora")
 
     assert "aucun run réussi" in context
-    orchestrator.get_run_output.assert_not_called()
+    orchestrator.get_run_output_head.assert_not_called()
 
 
 def test_dod_4_mention_never_launches_and_asks_for_explicit_yes(orchestrator):

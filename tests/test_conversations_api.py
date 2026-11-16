@@ -255,6 +255,30 @@ def test_dod_1_send_message_injects_job_mention_context(client, submit_mock, moc
     assert stored_messages(submit_mock) == ["relance @veille-dora"]
 
 
+def test_send_message_goes_without_job_context_over_budget(client, submit_mock, mocker):
+    def over_budget(coro, timeout):
+        coro.close()
+        raise TimeoutError
+
+    wait_for = mocker.patch("web.routes.conversations.asyncio.wait_for", side_effect=over_budget)
+
+    assert send(client, "relance @veille-dora").status_code == 200
+
+    assert wait_for.call_args.kwargs == {"timeout": 5}
+    assert submit_mock.call_args.args[1] == "relance @veille-dora"
+
+
+def test_an_unexpected_job_context_error_releases_the_turn(client, submit_mock, mocker):
+    mocker.patch("web.routes.conversations.job_mentions.build_context", side_effect=RuntimeError("bug"))
+    conv_id = store.create_conversation(user_id=ALICE).id
+
+    with pytest.raises(RuntimeError):
+        client.post(f"/api/conversations/{conv_id}/messages", headers=headers(), json={"content": "@veille-dora"})
+
+    assert not store.get_conversation(conv_id).needs_response
+    submit_mock.assert_not_called()
+
+
 def test_dod_3_send_message_with_unknown_mention_goes_as_written(client, submit_mock, mocker):
     jobs = mocker.patch("lib.job_mentions.jobs")
     jobs.list_pipelines.return_value = [{"id": "p1", "name": "veille-dora", "system_prompt": "x"}]
