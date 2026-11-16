@@ -237,12 +237,12 @@ def _record_state(*, status, error, term_count, session=None) -> None:
 def pending_terms() -> list[dict]:
     """Termes proposés depuis l'app, en attente de promotion dans Notion."""
     with get_db() as session:
+        usages = sum(
+            select(func.count()).select_from(model).where(model.tag_id == Tag.id).scalar_subquery()
+            for model in (DashboardTag, JobTag)
+        )
         rows = session.execute(
-            select(Tag.name, Tag.type, Tag.label, func.count(DashboardTag.dashboard_slug))
-            .outerjoin(DashboardTag, DashboardTag.tag_id == Tag.id)
-            .where(Tag.pending, Tag.active)
-            .group_by(Tag.id)
-            .order_by(Tag.type, Tag.label)
+            select(Tag.name, Tag.type, Tag.label, usages).where(Tag.pending, Tag.active).order_by(Tag.type, Tag.label)
         ).all()
     return [{"name": name, "facet": facet, "label": label, "usages": usages} for name, facet, label, usages in rows]
 
