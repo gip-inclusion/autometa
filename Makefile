@@ -123,7 +123,8 @@ browsers:
 	uv run --frozen playwright install chromium
 
 # Parcours de navigateur — exige une application servie (`make dev` dans un autre terminal),
-# ou E2E_BASE_URL pointant sur une review app.
+# ou E2E_BASE_URL pointant sur une review app. Les parcours qui jouent un tour d'agent sont
+# sautés sauf contre `AGENT_BACKEND=fake make dev`.
 e2e: browsers
 	uv run --frozen pytest browser -q -m browser
 

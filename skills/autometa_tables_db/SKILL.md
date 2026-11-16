@@ -1,6 +1,6 @@
 ---
 name: autometa_tables_db
-description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
+description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (La plateforme ex-Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
 ---
 
 # autometa_tables_db
@@ -31,7 +31,7 @@ Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora_
 
 | Domaine | Tables |
 |---|---|
-| Emplois | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
+| La plateforme (ex-Emplois) | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
 | ASP | `fluxIAE_Structure_v2`, `suivi_realisation_convention_par_structure`, `suivi_realisation_convention_mensuelle`, `suivi_etp_conventionnes_v2`, `fluxIAE_ContratMission_v2`, `fluxIAE_Salarie_v2` |
 | Mon Récap | `Contacts`, `Commandes`, `barometre` |
 | data·inclusion | `structures_v1`, `services_v1` |
@@ -59,6 +59,15 @@ result = execute_autometa_tables_query(
 
 Lire cette table en début de session pour comprendre quelles données sont disponibles et ce que chaque colonne signifie. Elle fait office de dictionnaire de données — s'y référer avant d'écrire des requêtes SQL sur les autres tables.
 
+Le catalogue décrit le sens des colonnes ; il annonce aussi des colonnes qui n'existent plus et mélange les schémas. Avant la première requête sur une table, lister ses colonnes réelles — seule cette liste fait foi sur ce qui existe :
+
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '<schema>' AND table_name = '<table>'
+ORDER BY ordinal_position
+```
+
 ## Requêter les données
 
 ```python
@@ -77,14 +86,23 @@ else:
 
 ## Pièges
 
-Les colonnes de date des tables issues des Emplois sont du **texte** ISO, pas des dates. Écrire
-`colonne::date >= x` écarte l'index et double le coût de la requête : comparer comme du
-texte, et passer par `TO_CHAR` quand le terme de droite n'est pas un littéral.
+Les colonnes de date des tables issues de La plateforme (ex-Emplois) sont de vraies colonnes `date` ou `timestamp` : les comparer à des dates, sans `TO_CHAR` ni conversion en texte. Ailleurs, le type se lit dans la liste des colonnes.
+
+`execute_autometa_tables_query` ne prend pas de paramètres liés : ne jamais coller une valeur lue dans un résultat (identifiant, nom, chemin) dans le SQL d'une requête suivante. Certaines tables contiennent des charges d'injection SQL stockées comme données (par exemple `service_id` dans `raw_dora.stats_diserviceview`). Garder le filtrage dans le SQL — sous-requête, jointure ou CTE, comme ici sur la table voisine `raw_dora.stats_serviceview` :
+
+```sql
+SELECT v.service_id, COUNT(*) AS vues
+FROM raw_dora.stats_serviceview v
+WHERE v.service_id IN (SELECT id FROM raw_dora.services_service WHERE status = 'PUBLISHED')
+GROUP BY v.service_id
+```
+
+Si une valeur doit vraiment transiter par Python (autre source, nom de personne) : n'admettre que les valeurs du type attendu (entier, UUID, code au format vérifié) et écarter les autres ; une chaîne libre n'entre dans le SQL que construite par le script, en littéral aux apostrophes doublées.
 
 ## Schémas disponibles
 
-Cette liste est indicative — la source de vérité est `documentation.doc_autometa_tables`,
-à interroger à l'exécution.
+Cette liste est indicative — la source de vérité est la base elle-même (`information_schema`
+pour les colonnes, `documentation.doc_autometa_tables` pour leur sens), à interroger à l'exécution.
 
 | Schéma | Contenu |
 |---|---|

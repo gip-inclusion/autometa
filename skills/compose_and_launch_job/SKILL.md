@@ -40,9 +40,9 @@ L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runne
 6. **Lancer** (uniquement après confirmation) :
 
    ```bash
-   .venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py \
+   python skills/compose_and_launch_job/scripts/launch_job.py \
        --name dora-services-2026-06 \
-       --system-prompt-file /tmp/job_prompt.md \
+       --system-prompt-file /tmp/$AUTOMETA_CONVERSATION_ID/job_prompt.md \
        --max-turns 40 \
        --allowed-tools "Bash,Read,WebFetch" \
        --output-format csv

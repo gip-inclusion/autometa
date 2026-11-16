@@ -164,7 +164,7 @@ a GPS page, even though it was triggered on the dashboard.
 #### Step 1: Clone the repository
 
 ```bash
-git clone --depth 1 https://github.com/gip-inclusion/les-emplois.git /tmp/les-emplois
+git clone --depth 1 https://github.com/gip-inclusion/les-emplois.git /tmp/$AUTOMETA_CONVERSATION_ID/les-emplois
 ```
 
 #### Step 2: Search for event declarations
@@ -173,13 +173,13 @@ For Django apps using `matomo_event` template tags:
 
 ```bash
 # Find all matomo events in templates
-grep -r "matomo_event" /tmp/les-emplois/itou/templates/ --include="*.html"
+grep -r "matomo_event" /tmp/$AUTOMETA_CONVERSATION_ID/les-emplois/itou/templates/ --include="*.html"
 
 # Search for a specific event name
-grep -r "consulter_fiche_candidat" /tmp/les-emplois/
+grep -r "consulter_fiche_candidat" /tmp/$AUTOMETA_CONVERSATION_ID/les-emplois/
 
 # Find data-matomo attributes (JS-triggered events)
-grep -r "data-matomo-" /tmp/les-emplois/itou/templates/
+grep -r "data-matomo-" /tmp/$AUTOMETA_CONVERSATION_ID/les-emplois/itou/templates/
 ```
 
 #### Step 3: Map templates to URL paths
@@ -235,7 +235,7 @@ NavItem(
 
 | Site | GitHub |
 |------|--------|
-| Emplois | https://github.com/gip-inclusion/les-emplois |
+| La plateforme (ex-Emplois) | https://github.com/gip-inclusion/les-emplois |
 | Marché | https://github.com/gip-inclusion/le-marche |
 | DORA | https://github.com/gip-inclusion/dora |
 | RDV-Insertion | https://github.com/gip-inclusion/rdv-insertion |

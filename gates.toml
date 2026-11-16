@@ -11,8 +11,6 @@ branch = true
 # Sans ce drapeau, `coverage combine` ne rapproche pas les mesures des deux couloirs de la CI,
 # qui tournent dans des jobs distincts : les chemins absolus ne coïncident pas.
 relative_files = true
-# `skills/pdf/` est un skill Anthropic vendored, déjà exclu du lint pour la même raison.
-omit = ["skills/pdf/*"]
 source = ["web", "lib", "scripts", "skills"]
 # Le JavaScript de `web/static/js/` n'y figure pas, et ce n'est pas un oubli : diff-cover lit
 # `coverage.xml`, et il n'existe aucune suite de tests front qui pourrait le produire. Y déclarer

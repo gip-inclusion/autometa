@@ -223,6 +223,7 @@ body.has-sidebar {
 #section-explorations {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -232,6 +233,7 @@ body.has-sidebar {
 #section-dashboards {
   display: grid;
   grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -558,6 +560,23 @@ body.has-sidebar {
 
 .chat-cancel-btn:hover {
   background: #c82333;
+}
+
+.chat-bar-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.chat-send-btn:disabled {
+  background: #adb5bd;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.chat-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 /* Pending files: top section of the rounded rect */
@@ -1107,6 +1126,15 @@ body.has-sidebar {
   text-align: left;
 }
 
+@media (max-width: 767.98px) {
+  /* Why: the page never scrolls sideways on a phone, so a table wider than the screen scrolls within itself. */
+  .event-assistant table,
+  .knowledge-content .markdown-body table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
 .event-assistant th {
   background: var(--bs-tertiary-bg);
   font-weight: 600;
@@ -1344,6 +1372,7 @@ body.has-sidebar {
 
   .event-user {
     margin-left: 2rem;
+    margin-right: 0;
   }
 
   .event-tool_use,
@@ -1352,15 +1381,48 @@ body.has-sidebar {
     margin-right: 0.5rem;
   }
 
+  /* Why: two lines of text set the composer's height, and the send and stop buttons share it. */
+  .chat-bar {
+    --composer-height: calc(2 * 1.6rem + 1.5rem + 4px);
+  }
+
   .chat-input {
     padding: 0.75rem 1rem;
-    font-size: 0.875rem;
+    line-height: 1.6rem;
+    min-height: calc(var(--composer-height) - 4px);
+  }
+
+  .chat-bar:not(.chat-bar-readonly) {
+    align-items: flex-end;
+  }
+
+  .chat-bar-actions {
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .chat-bar-actions .chat-flag-btn {
+    display: none;
   }
 
   .chat-send-btn,
   .chat-cancel-btn {
-    width: 38px;
-    height: 38px;
+    width: calc((var(--composer-height) - 0.375rem) / 2);
+    height: calc((var(--composer-height) - 0.375rem) / 2);
+  }
+
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+/* Why: iOS zooms into any text field under 16px when it gets focus, whatever the screen width. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
   }
 }
 
@@ -1589,6 +1651,93 @@ body.has-sidebar {
   color: #212529;
 }
 
+.conv-menu-only,
+.conv-menu-btn {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .conv-meta-row[popover] {
+    display: block;
+    position: static;
+    inset: auto;
+    width: auto;
+    height: auto;
+    margin: 0 0 0.25rem;
+    padding: 0;
+    border: 0;
+    overflow: visible;
+    background: none;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .feedback-badge,
+  .conv-title-display h1 i {
+    display: none;
+  }
+
+  .conv-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #212529;
+    font-size: 1.5rem;
+  }
+
+  .conv-menu-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  .conv-meta-row:popover-open {
+    display: flex;
+    flex-direction: column;
+    inset: var(--menu-top, 4rem) 0.75rem auto auto;
+    min-width: 14rem;
+    margin: 0;
+    padding: 0.5rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.75rem;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    font-size: 1rem;
+  }
+
+  .conv-meta-info {
+    padding: 0.25rem 0.75rem 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .conv-meta-row:popover-open .conv-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    color: #212529;
+    text-align: left;
+  }
+
+  .conv-meta-row:popover-open .conv-action-btn:hover {
+    background: #f1f3f5;
+  }
+
+  .conv-meta-row:popover-open .favorite-btn::after {
+    content: attr(aria-label);
+  }
+
+  body:has(#chatFlagBtn.flagged) #convMenuFlagBtn {
+    color: #c9191e;
+  }
+}
+
 .conv-title-edit {
   display: flex;
   align-items: center;
@@ -1706,6 +1855,12 @@ body.has-sidebar {
 
 .search-filter-bar .rechercher-type-btn {
   width: auto;
+}
+
+@media (max-width: 767.98px) {
+  .search-filter-bar .rechercher-type-list {
+    flex-wrap: wrap;
+  }
 }
 
 .search-filter-bar .filter-reset {
@@ -3583,6 +3738,21 @@ body.has-sidebar {
 
 .accueil-button small {
   font-size: 0.75rem;
+}
+
+/* Why: without the sidebar, starting a conversation hid behind the menu button. */
+.accueil-button-new {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  padding: 1rem;
+  border-color: var(--bs-primary);
+  background: var(--bs-primary);
+  color: white;
+}
+
+.accueil-button-new:hover,
+.accueil-button-new i {
+  color: white;
 }
 
 .accueil-favorites {

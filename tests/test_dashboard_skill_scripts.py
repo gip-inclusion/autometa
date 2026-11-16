@@ -1,7 +1,8 @@
-"""Les scripts des skills create_dashboard et update_dashboard : options des déclinaisons."""
+"""Les scripts des skills de tableaux de bord : options des déclinaisons, liste des publications."""
 
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -108,8 +109,6 @@ def test_dod_12_a_duplicate_key_is_refused_before_any_declaration(runtime, monke
 
 def test_dod_9_create_dashboard_multi_source_flag(runtime, monkeypatch, mocker, capsys):
     cli = _load("create_dashboard")
-    from datetime import datetime, timezone
-
     dashboard = mocker.Mock(
         slug="multi",
         first_author_email="bob@x",
@@ -246,3 +245,74 @@ def test_dod_4_publish_dashboard_refresh_reports_the_sync(monkeypatch, mocker, c
     refresh.assert_called_once_with("live01")
     out, err = capsys.readouterr()
     assert (json.loads(out) == {"refreshed": "live01"}) if code == 0 else ("live01" in err)
+
+
+def test_list_serializes_every_date_of_a_refreshed_publication(monkeypatch, mocker, capsys):
+    cli = _load("publish_dashboard")
+    refreshed = datetime(2026, 10, 12, 6, 0, tzinfo=timezone.utc)
+    mocker.patch.object(
+        cli.publications,
+        "list_publications",
+        return_value=[
+            {"id": 1, "published_at": refreshed, "last_successful_refresh_at": refreshed, "unpublished_at": None}
+        ],
+    )
+    monkeypatch.setattr("sys.argv", ["x", "list", "--slug", "tdb"])
+
+    assert cli.main() == 0
+    [row] = json.loads(capsys.readouterr().out)
+    assert row["last_successful_refresh_at"] == "2026-10-12T06:00:00+00:00"
+
+
+def test_show_reads_the_dashboard_state_without_runtime_context_or_update(monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    monkeypatch.delenv("AUTOMETA_CONVERSATION_ID", raising=False)
+    update = mocker.patch.object(cli, "update_dashboard")
+    mocker.patch.object(cli, "store").get_dashboard.return_value = {
+        "slug": "tdb",
+        "first_author_email": "a@x",
+        "cron_enabled": True,
+    }
+    runs = mocker.patch.object(
+        cli, "get_app_runs", return_value=[{"status": "failure", "duration_ms": 12, "output": "x" * 1500 + "Boom"}]
+    )
+    mocker.patch.object(cli, "list_publications", return_value=[{"publication_id": "pub01"}])
+    mocker.patch.object(cli, "list_variants", return_value=[])
+
+    _run(cli, ["--slug", "tdb", "--show"], monkeypatch)
+
+    shown = json.loads(capsys.readouterr().out)
+    assert (shown["first_author_email"], shown["cron_enabled"]) == ("a@x", True)
+    assert [len(run["output"]) for run in shown["cron_runs"]] == [1000]
+    assert shown["cron_runs"][0]["output"].endswith("Boom")
+    assert shown["publications"] == [{"publication_id": "pub01"}]
+    runs.assert_called_once_with("tdb", 5)
+    update.assert_not_called()
+
+
+def test_show_of_an_unknown_dashboard_exits_1(monkeypatch, mocker, capsys):
+    cli = _load("update_dashboard")
+    mocker.patch.object(cli, "store").get_dashboard.return_value = None
+
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "nope", "--show"], monkeypatch)
+
+    assert exc.value.code == 1
+    assert "nope" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "change",
+    [["--archive"], ["--has-cron", "false"], ["--obfuscate-variants", "false"], ["--set-tags", ""]],
+    ids=["archive", "cron off", "plain tokens", "no tags"],
+)
+def test_show_refuses_to_be_combined_with_a_change(monkeypatch, mocker, capsys, change):
+    cli = _load("update_dashboard")
+    update = mocker.patch.object(cli, "update_dashboard")
+    mocker.patch.object(cli, "store")
+
+    with pytest.raises(SystemExit) as exc:
+        _run(cli, ["--slug", "tdb", "--show", *change], monkeypatch)
+
+    assert exc.value.code == 2
+    update.assert_not_called()

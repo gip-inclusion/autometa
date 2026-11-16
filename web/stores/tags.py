@@ -287,10 +287,12 @@ class TagsMixin:
         include_archived: bool = False,
         limit: int = 100,
         query: str = "",
+        search_content: bool = False,
     ) -> list[tuple[Report, list[Tag]]]:
+        searched = (ReportModel.title, ReportModel.content) if search_content else (ReportModel.title,)
         with get_db() as session:
             stmt = select(ReportModel).where(
-                *(ReportModel.title.ilike(like, escape="\\") for like in like_patterns(query))
+                *(or_(*(column.ilike(like, escape="\\") for column in searched)) for like in like_patterns(query))
             )
 
             if not include_archived:

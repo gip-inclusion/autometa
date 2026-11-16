@@ -1,6 +1,6 @@
 ---
 name: github
-description: Lire, chercher et retracer l'historique du code des dépôts publics GitHub de gip-inclusion, betagouv, numerique-gouv et suitenumerique — fichiers, recherche dans tout un dépôt, historique, blame, pull requests. Lecture seule. À utiliser dès qu'une question porte sur le code d'un produit de la plateforme de l'inclusion (comment est calculé un indicateur, d'où vient un événement Matomo, quand un comportement a changé) ; les autres dépôts, seulement quand l'utilisateur les nomme.
+description: Lire, chercher et retracer l'historique du code des dépôts publics GitHub de gip-inclusion, betagouv, numerique-gouv et suitenumerique — fichiers, recherche dans tout un dépôt, historique, blame, pull requests. Lecture seule. À utiliser dès qu'une question porte sur le code d'un produit de la PDI (comment est calculé un indicateur, d'où vient un événement Matomo, quand un comportement a changé) ; les autres dépôts, seulement quand l'utilisateur les nomme.
 ---
 
 # GitHub — lire le code des produits
@@ -9,7 +9,7 @@ Dépôts **publics** des organisations `gip-inclusion`, `betagouv`, `numerique-g
 
 ## Quand l'utiliser
 
-- **Produits de la plateforme de l'inclusion** (tableau « Dépôts GitHub » des instructions de l'agent) : de sa propre initiative, dès qu'une question porte sur leur code. Le cas typique : vérifier quelque chose dans la Plateforme de l'inclusion (`gip-inclusion/les-emplois`) ou RDV-Insertion (`gip-inclusion/rdv-insertion`).
+- **Produits de la PDI** (tableau « Dépôts GitHub » des instructions de l'agent) : de sa propre initiative, dès qu'une question porte sur leur code. Le cas typique : vérifier quelque chose dans La plateforme de l'inclusion (ex-Emplois, `gip-inclusion/les-emplois`) ou RDV-Insertion (`gip-inclusion/rdv-insertion`).
 - **Produits voisins**, quand l'utilisateur les nomme clairement :
 
 | Produit | Dépôt |
@@ -35,16 +35,16 @@ Dépôts **publics** des organisations `gip-inclusion`, `betagouv`, `numerique-g
 Pour chercher, toujours `grep` ou `clone` : jamais de lecture fichier par fichier, ni d'API de recherche.
 
 ```bash
-.venv/bin/python skills/github/scripts/query.py repo gip-inclusion/les-emplois
-.venv/bin/python skills/github/scripts/query.py read gip-inclusion/les-emplois itou/users/models.py [--ref staging]
-.venv/bin/python skills/github/scripts/query.py grep gip-inclusion/les-emplois "def get_eligibility" [--glob "*.py"] [-i] [--max 200] [--ref …]
-.venv/bin/python skills/github/scripts/query.py clone gip-inclusion/les-emplois [--ref …]  # rend le chemin du clone et son commit
-.venv/bin/python skills/github/scripts/query.py log gip-inclusion/les-emplois [itou/users/models.py] [--since 2026-01-01] [--max 30, 100 au plus] [--ref …]
-.venv/bin/python skills/github/scripts/query.py blame gip-inclusion/les-emplois itou/users/models.py [-L 70,120] [--max-lines 400] [--ref …]
-.venv/bin/python skills/github/scripts/query.py show gip-inclusion/les-emplois <sha> [chemin] [--max-lines 400]  # message et diff, éventuellement limités à un chemin
-.venv/bin/python skills/github/scripts/query.py prs gip-inclusion/les-emplois [--state open|closed|all] [--commit <sha>] [--max 30, 100 au plus]
-.venv/bin/python skills/github/scripts/query.py pr gip-inclusion/les-emplois 9103  # description et fichiers modifiés
-.venv/bin/python skills/github/scripts/query.py cleanup  # en fin de travail
+python skills/github/scripts/query.py repo gip-inclusion/les-emplois
+python skills/github/scripts/query.py read gip-inclusion/les-emplois itou/users/models.py [--ref staging]
+python skills/github/scripts/query.py grep gip-inclusion/les-emplois "def get_eligibility" [--glob "*.py"] [-i] [--max 200] [--ref …]
+python skills/github/scripts/query.py clone gip-inclusion/les-emplois [--ref …]  # rend le chemin du clone et son commit
+python skills/github/scripts/query.py log gip-inclusion/les-emplois [itou/users/models.py] [--since 2026-01-01] [--max 30, 100 au plus] [--ref …]
+python skills/github/scripts/query.py blame gip-inclusion/les-emplois itou/users/models.py [-L 70,120] [--max-lines 400] [--ref …]
+python skills/github/scripts/query.py show gip-inclusion/les-emplois <sha> [chemin] [--max-lines 400]  # message et diff, éventuellement limités à un chemin
+python skills/github/scripts/query.py prs gip-inclusion/les-emplois [--state open|closed|all] [--commit <sha>] [--max 30, 100 au plus]
+python skills/github/scripts/query.py pr gip-inclusion/les-emplois 9103  # description et fichiers modifiés
+python skills/github/scripts/query.py cleanup  # en fin de travail
 ```
 
 `--ref` accepte une branche, une étiquette ou un SHA complet, tel que `log` et `blame` l'affichent ; sans lui, la branche par défaut. `log`, `blame` et `show` passent par l'API : l'historique d'un fichier s'arrête à son dernier renommage.
