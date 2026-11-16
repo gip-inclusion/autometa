@@ -36,19 +36,23 @@ def toggle_tag(pipeline_id: str, name: str) -> bool:
     """Coche un terme actif ou décoche un terme posé ; False pour un terme ni actif ni posé."""
     with get_db() as session:
         facet_of = dict(session.execute(select(Tag.name, Tag.type).where(Tag.active)).all())
-        current = list(
-            session.scalars(
-                select(Tag.name).join(JobTag, JobTag.tag_id == Tag.id).where(JobTag.pipeline_id == pipeline_id)
-            )
+        current = dict(
+            session.execute(
+                select(Tag.name, Tag.id).join(JobTag, JobTag.tag_id == Tag.id).where(JobTag.pipeline_id == pipeline_id)
+            ).all()
         )
         # Why: un terme désactivé par la synchro Notion reste posé ; il doit pouvoir être retiré.
         if name not in facet_of and name not in current:
             return False
-        target = apply_toggle(current, name, facet_of)
-        session.execute(delete(JobTag).where(JobTag.pipeline_id == pipeline_id))
+        target = set(apply_toggle(list(current), name, facet_of))
+        session.execute(
+            delete(JobTag).where(
+                JobTag.pipeline_id == pipeline_id, JobTag.tag_id.in_([current[n] for n in current.keys() - target])
+            )
+        )
         session.add_all(
             JobTag(pipeline_id=pipeline_id, tag_id=tag_id)
-            for tag_id in session.scalars(select(Tag.id).where(Tag.name.in_(target)))
+            for tag_id in session.scalars(select(Tag.id).where(Tag.name.in_(target - current.keys())))
         )
     return True
 
@@ -61,12 +65,11 @@ def propose_term(pipeline_id: str, label: str) -> str | None:
     with get_db() as session:
         tag = session.scalar(select(Tag).where(Tag.name == name))
         if tag is None:
-            tag = Tag(name=name, type="nature", label=label, active=True, pending=True)
-            session.add(tag)
-            session.flush()
+            session.add(Tag(name=name, type="nature", label=label, active=True, pending=True))
         elif not tag.active:
             return f"Terme désactivé : {name}"
-        session.merge(JobTag(pipeline_id=pipeline_id, tag_id=tag.id))
+    if name not in {t.name for t in tags_by_pipeline([pipeline_id])[pipeline_id]}:
+        toggle_tag(pipeline_id, name)
     return None
 
 

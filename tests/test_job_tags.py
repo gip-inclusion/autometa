@@ -126,6 +126,34 @@ def test_dod_2_toggle_removes_carried_tag(client, mocker, active):
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("_db")
+def test_toggling_a_single_choice_facet_replaces_only_its_term(client, mocker):
+    serve(mocker)
+    add_tag("agent")
+    add_tag("pilotage", facet="usage")
+    add_tag("suivi", facet="usage")
+    tag_pipeline(ALPHA, "agent", "suivi")
+
+    client.post(f"/api/jobs/pipelines/{ALPHA}/tags", data={"tag": "pilotage"})
+
+    assert tags_of(ALPHA) == {"agent", "pilotage"}
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+@pytest.mark.parametrize(("label", "expected"), [("Pilotage", {"agent", "pilotage"}), ("Agent", {"agent", "suivi"})])
+def test_proposing_an_existing_term_poses_it_by_the_toggle_rule(client, mocker, label, expected):
+    serve(mocker)
+    add_tag("agent")
+    add_tag("pilotage", facet="usage")
+    add_tag("suivi", facet="usage")
+    tag_pipeline(ALPHA, "agent", "suivi")
+
+    assert client.post(f"/api/jobs/pipelines/{ALPHA}/tags/new", data={"label": label}).status_code == 200
+    assert tags_of(ALPHA) == expected
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
 def test_dod_3_new_term_is_created_pending_in_nature_and_set(client, mocker):
     serve(mocker)
 
