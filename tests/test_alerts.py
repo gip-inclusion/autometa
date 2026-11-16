@@ -23,7 +23,7 @@ def test_notify_alert_channel_posts_to_configured_channel_naming_the_app(mocker,
 
 
 @pytest.mark.parametrize("token,channel", [("", "C0TEST"), ("tok", "")])
-def test_notify_alert_channel_silent_without_config(mocker, monkeypatch, token, channel):
+def test_notify_alert_channel_silent_without_config(mocker, monkeypatch, slack_configured, token, channel):
     monkeypatch.setattr(config, "SLACK_BOT_TOKEN", token)
     monkeypatch.setattr(config, "SLACK_ALERT_CHANNEL", channel)
     post = mocker.patch("web.alerts.post_message", return_value=True)
