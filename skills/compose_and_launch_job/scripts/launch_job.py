@@ -1,4 +1,4 @@
-"""CLI: create a one-shot pipeline from a composed system prompt and trigger a run."""
+"""CLI: create a one-shot pipeline from a composed system prompt and trigger a run, or relaunch one."""
 
 import argparse
 import json
@@ -7,13 +7,14 @@ from pathlib import Path
 
 import httpx
 
-from lib import jobs
+from lib import job_mentions, jobs
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Launch an autometa-jobs run from a composed system prompt.")
-    parser.add_argument("--name", required=True, help="globally-unique pipeline name (e.g. dora-services-2026-06)")
-    parser.add_argument("--system-prompt-file", required=True, help="path to the composed, self-contained prompt")
+    parser.add_argument("--name", help="globally-unique pipeline name (e.g. dora-services-2026-06)")
+    parser.add_argument("--system-prompt-file", help="path to the composed, self-contained prompt")
+    parser.add_argument("--relaunch", metavar="PIPELINE_ID", help="trigger a new run of an existing pipeline instead")
     parser.add_argument("--max-turns", type=int, help="max agent turns (job autonomy budget)")
     parser.add_argument("--allowed-tools", help="comma-separated tools (e.g. Bash,Read,WebFetch)")
     parser.add_argument(
@@ -23,8 +24,16 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--input-uri", help="optional s3:// input for reusable pipelines")
     args = parser.parse_args(argv)
+    if args.relaunch and (args.name or args.system_prompt_file):
+        parser.error("--relaunch excludes --name and --system-prompt-file")
+    if not (args.relaunch or (args.name and args.system_prompt_file)):
+        parser.error("--relaunch PIPELINE_ID, or both --name and --system-prompt-file")
+    if args.relaunch and (slug := job_mentions.agent_slug(args.relaunch)):
+        # Why: a bare relaunch skips the agent's preparations and its run is never collected nor delivered.
+        parser.error(
+            f"pipeline of agent {slug}: use `python -m skills.agents.scripts.agents propose-launch --agent {slug}`"
+        )
 
-    system_prompt = Path(args.system_prompt_file).read_text()
     overrides: dict = {}
     if args.max_turns:
         overrides["max_turns"] = args.max_turns
@@ -33,7 +42,11 @@ def main(argv=None) -> int:
     if args.output_format:
         overrides["output_format"] = args.output_format
     try:
-        out = jobs.create_and_run(args.name, system_prompt, overrides or None, input_uri=args.input_uri)
+        if args.relaunch:
+            out = jobs.launch(args.relaunch, input_uri=args.input_uri)
+        else:
+            system_prompt = Path(args.system_prompt_file).read_text()
+            out = jobs.create_and_run(args.name, system_prompt, overrides or None, input_uri=args.input_uri)
     except httpx.HTTPError as exc:
         print(f"orchestrator error: {exc}", file=sys.stderr)
         return 1

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from lib import job_tags, jobs
+from lib import job_mentions, job_tags, jobs
 from web.deps import get_current_user, templates
 from web.helpers import format_relative_date, sanitize_for_log
 from web.routes.html import get_sidebar_data
@@ -40,6 +40,17 @@ async def create_pipeline(request: Request):
         return JSONResponse({"error": "name et system_prompt requis"}, status_code=400)
     try:
         return jobs.create_pipeline(name, system_prompt, body.get("config"))
+    except httpx.HTTPError as exc:
+        return _unavailable(exc)
+
+
+@router.get("/api/jobs/pipelines/names")
+def pipeline_names(user_email: str = Depends(get_current_user)):
+    """Pipeline names for the chat's `@` autocompletion."""
+    try:
+        return {
+            "names": sorted(p["name"] for p in jobs.list_pipelines() if job_mentions.MENTION.fullmatch(f"@{p['name']}"))
+        }
     except httpx.HTTPError as exc:
         return _unavailable(exc)
 

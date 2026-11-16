@@ -224,3 +224,24 @@ def test_run_detail_back_link_falls_back_when_orchestrator_down(client, mocker):
 @pytest.mark.parametrize("bad", BAD_IDS)
 def test_run_detail_rejects_bad_id(client, bad):
     assert client.get(f"/jobs/runs/{bad}").status_code == 422
+
+
+def test_dod_5_pipeline_names_for_mentions(client, mocker):
+    mocker.patch(
+        "web.routes.jobs.jobs.list_pipelines",
+        return_value=[
+            {"id": "p2", "name": "veille-dora"},
+            {"id": "p1", "name": "boamp"},
+            {"id": "p3", "name": "veille dora"},
+            {"id": "p4", "name": "dora/services"},
+            {"id": "p5", "name": "dora."},
+        ],
+    )
+    r = client.get("/api/jobs/pipelines/names")
+    assert r.status_code == 200
+    assert r.json() == {"names": ["boamp", "veille-dora"]}
+
+
+def test_dod_5_pipeline_names_service_down(client, mocker):
+    mocker.patch("web.routes.jobs.jobs.list_pipelines", side_effect=httpx.ConnectError("down"))
+    assert client.get("/api/jobs/pipelines/names").status_code == 502
