@@ -229,7 +229,13 @@ def test_run_detail_rejects_bad_id(client, bad):
 def test_dod_5_pipeline_names_for_mentions(client, mocker):
     mocker.patch(
         "web.routes.jobs.jobs.list_pipelines",
-        return_value=[{"id": "p2", "name": "veille-dora"}, {"id": "p1", "name": "boamp"}],
+        return_value=[
+            {"id": "p2", "name": "veille-dora"},
+            {"id": "p1", "name": "boamp"},
+            {"id": "p3", "name": "veille dora"},
+            {"id": "p4", "name": "dora/services"},
+            {"id": "p5", "name": "dora."},
+        ],
     )
     r = client.get("/api/jobs/pipelines/names")
     assert r.status_code == 200
