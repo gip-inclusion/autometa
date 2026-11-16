@@ -81,6 +81,7 @@ def test_agents_page_lists_each_agent_and_the_review_queue(client, post):
     assert "conversational" in html
     assert "collected" in html
     assert "À relire (1)" in html
+    assert '<span class="badge bg-warning text-dark">1</span>' in html
     assert "Avis &lt;b&gt;du 3 novembre&lt;/b&gt;" in html
     assert "clef:27b : 0.82 (seuil 0.6)" in html
     assert 'data-decision="approve"' in html

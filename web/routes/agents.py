@@ -1,13 +1,14 @@
 """Agents screen: each agent, its runs and deliveries, and the review queue approved from the session."""
 
 import logging
+from collections import Counter
 from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from lib import agent_config, agent_delivery
 from web import config
@@ -60,7 +61,8 @@ def review_queue(user_email: str) -> list[dict]:
         ]
 
 
-def agent_rows() -> list[dict]:
+def agent_rows(queue: list[dict]) -> list[dict]:
+    waiting = Counter(d["agent"] for d in queue)
     with get_db() as session:
         agents = session.scalars(select(Agent).order_by(Agent.status, Agent.slug)).all()
         last_runs = {
@@ -69,15 +71,6 @@ def agent_rows() -> list[dict]:
                 select(AgentRun).distinct(AgentRun.agent_id).order_by(AgentRun.agent_id, AgentRun.launched_at.desc())
             )
         }
-        waiting = dict(
-            session.execute(
-                select(AgentRun.agent_id, func.count(AgentDelivery.id))
-                .join(AgentDelivery, AgentDelivery.run_id == AgentRun.id)
-                .join(Agent, Agent.id == AgentRun.agent_id)
-                .where(AgentDelivery.status == "pending_review", Agent.status == "active")
-                .group_by(AgentRun.agent_id)
-            ).all()
-        )
         return [
             {
                 "slug": a.slug,
@@ -87,7 +80,7 @@ def agent_rows() -> list[dict]:
                 "modes": modes(a),
                 "cadence": agent_config.cadence(a.config.get("schedule")),
                 "last_run": last_runs.get(a.id),
-                "waiting": waiting.get(a.id, 0),
+                "waiting": waiting[a.slug],
             }
             for a in agents
         ]
@@ -95,13 +88,14 @@ def agent_rows() -> list[dict]:
 
 @router.get("/agents")
 def agents_page(request: Request, user_email: str = Depends(get_current_user)):
+    queue = review_queue(user_email)
     return templates.TemplateResponse(
         request,
         "agents.html",
         {
             "section": "agents",
-            "agents": agent_rows(),
-            "queue": review_queue(user_email),
+            "agents": agent_rows(queue),
+            "queue": queue,
             **get_sidebar_data(user_email, request),
         },
     )
