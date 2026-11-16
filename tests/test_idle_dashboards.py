@@ -2,12 +2,14 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from lib.query import QueryResult
 from web import idle_dashboards
 from web.db import get_db
+from web.environment import Environment
 from web.models import Dashboard, DashboardPublication
 
 NOW = datetime(2026, 11, 16, tzinfo=timezone.utc)
@@ -134,3 +136,87 @@ def test_datadog_tells_whether_the_page_was_opened_in_its_30_days(mocker, result
         'service:matometa "/interactive/tdb/"',
         30,
     )
+
+
+def dashboard(slug, *, title="Titre", has_cron=False, published=False):
+    return SimpleNamespace(
+        slug=slug,
+        title=title,
+        first_author_email="alice@x",
+        has_cron=has_cron,
+        published_at=NOW - timedelta(days=60) if published else None,
+    )
+
+
+def sweep(
+    mocker, monkeypatch, *, dashboards=(), internal=frozenset(), public=frozenset(), hits=None, env=Environment.PROD
+):
+    monkeypatch.setattr("web.idle_dashboards.config.ENV", env)
+    monkeypatch.setattr("web.idle_dashboards.config.BASE_URL", "https://autometa.test")
+    candidates = mocker.patch("web.idle_dashboards.candidates", return_value=list(dashboards))
+    mocker.patch("web.idle_dashboards.visited", side_effect=[internal, public])
+    datadog = mocker.patch("web.idle_dashboards.opened", side_effect=lambda slug: (hits or {}).get(slug, False))
+    slack = mocker.patch("web.idle_dashboards.alerts.notify_alert_channel", return_value="1700000000.000100")
+    idle_dashboards.run()
+    return candidates, datadog, slack
+
+
+def test_only_dashboards_nobody_opened_anywhere_are_listed(mocker, monkeypatch):
+    _, datadog, slack = sweep(
+        mocker,
+        monkeypatch,
+        dashboards=[dashboard(s) for s in ("a", "in-app", "in-public", "in-datadog", "e")],
+        internal={"in-app"},
+        public={"in-public"},
+        hits={"in-datadog": True},
+    )
+
+    assert [c.args[0] for c in datadog.call_args_list] == ["a", "in-datadog", "e"]
+    assert slack.call_args_list[0].args == (":zzz: 2 tableaux de bord sans visite depuis 45 jours — à archiver ?",)
+    assert slack.call_args_list[1].args == (
+        "<https://autometa.test/dashboards/a/edit|a> — Titre — alice@x\n"
+        "<https://autometa.test/dashboards/e/edit|e> — Titre — alice@x",
+    )
+
+
+def test_a_line_flags_cron_and_publication_and_escapes_the_title(mocker, monkeypatch):
+    _, _, slack = sweep(
+        mocker, monkeypatch, dashboards=[dashboard("tdb", title="R&D <b>", has_cron=True, published=True)]
+    )
+
+    assert slack.call_args_list[1].args == (
+        "<https://autometa.test/dashboards/tdb/edit|tdb> — R&amp;D &lt;b&gt; — alice@x — cron — publié, à dépublier aussi",
+    )
+
+
+def test_a_dashboard_datadog_could_not_check_is_left_out_and_counted(mocker, monkeypatch):
+    _, _, slack = sweep(mocker, monkeypatch, dashboards=[dashboard("tdb")], hits={"tdb": None})
+
+    assert slack.call_args_list == [
+        mocker.call(
+            ":zzz: 0 tableau de bord sans visite depuis 45 jours — à archiver ?"
+            " (1 non vérifié : Datadog n'a pas répondu)"
+        )
+    ]
+
+
+@pytest.mark.parametrize(("internal", "public"), [(None, set()), (set(), None)], ids=["app", "publications"])
+def test_without_matomo_a_warning_replaces_the_list(mocker, monkeypatch, internal, public):
+    candidates, datadog, slack = sweep(
+        mocker, monkeypatch, dashboards=[dashboard("tdb")], internal=internal, public=public
+    )
+
+    candidates.assert_not_called()
+    datadog.assert_not_called()
+    assert slack.call_args_list == [
+        mocker.call(":warning: Tableaux de bord sans visite : Matomo n'a pas répondu, pas de liste cette semaine")
+    ]
+
+
+@pytest.mark.parametrize("env", [Environment.DEV, Environment.REVIEW, Environment.STAGING])
+def test_nothing_is_queried_or_posted_outside_production(mocker, monkeypatch, env):
+    candidates, datadog, slack = sweep(mocker, monkeypatch, dashboards=[dashboard("tdb")], env=env)
+
+    candidates.assert_not_called()
+    datadog.assert_not_called()
+    slack.assert_not_called()
