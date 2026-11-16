@@ -150,9 +150,12 @@ def expand_implications(names: list[str], implications: dict[str, set[str]]) -> 
 
 def build_prompt_taxonomy(vocabulary: dict[str, list[Term]]) -> str:
     """Bloc de taxonomie injecté dans le prompt du tagueur."""
+    # Why: les tagueurs servent conversations, tableaux de bord et rapports ; une facette réservée aux jobs n'y a
+    # aucun filtre pour afficher le tag posé.
+    tagged = {name for kind, names in FACET_PRIORITY.items() if kind != "job" for name in names}
     blocks = []
     for facet in FACETS:
-        terms = vocabulary.get(facet.name)
+        terms = vocabulary.get(facet.name) if facet.name in tagged else None
         if not terms:
             continue
         if facet.max_terms == 1:
