@@ -120,6 +120,19 @@ def test_fork_database_leaves_session_id_none_when_copy_fails(app, conversation_
     assert forked.session_id is None
 
 
+def test_fork_database_keeps_the_attachments_its_messages_cite(app, conversation_with_messages):
+    from web.database import store
+
+    source = conversation_with_messages.id
+    store.add_uploaded_file(
+        source, "owner@example.com", "a.pdf", f"{source}/a.pdf", f"/data/uploads/{source}/a.pdf", 3, "h"
+    )
+
+    forked = store.fork_conversation(source, "forker@example.com")
+
+    assert [f.storage_path for f in store.get_conversation_files(forked.id)] == [f"/data/uploads/{source}/a.pdf"]
+
+
 def test_fork_database_nonexistent_returns_none(app):
     """Forking a non-existent conversation returns None."""
     from web.database import store

@@ -11,7 +11,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 
 - **Sans produit mentionné** → définition **générale** (couche 1, agnostique du produit).
 - **Produit dans le contexte** → définition **opérationnelle du produit** (couche 2) ; à défaut, la générale.
-- Produits mappés en couche 2 : **RDV-Insertion, Dora, Mon Récap, Les Emplois, Le Marché**.
+- Produits mappés en couche 2 : **RDV-Insertion, Dora, Mon Récap, La plateforme de l'inclusion (ex-Emplois), Le Marché**.
 
 ## Principes
 
@@ -23,7 +23,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
   - Déploiement / Activation = embarquement
   - Adoption = rétention
 - **3 cas de figure** selon l'outil : org + agents convaincus ; agent seul convaincu sans validation de son org ; org décide seule et l'agent embarque par la force des choses.
-- **3 archétypes produit** (expliquent les cases vides du mapping) : SaaS institutionnel (RDV-I, Dora — funnel 2 niveaux complet), transactionnel/physique (Mon Récap — surtout Acquisition→Impact), marketplace (Les Emplois, Le Marché).
+- **3 archétypes produit** (expliquent les cases vides du mapping) : SaaS institutionnel (RDV-I, Dora — funnel 2 niveaux complet), transactionnel/physique (Mon Récap — surtout Acquisition→Impact), marketplace (La plateforme, Le Marché).
 
 ## Les 5 étapes du funnel AARRI
 
@@ -46,7 +46,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | Convention / contrat de sous-traitance des données CD signée |
 | Dora | Référencement d'un GT |
 | Mon Récap | Structure commande un carnet |
-| Les Emplois | Conventionnement SIAE |
+| La plateforme | Conventionnement SIAE |
 | Le Marché | Inscription structure |
 
 ### Activation
@@ -61,7 +61,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | 1er RDV honoré |
 | Dora | 1ère iMER |
 | Mon Récap | Carnet distribué |
-| Les Emplois | 1ère offre publiée |
+| La plateforme | 1ère offre publiée |
 | Le Marché | 1ère offre diffusée |
 
 ### Rétention
@@ -75,7 +75,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | Agent >=1 RDV/mois ; CD >=1 participation/mois |
 | Dora | Utilisateur >=1 iMER/mois |
 | Mon Récap | à définir |
-| Les Emplois | à définir |
+| La plateforme | à définir |
 | Le Marché | à définir |
 
 ### Référence
@@ -89,7 +89,7 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | CD ambassadeur (non mesuré) |
 | Dora | GT ambassadeur (non mesuré) |
 | Mon Récap | Bouche à oreille |
-| Les Emplois | Non mesuré |
+| La plateforme | Non mesuré |
 | Le Marché | Non mesuré |
 
 ### Impact
@@ -101,12 +101,12 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | RDV orientation/accompagnement, entretien SIAE |
 | Dora | iMER, orientation |
 | Mon Récap | Distribution + remplissage carnet |
-| Les Emplois | Candidature, recherche offre |
+| La plateforme | Candidature, recherche offre |
 | Le Marché | Diffusion offre, MAJ fiche |
 
 ## Concepts transverses
 
-- **Acte métier** — Action à valeur métier au bénéfice direct ou indirect d'un bénéficiaire. **Unité de compte centrale, North Star = l'Impact du funnel.** 2 catégories : accompagnement (action directe) et support (prépare/facilite). Source de vérité de la liste : `knowledge/stats/actes-metier.md`. Règle North Star : **70 jours** de délai de consolidation.
+- **Acte métier** — Action à valeur métier au bénéfice direct ou indirect d'un bénéficiaire. **Unité de compte centrale, North Star = l'Impact du funnel.** 2 catégories : accompagnement (action directe) et support (prépare/facilite). Source de vérité de la liste : `knowledge/stats/actes-metier.md`. North Star : actes de rang 1 ayant reçu un retour humain (pour une candidature, une réponse dans les **30 jours**), sur des mois consolidés.
 - **Utilisateur actif** — A réalisé **>=1 acte métier** sur la période de référence (mois calendaire). La définition « >=1 connexion » est explicitement déclassée (proxy web inflationniste).
 - **Funnel** — La séquence AARRI elle-même. Un funnel = instanciation produit du AARRI à un niveau (institutionnel ou individuel). Les funnels détaillés par produit vivent en couche 2.
 - **Taux de conversion / transformation** — Passage d'une étape AARRI à la suivante. Convention : « **conversion** » pour les funnels web (clic, commande), « **transformation** » pour les funnels B2B institutionnels (CD vers acquisition). Toujours documenter numérateur et dénominateur.
@@ -133,5 +133,17 @@ Objectif : une définition par concept, partagée par toutes les équipes, pour 
 | RDV-Insertion | 101 CDs |
 | Dora | CDs/territoires potentiels (à fixer) |
 | Mon Récap | Total SIAE/structures IAE |
-| Les Emplois | à fixer |
+| La plateforme | à fixer |
 | Le Marché | à fixer |
+
+## Le Marché — proposition de définitions opérationnelles
+
+Proposition du 2026-11-09, à valider : tant qu'elle n'a pas remplacé les lignes « Le Marché » des tableaux par étape, ce sont ces lignes qui s'appliquent.
+
+| Étape | Proposition |
+|---|---|
+| Activation acheteur | 1er besoin diffusé (hors API) |
+| Activation structure | 1re réponse « intéressé » |
+| Rétention acheteur | 2e besoin diffusé dans les 12 mois, ou 2 mois distincts avec un besoin |
+| Rétention structure | Au moins une réponse (intéressé ou pas intéressé) sur 3 mois glissants |
+| Impact | Besoins avec au moins une structure intéressée ; transactions déclarées (déclaratif, peu rempli) |

@@ -105,7 +105,7 @@ heatmaps = api.request('HeatmapSessionRecording.getHeatmaps', idSite=117)
 - `match_page_rules`: List of targeting rules
 - `status`: "active" or "ended"
 
-**Current heatmaps on Emplois (117):**
+**Current heatmaps on La plateforme (ex-Emplois, 117):**
 - ID 66: "Pages candidatures" (apply/prescriptions/list, prescriber/details)
 - ID 65: "Pages candidats"
 - ID 64: "GPS"
@@ -197,11 +197,11 @@ all mouse movements, clicks, scrolls, and DOM mutations for replay.
 
 | Site | ID | Heatmaps | Session Recordings |
 |------|-----|----------|-------------------|
-| Emplois | 117 | 3 | 0 |
+| La plateforme | 117 | 3 | 0 |
 | Dora | 211 | 3 | 0 |
 | RDV-Insertion | 214 | 4 | 2 |
 | Mon Recap | 217 | 1 | 0 |
-| Emplois (Recette) | 220 | 1 | 1 |
+| La plateforme (recette) | 220 | 1 | 1 |
 
 ## Use Cases
 

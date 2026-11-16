@@ -31,7 +31,7 @@ api.get_cohorts(site_id=117, period='month', date='2025-10-01', limit=20)
 - `Cohorts_returning_visitors_percent`: retention rate (e.g., "9.2%")
 - `goal_N_nb_conversions`: goal conversions for this cohort
 
-**Example retention (October 2025 cohort on les Emplois):**
+**Example retention (October 2025 cohort on La plateforme):**
 - Month 0: 149,085 unique visitors (100%)
 - Month 1: 13,715 returning (9.2%)
 - Month 2: 6,402 returning (4.3%)

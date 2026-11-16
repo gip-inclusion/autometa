@@ -62,7 +62,7 @@ def test_matomo_error_on_api_error(mocker):
     mock_resp.text = json.dumps({"result": "error", "message": "Segment not valid"})
     mock_resp.json.return_value = {"result": "error", "message": "Segment not valid"}
     mock_resp.raise_for_status = mocker.MagicMock()
-    api._session.get = mocker.MagicMock(return_value=mock_resp)
+    api._session.post = mocker.MagicMock(return_value=mock_resp)
 
     with pytest.raises(MatomoError, match="Segment not valid"):
         api._request("VisitsSummary.get", {"idSite": 1}, timeout=10)
@@ -137,7 +137,7 @@ def test_matomo_html_timeout_raises_matomo_error(mocker):
     mock_resp.headers = {"Content-Type": "text/html"}
     mock_resp.text = "<!DOCTYPE html><html><body>Gateway Timeout</body></html>"
     mock_resp.raise_for_status = mocker.MagicMock()
-    api._session.get = mocker.MagicMock(return_value=mock_resp)
+    api._session.post = mocker.MagicMock(return_value=mock_resp)
 
     with pytest.raises(MatomoError, match="HTML instead of JSON"):
         api._request("VisitsSummary.get", {"idSite": 1}, timeout=10)

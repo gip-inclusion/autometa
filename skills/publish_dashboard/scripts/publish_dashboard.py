@@ -3,14 +3,13 @@
 import argparse
 import json
 import sys
+from datetime import datetime
 
 from web import config, publications
 
 
 def _serialize(pub: dict) -> dict:
-    if pub.get("published_at") is not None:
-        pub["published_at"] = pub["published_at"].isoformat()
-    return pub
+    return {key: value.isoformat() if isinstance(value, datetime) else value for key, value in pub.items()}
 
 
 def cmd_publish(args: argparse.Namespace) -> int:

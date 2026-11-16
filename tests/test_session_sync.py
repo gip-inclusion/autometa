@@ -1,7 +1,9 @@
 """Tests for web/session_sync.py — S3 session file management."""
 
 import hashlib
+import threading
 
+import pytest
 from botocore.exceptions import BotoCoreError
 
 from web import session_sync
@@ -49,7 +51,11 @@ def test_download_and_upload_roundtrip(monkeypatch, mocker, tmp_path):
         return stored.get(path)
 
     def mock_list_files(prefix=""):
-        return [{"path": k, "size": len(v)} for k, v in stored.items() if k.startswith(prefix)]
+        return [
+            {"path": k, "size": len(v), "etag": hashlib.md5(v).hexdigest()}
+            for k, v in stored.items()
+            if k.startswith(prefix)
+        ]
 
     monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
     mocker.patch.object(session_sync.s3.sessions, "head", return_value=None)
@@ -79,6 +85,33 @@ def test_download_and_upload_roundtrip(monkeypatch, mocker, tmp_path):
     assert session_file.exists()
     assert session_file.read_text() == '{"type":"message","content":"hello"}\n'
     assert (subagent_dir / "agent-abc.jsonl").read_text() == '{"type":"subagent"}\n'
+
+
+@pytest.mark.parametrize(
+    ("etag_in_s3", "uploaded"),
+    [
+        (hashlib.md5(b'{"a":1}\n').hexdigest(), False),
+        (hashlib.md5(b'{"a":0}\n').hexdigest(), True),
+        ("9b2cf535f27731c974343645a3985328-2", True),
+        (None, True),
+    ],
+)
+def test_upload_session_sends_only_subagent_files_s3_does_not_hold(monkeypatch, mocker, tmp_path, etag_in_s3, uploaded):
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    (tmp_path / "sess.jsonl").write_bytes(b"{}\n")
+    subagent = tmp_path / "sess" / "subagents" / "agent-1.jsonl"
+    subagent.parent.mkdir(parents=True)
+    subagent.write_bytes(b'{"a":1}\n')
+    listing = [] if etag_in_s3 is None else [{"path": "sess/subagents/agent-1.jsonl", "etag": etag_in_s3}]
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=listing)
+    upload = mocker.patch.object(session_sync.s3.sessions, "upload", return_value=True)
+
+    assert session_sync.upload_session("sess") is True
+
+    sent = [c.args[0] for c in upload.call_args_list]
+    assert "sess.jsonl" in sent
+    assert ("sess/subagents/agent-1.jsonl" in sent) is uploaded
 
 
 def test_download_nonexistent_session(monkeypatch, mocker, tmp_path):
@@ -224,6 +257,38 @@ def test_download_session_falls_back_to_get_when_local_read_fails(monkeypatch, m
 
     assert session_sync.download_session("sess-racy") is True
     dl.assert_called_once()
+
+
+def test_download_waits_for_an_upload_of_the_same_session_in_flight(monkeypatch, mocker, tmp_path):
+    local = tmp_path / "sess.jsonl"
+    local.write_bytes(b"turn 1\nturn 2\n")
+    stored = {"sess.jsonl": b"turn 1\n"}
+    upload_started, release_upload = threading.Event(), threading.Event()
+
+    def slow_upload(path, content, content_type=None):
+        upload_started.set()
+        release_upload.wait(2)
+        stored[path] = content
+        return True
+
+    monkeypatch.setattr("web.session_sync.config.S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("web.session_sync.get_session_dir", lambda: tmp_path)
+    mocker.patch.object(session_sync.s3.sessions, "upload", side_effect=slow_upload)
+    mocker.patch.object(session_sync.s3.sessions, "head", side_effect=lambda path: _head(stored[path]))
+    mocker.patch.object(session_sync.s3.sessions, "download", side_effect=lambda path: stored[path])
+    mocker.patch.object(session_sync.s3.sessions, "list_files", return_value=[])
+
+    uploader = threading.Thread(target=session_sync.upload_session, args=("sess",))
+    uploader.start()
+    upload_started.wait(2)
+    downloader = threading.Thread(target=session_sync.download_session, args=("sess",))
+    downloader.start()
+    downloader.join(0.2)
+    release_upload.set()
+    uploader.join(2)
+    downloader.join(2)
+
+    assert local.read_bytes() == b"turn 1\nturn 2\n"
 
 
 def test_copy_session_returns_false_without_s3(monkeypatch):

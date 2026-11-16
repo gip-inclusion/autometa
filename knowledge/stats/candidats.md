@@ -8,7 +8,7 @@ verifie_le: 2026-01-07
 
 ### Candidat autonome
 
-**Définition :** Candidat qui **émet lui-même sa candidature** depuis son propre compte sur la plateforme Les Emplois de l'inclusion.
+**Définition :** Candidat qui **émet lui-même sa candidature** depuis son propre compte sur La plateforme de l'inclusion (ex-Emplois).
 
 **Caractéristiques :**
 - Le compte peut avoir été créé par un tiers (prescripteur, employeur)

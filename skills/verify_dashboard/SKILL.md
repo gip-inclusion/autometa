@@ -17,7 +17,7 @@ touche que les métadonnées (titre, tags, archivage) ne se vérifie pas.
 ## Usage
 
 ```bash
-.venv/bin/python skills/verify_dashboard/scripts/verify_dashboard.py mon-tdb --expect-charts 3
+python skills/verify_dashboard/scripts/verify_dashboard.py mon-tdb --expect-charts 3
 ```
 
 | Argument | Description |
