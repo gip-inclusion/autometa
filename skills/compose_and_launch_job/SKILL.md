@@ -40,7 +40,7 @@ L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runne
 6. **Lancer** (uniquement après confirmation) :
 
    ```bash
-   python skills/compose_and_launch_job/scripts/launch_job.py \
+   python -m skills.compose_and_launch_job.scripts.launch_job \
        --name dora-services-2026-06 \
        --system-prompt-file /tmp/$AUTOMETA_CONVERSATION_ID/job_prompt.md \
        --max-turns 40 \
@@ -57,10 +57,10 @@ L'utilisateur demande un travail autonome et long (trop lourd/lent pour le runne
 Quand l'utilisateur mentionne un job (`@nom`), Autometa joint à son message la consigne du job, ses derniers runs et un extrait de sa dernière sortie réussie. Vous pouvez proposer de le relancer, avec la même règle qu'au point 5 : **aucune relance sans un « oui » explicite**. Après ce oui :
 
 ```bash
-.venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py --relaunch <pipeline_id>
+python -m skills.compose_and_launch_job.scripts.launch_job --relaunch <pipeline_id>
 ```
 
-La relance réutilise le pipeline et sa consigne, sans en créer un nouveau. Rendez ensuite le `run_url`.
+La relance réutilise le pipeline et sa consigne, sans en créer un nouveau. Rendez ensuite le `run_url`. Le job d'un agent ne se relance pas ainsi (le script refuse) : passer par le skill `agents`.
 
 ## Limites
 

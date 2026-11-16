@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from lib import jobs
+from lib import job_mentions, jobs
 
 
 def main(argv=None) -> int:
@@ -28,6 +28,11 @@ def main(argv=None) -> int:
         parser.error("--relaunch excludes --name and --system-prompt-file")
     if not (args.relaunch or (args.name and args.system_prompt_file)):
         parser.error("--relaunch PIPELINE_ID, or both --name and --system-prompt-file")
+    if args.relaunch and (slug := job_mentions.agent_slug(args.relaunch)):
+        # Why: a bare relaunch skips the agent's preparations and its run is never collected nor delivered.
+        parser.error(
+            f"pipeline of agent {slug}: use `python -m skills.agents.scripts.agents propose-launch --agent {slug}`"
+        )
 
     overrides: dict = {}
     if args.max_turns:

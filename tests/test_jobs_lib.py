@@ -223,6 +223,7 @@ def test_launch_cli_orchestrator_error_returns_1(mocker, tmp_path, capsys):
 
 
 def test_dod_4_launch_cli_relaunches_existing_pipeline(mocker, capsys):
+    mocker.patch("lib.job_mentions.agent_slug", return_value=None)
     car = mocker.patch("lib.jobs.create_and_run")
     tr = mocker.patch("lib.jobs.trigger_run", return_value={"id": "r2", "status": "queued"})
     mocker.patch("lib.jobs.config.BASE_URL", "https://a.example")
@@ -231,6 +232,15 @@ def test_dod_4_launch_cli_relaunches_existing_pipeline(mocker, capsys):
     car.assert_not_called()
     tr.assert_called_once_with(PIPELINE_ID, input_uri=None)
     assert '"run_url": "https://a.example/jobs/runs/r2"' in capsys.readouterr().out
+
+
+def test_launch_cli_refuses_to_relaunch_an_agent_job(mocker, capsys):
+    mocker.patch("lib.job_mentions.agent_slug", return_value="veille-boamp")
+    trigger = mocker.patch("lib.jobs.trigger_run")
+    with pytest.raises(SystemExit):
+        _load_launch_cli().main(["--relaunch", PIPELINE_ID])
+    trigger.assert_not_called()
+    assert "propose-launch --agent veille-boamp" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("argv", [[], ["--name", "x"], ["--relaunch", PIPELINE_ID, "--name", "x"]])

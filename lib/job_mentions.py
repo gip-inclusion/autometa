@@ -70,7 +70,7 @@ def relaunch(pipeline_id: str) -> str:
         )
     return (
         "Relance, seulement après un « oui » explicite : "
-        f"`.venv/bin/python skills/compose_and_launch_job/scripts/launch_job.py --relaunch {pipeline_id}`"
+        f"`python -m skills.compose_and_launch_job.scripts.launch_job --relaunch {pipeline_id}`"
     )
 
 
