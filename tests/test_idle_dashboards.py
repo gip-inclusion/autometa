@@ -75,10 +75,14 @@ def test_candidates_are_old_dashboards_without_a_recent_live_production_publicat
     }
 
 
-def matomo(mocker, pages=(), error=None):
+def matomo(mocker, *days, error=None):
     return mocker.patch(
         "web.idle_dashboards.execute_matomo_query",
-        return_value=QueryResult(success=error is None, data=list(pages), error=error),
+        return_value=QueryResult(
+            success=error is None,
+            data={f"2026-11-{i + 1:02d}": list(pages) for i, pages in enumerate(days)},
+            error=error,
+        ),
     )
 
 
@@ -99,7 +103,18 @@ def test_a_visited_page_under_the_prefix_counts_for_its_dashboard(mocker, label,
     assert idle_dashboards.visited("/interactive/", NOW) == slugs
 
 
-def test_matomo_is_asked_for_45_days_of_the_site_that_follows_the_app_and_its_publications(mocker):
+def test_every_day_of_the_window_counts(mocker):
+    matomo(
+        mocker,
+        [{"label": "/interactive/a/", "nb_visits": 1}],
+        [],
+        [{"label": "/interactive/b/", "nb_visits": 2}],
+    )
+
+    assert idle_dashboards.visited("/interactive/", NOW) == {"a", "b"}
+
+
+def test_matomo_is_asked_day_by_day_for_45_days_of_the_site_that_follows_the_app_and_its_publications(mocker):
     query = matomo(mocker)
 
     idle_dashboards.visited("/dashboards/", NOW, "pageUrl=^x")
@@ -107,7 +122,7 @@ def test_matomo_is_asked_for_45_days_of_the_site_that_follows_the_app_and_its_pu
     params = query.call_args.kwargs["params"]
     assert (params["idSite"], params["period"], params["date"], params["segment"]) == (
         224,
-        "range",
+        "day",
         "2026-10-02,2026-11-16",
         "pageUrl=^x",
     )

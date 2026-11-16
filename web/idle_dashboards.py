@@ -50,7 +50,9 @@ def visited(prefix: str, now: datetime, segment: str = "") -> set[str] | None:
         params={
             # Why: le site 224 suit l'app comme les domaines des publications.
             "idSite": 224,
-            "period": "range",
+            # Why: sur une plage, Matomo ne garde que 100 pages par dossier et replie les autres dans « Others » ;
+            # jour par jour, aucun dossier n'atteint la limite.
+            "period": "day",
             "date": f"{(now - IDLE).date()},{now.date()}",
             "flat": 1,
             "filter_limit": -1,
@@ -62,13 +64,16 @@ def visited(prefix: str, now: datetime, segment: str = "") -> set[str] | None:
         return None
     return {
         page["label"].removeprefix(prefix).split("?")[0].split("/")[0]
-        for page in result.data
+        for pages in result.data.values()
+        for page in pages
         if page["label"].startswith(prefix) and page.get("nb_visits")
     }
 
 
 def opened(slug: str) -> bool | None:
     """Une ligne d'accès à la page dans Datadog, sur toute sa rétention de 30 jours ; None s'il n'a pas répondu."""
+    # Why: Datadog découpe la phrase sur la ponctuation, « tdb » compte aussi les visites de « tdb-siae ».
+    # L'erreur va dans le bon sens : un TDB de trop reste hors de la liste.
     result = execute_datadog_count(search=f'service:matometa "/interactive/{slug}/"', caller=CallerType.APP, days=30)
     if not result.success:
         logger.warning("idle-dashboards: Datadog n'a pas répondu pour %s (%s)", slug, result.error)
