@@ -232,6 +232,8 @@ def test_dod_4_filter_on_uncarried_tag_says_so(client, mocker):
 
     assert listed(html) == []
     assert "Aucun pipeline ne porte ce tag." in html
+    assert '<a href="/jobs" class="badge badge-tag text-decoration-none bg-primary"' in html
+    assert 'inconnu <span class="opacity-75 ms-1">0</span>' in html
 
 
 @pytest.mark.integration

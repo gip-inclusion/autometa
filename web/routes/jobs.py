@@ -199,19 +199,21 @@ def sort_pipelines(pipelines: list[dict], sort: str) -> list[dict]:
 
 
 def tag_filters(pipelines: list[dict], active: list[str], sort: str) -> list[dict]:
-    """Tags portés, avec le nombre de pipelines et le lien qui bascule le filtre."""
+    """Tags portés et filtres actifs, avec le nombre de pipelines et le lien qui bascule le filtre."""
     counts = Counter(t.name for p in pipelines for t in p["tags"])
     labels = {t.name: t.label for p in pipelines for t in p["tags"]}
+    # Why: un filtre actif sur un tag que plus rien ne porte doit garder sa puce, seul moyen de le retirer.
+    uncarried = [name for name in dict.fromkeys(active) if name not in counts]
     return [
         {
             "name": name,
-            "label": labels[name],
+            "label": labels.get(name, name),
             "count": counts[name],
             "active": name in active,
             "href": "/jobs"
             + query_string([t for t in active if t != name] if name in active else [*active, name], sort),
         }
-        for name in sorted(counts, key=lambda n: (-counts[n], labels[n].casefold()))
+        for name in [*sorted(counts, key=lambda n: (-counts[n], labels[n].casefold())), *uncarried]
     ]
 
 
