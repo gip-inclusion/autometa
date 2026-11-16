@@ -19,8 +19,11 @@ SENSITIVE_NAME = (
 # (jeton de prod lu depuis un poste local, clé d'un autre service collée dans une conversation).
 PATTERNS = {
     # Why: un mot de passe peut contenir `? # & =` ; un port suivi d'une requête (`https://h:8080?email=a@b.fr`)
-    # n'en est pas un.
-    "mot de passe de DSN": (re.compile(rf"://[^/\s:@]*:(?!\d+[/?#]){NOT_A_PLACEHOLDER}[^/\s@]+@"), "://***@"),
+    # n'en est pas un, ni une URL suivie d'une adresse dans du JSON compact (`"https://h","contact":"a@b.fr"`).
+    "mot de passe de DSN": (
+        re.compile(rf"://[^/\s:@\"'\\]*:(?!\d+[/?#]){NOT_A_PLACEHOLDER}[^/\s@\"'\\]+@"),
+        "://***@",
+    ),
     # Why: un extrait tronqué (« … so_3314:<mot de passe>@hôte ») perd le schéma. Une adresse e-mail précédée d'un
     # libellé (`requester:prenom.nom@…`) n'en est pas un : le mot de passe mêle lettres et chiffres, sans point.
     "identifiants user:mot de passe": (
@@ -32,16 +35,17 @@ PATTERNS = {
     "paramètre d'URL sensible": (re.compile(rf"([?&]{SENSITIVE_NAME}=)[^&\s'\"\\]+"), r"\1***"),
     "variable secrète": (
         re.compile(
-            rf"\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|_KEY|APIKEY)\s*[=:]\s*[\"']?){NOT_A_PLACEHOLDER}"
+            rf"\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|_KEY|APIKEY)\s*[=:]\s*\\?[\"']?){NOT_A_PLACEHOLDER}"
             r"(?=[^\s\"',;]*\d)[\w\-+/=.:]{8,}"
         ),
         r"\1***",
     ),
     # Why: une valeur entre guillemets peut se trouver dans du JSON échappé (`\"password\": \"…\"`) : la barre
-    # oblique inverse reste en place, sinon le guillemet qu'elle protège ferait éclater le JSON.
+    # oblique inverse reste en place, sinon le guillemet qu'elle protège ferait éclater le JSON. Le nom peut porter un
+    # préfixe (`db_password`).
     "champ secret": (
         re.compile(
-            r"(?i)([\"']?\b(?:password|passwd|pwd|secret|client_secret|x-api-key|api[_-]?key|access[_-]?token"
+            r"(?i)([\"']?(?<![a-z0-9])(?:password|passwd|pwd|secret|client_secret|x-api-key|api[_-]?key|access[_-]?token"
             r"|auth[_-]?token|private[_-]?key)\\?[\"']?\s*[:=]\s*)"
             rf"(?:(\\?[\"']){NOT_A_PLACEHOLDER}[^\"'\\\n]{{6,}}(?=\\?[\"'])|{NOT_A_PLACEHOLDER}(?=[^\s\"',;]*\d)[^\s\"',;\\]{{8,}})"
         ),
@@ -65,6 +69,10 @@ PATTERNS = {
     "clé Anthropic": (re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"), "sk-ant-***"),
 }
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Why: un lien présigné est fait pour être remis à l'utilisateur (diff Zendesk, export) ; sa signature n'ouvre que ce
+# fichier, et pour peu de temps. Seuls ses paramètres X-Amz-* sont épargnés, les masquer rend le lien mort : le reste du
+# lien, et ce qui le suit sans espace (sortie CSV), est masqué comme ailleurs.
+PRESIGNED_PARAM = re.compile(r"([?&]X-Amz-[A-Za-z-]+=[\w%./~-]+)")
 
 
 def known_secrets() -> list[str]:
@@ -98,7 +106,8 @@ def known_secrets() -> list[str]:
 
 
 def secret_kinds(text: str) -> list[str]:
-    """Les sortes de secrets présents en clair dans le texte."""
+    """Les sortes de secrets présents en clair dans le texte, paramètres de liens présignés exceptés."""
+    text = PRESIGNED_PARAM.sub("", text)
     kinds = [kind for kind, (rx, _) in PATTERNS.items() if any("***" not in m.group(0) for m in rx.finditer(text))]
     if any(secret in text for secret in known_secrets()):
         kinds.append("secret de configuration")
@@ -106,9 +115,16 @@ def secret_kinds(text: str) -> list[str]:
 
 
 def redact(text: str) -> str:
-    """Retire d'un texte tout ce qui pourrait être un secret."""
+    """Retire d'un texte tout ce qui pourrait être un secret, paramètres de liens présignés exceptés."""
+    secrets = known_secrets()
+    parts = PRESIGNED_PARAM.split(text)
+    return "".join(part if index % 2 else mask(part, secrets) for index, part in enumerate(parts))
+
+
+def mask(text: str, secrets: list[str]) -> str:
+    """Le texte, formes de secrets et valeurs connues remplacées."""
     for rx, replacement in PATTERNS.values():
         text = rx.sub(replacement, text)
-    for secret in known_secrets():
+    for secret in secrets:
         text = text.replace(secret, "***")
     return text

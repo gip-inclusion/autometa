@@ -27,7 +27,7 @@ from lib.tool_taxonomy import classify_tool
 from web.catchup import build_catchup
 from web.engine_limits import limit_key
 
-from . import complexity, config, session_sync
+from . import complexity, config, session_sync, uploads
 from .agents import get_agent
 from .alerts import notify_alert_channel
 from .database import store
@@ -369,6 +369,9 @@ class TaskRunner:
         fallback = config.AGENT_FALLBACK_BACKEND
 
         try:
+            # Why: le disque des serveurs est vidé à chaque redémarrage, et l'agent lit les pièces jointes par leur chemin ;
+            # ici, dans la tâche de la conversation, un téléchargement lent ne retient pas la boucle qui sert tout le monde.
+            await asyncio.to_thread(uploads.restore_conversation_files, conversation_id)
             may_reroute = bool(fallback) and turn.backend != fallback and not await is_limited(fallback)
             limit_reset, limit_message = await self._stream_turn(
                 conversation_id, prompt, user_email, trace_headers, turn, release=not may_reroute
