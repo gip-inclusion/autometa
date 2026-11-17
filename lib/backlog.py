@@ -245,8 +245,8 @@ def notion_user(email: str) -> tuple[str, str] | None:
 def find_author(email: str) -> Author | None:
     """Rôles et équipes de l'auteur d'après l'Annuaire, et son compte Notion."""
     records = notion.query_database(
-        config.NOTION_ANNUAIRE_DB, filter={"property": "Email", "email": {"equals": email}}
-    )[:1]
+        config.NOTION_ANNUAIRE_DB, filter={"property": "Email", "email": {"equals": email}}, limit=1
+    )
     account = notion_user(email)
     if not records and not account:
         return None

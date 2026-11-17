@@ -32,12 +32,12 @@ def test_recent_titles_asks_notion_for_the_15_latest_titled_tickets(mocker):
     assert {"property": "Nom", "title": {"is_not_empty": True}} in query.call_args.kwargs["filter"]["and"]
 
 
-def test_find_author_keeps_only_the_first_record(mocker):
+def test_find_author_reads_a_single_record(mocker):
     mocker.patch.object(backlog.config, "NOTION_ANNUAIRE_DB", "directory")
-    records = [page("f1", "Premiere"), page("f2", "Seconde")]
-    mocker.patch("lib.notion.query_database", return_value=records)
+    query = mocker.patch("lib.notion.query_database", return_value=[page("f1", "Premiere")])
     mocker.patch.object(backlog, "notion_user", return_value=None)
     assert backlog.find_author("x@exemple.fr").name == "Premiere"
+    assert query.call_args.kwargs["limit"] == 1
 
 
 def epics_schema(*groups):
