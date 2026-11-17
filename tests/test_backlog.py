@@ -222,6 +222,14 @@ def test_dod_3_find_duplicates_keeps_word_starts_after_a_typographic_apostrophe(
     assert [t["url"] for t in found] == ["u-a"]
 
 
+def test_find_duplicates_reads_at_most_the_300_latest_edited_tickets(mocker):
+    mocker.patch.object(backlog.config, "NOTION_BACKLOG_DB", "backlog")
+    query = mocker.patch("lib.notion.query_database", return_value=[])
+    backlog.find_duplicates("Masquer les candidatures")
+    assert query.call_args.kwargs["limit"] == 300
+    assert query.call_args.kwargs["sorts"] == [{"timestamp": "last_edited_time", "direction": "descending"}]
+
+
 def test_dod_3_find_duplicates_ignores_a_single_keyword_title(mocker):
     mocker.patch("lib.notion.notion_request", side_effect=AssertionError("aucune requête attendue"))
     assert backlog.find_duplicates("Export") == []

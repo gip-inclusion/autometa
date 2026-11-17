@@ -196,6 +196,7 @@ def find_duplicates(text: str) -> list[dict]:
     words = keywords(text)
     if len(words) < 2:
         return []
+    # Why: un mot-clé courant remonte une bonne partie du backlog ; on n'en lit que les tickets modifiés en dernier.
     pages = notion.query_database(
         config.NOTION_BACKLOG_DB,
         filter={
@@ -204,6 +205,8 @@ def find_duplicates(text: str) -> list[dict]:
                 {"or": [{"property": "Nom", "title": {"contains": word}} for word in words]},
             ]
         },
+        sorts=[{"timestamp": "last_edited_time", "direction": "descending"}],
+        limit=300,
     )
     targets = {normalize(m) for m in words}
     # Why: seuil mesuré sur le backlog réel, voir la décision 3 de paved-road/rediger-ticket/definition-of-done.md.
