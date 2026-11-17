@@ -691,14 +691,13 @@ async def take_queued_message(conv_id: str, entry_id: str, user_email: str = Dep
 
 @router.post("/{conv_id}/queue/returned/ack")
 async def ack_returned_messages(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
-    """Oublie les messages rendus que la page a remis dans la barre de saisie."""
+    """Oublie les messages rendus demandés et donne ceux qui restaient, pour la barre de saisie de cet onglet seul."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
-    store.ack_returned(conv_id, (await request.json()).get("ids", []))
-    return {"status": "ok"}
+    return {"returned": store.ack_returned(conv_id, (await request.json()).get("ids", []))}
 
 
 @router.get("/{conv_id}/tags")
