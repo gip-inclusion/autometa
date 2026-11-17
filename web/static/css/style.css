@@ -251,6 +251,8 @@ body.has-sidebar {
   #section-rapports,
   #section-rechercher,
   #section-dashboards {
+    height: calc(100vh - 56px);
+    /* biome-ignore lint/suspicious/noDuplicateProperties: fallback for browsers without dvh (Safari < 15.4, Chrome < 108) */
     height: calc(100dvh - 56px);
   }
 }
@@ -3668,6 +3670,8 @@ body.has-sidebar {
 
 @media (max-width: 991.98px) {
   #section-accueil {
+    height: calc(100vh - 56px);
+    /* biome-ignore lint/suspicious/noDuplicateProperties: fallback for browsers without dvh (Safari < 15.4, Chrome < 108) */
     height: calc(100dvh - 56px);
   }
 }
