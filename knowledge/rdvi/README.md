@@ -465,8 +465,12 @@ semaine (fin de semaine).
 
 - Les colonnes scalaires (`rate_of_*`, `average_time_between_invitation_and_rdv_in_days`,
   `agents_count`) sont **cumulées depuis l'origine**, sur les données encore présentes.
-- Les colonnes `*_grouped_by_month` sont des `json` aux clés `"MM/YYYY"`. Seuls les mois de
-  l'année écoulée sont recalculés ; les plus anciens gardent leur dernière valeur calculée, et
+- Les colonnes mensuelles sont des `json` aux clés `"MM/YYYY"`. Elles finissent par
+  `_grouped_by_month`, sauf trois qui finissent par `_by_month` :
+  `average_time_between_invitation_and_rdv_in_days_by_month`,
+  `rate_of_users_oriented_in_less_than_45_days_by_month` et
+  `rate_of_users_accompanied_in_less_than_30_days_by_month`. Seuls les mois de l'année écoulée
+  sont recalculés ; les plus anciens gardent leur dernière valeur calculée, et
   ne subissent donc plus la purge.
 - Les totaux affichés (« rendez-vous pris », « usagers ») sont la somme de ces JSON : il n'y a
   pas de colonne `rdvs_count` ou `users_count`.
