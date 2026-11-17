@@ -187,7 +187,9 @@ def test_only_dashboards_nobody_opened_anywhere_are_listed(mocker, monkeypatch):
     )
 
     assert [c.args[0] for c in datadog.call_args_list] == ["a", "in-datadog", "e"]
-    assert slack.call_args_list[0].args == (":zzz: 2 tableaux de bord sans visite depuis 45 jours — à archiver ?",)
+    assert slack.call_args_list[0].args == (
+        ":zzz: 2 tableaux de bord sans visite connue (Matomo sur 45 jours, Datadog sur 30) — à archiver ?",
+    )
     assert slack.call_args_list[1].args == (
         "<https://autometa.test/dashboards/a/edit|a> — Titre — alice@x\n"
         "<https://autometa.test/dashboards/e/edit|e> — Titre — alice@x",
@@ -209,7 +211,7 @@ def test_a_dashboard_datadog_could_not_check_is_left_out_and_counted(mocker, mon
 
     assert slack.call_args_list == [
         mocker.call(
-            ":zzz: 0 tableau de bord sans visite depuis 45 jours — à archiver ?"
+            ":zzz: 0 tableau de bord sans visite connue (Matomo sur 45 jours, Datadog sur 30) — à archiver ?"
             " (1 non vérifié : Datadog n'a pas répondu)"
         )
     ]

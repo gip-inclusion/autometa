@@ -108,7 +108,10 @@ def run() -> None:
 def report(idle: list[Row], unchecked: int) -> None:
     """Le compte dans le canal d'alertes, un TDB par ligne en fil avec le lien vers sa page."""
     count = len(idle)
-    summary = f":zzz: {count} tableau{'x' if count > 1 else ''} de bord sans visite depuis 45 jours — à archiver ?"
+    summary = (
+        f":zzz: {count} tableau{'x' if count > 1 else ''} de bord sans visite connue"
+        " (Matomo sur 45 jours, Datadog sur 30) — à archiver ?"
+    )
     if unchecked:
         summary += f" ({unchecked} non vérifié{'s' if unchecked > 1 else ''} : Datadog n'a pas répondu)"
     lines = [
