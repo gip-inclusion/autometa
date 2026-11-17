@@ -57,8 +57,8 @@ Un indicateur North Star ne retient que des **mois consolidés** : mois dont la 
 - Les actes de mise à jour d'une fiche déjà présents ne sont pas recalculés, sauf s'ils valaient 0 : ils sont datés par la dernière modification, qu'une modification ultérieure déplacerait.
 - Mon Récap est recalculé sur toute la fenêtre.
 - Si le total d'actes baisse de plus de 10 %, `data.json` n'est pas écrit.
-- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`. L'historique de croissance annuelle au-delà de la fenêtre en est tiré. Mars 2025 y est incomplet : il ne sert pas de référence N-1.
-- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025. Les prolongations et les orientations RDV-i directes existent sur toute la période ; les orientations post-RDV (depuis mai 2026), les orientations estimées data·inclusion et les bilans (depuis octobre 2026) n'ont pas d'historique antérieur et comptent donc comme de la croissance. Après ce recalcul, la croissance annuelle de la North Star à 30 jours passe de +20,0 % à +21,2 % en septembre 2026 et de +18,3 % à +22,5 % en août 2026.
+- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`. L'historique de croissance annuelle au-delà de la fenêtre en est tiré. Mars 2025 y est incomplet : il ne sert pas de référence N-1, et la croissance annuelle de mars 2026 ne doit pas être recalculée depuis le snapshot.
+- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025. Les prolongations et les orientations RDV-i directes existent sur toute la période ; les orientations post-RDV (depuis mai 2026), les orientations estimées data·inclusion et les bilans (depuis octobre 2026) n'ont pas d'historique antérieur et comptent donc comme de la croissance.
 
 ---
 
@@ -214,7 +214,7 @@ Date d'expédition : celle de la commande, ou à défaut la date de fabrication 
 
 | Date | Changement |
 |------|------------|
-| 2026-11 | Ajout des prolongations de PASS IAE, des orientations RDV-i et data·inclusion (par proxy) et des bilans de fin de parcours ; recalcul de la fenêtre et du snapshot depuis avril 2025 |
+| 2026-11 | Ajout des prolongations de PASS IAE, des orientations RDV-i et data·inclusion (par proxy) et des bilans de fin de parcours ; recalcul de la fenêtre et du snapshot depuis avril 2025. Croissance annuelle de la North Star à 30 jours : de +20,0 % à +21,2 % en septembre 2026, de +18,3 % à +22,5 % en août 2026 |
+| 2026-07 à 2026-11 | North Star longue ramenée de 70 à 59 jours (colonne `north_star_70` conservée) ; la North Star à 30 jours devient la référence |
 | 2026-09 | GPS : bascule des logs applicatifs vers Matomo |
 | 2026-07 | Orientations et intentions d'orientation depuis La plateforme |
-| — | North Star longue ramenée de 70 à 59 jours (colonne `north_star_70` conservée) ; la North Star à 30 jours devient la référence |
