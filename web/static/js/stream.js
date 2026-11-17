@@ -387,10 +387,10 @@ async function cancelStream() {
 
   setTurnState('cancelling');
 
-  let returned = [];
+  let data = {};
   try {
     const response = await fetch(`/api/conversations/${convId}/cancel`, { method: 'POST' });
-    returned = (await response.json()).returned ?? [];
+    data = await response.json();
   } catch (error) {
     console.error('Failed to cancel:', error);
   }
@@ -400,8 +400,9 @@ async function cancelStream() {
   closeEventSource();
   setTurnState('idle');
   appendEvent('error', { content: "Annulé par l'utilisateur" });
-  renderQueue([]);
-  takeReturned(convId, returned);
+  // Why: only a cancelled turn hands its queue back; otherwise the messages still wait on the server.
+  if (data.status === 'cancelled') renderQueue([]);
+  takeReturned(convId, data.returned ?? []);
 }
 
 /**

@@ -195,6 +195,25 @@ def test_stop_puts_waiting_messages_back_in_the_bar_once(conversation: str, ask:
     expect(draft).to_have_value("")
 
 
+@pytest.mark.parametrize(
+    "fail",
+    [lambda route: route.abort(), lambda route: route.fulfill(status=403, json={"error": "Permission denied"})],
+    ids=["réseau", "refus"],
+)
+def test_a_stop_that_fails_keeps_the_waiting_messages(
+    conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Route], None]
+):
+    start_turn(ask, page, "[hang] q0")
+    send_later(page, "q1")
+    expect(page.locator(".event-queued")).to_have_count(1)
+    page.route("**/cancel", fail)
+
+    page.locator("#chatCancelBtn").click()
+
+    expect(page.get_by_text("Annulé par l'utilisateur")).to_be_visible()
+    expect(page.locator(".event-queued")).to_have_text(["q1"])
+
+
 def test_a_failed_turn_puts_waiting_messages_back_in_the_bar(conversation: str, ask: Callable[[str], None], page: Page):
     start_turn(ask, page, "[slow:2] [error] q0")
     send_later(page, "q1")
