@@ -11,7 +11,6 @@ from web import alerts, config
 from web.audit import slack_escape
 from web.db import get_db
 from web.models import Dashboard, DashboardPublication
-from web.s3_janitor import blocks
 
 logger = logging.getLogger(__name__)
 
@@ -120,5 +119,5 @@ def report(idle: list[Row], unchecked: int) -> None:
     ]
     thread = alerts.notify_alert_channel(summary)
     if thread:
-        for block in blocks(lines):
+        for block in alerts.blocks(lines):
             alerts.notify_alert_channel(block, thread_ts=thread)

@@ -23,3 +23,13 @@ def notify_alert_channel(message: str, thread_ts: str | None = None) -> str | No
     if not ts:
         logger.warning("Slack alert not delivered to %s", channel)
     return ts
+
+
+def blocks(lines: list[str]) -> list[str]:
+    """The lines grouped into messages under 3,000 characters, which Slack displays whole."""
+    grouped = [""]
+    for line in lines:
+        if grouped[-1] and len(grouped[-1]) + len(line) >= 3000:
+            grouped.append("")
+        grouped[-1] += f"{line}\n"
+    return [block.rstrip("\n") for block in grouped if block]

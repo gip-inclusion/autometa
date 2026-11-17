@@ -113,15 +113,5 @@ def report(swept: list[tuple[s3.S3Store, dict]], failures: int, *, deleted: bool
     logger.info("%s", summary)
     thread = alerts.notify_alert_channel(summary)
     if thread:
-        for block in blocks(listing(swept)):
+        for block in alerts.blocks(listing(swept)):
             alerts.notify_alert_channel(f"```\n{block}\n```", thread_ts=thread)
-
-
-def blocks(lines: list[str]) -> list[str]:
-    """Les lignes regroupées en messages de moins de 3 000 caractères, sous la limite d'affichage de Slack."""
-    grouped = [""]
-    for line in lines:
-        if grouped[-1] and len(grouped[-1]) + len(line) >= 3000:
-            grouped.append("")
-        grouped[-1] += f"{line}\n"
-    return [block.rstrip("\n") for block in grouped if block]
