@@ -46,15 +46,15 @@ def test_init_builds_base_url_and_oauth(api):
     assert api.instance == "emplois"
 
 
-def oauth_client(api_statuses, token_status=200, expires_in=3600, **auth_options):
-    """An httpx client on a fake Zendesk: numbered tokens, API answers popped from api_statuses."""
+def oauth_client(api_statuses, token_status=200, **auth_options):
+    """An httpx client on a fake Zendesk: numbered tokens without expires_in, API answers popped from api_statuses."""
     calls = []
 
     def handler(request):
         calls.append(request)
         if request.url.path == "/oauth/tokens":
             issued = sum(c.url.path == "/oauth/tokens" for c in calls)
-            return httpx.Response(token_status, json={"access_token": f"t{issued}", "expires_in": expires_in})
+            return httpx.Response(token_status, json={"access_token": f"t{issued}"})
         return httpx.Response(api_statuses.pop(0), json={})
 
     auth = ClientCredentialsAuth("https://x.zendesk.com/oauth/tokens", "cid", "sec", **auth_options)
@@ -73,18 +73,22 @@ def test_oauth_fetches_token_once_and_sends_bearer():
         "client_id": "cid",
         "client_secret": "sec",
         "scope": "read hc:write macros:write",
+        "expires_in": 7200,
     }
     assert calls[2].headers["Authorization"] == "Bearer t1"
 
 
-def test_oauth_refetches_expired_token():
-    client, calls = oauth_client([200, 200], expires_in=0)
+@pytest.mark.parametrize(("elapsed", "tokens_issued"), [(7200 - 61, 1), (7200 - 60, 2)])
+def test_oauth_renews_the_token_a_minute_before_the_lifetime_it_asked_for(mocker, elapsed, tokens_issued):
+    clock = mocker.patch("lib.zendesk.time.monotonic", return_value=1000.0)
+    client, calls = oauth_client([200, 200])
 
     client.get("https://x.zendesk.com/api/v2/a")
+    clock.return_value += elapsed
     client.get("https://x.zendesk.com/api/v2/b")
 
-    assert [c.url.path for c in calls] == ["/oauth/tokens", "/api/v2/a", "/oauth/tokens", "/api/v2/b"]
-    assert calls[3].headers["Authorization"] == "Bearer t2"
+    assert sum(c.url.path == "/oauth/tokens" for c in calls) == tokens_issued
+    assert calls[-1].headers["Authorization"] == f"Bearer t{tokens_issued}"
 
 
 def test_oauth_refetches_token_and_retries_once_on_401():

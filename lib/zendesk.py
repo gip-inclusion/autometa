@@ -19,6 +19,9 @@ _DEFAULT_TIMEOUT = 30
 _RATE_LIMIT_PER_MIN = 700
 _MIN_DELAY = 60.0 / _RATE_LIMIT_PER_MIN
 _MAX_429_RETRIES = 3
+# Why: tokens are never revoked, so their lifetime bounds how long an orphaned one, or one issued before a secret
+# rotation, stays usable (Zendesk accepts 300 s to 2 days).
+TOKEN_LIFETIME_SEC = 2 * 3600
 
 
 @dataclass
@@ -191,16 +194,16 @@ class ClientCredentialsAuth(httpx.Auth):
             "client_id": self.client_id,
             "client_secret": self.client_secret,
             "scope": "read hc:write macros:write",
+            "expires_in": TOKEN_LIFETIME_SEC,
         }
         # Why: httpx applies the client timeout only to the request it was sent, not to those auth_flow yields.
         timeout = httpx.Timeout(self.timeout).as_dict()
         response = yield httpx.Request("POST", self.token_url, json=payload, extensions={"timeout": timeout})
         if not response.is_success:
             raise ZendeskError(response.status_code, response.text[:200])
-        data = response.json()
-        self.token = data["access_token"]
+        self.token = response.json()["access_token"]
         # Why: renew a minute early so a token never expires between the check and the request.
-        self.expires_at = time.monotonic() + data["expires_in"] - 60
+        self.expires_at = time.monotonic() + TOKEN_LIFETIME_SEC - 60
 
 
 class ZendeskAPI:
