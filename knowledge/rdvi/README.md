@@ -564,7 +564,7 @@ JOIN raw_rdvi.rdvs r ON r.id = p.rdv_id
 JOIN raw_rdvi.organisations o ON o.id = r.organisation_id
 JOIN raw_rdvi.departments d ON d.id = o.department_id
 WHERE r.starts_at < (SELECT MAX(created_at) FROM raw_rdvi.participations) - interval '7 days'
-  AND r.starts_at >= now() - interval '12 months'
+  AND r.starts_at >= (SELECT MAX(created_at) FROM raw_rdvi.participations) - interval '12 months'
 GROUP BY 1, 2
 HAVING COUNT(*) >= 1000
 ORDER BY pct DESC;
