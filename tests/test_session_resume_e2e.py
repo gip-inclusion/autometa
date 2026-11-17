@@ -61,6 +61,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
 
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", 4)
+    mocker.patch("web.runner.uploads.restore_conversation_files")
 
     mock_sync = mocker.patch("web.runner.session_sync")
     mock_sync.download_session = mocker.MagicMock(side_effect=sync_funcs["download_session"])
@@ -95,6 +96,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
     mocker.patch("web.runner.get_agent", return_value=mock_backend)
 
     mock_store = mocker.patch("web.runner.store")
+    mock_store.end_turn.return_value = []
     mock_msg = mocker.MagicMock()
     mock_msg.id = 1
     mock_store.add_message.return_value = mock_msg
@@ -119,7 +121,8 @@ async def _run_consumer_cycle(runner, fake_redis, turns=1):
     expected = len(runner._calls) + turns
     consumer = asyncio.create_task(runner._consumer_loop())
     # Why: une attente fixe échoue quand la suite sature les cœurs (xdist) — on attend la fin réelle des tours.
-    async with asyncio.timeout(10):
+    # Le plafond n'est qu'un garde-fou contre un blocage : large, il ne coûte rien quand le test passe.
+    async with asyncio.timeout(60):
         while len(runner._calls) < expected or runner._running:
             await asyncio.sleep(0.01)
     consumer.cancel()

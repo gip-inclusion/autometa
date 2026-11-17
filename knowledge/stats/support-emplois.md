@@ -2,9 +2,9 @@
 source: metabase:stats
 verifie_le: 2026-03-05
 ---
-# Support Emplois de l'Inclusion
+# Support de La plateforme de l'inclusion (ex-Emplois)
 
-Données du support utilisateurs des Emplois de l'Inclusion, issues de **Zendesk**.
+Données du support utilisateurs de La plateforme, issues de **Zendesk**.
 
 **Schéma :** `public` sur Metabase STATS (`database_id = 2`)
 **Mise à jour :** En temps réel via webhooks n8n à chaque création ou modification de ticket
@@ -160,18 +160,26 @@ WHERE m.solved_at IS NULL
 ORDER BY i.ticket_cree_date;
 ```
 
-### Lien avec les utilisateurs Emplois
+### Lien avec les utilisateurs de La plateforme
 
-L'email du demandeur peut être croisé avec `public.utilisateurs` pour identifier le type d'utilisateur (prescripteur, employeur, etc.) :
+L'email du demandeur peut être croisé avec `public.utilisateurs` pour identifier son profil (employeur, prescripteur…). `type` ne le distingue plus : le profil se lit au rattachement, et la table a une ligne par rattachement, donc un e-mail se ramène d'abord à une ligne :
 
 ```sql
+WITH profil AS (
+    SELECT email,
+        CASE WHEN bool_or(id_structure IS NOT NULL) THEN 'employeur'
+             WHEN bool_or(id_organisation IS NOT NULL) THEN 'prescripteur ou orienteur'
+             WHEN bool_or(id_institution IS NOT NULL) THEN 'institution' END AS profil
+    FROM public.utilisateurs
+    GROUP BY email
+)
 SELECT
-    u.type as type_utilisateur,
+    COALESCE(p.profil, 'inconnu') as profil,
     COUNT(DISTINCT i.id_du_ticket) as nb_tickets,
     ROUND(AVG(m.full_resolution_time_minutes) / 60.0, 1) as delai_resolution_h
 FROM public.support_emplois_tickets_infos i
-LEFT JOIN public.utilisateurs u ON i.e_mail_du_demandeur = u.email
+LEFT JOIN profil p ON i.e_mail_du_demandeur = p.email
 JOIN public.support_emplois_tickets_metrics m ON i.id_du_ticket = m.id_du_ticket
-GROUP BY u.type
+GROUP BY 1
 ORDER BY nb_tickets DESC;
 ```

@@ -89,6 +89,18 @@ def test_get_run_output_returns_text(mocker):
     assert get.call_args.kwargs["headers"]["Authorization"] == "Bearer pmk_test"
 
 
+def test_get_run_output_head_stops_reading_past_the_limit(mocker):
+    chunks = iter(["a" * 2000, "b" * 2000, "c" * 2000])
+    resp = mocker.MagicMock()
+    resp.iter_text.return_value = chunks
+    stream = mocker.patch("httpx.stream")
+    stream.return_value.__enter__.return_value = resp
+    assert jobs.get_run_output_head(RUN_ID, 3000) == "a" * 2000 + "b" * 2000
+    assert next(chunks) == "c" * 2000
+    assert stream.call_args.args == ("GET", f"https://orch.example/runs/{RUN_ID}/output")
+    assert stream.call_args.kwargs["timeout"] == 5
+
+
 def test_get_run_output_url_presigns(mocker):
     req = mocker.patch("httpx.request", return_value=_fake_response({"url": "https://s3/x", "expires_in": 120}))
     out = jobs.get_run_output_url(RUN_ID, expires_in=120)
@@ -208,3 +220,32 @@ def test_launch_cli_orchestrator_error_returns_1(mocker, tmp_path, capsys):
     rc = _load_launch_cli().main(["--name", "n", "--system-prompt-file", str(prompt_file)])
     assert rc == 1
     assert "orchestrator error" in capsys.readouterr().err
+
+
+def test_dod_4_launch_cli_relaunches_existing_pipeline(mocker, capsys):
+    mocker.patch("lib.job_mentions.agent_slug", return_value=None)
+    car = mocker.patch("lib.jobs.create_and_run")
+    tr = mocker.patch("lib.jobs.trigger_run", return_value={"id": "r2", "status": "queued"})
+    mocker.patch("lib.jobs.config.BASE_URL", "https://a.example")
+    rc = _load_launch_cli().main(["--relaunch", PIPELINE_ID])
+    assert rc == 0
+    car.assert_not_called()
+    tr.assert_called_once_with(PIPELINE_ID, input_uri=None)
+    assert '"run_url": "https://a.example/jobs/runs/r2"' in capsys.readouterr().out
+
+
+def test_launch_cli_refuses_to_relaunch_an_agent_job(mocker, capsys):
+    mocker.patch("lib.job_mentions.agent_slug", return_value="veille-boamp")
+    trigger = mocker.patch("lib.jobs.trigger_run")
+    with pytest.raises(SystemExit):
+        _load_launch_cli().main(["--relaunch", PIPELINE_ID])
+    trigger.assert_not_called()
+    assert "propose-launch --agent veille-boamp" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", [[], ["--name", "x"], ["--relaunch", PIPELINE_ID, "--name", "x"]])
+def test_dod_4_launch_cli_rejects_incoherent_arguments(mocker, argv):
+    mocker.patch("lib.jobs.create_and_run")
+    mocker.patch("lib.jobs.trigger_run")
+    with pytest.raises(SystemExit):
+        _load_launch_cli().main(argv)

@@ -19,8 +19,8 @@ class CLIOllamaBackend(CLIBackend):
     def model_label(self) -> str:
         return config.OLLAMA_MODEL
 
-    def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
-        env = super()._build_env(conversation_id=conversation_id, user_email=user_email)
+    def _build_env(self, **context) -> dict:
+        env = super()._build_env(**context)
         env["ANTHROPIC_BASE_URL"] = config.OLLAMA_BASE_URL
         # Why: une instance Ollama locale ignore le jeton ; Ollama Cloud le rejette s'il est vide.
         env["ANTHROPIC_AUTH_TOKEN"] = config.OLLAMA_API_KEY or "ollama"

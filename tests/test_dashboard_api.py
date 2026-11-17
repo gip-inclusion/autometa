@@ -184,6 +184,23 @@ RESULT = QueryResult(success=True, data=[])
             {"path": "repos/gip-inclusion/r/pulls", "params": {"state": "closed"}, "timeout": 30},
         ),
         (
+            lambda: dashboard_api.read_github_file("betagouv/r", "a.py", ref="main"),
+            "execute_github_file",
+            {"repo": "betagouv/r", "path": "a.py", "ref": "main"},
+        ),
+        (
+            lambda: dashboard_api.search_github_code("gip-inclusion/r", "def ", glob="*.py"),
+            "execute_github_search",
+            {
+                "repo": "gip-inclusion/r",
+                "pattern": "def ",
+                "ref": None,
+                "glob": "*.py",
+                "ignore_case": False,
+                "max_results": 200,
+            },
+        ),
+        (
             lambda: dashboard_api.query_notion("db1", filter={"property": "Statut"}, sorts=[{"property": "Date"}]),
             "execute_notion_query",
             {"database_id": "db1", "filter": {"property": "Statut"}, "sorts": [{"property": "Date"}]},

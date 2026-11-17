@@ -1,6 +1,6 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report e2e diff-cover lint format security audit ci \
-        migrate check-migrations paved-road-baseline lint-js browsers catalog
+        migrate check-migrations paved-road-baseline lint-js browsers catalog retrospect
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
 PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -34,6 +34,10 @@ dev:
 # `lib/attestation.py`, `Makefile`, `.github/` — reste opposée à l'agent.
 claude:
 	claude --plugin-dir plugins/paved-road --dangerously-skip-permissions
+
+# L'audit des conversations de prod est un plugin local : il ne se charge que par cette cible, jamais en prod.
+retrospect:
+	claude --plugin-dir plugins/retrospect
 
 hooks:
 	uv run --frozen pre-commit install --hook-type pre-commit
@@ -119,7 +123,8 @@ browsers:
 	uv run --frozen playwright install chromium
 
 # Parcours de navigateur — exige une application servie (`make dev` dans un autre terminal),
-# ou E2E_BASE_URL pointant sur une review app.
+# ou E2E_BASE_URL pointant sur une review app. Les parcours qui jouent un tour d'agent sont
+# sautés sauf contre `AGENT_BACKEND=fake make dev`.
 e2e: browsers
 	uv run --frozen pytest browser -q -m browser
 

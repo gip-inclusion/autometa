@@ -14,7 +14,8 @@
         </a>
         {% endif %}
         <div class="conv-title-wrapper">
-          <p class="conv-meta-row text-muted mb-0 small">
+          <p class="conv-meta-row text-muted mb-0 small" id="convMenu" popover>
+            <span class="conv-meta-info">
             {% if current_conv %}
               {% if is_shared %}
                 <i class="ri-user-shared-line"></i> Conversation de {{ owner_email }}
@@ -32,6 +33,11 @@
                 {% set total_tokens = (current_conv.usage_input_tokens or 0) + (current_conv.usage_output_tokens or 0) %}
                 · <span title="Tokens utilisés: {{ current_conv.usage_input_tokens or 0 }} entrée, {{ current_conv.usage_output_tokens or 0 }} sortie"><i class="ri-coin-line"></i> <span id="tokenCount">{{ "{:,}".format(total_tokens) }}</span> tokens</span>
               </span>
+            {% elif is_new %}
+              Nouvelle conversation
+            {% endif %}
+            </span>
+            {% if current_conv %}
               {% if not is_shared %}
               <button type="button" class="conv-action-btn" id="editTitleBtn"><i class="ri-pencil-line"></i> Renommer</button>
               <button type="button" class="conv-action-btn d-none" id="autoTitleBtn"><i class="ri-magic-line"></i> Générer titre</button>
@@ -45,9 +51,11 @@
                 {% endif %}
               {% endif %}
               {% with item_type = 'conversation', item_id = current_conv.id, btn_class = 'conv-action-btn' %}{% include "_favorite_button.html" %}{% endwith %}
-            {% elif is_new %}
-              Nouvelle conversation
+              <button type="button" class="conv-action-btn conv-menu-only" id="convMenuFlagBtn"><i class="ri-flag-line"></i> Signaler un problème</button>
             {% endif %}
+            <a href="https://tally.so/r/9qdZvp{% if user_email %}?email={{ user_email }}{% endif %}" target="_blank" rel="noopener" class="conv-action-btn conv-menu-only">
+              <i class="ri-feedback-line"></i> Donnez votre avis
+            </a>
           </p>
           <div class="conv-title-display" id="convTitleDisplay">
             <h1 class="mb-0"><i class="ri-compass-discover-line ri-2x text-primary me-2" style="vertical-align: middle;"></i>{% if current_conv %}{{ current_conv.title or 'Sans titre' }}{% elif is_new %}Posez vos questions sur les données{% endif %}</h1>
@@ -64,6 +72,9 @@
           </div>
           {% endif %}
         </div>
+        <button type="button" class="conv-menu-btn" popovertarget="convMenu" title="Plus d'options" aria-label="Plus d'options">
+          <i class="ri-more-fill" aria-hidden="true"></i>
+        </button>
         {% if current_conv %}
         <!-- Mobile toggle for actions sidebar -->
         <button type="button" class="actions-sidebar-mobile-toggle" data-bs-toggle="offcanvas" data-bs-target="#actionsOffcanvas" aria-controls="actionsOffcanvas">
@@ -255,18 +266,20 @@
             <textarea
               class="chat-input"
               id="chatInput"
-              placeholder="Posez une question sur vos données Matomo ou Metabase…"
+              placeholder="Posez une question sur vos données…"
               rows="1"
             ></textarea>
           </div>
         </div>
-        {% include "_flag_button.html" %}
-        <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
-          <i class="ri-send-plane-fill"></i>
-        </button>
-        <button type="button" class="chat-cancel-btn" id="chatCancelBtn" title="Annuler" style="display: none;">
-          <i class="ri-stop-fill"></i>
-        </button>
+        <div class="chat-bar-actions">
+          {% include "_flag_button.html" %}
+          <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
+            <i class="ri-send-plane-fill"></i>
+          </button>
+          <button type="button" class="chat-cancel-btn d-none" id="chatCancelBtn" title="Annuler">
+            <i class="ri-stop-fill"></i>
+          </button>
+        </div>
       </div>
       {% endif %}
     </div>
@@ -334,9 +347,8 @@
 
     // Send pending message if any
     if (pendingMessage) {
-      appendEvent('user', { content: pendingMessage });
       lastUserMessage = pendingMessage;
-      await sendToAgent(pendingMessage);
+      await sendToAgent(pendingMessage, { bubble: appendEvent('user', { content: pendingMessage }) });
     }
     {% elif is_new %}
     // New conversation mode - prefill input if param present, then focus

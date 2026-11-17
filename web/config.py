@@ -1,5 +1,7 @@
 """Configuration for the Autometa web application."""
 
+import json
+import logging
 import os
 from pathlib import Path
 
@@ -17,7 +19,7 @@ load_dotenv(BASE_DIR / ".env")
 # Default: ./data (relative to BASE_DIR)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
 
-# Agent backend: "cli" or "cli-ollama"
+# Agent backend: "cli", "cli-ollama", or "fake" (scripted turns for the local browser suite only)
 AGENT_BACKEND = os.getenv("AGENT_BACKEND", "cli").lower()
 
 # Moteur de secours quand la limite d'usage du moteur principal est atteinte. Vide = désactivé.
@@ -82,6 +84,9 @@ DEBUG = os.getenv("WEB_DEBUG", "false").lower() == "true"
 # Only needed when sharing links outside the app; prefer relative URLs otherwise.
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
+# Adresse publique de l'application de prod : liens vers ses conversations produits depuis un poste local.
+PROD_URL = os.getenv("PROD_URL", "https://autometa.inclusion.gouv.fr").rstrip("/")
+
 # Default user for local development (when oauth-proxy not present)
 DEFAULT_USER = os.getenv("DEFAULT_USER", "admin@localhost")
 
@@ -107,6 +112,7 @@ CORS_ALLOWED_ORIGINS = {
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").replace("postgres://", "postgresql://")
 
 SSE_MESSAGE_WAIT_TIMEOUT = float(os.getenv("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "3"))
+SSE_MAX_SECONDS = float(os.getenv("AUTOMETA_SSE_MAX_SECONDS", "300"))
 
 # Agent-produced scripts directory
 SCRIPTS_DIR = DATA_DIR / "scripts"
@@ -187,6 +193,25 @@ NOTION_TAGS_DB = os.getenv("NOTION_TAGS_DB")
 # Slack notifications
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
+
+
+def destination_targets(raw: str) -> dict[str, str]:
+    """The JSON object id -> target of AGENT_DESTINATION_TARGETS; anything else warns and gives none."""
+    try:
+        found = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        found = None
+    if isinstance(found, dict) and all(isinstance(v, str) for v in found.values()):
+        return found
+    # Why: a malformed value only fails the deliveries, never the import of the web app and of every cron.
+    logging.getLogger(__name__).warning("AGENT_DESTINATION_TARGETS ignorée : attendu un objet JSON id -> identifiant")
+    return {}
+
+
+# Agents — identifiant réel (canal Slack, base Notion) de chaque destination de config/agent_destinations.yaml.
+AGENT_DESTINATION_TARGETS = destination_targets(os.getenv("AGENT_DESTINATION_TARGETS", ""))
+# Why: a bot of its own, invited only to the agents' channels, so an agent cannot reach the alert channels.
+AGENT_SLACK_BOT_TOKEN = os.getenv("AGENT_SLACK_BOT_TOKEN", "")
 
 # Scalingo — lancement d'un conteneur one-off pour les runs manuels de cron.
 SCALINGO_API_TOKEN = os.getenv("SCALINGO_API_TOKEN", "")
@@ -274,6 +299,11 @@ MATOMO_TAG_MANAGER_CONTAINER_ID = os.getenv("MATOMO_TAG_MANAGER_CONTAINER_ID", "
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "minishlab/potion-multilingual-128M")
 EMBEDDING_BATCH_SIZE = int(os.environ.get("EMBEDDING_BATCH_SIZE", "32"))
 EMBEDDING_CRON_LIMIT = int(os.environ.get("EMBEDDING_CRON_LIMIT", "1000"))
+
+
+# Why: /tmp est partagé par toutes les conversations du conteneur : chacune y a son dossier de travail, créé par
+# web/agents/cli.py. Fixe, et non tempfile.gettempdir() : dans l'agent, TMPDIR pointe déjà sur ce dossier.
+WORKDIR_ROOT = Path("/tmp")
 
 
 def agent_conversation_id() -> str | None:

@@ -8,6 +8,7 @@ External tests require credentials: pytest tests/test_metabase_client.py -v -m e
 import base64
 import json
 
+import httpx
 import pytest
 
 from lib.metabase import QueryResult, build_sql_url
@@ -47,6 +48,77 @@ def test_build_sql_url_special_characters_in_sql():
     b64 = url.split("#")[1]
     decoded = json.loads(base64.b64decode(b64))
     assert decoded["dataset_query"]["native"]["query"] == sql
+
+
+def offline_api(mocker):
+    mocker.patch("lib.sources.get_source_config", return_value={"url": "http://mb.test", "api_key": "k"})
+    mocker.patch("lib.sources.get_default_instance", return_value="stats")
+    mocker.patch("lib.metabase.emit_api_signal")
+    api = get_metabase(instance="stats", database_id=19)
+    request = mocker.patch.object(api, "_request", return_value={"data": {"cols": [{"name": "n"}], "rows": [[1]]}})
+    return api, request
+
+
+def test_execute_sql_without_params_sends_the_bare_native_query(mocker):
+    api, request = offline_api(mocker)
+
+    api.execute_sql("SELECT 1")
+
+    assert request.call_args.args[2] == {"database": 19, "type": "native", "native": {"query": "SELECT 1"}}
+
+
+def test_execute_sql_binds_params_as_template_tags(mocker):
+    api, request = offline_api(mocker)
+
+    api.execute_sql(
+        "SELECT * FROM t WHERE id > {{after}} AND d >= {{since}}::date", params={"after": 5, "since": "x'y"}
+    )
+
+    payload = request.call_args.args[2]
+    assert payload["native"]["template-tags"] == {
+        "after": {"id": "after", "name": "after", "display-name": "after", "type": "number"},
+        "since": {"id": "since", "name": "since", "display-name": "since", "type": "text"},
+    }
+    assert payload["parameters"] == [
+        {"type": "number/=", "target": ["variable", ["template-tag", "after"]], "value": 5},
+        {"type": "category", "target": ["variable", ["template-tag", "since"]], "value": "x'y"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "method, args, body, path, expected",
+    [
+        ("list_databases", (), {"data": [{"id": 2}], "total": 1}, "/api/database", [{"id": 2}]),
+        ("list_tables", (6,), {"tables": [{"id": 50}]}, "/api/database/6/metadata?skip_fields=true", [{"id": 50}]),
+        (
+            "get_table_metadata",
+            (50,),
+            {"id": 50, "fields": []},
+            "/api/table/50/query_metadata",
+            {"id": 50, "fields": []},
+        ),
+        ("get_field", (505,), {"id": 505, "table_id": 47}, "/api/field/505", {"id": 505, "table_id": 47}),
+        ("get_version", (), {"version": {"tag": "v0.64.4", "hash": "x"}}, "/api/session/properties", "v0.64.4"),
+    ],
+)
+def test_metadata_reads_return_what_metabase_answers(mocker, method, args, body, path, expected):
+    mocker.patch("lib.sources.get_source_config", return_value={"url": "http://mb.test", "api_key": "k"})
+    mocker.patch("lib.sources.get_default_instance", return_value="stats")
+    request = mocker.patch.object(
+        httpx.Client,
+        "request",
+        return_value=httpx.Response(200, json=body, request=httpx.Request("GET", "http://mb.test")),
+    )
+
+    assert getattr(get_metabase(instance="stats"), method)(*args) == expected
+    assert request.call_args.args[:2] == ("GET", f"http://mb.test{path}")
+
+
+@pytest.mark.external
+def test_execute_sql_bound_params_against_metabase(api):
+    result = api.execute_sql("SELECT {{n}} + 1 AS n, {{s}} AS s", params={"n": 41, "s": "l'inclusion"})
+
+    assert result.rows == [[42, "l'inclusion"]]
 
 
 # Known collection IDs

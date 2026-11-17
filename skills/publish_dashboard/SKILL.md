@@ -35,23 +35,23 @@ Ces vérifications sont systématiques et serveur — ne pas tenter de les conto
 
 ```bash
 # Publier en staging
-.venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py publish \
+python skills/publish_dashboard/scripts/publish_dashboard.py publish \
     --slug mon-tdb --env staging
 
 # Publier en production (écrase la version prod précédente)
-.venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py publish \
+python skills/publish_dashboard/scripts/publish_dashboard.py publish \
     --slug mon-tdb --env production
 
 # Lister les publications actives (ajouter --all pour inclure les dépubliées, audit)
-.venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py list \
+python skills/publish_dashboard/scripts/publish_dashboard.py list \
     --slug mon-tdb
 
 # Rafraîchir le lien public d'une publication
-.venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py refresh \
+python skills/publish_dashboard/scripts/publish_dashboard.py refresh \
     --publication-id vxgbu3
 
 # Dépublier une version précise
-.venv/bin/python skills/publish_dashboard/scripts/publish_dashboard.py unpublish \
+python skills/publish_dashboard/scripts/publish_dashboard.py unpublish \
     --publication-id vxgbu3
 ```
 
