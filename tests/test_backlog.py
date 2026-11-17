@@ -40,6 +40,24 @@ def test_find_author_keeps_only_the_first_record(mocker):
     assert backlog.find_author("x@exemple.fr").name == "Premiere"
 
 
+def epics_schema(*groups):
+    status = {"options": [{"id": "s1", "name": "Archivé"}], "groups": list(groups)}
+    return {"properties": {"Statut": {"type": "status", "status": status}}}
+
+
+def test_active_epics_refuses_a_schema_without_a_complete_group(mocker):
+    mocker.patch("lib.notion.notion_request", return_value=epics_schema({"name": "Terminé", "option_ids": ["s1"]}))
+    with pytest.raises(ValueError, match="Groupe Complete introuvable dans le schéma des épics"):
+        backlog.active_epics("epics")
+
+
+def test_active_epics_reads_every_epic_when_the_complete_group_is_empty(mocker):
+    mocker.patch("lib.notion.notion_request", return_value=epics_schema({"name": "Complete", "option_ids": []}))
+    query = mocker.patch("lib.notion.query_database", return_value=[page("p1", "RUN EMPLOIS")])
+    assert backlog.active_epics("epics") == [page("p1", "RUN EMPLOIS")]
+    query.assert_called_once_with("epics", filter=None)
+
+
 def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
     mocker.patch.object(backlog.config, "NOTION_BACKLOG_DB", "backlog")
     schema = {

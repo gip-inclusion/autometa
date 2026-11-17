@@ -103,17 +103,13 @@ def active_teams(teams_database: str) -> list[dict]:
 def active_epics(epics_database: str) -> list[dict]:
     """Épics dont le statut n'est pas dans le groupe Complete (en prod, archivé…) du schéma de leur base."""
     status = notion.notion_request("GET", f"databases/{epics_database}")["properties"]["Statut"]["status"]
-    done = next(g["option_ids"] for g in status["groups"] if g["name"] == "Complete")
-    return notion.query_database(
-        epics_database,
-        filter={
-            "and": [
-                {"property": "Statut", "status": {"does_not_equal": o["name"]}}
-                for o in status["options"]
-                if o["id"] in done
-            ]
-        },
-    )
+    done = next((g["option_ids"] for g in status["groups"] if g["name"] == "Complete"), None)
+    if done is None:
+        raise ValueError("Groupe Complete introuvable dans le schéma des épics")
+    excluded = [
+        {"property": "Statut", "status": {"does_not_equal": o["name"]}} for o in status["options"] if o["id"] in done
+    ]
+    return notion.query_database(epics_database, filter={"and": excluded} if excluded else None)
 
 
 def recent_titles(team_id: str) -> list[str]:
