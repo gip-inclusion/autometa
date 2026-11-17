@@ -66,19 +66,24 @@ function renderQueue(entries) {
 /**
  * Take a message out of the queue; pulled back, its text goes to the composer
  */
-async function takeQueued(entryId, toComposer) {
+async function takeQueued(bubble, toComposer) {
   const convId = currentConversationId;
-  // Why: gone at once, so a double click does not ask for it twice; the server's `queue` event redraws the rest.
-  document.querySelector(`[data-queue-id="${entryId}"]`)?.remove();
+  // Why: hidden at once, so a double click does not ask for it twice; shown again if the server still holds it,
+  // since no `queue` event would redraw an unchanged queue.
+  bubble.hidden = true;
   try {
-    const response = await fetch(`/api/conversations/${convId}/queue/${entryId}`, { method: 'DELETE' });
+    const response = await fetch(`/api/conversations/${convId}/queue/${bubble.dataset.queueId}`, { method: 'DELETE' });
     const data = await response.json();
     if (currentConversationId !== convId) return;
+    if (response.ok || data.code === 'already_sent') bubble.remove();
+    else bubble.hidden = false;
     if (!response.ok) return showError(data.error || 'Message introuvable');
     if (toComposer) appendToComposer(data.content);
   } catch (error) {
     console.error('Failed to take a queued message:', error);
-    if (currentConversationId === convId) showError('Erreur de connexion');
+    if (currentConversationId !== convId) return;
+    bubble.hidden = false;
+    showError('Erreur de connexion');
   }
 }
 

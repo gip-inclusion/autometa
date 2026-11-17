@@ -618,13 +618,13 @@ document.body.addEventListener('click', (e) => {
   if (e.target.closest('#relaunchBtn')) return relaunchConversation();
   if (e.target.closest('.chat-bar-warning-close')) return dismissPublicWarning();
   const queued = e.target.closest('.event-queued');
-  if (queued && !e.target.closest('a')) return takeQueued(queued.dataset.queueId, !e.target.closest('.queued-remove'));
+  if (queued && !e.target.closest('a')) return takeQueued(queued, !e.target.closest('.queued-remove'));
 });
 
 document.body.addEventListener('keydown', (e) => {
   if (!e.target.matches('.event-queued') || (e.key !== 'Enter' && e.key !== ' ')) return;
   e.preventDefault();
-  takeQueued(e.target.dataset.queueId, true);
+  takeQueued(e.target, true);
 });
 
 document.body.addEventListener('input', (e) => {

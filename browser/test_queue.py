@@ -142,6 +142,25 @@ def test_a_waiting_message_can_be_pulled_back_or_dropped(
     expect(page.locator("#chatOutput .event-user")).to_have_count(2)
 
 
+@pytest.mark.parametrize(
+    "fail",
+    [lambda route: route.abort(), lambda route: route.fulfill(status=403, json={"error": "Permission denied"})],
+    ids=["réseau", "refus"],
+)
+def test_a_waiting_message_stays_when_taking_it_back_fails(
+    conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Route], None]
+):
+    start_turn(ask, page, "[hang] q0")
+    send_later(page, "q1")
+    page.route("**/queue/*", fail)
+
+    page.locator(".event-queued").click()
+
+    expect(page.locator(".event-error")).to_have_count(1)
+    expect(page.locator(".event-queued")).to_be_visible()
+    expect(page.locator("#chatInput")).to_have_value("")
+
+
 def test_a_double_click_pulls_a_message_back_once(conversation: str, ask: Callable[[str], None], page: Page):
     start_turn(ask, page, "[hang] q0")
     send_later(page, "q1")
