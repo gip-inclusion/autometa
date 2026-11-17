@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from botocore.exceptions import ClientError
 
 from web import s3, s3_janitor
 from web.db import get_db
@@ -137,9 +138,10 @@ def test_a_prefix_the_database_references_nothing_in_is_left_alone(mocker, publi
     assert [store for store, _ in found] == [swept]
 
 
-def sweep(mocker, monkeypatch, *, delete, env=Environment.PROD, deleted=True, publications=(), uploads=()):
+def sweep(mocker, monkeypatch, *, delete, env=Environment.PROD, deleted=True, publications=(), uploads=(), backup=None):
     monkeypatch.setattr("web.s3_janitor.config.ENV", env)
     referenced = mocker.patch("web.s3_janitor.referenced", return_value=({"live-id"}, {"kept.csv"}))
+    mocker.patch("web.s3_janitor.check_mirror_manifest", side_effect=backup)
     deletes = bucket(mocker, publications=publications, uploads=uploads, deleted=deleted)
     slack = mocker.patch("web.s3_janitor.alerts.notify_alert_channel", return_value="1700000000.000100")
     s3_janitor.run(delete=delete)
@@ -220,11 +222,29 @@ def test_a_long_list_is_split_across_replies(mocker, monkeypatch):
     assert sum(reply.count("publications/") for reply in replies) == 200
 
 
+@pytest.mark.parametrize(
+    "backup",
+    [RuntimeError("Mirror manifest missing"), ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")],
+    ids=["missing-or-failed", "unreadable"],
+)
+def test_without_todays_backup_it_only_lists(mocker, monkeypatch, backup):
+    _, deletes, slack = sweep(
+        mocker, monkeypatch, delete=True, backup=backup, publications=[entry("tdb/old-id/index.html", 40)]
+    )
+
+    deletes[s3.publications].assert_not_called()
+    assert slack.call_args_list[0].args == (
+        ":broom: Balayeur aurait effacé 1 fichier (0,0 Mo) — dry run faute de sauvegarde complète aujourd'hui,"
+        " rien n'a été supprimé",
+    )
+
+
 def test_the_list_is_logged_before_anything_is_deleted(mocker, monkeypatch, caplog):
     caplog.set_level("INFO", logger="web.s3_janitor")
     logged_before = []
     monkeypatch.setattr("web.s3_janitor.config.ENV", Environment.PROD)
     mocker.patch("web.s3_janitor.referenced", return_value=({"live-id"}, {"kept.csv"}))
+    mocker.patch("web.s3_janitor.check_mirror_manifest")
     mocker.patch("web.s3_janitor.alerts.notify_alert_channel", return_value=None)
     bucket(mocker, publications=[entry("tdb/old-id/index.html", 40)])
     mocker.patch.object(s3.publications, "delete", side_effect=lambda path: logged_before.append(caplog.text))
@@ -238,6 +258,7 @@ def test_the_list_is_logged_before_anything_is_deleted(mocker, monkeypatch, capl
 def test_no_reply_without_a_thread_or_without_files(mocker, monkeypatch, thread):
     monkeypatch.setattr("web.s3_janitor.config.ENV", Environment.PROD)
     mocker.patch("web.s3_janitor.referenced", return_value=({"live-id"}, {"kept.csv"}))
+    mocker.patch("web.s3_janitor.check_mirror_manifest")
     bucket(mocker, uploads=[entry("gone.csv", 40)] if thread is None else [])
     slack = mocker.patch("web.s3_janitor.alerts.notify_alert_channel", return_value=thread)
 
