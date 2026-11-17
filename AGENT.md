@@ -235,7 +235,7 @@ En Docker, le répertoire de travail est `/app`.
 
 ## Dépôts GitHub
 
-| Site | Dépôt | Branche par défaut |
+| Site | Dépôt | Branche à lire |
 |---|---|---|
 | La plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
 | Marché | `gip-inclusion/le-marche` | main |
@@ -243,7 +243,7 @@ En Docker, le répertoire de travail est `/app`.
 | Pilotage | `gip-inclusion/pilotage` | staging |
 | Dora | `gip-inclusion/dora` | main |
 | data·inclusion | `gip-inclusion/data-inclusion` | main |
-| RDV-Insertion | `gip-inclusion/rdv-insertion` | staging |
+| RDV-Insertion | `gip-inclusion/rdv-insertion` | main |
 
 Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12). Pour `rdv-insertion`, `main` est la production et `staging` la démo : lire le code de production sur `main`.
 
