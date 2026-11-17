@@ -30,7 +30,7 @@ Deux copies du même schéma `rdvi`, plus le moteur de RDV, accessible seulement
 
 | Accès | Contenu | Quand l'utiliser |
 |---|---|---|
-| autometa_tables_db, schéma `raw_rdvi` | Copie à l'identique du schéma `rdvi` (mêmes tables, colonnes, types et volumes) | **Par défaut** pour toute question sur RDVI (ordre des sources : `AGENT.md`) |
+| autometa_tables_db, schéma `raw_rdvi` | Copie du schéma `rdvi` (mêmes colonnes, types et volumes ; sans les tables vidées par l'ETL) | **Par défaut** pour toute question sur RDVI (ordre des sources : `AGENT.md`) |
 | Metabase `rdvi`, base 2 « Prod ETL » | Schémas `rdvi`, `rdvs`, `rdvsp`, `csv_uploads` (vide) | Dès qu'il faut le moteur de RDV (`rdvs`) ou une jointure `rdvi` ↔ `rdvs` |
 
 Metabase : https://rdv-service-public-metabase.osc-secnum-fr1.scalingo.io, instance `rdvi`,
