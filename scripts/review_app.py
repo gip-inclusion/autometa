@@ -19,6 +19,12 @@ ADDONS_POLL_SECONDS = 10.0
 DEPLOYMENT_TIMEOUT = 900.0
 DEPLOYMENT_POLL_SECONDS = 15.0
 PENDING_STATUSES = frozenset({"queued", "building", "pushing", "starting"})
+# Why: une review app clone la formation d'autometa-staging, et un code -9 y a tué le CLI Claude (#278).
+# Un premier tour d'agent tient le worker web, le CLI de l'agent, ses appels d'outils et les CLI courts
+# (titre, tags) : environ 200 + 350 + 120 + 180 Mio, mesurés dans paved-road/agents-creation/CONCEPTION_V2.md,
+# au-delà de L (1 Go). XL (2 Go) est la taille pour laquelle MAX_CONCURRENT_AGENTS est écrit en prod.
+# Tenu égal à la formation de scalingo.json, qui ne s'applique qu'à la création d'une review app.
+WEB_SIZE = "XL"
 
 
 def headers(bearer):
@@ -124,21 +130,22 @@ def deployed_ref(entry):
     return deployment["git_ref"]
 
 
-def web_container_amount(client, bearer, app_name):
-    """Le nombre de conteneurs web en ligne : `last_deployment` seul ne dit pas si `stop` a scalé à zéro."""
+def web_container(client, bearer, app_name):
+    """Nombre et taille des conteneurs web : `last_deployment` seul ne dit pas si `stop` a scalé à zéro."""
     response = client.get(f"{API_URL}/apps/{app_name}/containers", headers=headers(bearer), timeout=TIMEOUT)
     response.raise_for_status()
     for container in response.json()["containers"]:
         if container["name"] == "web":
-            return container["amount"]
-    return 0
+            return {"amount": container["amount"], "size": container.get("size")}
+    return {"amount": 0, "size": None}
 
 
-def scale(client, bearer, app_name, amount):
+def scale(client, bearer, app_name, amount, size=None):
+    container = {"name": "web", "amount": amount, **({"size": size} if size else {})}
     return client.post(
         f"{API_URL}/apps/{app_name}/scale",
         headers=headers(bearer),
-        json={"containers": [{"name": "web", "amount": amount}]},
+        json={"containers": [container]},
         timeout=TIMEOUT,
     )
 
@@ -151,10 +158,11 @@ def ensure(client, bearer, parent_app, pr_number, sha):
     entry = find_review_app(client, bearer, parent_app, pr_number)
     if entry and deployed_ref(entry) == sha:
         name = entry["app_name"]
-        if web_container_amount(client, bearer, name) > 0:
+        web = web_container(client, bearer, name)
+        if web["amount"] > 0 and web["size"] == WEB_SIZE:
             return {"action": "noop", "app": name, "url": app_url(name)}
-        scale(client, bearer, name, 1).raise_for_status()
-        return {"action": "started", "app": name, "url": app_url(name)}
+        scale(client, bearer, name, 1, WEB_SIZE).raise_for_status()
+        return {"action": "started" if web["amount"] == 0 else "resized", "app": name, "url": app_url(name)}
 
     action = "updated"
     if entry is None:
@@ -165,6 +173,8 @@ def ensure(client, bearer, parent_app, pr_number, sha):
     name = entry["app_name"]
     deployment_id = deploy(client, bearer, name, entry["pull_request"]["branch_name"])
     wait_for_deployment(client, bearer, name, deployment_id)
+    if web_container(client, bearer, name)["size"] != WEB_SIZE:
+        scale(client, bearer, name, 1, WEB_SIZE).raise_for_status()
     return {"action": action, "app": name, "url": app_url(name)}
 
 

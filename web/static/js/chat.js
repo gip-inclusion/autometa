@@ -33,6 +33,12 @@ function isMainSwap(e) {
 }
 
 // htmx navigation handler
+// Why: restored from the back-forward cache after creating a conversation, /explorations/new would keep its
+// send in progress and the id of the conversation it created.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && sending) window.location.reload();
+});
+
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
@@ -42,6 +48,10 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
 
   closeEventSource();
   currentConversationId = convId;
+  // Why: the composer is replaced by the swap, module state is not.
+  turnState = 'idle';
+  sending = false;
+  clearPendingFiles();
 
   initChat();
   initKnowledge();
@@ -116,6 +126,9 @@ function initChat() {
   // Skip on knowledge pages - they have their own chat handling
   if (document.getElementById('knowledgeContent')) return;
 
+  // Why: Firefox restores a button's disabled state across reloads.
+  renderComposer();
+
   // Check for conversation ID in URL (skip if already loaded by inline script)
   const urlParams = new URLSearchParams(window.location.search);
   const convId = urlParams.get('conv');
@@ -129,6 +142,9 @@ function initChat() {
 
   // Send on button click
   sendBtn.addEventListener('click', () => sendMessage());
+
+  // Before the Enter handler: picking a mention with Enter must not send the message
+  initJobMentions(input);
 
   // Send on Enter (Shift+Enter for newline)
   input.addEventListener('keydown', (e) => {
@@ -148,6 +164,95 @@ function initChat() {
 
   // Title editing
   initTitleEditing();
+}
+
+let jobNames = null;
+
+// Why: the promise is cached, not its result — keystrokes during the first request must not start new ones
+function loadJobNames() {
+  jobNames ??= fetch('/api/jobs/pipelines/names')
+    .then(async (resp) => (resp.ok ? (await resp.json()).names : []))
+    .catch(() => []);
+  return jobNames;
+}
+
+function mentionAtCaret(input) {
+  const before = input.value.slice(0, input.selectionStart);
+  const match = before.match(/(?:^|\s)@([\w.-]*)$/);
+  return match ? { query: match[1], start: before.length - match[1].length } : null;
+}
+
+/**
+ * `@` autocompletion of job names: the server joins the mentioned job's context to the message
+ */
+function initJobMentions(input) {
+  const list = document.createElement('ul');
+  list.className = 'job-mentions';
+  list.id = 'jobMentions';
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+  input.closest('.chat-bar').appendChild(list);
+  let active = 0;
+
+  const close = () => {
+    list.hidden = true;
+    list.replaceChildren();
+  };
+  const highlight = () => {
+    [...list.children].forEach((li, i) => {
+      li.setAttribute('aria-selected', String(i === active));
+    });
+  };
+  const pick = (name) => {
+    const mention = mentionAtCaret(input);
+    if (!mention) return;
+    const after = input.value.slice(input.selectionStart);
+    input.value = `${input.value.slice(0, mention.start)}${name} ${after}`;
+    const caret = mention.start + name.length + 1;
+    input.setSelectionRange(caret, caret);
+    close();
+    input.focus();
+  };
+
+  input.addEventListener('input', async () => {
+    const mention = mentionAtCaret(input);
+    if (!mention) return close();
+    const query = mention.query.toLowerCase();
+    const names = (await loadJobNames()).filter((n) => n.toLowerCase().startsWith(query)).slice(0, 8);
+    if (!names.length || !mentionAtCaret(input)) return close();
+    active = 0;
+    list.replaceChildren(
+      ...names.map((name) => {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'option');
+        li.dataset.name = name;
+        li.textContent = `@${name}`;
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          pick(name);
+        });
+        return li;
+      }),
+    );
+    list.hidden = false;
+    highlight();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + list.children.length) % list.children.length;
+      highlight();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      pick(list.children[active].dataset.name);
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+  input.addEventListener('blur', close);
 }
 
 /**
@@ -423,43 +528,34 @@ function updatePendingFilesUI() {
 }
 
 /**
- * Upload pending files to the conversation
+ * Upload pending files to a conversation
  * Returns array of context messages for the uploaded files
  */
-async function uploadPendingFiles() {
-  if (pendingFiles.length === 0) return [];
-  if (!currentConversationId) return [];
+async function uploadPendingFiles(convId) {
+  if (!isValidConversationId(convId)) return [];
 
+  const files = pendingFiles;
+  pendingFiles = [];
   const contextMessages = [];
 
-  if (!isValidConversationId(currentConversationId)) return [];
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file);
 
-  for (const file of pendingFiles) {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`/api/conversations/${currentConversationId}/files`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        showError(`Erreur upload ${file.name}: ${err.error || 'Échec'}`);
-        continue;
-      }
-
+      const response = await fetch(`/api/conversations/${convId}/files`, { method: 'POST', body: formData });
       const data = await response.json();
-      contextMessages.push(data.context_message);
+      if (response.ok) {
+        contextMessages.push(data.context_message);
+      } else {
+        showError(`Erreur upload ${file.name}: ${data.error || 'Échec'}`);
+      }
     } catch (error) {
       console.error(`Failed to upload ${file.name}:`, error);
       showError(`Erreur upload ${file.name}`);
     }
   }
 
-  // Clear pending files
-  pendingFiles = [];
   updatePendingFilesUI();
 
   return contextMessages;
@@ -530,7 +626,7 @@ async function relaunchConversation() {
     const resp = await fetch(`/api/conversations/${currentConversationId}/relaunch`, { method: 'POST' });
     const data = await resp.json();
     if (resp.ok) {
-      startStream(data.after_id);
+      startStream();
     } else {
       alert(data.error || 'Erreur');
       if (btn) {
@@ -588,9 +684,24 @@ function updateFlagCounter(input) {
   if (counter) counter.textContent = String(input.value.length);
 }
 
+// Why: the menu opens in the top layer, out of the header's flow, so it is placed under its button here.
+document.addEventListener(
+  'beforetoggle',
+  (e) => {
+    if (e.target.id !== 'convMenu' || e.newState !== 'open') return;
+    const button = document.querySelector('[popovertarget="convMenu"]').getBoundingClientRect();
+    e.target.style.setProperty('--menu-top', `${button.bottom + 4}px`);
+  },
+  true,
+);
+
 document.body.addEventListener('click', (e) => {
+  const menu = e.target.closest('#convMenu');
+  if (menu?.hidePopover && menu.matches(':popover-open') && e.target.closest('button, a')) menu.hidePopover();
+
   const flagBtn = e.target.closest('#chatFlagBtn');
   if (flagBtn) return openFlagDialog(flagBtn);
+  if (e.target.closest('#convMenuFlagBtn')) return openFlagDialog(document.getElementById('chatFlagBtn'));
   if (e.target.closest('#flagCancel')) return closeFlagDialog();
   if (e.target.closest('#pinConvBtn')) return pinConversation();
   if (e.target.closest('#unpinConvBtn')) return unpinConversation();

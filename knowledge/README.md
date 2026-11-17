@@ -100,7 +100,7 @@ avec l'utilisateur quelle date utiliser** car les résultats peuvent différer s
 
 | Service | Dates possibles | Écart typique |
 |---------|-----------------|---------------|
-| Emplois (candidatures) | Date candidature vs date embauche | 30+ jours |
+| La plateforme (candidatures) | Date candidature vs date embauche | 30+ jours |
 | RDV-Insertion | Date de prise du RDV (`participations.created_at`) vs date du RDV (`rdvs.starts_at`) ; aucune date de présence n'est enregistrée | Variable |
 | Marché | Date demande vs date mise en relation | Variable |
 

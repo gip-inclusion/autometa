@@ -3,6 +3,8 @@
 import pytest
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
+from lib import query
+
 
 def test_query_module_imports():
     from lib import query
@@ -77,6 +79,19 @@ def test_execute_metabase_sql(mocker):
     assert result.success is True
     assert result.data["row_count"] == 1
     mock_api.execute_sql.assert_called_once()
+
+
+def test_execute_metabase_sql_passes_bound_params(mocker):
+    from lib.query import CallerType, execute_metabase_query
+
+    mock_api = metabase_api_mock(mocker)
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    execute_metabase_query(
+        instance="stats", caller=CallerType.AGENT, sql="SELECT {{n}}", database_id=2, params={"n": 1}
+    )
+
+    mock_api.execute_sql.assert_called_once_with("SELECT {{n}}", timeout=60, params={"n": 1})
 
 
 def test_execute_metabase_card(mocker):
@@ -707,34 +722,39 @@ def test_execute_query_unknown_source_is_an_invalid_request():
     assert q.execute_query(source="nope", instance="", caller=q.CallerType.APP).invalid_request is True
 
 
-@pytest.mark.parametrize(
-    ("token", "authorization"),
-    [("ghp_x", "Bearer ghp_x"), ("", None)],
-)
-def test_execute_github_query_gets_the_api_with_the_token_when_set(mocker, token, authorization):
+def test_execute_github_query_reads_a_path_of_an_allowed_repository(mocker):
     from lib import query as q
 
-    mocker.patch("web.config.GITHUB_TOKEN", token)
-    get = mocker.patch("lib.query.httpx.get", return_value=mocker.Mock(json=lambda: [{"number": 1}]))
+    api = mocker.patch("lib.query.github.api", return_value=[{"number": 1}])
 
-    result = q.execute_github_query("/repos/gip-inclusion/r/pulls", q.CallerType.APP, params={"state": "closed"})
+    result = q.execute_github_query("/repos/betagouv/r/pulls", q.CallerType.APP, params={"state": "closed"})
 
     assert result.data == [{"number": 1}]
-    assert get.call_args.args == ("https://api.github.com/repos/gip-inclusion/r/pulls",)
-    assert get.call_args.kwargs["params"] == {"state": "closed"}
-    assert get.call_args.kwargs["headers"].get("Authorization") == authorization
+    api.assert_called_once_with("/repos/betagouv/r/pulls", {"state": "closed"}, timeout=30)
 
 
-@pytest.mark.parametrize("path", ["user/repos", "repos/autre-org/r/pulls", "repos/gip-inclusion/../../user/repos"])
-def test_execute_github_query_refuses_paths_outside_gip_inclusion_repositories(mocker, path):
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda q: q.execute_github_query("user/repos", q.CallerType.APP),
+        lambda q: q.execute_github_query("repos/autre-org/r/pulls", q.CallerType.APP),
+        lambda q: q.execute_github_query("repos/gip-inclusion/../../user/repos", q.CallerType.APP),
+        lambda q: q.execute_github_file("autre-org/r", "a.py", q.CallerType.APP),
+        lambda q: q.execute_github_search("autre-org/r", "x", q.CallerType.APP),
+        lambda q: q.execute_github_search("gip-inclusion/r", "x", q.CallerType.APP, ref="--depth=1000"),
+    ],
+)
+def test_github_executors_refuse_a_request_outside_what_they_allow_before_any_call(mocker, call):
     from lib import query as q
 
-    get = mocker.patch("lib.query.httpx.get")
+    get = mocker.patch("lib.github.httpx.request")
+    run = mocker.patch("lib.github.subprocess.run")
 
-    result = q.execute_github_query(path, q.CallerType.APP)
+    result = call(q)
 
     assert (result.success, result.invalid_request) == (False, True)
     get.assert_not_called()
+    run.assert_not_called()
 
 
 def test_execute_notion_query_forwards_filter_and_sorts(mocker):
@@ -790,7 +810,9 @@ def test_execute_zendesk_search_returns_tickets_as_dicts(mocker):
 @pytest.mark.parametrize(
     ("execute", "patched", "kwargs"),
     [
-        ("execute_github_query", "lib.query.httpx.get", {"path": "repos/gip-inclusion/x"}),
+        ("execute_github_query", "lib.query.github.api", {"path": "repos/gip-inclusion/x"}),
+        ("execute_github_file", "lib.query.github.read", {"repo": "gip-inclusion/x", "path": "a.py"}),
+        ("execute_github_search", "lib.query.github.clone", {"repo": "gip-inclusion/x", "pattern": "a"}),
         ("execute_notion_query", "lib.query.notion.query_database", {"database_id": "db1"}),
         ("execute_tally_query", "lib.query.TallyClient", {"form_id": "f1"}),
         ("execute_zendesk_search", "lib.query.get_zendesk", {"query": "x"}),
@@ -807,3 +829,31 @@ def test_read_only_api_executors_turn_a_failure_into_a_failed_result(mocker, exe
 
     assert result.success is False
     assert result.error == "HTTP 503"
+
+
+def test_a_failed_query_is_noted_for_the_cron_runner_first_line_only(mocker, tmp_path):
+    failures = tmp_path / "failures"
+    mocker.patch.object(query.config, "query_failures_path", return_value=str(failures))
+
+    query.record_query_failure("HTTP 500: boom\nFailing row contains (donnée)")
+    query.record_query_failure("HTTP 400: sql")
+
+    assert failures.read_text().splitlines() == ["HTTP 500: boom", "HTTP 400: sql"]
+
+
+def test_a_query_outside_a_cron_notes_nothing(mocker):
+    mocker.patch.object(query.config, "query_failures_path", return_value=None)
+    opened = mocker.spy(query.Path, "open")
+
+    query.record_query_failure("HTTP 500: boom")
+
+    assert not opened.called
+
+
+def test_an_unwritable_failures_file_never_breaks_the_query(mocker, tmp_path):
+    mocker.patch.object(query.config, "query_failures_path", return_value=str(tmp_path / "absent" / "failures"))
+    warning = mocker.patch.object(query.logger, "warning")
+
+    query.record_query_failure("HTTP 500: boom")
+
+    warning.assert_called_once()

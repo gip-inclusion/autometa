@@ -1,0 +1,13 @@
+# Liste fermée des types de préparation qu'un agent peut déclarer (champ preparations du format
+# pdi.agent/1). Chaque type est un connecteur générique : un fichier lib/agent_connectors/<type>.py
+# qui déclare ses champs, ses refus et rend son contenu en Markdown. La source (base, page, dépôt,
+# URL...) vient toujours de la configuration de l'agent, jamais du code.
+#
+# Les préparations tournent dans Autometa, avec ses propres jetons, avant chaque run : le worker
+# n'en détient aucun. Ajouter un type : écrire son connecteur, puis l'ajouter ici par une PR.
+types:
+  - notion
+  - github
+  - url
+  - s3
+  - cron

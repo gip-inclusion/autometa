@@ -5,15 +5,18 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import AsyncIterator
 
 import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from web import config, session_sync
+from web import config, memory_introspect, session_sync
 from web.helpers import format_future_date
 
 from .base import AgentBackend, AgentMessage, build_system_prompt
@@ -27,6 +30,41 @@ tracer = trace.get_tracer(__name__)
 # un changement de format du status (les deux surfaces restent couplées au texte stdout du CLI).
 _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
+
+CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def conversation_workdir(conversation_id: str) -> Path | None:
+    """Le dossier de travail d'une vraie conversation, créé au besoin."""
+    # Why: un identifiant de conversation est un UUID — c'est aussi ce que le ménage reconnaît, et ce qui écarte `../`.
+    if not CONVERSATION_ID_RE.fullmatch(conversation_id):
+        return None
+    workdir = config.WORKDIR_ROOT / conversation_id
+    workdir.mkdir(mode=0o700, exist_ok=True)
+    # Why: `mode` ne vaut qu'à la création ; un dossier déjà créé par l'agent (`mkdir -p`) resterait en 755.
+    workdir.chmod(0o700)
+    # Why: l'âge du ménage se lit sur la date du dossier, que l'écriture dans un sous-dossier ne change pas.
+    os.utime(workdir)
+    return workdir
+
+
+def prune_workdirs(now: float) -> None:
+    """Efface les dossiers de travail de conversation restés une semaine sans changement."""
+    for path in config.WORKDIR_ROOT.iterdir():
+        if not CONVERSATION_ID_RE.fullmatch(path.name):
+            continue
+        # Why: renommé avant d'être effacé — une conversation qui reprend pendant l'effacement, lent avec des clones
+        # GitHub, recrée un dossier neuf au lieu de perdre le sien en cours de route.
+        doomed = path.with_name(f"{path.name}.prune-{os.getpid()}")
+        try:
+            if not path.is_dir() or now - path.stat().st_mtime < 7 * 24 * 3600:
+                continue
+            path.rename(doomed)
+        except FileNotFoundError:
+            logger.debug("Dossier de travail déjà effacé : %s", path.name)
+            continue
+        shutil.rmtree(doomed, ignore_errors=True)
+
 
 API_DOWN_MESSAGE = (
     "L'API Anthropic est momentanément indisponible. "
@@ -58,6 +96,13 @@ _USAGE_LIMIT_RE = re.compile(
 )
 
 
+def signal_name(number: int) -> str:
+    try:
+        return signal.Signals(number).name
+    except ValueError:
+        return "inconnu"
+
+
 def usage_limit_reset(text: str, now: datetime | None = None) -> datetime | None:
     """Si le texte signale une limite d'abonnement atteinte, renvoie l'instant UTC de reprise."""
     match = _USAGE_LIMIT_RE.search(text.strip())
@@ -85,8 +130,13 @@ class CLIBackend(AgentBackend):
 
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
+        self._cancelled: set[str] = set()
+        self._pruned_at = 0.0
+        self._prune: asyncio.Task | None = None
 
-    def _build_env(self, *, conversation_id: str | None = None, user_email: str | None = None) -> dict:
+    def _build_env(
+        self, *, conversation_id: str | None = None, user_email: str | None = None, workdir: Path | None = None
+    ) -> dict:
         # Why: transmission de l'environnement complet au sous-processus, pas une lecture
         # de configuration — seul ANTHROPIC_API_KEY est retiré.
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}  # noqa: TID251
@@ -94,6 +144,8 @@ class CLIBackend(AgentBackend):
             env["AUTOMETA_CONVERSATION_ID"] = conversation_id
         if user_email:
             env["AUTOMETA_USER_EMAIL"] = user_email
+        if workdir:
+            env["TMPDIR"] = str(workdir)
         return env
 
     def _extra_cmd_args(self) -> list[str]:
@@ -147,6 +199,7 @@ class CLIBackend(AgentBackend):
                 "had_real_output": False,
                 "last_events": [],
                 "prompt": "",
+                "killed": None,
             }
             async for agent_msg in self._run_attempt(
                 conversation_id, message, history, session_id, user_email, outcome
@@ -209,6 +262,23 @@ class CLIBackend(AgentBackend):
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
+        workdir = conversation_workdir(conversation_id)
+        now = time.time()
+        if config.ENV.is_server and now - self._pruned_at > 3600:
+            # Why: une fois l'heure par processus, en tâche de fond — effacer des clones GitHub ferait attendre ce tour ;
+            # et jamais sur un poste, dont le /tmp contient d'autres dossiers nommés comme des UUID.
+            self._pruned_at = now
+            self._prune = asyncio.create_task(asyncio.to_thread(prune_workdirs, now))
+        context = []
+        if workdir:
+            # Why: les outils Write et Read ne développent pas $AUTOMETA_CONVERSATION_ID — l'agent a besoin du chemin écrit.
+            context.append(f"Dossier de travail de cette conversation, déjà créé : {workdir}/")
+        if user_email:
+            # Why: sans elle, l'agent prend l'auteur des messages pour un tiers et refuse de toucher à ses propres objets.
+            context.append(f"Utilisateur courant, auteur des messages : {user_email}")
+        if context:
+            cmd.extend(["--append-system-prompt", "\n".join(context)])
+
         cmd.extend(self._tool_permission_args())
 
         cmd.extend(self._extra_cmd_args())
@@ -222,7 +292,7 @@ class CLIBackend(AgentBackend):
             len(prompt),
         )
 
-        env = self._build_env(conversation_id=conversation_id, user_email=user_email)
+        env = self._build_env(conversation_id=conversation_id, user_email=user_email, workdir=workdir)
 
         with tracer.start_as_current_span(
             "agent.cli.process",
@@ -354,7 +424,9 @@ class CLIBackend(AgentBackend):
                     stderr_bytes = b""
                 if session_id:
                     try:
-                        session_sync.upload_session(session_id)
+                        # Why: depuis la boucle, l'envoi (jusqu'à 15 Mo) bloquerait toutes les conversations du
+                        # processus. Attendu : le tour suivant repart de la session sur S3.
+                        await asyncio.to_thread(session_sync.upload_session, session_id)
                     except Exception:
                         # Why: cleanup must complete so span.finish() and the error capture below still run.
                         logger.exception("session upload failed during cleanup")
@@ -371,6 +443,17 @@ class CLIBackend(AgentBackend):
             if held_limit is not None and process.returncode <= 0:
                 outcome["usage_limit_reset"] = None
                 yield held_limit
+
+            # Why: a negative code is a signal; ours only on cancel, otherwise the system (memory) killed it.
+            if process.returncode < 0 and conversation_id not in self._cancelled:
+                outcome["killed"] = {"signal": -process.returncode, "memory": memory_introspect.container_memory()}
+                logger.error(
+                    "CLI tué par le système : conversation=%s signal=%s memoire_conteneur=%s",
+                    conversation_id,
+                    -process.returncode,
+                    outcome["killed"]["memory"],
+                )
+            self._cancelled.discard(conversation_id)
 
             if process.returncode != 0:
                 stderr_tail = stderr_str[-2000:] if len(stderr_str) > 2000 else stderr_str
@@ -408,6 +491,16 @@ class CLIBackend(AgentBackend):
                 raw={"code": outcome["exit_code"], "transient": True, "api_error": outcome["transient_error"]},
             )
         stderr = outcome["stderr"]
+        if killed := outcome["killed"]:
+            return AgentMessage(
+                type="error",
+                content=(
+                    f"L'agent a été tué par le système (signal {killed['signal']}, {signal_name(killed['signal'])}), "
+                    "probablement faute de mémoire dans le conteneur. Relancez votre demande ; "
+                    "si cela se reproduit, signalez-le à l'équipe."
+                ),
+                raw={"stderr": stderr, "code": outcome["exit_code"], **killed},
+            )
         return AgentMessage(
             type="error",
             content=f"Process exited with code {outcome['exit_code']}: {stderr}",
@@ -557,6 +650,7 @@ class CLIBackend(AgentBackend):
         if not process:
             return False
 
+        self._cancelled.add(conversation_id)
         try:
             process.send_signal(signal.SIGTERM)
             await asyncio.wait_for(process.wait(), timeout=5.0)

@@ -21,9 +21,8 @@ GATES = Path("gates.toml")
 # un lien symbolique — un checkout sous /tmp, ou un worktree symlinké.
 ROOT = Path(__file__).parent.parent.resolve()
 HOOK = ROOT / ".claude" / "hooks" / "check_python.py"
-# `data/` est écrit par l'agent, `skills/pdf/` est un skill vendored : ruff les exclut déjà.
+# `data/` est écrit par l'agent : ruff l'exclut déjà.
 NOT_OURS = (".venv", "data", "node_modules", "__pycache__", ".git", ".ruff_cache", "site-packages")
-VENDORED = ("skills/pdf/",)
 
 
 def read_baseline(path: Path) -> tuple[list[str], dict[str, int]]:
@@ -44,8 +43,7 @@ def conventions_checker():
 
 
 def ours(path: Path, root: Path) -> bool:
-    shown = path.relative_to(root).as_posix()
-    return not any(part in NOT_OURS for part in path.relative_to(root).parts) and not shown.startswith(VENDORED)
+    return not any(part in NOT_OURS for part in path.relative_to(root).parts)
 
 
 def measure_conventions(root: Path) -> dict[str, int]:

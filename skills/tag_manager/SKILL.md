@@ -22,6 +22,7 @@ Before using Tag Manager operations:
 1. **Know your site ID and container ID** - Check `knowledge/sites/` for site details
 2. **Read tag-manager.md** - `knowledge/matomo/tag-manager.md` for concepts
 3. **Understand draft vs live** - Draft IDs ≠ Published IDs (they change on publish)
+4. **Never publish the draft ID** - `publish_version` deploys the version it is given as is: with the draft ID, live points at the draft and every later draft edit goes live. Freeze the draft with `TagManager.createContainerVersion` first, then publish the returned ID.
 
 ## Core Workflow
 
@@ -74,11 +75,13 @@ tag_id = api.add_tag(
 api.enable_preview(site_id=210, container_id="xg8aydM9")
 # → Visit site in browser, verify behavior
 
-# 5. Publish
+# 5. Freeze the draft, then publish the frozen version
+version_id = api.post("TagManager.createContainerVersion", idSite=210, idContainer="xg8aydM9",
+                      idContainerVersion=draft_id, name="Button clicks")["value"]
 api.publish_version(
     site_id=210,
     container_id="xg8aydM9",
-    version_id=draft_id,
+    version_id=version_id,
     environment="live"
 )
 
@@ -138,11 +141,13 @@ tag_id = api.add_tag(
 api.enable_preview(site_id=210, container_id="xg8aydM9")
 # Visit the service page in your browser to test
 
-# 4. Publish when ready
+# 4. Publish when ready: freeze the draft, then publish the frozen version
+version_id = api.post("TagManager.createContainerVersion", idSite=210, idContainer="xg8aydM9",
+                      idContainerVersion=draft_id, name="Tally popup")["value"]
 api.publish_version(
     site_id=210,
     container_id="xg8aydM9",
-    version_id=draft_id,
+    version_id=version_id,
     environment="live"
 )
 ```
@@ -159,7 +164,7 @@ api.publish_version(
 
 ### 1. Draft vs Published IDs Change
 
-When you publish, Matomo creates a **new version** and assigns **new IDs** to all objects:
+`createContainerVersion` freezes the draft into a **new version** and assigns **new IDs** to all objects:
 
 ```
 draft (v420)              publication              v972 (live)
@@ -180,8 +185,10 @@ api.delete_trigger(site_id=210, container_id="xg8aydM9", version_id=DRAFT_ID, tr
 # Also delete from live version
 api.delete_trigger(site_id=210, container_id="xg8aydM9", version_id=LIVE_VERSION, trigger_id=LIVE_TRIGGER_ID)
 
-# Then re-publish
-api.publish_version(site_id=210, container_id="xg8aydM9", version_id=DRAFT_ID, environment="live")
+# Then freeze the draft and publish the frozen version
+version_id = api.post("TagManager.createContainerVersion", idSite=210, idContainer="xg8aydM9",
+                      idContainerVersion=DRAFT_ID, name="Remove trigger")["value"]
+api.publish_version(site_id=210, container_id="xg8aydM9", version_id=version_id, environment="live")
 ```
 
 ### 3. Preview Mode Uses Cookies
