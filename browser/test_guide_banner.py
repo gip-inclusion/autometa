@@ -30,7 +30,7 @@ def test_guide_icon_sits_on_the_first_line(visit: Callable[[str], None], page: P
         " return [...text.getClientRects()].map((line) => ({ top: line.top, bottom: line.bottom })); }"
     )
 
-    assert len(lines) > 1
+    assert len(lines) > 1, "le texte doit tenir sur plusieurs lignes à 992 px pour que le test ait un sens"
     assert lines[0]["top"] <= icon["y"] + icon["height"] / 2 <= lines[0]["bottom"]
 
 
