@@ -1,9 +1,9 @@
 /**
  * Messages written during a turn: sent later, shown as waiting bubbles, given back to the composer.
  * The server holds the queue; the page only draws what it says.
- * Depends on: utils.js (appendToComposer, isAtBottom, scrollToBottom), actions.js (markFinalAnswer),
- *             render.js (appendEvent, formatUserContent, showError),
- *             stream.js (currentConversationId, lastUserMessage, setSending, startStream)
+ * Depends on: utils.js (appendToComposer, isAtBottom, scrollToBottom),
+ *             render.js (formatUserContent, showError),
+ *             stream.js (currentConversationId, setSending, startStream)
  */
 
 /**
@@ -20,12 +20,11 @@ async function queueMessage(convId, message) {
     const data = await response.json();
     if (currentConversationId !== convId) return;
 
-    if (data.status === 'queued') {
-      renderQueue(data.queue);
-    } else if (data.status === 'started') {
-      // Why: the stream resumes from the last message seen, so the end of the previous answer arrives before the question.
+    // Why: the stream draws what follows — the bubble, or, if the turn had just ended, the end of its answer then the
+    // question. This answer can be older than what the stream already drew.
+    if (data.status === 'started') {
       startStream();
-    } else {
+    } else if (data.status !== 'queued') {
       appendToComposer(message);
       showError(data.error || "Erreur lors de l'envoi");
     }

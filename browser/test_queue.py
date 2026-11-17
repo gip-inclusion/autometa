@@ -237,6 +237,22 @@ def test_a_message_sent_later_as_the_turn_ends_keeps_the_end_of_the_answer(
     expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:1] q0", "q1"])
 
 
+def test_a_late_answer_to_send_later_does_not_bring_back_a_message_already_gone(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    held = []
+    start_turn(ask, page, "[slow:2] q0")
+    page.route("**/messages", lambda route: held.append((route, route.fetch())))
+    send_later(page, "q1")
+    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : q1", timeout=15000)
+
+    route, response = first_held(page, held)
+    route.fulfill(response=response)
+
+    expect(page.locator("#chatSendBtn")).to_be_enabled()
+    expect(page.locator(".event-queued")).to_have_count(0)
+
+
 def test_a_message_already_gone_cannot_be_pulled_back(conversation: str, ask: Callable[[str], None], page: Page):
     start_turn(ask, page, "[slow:2] q0")
     send_later(page, "q1")
