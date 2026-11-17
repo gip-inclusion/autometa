@@ -67,14 +67,20 @@ def test_remind_lists_every_open_pull_but_drafts(mocker):
 
 
 @pytest.mark.parametrize(
-    ("today", "pulls"),
-    [(date(2026, 11, 21), [pr(3, "2026-11-03")]), (date(2026, 11, 22), [pr(3, "2026-11-03")]), (TODAY, [])],
+    ("today", "pulls", "fetched", "reason"),
+    [
+        pytest.param(date(2026, 11, 21), [pr(3, "2026-11-03")], False, "week-end", id="samedi"),
+        pytest.param(date(2026, 11, 22), [pr(3, "2026-11-03")], False, "week-end", id="dimanche"),
+        pytest.param(TODAY, [pr(3, "2026-11-03", draft=True)], True, "aucune PR ouverte", id="sans-pr"),
+    ],
 )
-def test_remind_posts_nothing_on_weekends_or_without_pulls(mocker, today, pulls):
+def test_remind_posts_nothing_and_says_why(mocker, caplog, today, pulls, fetched, reason):
+    caplog.set_level("INFO")
     listed = mocker.patch.object(pr_reminder.github, "pulls", return_value=pulls)
     notify = mocker.patch.object(pr_reminder, "notify_alert_channel")
 
     pr_reminder.remind(today)
 
     notify.assert_not_called()
-    assert listed.called is (today.weekday() < 5)
+    assert listed.called is fetched
+    assert f"rappel des PR non posté : {reason}" in caplog.text
