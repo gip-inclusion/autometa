@@ -621,6 +621,12 @@ document.body.addEventListener('click', (e) => {
   if (queued && !e.target.closest('a')) return takeQueued(queued.dataset.queueId, !e.target.closest('.queued-remove'));
 });
 
+document.body.addEventListener('keydown', (e) => {
+  if (!e.target.matches('.event-queued') || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  takeQueued(e.target.dataset.queueId, true);
+});
+
 document.body.addEventListener('input', (e) => {
   if (e.target.id === 'flagReason') updateFlagCounter(e.target);
 });

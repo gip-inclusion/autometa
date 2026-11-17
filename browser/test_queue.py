@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import Page, Route, expect
+from playwright.sync_api import Locator, Page, Route, expect
 
 pytestmark = pytest.mark.browser
 
@@ -117,18 +117,24 @@ def test_another_tab_sees_messages_queued_here(conversation: str, ask: Callable[
 
 
 @pytest.mark.parametrize(
-    ("target", "bar"),
-    [(".event-queued", "Brouillon\n\nq1"), (".queued-remove", "Brouillon")],
-    ids=["reprendre", "retirer"],
+    ("take", "bar"),
+    [
+        (lambda bubble: bubble.click(), "Brouillon\n\nq1"),
+        (lambda bubble: bubble.press("Enter"), "Brouillon\n\nq1"),
+        (lambda bubble: bubble.press("Space"), "Brouillon\n\nq1"),
+        (lambda bubble: bubble.locator(".queued-remove").click(), "Brouillon"),
+        (lambda bubble: bubble.locator(".queued-remove").press("Enter"), "Brouillon"),
+    ],
+    ids=["reprendre", "reprendre avec Entrée", "reprendre avec Espace", "retirer", "retirer au clavier"],
 )
 def test_a_waiting_message_can_be_pulled_back_or_dropped(
-    conversation: str, ask: Callable[[str], None], page: Page, target: str, bar: str
+    conversation: str, ask: Callable[[str], None], page: Page, take: Callable[[Locator], None], bar: str
 ):
     start_turn(ask, page, "[slow:5] q0")
     send_later(page, "q1")
     page.locator("#chatInput").fill("Brouillon")
 
-    page.locator(target).click()
+    take(page.locator(".event-queued"))
 
     expect(page.locator("#chatInput")).to_have_value(bar)
     expect(page.locator(".event-queued")).to_have_count(0)

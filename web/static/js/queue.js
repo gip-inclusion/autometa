@@ -51,6 +51,8 @@ function renderQueue(entries) {
       const bubble = document.createElement('div');
       bubble.className = 'event-block event-user event-queued';
       bubble.dataset.queueId = entry.id;
+      bubble.tabIndex = 0;
+      bubble.role = 'button';
       bubble.title = 'Reprendre dans la barre de saisie';
       // Safe: formatUserContent escapes all user text via escapeHtml()
       bubble.innerHTML = `${formatUserContent(entry.content)}
