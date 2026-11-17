@@ -379,7 +379,7 @@ function initFileUpload() {
  */
 function addPendingFiles(files) {
   // Why: a message sent during a turn waits with its text only — a file dropped now would leave with the next one.
-  if (turnState !== 'idle') return;
+  if (turnState !== 'idle') return showError('Attendez la fin de la réponse pour joindre un fichier.');
   for (const file of files) {
     // Check file size
     if (file.size > MAX_FILE_SIZE) {

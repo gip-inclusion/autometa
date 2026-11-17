@@ -245,6 +245,7 @@ def test_files_cannot_be_attached_during_a_turn(conversation: str, ask: Callable
 
     expect(page.locator("#chatUploadBtn")).to_be_disabled()
     expect(page.locator("#chatPendingFiles")).to_be_empty()
+    expect(page.locator(".event-error")).to_have_text("Attendez la fin de la réponse pour joindre un fichier.")
 
 
 def test_a_message_sent_later_as_the_turn_ends_starts_the_next_turn(
