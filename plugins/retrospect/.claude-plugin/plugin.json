@@ -1,0 +1,9 @@
+{
+  "name": "retrospect",
+  "version": "0.1.0",
+  "description": "Regard en arrière sur la production d'Autometa, en local : audit qualité des conversations, problèmes systémiques, leçons",
+  "author": {
+    "name": "GIP Inclusion",
+    "url": "https://github.com/gip-inclusion/autometa"
+  }
+}

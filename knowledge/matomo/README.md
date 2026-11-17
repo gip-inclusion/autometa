@@ -1,3 +1,7 @@
+---
+source: matomo
+verifie_le: 2026-04-02
+---
 # Matomo API Reference
 
 > **Note:** You don't need to read all files here. Load only what's relevant to your query.
@@ -53,7 +57,7 @@ Scraped from the Matomo instance on 2026-01-03. This instance includes premium p
 ## Common Parameters
 
 All analytics methods accept:
-- `idSite` - Site ID (117 for Emplois)
+- `idSite` - Site ID (117 for La plateforme, ex-Emplois)
 - `period` - day, week, month, year, or range
 - `date` - YYYY-MM-DD, today, yesterday, lastN
 - `segment` - Filter expression (e.g., `pageUrl=@/gps/`)
@@ -68,7 +72,7 @@ Optional modifiers:
 ### ⚠️ Segments Are Expensive — Treat Every Segmented Query as Slow
 
 **Matomo segments trigger a full scan of raw visit data.** On large sites
-(Emplois has millions of visits), a single segmented query for one month
+(La plateforme has millions of visits), a single segmented query for one month
 takes **30–180 seconds**. This is not a bug — it's how Matomo works.
 
 **Pre-computed vs. ad-hoc segments:**

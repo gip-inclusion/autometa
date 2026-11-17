@@ -1,3 +1,7 @@
+---
+source: metabase:rdvi
+verifie_le: 2026-10-01
+---
 # RDVI Metabase Instance
 
 **URL:** https://rdv-service-public-metabase.osc-secnum-fr1.scalingo.io
@@ -461,7 +465,7 @@ The ETL anonymizes beneficiary PII systematically. Agent data is intentionally l
 ## Query Examples
 
 ```python
-from lib._sources import get_metabase
+from lib.sources import get_metabase
 api = get_metabase("rdvi")
 
 # Department KPIs

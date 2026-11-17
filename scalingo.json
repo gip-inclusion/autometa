@@ -9,5 +9,11 @@
       "generator": "url",
       "template": "%URL%/oauth2/callback"
     }
+  },
+  "formation": {
+    "web": {
+      "amount": 1,
+      "size": "XL"
+    }
   }
 }

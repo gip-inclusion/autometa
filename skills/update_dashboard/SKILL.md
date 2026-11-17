@@ -19,7 +19,7 @@ description: Update a dashboard's metadata (title, description, tags, flags, arc
 
 1. Lister les candidats actifs :
    ```bash
-   .venv/bin/python skills/list_dashboards.py | grep -i <indice>
+   python skills/list_dashboards.py | grep -i <indice>
    ```
 2. **Aucun match** : c'est probablement une création — pivoter vers `create_dashboard`, ou demander à l'utilisateur de clarifier.
 3. **Un seul match** : présenter le titre et le lien `/interactive/{slug}/` à l'utilisateur, et demander confirmation explicite avant d'invoquer `update_dashboard`.
@@ -39,7 +39,7 @@ des fonctions disponibles : `docs/interactive-dashboards.md` § La façade `lib.
 ## Usage
 
 ```bash
-.venv/bin/python skills/update_dashboard/scripts/update_dashboard.py \
+python skills/update_dashboard/scripts/update_dashboard.py \
     --slug mon-tdb \
     --title "Nouveau titre" \
     --add-tags prescription,emplois \
@@ -67,6 +67,7 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | Option | Description |
 |--------|-------------|
 | `--slug` | (obligatoire) Slug du TDB à modifier |
+| `--show` | Lecture seule, sans rien modifier : métadonnées (premier auteur, `has_cron`, `cron_enabled`, cadence), cinq derniers passages du cron (statut, durée, fin de sortie), publications actives et déclinaisons |
 | `--title` | Nouveau titre |
 | `--description` | Nouvelle description (une ligne) |
 | `--website` | Nouveau site associé |
@@ -110,15 +111,18 @@ L'`originating_user_email` (= premier auteur du TDB) est lu en DB par la fonctio
 - `1` — slug inconnu, mutex `--set-tags` ⇄ `--add-tags`/`--remove-tags`, ou autre erreur métier.
 - `2` — variables d'env manquantes (bug d'intégration).
 
+## Étape finale : vérifier avant de donner le lien
+
+Une fois les fichiers du TDB écrits (et `cron.py` lancé une première fois s'il existe), lancer le
+skill `verify_dashboard`. Tant que le verdict est échoué, corriger puis relancer — trois tentatives au
+plus. Ne donner le lien qu'après un verdict réussi, ou en listant à l'utilisateur les problèmes
+restants.
+Une modification qui ne touche que les métadonnées (titre, tags, archivage) ne se vérifie pas.
+
 ## Tags
 
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
 ```bash
-.venv/bin/python -c "
-from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
-from web.db import get_db
-with get_db() as session:
-    print(build_prompt_taxonomy(load_vocabulary(session)))
-"
+python skills/list_tags.py
 ```

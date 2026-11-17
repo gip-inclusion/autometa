@@ -32,6 +32,8 @@ qu'un appel littéral sans timeout ; un `httpx.Client()` construit sans timeout 
 
 **Façade des tableaux de bord** — `lib/dashboard_api.py`. Voir ci-dessous.
 
+**Scripts des tableaux de bord** — `lib/script_hosts.py`. Voir ci-dessous.
+
 **Protection des routes** — `scripts/check_route_auth.py`, baseline gelée dans `gates.toml`. Posée
 dès le milestone 0 : le ratchet suppose qu'un premier incident soit rattrapable, or une exposition de
 données de demandeurs d'emploi ne l'est pas.
@@ -76,6 +78,37 @@ restent à migrer. Il doit être lancé **en production** : la base de développ
 migration elle-même est une opération sur S3, pas une PR.
 
 Le passage de l'observation au blocage se décide sur ce chiffre, une fois la liste vide.
+
+## Les scripts des tableaux de bord
+
+Une page de tableau de bord s'ouvre avec la session de l'utilisateur : un script chargé d'ailleurs
+agit en son nom. Le navigateur ne laisse passer que les sites d'une liste (consigne de sécurité CSP,
+`web/csp.py`) ; un script venu d'un autre site est refusé, et la page casse sans erreur côté
+serveur. La règle est donc vérifiée **avant** que la page existe, pas seulement à l'affichage.
+
+**Une seule liste** : `lib/script_hosts.py`. La CSP et chaque contrôle la lisent ; un site ajouté y est
+autorisé partout à la fois, et un test vérifie que la CSP envoie bien chacun de ses sites.
+
+Comme pour la façade, le check ne peut pas vivre dans un diff : les pages vivent sur S3. Il
+s'applique aux moments où une page passe réellement, et **bloque d'emblée** : le scan du 19/10 a
+ouvert les 140 tableaux de bord actifs avec la politique bloquante, et les deux qui cassaient ont été
+corrigés d'abord (`docs/audits/sujets/09`).
+
+- **À l'écriture par l'agent** — le hook `guard_write_paths.py` refuse un `.html` de tableau de bord
+  qui charge un script hors liste, quel que soit l'environnement, avec le geste à faire.
+- **À l'adoption** — `create_dashboard --adopt` refuse un dossier dont une page charge un script hors
+  liste. Les gabarits de création sont testés contre la même liste.
+- **En production** — `python -m web.cron --script-audit` liste les pages des tableaux de bord actifs
+  qui chargent un script hors liste : chacune est une page cassée.
+- **À l'affichage** — la CSP refuse le script et le signale à `POST /api/csp-report`, journalisé
+  dans Datadog (`logger.name:web.csp`).
+
+Ce que les contrôles à l'écriture ne voient pas : un fichier écrit par une commande shell, et un
+script ajouté par du JavaScript à l'exécution. La CSP reste le rempart ; eux évitent la casse.
+
+Ce n'est pas une affaire de lentille : la règle est déterministe, et `design-coherence` ne juge
+pas ce qu'un vérificateur fait mieux. Une PR qui change la liste la change à un seul endroit, et les
+tests rejouent la règle.
 
 ## En réserve
 

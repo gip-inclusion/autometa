@@ -10,7 +10,6 @@ from fastapi.responses import RedirectResponse
 
 from web import helpers
 from web.config import ADMIN_USERS
-from web.conversation_embeddings.query_embedding import embed_query
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import (
@@ -21,10 +20,6 @@ from web.helpers import (
     validate_knowledge_path,
 )
 from web.search_filters import build_search_facets
-
-# Why: distance cosinus (0 = identique, 1 = orthogonal) au-delà de laquelle un message n'est plus
-# jugé pertinent pour la requête ; en deçà de résultats, on se replie sur les mots exacts.
-SEMANTIC_MAX_DISTANCE = 0.75
 
 logger = logging.getLogger(__name__)
 
@@ -307,15 +302,11 @@ def conversations(
     # Conversations
     if show_convos:
         if q:
-            # Les mots exacts (titre ou message) remontent toujours en tête ; le sens complète
-            # avec les conversations proches qui n'emploient pas ces mots.
-            keyword_ids = store.search_conversation_ids_by_keyword(q, user_id=filter_user, limit=100)
-            semantic_ids = store.search_conversation_ids_by_embedding(
-                embed_query(q), user_id=filter_user, limit=100, max_distance=SEMANTIC_MAX_DISTANCE
-            )
-            ranked_ids = keyword_ids + [cid for cid in semantic_ids if cid not in keyword_ids]
             conversations_with_tags = store.list_ranked_conversations_with_tags(
-                ranked_ids, user_id=filter_user, tag_names=active_tags or None, authors=active_authors or None
+                store.search_conversation_ids_by_keyword(q, user_id=filter_user, limit=100),
+                user_id=filter_user,
+                tag_names=active_tags or None,
+                authors=active_authors or None,
             )
         else:
             conversations_with_tags = store.list_conversations_with_tags(
@@ -365,13 +356,8 @@ def conversations(
 
     # Reports
     if show_reports:
-        reports_with_tags = store.list_reports_with_tags(
-            tag_names=active_tags or None,
-            limit=100,
-        )
+        reports_with_tags = store.list_reports_with_tags(tag_names=active_tags or None, limit=100, query=q)
         for report, tags in reports_with_tags:
-            if q and q.lower() not in report.title.lower():
-                continue
             report.tag_objects = tags
             items.append({
                 "type": "report",
@@ -394,18 +380,14 @@ def conversations(
                 ),
             })
 
-    if q:
-        # Une recherche classe par pertinence : on garde l'ordre rendu, sans tri ni regroupement par date.
-        grouped_items = {"Résultats les plus proches": items} if items else {}
-    else:
-        # Sort by date descending, undated items last
-        dated = [i for i in items if i["sort_date"] is not None]
-        undated = [i for i in items if i["sort_date"] is None]
-        dated.sort(key=lambda x: x["sort_date"], reverse=True)
-        items = dated + undated
+    # Sort by date descending, undated items last
+    dated = [i for i in items if i["sort_date"] is not None]
+    undated = [i for i in items if i["sort_date"] is None]
+    dated.sort(key=lambda x: x["sort_date"], reverse=True)
+    items = dated + undated
 
-        # Group by date
-        grouped_items = group_items_by_date(items)
+    # Group by date
+    grouped_items = group_items_by_date(items)
 
     # Merge tags from conversations and reports
     all_tags = {}

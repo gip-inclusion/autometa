@@ -1,3 +1,7 @@
+---
+source: [grist, livestorm]
+verifie_le: 2026-04-02
+---
 # Webinaires — Données de participation
 
 Base de données unifiée des webinaires et inscriptions, alimentée par deux sources :
@@ -157,7 +161,7 @@ Document: GRIST_WEBINAIRES_DOC_ID
 
 ## Taggage produit
 
-Inféré automatiquement depuis le titre du webinaire (`lib/webinaires.infer_product`).
+Inféré automatiquement depuis le titre du webinaire (`infer_product` dans `lib/webinaires.py`).
 
 | Produit | Patterns | Webinaires |
 |---------|----------|-----------|
@@ -285,4 +289,4 @@ ORDER BY n DESC;
 - **Produit** : 128 webinaires non tagués. Patterns regex simples.
 - **Livestorm** : 10 000 appels/mois. Un full sync consomme ~1 900 appels. Pas de sync incrémental des *personnes* (seulement skip des sessions déjà importées).
 - **Grist** : accès viewer (lecture seule). Pas de SQL ni webhooks.
-- **Pas de lien avec les comptes utilisateurs** des sites (Emplois, Dora…). Le rapprochement se fait uniquement par email.
+- **Pas de lien avec les comptes utilisateurs** des sites (La plateforme, Dora…). Le rapprochement se fait uniquement par email.

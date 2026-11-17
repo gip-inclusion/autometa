@@ -9,5 +9,4 @@ uv run --frozen ruff check
 uv run --frozen ruff format --check
 
 echo "pre-push — tests unitaires"
-uv run --frozen pytest tests/ infra/ -q --tb=line -x -p no:cacheprovider \
-  -m "not integration and not external"
+make test

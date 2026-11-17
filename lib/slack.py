@@ -14,11 +14,16 @@ def lookup_user(token: str, email: str) -> str | None:
     return data["user"]["id"] if data.get("ok") else None
 
 
-def post_message(token: str, channel: str, text: str) -> bool:
+def post_message(token: str, channel: str, text: str, thread_ts: str | None = None) -> str | None:
+    """Poste le message, en réponse au fil `thread_ts` s'il est donné ; renvoie son `ts`, ou None en cas d'échec."""
+    payload = {"channel": channel, "text": text}
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
     resp = httpx.post(
         "https://slack.com/api/chat.postMessage",
         headers={"Authorization": f"Bearer {token}"},
-        json={"channel": channel, "text": text},
+        json=payload,
         timeout=10,
     )
-    return resp.json().get("ok", False)
+    data = resp.json()
+    return data.get("ts") if data.get("ok") else None

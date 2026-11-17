@@ -1,0 +1,62 @@
+# Agent déclaré dans le dépôt : ce fichier, sa consigne (veille-boamp.md) et la valeur initiale de ses
+# fichiers (veille-boamp/) arrivent par PR, `make test` les valide (tests/test_agents_repo.py). Il
+# s'enregistre par le skill `agents` (propose puis create). Le mode autonomous s'ouvre par une PR sur
+# config/agent_destinations.yaml.
+#
+# Exemple de référence d'un agent composé de briques génériques : Autometa lit le BOAMP (préparations
+# url), le worker trie selon regles.md (fichier de l'agent) et rend un envoi par avis, clef juge chaque
+# envoi (filtre puis étiquettes), Autometa les regroupe en un digest, le cron run-agents le lance le lundi.
+format: pdi.agent/1
+slug: veille-boamp
+title: Veille BOAMP insertion et emploi
+mission: >-
+  Repérer chaque semaine, parmi les avis de marchés publics ouverts au BOAMP, ceux qui portent
+  sur l'insertion professionnelle, l'IAE ou l'accompagnement des bénéficiaires du RSA, pour
+  qu'un bizdev de la Plateforme de l'inclusion décide d'y répondre ou de contacter l'acheteur.
+# Why: un digest par semaine suffit à la veille ; chaque avis reste jugé à part par clef, puis Autometa
+# regroupe les avis retenus du run en un seul message, par rubrique.
+destinations:
+  - id: bizdev.marche
+    mode: background
+    grouping: digest
+schedule:
+  weekdays: [monday]
+# Why: l'export CSV n'a pas la limite de 100 lignes de /records. La fenêtre now(days=-8) à
+# now(days=-1) couvre les 7 jours complets qui précèdent le run, sans trou ni chevauchement d'un lundi
+# à l'autre. Les services sont coupés en deux (lundi à mercredi, jeudi à dimanche) : leur semaine la
+# plus chargée de l'année (1 092 avis, environ 205 caractères chacun) dépasse le plafond d'une
+# préparation (200 000 caractères). Mesures du 05/11/2026 :
+# paved-road/agent-veille-boamp/definition-of-done.md.
+preparations:
+  - type: url
+    url: https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/exports/csv?select=idweb%2Cdateparution%2Cobjet%2Cnomacheteur%2Ccode_departement%2Cdatelimitereponse%2Cdescripteur_libelle&where=nature%3D%22APPEL_OFFRE%22+and+etat%3D%22INITIAL%22+and+type_marche%3D%22SERVICES%22+and+dateparution%3E%3Dnow%28days%3D-8%29+and+dateparution%3Cnow%28days%3D-5%29&order_by=datelimitereponse&delimiter=%3B
+    cap: 200000
+  - type: url
+    url: https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/exports/csv?select=idweb%2Cdateparution%2Cobjet%2Cnomacheteur%2Ccode_departement%2Cdatelimitereponse%2Cdescripteur_libelle&where=nature%3D%22APPEL_OFFRE%22+and+etat%3D%22INITIAL%22+and+type_marche%3D%22SERVICES%22+and+dateparution%3E%3Dnow%28days%3D-5%29+and+dateparution%3Cnow%28days%3D-1%29&order_by=datelimitereponse&delimiter=%3B
+    cap: 200000
+  - type: url
+    url: https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/exports/csv?select=idweb%2Cdateparution%2Cobjet%2Cnomacheteur%2Ccode_departement%2Cdatelimitereponse%2Cdescripteur_libelle&where=nature%3D%22APPEL_OFFRE%22+and+etat%3D%22INITIAL%22+and+type_marche%3D%22FOURNITURES%22+and+dateparution%3E%3Dnow%28days%3D-8%29+and+dateparution%3Cnow%28days%3D-1%29&order_by=datelimitereponse&delimiter=%3B
+    cap: 120000
+# Why: le worker trie large par mots-clés (rappel), clef juge chaque avis à part (précision). Le filtre
+# à 0,7 écarte un avis seulement quand clef le juge nettement hors sujet ; l'écart reste enregistré avec
+# sa probabilité, lisible en mode background pour régler le seuil. Les étiquettes ne retirent rien : 0,5 veut dire
+# « plus probable que non », un avis peut porter les deux rubriques ou aucune.
+subagents:
+  - type: classifier
+    model: "clef:27b"
+    question: >-
+      L'avis achète-t-il une prestation ou un outil au service de l'insertion professionnelle, de
+      l'IAE, de l'accompagnement des bénéficiaires du RSA ou du retour à l'emploi ?
+    threshold: 0.7
+  - type: classifier
+    model: "clef:27b"
+    labels:
+      - name: outils-numeriques
+        question: >-
+          L'avis achète-t-il un logiciel, une plateforme, une application ou un service numérique ?
+      - name: prestations-insertion
+        question: >-
+          L'avis achète-t-il une prestation d'insertion, d'accompagnement vers l'emploi ou de suivi
+          de personnes en parcours ?
+    threshold: 0.5
+files: [regles.md]

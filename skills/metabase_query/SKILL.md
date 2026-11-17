@@ -11,8 +11,7 @@ Query the Metabase instances for IAE (Insertion par l'Activite Economique) emplo
 
 Before querying, read the relevant documentation:
 - `knowledge/metabase/` - Tables, schemas, data dictionary
-- `knowledge/stats/dashboards/` - Dashboard cards with IDs and SQL
-- `knowledge/stats/cards/` - Cards grouped by topic
+- `data/cache/metabase/` - Dashboard and card inventory (IDs, SQL), refreshed daily from the Metabase API
 
 ## Usage
 
@@ -68,9 +67,7 @@ for card in cards:
     print(f"{card['id']}: {card['name']}")
 ```
 
-Card metadata is also documented in:
-- `knowledge/stats/dashboards/` - Dashboard cards with IDs and SQL
-- `knowledge/stats/cards/` - Cards grouped by topic
+Card metadata is also available in `data/cache/metabase/` (daily inventory).
 
 ## Available Methods
 
@@ -87,11 +84,23 @@ Card metadata is also documented in:
 - `get_dashboard(dashboard_id)` - Get dashboard metadata
 - `list_dashboards(collection_id)` - List dashboards in a collection
 
+**Schema methods** — find a table, its columns, or the field a GUI question refers to by id:
+- `list_databases()` - Databases of the instance (id, name, engine)
+- `list_tables(database_id)` - Tables of a database (id, schema, name), without fields
+- `get_table_metadata(table_id)` - A table with its fields
+- `get_field(field_id)` - A field: name, table_id, base_type
+- `get_version()` - Metabase version, e.g. `v0.64.4`, before explaining a UI feature
+
+Never call `api._request` or Metabase with raw httpx: a read no method covers is a gap to report, not to work around.
+
+**Writing is not supported**: the agent never creates, modifies, moves or archives a question, a collection or a dashboard in Metabase. When the user wants a saved question, give them the SQL and the `build_sql_url` link (`lib.metabase`) that opens it in Metabase, where they save it themselves.
+
 ## Instances
 
 | Instance | URL | Database ID | Purpose |
 |----------|-----|-------------|---------|
-| stats | stats.inclusion.beta.gouv.fr | 2 | IAE employment statistics |
-| datalake | datalake.inclusion.beta.gouv.fr | 2 | Cross-product analytics |
-| dora | metabase.dora.inclusion.gouv.fr | 2 | Dora services directory (structures, services, orientations) |
-| data_inclusion | metabase.data.inclusion.gouv.fr | — | Modèles Metabase uniquement via `list_metabase_models(instance="data_inclusion", ...)` |
+| `stats` | stats.inclusion.beta.gouv.fr | 2 | IAE employment statistics |
+| `datalake` | datalake.inclusion.beta.gouv.fr | 2 | Cross-product analytics |
+| `dora` | metabase.dora.inclusion.gouv.fr | 2 | Dora services directory (structures, services, orientations). SQL only: the API key cannot open cards or dashboards (403), so `search_cards` / `execute_card` do not work here |
+| `rdvi` | rdv-service-public-metabase.osc-secnum-fr1.scalingo.io | 2 | RDV-Insertion (Prod ETL) — see `knowledge/rdvi/README.md` |
+| `data_inclusion` | metabase.data.inclusion.gouv.fr | — | Modèles Metabase uniquement via `list_metabase_models(instance="data_inclusion", ...)` |

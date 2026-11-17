@@ -10,7 +10,7 @@ from lib.source_inventory import list_inventory
 
 from .db import get_db
 from .models import MatomoDimension, MatomoEvent, MatomoSegment
-from .source_checks import redact
+from .redaction import redact
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,10 @@
-# Site institutionnel de La plateforme de l'inclusion
+---
+source: matomo:212
+verifie_le: 2026-10-02
+---
+# Site institutionnel (inclusion.gouv.fr)
 
-Site vitrine institutionnel de La plateforme de l'inclusion. À ne pas confondre avec **Plateforme**,
+Site vitrine institutionnel de la PDI. À ne pas confondre avec **La plateforme**,
 l'application (ID Matomo 117, `plateforme.inclusion.gouv.fr`, [plateforme-ex-emplois.md](plateforme-ex-emplois.md)).
 
 - URL : https://inclusion.gouv.fr

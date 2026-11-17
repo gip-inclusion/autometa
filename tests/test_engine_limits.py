@@ -1,5 +1,7 @@
 """Clé de limite partagée par les workers, lue par les prompts courts, pilotable à la main."""
 
+import threading
+
 import fakeredis
 import pytest
 
@@ -25,6 +27,16 @@ def test_a_redis_outage_does_not_block_short_prompts(mocker):
     mocker.patch.object(engine_limits.redis.Redis, "from_url", side_effect=engine_limits.redis.RedisError("down"))
 
     assert engine_limits.backend_is_limited("cli") is False
+
+
+def test_dod_3_a_silent_redis_does_not_hold_short_prompts(silent_redis):
+    """Une connexion muette vaut une panne : le titre part après quelques secondes au plus."""
+    result = []
+    worker = threading.Thread(target=lambda: result.append(engine_limits.backend_is_limited("cli")), daemon=True)
+    worker.start()
+    worker.join(3)
+
+    assert result == [False]
 
 
 def test_an_operator_can_simulate_then_clear_a_limit(fake_redis):

@@ -1,6 +1,9 @@
 """Tests for lib/query.py — the public query API."""
 
 import pytest
+from sqlalchemy.exc import OperationalError, ProgrammingError
+
+from lib import query
 
 
 def test_query_module_imports():
@@ -76,6 +79,19 @@ def test_execute_metabase_sql(mocker):
     assert result.success is True
     assert result.data["row_count"] == 1
     mock_api.execute_sql.assert_called_once()
+
+
+def test_execute_metabase_sql_passes_bound_params(mocker):
+    from lib.query import CallerType, execute_metabase_query
+
+    mock_api = metabase_api_mock(mocker)
+    mocker.patch("lib.query.get_metabase", return_value=mock_api)
+
+    execute_metabase_query(
+        instance="stats", caller=CallerType.AGENT, sql="SELECT {{n}}", database_id=2, params={"n": 1}
+    )
+
+    mock_api.execute_sql.assert_called_once_with("SELECT {{n}}", timeout=60, params={"n": 1})
 
 
 def test_execute_metabase_card(mocker):
@@ -679,3 +695,165 @@ def test_execute_query_unknown_source_lists_dashboard_storage():
 
     assert result.success is False
     assert "dashboard_storage" in result.error
+
+
+@pytest.mark.parametrize(
+    ("error", "invalid_request"),
+    [
+        (ProgrammingError("SELECT * FROM absente", {}, Exception("relation does not exist")), True),
+        (OperationalError("SELECT 1", {}, Exception("server closed the connection")), False),
+    ],
+)
+def test_sql_error_flags_invalid_request_only_when_the_query_is_at_fault(mocker, error, invalid_request):
+    from lib import query as q
+
+    mocker.patch("web.config.DASHBOARD_STORAGE_DB_URL", "postgresql://u:p@db/app")
+    mocker.patch("lib.query._pg_execute_sql", side_effect=error)
+
+    result = q.execute_dashboard_storage_query(sql="SELECT 1", caller=q.CallerType.APP)
+
+    assert result.success is False
+    assert result.invalid_request is invalid_request
+
+
+def test_execute_query_unknown_source_is_an_invalid_request():
+    from lib import query as q
+
+    assert q.execute_query(source="nope", instance="", caller=q.CallerType.APP).invalid_request is True
+
+
+def test_execute_github_query_reads_a_path_of_an_allowed_repository(mocker):
+    from lib import query as q
+
+    api = mocker.patch("lib.query.github.api", return_value=[{"number": 1}])
+
+    result = q.execute_github_query("/repos/betagouv/r/pulls", q.CallerType.APP, params={"state": "closed"})
+
+    assert result.data == [{"number": 1}]
+    api.assert_called_once_with("/repos/betagouv/r/pulls", {"state": "closed"}, timeout=30)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda q: q.execute_github_query("user/repos", q.CallerType.APP),
+        lambda q: q.execute_github_query("repos/autre-org/r/pulls", q.CallerType.APP),
+        lambda q: q.execute_github_query("repos/gip-inclusion/../../user/repos", q.CallerType.APP),
+        lambda q: q.execute_github_file("autre-org/r", "a.py", q.CallerType.APP),
+        lambda q: q.execute_github_search("autre-org/r", "x", q.CallerType.APP),
+        lambda q: q.execute_github_search("gip-inclusion/r", "x", q.CallerType.APP, ref="--depth=1000"),
+    ],
+)
+def test_github_executors_refuse_a_request_outside_what_they_allow_before_any_call(mocker, call):
+    from lib import query as q
+
+    get = mocker.patch("lib.github.httpx.request")
+    run = mocker.patch("lib.github.subprocess.run")
+
+    result = call(q)
+
+    assert (result.success, result.invalid_request) == (False, True)
+    get.assert_not_called()
+    run.assert_not_called()
+
+
+def test_execute_notion_query_forwards_filter_and_sorts(mocker):
+    from lib import query as q
+
+    query_database = mocker.patch("lib.query.notion.query_database", return_value=[{"id": "p1"}])
+
+    result = q.execute_notion_query("db1", q.CallerType.APP, filter={"property": "Statut"}, sorts=[{"property": "D"}])
+
+    assert result.data == [{"id": "p1"}]
+    query_database.assert_called_once_with("db1", filter={"property": "Statut"}, sorts=[{"property": "D"}])
+
+
+def test_execute_tally_query_returns_questions_and_all_submissions(mocker):
+    from lib import query as q
+
+    client = mocker.patch("lib.query.TallyClient").return_value.__enter__.return_value
+    client.list_questions.return_value = {"questions": [{"id": "q1"}]}
+    client.iter_submissions.return_value = iter([{"id": "s1"}, {"id": "s2"}])
+
+    result = q.execute_tally_query("form1", q.CallerType.APP, filter="completed")
+
+    assert result.data == {"questions": [{"id": "q1"}], "submissions": [{"id": "s1"}, {"id": "s2"}]}
+    client.iter_submissions.assert_called_once_with("form1", filter="completed")
+
+
+def test_execute_zendesk_search_returns_tickets_as_dicts(mocker):
+    from lib import query as q
+    from lib.zendesk import ZendeskTicket
+
+    client = mocker.patch("lib.query.get_zendesk").return_value.__enter__.return_value
+    client.search_tickets.return_value = [ZendeskTicket(7, "Sujet", "open", "t", "t", 1, None, [])]
+
+    result = q.execute_zendesk_search("group:emplois", q.CallerType.APP, sort_by="created_at", max_results=10)
+
+    assert result.data == [
+        {
+            "id": 7,
+            "subject": "Sujet",
+            "status": "open",
+            "created_at": "t",
+            "updated_at": "t",
+            "requester_id": 1,
+            "assignee_id": None,
+            "tags": [],
+        }
+    ]
+    client.search_tickets.assert_called_once_with(
+        "group:emplois", sort_by="created_at", sort_order=None, max_results=10
+    )
+
+
+@pytest.mark.parametrize(
+    ("execute", "patched", "kwargs"),
+    [
+        ("execute_github_query", "lib.query.github.api", {"path": "repos/gip-inclusion/x"}),
+        ("execute_github_file", "lib.query.github.read", {"repo": "gip-inclusion/x", "path": "a.py"}),
+        ("execute_github_search", "lib.query.github.clone", {"repo": "gip-inclusion/x", "pattern": "a"}),
+        ("execute_notion_query", "lib.query.notion.query_database", {"database_id": "db1"}),
+        ("execute_tally_query", "lib.query.TallyClient", {"form_id": "f1"}),
+        ("execute_zendesk_search", "lib.query.get_zendesk", {"query": "x"}),
+        ("execute_zendesk_view_counts", "lib.query.get_zendesk", {"view_ids": [1]}),
+        ("execute_zendesk_view_dates", "lib.query.get_zendesk", {"view_id": 1}),
+    ],
+)
+def test_read_only_api_executors_turn_a_failure_into_a_failed_result(mocker, execute, patched, kwargs):
+    from lib import query as q
+
+    mocker.patch(patched, side_effect=RuntimeError("HTTP 503"))
+
+    result = getattr(q, execute)(caller=q.CallerType.APP, **kwargs)
+
+    assert result.success is False
+    assert result.error == "HTTP 503"
+
+
+def test_a_failed_query_is_noted_for_the_cron_runner_first_line_only(mocker, tmp_path):
+    failures = tmp_path / "failures"
+    mocker.patch.object(query.config, "query_failures_path", return_value=str(failures))
+
+    query.record_query_failure("HTTP 500: boom\nFailing row contains (donnée)")
+    query.record_query_failure("HTTP 400: sql")
+
+    assert failures.read_text().splitlines() == ["HTTP 500: boom", "HTTP 400: sql"]
+
+
+def test_a_query_outside_a_cron_notes_nothing(mocker):
+    mocker.patch.object(query.config, "query_failures_path", return_value=None)
+    opened = mocker.spy(query.Path, "open")
+
+    query.record_query_failure("HTTP 500: boom")
+
+    assert not opened.called
+
+
+def test_an_unwritable_failures_file_never_breaks_the_query(mocker, tmp_path):
+    mocker.patch.object(query.config, "query_failures_path", return_value=str(tmp_path / "absent" / "failures"))
+    warning = mocker.patch.object(query.logger, "warning")
+
+    query.record_query_failure("HTTP 500: boom")
+
+    warning.assert_called_once()

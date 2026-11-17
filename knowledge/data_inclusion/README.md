@@ -1,3 +1,7 @@
+---
+source: data_inclusion
+verifie_le: 2026-04-02
+---
 # data·inclusion — Datawarehouse
 
 Base PostgreSQL (+PostGIS) consolidant l'offre d'insertion sociale et professionnelle en France. 110k structures, 180k services, 17 sources. Code source : `gip-inclusion/data-inclusion`.

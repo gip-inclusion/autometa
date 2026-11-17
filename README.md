@@ -1,8 +1,8 @@
 # Autometa
 
-Assistant IA pour l'analyse des données métier de la Plateforme de l'inclusion.
+Assistant IA pour l'analyse des données métier de la PDI.
 
-Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données métier) pour répondre aux questions sur l'usage des services numériques de la Plateforme.
+Autometa combine les APIs **Matomo** (analytics web) et **Metabase** (données métier) pour répondre aux questions sur l'usage des services numériques de la PDI.
 
 ## Fonctionnalités
 
@@ -178,7 +178,8 @@ git push scalingo main
 
 **Fichiers de configuration :**
 - `Procfile` : uvicorn derrière oauth2-proxy
-- `.buildpacks` : Python + oauth2-proxy
+- `.buildpacks` : apt (bibliothèques de l'`Aptfile`) + Python + oauth2-proxy
+- `bin/post_compile` : installe le CLI Claude Code et le Chromium de `verify_dashboard`
 - `.python-version` : version Python
 - `pyproject.toml` / `uv.lock` : dépendances (uv)
 
@@ -220,10 +221,31 @@ et échoue s'il a bougé.
 
 Une review app est un enfant de `autometa-staging` : elle **hérite de ses variables
 d'environnement**, donc de vraies clés Matomo, Metabase, S3 et du token Anthropic. Elle reçoit en
-revanche ses **propres addons**, vides — les migrations sont jouées au postdeploy, mais aucune
-donnée n'est copiée. Concrètement : ni tableau de bord, ni catalogue Matomo ou Metabase. Pour
-relire une modification d'interface ou d'API c'est sans importance, pour relire un changement qui
-touche les tableaux de bord, il n'y aura rien à voir.
+revanche ses **propres addons**, vides : aucune donnée de staging n'est copiée, et le catalogue
+Matomo ou Metabase reste vide.
+
+Le postdeploy joue les migrations, puis pose un **jeu de démonstration** inventé
+(`fixtures/review/`) : cinq conversations (une très longue, une d'administrateur, une conversation
+et son clone, une signalée) et six tableaux de bord (sans cron, avec cron et historique
+d'exécutions, publié en staging, en requête live sur `autometa_tables_db`, avec persistance dans
+`dashboard_storage`, archivé). L'administrateur est fictif, `admin.demo@example.org`, ajouté à
+`ADMIN_USERS` sur les seules review apps. Chaque déploiement purge le jeu puis le recrée : ce qu'on
+y a modifié disparaît. Un échec ne bloque pas le déploiement : il part dans Sentry. Pour le
+retirer :
+
+```bash
+scalingo --app autometa-staging-pr<N> run python -m lib.review_fixtures --purge
+```
+
+Le prochain déploiement le repose. Les tags restent.
+
+Les fichiers des tableaux de bord vont dans le bucket S3 de staging, et la publication dans le
+bucket public de staging. `DASHBOARD_STORAGE_DB_URL` est lui aussi hérité : la table de notes du
+tableau à persistance vit dans la base de staging. Toutes les review apps partagent ces copies :
+la dernière déployée impose sa version des fichiers de `fixtures/review/`, staging les voit aussi,
+et la purge les laisse en place. Les `data.json` sont écrits au seed par le
+`cron.py` de démonstration, puis chaque nuit par `cron.json`, que la review app exécute comme
+staging, sans appel réseau.
 
 Le job attend la fin du build avant de publier l'URL, donc elle répond dès qu'elle apparaît dans
 la PR — au prix de deux à trois minutes de CI en plus. En contrepartie, une review app qui ne
@@ -279,7 +301,8 @@ tant qu'`OLLAMA_API_KEY` est vide, et Ollama Cloud dès qu'elle est renseignée.
 
 `AGENT_FALLBACK_BACKEND=cli-ollama` fait continuer les conversations sur Ollama quand la limite d'usage
 Claude est atteinte, jusqu'à l'heure de reprise annoncée. Si le secours épuise à son tour son quota,
-l'utilisateur reçoit un message de limite globale. Vide, la fonctionnalité est éteinte.
+l'utilisateur reçoit un message de limite globale. Vide, la fonctionnalité est éteinte. Le secours reçoit le même
+prompt système que Claude, adresse e-mail de l'utilisateur courant comprise.
 
 Simuler une coupure (pour tester la bascule en staging) ou en lever une (faux positif) :
 
@@ -301,4 +324,4 @@ Les résultats sont stockés dans `evals/` (gitignored).
 
 ## Licence
 
-Projet interne GIP Plateforme de l'inclusion.
+Projet interne de la PDI (Plateforme de l'inclusion).

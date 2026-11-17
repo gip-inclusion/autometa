@@ -24,7 +24,6 @@ def test_utcnow_isoformat_contains_offset():
         ("web.stores.records", "utcnow"),
         ("web.stores.conversations", "utcnow"),
         ("web.cron", "utcnow"),
-        ("web.slack_feedback", "utcnow"),
     ],
 )
 def test_modules_import_utcnow(module_path, function_or_attr):

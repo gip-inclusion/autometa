@@ -1,0 +1,25 @@
+# Liste fermée des destinations où un agent peut écrire. Seul endroit où une destination existe :
+# une configuration d'agent (format pdi.agent/1) qui en cite une autre est refusée.
+#
+# channel : slack (un message dans un canal) ou notion (une page dans une base).
+# L'identifiant réel du canal Slack ou de la base Notion n'est pas ici : il vit dans la variable
+# d'environnement AGENT_DESTINATION_TARGETS de l'instance, un objet JSON id -> identifiant.
+# Slack s'écrit avec le bot des agents (AGENT_SLACK_BOT_TOKEN), invité dans ces seuls canaux :
+# création décrite dans .env.example.
+#
+# autonomous_allowed : agents autorisés à écrire ici sans relecture (mode autonomous). La liste
+# s'allonge par PR, après une période en mode background jugée utile. Les modes background et
+# conversational sont ouverts à tous.
+
+destinations:
+  - id: produit.signal_faible
+    channel: slack
+    autonomous_allowed: []
+
+  - id: bizdev.marche
+    channel: slack
+    autonomous_allowed: []
+
+  - id: produit.opportunite
+    channel: notion
+    autonomous_allowed: []

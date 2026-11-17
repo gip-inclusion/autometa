@@ -79,6 +79,7 @@ def test_scheduling_does_not_scan_s3_nor_alert(mocker):
     """L'audit tombait avant tout filtrage batch : deux passes par jour, un pavé Slack par passe."""
     read = mocker.patch.object(cron, "read_cron_script", return_value=OFFENDING)
     notify = mocker.patch.object(cron.alerts, "notify_alert_channel")
+    mocker.patch.object(cron, "notify_batch_summary")
     execute = mocker.patch.object(cron, "execute_task", return_value={"status": "success", "duration_ms": 1})
     mocker.patch.object(
         cron,

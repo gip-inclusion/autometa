@@ -5,6 +5,9 @@ for static HTML/JS apps served from /interactive.
 """
 
 import asyncio
+import logging
+import re
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request
 from fastapi.encoders import jsonable_encoder
@@ -14,6 +17,7 @@ from lib.query import CallerType, execute_query
 from web.config import CORS_ALLOWED_ORIGINS
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 # FIXME(vperron): seems that there SHOULD be an already existing library for CORS handling.
@@ -41,6 +45,12 @@ def validate_query_request(data: dict) -> str | None:
     ) and not data.get("sql"):
         return "sql is required for this source"
     return None
+
+
+def dashboard_slug(referer: str | None) -> str | None:
+    """Slug du TDB appelant, déduit de l'URL de la page qui fait l'appel."""
+    match = re.search(r"/(?:interactive|dashboards)/([\w-]+)/", urlparse(referer or "").path)
+    return match and match.group(1)
 
 
 def coerce_timeout(value) -> int:
@@ -124,12 +134,20 @@ async def query(request: Request):
     )
 
     if not result.success:
+        logger.warning(
+            "api.query.failed",
+            extra={
+                "dashboard.slug": dashboard_slug(request.headers.get("Referer")),
+                "query.source": source,
+                "query.invalid_request": result.invalid_request,
+            },
+        )
         return JSONResponse(
             {
                 "error": f"Requête {source} ({instance}) échouée : {result.error}",
                 "execution_time_ms": result.execution_time_ms,
             },
-            status_code=502,
+            status_code=400 if result.invalid_request else 502,
             headers=cors,
         )
 

@@ -1,3 +1,7 @@
+---
+source: notion
+verifie_le: 2026-09-11
+---
 # API Notion
 
 Le client du projet est `lib/notion.py`, bâti sur `httpx`. Il lit **et** écrit. Le skill

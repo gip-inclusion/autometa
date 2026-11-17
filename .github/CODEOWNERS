@@ -21,32 +21,32 @@
 
 # --- Les gates eux-mêmes : sans eux, l'agent se débloque en abaissant un seuil ---
 
-/gates.toml                 @louije @Annaelle24 @cdarnispro
-/.github/workflows/         @louije @Annaelle24 @cdarnispro
-/.github/CODEOWNERS         @louije @Annaelle24 @cdarnispro
-/.claude/hooks/             @louije @Annaelle24 @cdarnispro
-/.claude/settings.json      @louije @Annaelle24 @cdarnispro
-/Makefile                   @louije @Annaelle24 @cdarnispro
-/pyproject.toml             @louije @Annaelle24 @cdarnispro
-/.githooks/                 @louije @Annaelle24 @cdarnispro
-/scripts/                   @louije @Annaelle24 @cdarnispro
-/lib/attestation.py         @louije @Annaelle24 @cdarnispro
-/plugins/paved-road/        @louije @Annaelle24 @cdarnispro
+/gates.toml                 @louije @Annaelle24 @cdarnispro @YannickPassa
+/.github/workflows/         @louije @Annaelle24 @cdarnispro @YannickPassa
+/.github/CODEOWNERS         @louije @Annaelle24 @cdarnispro @YannickPassa
+/.claude/hooks/             @louije @Annaelle24 @cdarnispro @YannickPassa
+/.claude/settings.json      @louije @Annaelle24 @cdarnispro @YannickPassa
+/Makefile                   @louije @Annaelle24 @cdarnispro @YannickPassa
+/pyproject.toml             @louije @Annaelle24 @cdarnispro @YannickPassa
+/.githooks/                 @louije @Annaelle24 @cdarnispro @YannickPassa
+/scripts/                   @louije @Annaelle24 @cdarnispro @YannickPassa
+/lib/attestation.py         @louije @Annaelle24 @cdarnispro @YannickPassa
+/plugins/paved-road/        @louije @Annaelle24 @cdarnispro @YannickPassa
 
 # --- Zones critiques : la liste que `.claude/rules/zones-critiques.md` demande à l'agent de
 # signaler, ici rendue contraignante. Les deux fichiers coexistent et divergent d'une entrée ou
 # deux : la rule s'adresse à l'agent, celle-ci à GitHub. ---
 
-/web/db.py                  @louije @Annaelle24 @cdarnispro
-/web/runner.py              @louije @Annaelle24 @cdarnispro
-/web/uploads.py             @louije @Annaelle24 @cdarnispro
-/web/s3.py                  @louije @Annaelle24 @cdarnispro
-/web/notion.py              @louije @Annaelle24 @cdarnispro
-/web/agents/base.py         @louije @Annaelle24 @cdarnispro
-/web/agents/cli.py          @louije @Annaelle24 @cdarnispro
-/lib/matomo.py              @louije @Annaelle24 @cdarnispro
-/lib/metabase.py            @louije @Annaelle24 @cdarnispro
-/config/sources.yaml        @louije @Annaelle24 @cdarnispro
-/docker-compose.yml         @louije @Annaelle24 @cdarnispro
-/Dockerfile                 @louije @Annaelle24 @cdarnispro
-/cron.json                  @louije @Annaelle24 @cdarnispro
+/web/db.py                  @louije @Annaelle24 @cdarnispro @YannickPassa
+/web/runner.py              @louije @Annaelle24 @cdarnispro @YannickPassa
+/web/uploads.py             @louije @Annaelle24 @cdarnispro @YannickPassa
+/web/s3.py                  @louije @Annaelle24 @cdarnispro @YannickPassa
+/web/notion.py              @louije @Annaelle24 @cdarnispro @YannickPassa
+/web/agents/base.py         @louije @Annaelle24 @cdarnispro @YannickPassa
+/web/agents/cli.py          @louije @Annaelle24 @cdarnispro @YannickPassa
+/lib/matomo.py              @louije @Annaelle24 @cdarnispro @YannickPassa
+/lib/metabase.py            @louije @Annaelle24 @cdarnispro @YannickPassa
+/config/sources.yaml        @louije @Annaelle24 @cdarnispro @YannickPassa
+/docker-compose.yml         @louije @Annaelle24 @cdarnispro @YannickPassa
+/Dockerfile                 @louije @Annaelle24 @cdarnispro @YannickPassa
+/cron.json                  @louije @Annaelle24 @cdarnispro @YannickPassa

@@ -17,6 +17,6 @@ def run(task: Callable[[], None]) -> None:
         task()
     except Exception:
         # Why: un échec doit ressortir en log structuré et en code de retour, pas en traceback nu
-        # — c'est ce que le runner lit pour enregistrer le run, fermer Sentry et alerter une fois.
+        # — c'est ce que le runner lit pour enregistrer le run, et alerter une fois.
         logger.exception("cron task failed")
         sys.exit(1)

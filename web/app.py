@@ -13,10 +13,10 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib import failure_detection
+from lib import agent_config, failure_detection
 from lib.variants import KEY_RE, list_variants
 
-from . import config, memory_introspect, sync_to_s3
+from . import config, csp, memory_introspect, sync_to_s3
 from . import s3 as s3_module
 from .deps import templates
 from .helpers import sanitize_for_log
@@ -72,6 +72,7 @@ async def lifespan(app: FastAPI):
             "Échec de l'init du schéma dashboard_storage au démarrage — les détections d'erreur ne seront pas journalisées"
         )
 
+    agent_config.warn_target_gaps()
     await runner.startup()
     mem_task = asyncio.create_task(_memory_profile_loop()) if config.MEMORY_PROFILE_INTERVAL > 0 else None
 
@@ -89,6 +90,7 @@ app = FastAPI(lifespan=lifespan)
 instrument_app(app)
 
 app.middleware("http")(request_id_middleware)
+app.middleware("http")(csp.csp_middleware)
 
 
 @app.middleware("http")
@@ -203,6 +205,7 @@ from .selftest import router as selftest_router  # noqa: E402
 app.include_router(selftest_router)
 app.include_router(benchmark_router)
 app.include_router(query.router)
+app.include_router(csp.router)
 app.include_router(auth.router)
 app.include_router(knowledge.router)
 app.include_router(reports.api_router)

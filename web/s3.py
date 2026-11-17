@@ -15,6 +15,10 @@ from . import config
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_for_log(value: str) -> str:
+    return value.replace("\r", "").replace("\n", "")
+
+
 def make_client():
     return boto3.client(
         "s3",
@@ -27,6 +31,8 @@ def make_client():
             connect_timeout=5,
             read_timeout=10,
             retries={"max_attempts": 2, "mode": "standard"},
+            # Why: le bucket dans l'hôte laisse la CSP des TDB autoriser ce seul bucket (web/csp.py).
+            s3={"addressing_style": "virtual"},
         ),
     )
 
@@ -158,6 +164,7 @@ class S3Store:
                         "path": obj["Key"][len(self.prefix) :],
                         "size": obj["Size"],
                         "last_modified": obj["LastModified"],
+                        "etag": obj["ETag"].strip('"'),
                     })
         except (ClientError, BotoCoreError) as e:
             if raise_errors:
@@ -186,7 +193,8 @@ class S3Store:
 
 interactive = S3Store("interactive/")
 sessions = S3Store("sessions/")
-uploads = S3Store("interactive/uploads/")
+# Why: hors de `interactive/`, que l'application sert à tout utilisateur connecté et recopie sur le disque au démarrage.
+uploads = S3Store("uploads/")
 publications = S3Store("publications/")
 job_inputs = S3Store("job-inputs/")
 zendesk = S3Store("zendesk/")
@@ -200,6 +208,31 @@ def list_prefix(bucket: str, prefix: str) -> list[str]:
         for obj in page.get("Contents", []):
             keys.append(obj["Key"])
     return keys
+
+
+def etags_under(bucket: str, prefix: str) -> dict[str, str]:
+    """{chemin relatif au préfixe: ETag} des objets sous prefix. ETag préservé par copy_object (sans gzip)."""
+    # Why: l'ETag est comparable entre interactive/{slug}/ et son snapshot figé (même bucket, pas de
+    # gzip). S3 injoignable renvoie {} comme list_files : deux {} égaux = pas de faux retard.
+    etags: dict[str, str] = {}
+    try:
+        paginator = _client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                etags[obj["Key"][len(prefix) :]] = obj["ETag"].strip('"')
+    except (ClientError, BotoCoreError) as e:
+        logger.error("S3 etags failed for %s/%s: %s", _sanitize_for_log(bucket), _sanitize_for_log(prefix), e)
+    return etags
+
+
+def put_object(bucket: str, key: str, content: bytes, content_type: str) -> bool:
+    """Dépose un objet dans un bucket donné, hors du préfixe d'un S3Store (bucket public, par exemple)."""
+    try:
+        _client.put_object(Bucket=bucket, Key=key, Body=content, ContentType=content_type)
+        return True
+    except (ClientError, BotoCoreError) as e:
+        logger.error("S3 put failed for %s/%s: %s", bucket, key, e)
+        return False
 
 
 COMPRESSIBLE_EXTS = frozenset({".css", ".csv", ".html", ".js", ".json", ".map", ".mjs", ".svg", ".txt", ".xml"})

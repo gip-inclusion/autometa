@@ -61,10 +61,12 @@ def paginate_pages(mocker, pages):
     return paginator
 
 
-def test_list_files_strips_the_store_prefix(monkeypatch, mocker):
+def test_list_files_strips_the_store_prefix_and_the_etag_quotes(monkeypatch, mocker):
     monkeypatch.setattr("web.s3.config.S3_BUCKET", "test-bucket")
-    paginate_pages(mocker, [{"Contents": [{"Key": "sessions/a/b.jsonl", "Size": 3, "LastModified": "t"}]}])
-    assert s3.sessions.list_files("a/") == [{"path": "a/b.jsonl", "size": 3, "last_modified": "t"}]
+    paginate_pages(
+        mocker, [{"Contents": [{"Key": "sessions/a/b.jsonl", "Size": 3, "LastModified": "t", "ETag": '"abc"'}]}]
+    )
+    assert s3.sessions.list_files("a/") == [{"path": "a/b.jsonl", "size": 3, "last_modified": "t", "etag": "abc"}]
 
 
 @pytest.mark.parametrize("raise_errors", [False, True])
@@ -101,3 +103,50 @@ def test_list_files_treats_an_unreachable_endpoint_like_any_other_s3_error(monke
             s3.sessions.list_files("a/", raise_errors=True)
     else:
         assert s3.sessions.list_files("a/") == []
+
+
+def test_etags_under_maps_relative_path_to_etag(mocker):
+    paginate_pages(
+        mocker,
+        [
+            {
+                "Contents": [
+                    {"Key": "interactive/d/index.html", "ETag": '"abc"'},
+                    {"Key": "interactive/d/app.js", "ETag": '"def"'},
+                ]
+            }
+        ],
+    )
+    assert s3.etags_under("b", "interactive/d/") == {"index.html": "abc", "app.js": "def"}
+
+
+def test_etags_under_returns_empty_when_s3_unreachable(mocker):
+    paginate_pages(mocker, []).paginate.side_effect = EndpointConnectionError(endpoint_url="https://s3.example.org")
+    assert s3.etags_under("b", "interactive/d/") == {}
+
+
+def test_put_object_writes_to_the_given_bucket(mocker):
+    put = mocker.patch.object(s3._client, "put_object")
+
+    assert s3.put_object("public", "contrat-tdb/manifest.json", b"{}", "application/json") is True
+    put.assert_called_once_with(
+        Bucket="public", Key="contrat-tdb/manifest.json", Body=b"{}", ContentType="application/json"
+    )
+
+
+@pytest.mark.parametrize("exc", [ClientError({"Error": {"Code": "403", "Message": "x"}}, "PutObject"), BotoCoreError()])
+def test_put_object_returns_false_instead_of_raising(mocker, exc):
+    mocker.patch.object(s3._client, "put_object", side_effect=exc)
+
+    assert s3.put_object("public", "k", b"{}", "application/json") is False
+
+
+def test_presigned_urls_name_the_bucket_in_the_host(monkeypatch):
+    monkeypatch.setattr("web.s3.config.S3_ENDPOINT", "https://s3.fr-par.scw.cloud")
+    monkeypatch.setattr("web.s3.config.S3_REGION", "fr-par")
+    monkeypatch.setattr("web.s3.config.S3_ACCESS_KEY", "key")
+    monkeypatch.setattr("web.s3.config.S3_SECRET_KEY", "secret")
+
+    url = s3.make_client().generate_presigned_url("get_object", Params={"Bucket": "autometa", "Key": "a/app.js"})
+
+    assert url.startswith("https://autometa.s3.fr-par.scw.cloud/a/app.js?")

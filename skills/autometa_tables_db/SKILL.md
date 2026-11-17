@@ -1,19 +1,15 @@
 ---
 name: autometa_tables_db
-description: Query autometa_tables_db — base PostgreSQL centralisant les tables des instances Metabase. Priorité absolue sur Metabase pour toute donnée disponible ici.
+description: Query autometa_tables_db, la base PostgreSQL centrale qui regroupe les tables des instances Metabase (La plateforme ex-Emplois, ASP, Mon Récap, data·inclusion, Dora, RDV-Insertion…).
 ---
 
 # autometa_tables_db
 
-Base PostgreSQL contenant les tables exportées depuis les différentes bases de données. À utiliser **en priorité** avant toute requête Metabase.
+Base PostgreSQL contenant les tables exportées depuis les différentes bases de données.
 
-## Règle de priorité
+## Ordre des sources
 
-**Avant toute requête Metabase**, vérifier si les tables nécessaires sont présentes dans `autometa_tables_db` :
-
-1. Interroger `documentation.doc_autometa_tables` pour obtenir la liste et la description des tables disponibles.
-2. Si les tables nécessaires sont présentes → requêter `autometa_tables_db` directement en SQL.
-3. Si absentes → **ne pas s'arrêter là**. Invoquer le skill `metabase_query` pour rechercher la donnée dans les instances Metabase (`stats`, `datalake`, `dora`). Utiliser `search_cards(query)` pour identifier les cartes pertinentes, puis `execute_card(card_id)` ou `execute_sql(sql)` pour récupérer les données. Ne déclarer une donnée absente qu'après avoir cherché dans autometa_tables_db **et** dans Metabase.
+L'ordre entre cette base et Metabase est fixé par `AGENT.md` (section « Sources de données ») ; ce skill ne le recopie pas. Dans cette base, commencer par le catalogue `documentation.doc_autometa_tables` (voir plus bas), puis appliquer les règles de sélection des tables.
 
 ## Règles de sélection des tables
 
@@ -21,19 +17,21 @@ Ordre de préférence, du plus au moins prioritaire :
 
 1. **Tables de référence** (liste ci-dessous) : chercher la donnée ici en premier. Ce sont les tables métier de référence, les plus fiables et les mieux connues. Elles sont réparties entre les schémas autorisés — chercher le nom de table dans l'ensemble de ces schémas plutôt que de présumer d'un schéma précis.
 2. **Tables documentées** : si les tables de référence ne couvrent pas le besoin, se limiter aux tables présentes dans `documentation.doc_autometa_tables`.
-3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*`, `intermediate*` et `raw*` (sauf `raw_dora` et `raw_rdvi`) contiennent des données brutes ou des couches intermédiaires du pipeline, non destinées aux analyses.
+3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*` et `intermediate*` sont des couches intermédiaires du pipeline, non destinées aux analyses.
+
+Ordre des schémas : chercher d'abord dans `reporting`, puis dans `public`, et seulement ensuite dans les schémas `raw*`. Les schémas `raw*` (hors `raw_dora` et `raw_rdvi`) contiennent les données brutes : avant d'y requêter, demander à l'utilisateur s'il veut vraiment aller chercher dans les données brutes, et attendre son accord.
 
 Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora__orientations` (tables de référence) avant de se rabattre sur `raw_dora`.
 
 ### Schémas autorisés
 
-`public`, `monrecap`, `reporting`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi` (seules exceptions à l'interdiction de lire les schémas `raw*`), plus `documentation` pour le catalogue.
+`reporting`, `public`, `monrecap`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi`, plus `documentation` pour le catalogue. Les autres schémas `raw*` ne se lisent qu'après accord explicite de l'utilisateur.
 
 ### Tables de référence
 
 | Domaine | Tables |
 |---|---|
-| Emplois | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
+| La plateforme (ex-Emplois) | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
 | ASP | `fluxIAE_Structure_v2`, `suivi_realisation_convention_par_structure`, `suivi_realisation_convention_mensuelle`, `suivi_etp_conventionnes_v2`, `fluxIAE_ContratMission_v2`, `fluxIAE_Salarie_v2` |
 | Mon Récap | `Contacts`, `Commandes`, `barometre` |
 | data·inclusion | `structures_v1`, `services_v1` |
@@ -61,6 +59,15 @@ result = execute_autometa_tables_query(
 
 Lire cette table en début de session pour comprendre quelles données sont disponibles et ce que chaque colonne signifie. Elle fait office de dictionnaire de données — s'y référer avant d'écrire des requêtes SQL sur les autres tables.
 
+Le catalogue décrit le sens des colonnes ; il annonce aussi des colonnes qui n'existent plus et mélange les schémas. Avant la première requête sur une table, lister ses colonnes réelles — seule cette liste fait foi sur ce qui existe :
+
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = '<schema>' AND table_name = '<table>'
+ORDER BY ordinal_position
+```
+
 ## Requêter les données
 
 ```python
@@ -79,25 +86,35 @@ else:
 
 ## Pièges
 
-Les colonnes de date de `les_emplois` sont du **texte** ISO, pas des dates. Écrire
-`colonne::date >= x` écarte l'index et double le coût de la requête : comparer comme du
-texte, et passer par `TO_CHAR` quand le terme de droite n'est pas un littéral.
+Les colonnes de date des tables issues de La plateforme (ex-Emplois) sont de vraies colonnes `date` ou `timestamp` : les comparer à des dates, sans `TO_CHAR` ni conversion en texte. Ailleurs, le type se lit dans la liste des colonnes.
+
+`execute_autometa_tables_query` ne prend pas de paramètres liés : ne jamais coller une valeur lue dans un résultat (identifiant, nom, chemin) dans le SQL d'une requête suivante. Certaines tables contiennent des charges d'injection SQL stockées comme données (par exemple `service_id` dans `raw_dora.stats_diserviceview`). Garder le filtrage dans le SQL — sous-requête, jointure ou CTE, comme ici sur la table voisine `raw_dora.stats_serviceview` :
+
+```sql
+SELECT v.service_id, COUNT(*) AS vues
+FROM raw_dora.stats_serviceview v
+WHERE v.service_id IN (SELECT id FROM raw_dora.services_service WHERE status = 'PUBLISHED')
+GROUP BY v.service_id
+```
+
+Si une valeur doit vraiment transiter par Python (autre source, nom de personne) : n'admettre que les valeurs du type attendu (entier, UUID, code au format vérifié) et écarter les autres ; une chaîne libre n'entre dans le SQL que construite par le script, en littéral aux apostrophes doublées.
 
 ## Schémas disponibles
 
-Cette liste est indicative — la source de vérité est `documentation.doc_autometa_tables`,
-à interroger à l'exécution.
+Cette liste est indicative — la source de vérité est la base elle-même (`information_schema`
+pour les colonnes, `documentation.doc_autometa_tables` pour leur sens), à interroger à l'exécution.
 
 | Schéma | Contenu |
 |---|---|
-| `public` | Tables métier principales |
 | `reporting` | Tables de reporting |
+| `public` | Tables métier principales |
 | `monrecap` | Tables Mon Récap |
 | `data_inclusion` | Tables data·inclusion |
 | `esat` | Tables ESAT |
 | `seeds` | Tables de référentiel (seeds dbt) |
-| `raw_dora` | Tables Dora brutes — schéma `raw*` autorisé |
-| `raw_rdvi` | Tables RDV-Insertion brutes — schéma `raw*` autorisé |
+| `raw_dora` | Tables Dora brutes — lisible sans demander |
+| `raw_rdvi` | Tables RDV-Insertion brutes — lisible sans demander |
+| autres `raw*` | Données brutes — uniquement après accord de l'utilisateur |
 | `documentation` | Catalogue des tables (`doc_autometa_tables`) |
 
-Tout autre schéma (`staging*`, `intermediate*`, autres `raw*`) est hors périmètre.
+Les schémas `staging*` et `intermediate*` sont hors périmètre.

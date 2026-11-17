@@ -1,42 +1,29 @@
 ---
 name: sync_metabase
-description: Sync Metabase cards inventory to markdown files (default) or SQLite database
+description: Sync the Metabase cards and dashboards inventory of every instance into the PostgreSQL cache read by the agent
 ---
 
 # Metabase Sync Skill
 
-Synchronize Metabase cards from public dashboards on pilotage.inclusion.beta.gouv.fr to Markdown files for git tracking.
+Synchronize the cards and dashboards of every configured Metabase instance into the application database (`metabase_cards`, `metabase_dashboards`). At startup the application turns them into `data/cache/metabase/` files, which the agent reads. Nothing is written to `knowledge/`.
 
 ## Usage
 
 ```bash
-# Full sync with AI categorization (generates markdown)
 python -m skills.sync_metabase.scripts.sync_inventory
-
-# Quick sync without AI categorization
-python -m skills.sync_metabase.scripts.sync_inventory --skip-categorize
-
-# Also generate SQLite database
-python -m skills.sync_metabase.scripts.sync_inventory --sqlite
-
-# SQLite only (no markdown)
-python -m skills.sync_metabase.scripts.sync_inventory --sqlite-only
-
-# Sync specific dashboards only
-python -m skills.sync_metabase.scripts.sync_inventory --dashboards 216 408
 ```
+
+No option: every instance is synced. In production it runs nightly in the `synchros` cron batch (`cron/sync-inventory/CRON.md`).
 
 ## What it does
 
-1. **Fetches dashboards** from pilotage.inclusion.beta.gouv.fr (18 public dashboards)
-2. **Extracts cards** from each dashboard with SQL queries
-3. **AI categorization** (optional) - uses Claude to assign topic categories
-4. **Writes Markdown files** (default) to `knowledge/stats/`
-5. **Writes SQLite database** (optional, with `--sqlite`) to `knowledge/metabase/cards.db`
+1. **Fetches dashboards and cards** of each Metabase instance
+2. **Extracts table references** from each card's SQL and infers a topic from them
+3. **Writes the inventory** into the cache tables, replacing the previous one
 
 ## Public Dashboards
 
-The sync covers all dashboards visible on pilotage.inclusion.beta.gouv.fr:
+Dashboards published on pilotage.inclusion.beta.gouv.fr (stats instance), for reference:
 
 | ID | Dashboard | Pilotage URL |
 |----|-----------|--------------|
@@ -61,19 +48,11 @@ The sync covers all dashboards visible on pilotage.inclusion.beta.gouv.fr:
 
 ## Output
 
-### Markdown (default)
-
-- `knowledge/stats/_index.md` - overview with links
-- `knowledge/stats/cards/topic-*.md` - cards grouped by topic
-- `knowledge/stats/dashboards/dashboard-*.md` - cards per dashboard
-
-### SQLite (optional)
-
-- `knowledge/metabase/cards.db` - full-text searchable database
+Rows in `metabase_cards` and `metabase_dashboards`, exposed as `data/cache/metabase/*.md` after the next application start.
 
 ## Prerequisites
 
-- `METABASE_BASE_URL` and `METABASE_API_KEY` in `.env`
+- Instance URLs and API keys from `config/sources.yaml` (`METABASE_*_API_KEY` in `.env`)
 
 ## Topics
 

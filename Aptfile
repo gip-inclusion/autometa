@@ -1,0 +1,17 @@
+# Bibliothèques du Chromium headless de verify_dashboard absentes des stacks scalingo-22 et scalingo-24
+# (relevé `ldd` du binaire). Tout paquet listé est réinstallé sous .apt, devant les bibliothèques du système :
+# n'ajouter que ce qui manque.
+# Why: libasound2 n'a pas de candidat sur scalingo-24 (paquet virtuel, renommé libasound2t64) et ferait
+# échouer le build ; libasound2-dev existe sur les deux stacks et tire la bonne bibliothèque.
+libasound2-dev
+libatk-bridge2.0-0
+libatk1.0-0
+libatspi2.0-0
+libgbm1
+libnspr4
+libnss3
+libxcomposite1
+libxdamage1
+libxfixes3
+libxkbcommon0
+libxrandr2

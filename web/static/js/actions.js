@@ -10,7 +10,8 @@ let pendingToolUses = []; // Queue for tool_use waiting for their results (suppo
 let lastAssistantBlock = null; // Track last assistant block for footnotes
 let currentTurnActions = []; // Actions in current turn (for footnotes)
 let streamingBlock = null; // Current block being streamed into
-let streamingText = ''; // Accumulated markdown during streaming
+const assistantParts = new Map(); // message id -> content of each assistant row on screen
+let lastSeenId = 0; // Highest message id rendered or sent
 let actionsFilterMode = localStorage.getItem('actionsFilterMode') || 'data';
 
 // TOC (table of contents) state
@@ -363,6 +364,15 @@ function scrollToHashSection() {
       element.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
   }
+}
+
+/**
+ * Rebuild the table of contents from every assistant block, after one was re-rendered
+ */
+function rebuildToc() {
+  resetTocState();
+  for (const h2 of document.querySelectorAll('#chatOutput .event-assistant h2')) h2.removeAttribute('id');
+  for (const block of document.querySelectorAll('#chatOutput .event-assistant')) scanHeadingsForToc(block);
 }
 
 /**
@@ -914,7 +924,8 @@ function resetActionsState() {
   lastAssistantBlock = null;
   currentTurnActions = [];
   streamingBlock = null;
-  streamingText = '';
+  assistantParts.clear();
+  lastSeenId = 0;
 
   // Reset TOC state
   resetTocState();
