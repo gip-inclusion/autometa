@@ -4,9 +4,11 @@ import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+from botocore.exceptions import ClientError
 from sqlalchemy import or_, select
 
 from web import alerts, config, s3
+from web.backup_check import check_mirror_manifest
 from web.db import get_db
 from web.models import DashboardPublication, UploadedFile
 from web.sync_to_s3 import UNSYNCED
@@ -58,31 +60,60 @@ def run(*, delete: bool) -> None:
         return
     now = datetime.now(timezone.utc)
     garbage = find_garbage(*referenced(now), now)
+    unsaved = delete and not backed_up()
+    delete = delete and not unsaved
+    # Why: un passage coupé en route (délai, redémarrage) laisse ainsi la trace de ce qu'il allait effacer.
+    trace = "\n".join(listing(garbage))
+    logger.info("s3-janitor %s:\n%s", "sweeping" if delete else "dry run", trace)
     swept = [(store, e) for store, e in garbage if not delete or store.delete(e["path"])]
-    report(swept, len(garbage) - len(swept), deleted=delete)
+    report(swept, len(garbage) - len(swept), deleted=delete, unsaved=unsaved)
 
 
-def report(swept: list[tuple[s3.S3Store, dict]], failures: int, *, deleted: bool) -> None:
-    """Le compte dans le canal d'alertes, la liste en fil ; un snapshot de publication y tient sur une ligne."""
+def backed_up() -> bool:
+    """La sauvegarde du jour existe et se déclare complète : sans elle, un objet effacé ne se récupère pas."""
+    try:
+        check_mirror_manifest()
+    except RuntimeError, ClientError:
+        logger.warning("s3-janitor: no complete backup today, dry run instead", exc_info=True)
+        return False
+    return True
+
+
+def listing(objects: list[tuple[s3.S3Store, dict]]) -> list[str]:
+    """Une ligne par snapshot de publication et par conversation, le chemin seul pour un temporaire."""
+    folders = Counter(store.key(folder(store, e["path"])) for store, e in objects)
+    return [
+        f"{key} ({n} fichier{'s' if n > 1 else ''})" if key.endswith("/") else key for key, n in sorted(folders.items())
+    ]
+
+
+def folder(store: s3.S3Store, path: str) -> str:
+    """Le dossier sous lequel l'objet est compté."""
+    if store is s3.publications:
+        return "/".join(path.split("/")[:2]) + "/"
+    if store is s3.uploads:
+        # Why: le nom d'un fichier déposé reprend celui de l'usager (CV_Prénom_Nom.pdf) ; sa conversation suffit.
+        return path.rpartition("/")[0] + "/"
+    return path
+
+
+def report(swept: list[tuple[s3.S3Store, dict]], failures: int, *, deleted: bool, unsaved: bool) -> None:
+    """Le compte dans le canal d'alertes, la liste en fil, un snapshot ou une conversation par ligne."""
     count = len(swept)
     size = f"{sum(e['size'] for _, e in swept) / 1e6:.1f} Mo".replace(".", ",")
     files = f"{count} fichier{'s' if count > 1 else ''} ({size})"
+    why = " faute de sauvegarde complète aujourd'hui" if unsaved else ""
     summary = (
         f":broom: Balayeur a effacé {files}"
         if deleted
-        else f":broom: Balayeur aurait effacé {files} — dry run, rien n'a été supprimé"
+        else f":broom: Balayeur aurait effacé {files} — dry run{why}, rien n'a été supprimé"
     )
     if failures:
         summary += f" ; S3 a refusé {failures} suppression{'s' if failures > 1 else ''}, voir les logs"
-    keys = Counter(
-        store.key("/".join(e["path"].split("/")[:2]) + "/") if store is s3.publications else store.key(e["path"])
-        for store, e in swept
-    )
-    lines = [f"{key} ({n} fichiers)" if n > 1 else key for key, n in sorted(keys.items())]
-    logger.info("%s\n%s", summary, "\n".join(lines))
+    logger.info("%s", summary)
     thread = alerts.notify_alert_channel(summary)
     if thread:
-        for block in blocks(lines):
+        for block in blocks(listing(swept)):
             alerts.notify_alert_channel(f"```\n{block}\n```", thread_ts=thread)
 
 

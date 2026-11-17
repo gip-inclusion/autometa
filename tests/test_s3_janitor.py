@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from botocore.exceptions import ClientError
 
 from web import s3, s3_janitor
 from web.db import get_db
@@ -137,9 +138,10 @@ def test_a_prefix_the_database_references_nothing_in_is_left_alone(mocker, publi
     assert [store for store, _ in found] == [swept]
 
 
-def sweep(mocker, monkeypatch, *, delete, env=Environment.PROD, deleted=True, publications=(), uploads=()):
+def sweep(mocker, monkeypatch, *, delete, env=Environment.PROD, deleted=True, publications=(), uploads=(), backup=None):
     monkeypatch.setattr("web.s3_janitor.config.ENV", env)
     referenced = mocker.patch("web.s3_janitor.referenced", return_value=({"live-id"}, {"kept.csv"}))
+    mocker.patch("web.s3_janitor.check_mirror_manifest", side_effect=backup)
     deletes = bucket(mocker, publications=publications, uploads=uploads, deleted=deleted)
     slack = mocker.patch("web.s3_janitor.alerts.notify_alert_channel", return_value="1700000000.000100")
     s3_janitor.run(delete=delete)
@@ -185,35 +187,78 @@ def test_a_deletion_s3_refuses_is_not_counted_and_is_reported(mocker, monkeypatc
     )
 
 
-def test_the_thread_lists_each_snapshot_once_and_each_other_file(mocker, monkeypatch):
+def test_the_thread_counts_files_per_snapshot_and_per_conversation_and_never_names_an_upload(
+    mocker, monkeypatch, caplog
+):
+    caplog.set_level("INFO", logger="web.s3_janitor")
     _, _, slack = sweep(
         mocker,
         monkeypatch,
         delete=True,
         publications=[entry("tdb/old-id/index.html", 40), entry("tdb/old-id/data.json", 40)],
-        uploads=[entry("gone.csv", 40)],
+        uploads=[
+            entry(f"{CONVERSATION}/20260101_abc_CV_Prenom_Nom.pdf", 40),
+            entry(f"{CONVERSATION}/20260101_def_lettre.pdf", 40),
+            entry("20250101_ghi_CV_Autre_Nom.pdf", 40),
+        ],
     )
 
     reply = slack.call_args_list[1]
     assert reply.kwargs == {"thread_ts": "1700000000.000100"}
-    assert reply.args == ("```\npublications/tdb/old-id/ (2 fichiers)\nuploads/gone.csv\n```",)
+    assert reply.args == (
+        f"```\npublications/tdb/old-id/ (2 fichiers)\nuploads/ (1 fichier)\nuploads/{CONVERSATION}/ (2 fichiers)\n```",
+    )
+    assert "Nom" not in str(slack.call_args_list) + caplog.text
 
 
 def test_a_long_list_is_split_across_replies(mocker, monkeypatch):
-    uploads = [entry(f"{CONVERSATION}/{n:04d}-{'x' * 60}.csv", 40) for n in range(200)]
+    publications = [entry(f"tdb-{'x' * 60}/{n:04d}/index.html", 40) for n in range(200)]
 
-    _, _, slack = sweep(mocker, monkeypatch, delete=True, uploads=uploads)
+    _, _, slack = sweep(mocker, monkeypatch, delete=True, publications=publications)
 
     replies = [call.args[0] for call in slack.call_args_list[1:]]
     assert len(replies) > 1
     assert all(len(reply) < 3100 for reply in replies)
-    assert sum(reply.count("uploads/") for reply in replies) == 200
+    assert sum(reply.count("publications/") for reply in replies) == 200
+
+
+@pytest.mark.parametrize(
+    "backup",
+    [RuntimeError("Mirror manifest missing"), ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")],
+    ids=["missing-or-failed", "unreadable"],
+)
+def test_without_todays_backup_it_only_lists(mocker, monkeypatch, backup):
+    _, deletes, slack = sweep(
+        mocker, monkeypatch, delete=True, backup=backup, publications=[entry("tdb/old-id/index.html", 40)]
+    )
+
+    deletes[s3.publications].assert_not_called()
+    assert slack.call_args_list[0].args == (
+        ":broom: Balayeur aurait effacé 1 fichier (0,0 Mo) — dry run faute de sauvegarde complète aujourd'hui,"
+        " rien n'a été supprimé",
+    )
+
+
+def test_the_list_is_logged_before_anything_is_deleted(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO", logger="web.s3_janitor")
+    logged_before = []
+    monkeypatch.setattr("web.s3_janitor.config.ENV", Environment.PROD)
+    mocker.patch("web.s3_janitor.referenced", return_value=({"live-id"}, {"kept.csv"}))
+    mocker.patch("web.s3_janitor.check_mirror_manifest")
+    mocker.patch("web.s3_janitor.alerts.notify_alert_channel", return_value=None)
+    bucket(mocker, publications=[entry("tdb/old-id/index.html", 40)])
+    mocker.patch.object(s3.publications, "delete", side_effect=lambda path: logged_before.append(caplog.text))
+
+    s3_janitor.run(delete=True)
+
+    assert "publications/tdb/old-id/ (1 fichier)" in logged_before[0]
 
 
 @pytest.mark.parametrize("thread", [None, "1700000000.000100"], ids=["slack-unconfigured", "nothing-swept"])
 def test_no_reply_without_a_thread_or_without_files(mocker, monkeypatch, thread):
     monkeypatch.setattr("web.s3_janitor.config.ENV", Environment.PROD)
     mocker.patch("web.s3_janitor.referenced", return_value=({"live-id"}, {"kept.csv"}))
+    mocker.patch("web.s3_janitor.check_mirror_manifest")
     bucket(mocker, uploads=[entry("gone.csv", 40)] if thread is None else [])
     slack = mocker.patch("web.s3_janitor.alerts.notify_alert_channel", return_value=thread)
 
