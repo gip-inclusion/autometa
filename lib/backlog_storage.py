@@ -3,12 +3,12 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Column, DateTime, MetaData, String, Table, select, text
+from sqlalchemy import Column, DateTime, MetaData, String, Table, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import ProgrammingError
 
-from lib import backlog
+from lib import backlog, dashboard_storage
 from web import config
 from web.db import get_engine
 
@@ -27,10 +27,7 @@ backlog_context = Table(
 
 
 def ensure_schema() -> None:
-    engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
-    _metadata.create_all(engine)
+    dashboard_storage.create_tables(_metadata)
 
 
 def save_context(context: dict) -> None:
