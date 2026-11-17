@@ -104,11 +104,6 @@ def test_a_configured_secret_is_masked_wherever_it_appears(mocker):
     ("sources", "scalingo", "pair"),
     [
         ({"metabase": {"rdvi": {"basic_auth": "lecteur:valeur-factice"}}}, "", "lecteur:valeur-factice"),
-        (
-            {"zendesk": {"emplois": {"email": "support@x.fr", "token": "valeur-factice"}}},
-            "",
-            "support@x.fr/token:valeur-factice",
-        ),
         ({}, "valeur-factice", ":valeur-factice"),
     ],
 )
@@ -120,6 +115,15 @@ def test_our_basic_credentials_are_recognised_once_encoded(mocker, sources, scal
 
     assert "secret de configuration" in secret_kinds(f"curl -v : > Authorization: Basic {encoded}")
     assert encoded not in redact(f"> Authorization: Basic {encoded}")
+
+
+def test_the_zendesk_oauth_client_secret_is_masked(mocker):
+    sources = {"zendesk": {"emplois": {"client_id": "client-public", "client_secret": FAUX}}}
+    mocker.patch.object(redaction, "load_config", return_value=sources)
+    mocker.patch.object(redaction, "list_instances", side_effect=lambda kind: list(sources.get(kind, {})))
+
+    assert redact(f"réponse de Zendesk : {FAUX}") == "réponse de Zendesk : ***"
+    assert secret_kinds(FAUX) == ["secret de configuration"]
 
 
 @pytest.mark.parametrize("setting", ["DORA_STAGING_DB_URL", "MONRECAP_APPLI_DB_URL"])
