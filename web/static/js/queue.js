@@ -23,9 +23,7 @@ async function queueMessage(convId, message) {
     if (data.status === 'queued') {
       renderQueue(data.queue);
     } else if (data.status === 'started') {
-      appendEvent('user', { id: data.after_id, content: message });
-      markFinalAnswer();
-      lastUserMessage = message;
+      // Why: the stream resumes from the last message seen, so the end of the previous answer arrives before the question.
       startStream();
     } else {
       appendToComposer(message);

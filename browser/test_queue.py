@@ -33,12 +33,17 @@ def hold(page: Page, pattern: str) -> list[Route]:
     return held
 
 
-def first_held(page: Page, held: list[Route]) -> Route:
+def until(page: Page, check: Callable[[], object]) -> object:
+    """Attend jusqu'à cinq secondes que `check()` rende une valeur vraie, et la rend."""
     for _ in range(250):
-        if held:
-            return held[0]
+        if value := check():
+            return value
         page.wait_for_timeout(20)
-    raise AssertionError("aucune requête retenue")
+    raise AssertionError("condition jamais remplie")
+
+
+def first_held(page: Page, held: list[Route]) -> Route:
+    return until(page, lambda: held and held[0])
 
 
 def come_back(page: Page, conversation: str, how: str) -> Page:
@@ -212,6 +217,24 @@ def test_a_message_sent_later_as_the_turn_ends_starts_the_next_turn(
     expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : q1", timeout=15000)
     expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:1] q0", "q1"])
     expect(page.locator(".event-queued")).to_have_count(0)
+
+
+def test_a_message_sent_later_as_the_turn_ends_keeps_the_end_of_the_answer(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    held = hold(page, "**/stream*")
+    start_turn(ask, page, "[slow:1] q0")
+    until(page, lambda: not page.request.get(f"/api/conversations/{conversation}").json()["is_running"])
+
+    send_later(page, "q1")
+    until(page, lambda: len(held) == 2)
+    held[0].abort()
+    held[1].continue_()
+
+    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : q1", timeout=15000)
+    expect(page.locator(".event-final-answer")).to_have_count(3)
+    expect(page.locator(".event-final-answer").nth(1)).to_contain_text("Réponse factice : [slow:1] q0")
+    expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:1] q0", "q1"])
 
 
 def test_a_message_already_gone_cannot_be_pulled_back(conversation: str, ask: Callable[[str], None], page: Page):
