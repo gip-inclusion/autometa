@@ -23,6 +23,7 @@ stop_event = threading.Event()
 UNSYNCED = re.compile(r"\.tmp\.\d+\.[0-9a-f]+$|(^|/)__pycache__/")
 
 # Why: renvoyer un fichier restauré écrasait ce qu'on avait déposé sur S3 entre son téléchargement et ce renvoi.
+# Ne protège que si la restauration et le watcher tournent dans le même processus (un seul worker uvicorn).
 restored_mtimes: dict[Path, float] = {}
 
 
@@ -59,33 +60,34 @@ def stop_sync_watcher():
     logger.info("Stopped S3 sync watcher")
 
 
-def watch_loop():
-    known_files: dict[Path, float] = {}
-
-    s3_paths = {f["path"] for f in s3.interactive.list_files()}
-    initial_count = 0
+def scan_files() -> dict[Path, float]:
+    """Map each local interactive file to its mtime, skipping files that vanish mid-scan."""
+    files = {}
     for path in config.INTERACTIVE_DIR.rglob("*"):
-        if path.is_file():
-            initial_count += 1
-            relative_path = str(path.relative_to(config.INTERACTIVE_DIR))
-            if relative_path not in s3_paths:
-                _sync_file(path)
-            known_files[path] = path.stat().st_mtime
+        try:
+            if path.is_file():
+                files[path] = path.stat().st_mtime
+        except FileNotFoundError:
+            logger.debug("File vanished during scan: %s", path)
+    return files
 
-    logger.debug("Initial scan: %d local files, %d in S3", initial_count, len(s3_paths))
+
+def watch_loop():
+    s3_paths = {f["path"] for f in s3.interactive.list_files()}
+    known_files = scan_files()
+    for path in known_files:
+        if str(path.relative_to(config.INTERACTIVE_DIR)) not in s3_paths:
+            _sync_file(path)
+
+    logger.debug("Initial scan: %d local files, %d in S3", len(known_files), len(s3_paths))
 
     while not stop_event.is_set():
         try:
-            current_files: dict[Path, float] = {}
-
-            for path in config.INTERACTIVE_DIR.rglob("*"):
-                if path.is_file():
-                    mtime = path.stat().st_mtime
-                    current_files[path] = mtime
-
-                    changed = path not in known_files or known_files[path] < mtime
-                    if changed and restored_mtimes.pop(path, None) != mtime:
-                        _sync_file(path)
+            current_files = scan_files()
+            for path, mtime in current_files.items():
+                changed = path not in known_files or known_files[path] < mtime
+                if changed and restored_mtimes.get(path) != mtime:
+                    _sync_file(path)
 
             known_files = current_files
 
