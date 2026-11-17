@@ -1018,7 +1018,7 @@ def notion_api(backlog_rows):
     def text(t):
         return {"rich_text": [{"plain_text": t}]}
 
-    def request(method, endpoint, payload=None):
+    def request(method, endpoint, payload=None, version=None):
         if endpoint == f"databases/{BACKLOG_DB}/query":
             results = [
                 {

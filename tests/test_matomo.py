@@ -165,14 +165,14 @@ def test_format_data_source(method, params, extra_kw, expected_substrings):
         assert s in result
 
 
-def mock_session_get(mocker, api, json_data):
+def mock_session_post(mocker, api, json_data):
     mock_resp = mocker.MagicMock()
     mock_resp.status_code = 200
     mock_resp.headers = {"Content-Type": "application/json"}
     mock_resp.text = json.dumps(json_data)
     mock_resp.json.return_value = json_data
     mock_resp.raise_for_status = mocker.MagicMock()
-    api._session.get = mocker.MagicMock(return_value=mock_resp)
+    api._session.post = mocker.MagicMock(return_value=mock_resp)
 
 
 def test_matomo_api_init_and_url_redaction(mocker):
@@ -186,15 +186,20 @@ def test_matomo_api_init_and_url_redaction(mocker):
 
 def test_get_visits_returns_dict(mocker):
     api = MatomoAPI(url="matomo.example.com", token="test_token", instance="test")
-    mock_session_get(mocker, api, {"nb_visits": 100, "nb_uniq_visitors": 80})
+    mock_session_post(mocker, api, {"nb_visits": 100, "nb_uniq_visitors": 80})
     result = api.get_visits(site_id=117, period="month", date="2025-12-01")
     assert result["nb_visits"] == 100
     assert result["nb_uniq_visitors"] == 80
+    sent = api._session.post.call_args.kwargs
+    assert sent["params"]["method"] == "VisitsSummary.get"
+    assert sent["params"]["idSite"] == 117
+    assert sent["data"] == {"token_auth": "test_token"}, "le jeton voyage dans le corps, jamais dans l'URL"
+    assert "token_auth" not in sent["params"]
 
 
 def test_get_pages_returns_list(mocker):
     api = MatomoAPI(url="matomo.example.com", token="test_token", instance="test")
-    mock_session_get(
+    mock_session_post(
         mocker,
         api,
         [{"label": "/home", "nb_visits": 50}, {"label": "/about", "nb_visits": 30}],
@@ -207,14 +212,14 @@ def test_get_pages_returns_list(mocker):
 
 def test_api_error_raises_exception(mocker):
     api = MatomoAPI(url="matomo.example.com", token="test_token", instance="test")
-    mock_session_get(mocker, api, {"result": "error", "message": "Invalid token"})
+    mock_session_post(mocker, api, {"result": "error", "message": "Invalid token"})
     with pytest.raises(MatomoError, match="Invalid token"):
         api.get_visits(site_id=117, period="month", date="2025-12-01")
 
 
 def test_get_visit_frequency_returns_dict(mocker):
     api = MatomoAPI(url="matomo.example.com", token="test_token", instance="test")
-    mock_session_get(
+    mock_session_post(
         mocker,
         api,
         {"nb_visits_returning": 500, "nb_visits_new": 200, "nb_actions_returning": 2500, "bounce_rate_new": "45%"},

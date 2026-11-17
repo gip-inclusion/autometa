@@ -3,13 +3,15 @@
 import pytest
 
 from web import alerts, config
+from web.environment import Environment
 
 
 @pytest.fixture
 def slack_configured(monkeypatch):
     monkeypatch.setattr(config, "SLACK_BOT_TOKEN", "tok")
     monkeypatch.setattr(config, "SLACK_ALERT_CHANNEL", "C0TEST")
-    monkeypatch.setattr(config, "APP_NAME", "autometa-staging")
+    monkeypatch.setattr(config, "ENV", Environment.PROD)
+    monkeypatch.setattr(config, "APP_NAME", "matometa")
 
 
 def test_notify_alert_channel_posts_to_configured_channel_naming_the_app(mocker, slack_configured):
@@ -17,13 +19,23 @@ def test_notify_alert_channel_posts_to_configured_channel_naming_the_app(mocker,
 
     alerts.notify_alert_channel("hello world")
 
-    post.assert_called_once_with("tok", "C0TEST", "[autometa-staging] hello world")
+    post.assert_called_once_with("tok", "C0TEST", "[matometa] hello world")
 
 
 @pytest.mark.parametrize("token,channel", [("", "C0TEST"), ("tok", "")])
-def test_notify_alert_channel_silent_without_config(mocker, monkeypatch, token, channel):
+def test_notify_alert_channel_silent_without_config(mocker, monkeypatch, slack_configured, token, channel):
     monkeypatch.setattr(config, "SLACK_BOT_TOKEN", token)
     monkeypatch.setattr(config, "SLACK_ALERT_CHANNEL", channel)
+    post = mocker.patch("web.alerts.post_message", return_value=True)
+
+    alerts.notify_alert_channel("hello")
+
+    post.assert_not_called()
+
+
+@pytest.mark.parametrize("env", [Environment.DEV, Environment.REVIEW, Environment.STAGING])
+def test_notify_alert_channel_silent_off_prod(mocker, monkeypatch, slack_configured, env):
+    monkeypatch.setattr(config, "ENV", env)
     post = mocker.patch("web.alerts.post_message", return_value=True)
 
     alerts.notify_alert_channel("hello")

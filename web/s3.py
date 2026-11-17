@@ -193,7 +193,8 @@ class S3Store:
 
 interactive = S3Store("interactive/")
 sessions = S3Store("sessions/")
-uploads = S3Store("interactive/uploads/")
+# Why: hors de `interactive/`, que l'application sert à tout utilisateur connecté et recopie sur le disque au démarrage.
+uploads = S3Store("uploads/")
 publications = S3Store("publications/")
 job_inputs = S3Store("job-inputs/")
 zendesk = S3Store("zendesk/")
