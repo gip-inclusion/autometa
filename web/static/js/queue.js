@@ -87,25 +87,21 @@ async function takeQueued(bubble, toComposer) {
   }
 }
 
-const returnedTaken = new Set(); // Ids of returned messages already put back in the composer
-
 /**
- * Put messages the server handed back (Stop, failed turn) in the composer once, then acknowledge them
+ * Put messages the server handed back (Stop, failed turn) in the composer
  */
 async function takeReturned(convId, entries) {
-  const fresh = entries.filter((entry) => !returnedTaken.has(entry.id));
-  if (!fresh.length || currentConversationId !== convId) return;
-  for (const entry of fresh) {
-    returnedTaken.add(entry.id);
-    appendToComposer(entry.content);
-  }
+  if (!entries.length || currentConversationId !== convId) return;
   try {
-    await fetch(`/api/conversations/${convId}/queue/returned/ack`, {
+    const response = await fetch(`/api/conversations/${convId}/queue/returned/ack`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: fresh.map((entry) => entry.id) }),
+      body: JSON.stringify({ ids: entries.map((entry) => entry.id) }),
     });
+    // Why: the stream and the Stop answer hand the same messages back, and so do other tabs; the server gives
+    // them to the first that asks.
+    for (const entry of (await response.json()).returned ?? []) appendToComposer(entry.content);
   } catch (error) {
-    console.error('Failed to acknowledge returned messages:', error);
+    console.error('Failed to take returned messages:', error);
   }
 }

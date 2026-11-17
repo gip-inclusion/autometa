@@ -195,6 +195,24 @@ def test_stop_puts_waiting_messages_back_in_the_bar_once(conversation: str, ask:
     expect(draft).to_have_value("")
 
 
+def test_two_tabs_on_a_stop_put_its_messages_back_in_one_bar_only(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    start_turn(ask, page, "[hang] q0")
+    other = come_back(page, conversation, "autre onglet")
+    expect(other.locator("#chatCancelBtn")).to_be_visible()
+    send_later(page, "q1")
+    expect(other.locator(".event-queued")).to_have_text(["q1"])
+
+    page.locator("#chatCancelBtn").click()
+
+    for tab in (page, other):
+        expect(tab.locator("#chatCancelBtn")).to_be_hidden()
+    bars = [tab.locator("#chatInput") for tab in (page, other)]
+    until(page, lambda: "q1" in [bar.input_value() for bar in bars])
+    assert sorted(bar.input_value() for bar in bars) == ["", "q1"]
+
+
 @pytest.mark.parametrize(
     "fail",
     [lambda route: route.abort(), lambda route: route.fulfill(status=403, json={"error": "Permission denied"})],
