@@ -65,7 +65,7 @@ def test_dod_2_load_context_groups_epics_and_titles_by_team(mocker):
         ],
     }
 
-    def notion(method, path, payload=None):
+    def notion(method, path, payload=None, version=None):
         if method == "GET":
             return {
                 "databases/backlog": schema,

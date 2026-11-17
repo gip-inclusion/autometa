@@ -105,26 +105,21 @@ class MatomoAPI:
     def __exit__(self, *args):
         self.close()
 
-    def _request(self, method: str, params: dict, timeout: int = 180, http_method: str = "GET") -> Any:
-        base_params = {
-            "module": "API",
-            "method": method,
-            "format": "JSON",
-            "token_auth": self.token,
-        }
+    def _request(self, method: str, params: dict, timeout: int = 180, form: bool = False) -> Any:
+        query = {"module": "API", "method": method, "format": "JSON"}
         url = f"https://{self.url}/"
+        http_timeout = httpx.Timeout(timeout, connect=10)
 
         try:
-            # Choose HTTP method and prepare parameters
-            if http_method == "POST":
-                # POST: flatten nested params and use data= (form-encoded)
-                flattened = self._flatten_params(params)
-                base_params.update(flattened)
-                resp = self._session.post(url, data=base_params, timeout=httpx.Timeout(timeout, connect=10))
+            # Why: le jeton voyage toujours dans le corps d'un POST — dans l'URL, il finit dans les journaux httpx
+            # et les sorties d'outil. `form` met aussi les paramètres dans le corps, aplatis (Tag Manager).
+            if form:
+                body = {**query, **self._flatten_params(params), "token_auth": self.token}
+                resp = self._session.post(url, data=body, timeout=http_timeout)
             else:
-                # GET: use params= (query string)
-                base_params.update(params)
-                resp = self._session.get(url, params=base_params, timeout=httpx.Timeout(timeout, connect=10))
+                resp = self._session.post(
+                    url, params={**query, **params}, data={"token_auth": self.token}, timeout=http_timeout
+                )
 
             resp.raise_for_status()
 
@@ -175,7 +170,7 @@ class MatomoAPI:
         return self._request(method, params, timeout)
 
     def post(self, method: str, timeout: int = 30, **params) -> Any:
-        return self._request(method, params, timeout, http_method="POST")
+        return self._request(method, params, timeout, form=True)
 
     def get_api_url(self, method: str, params: dict) -> str:
         base_params = {

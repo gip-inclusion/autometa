@@ -9,10 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 def notify_alert_channel(message: str) -> None:
-    """Post to SLACK_ALERT_CHANNEL, prefixed with the emitting app; silent if Slack is not configured."""
+    """Post to SLACK_ALERT_CHANNEL, prefixed with the emitting app; silent off prod or if Slack is not configured."""
     token = config.SLACK_BOT_TOKEN
     channel = config.SLACK_ALERT_CHANNEL
-    if not token or not channel:
+    if not config.ENV.posts_alerts or not token or not channel:
         return
 
     try:

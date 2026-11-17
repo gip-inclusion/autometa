@@ -596,7 +596,7 @@ def test_run_cli_lets_an_unrelated_runtime_error_through(mocker):
         common.run_cli(mocker.Mock(side_effect=RuntimeError("bogue")), argparse.ArgumentParser())
 
 
-def notion_answers(method, path, payload=None):
+def notion_answers(method, path, payload=None, version=None):
     """Réponses de Notion pour une création complète, sans ticket récent au même titre."""
     title = {"Nom": {"type": "title", "title": [{"plain_text": "Emplois inclusifs et dispositifs réglementés"}]}}
     epic = {

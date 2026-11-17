@@ -31,6 +31,7 @@ class Conversation(Base):
     title: Mapped[str | None] = mapped_column(Text)
     session_id: Mapped[str | None] = mapped_column(Text)
     engine_state: Mapped[dict | None] = mapped_column(JSONB)
+    pending_messages: Mapped[list | None] = mapped_column(JSONB)
     conv_type: Mapped[str] = mapped_column(Text, default="exploration")
     file_path: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="active")
@@ -209,6 +210,17 @@ class DashboardTag(Base):
         Index("idx_dashboard_tags_slug", "dashboard_slug"),
         Index("idx_dashboard_tags_tag", "tag_id"),
     )
+
+
+class JobTag(Base):
+    """Tag posé sur un pipeline du service de jobs, qui ne stocke aucune métadonnée éditable."""
+
+    __tablename__ = "job_tags"
+
+    pipeline_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+    __table_args__ = (Index("idx_job_tags_tag", "tag_id"),)
 
 
 class DashboardVariant(Base):
