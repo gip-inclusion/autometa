@@ -85,6 +85,15 @@ def test_zendesk_stays_reachable_when_the_count_is_missing(mocker):
     assert check_zendesk() == (True, "joignable")
 
 
+def test_zendesk_probe_bounds_the_token_request_by_the_probe_timeout(mocker):
+    get = mocker.patch.object(httpx, "get", return_value=fake_response(200))
+
+    check_zendesk()
+
+    token_request = next(get.call_args.kwargs["auth"].auth_flow(httpx.Request("GET", "https://exemple.test/")))
+    assert token_request.extensions["timeout"] == httpx.Timeout(source_checks.PROBE_TIMEOUT_SEC).as_dict()
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [(200, (True, "en bonne santé")), (502, (False, "HTTP 502"))],

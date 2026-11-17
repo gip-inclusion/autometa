@@ -46,7 +46,7 @@ def test_init_builds_base_url_and_oauth(api):
     assert api.instance == "emplois"
 
 
-def oauth_client(api_statuses, token_status=200, expires_in=3600):
+def oauth_client(api_statuses, token_status=200, expires_in=3600, **auth_options):
     """An httpx client on a fake Zendesk: numbered tokens, API answers popped from api_statuses."""
     calls = []
 
@@ -57,7 +57,7 @@ def oauth_client(api_statuses, token_status=200, expires_in=3600):
             return httpx.Response(token_status, json={"access_token": f"t{issued}", "expires_in": expires_in})
         return httpx.Response(api_statuses.pop(0), json={})
 
-    auth = ClientCredentialsAuth("https://x.zendesk.com/oauth/tokens", "cid", "sec")
+    auth = ClientCredentialsAuth("https://x.zendesk.com/oauth/tokens", "cid", "sec", **auth_options)
     return httpx.Client(transport=httpx.MockTransport(handler), auth=auth, timeout=5), calls
 
 
@@ -97,12 +97,13 @@ def test_oauth_refetches_token_and_retries_once_on_401():
     assert calls[3].headers["Authorization"] == "Bearer t2"
 
 
-def test_oauth_token_request_carries_the_timeout():
-    client, calls = oauth_client([200])
+@pytest.mark.parametrize(("auth_options", "seconds"), [({}, 30), ({"timeout": 3}, 3)])
+def test_oauth_token_request_carries_its_own_timeout(auth_options, seconds):
+    client, calls = oauth_client([200], **auth_options)
 
     client.get("https://x.zendesk.com/api/v2/a")
 
-    assert calls[0].extensions["timeout"] == httpx.Timeout(30).as_dict()
+    assert calls[0].extensions["timeout"] == httpx.Timeout(seconds).as_dict()
 
 
 def test_oauth_returns_second_401_without_looping():

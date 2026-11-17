@@ -166,7 +166,10 @@ def check_zendesk() -> tuple[bool, str]:
     resp = httpx.get(
         f"https://{cfg['subdomain']}.zendesk.com/api/v2/views/count.json",
         auth=ClientCredentialsAuth(
-            f"https://{cfg['subdomain']}.zendesk.com/oauth/tokens", cfg["client_id"], cfg["client_secret"]
+            f"https://{cfg['subdomain']}.zendesk.com/oauth/tokens",
+            cfg["client_id"],
+            cfg["client_secret"],
+            timeout=PROBE_TIMEOUT_SEC,
         ),
         timeout=PROBE_TIMEOUT_SEC,
     )
