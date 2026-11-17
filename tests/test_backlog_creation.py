@@ -82,28 +82,20 @@ def test_place_marker_adds_a_missing_marker():
     assert [t["text"]["content"] for t in blocks[0]["paragraph"]["rich_text"][1:]] == [" ", "Texte"]
 
 
-def test_place_marker_targets_the_first_paragraph_after_a_heading():
+@pytest.mark.parametrize("texts", [[], ["Texte"]])
+def test_place_marker_opens_a_body_that_starts_with_a_heading_with_a_new_paragraph(texts):
     title = {"type": "heading_2", "heading_2": {"rich_text": []}}
-    blocks = creation.place_marker([title, paragraph("Texte")], "emoji-1")
-    assert blocks[0] == title
-    assert blocks[1]["paragraph"]["rich_text"][0] == MENTION
-
-
-def test_place_marker_creates_a_paragraph_when_the_body_has_none():
-    title = {"type": "heading_2", "heading_2": {"rich_text": []}}
-    blocks = creation.place_marker([title], "emoji-1")
+    blocks = creation.place_marker([title, *[paragraph(t) for t in texts]], "emoji-1")
     assert blocks[0]["paragraph"]["rich_text"] == [MENTION]
-    assert blocks[1] == title
+    assert blocks[1:] == [title, *[paragraph(t) for t in texts]]
 
 
-def test_place_marker_leaves_a_later_paragraph_alone():
-    blocks = creation.place_marker(
-        notion_blocks("## Périmètre\n- x\n\n**Version A**"),
-        "emoji-1",
-    )
+@pytest.mark.parametrize("body", ["## Périmètre\n- x\n\n**Version A**", "## Attendu\n\n**Version A**\n- x"])
+def test_place_marker_leaves_a_later_paragraph_alone(body):
+    blocks = creation.place_marker(notion_blocks(body), "emoji-1")
     assert blocks[0]["paragraph"]["rich_text"] == [MENTION]
-    assert blocks[-1]["paragraph"]["rich_text"][0]["text"]["content"] == "Version A"
-    assert len(blocks[-1]["paragraph"]["rich_text"]) == 1
+    later = [b["paragraph"]["rich_text"] for b in blocks[1:] if b["type"] == "paragraph"]
+    assert [[t["text"]["content"] for t in texts] for texts in later] == [["Version A"]]
 
 
 def test_dod_4_check_body_refuses_a_title_in_the_body():

@@ -96,20 +96,18 @@ def autometa_emoji() -> str | None:
 
 
 def place_marker(blocks: list[dict], emoji_id: str | None) -> list[dict]:
-    """Place le marqueur Autometa en tête du premier paragraphe : emoji de l'espace, sinon texte."""
+    """Ouvre le corps par le marqueur Autometa (emoji de l'espace, sinon texte), au besoin dans un paragraphe neuf."""
     marker = (
         {"type": "mention", "mention": {"type": "custom_emoji", "custom_emoji": {"id": emoji_id}}}
         if emoji_id
         else {"type": "text", "text": {"content": MARKER}}
     )
     space = {"type": "text", "text": {"content": " "}}
-    # Why: le marqueur ouvre le ticket ; un paragraphe plus loin (« Version A » sous Attendu) ne doit pas le porter.
-    index = 1 if blocks and blocks[0].get("type") in ("heading_1", "heading_2", "heading_3") else 0
-    first = blocks[index] if index < len(blocks) and blocks[index].get("type") == "paragraph" else None
-    if first is None:
+    # Why: un paragraphe sous un en-tête (« Version A » sous Attendu) n'ouvre jamais le ticket.
+    if not blocks or blocks[0].get("type") != "paragraph":
         blocks.insert(0, {"type": "paragraph", "paragraph": {"rich_text": [marker]}})
         return blocks
-    texts = first["paragraph"]["rich_text"]
+    texts = blocks[0]["paragraph"]["rich_text"]
     if texts and texts[0].get("text", {}).get("content", "").lstrip().startswith(MARKER):
         rest = texts[0]["text"]["content"].lstrip()[len(MARKER) :].lstrip()
         if rest:
