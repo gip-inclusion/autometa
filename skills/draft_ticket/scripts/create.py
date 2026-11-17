@@ -69,11 +69,13 @@ def run(args: argparse.Namespace) -> str:
     draft = json.loads(path.read_text(encoding="utf-8"))
     email = config.agent_user_email()
     author, warnings = None, []
-    if email:
+    if email and config.NOTION_ANNUAIRE_DB:
         try:
             author = backlog.find_author(email)
         except httpx.HTTPError, notion.NotionRateLimitError:
             warnings.append("Auteur non inscrit : annuaire ou comptes Notion illisibles.")
+    elif email:
+        warnings.append("Auteur non inscrit : NOTION_ANNUAIRE_DB absent.")
     ticket = resolve(draft, backlog_storage.current_context(), author)
     if not args.go:
         if not ticket.author_notion_id and not warnings:

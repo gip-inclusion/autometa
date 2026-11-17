@@ -46,6 +46,7 @@ def draft(tmp_path, **fields):
 
 def setup_create(mocker):
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(create.backlog_storage, "current_context", return_value=CONTEXT)
     mocker.patch.object(create.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(create.backlog, "find_author", return_value=AUTHOR)
@@ -284,6 +285,17 @@ def test_create_goes_on_without_author_when_the_directory_is_unreadable(mocker, 
     assert "Ticket créé : https://notion/p" in output
     assert "Auteur non inscrit : annuaire ou comptes Notion illisibles." in output
     assert creation.call_args.args[0].author_field is None
+
+
+@pytest.mark.parametrize("go", [False, True])
+def test_create_does_not_look_the_author_up_without_the_directory(mocker, tmp_path, go):
+    create, _ = setup_create(mocker)
+    mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", None)
+    find_author = mocker.patch.object(create.backlog, "find_author")
+    output = create.run(Namespace(draft=draft(tmp_path), go=go))
+    find_author.assert_not_called()
+    assert "Auteur non inscrit : NOTION_ANNUAIRE_DB absent." in output
+    assert "pas de compte Notion" not in output
 
 
 def test_create_without_known_author_still_creates(mocker, tmp_path):
@@ -633,6 +645,7 @@ def notion_answers(method, path, payload=None, version=None):
 
 def test_dod_4_create_with_go_sends_the_real_payload_to_notion(mocker, tmp_path):
     mocker.patch.object(common.config, "NOTION_BACKLOG_DB", "db")
+    mocker.patch.object(common.config, "NOTION_ANNUAIRE_DB", "directory")
     mocker.patch.object(common.config, "agent_user_email", return_value="camille@exemple.fr")
     mocker.patch.object(create.backlog_storage, "current_context", return_value=CONTEXT)
     mocker.patch.object(create.backlog, "find_author", return_value=AUTHOR)
