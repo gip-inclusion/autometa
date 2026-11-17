@@ -21,11 +21,11 @@ def check_config(directory: bool = False) -> str | None:
 
 
 def conversation_folder() -> Path:
-    """Dossier de travail de la conversation, sous /tmp."""
+    """Dossier de travail de la conversation, sous la racine des dossiers de travail."""
     conversation = config.agent_conversation_id()
     if not conversation:
         raise ValueError("AUTOMETA_CONVERSATION_ID absent : dossier de la conversation inconnu")
-    return Path("/tmp") / conversation
+    return config.WORKDIR_ROOT / conversation
 
 
 def run_cli(run: Callable[[argparse.Namespace], str], parser: argparse.ArgumentParser) -> None:

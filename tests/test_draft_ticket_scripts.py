@@ -242,9 +242,10 @@ def test_create_without_argument_or_conversation_refuses(mocker):
     creation.assert_not_called()
 
 
-def test_conversation_folder_is_the_conversation_folder_under_tmp(mocker):
+def test_conversation_folder_is_the_conversation_folder_under_the_workdir_root(mocker, tmp_path):
     mocker.patch.object(common.config, "agent_conversation_id", return_value="conv-1")
-    assert common.conversation_folder() == Path("/tmp/conv-1")
+    mocker.patch.object(common.config, "WORKDIR_ROOT", tmp_path)
+    assert common.conversation_folder() == tmp_path / "conv-1"
 
 
 def test_create_deletes_the_draft_after_creation(mocker, tmp_path):
