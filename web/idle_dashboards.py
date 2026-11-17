@@ -106,7 +106,10 @@ def run() -> None:
 
 
 def report(idle: list[Row], unchecked: int) -> None:
-    """Le compte dans le canal d'alertes, un TDB par ligne en fil avec le lien vers sa page."""
+    """Le compte dans le canal d'alertes, un TDB par ligne en fil avec le lien vers sa page ; rien s'il n'y a rien."""
+    if not idle and not unchecked:
+        logger.info("idle-dashboards: every dashboard was opened lately")
+        return
     count = len(idle)
     summary = (
         f":zzz: {count} tableau{'x' if count > 1 else ''} de bord sans visite connue"

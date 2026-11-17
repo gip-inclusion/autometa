@@ -217,6 +217,12 @@ def test_a_dashboard_datadog_could_not_check_is_left_out_and_counted(mocker, mon
     ]
 
 
+def test_a_week_with_nothing_to_list_posts_nothing(mocker, monkeypatch):
+    _, _, slack = sweep(mocker, monkeypatch, dashboards=[dashboard("tdb")], hits={"tdb": True})
+
+    slack.assert_not_called()
+
+
 @pytest.mark.parametrize(("internal", "public"), [(None, set()), (set(), None)], ids=["app", "publications"])
 def test_without_matomo_a_warning_replaces_the_list(mocker, monkeypatch, internal, public):
     candidates, datadog, slack = sweep(
