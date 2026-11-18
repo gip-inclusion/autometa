@@ -212,7 +212,7 @@ Date d'expédition : celle de la commande, ou à défaut la date de fabrication 
 
 | Date | Changement |
 |------|------------|
-| 2026-11 | Ajout des prolongations de PASS IAE, des orientations RDV-i et data·inclusion (par proxy) et des bilans de fin de parcours ; recalcul de la fenêtre et du snapshot depuis avril 2025. Croissance annuelle de la North Star à 30 jours : de +20,0 % à +21,2 % en septembre 2026, de +18,3 % à +22,5 % en août 2026 |
+| 2026-11 | Ajout des prolongations de PASS IAE, des orientations RDV-i et data·inclusion (par proxy) et des bilans de fin de parcours ; recalcul de la fenêtre et du snapshot depuis avril 2025. |
 | 2026-07 à 2026-11 | North Star longue ramenée de 70 à 59 jours (colonne `north_star_70` conservée) ; la North Star à 30 jours devient la référence |
 | 2026-09 | GPS : bascule des logs applicatifs vers Matomo |
 | 2026-07 | Orientations et intentions d'orientation depuis La plateforme |
