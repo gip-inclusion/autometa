@@ -29,6 +29,7 @@ def _make(mocker, fake_redis, *events):
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.session_sync")
     mocker.patch("web.runner._check_failure")
+    mocker.patch("web.runner.uploads")
     mocker.patch.object(TaskRunner, "_alert_usage_limit_once", new=mocker.AsyncMock())
     mocker.patch.object(runner.store, "update_conversation")
     mocker.patch.object(runner.store, "get_conversation", return_value=None)

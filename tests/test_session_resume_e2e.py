@@ -1,6 +1,7 @@
 """End-to-end test: session resume with Redis task runner and parallel conversations."""
 
 import asyncio
+import contextlib
 import json
 
 import fakeredis.aioredis
@@ -61,6 +62,7 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
 
     mocker.patch("web.runner.get_redis", return_value=fake_redis)
     mocker.patch("web.runner.config.MAX_CONCURRENT_AGENTS", 4)
+    mocker.patch("web.runner.uploads.restore_conversation_files")
 
     mock_sync = mocker.patch("web.runner.session_sync")
     mock_sync.download_session = mocker.MagicMock(side_effect=sync_funcs["download_session"])
@@ -116,34 +118,43 @@ def runner_with_sessions(mocker, fake_redis, tmp_path, session_store):
     return runner
 
 
-async def _run_consumer_cycle(runner, fake_redis, turns=1):
-    expected = len(runner._calls) + turns
+@contextlib.asynccontextmanager
+async def consumer_running(runner):
+    # Why: un seul consommateur pour tout le test, comme en production. fakeredis laisse courir le BLPOP d'un
+    # consommateur annulé jusqu'à son délai : ce BLPOP orphelin dépilerait la tâche suivante, que personne ne lirait.
     consumer = asyncio.create_task(runner._consumer_loop())
+    try:
+        yield
+    finally:
+        consumer.cancel()
+        for t in list(runner._running.values()):
+            t.cancel()
+        await asyncio.gather(consumer, *runner._running.values(), return_exceptions=True)
+
+
+async def wait_for_turns(runner, count):
     # Why: une attente fixe échoue quand la suite sature les cœurs (xdist) — on attend la fin réelle des tours.
     # Le plafond n'est qu'un garde-fou contre un blocage : large, il ne coûte rien quand le test passe.
     async with asyncio.timeout(60):
-        while len(runner._calls) < expected or runner._running:
+        while len(runner._calls) < count or runner._running:
             await asyncio.sleep(0.01)
-    consumer.cancel()
-    for t in list(runner._running.values()):
-        t.cancel()
-    await asyncio.gather(consumer, *runner._running.values(), return_exceptions=True)
 
 
-def test_single_conversation_two_turns(runner_with_sessions, fake_redis, session_store):
+def test_single_conversation_two_turns(runner_with_sessions, session_store):
     runner = runner_with_sessions
     session_id = "sess-conv1"
 
     runner._sessions["conv1"] = session_id
 
     async def _run():
-        await runner.submit("conv1", "What is IAE?", [], session_id=session_id)
-        await _run_consumer_cycle(runner, fake_redis)
+        async with consumer_running(runner):
+            await runner.submit("conv1", "What is IAE?", [], session_id=session_id)
+            await wait_for_turns(runner, 1)
 
-        assert f"{session_id}.jsonl" in session_store
+            assert f"{session_id}.jsonl" in session_store
 
-        await runner.submit("conv1", "Tell me more", [], session_id=session_id)
-        await _run_consumer_cycle(runner, fake_redis)
+            await runner.submit("conv1", "Tell me more", [], session_id=session_id)
+            await wait_for_turns(runner, 2)
 
         assert len(runner._calls) == 2
         assert runner._calls[0]["session_id"] == session_id
@@ -158,7 +169,7 @@ def test_single_conversation_two_turns(runner_with_sessions, fake_redis, session
     asyncio.run(_run())
 
 
-def test_two_parallel_conversations(runner_with_sessions, fake_redis, session_store):
+def test_two_parallel_conversations(runner_with_sessions, session_store):
     runner = runner_with_sessions
 
     runner._sessions.update({"conv-a": "sess-a", "conv-b": "sess-b"})
@@ -166,7 +177,8 @@ def test_two_parallel_conversations(runner_with_sessions, fake_redis, session_st
     async def _run():
         await runner.submit("conv-a", "Question A", [], session_id="sess-a")
         await runner.submit("conv-b", "Question B", [], session_id="sess-b")
-        await _run_consumer_cycle(runner, fake_redis, turns=2)
+        async with consumer_running(runner):
+            await wait_for_turns(runner, 2)
 
         conv_ids = {c["conversation_id"] for c in runner._calls}
         assert conv_ids == {"conv-a", "conv-b"}
@@ -182,7 +194,7 @@ def test_two_parallel_conversations(runner_with_sessions, fake_redis, session_st
     asyncio.run(_run())
 
 
-def test_session_download_called_before_agent(runner_with_sessions, fake_redis, session_store, mocker):
+def test_session_download_called_before_agent(runner_with_sessions, session_store, mocker):
     runner = runner_with_sessions
     session_id = "sess-existing"
     session_store[f"{session_id}.jsonl"] = b'{"type":"existing"}\n'
@@ -192,19 +204,21 @@ def test_session_download_called_before_agent(runner_with_sessions, fake_redis, 
 
     async def _run():
         await runner.submit("conv1", "Follow-up", [], session_id=session_id)
-        await _run_consumer_cycle(runner, fake_redis)
+        async with consumer_running(runner):
+            await wait_for_turns(runner, 1)
         download_spy.assert_called_once_with(session_id)
 
     asyncio.run(_run())
 
 
-def test_no_session_id_skips_sync(runner_with_sessions, fake_redis, mocker):
+def test_no_session_id_skips_sync(runner_with_sessions, mocker):
     runner = runner_with_sessions
     download_spy = mocker.patch("web.runner.session_sync").download_session
 
     async def _run():
         await runner.submit("conv1", "No session", [])
-        await _run_consumer_cycle(runner, fake_redis)
+        async with consumer_running(runner):
+            await wait_for_turns(runner, 1)
         download_spy.assert_not_called()
 
     asyncio.run(_run())

@@ -67,6 +67,7 @@ L'agent **DOIT** lire `conventions_doc_path` (avec son outil Read) avant de modi
 | Option | Description |
 |--------|-------------|
 | `--slug` | (obligatoire) Slug du TDB à modifier |
+| `--show` | Lecture seule, sans rien modifier : métadonnées (premier auteur, `has_cron`, `cron_enabled`, cadence), cinq derniers passages du cron (statut, durée, fin de sortie), publications actives et déclinaisons |
 | `--title` | Nouveau titre |
 | `--description` | Nouvelle description (une ligne) |
 | `--website` | Nouveau site associé |
@@ -123,10 +124,5 @@ Une modification qui ne touche que les métadonnées (titre, tags, archivage) ne
 Les tags viennent d'un **vocabulaire fermé**, synchronisé depuis Notion et organisé en facettes (`usage`, `feature`, `audience`, `theme`, `mesure`, `source`, `territoire`). Un terme absent du vocabulaire actif est refusé et l'opération échoue : il n'y a plus de création de tag à la volée. Lister les termes valides et le nombre attendu par facette avant de choisir :
 
 ```bash
-python -c "
-from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
-from web.db import get_db
-with get_db() as session:
-    print(build_prompt_taxonomy(load_vocabulary(session)))
-"
+python skills/list_tags.py
 ```

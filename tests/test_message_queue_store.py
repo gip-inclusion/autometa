@@ -102,9 +102,32 @@ def test_ack_returned_forgets_only_the_acknowledged_returned_messages():
     store.update_conversation(conv.id, needs_response=True)
     waiting = store.queue_message(conv.id, "q3")[0]["id"]
 
-    store.ack_returned(conv.id, [first, waiting])
+    taken = store.ack_returned(conv.id, [first, waiting])
 
+    assert [e["content"] for e in taken] == ["q1"]
     assert [e["id"] for e in store.pending_messages(conv.id)] == [second, waiting]
+
+
+def test_returned_messages_go_to_one_acknowledgement_when_two_race():
+    for _ in range(20):
+        conv = make_conversation()
+        store.queue_message(conv.id, "q1")
+        store.end_turn(conv.id, flush=False)
+        ids = [e["id"] for e in store.pending_messages(conv.id)]
+        barrier = threading.Barrier(2)
+        taken = []
+
+        def ack(conv_id=conv.id, ids=ids, barrier=barrier, taken=taken):
+            barrier.wait()
+            taken.append(store.ack_returned(conv_id, ids))
+
+        threads = [threading.Thread(target=ack) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert sorted(len(t) for t in taken) == [0, 1]
 
 
 @pytest.mark.parametrize("flush", [False, True], ids=["file rendue", "file envoyée"])

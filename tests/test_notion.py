@@ -363,6 +363,30 @@ def test_query_database_paginates(mocker):
 
 
 @pytest.mark.parametrize(
+    ("limit", "pages", "calls", "expected"),
+    [
+        (15, [["a", "b"]], 1, ["a", "b"]),
+        (3, [["a", "b"], ["c", "d"], ["e"]], 2, ["a", "b", "c"]),
+        (150, [["a"] * 100, ["b"] * 100, ["c"]], 2, ["a"] * 100 + ["b"] * 50),
+    ],
+)
+def test_query_database_stops_at_the_limit(mocker, limit, pages, calls, expected):
+    from lib import notion
+
+    req = mocker.patch(
+        "lib.notion.notion_request",
+        side_effect=[
+            {"results": [{"id": i} for i in ids], "has_more": n < len(pages) - 1, "next_cursor": "c"}
+            for n, ids in enumerate(pages)
+        ],
+    )
+
+    assert [p["id"] for p in notion.query_database("db1", limit=limit)] == expected
+    assert req.call_count == calls
+    assert req.call_args_list[0].args[2]["page_size"] == min(limit, 100)
+
+
+@pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
         ({}, {"page_size": 100}),
@@ -380,6 +404,58 @@ def test_query_database_sends_filter_and_sorts_only_when_given(mocker, kwargs, e
     notion.query_database("db1", **kwargs)
 
     assert req.call_args.args[2] == expected
+
+
+def notion_answering(mocker, *bodies):
+    """httpx answering each Notion call with the next body."""
+    responses = [mocker.Mock(status_code=200, **{"json.return_value": body}) for body in bodies]
+    return mocker.patch("lib.notion.httpx.request", side_effect=responses)
+
+
+@pytest.mark.parametrize(("kwargs", "expected"), [({}, "2022-06-28"), ({"version": "2026-03-11"}, "2026-03-11")])
+def test_notion_request_sends_the_api_version(mocker, kwargs, expected):
+    from lib import notion
+
+    req = notion_answering(mocker, {})
+
+    notion.notion_request("GET", "users/me", **kwargs)
+
+    assert req.call_args.kwargs["headers"]["Notion-Version"] == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "endpoint", "version"),
+    [
+        ("query_database", "databases/x/query", "2022-06-28"),
+        ("query_data_source", "data_sources/x/query", "2026-03-11"),
+    ],
+)
+def test_queries_paginate_on_their_endpoint_and_api_version(mocker, query, endpoint, version):
+    from lib import notion
+
+    req = notion_answering(
+        mocker,
+        {"results": [{"id": "a"}], "has_more": True, "next_cursor": "c1"},
+        {"results": [{"id": "b"}], "has_more": False},
+    )
+
+    rows = getattr(notion, query)("x", filter={"property": "Statut"})
+
+    assert [p["id"] for p in rows] == ["a", "b"]
+    assert [(c.args[1], c.kwargs["headers"]["Notion-Version"]) for c in req.call_args_list] == [
+        (f"https://api.notion.com/v1/{endpoint}", version)
+    ] * 2
+    assert req.call_args.kwargs["json"] == {"page_size": 100, "filter": {"property": "Statut"}, "start_cursor": "c1"}
+
+
+def test_data_sources_lists_those_of_a_database_with_the_recent_api_version(mocker):
+    from lib import notion
+
+    req = notion_answering(mocker, {"object": "database", "data_sources": [{"id": "ds1", "name": "Backlog"}]})
+
+    assert notion.data_sources("db1") == [{"id": "ds1", "name": "Backlog"}]
+    assert req.call_args.args[:2] == ("GET", "https://api.notion.com/v1/databases/db1")
+    assert req.call_args.kwargs["headers"]["Notion-Version"] == "2026-03-11"
 
 
 def test_notion_request_retries_on_429(mocker):
@@ -403,7 +479,7 @@ def test_notion_request_raises_after_persistent_429(mocker):
     req = mocker.patch("lib.notion.httpx.request", return_value=r429)
     mocker.patch("lib.notion.time.sleep")
 
-    with pytest.raises(RuntimeError, match="rate-limited"):
+    with pytest.raises(notion.NotionRateLimitError, match="rate-limited"):
         notion.notion_request("GET", "users/me")
     assert req.call_count == 4
 

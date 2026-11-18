@@ -10,16 +10,24 @@ from web import config
 
 NOTION_TOKEN = config.NOTION_TOKEN
 NOTION_REPORTS_DB = config.NOTION_REPORTS_DB
+API_VERSION = "2022-06-28"
+# Why: depuis 2025-09-03, une base se requête par ses sources de données. create_page, tag_sync et la façade des TDB
+# dépendent de l'ancien format : seules les sources de données passent à la nouvelle version.
+DATA_SOURCES_VERSION = "2026-03-11"
 
 
 def is_configured() -> bool:
     return bool(NOTION_TOKEN and NOTION_REPORTS_DB)
 
 
-def notion_request(method: str, endpoint: str, payload: dict | None = None) -> dict:
+class NotionRateLimitError(RuntimeError):
+    """Notion still answers 429 after the retries."""
+
+
+def notion_request(method: str, endpoint: str, payload: dict | None = None, version: str = API_VERSION) -> dict:
     headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
-        "Notion-Version": "2022-06-28",
+        "Notion-Version": version,
         "Content-Type": "application/json",
     }
     url = f"https://api.notion.com/v1/{endpoint}"
@@ -30,7 +38,7 @@ def notion_request(method: str, endpoint: str, payload: dict | None = None) -> d
             resp.raise_for_status()
             return resp.json()
         time.sleep(float(resp.headers.get("Retry-After", 1)))
-    raise RuntimeError(f"Notion API rate-limited after retries: {endpoint}")
+    raise NotionRateLimitError(f"Notion API rate-limited after retries: {endpoint}")
 
 
 def db_id_from_url(url: str) -> str:
@@ -47,21 +55,40 @@ def db_id_from_url(url: str) -> str:
     return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 
 
-def query_database(db_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> list[dict]:
-    """All rows of a Notion database (paginated), optionally filtered and sorted."""
+def query_rows(
+    endpoint: str, filter: dict | None, sorts: list[dict] | None, version: str, limit: int | None = None
+) -> list[dict]:
+    """Rows of a database or data source query (paginated, all or the first `limit`), optionally filtered and sorted."""
     query = {key: value for key, value in (("filter", filter), ("sorts", sorts)) if value}
     pages = []
     cursor = None
     while True:
-        payload = {"page_size": 100, **query}
+        payload = {"page_size": min(limit or 100, 100), **query}
         if cursor:
             payload["start_cursor"] = cursor
-        data = notion_request("POST", f"databases/{db_id}/query", payload)
+        data = notion_request("POST", endpoint, payload, version)
         pages.extend(data["results"])
-        if not data.get("has_more"):
+        if not data.get("has_more") or (limit and len(pages) >= limit):
             break
         cursor = data.get("next_cursor")
-    return pages
+    return pages[:limit]
+
+
+def query_database(
+    db_id: str, filter: dict | None = None, sorts: list[dict] | None = None, limit: int | None = None
+) -> list[dict]:
+    """Rows of a single-source Notion database (paginated, all or the first `limit`), optionally filtered and sorted."""
+    return query_rows(f"databases/{db_id}/query", filter, sorts, API_VERSION, limit)
+
+
+def data_sources(database_id: str) -> list[dict]:
+    """The data sources of a database, as {id, name}; none for a linked view whose source is not shared."""
+    return notion_request("GET", f"databases/{database_id}", version=DATA_SOURCES_VERSION)["data_sources"]
+
+
+def query_data_source(data_source_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> list[dict]:
+    """All rows of a data source (paginated), optionally filtered and sorted."""
+    return query_rows(f"data_sources/{data_source_id}/query", filter, sorts, DATA_SOURCES_VERSION)
 
 
 def block_children(block_id: str) -> list[dict]:

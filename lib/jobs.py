@@ -88,6 +88,23 @@ def get_run_output(run_id: str) -> str:
     return resp.text
 
 
+def get_run_output_head(run_id: str, limit: int) -> str:
+    """The first `limit` characters of the run's artifact, without downloading the rest."""
+    text = ""
+    with httpx.stream(
+        "GET",
+        f"{config.AUTOMETA_JOBS_URL}/runs/{_safe_id(run_id)}/output",
+        headers={"Authorization": f"Bearer {config.AUTOMETA_JOBS_API_KEY}"},
+        timeout=5,
+    ) as resp:
+        resp.raise_for_status()
+        for chunk in resp.iter_text():
+            text += chunk
+            if len(text) > limit:
+                break
+    return text
+
+
 def get_run_output_url(run_id: str, expires_in: int = 3600) -> dict:
     """A short-lived download URL for the artifact — for the UI to link."""
     return _request("GET", f"/runs/{_safe_id(run_id)}/output", params={"presign": 1, "expires_in": expires_in})
@@ -101,10 +118,14 @@ def create_and_run(
     name: str, system_prompt: str, config_overrides: dict | None = None, input_uri: str | None = None
 ) -> dict:
     """Create a one-shot pipeline and immediately trigger a run — the composer's launch primitive."""
-    pipeline = create_pipeline(name, system_prompt, config_overrides)
-    run = trigger_run(pipeline["id"], input_uri=input_uri)
+    return launch(create_pipeline(name, system_prompt, config_overrides)["id"], input_uri=input_uri)
+
+
+def launch(pipeline_id: str, input_uri: str | None = None) -> dict:
+    """Trigger a run of an existing pipeline, summarised for the composer."""
+    run = trigger_run(pipeline_id, input_uri=input_uri)
     return {
-        "pipeline_id": pipeline["id"],
+        "pipeline_id": pipeline_id,
         "run_id": run["id"],
         "status": run["status"],
         "run_url": run_url(run["id"]),

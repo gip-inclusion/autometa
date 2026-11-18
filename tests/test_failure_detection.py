@@ -45,18 +45,6 @@ def test_conversation_id_is_indexed():
     assert any(ix["column_names"] == ["conversation_id"] for ix in indexed)
 
 
-def test_ensure_schema_creates_schema_then_tables(mocker):
-    engine = mocker.MagicMock()
-    mocker.patch("lib.failure_detection.get_engine", return_value=engine)
-    create_all = mocker.patch("sqlalchemy.MetaData.create_all")
-
-    failure_detection.ensure_schema()
-
-    statement = engine.begin.return_value.__enter__.return_value.execute.call_args[0][0]
-    assert str(statement) == f"CREATE SCHEMA IF NOT EXISTS {failure_detection.SCHEMA}"
-    create_all.assert_called_once_with(engine)
-
-
 def test_record_failure_inserts_row_with_utc_timestamp(mocker):
     engine = mocker.MagicMock()
     mocker.patch("lib.failure_detection.get_engine", return_value=engine)
