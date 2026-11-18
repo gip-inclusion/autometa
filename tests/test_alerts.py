@@ -75,3 +75,13 @@ def test_notify_alert_channel_logs_when_delivery_fails(mocker, slack_configured,
     alerts.notify_alert_channel("hello")
 
     assert "not delivered" in caplog.text.lower() or "slack" in caplog.text.lower()
+
+
+def test_lines_are_grouped_into_messages_slack_displays_whole():
+    lines = [f"{n:04d}-{'x' * 60}" for n in range(200)]
+
+    grouped = alerts.blocks(lines)
+
+    assert len(grouped) > 1
+    assert all(len(block) < 3000 for block in grouped)
+    assert "\n".join(grouped).split("\n") == lines
