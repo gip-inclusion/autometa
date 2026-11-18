@@ -84,6 +84,17 @@ Card metadata is also available in `data/cache/metabase/` (daily inventory).
 - `get_dashboard(dashboard_id)` - Get dashboard metadata
 - `list_dashboards(collection_id)` - List dashboards in a collection
 
+**Schema methods** — find a table, its columns, or the field a GUI question refers to by id:
+- `list_databases()` - Databases of the instance (id, name, engine)
+- `list_tables(database_id)` - Tables of a database (id, schema, name), without fields
+- `get_table_metadata(table_id)` - A table with its fields
+- `get_field(field_id)` - A field: name, table_id, base_type
+- `get_version()` - Metabase version, e.g. `v0.64.4`, before explaining a UI feature
+
+Never call `api._request` or Metabase with raw httpx: a read no method covers is a gap to report, not to work around.
+
+**Writing is not supported**: the agent never creates, modifies, moves or archives a question, a collection or a dashboard in Metabase. When the user wants a saved question, give them the SQL and the `build_sql_url` link (`lib.metabase`) that opens it in Metabase, where they save it themselves.
+
 ## Instances
 
 | Instance | URL | Database ID | Purpose |
