@@ -57,8 +57,8 @@ Un indicateur North Star ne retient que des **mois consolidés** : mois dont la 
 - Les actes de mise à jour d'une fiche déjà présents ne sont pas recalculés, sauf s'ils valaient 0 : ils sont datés par la dernière modification, qu'une modification ultérieure déplacerait.
 - Mon Récap est recalculé sur toute la fenêtre.
 - Si le total d'actes baisse de plus de 10 %, `data.json` n'est pas écrit.
-- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`. L'historique de croissance annuelle au-delà de la fenêtre en est tiré. Mars 2025 y est incomplet : il ne sert pas de référence N-1, et la croissance annuelle de mars 2026 ne doit pas être recalculée depuis le snapshot.
-- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025. Les prolongations et les orientations RDV-i directes existent sur toute la période ; les orientations post-RDV (depuis mai 2026), les orientations estimées data·inclusion et les bilans (depuis octobre 2026) n'ont pas d'historique antérieur et comptent donc comme de la croissance.
+- Chaque mois, les données sont recopiées dans la table `pdi_actes_metier_snapshot_annuel` (schéma `matometa`, datalake), sans la colonne `traite`, que remplacent `north_star` (actes traités en 30 jours) et `north_star_70` (actes traités en 59 jours). L'historique de croissance annuelle au-delà de la fenêtre en est tiré. Mars 2025 y est incomplet : il ne sert pas de référence N-1, et la croissance annuelle de mars 2026 ne doit pas être recalculée depuis le snapshot.
+- Les actes ajoutés en novembre 2026 (prolongations, orientations RDV-i et data·inclusion, bilans) ont été recalculés sur toute la fenêtre et dans le snapshot depuis avril 2025.
 
 ---
 
@@ -178,8 +178,6 @@ Type de structure d'une diffusion : `SIAE` si l'auteur est un compte SIAE, sinon
 | Remplissage carnet Mon Récap | Support | 2 | **Proxy** : pendant 6 mois à partir du mois d'expédition, 1,093 remplissage par mois et par carnet déjà distribué |
 
 Date d'expédition : celle de la commande, ou à défaut la date de fabrication plus 7 jours (non saisie depuis les commandes d'avril 2026). Les volumes Mon Récap sont des estimations, pas des mesures.
-
-⚠️ Tous les actes Mon Récap sont en département `Inconnu` (constaté dans `data.json` le 2026-11-12) : aucune ventilation territoriale n'est possible.
 
 ---
 
