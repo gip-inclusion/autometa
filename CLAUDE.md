@@ -19,6 +19,8 @@ make paved-road-status  # État du parcours, verdict de chaque critère
 make ci        # lint + lint-js + security + migrations + test-cov + diff-cover
 ```
 
+**Agent factice** — `AGENT_BACKEND=fake make dev` sert l'application avec un agent qui répond sans modèle, selon des marqueurs dans le message (`web/agents/fake.py`). C'est le serveur à utiliser pour essayer l'interface en local et pour `make e2e`, dont les parcours qui jouent un tour sont sautés sans lui. Il est refusé hors local. Lui donner sa propre db Redis (`REDIS_URL=redis://localhost:6379/<n>`) : la file des tours est partagée par db, et un serveur au vrai moteur branché sur la même db jouerait ses tours avec le vrai Claude.
+
 Architecture et flux de données : `.claude/ARCHITECTURE.md`.
 
 Conventions de code : `.claude/rules/code.md`. Tests (pytest, pytest-mock, parametrize, factories) : `.claude/rules/tests.md`.
