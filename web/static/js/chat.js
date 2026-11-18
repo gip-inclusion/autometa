@@ -470,6 +470,8 @@ function initFileUpload() {
  * Add files to the pending upload queue
  */
 function addPendingFiles(files) {
+  // Why: a message sent during a turn waits with its text only — a file dropped now would leave with the next one.
+  if (turnState !== 'idle') return showError('Attendez la fin de la réponse pour joindre un fichier.');
   for (const file of files) {
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
@@ -707,6 +709,14 @@ document.body.addEventListener('click', (e) => {
   if (e.target.closest('#unpinConvBtn')) return unpinConversation();
   if (e.target.closest('#relaunchBtn')) return relaunchConversation();
   if (e.target.closest('.chat-bar-warning-close')) return dismissPublicWarning();
+  const queued = e.target.closest('.event-queued');
+  if (queued && !e.target.closest('a')) return takeQueued(queued, !e.target.closest('.queued-remove'));
+});
+
+document.body.addEventListener('keydown', (e) => {
+  if (!e.target.matches('.event-queued') || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  takeQueued(e.target, true);
 });
 
 document.body.addEventListener('input', (e) => {

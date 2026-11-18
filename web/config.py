@@ -145,6 +145,8 @@ S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION", "fr-par")
 BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET")
+# Why: sans cette variable, le balayeur du bucket ne fait que lister ce qu'il effacerait.
+S3_JANITOR_DELETE = os.getenv("S3_JANITOR_DELETE", "false").lower() == "true"
 PUBLIC_S3_BUCKET_STAGING = os.getenv("PUBLIC_DASHBOARDS_BUCKET_STAGING")
 PUBLIC_S3_BUCKET_PROD = os.getenv("PUBLIC_DASHBOARDS_BUCKET_PROD")
 PUBLIC_DASHBOARDS_STAGING_URL = os.getenv(
@@ -188,6 +190,9 @@ TOOL_CALL_WARNING = int(os.getenv("TOOL_CALL_WARNING", "50"))
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_REPORTS_DB = os.getenv("NOTION_REPORTS_DB")
 NOTION_TAGS_DB = os.getenv("NOTION_TAGS_DB")
+NOTION_BACKLOG_DB = os.getenv("NOTION_BACKLOG_DB")
+NOTION_ANNUAIRE_DB = os.getenv("NOTION_ANNUAIRE_DB")
+FIGMA_ACCESS_TOKEN = os.getenv("FIGMA_ACCESS_TOKEN")
 
 
 # Slack notifications
