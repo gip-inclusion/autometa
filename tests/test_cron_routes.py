@@ -7,7 +7,7 @@ from botocore.exceptions import ClientError
 
 from web import cron, scalingo
 from web.db import get_db
-from web.helpers import format_future_date
+from web.helpers import to_local
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -183,7 +183,15 @@ def test_the_cron_page_shows_the_last_run_of_each_batch(client, mocker):
     assert "interrompu" in response.text
 
 
-def test_the_cron_page_announces_the_next_run_at_the_hour_of_the_task_batch(client, mocker):
+# Why: entre minuit et le départ du lot, heure de Paris, le prochain départ tombe « aujourd'hui », que Jinja échappe.
+@pytest.mark.parametrize(
+    ("now", "label"),
+    [
+        (datetime(2026, 11, 14, 0, 30, tzinfo=timezone.utc), "aujourd&#39;hui à 03:00"),
+        (datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc), "demain à 03:00"),
+    ],
+)
+def test_the_cron_page_announces_the_next_run_at_the_hour_of_the_task_batch(client, mocker, now, label):
     task = {
         "slug": "sync-x",
         "title": "X",
@@ -194,10 +202,12 @@ def test_the_cron_page_announces_the_next_run_at_the_hour_of_the_task_batch(clie
         "batch": "synchros",
     }
     mocker.patch("web.routes.cron.discover_cron_tasks", return_value=[task])
+    mocker.patch("web.cron.utcnow", return_value=now)
+    mocker.patch("web.helpers.now_local", return_value=to_local(now))
 
     response = client.get("/cron")
 
-    assert format_future_date(cron.next_cron_run("daily", "synchros")) in response.text
+    assert f"prochaine : {label}" in response.text
 
 
 def test_the_cron_page_survives_an_s3_outage(client, mocker):
