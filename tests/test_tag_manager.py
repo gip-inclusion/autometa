@@ -51,7 +51,7 @@ def test_flatten_params(params, expected):
 
 
 def test_post_support_request_uses_post_when_specified(mocker):
-    """_request uses POST method when http_method='POST'."""
+    """_request with form=True sends a POST."""
     mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
@@ -65,10 +65,10 @@ def test_post_support_request_uses_post_when_specified(mocker):
     api = MatomoAPI(url="matomo.example.com", token="test_token")
     api._session = mock_session
 
-    result = api._request("TagManager.test", {"key": "value"}, timeout=30, http_method="POST")
+    result = api._request("TagManager.test", {"key": "value"}, timeout=30, form=True)
 
     assert mock_session.post.called
-    assert not mock_session.get.called
+    assert mock_session.post.call_args.kwargs["data"]["key"] == "value"
     assert result == {"value": 123}
 
 
@@ -91,7 +91,7 @@ def test_post_support_post_flattens_parameters(mocker):
         "TagManager.test",
         {"conditions": [{"comparison": "equals", "actual": "test"}]},
         timeout=30,
-        http_method="POST",
+        form=True,
     )
 
     call_args = mock_session.post.call_args
@@ -101,8 +101,8 @@ def test_post_support_post_flattens_parameters(mocker):
     assert data_sent["conditions[0][actual]"] == "test"
 
 
-def test_post_support_get_still_works_with_default(mocker):
-    """GET requests still work (backward compatibility)."""
+def test_post_support_default_keeps_parameters_in_the_query_string(mocker):
+    """Without form, parameters stay in the query string and only the token goes in the body."""
     mock_session_class = mocker.patch("lib.matomo.httpx.Client")
     mock_session = mocker.Mock()
     mock_response = mocker.Mock()
@@ -110,7 +110,7 @@ def test_post_support_get_still_works_with_default(mocker):
     mock_response.headers = {"Content-Type": "application/json"}
     mock_response.text = '{"nb_visits": 100}'
     mock_response.json.return_value = {"nb_visits": 100}
-    mock_session.get.return_value = mock_response
+    mock_session.post.return_value = mock_response
     mock_session_class.return_value = mock_session
 
     api = MatomoAPI(url="matomo.example.com", token="test_token")
@@ -118,8 +118,10 @@ def test_post_support_get_still_works_with_default(mocker):
 
     result = api._request("VisitsSummary.get", {"idSite": 117, "period": "day", "date": "today"})
 
-    assert mock_session.get.called
-    assert not mock_session.post.called
+    kwargs = mock_session.post.call_args.kwargs
+    assert kwargs["params"]["idSite"] == 117
+    assert "token_auth" not in kwargs["params"]
+    assert kwargs["data"] == {"token_auth": "test_token"}
     assert result == {"nb_visits": 100}
 
 
@@ -146,6 +148,8 @@ def test_post_support_post_method_convenience(mocker):
     call_data = mock_session.post.call_args[1]["data"]
     assert call_data["idSite"] == 210
     assert call_data["idContainer"] == "xg8aydM9"
+    assert call_data["token_auth"] == "test_token"
+    assert "params" not in mock_session.post.call_args[1]
 
 
 def test_container_helpers_get_container(mocker):
@@ -162,7 +166,7 @@ def test_container_helpers_get_container(mocker):
         "releases": [{"environment": "live", "idcontainerversion": 972}],
     }
     mock_response.text = '{"idcontainer": "xg8aydM9"}'
-    mock_session.get.return_value = mock_response
+    mock_session.post.return_value = mock_response
     mock_session_class.return_value = mock_session
 
     api = MatomoAPI(url="matomo.example.com", token="test_token")
@@ -172,7 +176,7 @@ def test_container_helpers_get_container(mocker):
 
     assert result["idcontainer"] == "xg8aydM9"
     assert result["draft"]["idcontainerversion"] == 420
-    assert mock_session.get.called
+    assert mock_session.post.called
 
 
 def test_container_helpers_get_draft_version(mocker):
@@ -184,7 +188,7 @@ def test_container_helpers_get_draft_version(mocker):
     mock_response.headers = {"Content-Type": "application/json"}
     mock_response.json.return_value = {"idcontainer": "xg8aydM9", "draft": {"idcontainerversion": 420}}
     mock_response.text = '{"idcontainer": "xg8aydM9"}'
-    mock_session.get.return_value = mock_response
+    mock_session.post.return_value = mock_response
     mock_session_class.return_value = mock_session
 
     api = MatomoAPI(url="matomo.example.com", token="test_token")
@@ -526,7 +530,7 @@ def test_workflow_helpers_export_version(mocker):
     mock_response.headers = {"Content-Type": "application/json"}
     mock_response.json.return_value = {"triggers": [], "tags": [], "variables": []}
     mock_response.text = '{"triggers": [], "tags": [], "variables": []}'
-    mock_session.get.return_value = mock_response
+    mock_session.post.return_value = mock_response
     mock_session_class.return_value = mock_session
 
     api = MatomoAPI(url="matomo.example.com", token="test_token")
@@ -534,4 +538,4 @@ def test_workflow_helpers_export_version(mocker):
 
     result = api.export_version(210, "xg8aydM9", 420)
     assert "triggers" in result
-    assert mock_session.get.called
+    assert mock_session.post.called

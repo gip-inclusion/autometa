@@ -245,12 +245,15 @@ body.has-sidebar {
   overflow: hidden;
 }
 
+/* Why: 100vh is the screen without Safari's toolbars on iOS, so the bottom of the page, composer included, slid under them. */
 @media (max-width: 991.98px) {
   #section-explorations,
   #section-rapports,
   #section-rechercher,
   #section-dashboards {
     height: calc(100vh - 56px);
+    /* biome-ignore lint/suspicious/noDuplicateProperties: fallback for browsers without dvh (Safari < 15.4, Chrome < 108) */
+    height: calc(100dvh - 56px);
   }
 }
 
@@ -372,9 +375,38 @@ body.has-sidebar {
 }
 
 .chat-bar {
+  position: relative;
   display: flex;
   gap: 0.75rem;
   align-items: center;
+}
+
+.job-mentions {
+  position: absolute;
+  bottom: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  min-width: 16rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 0.875rem;
+}
+
+.job-mentions li {
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+}
+
+.job-mentions li[aria-selected="true"] {
+  background: #e3e3fd;
+  color: #000091;
 }
 
 /* The wrapper IS the rounded rectangle border — holds pending files + input row */
@@ -820,6 +852,7 @@ body.has-sidebar {
   border-radius: 0.5rem;
   border: 1px solid var(--bs-border-color);
   margin-top: 1.25rem;
+  overflow-wrap: break-word;
 }
 
 .event-block:first-child {
@@ -3716,6 +3749,8 @@ body.has-sidebar {
 @media (max-width: 991.98px) {
   #section-accueil {
     height: calc(100vh - 56px);
+    /* biome-ignore lint/suspicious/noDuplicateProperties: fallback for browsers without dvh (Safari < 15.4, Chrome < 108) */
+    height: calc(100dvh - 56px);
   }
 }
 
@@ -4743,6 +4778,11 @@ body.no-sidebar .section-header .container-fluid {
 .source-column-table th {
   font-weight: 600;
   color: #6c757d;
+}
+
+/* Why: le thème itou dessine la flèche du select à 1rem du bord droit sans lui réserver de place. */
+.job-tags-select {
+  padding-right: 2.5rem;
 }
 
 .staging-banner {

@@ -18,6 +18,8 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import BinaryIO, Optional, Tuple
@@ -190,8 +192,8 @@ def is_text_file(filename: str, mime_type: Optional[str], content: bytes) -> boo
 
 def sanitize_filename(filename: str) -> str:
     """Sanitize a filename to prevent path traversal and other issues."""
-    # Remove path components
-    filename = os.path.basename(filename)
+    # Why: un nom décomposé (NFD, envoyé par les navigateurs macOS) ne se retape pas : l'agent écrit la forme composée.
+    filename = unicodedata.normalize("NFC", os.path.basename(filename))
     # Replace problematic characters
     filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", filename)
     # Limit length
@@ -260,7 +262,7 @@ def upload_to_s3(relative_path: str, content: bytes, content_type: Optional[str]
 def upload_file(
     file_obj: BinaryIO,
     filename: str,
-    conversation_id: Optional[str] = None,
+    conversation_id: str,
     user_id: Optional[str] = None,
     check_duplicate: bool = True,
 ) -> Tuple[UploadedFile, Optional[str]]:
@@ -282,8 +284,10 @@ def upload_file(
 
     # Check for existing file with same hash (deduplication)
     if check_duplicate:
-        existing = store.get_uploaded_file_by_hash(sha256_hash)
-        if existing:
+        # Why: un fichier n'est réutilisé que dans sa conversation, dont le dossier porte son chemin.
+        existing = store.get_uploaded_file_by_hash(sha256_hash, conversation_id)
+        # Why: une copie perdue (envoi S3 échoué, disque vidé) se répare en téléversant de nouveau le fichier.
+        if existing and Path(existing.storage_path).exists():
             logger.info("Found existing file with hash %s...", sha256_hash[:16])
             # Create a new record pointing to the same file
             new_record = store.add_uploaded_file(
@@ -317,9 +321,10 @@ def upload_file(
     is_text = is_text_file(filename, mime_type, content)
 
     # Generate stored filename and path
-    stored_filename = generate_stored_filename(filename)
-    uploads_dir = ensure_uploads_dir()
-    storage_path = uploads_dir / stored_filename
+    # Why: un dossier par conversation — l'agent qui liste le sien ne voit pas les fichiers des autres utilisateurs.
+    stored_filename = f"{conversation_id}/{generate_stored_filename(filename)}"
+    storage_path = ensure_uploads_dir() / stored_filename
+    storage_path.parent.mkdir(exist_ok=True)
 
     # Write file
     storage_path.write_bytes(content)
@@ -394,6 +399,28 @@ def get_file_content(uploaded_file: UploadedFile) -> Optional[bytes]:
     except ClientError as e:
         logger.error("Failed to download from S3: %s", e)
         return None
+
+
+def restore_conversation_files(conversation_id: str) -> None:
+    """Remet sur le disque, depuis S3, les fichiers de la conversation qu'un redémarrage a effacés."""
+    for uploaded_file in store.get_conversation_files(conversation_id):
+        local_path = Path(uploaded_file.storage_path)
+        if local_path.exists():
+            continue
+        content = s3.uploads.download(uploaded_file.stored_filename)
+        if content is None:
+            logger.warning("Fichier téléversé absent de S3 : %s", uploaded_file.stored_filename)
+            continue
+        try:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            # Why: une conversation et ses forks partagent ce chemin ; l'autre agent ne doit trouver que le fichier entier.
+            with tempfile.NamedTemporaryFile(dir=local_path.parent, suffix=".part", delete=False) as partial:
+                partial.write(content)
+            set_readonly_permissions(Path(partial.name))
+            os.replace(partial.name, local_path)
+        except OSError:
+            # Why: un fichier qui ne s'écrit pas prive l'agent de ce fichier seulement, pas la conversation de son tour.
+            logger.warning("Fichier téléversé non restauré : %s", local_path, exc_info=True)
 
 
 def copy_file_for_modification(
