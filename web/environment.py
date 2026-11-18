@@ -35,3 +35,8 @@ class Environment(StrEnum):
     def owns_shared_db(self) -> bool:
         """True only for prod, the single instance that maintains the shared autometa_tables_db."""
         return self is Environment.PROD
+
+    @property
+    def posts_alerts(self) -> bool:
+        """True only for prod: the shared Slack alert channel must not carry staging or review noise."""
+        return self is Environment.PROD

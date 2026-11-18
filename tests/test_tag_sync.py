@@ -3,11 +3,11 @@
 import pytest
 from sqlalchemy import select
 
-from lib.tag_sync import fetch_terms, parse_row, sync_state, sync_tags
+from lib.tag_sync import fetch_terms, parse_row, pending_terms, sync_state, sync_tags
 from lib.taxonomy import load_implications
 from web.db import get_db
 from web.db import test_transaction as _test_tx
-from web.models import Dashboard, DashboardTag, Tag
+from web.models import Dashboard, DashboardTag, JobTag, Tag
 
 # Why: `query_database` est mocké — seul le parsing d'id est traversé, aucun accès réseau.
 FAKE_TAGS_DB = "0" * 32
@@ -375,3 +375,19 @@ def test_sync_without_config_returns_error(db, mocker):
 
     assert not result.applied
     assert "NOTION_TAGS_DB" in result.error
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("_db")
+def test_pending_terms_count_dashboard_and_job_usages(db):
+    with get_db() as session:
+        _dashboard(session)
+        tag = Tag(name="agent", type="nature", label="Agent", active=True, pending=True)
+        session.add(tag)
+        session.flush()
+        session.add_all([
+            DashboardTag(dashboard_slug="tdb", tag_id=tag.id),
+            *(JobTag(pipeline_id=p, tag_id=tag.id) for p in ("p1", "p2")),
+        ])
+
+    assert pending_terms() == [{"name": "agent", "facet": "nature", "label": "Agent", "usages": 3}]

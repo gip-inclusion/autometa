@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from lib import job_mentions
 from lib.tag_suggestions import Subject, build_prompt, parse_response
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web import config, llm
@@ -453,7 +454,18 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
             if msg.type in ("user", "assistant"):
                 history.append({"role": msg.type, "content": msg.content})
 
-    prompt = content
+    mentions = None
+    try:
+        # Why: le front n'ouvre le flux qu'au retour de ce POST ; un service de jobs lent ne doit pas le retenir.
+        mentions = await asyncio.wait_for(run_in_thread(job_mentions.build_context, content), timeout=5)
+    except TimeoutError:
+        logger.warning("job mentions context over budget, sent without it")
+        mentions = ""
+    finally:
+        if mentions is None:
+            # Why: le tour est déjà réservé ; une erreur imprévue laisserait la conversation bloquée en needs_response.
+            store.end_turn(conv_id, flush=False)
+    prompt = mentions + content
 
     # Inject knowledge editing context for knowledge conversations
     if conv.conv_type == "knowledge" and conv.file_path:
@@ -691,14 +703,13 @@ async def take_queued_message(conv_id: str, entry_id: str, user_email: str = Dep
 
 @router.post("/{conv_id}/queue/returned/ack")
 async def ack_returned_messages(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
-    """Oublie les messages rendus que la page a remis dans la barre de saisie."""
+    """Oublie les messages rendus demandés et donne ceux qui restaient, pour la barre de saisie de cet onglet seul."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     if not can_mutate_conversation(conv, user_email):
         return JSONResponse({"error": "Permission denied"}, status_code=403)
-    store.ack_returned(conv_id, (await request.json()).get("ids", []))
-    return {"status": "ok"}
+    return {"returned": store.ack_returned(conv_id, (await request.json()).get("ids", []))}
 
 
 @router.get("/{conv_id}/tags")

@@ -94,6 +94,17 @@ def test_build_prompt_taxonomy_states_cardinality_and_uses_description():
     assert "- usagers: Usagers" in rendered
 
 
+def test_build_prompt_taxonomy_leaves_out_the_facets_reserved_to_jobs():
+    rendered = build_prompt_taxonomy({
+        "nature": [Term("agent", "Agent", "nature")],
+        "theme": [Term("usagers", "Usagers", "theme")],
+    })
+
+    assert "Nature" not in rendered
+    assert "- agent" not in rendered
+    assert "- usagers: Usagers" in rendered
+
+
 def test_build_prompt_taxonomy_skips_empty_facets():
     assert "Fonctionnalité" not in build_prompt_taxonomy({"usage": [Term("meta", "Méta", "usage")]})
 
