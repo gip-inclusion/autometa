@@ -80,3 +80,16 @@ def test_config_reports_invalid_env_to_sentry(monkeypatch, mocker):
     finally:
         monkeypatch.delenv("AUTOMETA_ENV", raising=False)
         importlib.reload(config)
+
+
+@pytest.mark.parametrize(
+    ("env", "posts"),
+    [
+        (Environment.DEV, False),
+        (Environment.REVIEW, False),
+        (Environment.STAGING, False),
+        (Environment.PROD, True),
+    ],
+)
+def test_only_prod_posts_alerts(env, posts):
+    assert env.posts_alerts is posts
