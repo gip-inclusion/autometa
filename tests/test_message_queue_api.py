@@ -104,14 +104,17 @@ def test_a_message_already_sent_cannot_be_taken_back(client, runner):
     assert r.json()["code"] == "already_sent"
 
 
-def test_acknowledged_returned_messages_are_forgotten(client, runner):
+def test_acknowledged_returned_messages_are_handed_out_once_then_forgotten(client, runner):
     conv = running_conversation("q1")
     store.end_turn(conv.id, flush=False)
     entry_id = store.pending_messages(conv.id)[0]["id"]
+    url = f"/api/conversations/{conv.id}/queue/returned/ack"
 
-    r = client.post(f"/api/conversations/{conv.id}/queue/returned/ack", headers=headers(), json={"ids": [entry_id]})
+    first = client.post(url, headers=headers(), json={"ids": [entry_id]})
+    second = client.post(url, headers=headers(), json={"ids": [entry_id]})
 
-    assert r.status_code == 200
+    assert [e["content"] for e in first.json()["returned"]] == ["q1"]
+    assert second.json() == {"returned": []}
     assert store.pending_messages(conv.id) == []
 
 
