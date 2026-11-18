@@ -97,10 +97,10 @@ def known_secrets() -> list[str]:
     for source_type in ("matomo", "metabase", "zendesk"):
         for instance in list_instances(source_type):
             cfg = load_config().get(source_type, {}).get(instance, {})
-            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth")]
-            pairs += [cfg.get("basic_auth"), f"{cfg['email']}/token:{cfg['token']}" if "email" in cfg else None]
+            values += [cfg.get(key) for key in ("token", "api_key", "password", "basic_auth", "client_secret")]
+            pairs.append(cfg.get("basic_auth"))
     # Why: un en-tête `Authorization: Basic` porte ces identifiants encodés en base64, jamais en clair : seule leur forme
-    # encodée permet de reconnaître à coup sûr nos propres identifiants (Metabase RDVI, Zendesk, Scalingo).
+    # encodée permet de reconnaître à coup sûr nos propres identifiants (Metabase RDVI, Scalingo).
     values += [base64.b64encode(p.encode()).decode() for p in pairs if p and not p.endswith(":") and "${env." not in p]
     return [v for v in values if v and len(v) > 6 and not v.startswith("${env.")]
 
