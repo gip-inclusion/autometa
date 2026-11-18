@@ -55,5 +55,5 @@ zendesk:
 
   emplois:
     subdomain: ${env.ZENDESK_SUBDOMAIN}
-    email: ${env.ZENDESK_EMAIL}
-    token: ${env.ZENDESK_API_TOKEN}
+    client_id: ${env.ZENDESK_CLIENT_ID}
+    client_secret: ${env.ZENDESK_CLIENT_SECRET}

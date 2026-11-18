@@ -15,6 +15,7 @@ from lib.query import (
     get_matomo,
 )
 from lib.sources import get_source_config
+from lib.zendesk import ClientCredentialsAuth
 
 from . import config, s3
 from .db import get_db
@@ -164,7 +165,12 @@ def check_zendesk() -> tuple[bool, str]:
     cfg = get_source_config("zendesk")
     resp = httpx.get(
         f"https://{cfg['subdomain']}.zendesk.com/api/v2/views/count.json",
-        auth=(f"{cfg['email']}/token", cfg["token"]),
+        auth=ClientCredentialsAuth(
+            f"https://{cfg['subdomain']}.zendesk.com/oauth/tokens",
+            cfg["client_id"],
+            cfg["client_secret"],
+            timeout=PROBE_TIMEOUT_SEC,
+        ),
         timeout=PROBE_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
