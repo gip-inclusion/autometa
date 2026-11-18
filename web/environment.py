@@ -32,6 +32,11 @@ class Environment(StrEnum):
         return self in (Environment.STAGING, Environment.REVIEW)
 
     @property
+    def owns_bucket(self) -> bool:
+        """True only for prod: staging's bucket also holds the review apps' files, which its database does not know."""
+        return self is Environment.PROD
+
+    @property
     def owns_shared_db(self) -> bool:
         """True only for prod, the single instance that maintains the shared autometa_tables_db."""
         return self is Environment.PROD
