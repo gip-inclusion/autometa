@@ -3,8 +3,9 @@
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, Text, insert, text
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, Text, insert
 
+from lib import dashboard_storage
 from web.db import get_engine
 
 SCHEMA = "dashboard_storage"
@@ -51,10 +52,7 @@ FAILURE_MARKERS = [
 
 
 def ensure_schema() -> None:
-    eng = get_engine()
-    with eng.begin() as conn:
-        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
-    _metadata.create_all(eng)
+    dashboard_storage.create_tables(_metadata)
 
 
 def record_failure(

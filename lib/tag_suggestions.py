@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Column, DateTime, MetaData, String, Table, select, text
+from sqlalchemy import JSON, Column, DateTime, MetaData, String, Table, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from web import config, llm
@@ -16,7 +16,7 @@ from web.db import get_db, get_engine
 from web.llm_errors import LLMError
 from web.models import Conversation, Dashboard, Message, Report
 
-from . import job_inputs
+from . import dashboard_storage, job_inputs
 from .taxonomy import build_prompt_taxonomy, load_vocabulary, normalize_tags
 
 logger = logging.getLogger(__name__)
@@ -38,10 +38,7 @@ tag_suggestions = Table(
 
 
 def ensure_schema() -> None:
-    engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(text("CREATE SCHEMA IF NOT EXISTS " + SCHEMA))
-    _metadata.create_all(engine)
+    dashboard_storage.create_tables(_metadata)
 
 
 @dataclass
