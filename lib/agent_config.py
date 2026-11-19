@@ -1,33 +1,30 @@
-"""Agent configuration, format pdi.agent/1: strict YAML reading and validation against the closed destination list."""
+"""Agent configuration, format pdi.agent/1: strict YAML reading and validation, destinations included."""
 
 import difflib
 import json
-import logging
 import re
 from functools import cache
 
 import yaml
 
-from lib import agent_connectors
+from lib import agent_connectors, notion
 from web import config
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "SCHEDULES",
     "FIELD_TYPES",
     "AGENT_FILE_MAX",
+    "CHANNELS",
     "FORMAT",
     "WEEKDAYS",
     "MODES",
+    "contact_of",
     "describe",
-    "known_destinations",
+    "destination_errors",
     "initial_errors",
     "models",
     "parse",
-    "target_gaps",
     "validate",
-    "warn_target_gaps",
 ]
 
 FORMAT = "pdi.agent/1"
@@ -38,6 +35,7 @@ MODES = {
     "autonomous": {"can_publish": True, "review_required": False},
 }
 GROUPINGS = ("single", "digest")
+CHANNELS = ("slack", "notion")
 FIELDS = ("format", "slug", "title", "mission", "destinations")
 OPTIONAL_FIELDS = ("schedule", "subagents", "preparations", "files")
 SCHEDULES = ("daily", "weekly", "monthly")
@@ -54,8 +52,12 @@ SUBAGENT_FIELDS = {
 # Why: clef answers up to 64 questions in one call; ten labels keep one production's verdict readable.
 LABELS_MAX = 10
 NAME = r"[a-z][a-z0-9_-]{0,39}"
-# Why: the mission is the only free text an LLM writes; a link, a person or a channel there would bypass
-# the closed destination list.
+# Why: the name the worker cites in its output; no colon, which file:<name> destinations use.
+DESTINATION = r"[a-z][a-z0-9_.-]{0,39}"
+# Why: a Slack channel id (C…, G… for an old private channel) or name, as chat.postMessage takes them.
+SLACK_TARGET = r"[CG][A-Z0-9]{8,}|#?[a-z0-9][a-z0-9_-]{0,79}"
+# Why: the mission is the only free text an LLM writes; a link, a person or a channel there would name a
+# place to write that the review of destinations does not show.
 FORBIDDEN_FREE_TEXT = re.compile(
     r"https?://|www\.|@[\w.-]+|#[\w-]+|\b[\w.+-]+@[\w-]+\.\w+|\b[CDG][A-Z0-9]{8,}\b|\bxox[a-z]-"
 )
@@ -85,37 +87,13 @@ def parse(text: str) -> object:
 
 @cache
 def read_config(name: str) -> dict:
-    """Why: the closed lists ship with the code; they are read once per process, not at every validation."""
+    """Why: the closed list of sub-agent models ships with the code; it is read once per process."""
     return yaml.safe_load((config.BASE_DIR / "config" / f"agent_{name}.yaml").read_text())
-
-
-def closed_list(name: str) -> dict[str, dict]:
-    return {d["id"]: dict(d) for d in read_config(name)[name]}
-
-
-def known_destinations() -> dict[str, dict]:
-    """The closed list of destinations, by id."""
-    return closed_list("destinations")
 
 
 def models() -> dict[str, list[str]]:
     """The closed list of sub-agent types, each with the Ollama Cloud models it may use."""
     return {t["type"]: list(t["models"]) for t in read_config("models")["types"]}
-
-
-def target_gaps() -> tuple[list[str], list[str]]:
-    """Destinations without a real id in AGENT_DESTINATION_TARGETS, and ids there naming no known destination."""
-    known, targets = set(known_destinations()), config.AGENT_DESTINATION_TARGETS
-    return sorted(d for d in known if not targets.get(d)), sorted(set(targets) - known)
-
-
-def warn_target_gaps() -> None:
-    """Why: a gap only fails the deliveries it concerns, so startup warns and never stops."""
-    missing, unknown = target_gaps()
-    if missing:
-        logger.warning("destinations d'agent sans cible dans AGENT_DESTINATION_TARGETS : %s", ", ".join(missing))
-    if unknown:
-        logger.warning("AGENT_DESTINATION_TARGETS cite des destinations inconnues : %s", ", ".join(unknown))
 
 
 def suggestion(value: object, choices: list[str]) -> str:
@@ -237,27 +215,43 @@ def initial_errors(initial_files: dict[str, str], files: object) -> list[str]:
     ]
 
 
-def destination_errors(slug: object, index: int, contact: object, known: dict[str, dict]) -> list[str]:
+def target_errors(path: str, channel: str, target: object) -> list[str]:
+    if channel == "slack":
+        if isinstance(target, str) and re.fullmatch(SLACK_TARGET, target):
+            return []
+        return [f"{path}.target : attendu l'identifiant (C0123456789) ou le nom (#canal) d'un canal Slack."]
+    try:
+        notion.db_id_from_url(str(target))
+    except ValueError:
+        return [f"{path}.target : attendu le lien ou l'identifiant d'une base ou d'une page Notion."]
+    return []
+
+
+def destination_errors(index: int, contact: object) -> list[str]:
+    """What is wrong with one destination of an agent; empty when it may be written to, as its mode allows."""
     path = f"destinations[{index}]"
-    if not isinstance(contact, dict) or not {"id", "mode"} <= set(contact) <= {"id", "mode", "grouping"}:
-        return [f"{path} : attendu les champs id et mode, et grouping en option."]
-    if contact.get("grouping", "single") not in GROUPINGS:
-        return [f"{path}.grouping : {contact['grouping']!r} inconnu, attendu {' ou '.join(GROUPINGS)}."]
-    destination = known.get(contact["id"])
-    if destination is None:
-        return [
-            f"{path}.id : {contact['id']!r} n'est pas une destination de config/agent_destinations.yaml. "
-            f"Un agent ne nomme ni canal ni personne : il choisit une destination de la liste."
-            f"{suggestion(contact['id'], list(known))}"
-        ]
+    fields = {"id", "channel", "mode"}
+    if not isinstance(contact, dict) or not fields <= set(contact) <= fields | {"target", "grouping"}:
+        return [f"{path} : attendu les champs id, channel, target et mode, et grouping en option."]
+    if not (isinstance(contact["id"], str) and re.fullmatch(DESTINATION, contact["id"])):
+        return [f"{path}.id : un nom court en minuscules (lettres, chiffres, point, tiret), par exemple veille-slack."]
+    if contact["channel"] not in CHANNELS:
+        return [f"{path}.channel : {contact['channel']!r} inconnu, attendu {' ou '.join(CHANNELS)}."]
     if contact["mode"] not in MODES:
         return [f"{path}.mode : {contact['mode']!r} inconnu, modes permis : {', '.join(MODES)}."]
-    if contact["mode"] == "autonomous" and slug not in destination["autonomous_allowed"]:
-        return [
-            f"{path}.mode : le mode autonomous sur {contact['id']!r} n'est pas ouvert à cet agent. "
-            "Il s'ouvre par une PR qui l'ajoute à autonomous_allowed dans config/agent_destinations.yaml."
-        ]
+    if contact.get("grouping", "single") not in GROUPINGS:
+        return [f"{path}.grouping : {contact['grouping']!r} inconnu, attendu {' ou '.join(GROUPINGS)}."]
+    if "target" in contact:
+        return target_errors(path, contact["channel"], contact["target"])
+    # Why: background publishes nothing, so an agent may be tried before choosing where it will write.
+    if MODES[contact["mode"]]["can_publish"]:
+        return [f"{path}.target : obligatoire en mode {contact['mode']}, le canal Slack ou la base Notion visé."]
     return []
+
+
+def contact_of(doc: dict, destination: str) -> tuple[int, dict] | None:
+    """The rank and entry of this destination in an agent's configuration, None when it no longer has it."""
+    return next(((i, c) for i, c in enumerate(doc["destinations"]) if c["id"] == destination), None)
 
 
 def validate(doc: object) -> list[str]:
@@ -305,9 +299,8 @@ def validate(doc: object) -> list[str]:
         low = 0 if doc.get("files") else 1
         if not isinstance(contacts, list) or not low <= len(contacts) <= 6:
             return [*errors, f"destinations : attendu une liste de {low} à 6 destinations."]
-        known = known_destinations()
         for i, contact in enumerate(contacts):
-            errors += destination_errors(doc.get("slug"), i, contact, known)
+            errors += destination_errors(i, contact)
         ids = [c["id"] for c in contacts if isinstance(c, dict) and "id" in c]
         errors += [
             f"destinations : {d!r} apparaît plusieurs fois." for d in sorted({i for i in ids if ids.count(i) > 1})
@@ -318,7 +311,8 @@ def validate(doc: object) -> list[str]:
 def describe(doc: dict) -> list[str]:
     """What an accepted configuration does, one line per element, for the review before confirmation."""
     lines = [
-        f"destination {c['id']} en mode {c['mode']}"
+        f"destination {c['id']} : {c['channel']} {c.get('target', '(cible à choisir avant de publier)')}, "
+        f"en mode {c['mode']}"
         + (
             ", un digest par run (productions retenues regroupées par étiquette)"
             if c.get("grouping") == "digest"

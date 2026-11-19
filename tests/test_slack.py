@@ -1,6 +1,8 @@
 """Tests for lib/slack.py — Slack API helpers."""
 
-from lib.slack import lookup_user, post_message
+import pytest
+
+from lib.slack import lookup_user, member_channels, post_message
 
 
 def test_post_message_posts_to_channel_and_returns_the_message_ts(mocker):
@@ -45,3 +47,36 @@ def test_lookup_user_returns_none_when_not_found(mocker):
     get.return_value.json.return_value = {"ok": False, "error": "users_not_found"}
 
     assert lookup_user("tok", "a@b.fr") is None
+
+
+def test_member_channels_lists_ids_and_names_across_pages(mocker):
+    get = mocker.patch("lib.slack.httpx.get")
+    get.return_value.json.side_effect = [
+        {"ok": True, "channels": [{"id": "C01", "name": "veille"}], "response_metadata": {"next_cursor": "p2"}},
+        {"ok": True, "channels": [{"id": "G02", "name": "prive"}], "response_metadata": {"next_cursor": ""}},
+    ]
+
+    assert member_channels("tok") == ({"C01", "veille", "G02", "prive"}, set())
+    assert [c.kwargs["params"]["cursor"] for c in get.call_args_list] == ["", "p2"]
+    assert get.call_args.args[0] == "https://slack.com/api/users.conversations"
+    assert get.call_args.kwargs["timeout"] == 10
+
+
+def test_member_channels_without_the_scope_to_list_them_gives_the_scopes_granted(mocker):
+    get = mocker.patch("lib.slack.httpx.get")
+    get.return_value.json.return_value = {
+        "ok": False,
+        "error": "missing_scope",
+        "needed": "channels:read",
+        "provided": "chat:write,chat:write.public",
+    }
+
+    assert member_channels("tok") == (None, {"chat:write", "chat:write.public"})
+
+
+def test_member_channels_raises_on_any_other_refusal(mocker):
+    get = mocker.patch("lib.slack.httpx.get")
+    get.return_value.json.return_value = {"ok": False, "error": "invalid_auth"}
+
+    with pytest.raises(RuntimeError, match="invalid_auth"):
+        member_channels("tok")

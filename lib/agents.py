@@ -330,12 +330,17 @@ def show(changeset_id: str) -> dict:
 
 def catalogue() -> dict:
     """Everything an agent may use, and whether this instance is configured for it; reads no secret."""
-    targets = config.AGENT_DESTINATION_TARGETS
     return {
-        "destinations": [
-            {"id": d["id"], "channel": d["channel"], "target_configured": bool(targets.get(d["id"]))}
-            for d in agent_config.known_destinations().values()
-        ],
+        "destinations": {
+            "slack": {
+                "target": "identifiant (C0123456789) ou nom d'un canal où l'application Slack d'Autometa est invitée",
+                "configured": bool(config.SLACK_BOT_TOKEN),
+            },
+            "notion": {
+                "target": "lien ou identifiant d'une base ou d'une page partagée avec l'intégration Notion d'Autometa",
+                "configured": bool(config.NOTION_TOKEN),
+            },
+        },
         "modes": agent_config.MODES,
         "subagents": agent_config.models(),
         "preparations": agent_connectors.catalogue(),

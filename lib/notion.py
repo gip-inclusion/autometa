@@ -2,6 +2,7 @@
 
 import re
 import time
+import unicodedata
 from urllib.parse import quote
 
 import httpx
@@ -459,23 +460,62 @@ def append_markdown(page_id: str, content: str) -> None:
         notion_request("PATCH", f"blocks/{page_id}/children", {"children": blocks[i : i + 100]})
 
 
-def title_property(database_id: str) -> str:
-    """Name of the title property, which each database names its own way."""
-    schema = notion_request("GET", f"databases/{database_id}")
-    return next(name for name, prop in schema["properties"].items() if prop["type"] == "title")
+def parent_of(target_id: str) -> tuple[dict, dict]:
+    """Where a new page goes under a database or a page, and that database's columns (none under a page)."""
+    try:
+        return {"database_id": target_id}, notion_request("GET", f"databases/{target_id}")["properties"]
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code not in (400, 404):
+            raise
+    try:
+        notion_request("GET", f"pages/{target_id}")
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"{target_id} n'est ni une base ni une page partagée avec l'intégration Notion d'Autometa (••• > Connexions)"
+        ) from exc
+    return {"page_id": target_id}, {}
 
 
-def create_page(database_id: str, title: str) -> dict:
-    """Create an empty page in a database; returns its id and url, to be kept before any content is added."""
-    properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
-    page = notion_request("POST", "pages", {"parent": {"database_id": database_id}, "properties": properties})
+def column_name(name: str) -> str:
+    """A column name as matched: without accents, case or surrounding spaces."""
+    return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().casefold().strip()
+
+
+def property_value(kind: str, value: str | list[str]) -> dict | None:
+    """A property of this column type holding a text, names, a link or a date; None for a type it cannot hold."""
+    texts = value if isinstance(value, list) else [value]
+    return {
+        "multi_select": {"multi_select": [{"name": t} for t in texts]},
+        "select": {"select": {"name": texts[0]}},
+        "rich_text": {"rich_text": [{"text": {"content": ", ".join(texts)}}]},
+        "url": {"url": texts[0]},
+        "date": {"date": {"start": texts[0]}},
+    }.get(kind)
+
+
+def page_properties(columns: dict, title: str, values: dict[str, str | list[str]]) -> dict:
+    """The title, plus each column whose name, matched by column_name, is a key of values and whose type holds it."""
+    title_column = next((name for name, prop in columns.items() if prop["type"] == "title"), "title")
+    properties = {title_column: {"title": [{"text": {"content": title}}]}}
+    for name, prop in columns.items():
+        value = values.get(column_name(name))
+        if value and (filled := property_value(prop["type"], value)):
+            properties[name] = filled
+    return properties
+
+
+def create_page(target_id: str, title: str, values: dict[str, str | list[str]]) -> dict:
+    """Create an empty page in a database or under a page; returns its id and url, to be kept before any content."""
+    parent, columns = parent_of(target_id)
+    properties = page_properties(columns, title, values)
+    page = notion_request("POST", "pages", {"parent": parent, "properties": properties})
     return {"id": page["id"], "url": page["url"]}
 
 
-def replace_page(database_id: str, page_id: str, title: str, content: str) -> dict:
-    """Overwrite the title and the whole content of an existing page; returns its id and url."""
-    properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
-    page = notion_request("PATCH", f"pages/{page_id}", {"properties": properties})
+def replace_page(target_id: str, page_id: str, title: str, content: str, values: dict[str, str | list[str]]) -> dict:
+    """Overwrite the title, the matching columns and the whole content of an existing page; returns its id and url."""
+    _, columns = parent_of(target_id)
+    page = notion_request("PATCH", f"pages/{page_id}", {"properties": page_properties(columns, title, values)})
     for block in get_block_children(page_id):
         if block["parent"].get("page_id") == page_id:
             notion_request("DELETE", f"blocks/{block['id']}")
