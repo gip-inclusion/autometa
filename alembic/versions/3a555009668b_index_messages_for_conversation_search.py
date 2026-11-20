@@ -15,8 +15,10 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
     # Why: hors transaction et CONCURRENTLY — une création ordinaire bloquerait l'écriture des
-    # messages, donc tous les tours en cours, le temps de construire l'index.
+    # messages, donc tous les tours en cours, le temps de construire l'index. Une construction
+    # interrompue laisse un index invalide sous ce nom : on le retire avant de recommencer.
     with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_messages_search")
         op.create_index(
             "idx_messages_search",
             "messages",
@@ -26,7 +28,6 @@ def upgrade() -> None:
             postgresql_ops={"content": "gin_trgm_ops"},
             postgresql_where=sa.text("type IN ('user', 'assistant')"),
             postgresql_concurrently=True,
-            if_not_exists=True,
         )
 
 

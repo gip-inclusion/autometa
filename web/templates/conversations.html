@@ -25,7 +25,7 @@
   {% macro tag_item(tag) %}
   <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
     <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-           onchange="toggleParam('tag', '{{ tag.name }}')">
+           onchange="setParam('tag', this.closest('label').dataset.tag, this.checked)">
     <span class="filter-label">{{ tag.label }}</span>
     {% if tag.count is defined and tag.count is not none %}
     <span class="filter-count">{{ tag.count }}</span>
@@ -36,7 +36,7 @@
   {% macro author_item(a) %}
   <label class="filter-checkbox-item" data-author="{{ a.user_id }}">
     <input type="checkbox" {% if a.user_id in active_authors %}checked{% endif %}
-           onchange="toggleParam('author', '{{ a.user_id }}')">
+           onchange="setParam('author', this.closest('label').dataset.author, this.checked)">
     <span class="filter-label">{{ a.user_id.split('@')[0] }}</span>
     <span class="filter-count">{{ a.count }}</span>
   </label>
@@ -327,14 +327,18 @@
 </section>
 
 <script>
-// Why: filtres et recherche sont résolus côté serveur, l'URL porte leur état. Une frappe ou un clic
-// annule la requête en cours au lieu d'attendre derrière elle : seul le dernier état compte.
-function loadFiltered(url) {
-  history.pushState({}, '', url.toString());
+// Why: filtres et recherche sont résolus côté serveur. Une frappe ou un clic annule la requête
+// en cours au lieu d'attendre derrière elle : seul le dernier état compte.
+function refreshList(url) {
   htmx.trigger('#section-rechercher', 'htmx:abort');
   htmx.ajax('GET', url.toString(), {
     source: '#section-rechercher', target: '#filterContent', select: '#filterContent', swap: 'outerHTML',
   }).catch(() => {});
+}
+
+function loadFiltered(url) {
+  history.pushState({}, '', url.toString());
+  refreshList(url);
 }
 
 function setShow(show) {
@@ -344,16 +348,17 @@ function setShow(show) {
   loadFiltered(url);
 }
 
-function toggleParam(key, value) {
+// Why: l'état voulu vient de la case, pas de l'URL — après un retour arrière les deux peuvent diverger.
+function setParam(key, value, checked) {
   const url = new URL(window.location.href);
-  const current = url.searchParams.getAll(key);
+  const others = url.searchParams.getAll(key).filter(v => v !== value);
   url.searchParams.delete(key);
-  const next = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
-  next.forEach(v => url.searchParams.append(key, v));
+  (checked ? [...others, value] : others).forEach(v => url.searchParams.append(key, v));
   loadFiltered(url);
 }
 
 function resetFilters() {
+  clearTimeout(window._searchUrlTimer);
   const url = new URL(window.location.href);
   ['tag', 'author', 'show', 'q'].forEach(key => url.searchParams.delete(key));
   document.getElementById('rechercherSearchInput').value = '';
@@ -362,7 +367,7 @@ function resetFilters() {
 
 function togglePin(url, method) {
   fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: method === 'POST' ? '{}' : undefined})
-    .then(() => loadFiltered(new URL(window.location.href)));
+    .then(() => refreshList(window.location.href));
 }
 
 function filterByText(query) {
