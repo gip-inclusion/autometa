@@ -18,6 +18,7 @@ __all__ = [
     "FORMAT",
     "WEEKDAYS",
     "MODES",
+    "cadence",
     "contact_of",
     "describe",
     "destination_errors",
@@ -337,7 +338,10 @@ def describe(doc: dict) -> list[str]:
         options = ", ".join(f"{k} {v}" for k, v in p.items() if k not in main)
         lines.append(f"préparation {i} : {agent_connectors.label(p)}{f' ({options})' if options else ''}")
     lines += [f"fichier de l'agent : {f}, versionné, lisible depuis le chat" for f in doc.get("files", [])]
-    schedule = doc.get("schedule")
-    weekdays = ", ".join(schedule["weekdays"]) if isinstance(schedule, dict) else None
-    lines.append(f"cadence : {f'chaque {weekdays}' if weekdays else schedule or 'à la demande'}")
+    lines.append(f"cadence : {cadence(doc.get('schedule'))}")
     return lines
+
+
+def cadence(schedule: object) -> str:
+    weekdays = ", ".join(schedule["weekdays"]) if isinstance(schedule, dict) else None
+    return f"chaque {weekdays}" if weekdays else schedule or "à la demande"
