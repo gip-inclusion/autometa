@@ -1,7 +1,6 @@
 # Agent déclaré dans le dépôt : ce fichier, sa consigne (veille-boamp.md) et la valeur initiale de ses
 # fichiers (veille-boamp/) arrivent par PR, `make test` les valide (tests/test_agents_repo.py). Il
-# s'enregistre par le skill `agents` (propose puis create). Le mode autonomous s'ouvre par une PR sur
-# config/agent_destinations.yaml.
+# s'enregistre par le skill `agents` (propose puis create).
 #
 # Exemple de référence d'un agent composé de briques génériques : Autometa lit le BOAMP (préparations
 # url), le worker trie selon regles.md (fichier de l'agent) et rend un envoi par avis, clef juge chaque
@@ -15,8 +14,11 @@ mission: >-
   qu'un bizdev de la Plateforme de l'inclusion décide d'y répondre ou de contacter l'acheteur.
 # Why: un digest par semaine suffit à la veille ; chaque avis reste jugé à part par clef, puis Autometa
 # regroupe les avis retenus du run en un seul message, par rubrique.
+# Why: en background, rien n'est publié et la cible peut attendre ; passer en conversational demande
+# d'ajouter target, le canal Slack où l'application Autometa est invitée.
 destinations:
   - id: bizdev.marche
+    channel: slack
     mode: background
     grouping: digest
 schedule:

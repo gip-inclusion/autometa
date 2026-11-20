@@ -37,12 +37,12 @@ def repo_errors(path: Path) -> list[str]:
     return [f"{path.name} : {error}" for error in found]
 
 
-def agent_file(directory: Path, slug: str, destination: str = "bizdev.marche", mode: str = "background") -> Path:
+def agent_file(directory: Path, slug: str, channel: str = "slack", mode: str = "background") -> Path:
     path = directory / f"{slug}.yaml"
     path.write_text(
         f"format: pdi.agent/1\nslug: {slug}\ntitle: Veille des marchés\n"
         "mission: Repérer les avis de marchés publics utiles à l'équipe bizdev.\n"
-        f"destinations:\n  - id: {destination}\n    mode: {mode}\n"
+        f"destinations:\n  - id: bizdev.marche\n    channel: {channel}\n    mode: {mode}\n"
     )
     return path
 
@@ -57,15 +57,15 @@ def test_dod_3_the_check_finds_the_repository_agents():
 
 
 @pytest.mark.parametrize(
-    ("destination", "mode", "field", "message"),
+    ("channel", "mode", "field", "message"),
     [
-        ("bizdev.marches", "background", "id", "'bizdev.marches' n'est pas une destination"),
-        ("bizdev.marche", "autonomous", "mode", "le mode autonomous sur 'bizdev.marche' n'est pas ouvert à cet agent"),
-        ("bizdev.marche", "direct", "mode", "'direct' inconnu"),
+        ("teams", "background", "channel", "'teams' inconnu, attendu slack ou notion"),
+        ("slack", "autonomous", "target", "obligatoire en mode autonomous"),
+        ("slack", "direct", "mode", "'direct' inconnu"),
     ],
 )
-def test_dod_3_a_wrong_destination_or_mode_is_refused(tmp_path, destination, mode, field, message):
-    path = agent_file(tmp_path, "veille-marches", destination, mode)
+def test_dod_3_a_wrong_destination_or_mode_is_refused(tmp_path, channel, mode, field, message):
+    path = agent_file(tmp_path, "veille-marches", channel, mode)
     path.with_suffix(".md").write_text(CONSIGNE)
     [error] = repo_errors(path)
     assert error.startswith(f"veille-marches.yaml : destinations[0].{field} : ")

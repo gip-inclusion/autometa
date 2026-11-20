@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from lib import agent_config, agent_delivery
-from web import config
 from web.config import ADMIN_USERS
 from web.db import get_db
 from web.deps import get_current_user, templates
@@ -124,7 +123,6 @@ def agent_page(slug: Slug, request: Request, user_email: str = Depends(get_curre
                 "section": "agents",
                 "agent": agent,
                 "lines": agent_config.describe(agent.config),
-                "targets": set(config.AGENT_DESTINATION_TARGETS),
                 "runs": runs,
                 "deliveries": [
                     {
