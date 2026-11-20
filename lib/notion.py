@@ -482,15 +482,21 @@ def column_name(name: str) -> str:
 
 
 def property_value(kind: str, value: str | list[str]) -> dict | None:
-    """A property of this column type holding a text, names, a link or a date; None for a type it cannot hold."""
+    """A property of this column type holding a text, names, a link or a date; None for a value the type cannot hold."""
     texts = value if isinstance(value, list) else [value]
-    return {
-        "multi_select": {"multi_select": [{"name": t} for t in texts]},
-        "select": {"select": {"name": texts[0]}},
-        "rich_text": {"rich_text": [{"text": {"content": ", ".join(texts)}}]},
-        "url": {"url": texts[0]},
-        "date": {"date": {"start": texts[0]}},
-    }.get(kind)
+    # Why: Notion refuses an option with a comma or over 100 characters, and a link is no choice to add to a list.
+    options = [{"name": t} for t in texts if "," not in t and len(t) <= 100 and "://" not in t]
+    if kind == "rich_text":
+        return {"rich_text": [{"text": {"content": ", ".join(texts)}}]}
+    if kind == "url" and re.fullmatch(r"https?://\S+", texts[0]):
+        return {"url": texts[0]}
+    if kind == "date" and re.fullmatch(r"\d{4}-\d{2}-\d{2}", texts[0]):
+        return {"date": {"start": texts[0]}}
+    if kind == "multi_select" and options:
+        return {"multi_select": options}
+    if kind == "select" and len(options) == len(texts) == 1:
+        return {"select": options[0]}
+    return None
 
 
 def page_properties(columns: dict, title: str, values: dict[str, str | list[str]]) -> dict:
@@ -510,6 +516,12 @@ def create_page(target_id: str, title: str, values: dict[str, str | list[str]]) 
     properties = page_properties(columns, title, values)
     page = notion_request("POST", "pages", {"parent": parent, "properties": properties})
     return {"id": page["id"], "url": page["url"]}
+
+
+def parent_id(page_id: str) -> str:
+    """The id, formatted as a UUID, of the database or page holding this page."""
+    parent = notion_request("GET", f"pages/{page_id}")["parent"]
+    return db_id_from_url(parent[parent["type"]])
 
 
 def replace_page(target_id: str, page_id: str, title: str, content: str, values: dict[str, str | list[str]]) -> dict:

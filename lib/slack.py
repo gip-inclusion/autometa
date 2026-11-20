@@ -30,7 +30,7 @@ def post_message(token: str, channel: str, text: str, thread_ts: str | None = No
 
 
 def member_channels(token: str) -> tuple[set[str] | None, set[str]]:
-    """Ids and names of the channels the app is a member of, or None when its scopes forbid listing them; and the scopes it lacks that for."""
+    """Ids and names of the channels the app is a member of, or None when its scopes forbid listing them, with the scopes it was granted."""
     found, cursor = set(), ""
     while True:
         data = httpx.get(

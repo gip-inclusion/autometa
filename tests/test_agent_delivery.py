@@ -53,10 +53,11 @@ class Rows:
 
 
 class FakeNotion:
-    """Records every Notion API call; a database with these columns, or a page when there are none, holding a nested block."""
+    """Records every Notion API call; a database with these columns, or a page when there are none; its pages sit under parent."""
 
-    def __init__(self, columns=None):
+    def __init__(self, columns=None, parent=NOTION_UUID):
         self.columns = columns
+        self.parent = parent
         self.calls = []
 
     def __call__(self, method, endpoint, payload=None):
@@ -70,7 +71,8 @@ class FakeNotion:
             parent = {"type": "page_id", "page_id": "page-1"}
             nested = {"id": "b2", "parent": {"type": "block_id", "block_id": "b1"}, "has_children": False}
             return {"results": [{"id": "b1", "parent": parent, "has_children": False}, nested], "has_more": False}
-        return {"id": "page-1", "url": "https://notion.so/page-1"}
+        kind = "page_id" if self.columns is None else "database_id"
+        return {"id": "page-1", "url": "https://notion.so/page-1", "parent": {"type": kind, kind: self.parent}}
 
     def writes(self):
         return [(m, e) for m, e, _ in self.calls if m != "GET"]
@@ -365,7 +367,7 @@ def test_dod_10_slack_writes_go_with_autometa_slack_app_to_the_channel_the_agent
         ),
         (
             (None, {"chat:write", "chat:write.public"}),
-            "l'app Autometa a chat:write.public sans pouvoir lister ses canaux : lui ajouter channels:read",
+            "l'app Autometa a chat:write.public sans pouvoir lister ses canaux : lui ajouter channels:read et groups:read",
             0,
         ),
         ((None, {"chat:write"}), None, 1),
@@ -412,7 +414,7 @@ def test_dod_6_notion_columns_matching_a_production_field_are_filled(store, mock
 
     agent = make_agent() | {"subagents": [{"type": "summary", "model": "glm-5.2", "max_length": 600}]}
     agent["destinations"] = make_agent(("produit.opportunite", "autonomous"))["destinations"]
-    envoi = make_envoi("produit.opportunite", key="billet-42", text="Lire https://blog.example/billet-42 ce matin.")
+    envoi = make_envoi("produit.opportunite", key="billet-42", text="Lire https://blog.example/billet-42.")
     deliver(mocker, agent, [envoi], chain=chain)
     assert store.delivery()["status"] == "sent"
     assert fake.payload("POST", "pages")["properties"] == {
@@ -481,6 +483,18 @@ def test_dod_7_same_key_updates_the_notion_page_instead_of_creating_another(stor
         ("PATCH", "blocks/page-1/children"),
     ]
     assert store.delivery(run_id=second_run)["notion_page_url"] == "https://notion.so/page-1"
+
+
+def test_dod_7_a_destination_whose_notion_target_changed_creates_a_page_in_the_new_target(store, fake_notion, mocker):
+    """Review of #328: a page known for the key but held by the former target is never written over."""
+    agent = make_agent(("produit.opportunite", "autonomous"))
+    deliver(mocker, agent, [make_envoi("produit.opportunite", key="mep-2026-11")])
+    fake_notion.calls.clear()
+    fake_notion.parent = "f0e1d2c3-b4a5-9687-7869-5a4b3c2d1e0f"
+    second_run = "22222222-2222-2222-2222-222222222222"
+    deliver(mocker, agent, [make_envoi("produit.opportunite", key="mep-2026-11", text="Mis à jour.")], second_run)
+    assert fake_notion.writes() == [("POST", "pages"), ("PATCH", "blocks/page-1/children")]
+    assert fake_notion.payload("POST", "pages")["parent"] == {"database_id": NOTION_UUID}
 
 
 def test_dod_7_a_page_whose_content_failed_is_replaced_not_created_again(store, fake_notion, mocker):

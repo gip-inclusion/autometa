@@ -53,10 +53,6 @@ SUBAGENT_FIELDS = {
 # Why: clef answers up to 64 questions in one call; ten labels keep one production's verdict readable.
 LABELS_MAX = 10
 NAME = r"[a-z][a-z0-9_-]{0,39}"
-# Why: the name the worker cites in its output; no colon, which file:<name> destinations use.
-DESTINATION = r"[a-z][a-z0-9_.-]{0,39}"
-# Why: a Slack channel id (C…, G… for an old private channel) or name, as chat.postMessage takes them.
-SLACK_TARGET = r"[CG][A-Z0-9]{8,}|#?[a-z0-9][a-z0-9_-]{0,79}"
 # Why: the mission is the only free text an LLM writes; a link, a person or a channel there would name a
 # place to write that the review of destinations does not show.
 FORBIDDEN_FREE_TEXT = re.compile(
@@ -218,13 +214,15 @@ def initial_errors(initial_files: dict[str, str], files: object) -> list[str]:
 
 def target_errors(path: str, channel: str, target: object) -> list[str]:
     if channel == "slack":
-        if isinstance(target, str) and re.fullmatch(SLACK_TARGET, target):
+        # Why: a channel id (C…, G… for an old private channel) or name, as chat.postMessage takes them;
+        # Slack names are lowercase and may hold accented letters.
+        if isinstance(target, str) and re.fullmatch(r"[CG][A-Z0-9]{8,}|#?[^\WA-Z](?:[^\WA-Z]|-){0,79}", target):
             return []
         return [f"{path}.target : attendu l'identifiant (C0123456789) ou le nom (#canal) d'un canal Slack."]
     try:
-        notion.db_id_from_url(str(target))
+        notion.db_id_from_url(target if isinstance(target, str) else "")
     except ValueError:
-        return [f"{path}.target : attendu le lien ou l'identifiant d'une base ou d'une page Notion."]
+        return [f"{path}.target : attendu le lien ou l'identifiant d'une base ou d'une page Notion, entre guillemets."]
     return []
 
 
@@ -234,7 +232,8 @@ def destination_errors(index: int, contact: object) -> list[str]:
     fields = {"id", "channel", "mode"}
     if not isinstance(contact, dict) or not fields <= set(contact) <= fields | {"target", "grouping"}:
         return [f"{path} : attendu les champs id, channel, target et mode, et grouping en option."]
-    if not (isinstance(contact["id"], str) and re.fullmatch(DESTINATION, contact["id"])):
+    # Why: the name the worker cites in its output; no colon, which file:<name> destinations use.
+    if not (isinstance(contact["id"], str) and re.fullmatch(r"[a-z][a-z0-9_.-]{0,39}", contact["id"])):
         return [f"{path}.id : un nom court en minuscules (lettres, chiffres, point, tiret), par exemple veille-slack."]
     if contact["channel"] not in CHANNELS:
         return [f"{path}.channel : {contact['channel']!r} inconnu, attendu {' ou '.join(CHANNELS)}."]
@@ -312,7 +311,7 @@ def validate(doc: object) -> list[str]:
 def describe(doc: dict) -> list[str]:
     """What an accepted configuration does, one line per element, for the review before confirmation."""
     lines = [
-        f"destination {c['id']} : {c['channel']} {c.get('target', '(cible à choisir avant de publier)')}, "
+        f"destination {c['id']} : {c.get('channel', '(canal à préciser)')} {c.get('target', '(cible à choisir avant de publier)')}, "
         f"en mode {c['mode']}"
         + (
             ", un digest par run (productions retenues regroupées par étiquette)"

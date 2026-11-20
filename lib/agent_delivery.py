@@ -50,20 +50,6 @@ SUBAGENT_ATTEMPTS_MAX = 3
 # Why: a delivery left sending past this was taken by a process that died before recording the outcome.
 CLAIM_TIMEOUT = timedelta(hours=1)
 LINK = re.compile(r"https?://[^\s)>\]]+")
-# Why: a Notion column is filled when its name, without accents or case, says which field of the
-# production it holds and its type can hold it; any other column stays empty.
-COLUMNS = {
-    "cle": "key",
-    "clef": "key",
-    "key": "key",
-    "etiquettes": "labels",
-    "labels": "labels",
-    "tags": "labels",
-    "lien": "link",
-    "url": "link",
-    "source": "link",
-    "date": "date",
-}
 
 
 class DeliveryNotPending(ValueError):
@@ -334,15 +320,28 @@ def known_page(session: Session, row: AgentDelivery) -> str | None:
 
 
 def notion_values(row: AgentDelivery) -> dict[str, str | list[str]]:
-    """What the columns named in COLUMNS receive from this production."""
+    """What each Notion column, named without accents or case, receives from this production."""
     link = LINK.search(row.text)
     fields = {
         "key": row.key,
         "labels": row.labels,
-        "link": link and link.group(0),
+        "link": link and link.group(0).rstrip(".,;:!?"),
         "date": to_local(now()).date().isoformat(),
     }
-    return {column: fields[field] for column, field in COLUMNS.items() if fields[field]}
+    # Why: a column is filled when its name says which field it holds; any other column stays empty.
+    columns = {
+        "cle": "key",
+        "clef": "key",
+        "key": "key",
+        "etiquettes": "labels",
+        "labels": "labels",
+        "tags": "labels",
+        "lien": "link",
+        "url": "link",
+        "source": "link",
+        "date": "date",
+    }
+    return {column: fields[field] for column, field in columns.items() if fields[field]}
 
 
 def write_notion(row: AgentDelivery, target: str) -> None:
@@ -350,6 +349,9 @@ def write_notion(row: AgentDelivery, target: str) -> None:
     target_id = notion.db_id_from_url(target)
     with get_db() as session:
         page_id = known_page(session, session.get(AgentDelivery, row.id))
+    # Why: a destination whose target changed writes a new page there, never over a page of its former target.
+    if page_id and notion.parent_id(page_id) != target_id:
+        page_id = None
     if page_id:
         page = notion.replace_page(target_id, page_id, row.title, row.text, notion_values(row))
     else:
@@ -377,7 +379,7 @@ def write(row: AgentDelivery, contact: dict) -> None:
     # Why: with chat:write.public the app could post to any public channel; an agent writes only where it is invited.
     if members is None and "chat:write.public" in provided:
         raise RuntimeError(
-            "l'app Autometa a chat:write.public sans pouvoir lister ses canaux : lui ajouter channels:read"
+            "l'app Autometa a chat:write.public sans pouvoir lister ses canaux : lui ajouter channels:read et groups:read"
         )
     if members is not None and channel.removeprefix("#") not in members:
         raise RuntimeError(f"l'app Autometa n'est pas membre du canal : {invite}")
