@@ -285,9 +285,11 @@ def conversations(
     # Drop tags that no longer match any conversation or report, so a stale link cannot
     # silently empty the list or leave a "ghost" filter marked active.
     existing_names: set[str] = set()
+    usage: dict[str, int] = {}
     if show_convos:
         for used in store.get_used_conversation_tags_by_type(user_id=filter_user).values():
             existing_names.update(t.name for t in used)
+            usage.update({t.name: t.count for t in used})
     if show_reports:
         for used in store.get_used_report_tags_by_type().values():
             existing_names.update(t.name for t in used)
@@ -412,8 +414,9 @@ def conversations(
                 if tag_obj.name not in all_tags[tag_type]:
                     all_tags[tag_type][tag_obj.name] = tag_obj
 
-    # Convert from {type: {name: Tag}} to {type: [Tag]}
-    all_tags = {k: sorted(v.values(), key=lambda t: t.label) for k, v in all_tags.items()}
+    # Why: l'ordre suit l'usage calculé hors filtres — cocher une case change les compteurs affichés,
+    # mais ne doit jamais déplacer les autres sous le curseur.
+    all_tags = {k: sorted(v.values(), key=lambda t: (-usage.get(t.name, 0), t.label)) for k, v in all_tags.items()}
 
     filter_facets = build_search_facets(all_tags)
 
