@@ -4,7 +4,6 @@
 
 {% block content %}
 <section class="section-content" id="section-rechercher">
-  <!-- En-tête : titre, puis la recherche juste dessous ; les filtres suivent en tête du corps. -->
   <div class="section-header">
     <div class="container">
       <h1 class="mb-3">
@@ -23,78 +22,120 @@
     </div>
   </div>
 
-  <!-- Main content area -->
+  {% macro tag_item(tag) %}
+  <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
+    <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
+           onchange="setParam('tag', this.closest('label').dataset.tag, this.checked)">
+    <span class="filter-label">{{ tag.label }}</span>
+    {% if tag.count is defined and tag.count is not none %}
+    <span class="filter-count">{{ tag.count }}</span>
+    {% endif %}
+  </label>
+  {% endmacro %}
+
+  {% macro author_item(a) %}
+  <label class="filter-checkbox-item" data-author="{{ a.user_id }}">
+    <input type="checkbox" {% if a.user_id in active_authors %}checked{% endif %}
+           onchange="setParam('author', this.closest('label').dataset.author, this.checked)">
+    <span class="filter-label">{{ a.user_id.split('@')[0] }}</span>
+    <span class="filter-count">{{ a.count }}</span>
+  </label>
+  {% endmacro %}
+
+  {% set show_types = [('', 'ri-apps-line', 'Tout'), ('convos', 'ri-chat-3-line', 'Conversations'), ('mine', 'ri-user-line', 'Mes conversations'), ('reports', 'ri-file-text-line', 'Rapports')] %}
+
   <div class="section-body">
-    <div id="filterContent" class="search-results">
-    <!-- Barre de filtres, en haut, façon recherche -->
-    <div class="search-filter-bar" id="searchFilterBar">
-      <div class="rechercher-type-list">
-        <button class="rechercher-type-btn {% if not show %}active{% endif %}"
-                onclick="setShow('')" data-show="">
-          <i class="ri-apps-line"></i> Tout
-        </button>
-        <button class="rechercher-type-btn {% if show == 'convos' %}active{% endif %}"
-                onclick="setShow('convos')" data-show="convos">
-          <i class="ri-chat-3-line"></i> Conversations
-        </button>
-        <button class="rechercher-type-btn {% if show == 'mine' %}active{% endif %}"
-                onclick="setShow('mine')" data-show="mine">
-          <i class="ri-user-line"></i> Mes conversations
-        </button>
-        <button class="rechercher-type-btn {% if show == 'reports' %}active{% endif %}"
-                onclick="setShow('reports')" data-show="reports">
-          <i class="ri-file-text-line"></i> Rapports
-        </button>
+    <div id="filterContent" class="filter-list-container">
+    <aside class="filter-sidebar filter-sidebar-sticky-reset" id="filterSidebar">
+      {# Sur téléphone la colonne devient une barre de menus déroulants. #}
+      <div class="filter-bar-mobile">
+        <div class="filter-bar-mobile-row">
+          {% for value, icon, label in show_types %}
+          <button class="filter-toggle {% if show == value %}active{% endif %}" onclick="setShow('{{ value }}')">
+            <i class="{{ icon }}"></i> {{ label }}
+          </button>
+          {% endfor %}
+        </div>
+        <div class="filter-bar-mobile-row">
+          {% for facet in filter_facets %}
+          {% set facet_count = active_tags|select('in', facet.tags|map(attribute='name')|list)|list|length %}
+          <div class="filter-dropdown">
+            <button class="filter-dropdown-btn {% if facet_count %}active{% endif %}" type="button"
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+              {{ facet.label }}{% if facet_count %} <span class="filter-count">{{ facet_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+            </button>
+            <div class="dropdown-menu filter-dropdown-menu">
+              {% for tag in facet.tags %}{{ tag_item(tag) }}{% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+
+          {% if authors %}
+          <div class="filter-dropdown">
+            <button class="filter-dropdown-btn {% if active_authors %}active{% endif %}" type="button"
+                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+              Créé par{% if active_authors %} <span class="filter-count">{{ active_authors|length }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
+            </button>
+            <div class="dropdown-menu filter-dropdown-menu">
+              {% for a in authors %}{{ author_item(a) }}{% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if active_tags or active_authors or show %}
+          <button class="filter-reset" onclick="resetFilters()">
+            <i class="ri-close-line"></i> Effacer
+          </button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <div class="filter-section-title">Contenu</div>
+        <div class="rechercher-type-list">
+          {% for value, icon, label in show_types %}
+          <button class="rechercher-type-btn {% if show == value %}active{% endif %}" onclick="setShow('{{ value }}')">
+            <i class="{{ icon }}"></i> {{ label }}
+          </button>
+          {% endfor %}
+        </div>
       </div>
 
       {% for facet in filter_facets %}
-      {% set facet_count = active_tags|select('in', facet.tags|map(attribute='name')|list)|list|length %}
-      <div class="filter-dropdown">
-        <button class="filter-dropdown-btn {% if facet_count %}active{% endif %}" type="button"
-                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-          {{ facet.label }}{% if facet_count %} <span class="filter-count">{{ facet_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="dropdown-menu filter-dropdown-menu">
-          {% for tag in facet.tags %}
-          <label class="filter-checkbox-item" data-tag="{{ tag.name }}">
-            <input type="checkbox" {% if tag.name in active_tags %}checked{% endif %}
-                   onchange="toggleFilter('{{ tag.name }}', this)">
-            <span class="filter-label">{{ tag.label }}</span>
-            {% if tag.count is defined and tag.count is not none %}
-            <span class="filter-count">{{ tag.count }}</span>
-            {% endif %}
-          </label>
-          {% endfor %}
-        </div>
+      {% set checked = facet.tags|selectattr('name', 'in', active_tags)|list %}
+      {% if facet.folded %}
+      <details class="filter-section filter-fold" {% if checked %}open{% endif %}>
+        <summary class="filter-section-title">{{ facet.label }}</summary>
+        {% for tag in facet.tags %}{{ tag_item(tag) }}{% endfor %}
+      </details>
+      {% else %}
+      {# Les cinq termes les plus utilisés, puis les autres repliés — dépliés si l'un est coché. #}
+      <div class="filter-section">
+        <div class="filter-section-title">{{ facet.label }}</div>
+        {% for tag in facet.tags[:5] %}{{ tag_item(tag) }}{% endfor %}
+        {% if facet.tags[5:] %}
+        <details class="filter-overflow filter-overflow-small" {% if facet.tags[5:]|selectattr('name', 'in', active_tags)|list %}open{% endif %}>
+          <summary>Voir plus</summary>
+          {% for tag in facet.tags[5:] %}{{ tag_item(tag) }}{% endfor %}
+        </details>
+        {% endif %}
       </div>
+      {% endif %}
       {% endfor %}
 
       {% if authors %}
-      {% set author_count = active_authors|length %}
-      <div class="filter-dropdown">
-        <button class="filter-dropdown-btn {% if author_count %}active{% endif %}" type="button"
-                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-          Créé par{% if author_count %} <span class="filter-count">{{ author_count }}</span>{% endif %} <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="dropdown-menu filter-dropdown-menu">
-          {% for a in authors %}
-          <label class="filter-checkbox-item" data-author="{{ a.user_id }}">
-            <input type="checkbox" {% if a.user_id in active_authors %}checked{% endif %}
-                   onchange="toggleAuthor('{{ a.user_id }}', this)">
-            <span class="filter-label">{{ a.user_id.split('@')[0] }}</span>
-            <span class="filter-count">{{ a.count }}</span>
-          </label>
-          {% endfor %}
-        </div>
-      </div>
+      <details class="filter-section filter-fold" {% if active_authors %}open{% endif %}>
+        <summary class="filter-section-title">Créé par</summary>
+        {% for a in authors %}{{ author_item(a) }}{% endfor %}
+      </details>
       {% endif %}
 
       {% if active_tags or active_authors or show %}
-      <button class="filter-reset" onclick="resetFilters()">
+      <button class="filter-reset mt-3" onclick="resetFilters()">
         <i class="ri-close-line"></i> Effacer les filtres
       </button>
       {% endif %}
-    </div>
+    </aside>
 
     <div class="conversation-list-wrapper">
     <div class="conversation-list" id="searchResultsList">
@@ -286,111 +327,57 @@
 </section>
 
 <script>
-// Build URL from current filter state
-function buildFilterUrl() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('tag');
-  url.searchParams.delete('author');
-  url.searchParams.delete('show');
-  url.searchParams.delete('q');
-
-  // Get active show value from any active type button
-  const activeBtn = document.querySelector('.rechercher-type-btn.active, .filter-bar-mobile .filter-toggle.active');
-  const show = activeBtn ? activeBtn.dataset.show : '';
-  if (show) url.searchParams.set('show', show);
-
-  // Collect checked tags (deduplicate across mobile/desktop)
-  const tags = new Set();
-  document.querySelectorAll('.filter-checkbox-item[data-tag] input[type="checkbox"]').forEach(cb => {
-    if (cb.checked) {
-      const tag = cb.closest('label').dataset.tag;
-      if (tag) tags.add(tag);
-    }
-  });
-  tags.forEach(tag => url.searchParams.append('tag', tag));
-
-  // Collect checked authors
-  document.querySelectorAll('.filter-checkbox-item[data-author] input[type="checkbox"]').forEach(cb => {
-    if (cb.checked) url.searchParams.append('author', cb.closest('label').dataset.author);
-  });
-
-  // Preserve text search from header
-  const searchInput = document.getElementById('rechercherSearchInput');
-  if (searchInput && searchInput.value.trim()) {
-    url.searchParams.set('q', searchInput.value.trim());
-  }
-
-  return url.toString();
+// Why: filtres et recherche sont résolus côté serveur. Une frappe ou un clic annule la requête
+// en cours au lieu d'attendre derrière elle : seul le dernier état compte.
+function refreshList(url) {
+  htmx.trigger('#section-rechercher', 'htmx:abort');
+  htmx.ajax('GET', url.toString(), {
+    source: '#section-rechercher', target: '#filterContent', select: '#filterContent', swap: 'outerHTML',
+  }).catch(() => {});
 }
 
-// Single-select type toggle
+function loadFiltered(url) {
+  history.pushState({}, '', url.toString());
+  refreshList(url);
+}
+
 function setShow(show) {
-  const url = buildFilterUrl();
-  const parsed = new URL(url);
-  parsed.searchParams.delete('show');
-  if (show) parsed.searchParams.set('show', show);
-  history.pushState({}, '', parsed.toString());
-  htmx.ajax('GET', parsed.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
+  const url = new URL(window.location.href);
+  if (show) url.searchParams.set('show', show);
+  else url.searchParams.delete('show');
+  loadFiltered(url);
 }
 
-function toggleFilter(tagName, checkbox) {
-  // Sync mobile/desktop copies of same checkbox
-  document.querySelectorAll(`.filter-checkbox-item[data-tag="${tagName}"] input[type="checkbox"]`).forEach(cb => {
-    cb.checked = checkbox.checked;
-  });
-  const url = buildFilterUrl();
-  history.pushState({}, '', url);
-  htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
+// Why: l'état voulu vient de la case, pas de l'URL — après un retour arrière les deux peuvent diverger.
+function setParam(key, value, checked) {
+  const url = new URL(window.location.href);
+  const others = url.searchParams.getAll(key).filter(v => v !== value);
+  url.searchParams.delete(key);
+  (checked ? [...others, value] : others).forEach(v => url.searchParams.append(key, v));
+  loadFiltered(url);
 }
 
-function toggleAuthor(userId, checkbox) {
-  document.querySelectorAll(`.filter-checkbox-item[data-author="${userId}"] input[type="checkbox"]`).forEach(cb => {
-    cb.checked = checkbox.checked;
-  });
-  const url = buildFilterUrl();
-  history.pushState({}, '', url);
-  htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
+function resetFilters() {
+  clearTimeout(window._searchUrlTimer);
+  const url = new URL(window.location.href);
+  ['tag', 'author', 'show', 'q'].forEach(key => url.searchParams.delete(key));
+  document.getElementById('rechercherSearchInput').value = '';
+  loadFiltered(url);
 }
 
 function togglePin(url, method) {
   fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: method === 'POST' ? '{}' : undefined})
-    .then(() => {
-      const currentUrl = buildFilterUrl();
-      htmx.ajax('GET', currentUrl, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-    });
+    .then(() => refreshList(window.location.href));
 }
 
-function resetFilters() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('tag');
-  url.searchParams.delete('author');
-  url.searchParams.delete('show');
-  url.searchParams.delete('q');
-  const searchInput = document.getElementById('rechercherSearchInput');
-  if (searchInput) searchInput.value = '';
-  history.pushState({}, '', url.toString());
-  htmx.ajax('GET', url.toString(), {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-}
-
-// La recherche par mots est traitée côté serveur :
-// on relance une requête filtrée, débattue le temps de la frappe.
-function filterByText() {
+function filterByText(query) {
   clearTimeout(window._searchUrlTimer);
   window._searchUrlTimer = setTimeout(() => {
-    const url = buildFilterUrl();
-    history.pushState({}, '', url);
-    htmx.ajax('GET', url, {target: '#filterContent', select: '#filterContent', swap: 'outerHTML'});
-  }, 350);
+    const url = new URL(window.location.href);
+    if (query.trim()) url.searchParams.set('q', query.trim());
+    else url.searchParams.delete('q');
+    loadFiltered(url);
+  }, 300);
 }
-
-document.body.addEventListener('htmx:afterSettle', () => {
-  // Refocus header search input after htmx swap
-  const input = document.getElementById('rechercherSearchInput');
-  if (input && document.getElementById('section-rechercher')) {
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  }
-});
 </script>
 {% endblock %}
-

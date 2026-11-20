@@ -98,3 +98,15 @@ def test_dod_8_filtre_fantome_ignore_et_liste_non_videe(client):
     assert r.status_code == 200
     assert f"conv-{conv.id}" in r.text
     assert "Aucun résultat" not in r.text
+
+
+def test_cocher_un_filtre_ne_deplace_pas_les_autres_termes(client):
+    make_tag("frequent", "theme", "Fréquent")
+    make_tag("rare", "theme", "Rare")
+    tagged_conversation(["frequent"])
+    tagged_conversation(["frequent"])
+    tagged_conversation(["rare"])
+
+    for url in ("/conversations", "/conversations?tag=rare"):
+        html = client.get(url, headers=headers()).text
+        assert html.index('data-tag="frequent"') < html.index('data-tag="rare"')
