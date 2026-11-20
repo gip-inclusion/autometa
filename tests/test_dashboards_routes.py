@@ -237,6 +237,18 @@ def test_rechercher_omits_dashboards(client):
     assert "ZZZ-Unique-Dashboard-Title" not in r2.text
 
 
+@pytest.mark.parametrize("view", ["latest", "published"])
+@pytest.mark.parametrize(("q", "found"), [("julien", True), ("DUPONT", True), ("gouv", False)])
+def test_search_matches_author_without_the_shared_domain(client, view, q, found):
+    slug = f"by-author-{view}"
+    _make_dashboard(slug, author="julien.dupont@inclusion.gouv.fr", title="Suivi des orientations")
+    _make_publication(slug, "production", datetime.now(timezone.utc), "abc123")
+
+    r = client.get("/dashboards", params={"view": view, "q": q}, headers=_h())
+
+    assert ("Suivi des orientations" in r.text) is found
+
+
 def test_rename_dashboard(client):
     _make_dashboard("rename-me", title="Old")
     r = client.post("/api/dashboards/rename-me/rename", json={"title": "Brand New"}, headers=_h())

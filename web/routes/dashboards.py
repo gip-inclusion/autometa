@@ -71,6 +71,11 @@ def facet_filters(active_tags: list[str], slugs: set[str] | None = None) -> list
     return filters
 
 
+def searchable(title: str, author_email: str, *more: str) -> str:
+    """Texte où chercher un tableau de bord : titre, auteur sans le domaine commun, et le reste."""
+    return " ".join([title, author_email.removesuffix("@inclusion.gouv.fr"), *more]).lower()
+
+
 def build_published_groups() -> list[dict]:
     """Active publications grouped by dashboard (most recently published first), production line first."""
     pubs = list_active_publications()
@@ -119,8 +124,10 @@ def dashboards_page(
             matching = {d["slug"] for d in store.list_dashboards(tag_names=active_tags)}
             published_groups = [g for g in published_groups if g["slug"] in matching]
         if q:
-            needle = q.lower()
-            published_groups = [g for g in published_groups if needle in g["title"].lower()]
+            authors = {d["slug"]: d["first_author_email"] for d in store.list_dashboards()}
+            published_groups = [
+                g for g in published_groups if q.lower() in searchable(g["title"], authors.get(g["slug"], ""))
+            ]
     else:
         active = store.list_dashboards(tag_names=active_tags)
 
@@ -132,8 +139,11 @@ def dashboards_page(
             items = active
 
         if q:
-            needle = q.lower()
-            items = [d for d in items if needle in f"{d['title']} {d['description']} {' '.join(d['tags'])}".lower()]
+            items = [
+                d
+                for d in items
+                if q.lower() in searchable(d["title"], d["first_author_email"], d["description"], *d["tags"])
+            ]
 
         if view == "latest":
             active_by_slug = {d["slug"]: d for d in active}
