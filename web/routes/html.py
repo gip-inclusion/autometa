@@ -8,7 +8,6 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
-from lib import permalinks
 from web import helpers
 from web.config import ADMIN_USERS
 from web.database import store
@@ -521,19 +520,6 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
             **data,
         },
     )
-
-
-@router.get("/m/{message_id:int}")
-@router.get("/m/{message_id:int}/{anchor}")
-def message_permalink(message_id: int, request: Request, user_email: str = Depends(get_current_user)):
-    """A short permalink leads to its message, and the element it names, in the message's conversation."""
-    conv_id = store.message_conversation_id(message_id)
-    if not conv_id:
-        return RedirectResponse("/conversations?show=convos", status_code=302)
-    anchor = request.path_params.get("anchor", "")
-    # Why: the segment arrives decoded; echoed as is, "x%3Fmessage%3D…" would send text from the conversation page.
-    kept = f"/{anchor}" if permalinks.ANCHOR_NAME.fullmatch(anchor) else ""
-    return RedirectResponse(f"/explorations/{conv_id}/{message_id}{kept}", status_code=302)
 
 
 def redirect_to_knowledge_file(path: str | None) -> RedirectResponse:

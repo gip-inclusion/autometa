@@ -659,11 +659,6 @@ class ConversationsMixin:
             )
             return last or 0
 
-    def message_conversation_id(self, message_id: int) -> Optional[str]:
-        """Id de la conversation d'un message, None pour un message inconnu."""
-        with get_db() as session:
-            return session.scalar(select(MsgModel.conversation_id).where(MsgModel.id == message_id))
-
     def update_message(self, message_id: int, content: str) -> bool:
         with get_db() as session:
             m = session.get(MsgModel, message_id)
