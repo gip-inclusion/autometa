@@ -59,9 +59,14 @@ def test_the_conversation_page_answers_at_its_address_and_at_its_permalinks(clie
     assert f"loadConversation('{conv.id}')" in page.text
 
 
-@pytest.mark.parametrize("conv_id", [str(uuid.uuid4()), "inconnue"], ids=["uuid-inconnu", "pas-un-uuid"])
-def test_an_address_naming_no_conversation_leads_to_the_list(client, conv_id):
-    page = client.get(f"/c/{conv_id}/12", headers=headers(), follow_redirects=False)
+@pytest.mark.parametrize("tail", ["", "/12"], ids=["conversation", "réponse"])
+@pytest.mark.parametrize(
+    "conv_id",
+    [str(uuid.uuid4()), "inconnue", "abc%00", f"{SHORT}%00", f"{UUID}%00"],
+    ids=["uuid-inconnu", "pas-un-identifiant", "octet-nul", "court-et-octet-nul", "uuid-et-octet-nul"],
+)
+def test_an_address_naming_no_conversation_leads_to_the_list(client, conv_id, tail):
+    page = client.get(f"/c/{conv_id}{tail}", headers=headers(), follow_redirects=False)
 
     assert (page.status_code, page.headers["location"]) == (302, "/conversations?show=convos")
 

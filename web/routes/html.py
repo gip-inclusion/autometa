@@ -504,8 +504,8 @@ def conversation_page(conv_id: str, request: Request, user_email: str = Depends(
     Allows viewing conversations owned by other users (shared via their link).
     The owner's email is shown in the header for shared conversations.
     """
-    # Try to get conversation without user filter (allow shared access)
-    current_conv = store.get_conversation(conv_id, include_messages=False)
+    # Why: une adresse qui ne porte pas un identifiant ne va pas jusqu'à la base, où un octet nul la ferait échouer.
+    current_conv = validate_conv_id(conv_id) and store.get_conversation(conv_id, include_messages=False)
 
     if not current_conv:
         return RedirectResponse("/conversations?show=convos", status_code=302)
