@@ -4898,6 +4898,31 @@ body.no-sidebar .section-header .container-fluid {
   scroll-margin-top: 4rem;
 }
 
+/* Why: a link under the pointer or the keyboard outlines what it shares, more faintly than an opened link; an opened
+   link's target keeps its own outline. */
+.event-assistant:not(.permalink-target):has(> .permalink-btn:is(:hover, :focus-visible)),
+.permalink-figure:has(> .permalink-btn:is(:hover, :focus-visible)) > [data-anchor]:not(.permalink-target) {
+  border-radius: 4px;
+  outline: 1px solid rgb(0 106 220 / 45%);
+  outline-offset: 4px;
+}
+
+/* Why: a section is not one element; permalinks.js marks its heading, whose ::before runs down to the section's end. */
+.permalink-section-outline {
+  position: relative;
+}
+
+.permalink-section-outline::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--permalink-section-height);
+  border-radius: 4px;
+  outline: 1px solid rgb(0 106 220 / 45%);
+  outline-offset: 4px;
+  pointer-events: none;
+}
+
 .toc-level-3 {
   padding-left: 1.25rem;
 }

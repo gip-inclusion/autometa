@@ -105,6 +105,8 @@ async function refreshPermalinks() {
     const body = response.ok ? await response.json() : null;
     // Why: calls may answer out of order (a turn's user event, then its end); only the latest one applies.
     if (!body || request !== permalinksRequest || convId !== currentConversationId) return null;
+    // Why: the link under the pointer is about to be replaced, and a removed element never sees the pointer leave.
+    outlineSection(null);
     for (const block of document.querySelectorAll('#chatOutput .event-assistant')) {
       for (const button of block.querySelectorAll('.permalink-btn')) button.remove();
       for (const figure of block.querySelectorAll('.permalink-figure')) figure.replaceWith(...figure.childNodes);
@@ -136,6 +138,43 @@ function showPermalinkTarget(target) {
   element.classList.add('permalink-target');
   element.scrollIntoView({ block: 'start' });
   return true;
+}
+
+function headingLevel(element) {
+  return Number(/^H([1-6])$/.exec(element.tagName)?.[1] ?? 7);
+}
+
+let outlinedSection = null;
+
+/**
+ * Outline a heading's section, which ends at the next heading of its level or above, as the server cuts it; null
+ * removes the outline
+ */
+function outlineSection(heading) {
+  outlinedSection?.classList.remove('permalink-section-outline');
+  outlinedSection = heading;
+  if (!heading) return;
+  let last = heading;
+  let next = heading.nextElementSibling;
+  while (next && !next.matches('.action-footnotes') && headingLevel(next) > headingLevel(heading)) {
+    last = next;
+    next = next.nextElementSibling;
+  }
+  const height = last.getBoundingClientRect().bottom - heading.getBoundingClientRect().top;
+  heading.style.setProperty('--permalink-section-height', `${height}px`);
+  heading.classList.add('permalink-section-outline');
+}
+
+// Why: CSS outlines the answer and the figures under their links, a section needs its range measured. A tap outlines
+// nothing that could stay, and a link focused by a click outlines only under the pointer.
+function followSectionLink(e) {
+  const heading = e.target.closest?.('[data-anchor-kind="section"] > .permalink-btn')?.parentElement;
+  if (!heading || e.pointerType === 'touch' || (e.type === 'focusin' && !e.target.matches(':focus-visible'))) return;
+  outlineSection(e.type === 'pointerover' || e.type === 'focusin' ? heading : null);
+}
+
+for (const type of ['pointerover', 'pointerout', 'focusin', 'focusout']) {
+  document.addEventListener(type, followSectionLink);
 }
 
 document.addEventListener('click', async (e) => {
