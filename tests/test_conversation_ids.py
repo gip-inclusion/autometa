@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from web.helpers import validate_conv_id
+from web.database import store
+from web.helpers import CONV_ID_ALPHABET, UUID_CONV_ID, new_conv_id, validate_conv_id
 
 STREAM_JS = Path(__file__).parent.parent / "web" / "static" / "js" / "stream.js"
 
@@ -59,3 +60,41 @@ def test_the_page_accepts_the_same_conversation_ids_as_the_server(tmp_path, conv
     )
 
     assert json.loads(result.stdout) is valid
+
+
+def test_a_drawn_id_is_eight_characters_of_the_alphabet():
+    drawn = {new_conv_id() for _ in range(200)}
+
+    assert all(len(conv_id) == 8 and set(conv_id) <= set(CONV_ID_ALPHABET) for conv_id in drawn)
+    assert len(drawn) == 200
+
+
+@pytest.mark.integration
+def test_a_new_conversation_gets_a_short_id(app):
+    conv = store.create_conversation(user_id="alice@example.com")
+
+    assert validate_conv_id(conv.id)
+    assert not UUID_CONV_ID.fullmatch(conv.id)
+    assert store.get_conversation(conv.id).user_id == "alice@example.com"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "make_second",
+    [
+        lambda first: store.create_conversation(user_id="bob@example.com"),
+        lambda first: store.fork_conversation(first.id, "bob@example.com"),
+    ],
+    ids=["création", "duplication"],
+)
+def test_an_id_already_taken_is_drawn_again(app, mocker, make_second):
+    draws = mocker.patch("web.stores.conversations.new_conv_id", side_effect=["aaaaaaaa", "aaaaaaaa", "bbbbbbbb"])
+    first = store.create_conversation(user_id="alice@example.com")
+    store.add_message(first.id, "user", "Question")
+
+    second = make_second(first)
+
+    assert (first.id, second.id) == ("aaaaaaaa", "bbbbbbbb")
+    assert draws.call_count == 3
+    assert store.get_conversation("aaaaaaaa").user_id == "alice@example.com"
+    assert store.get_conversation("bbbbbbbb").user_id == "bob@example.com"

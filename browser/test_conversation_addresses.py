@@ -16,6 +16,7 @@ from web.models import Conversation
 pytestmark = pytest.mark.browser
 
 TABLE = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |"
+NOTE = {"name": "note.txt", "mimeType": "text/plain", "buffer": b"contenu de la note"}
 
 # Why: le lien d'une carte de rapport ou d'application de la liste passe par onclick, pas par href.
 ADDRESSES = """() => [...document.querySelectorAll('[href], [hx-get], [hx-push-url], [data-url], [onclick]')].flatMap(
@@ -49,6 +50,46 @@ def table_permalink(conversation: str, answer: Locator) -> str:
     copied = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
     message, element = urlsplit(copied).path.split("/")[-2:]
     return f"/c/{conversation}/{message}/{element}"
+
+
+def test_a_new_conversation_keeps_its_short_address_through_a_whole_journey(
+    fake_agent, visit: Callable[[str], None], ask: Callable[[str], None], page: Page
+):
+    visit("/c/new")
+    ask("Première question")
+    expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question", timeout=15_000)
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-z]{8}$"))
+    conversation = urlsplit(page.url).path.split("/")[2]
+
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".event-final-answer")).to_have_count(1)
+    page.locator("#chatFileInput").set_input_files(files=[NOTE])
+    ask(TABLE)
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    expect(page.locator(".event-user .file-context-pill")).to_contain_text("note.txt")
+    expect(page).to_have_url(re.compile(rf"/c/{conversation}$"))
+    expect(page.locator(".event-final-answer").last.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
+    permalink = table_permalink(conversation, page.locator(".event-final-answer").last)
+
+    page.locator("#forkConvBtn").click()
+    expect(page).to_have_url(re.compile(rf"/c/(?!{conversation})[0-9a-z]{{8}}$"))
+    copy = urlsplit(page.url).path.split("/")[2]
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    ask("Question dans la copie")
+    expect(page.locator(".event-final-answer")).to_have_count(3, timeout=15_000)
+
+    page.locator(f"#sidebar-recents a[href='/c/{conversation}']").click()
+    expect(page).to_have_url(re.compile(rf"/c/{conversation}$"))
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    page.go_back()
+    expect(page).to_have_url(re.compile(rf"/c/{copy}$"))
+    expect(page.locator(".event-final-answer")).to_have_count(3)
+
+    fresh = page.context.new_page()
+    fresh.goto(permalink, wait_until="domcontentloaded")
+
+    expect(fresh.locator("table.permalink-target")).to_have_count(1)
+    expect(fresh).to_have_url(re.compile(rf"{re.escape(permalink)}$"))
 
 
 def test_a_conversation_with_a_uuid_opens_at_its_old_address_plays_a_turn_and_opens_its_permalinks(

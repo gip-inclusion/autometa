@@ -1,6 +1,7 @@
 """Shared helper functions for the web application."""
 
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -114,6 +115,11 @@ CONV_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 # Why: les conversations créées avant les identifiants courts gardent leur UUID, écrit sous cette seule forme.
 UUID_CONV_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 CONV_ID = re.compile(rf"{UUID_CONV_ID.pattern}|[{CONV_ID_ALPHABET}]{{8}}")
+
+
+def new_conv_id() -> str:
+    """Un identifiant de conversation neuf : 8 caractères tirés au sort ; son unicité est celle de la clé primaire."""
+    return "".join(secrets.choice(CONV_ID_ALPHABET) for _ in range(8))
 
 
 def validate_conv_id(conv_id: str) -> bool:

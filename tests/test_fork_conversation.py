@@ -4,7 +4,11 @@ Users can fork conversations to continue from someone else's conversation
 or to branch their own conversation.
 """
 
+import uuid
+
 import pytest
+
+from web.helpers import validate_conv_id
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -30,6 +34,7 @@ def test_fork_database_creates_new_conversation(app, conversation_with_messages)
 
     assert forked is not None
     assert forked.id != conversation_with_messages.id
+    assert validate_conv_id(forked.id) and len(forked.id) == 8
     assert forked.user_id == "forker@example.com"
 
 
@@ -90,6 +95,7 @@ def test_fork_database_copies_session_when_source_has_one(app, conversation_with
 
     assert forked.session_id is not None
     assert forked.session_id != "original-session"
+    assert str(uuid.UUID(forked.session_id)) == forked.session_id
     copy_mock.assert_called_once_with("original-session", forked.session_id)
 
 

@@ -35,7 +35,7 @@ def test_first_message_creates_a_conversation(visit: Callable[[str], None], page
     page.locator("#chatInput").fill(question)
     page.locator("#chatSendBtn").click()
 
-    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-z]{8}(?![\w-])"))
     expect(page.get_by_text(question)).to_be_visible()
 
 

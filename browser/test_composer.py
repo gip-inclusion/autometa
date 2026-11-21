@@ -62,7 +62,7 @@ def test_double_enter_creates_one_conversation(visit: Callable[[str], None], pag
 
     assert len(held) == 1
     held[0].continue_()
-    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-z]{8}(?![\w-])"))
 
 
 def test_the_composer_is_drawn_from_its_state_when_the_page_loads(visit: Callable[[str], None], page: Page):
@@ -81,7 +81,7 @@ def test_back_to_a_new_conversation_starts_afresh(fake_agent, playwright: Playwr
     page.goto("/c/new", wait_until="domcontentloaded")
     page.locator("#chatInput").fill("Question avant le retour")
     page.locator("#chatInput").press("Enter")
-    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-z]{8}(?![\w-])"))
 
     page.go_back(wait_until="commit")
     expect(page.locator("#chatSendBtn")).to_be_enabled()
@@ -103,7 +103,7 @@ def test_pending_files_do_not_follow_navigation(conversation: str, page: Page):
     page.wait_for_function("() => currentConversationId === null")
     page.locator("#chatInput").fill("Une autre question")
     page.locator("#chatInput").press("Enter")
-    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-z]{8}(?![\w-])"))
 
     assert uploads == []
 
