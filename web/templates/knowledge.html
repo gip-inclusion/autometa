@@ -74,7 +74,7 @@
           <i class="ri-file-line"></i> {{ current_file }}
         </div>
       </div>
-      <div class="markdown-body" id="markdownContent"></div>
+      <div class="markdown-body" id="markdownContent" hx-disable></div>
     </div>
     <script id="knowledgeRawContent" type="application/json">{{ file_content | tojson }}</script>
 
@@ -83,7 +83,7 @@
 
     {% if feature_knowledge_chat %}
     <!-- Chat output for conversation (hidden until first message if no existing conv) -->
-    <div class="chat-output view-normal mt-4" id="chatOutput" {% if not current_conv %}style="display: none;"{% endif %}>
+    <div class="chat-output view-normal mt-4" id="chatOutput" hx-disable {% if not current_conv %}style="display: none;"{% endif %}>
       {% if current_conv %}
       <div class="loading-indicator" id="loadingConversation">
         <div class="spinner"></div> Chargement...

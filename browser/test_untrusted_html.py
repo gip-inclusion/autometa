@@ -36,6 +36,7 @@ UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
   const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta'];
   for (const root of document.querySelectorAll(region)) {
+    if (!root.closest('[hx-disable]')) found.push('read by htmx');
     for (const el of root.querySelectorAll('*')) {
       const tag = el.tagName.toLowerCase();
       if (tags.includes(tag)) found.push(tag);
@@ -226,8 +227,9 @@ def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: s
     )
     page.reload(wait_until="domcontentloaded")
     expect(page.locator(".action-api-link").first).to_contain_text("VisitsSummary.get", timeout=15000)
-    hrefs = page.evaluate("() => [...document.querySelectorAll('.action-api-link')].map((a) => a.getAttribute('href'))")
-    assert set(hrefs) == {None}
+    links = "[...document.querySelectorAll('.action-api-link')]"
+    assert set(page.evaluate(f"() => {links}.map((a) => a.getAttribute('href'))")) == {None}
+    assert page.evaluate(f"() => {links}.every((a) => a.closest('[hx-disable]'))")
 
 
 def with_knowledge_text(text: str) -> Callable[[Route], None]:
