@@ -805,7 +805,7 @@ def set_criterion_status(code: str, status: str) -> Criterion:
 
 
 def link(base_url: str, conversation_id: str) -> str:
-    return f"{base_url}/explorations/{conversation_id}"
+    return f"{base_url}/c/{conversation_id}"
 
 
 def severity_counts(findings: list[Finding]) -> str:

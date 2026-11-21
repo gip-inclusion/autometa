@@ -49,7 +49,7 @@ def test_search_never_returns_another_users_conversation(monkeypatch, capsys):
     run(monkeypatch, "--search", "candidatures département")
 
     out = capsys.readouterr().out
-    assert mine.id in out
+    assert f"  /c/{mine.id}  " in out
     assert theirs.id not in out
 
 

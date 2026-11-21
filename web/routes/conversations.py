@@ -201,7 +201,7 @@ def flag_conversation(
 
 def _format_flag_notification(conv_id: str, title: str | None, user_email: str, reason: str) -> str:
     label = title or "Sans titre"
-    url = f"{config.BASE_URL}/explorations/{conv_id}" if config.BASE_URL else conv_id
+    url = f"{config.BASE_URL}/c/{conv_id}" if config.BASE_URL else conv_id
     message = f":triangular_flag_on_post: *Conversation signalée* par {user_email}\n<{url}|{label}>"
     if reason.strip():
         message += f"\n> {reason.strip()}"

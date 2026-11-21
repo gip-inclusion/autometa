@@ -180,6 +180,7 @@ def sync_threads(mocker):
 class TestFlagSlackNotification:
     def test_new_flag_pings_alert_channel(self, app, client, conv, mocker, sync_threads, alice_headers):
         notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+        mocker.patch("web.routes.conversations.config.BASE_URL", "https://autometa.example")
 
         _post_flag(client, conv.id, alice_headers, reason="hors sujet")
 
@@ -187,7 +188,7 @@ class TestFlagSlackNotification:
         message = notify.call_args[0][0]
         assert "alice@example.com" in message
         assert "hors sujet" in message
-        assert conv.id in message
+        assert f"<https://autometa.example/c/{conv.id}|" in message
 
     def test_reflagging_same_user_does_not_re_ping(self, app, client, conv, mocker, sync_threads, alice_headers):
         notify = mocker.patch("web.routes.conversations.notify_alert_channel")

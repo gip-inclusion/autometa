@@ -50,7 +50,7 @@ def main() -> None:
     ids = store.search_conversation_ids_by_keyword(args.search, user_id=user_email, limit=20)
     for conversation, _ in store.list_ranked_conversations_with_tags(ids, user_id=user_email):
         if conversation.id != config.agent_conversation_id():
-            print(f"{conversation.updated_at:%Y-%m-%d}  /explorations/{conversation.id}  {conversation.title or ''}")
+            print(f"{conversation.updated_at:%Y-%m-%d}  /c/{conversation.id}  {conversation.title or ''}")
 
 
 if __name__ == "__main__":
