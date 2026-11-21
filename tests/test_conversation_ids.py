@@ -98,3 +98,14 @@ def test_an_id_already_taken_is_drawn_again(app, mocker, make_second):
     assert draws.call_count == 3
     assert store.get_conversation("aaaaaaaa").user_id == "alice@example.com"
     assert store.get_conversation("bbbbbbbb").user_id == "bob@example.com"
+
+
+@pytest.mark.integration
+def test_a_draw_stuck_on_a_taken_id_gives_up_after_a_few_tries(app, mocker):
+    draws = mocker.patch("web.stores.conversations.new_conv_id", side_effect=["aaaaaaaa"] * 20)
+    store.create_conversation(user_id="alice@example.com")
+
+    with pytest.raises(RuntimeError):
+        store.create_conversation(user_id="bob@example.com")
+
+    assert draws.call_count == 1 + 5

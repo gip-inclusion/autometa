@@ -32,18 +32,20 @@ logger = logging.getLogger(__name__)
 
 
 def insert_conversation(session, model: ConvModel) -> str:
-    """Ajoute la conversation sous un identifiant tiré au sort, tiré à nouveau tant qu'il est déjà pris."""
-    while True:
+    """Ajoute la conversation sous un identifiant tiré au sort, tiré à nouveau, quelques fois au plus, s'il est pris."""
+    # Why: sur 32⁸ identifiants, cinq tirages pris de suite ne sont pas le hasard mais un tirage bloqué.
+    for _ in range(5):
         model.id = new_conv_id()
         try:
             with session.begin_nested():
                 session.add(model)
             return model.id
         except IntegrityError:
-            # Why: seule une clé déjà prise appelle un autre tirage ; toute autre erreur d'intégrité ferait tirer sans fin.
+            # Why: seule une clé déjà prise appelle un autre tirage ; toute autre erreur d'intégrité reviendrait à chacun.
             if session.get(ConvModel, model.id) is None:
                 raise
             logger.info("Identifiant de conversation déjà pris, nouveau tirage")
+    raise RuntimeError("Identifiant de conversation déjà pris à chaque tirage")
 
 
 def insert_message(session, conv: ConvModel, type: str, content: str) -> Message:
