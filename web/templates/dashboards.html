@@ -262,7 +262,8 @@ function clearTags() {
   reload(url);
 }
 
-let searchTimer;
+// Why: ce script se rejoue à chaque visite et à chaque retour sur la page ; un let ne se déclare qu'une fois.
+var searchTimer;
 function filterByText(query) {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
@@ -273,7 +274,8 @@ function filterByText(query) {
   }, 300);
 }
 
-document.body.addEventListener('click', async (e) => {
+// Why: posé sur la section, que chaque visite remplace, et non sur body où chaque passage en ajouterait un.
+document.getElementById('section-dashboards').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action="copy-url"]');
   if (!btn) return;
   e.preventDefault();
