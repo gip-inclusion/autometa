@@ -75,9 +75,18 @@ function attachPermalinks(block, ids, anchors) {
 async function refreshPermalinks() {
   const convId = currentConversationId;
   if (!convId) return null;
-  const response = await fetch(`/api/conversations/${convId}/anchors${window.location.search}`);
-  if (!response.ok || convId !== currentConversationId) return null;
-  const { anchors, target } = await response.json();
+  const opened = new URLSearchParams(window.location.search);
+  const url = new URL(`/api/conversations/${convId}/anchors`, window.location.origin);
+  // Why: the route only reads the permalink; a new conversation's ?message= has no business in its logs.
+  for (const key of ['m', 'a']) if (opened.has(key)) url.searchParams.set(key, opened.get(key));
+  let body = null;
+  try {
+    const response = await fetch(url);
+    if (response.ok) body = await response.json();
+  } catch (error) {
+    console.error('Failed to load permalinks:', error);
+  }
+  if (!body || convId !== currentConversationId) return null;
   for (const block of document.querySelectorAll('#chatOutput .event-assistant')) {
     for (const button of block.querySelectorAll('.permalink-btn')) button.remove();
     for (const element of block.querySelectorAll('[data-anchor]')) {
@@ -85,19 +94,24 @@ async function refreshPermalinks() {
     }
     const ids = block.dataset.msgId.split(' ');
     // Why: the server lists finished messages only; an answer still being written gets no link.
-    if (ids.every((id) => id in anchors)) attachPermalinks(block, ids, anchors);
+    if (ids.every((id) => id in body.anchors)) attachPermalinks(block, ids, body.anchors);
   }
   rebuildToc();
-  return target;
+  return body.target;
 }
 
+/**
+ * Outline and scroll to what a permalink points to; false when it is not displayed
+ */
 function showPermalinkTarget(target) {
   const block = document.querySelector(`#chatOutput [data-msg-id~="${target.message}"]`);
-  if (!block) return;
-  const named = target.kind && block.querySelector(`[data-anchor="${target.message}-${target.kind}-${target.rank}"]`);
+  const named = target.kind && block?.querySelector(`[data-anchor="${target.message}-${target.kind}-${target.rank}"]`);
   const element = named || block;
+  // Why: the minimal view hides the answers that are not final; scrolling to one would land nowhere.
+  if (!element?.checkVisibility()) return false;
   element.classList.add('permalink-target');
   element.scrollIntoView({ block: 'start' });
+  return true;
 }
 
 document.addEventListener('click', async (e) => {

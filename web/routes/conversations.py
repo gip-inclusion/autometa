@@ -255,19 +255,20 @@ def conversation_anchors(
     user_email: str = Depends(get_current_user),
 ):
     """Sections and figures of each finished agent message, and the one the permalink being opened names."""
-    conv = store.get_conversation(conv_id)
+    conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    messages = store.get_messages(conv_id, types=["user", "assistant"])
     # Why: the text of the running turn's messages still changes; a link into them could not hold.
-    running_from = max((m.id for m in conv.messages if m.type == "user"), default=0) if conv.needs_response else None
+    running_from = max((m.id for m in messages if m.type == "user"), default=0) if conv.needs_response else None
     found = {
         str(m.id): permalinks.anchors(m.content)
-        for m in conv.messages
+        for m in messages
         if m.type == "assistant" and (running_from is None or m.id < running_from)
     }
     target = None
     if message in found:
-        parts = re.fullmatch(r"(section|table|chart)-(\d+)-([0-9a-f]{6})", named)
+        parts = re.fullmatch(r"(section|table|chart)-(\d{1,6})-([0-9a-f]{6})", named)
         hit = parts and permalinks.resolve(found[message], parts[1], int(parts[2]), parts[3])
         target = {"message": int(message), **({"kind": hit.kind, "rank": hit.rank} if hit else {})}
     return {

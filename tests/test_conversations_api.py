@@ -341,8 +341,9 @@ def test_anchors_leaves_out_the_running_turn(client):
         ("table-1-000000", {}),
         ("n-importe-quoi", {}),
         ("", {}),
+        ("table-" + "9" * 5000 + "-{digest}", {}),
     ],
-    ids=["exact", "rang-décalé", "empreinte-inconnue", "illisible", "réponse-seule"],
+    ids=["exact", "rang-décalé", "empreinte-inconnue", "illisible", "réponse-seule", "rang-démesuré"],
 )
 def test_anchors_resolves_the_link_being_opened(client, named, expected):
     conv_id, answer = answered_conversation()

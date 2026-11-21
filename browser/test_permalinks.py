@@ -20,6 +20,8 @@ DISAGREEMENT = (
 # Why: le titre du serveur garde l'échappement « \# » ; le sommaire montre la section telle que la page l'affiche.
 CHART = 'Graphique\n\n## Statuts \\#1\n\n```mermaid\npie title Par statut\n    "Acceptées" : 3\n    "Refusées" : 1\n```'
 
+LONG = "Longue\n\n## Méthode\n\n" + "Une ligne de texte.\n\n" * 60 + "Fin."
+
 
 def answer_to(question: str, ask: Callable[[str], None], page: Page) -> Locator:
     ask(question)
@@ -94,10 +96,70 @@ def test_the_table_of_contents_outlines_sections_and_figures(answer, page: Page)
     expect(page).to_have_url(re.compile(r"a=table-1-[0-9a-f]{6}$"))
 
 
-def test_a_heading_link_from_before_permalinks_still_lands(
-    answer, conversation: str, visit: Callable[[str], None], page: Page
-):
-    visit(f"/explorations/{conversation}#methode")
+def test_a_heading_link_from_before_permalinks_still_lands(conversation: str, ask: Callable[[str], None], page: Page):
+    answer_to(LONG, ask, page)
+    fresh = page.context.new_page()
 
-    expect(page.locator("h2#methode")).to_have_text("Méthode")
-    expect(page.locator("#tocContent .toc-entry")).to_have_count(3)
+    fresh.goto(f"/explorations/{conversation}#methode", wait_until="domcontentloaded")
+
+    expect(fresh.locator("h2#methode")).to_be_in_viewport()
+
+
+def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
+    answer, ask: Callable[[str], None], page: Page
+):
+    link = answer.locator(".permalink-btn[data-url*='a=table-1-']").get_attribute("data-url")
+    answer_to(LONG, ask, page)
+    fresh = page.context.new_page()
+    # Why: la vue minimale masque ainsi les réponses intermédiaires, que l'agent factice ne sait pas produire.
+    fresh.add_init_script(
+        "addEventListener('DOMContentLoaded', () => document.head.insertAdjacentHTML("
+        "'beforeend', '<style>.event-assistant:has(table) { display: none }</style>'))"
+    )
+
+    fresh.goto(link, wait_until="domcontentloaded")
+
+    expect(fresh.locator(".event-final-answer").last.get_by_text("Fin.")).to_be_in_viewport()
+    expect(fresh.locator(".permalink-target")).to_have_count(0)
+
+
+def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: str, page: Page):
+    fresh = page.context.new_page()
+
+    with fresh.expect_request("**/anchors*") as request:
+        fresh.goto(f"/explorations/{conversation}?utm_source=slack&m=1&a=table-1-000000", wait_until="domcontentloaded")
+
+    assert request.value.url.endswith(f"/api/conversations/{conversation}/anchors?m=1&a=table-1-000000")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [lambda route: route.abort(), lambda route: route.fulfill(status=200, body="<html>")],
+    ids=["réseau", "réponse-illisible"],
+)
+def test_a_running_conversation_resumes_when_its_permalinks_fail(
+    conversation: str, ask: Callable[[str], None], page: Page, failure: Callable
+):
+    ask("[slow:6] Longue réponse")
+    expect(page.locator("#chatCancelBtn")).to_be_visible()
+    fresh = page.context.new_page()
+    fresh.route("**/anchors*", failure)
+
+    fresh.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+
+    expect(fresh.locator(".event-final-answer").last).to_contain_text("Réponse factice : [slow:6]", timeout=15_000)
+
+
+def test_an_answer_gets_its_links_as_soon_as_a_waiting_message_follows_it(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    ask("[slow:2] Chiffres\n\n## Candidatures")
+    expect(page.locator("#chatCancelBtn")).to_be_visible()
+    queued = page.request.post(
+        f"/api/conversations/{conversation}/messages", data={"content": "[slow:8] Suite", "queue": True}
+    )
+    assert queued.json()["status"] == "queued"
+
+    expect(page.locator("#chatOutput .event-user").last).to_have_text("[slow:8] Suite", timeout=15_000)
+
+    expect(page.locator(".permalink-btn[data-url*='a=section-1-']")).to_have_count(1, timeout=4_000)

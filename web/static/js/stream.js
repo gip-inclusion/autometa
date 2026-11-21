@@ -260,6 +260,7 @@ function startStream() {
     const data = JSON.parse(e.data);
     if (!appendEvent('user', data)) return;
     markFinalAnswer();
+    refreshPermalinks();
     lastUserMessage = data.content;
   });
 
@@ -775,10 +776,7 @@ async function loadConversation(convId) {
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
-      if (target) {
-        showPermalinkTarget(target);
-        return;
-      }
+      if (target && showPermalinkTarget(target)) return;
       if (hash) {
         const el = document.getElementById(hash.substring(1));
         if (el) {
