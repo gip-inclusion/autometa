@@ -76,7 +76,7 @@
       </div>
       <div class="markdown-body" id="markdownContent"></div>
     </div>
-    <script id="knowledgeRawContent" type="text/plain">{{ file_content|replace('</script>', '<\\/script>')|safe }}</script>
+    <script id="knowledgeRawContent" type="application/json">{{ file_content | tojson }}</script>
 
     <!-- Staged files data for popover (hidden, used by JS) -->
     <script id="stagedFilesData" type="application/json">{{ staged_files | tojson if staged_files else '[]' }}</script>
@@ -164,17 +164,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Render markdown content
   const markdownContent = document.getElementById('markdownContent');
   const rawContentScript = document.getElementById('knowledgeRawContent');
-  if (markdownContent && rawContentScript && typeof marked !== 'undefined') {
-    // Configure marked for proper rendering
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
-
-    // Unescape script tag that was escaped for HTML safety
-    const rawContent = rawContentScript.textContent.replace(/<\\\/script>/g, '<\/script>');
-    markdownContent.innerHTML = marked.parse(rawContent);
-
+  if (markdownContent && rawContentScript) {
+    markdownContent.innerHTML = formatAssistantContent(JSON.parse(rawContentScript.textContent));
     await renderMermaid(markdownContent);
   }
 
