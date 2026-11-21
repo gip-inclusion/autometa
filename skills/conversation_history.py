@@ -8,18 +8,6 @@ from web import config
 from web.database import store
 from web.helpers import CONV_ID, validate_conv_id
 
-# Why: comme les routes de partage, une conversation ne s'ouvre que par son identifiant complet, jamais par un préfixe ;
-# et 8 caractères ne la désignent que dans une de ses adresses, pas comme un mot d'une phrase (`datasets`).
-ADDRESS = re.compile(rf"/(?:c|explorations)/({CONV_ID.pattern})(?![\w-])")
-
-
-def cited_conversation_id(text: str) -> str | None:
-    """L'identifiant de la conversation citée : le texte entier, ou celui que porte une adresse de la conversation."""
-    if validate_conv_id(text.strip()):
-        return text.strip()
-    match = ADDRESS.search(text)
-    return match and match[1]
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -36,8 +24,16 @@ def main() -> None:
         sys.exit(2)
 
     if args.show:
-        conv_id = cited_conversation_id(args.show)
-        conversation = conv_id and store.get_conversation(conv_id, include_messages=True)
+        cited = args.show.strip()
+        # Why: comme les routes de partage, une conversation ne s'ouvre que par son identifiant complet, jamais par un
+        # préfixe ; 8 caractères ne la désignent que dans une de ses adresses, pas comme un mot (`datasets`) ; et une
+        # adresse, sur n'importe quel site, ne compte que si elle désigne une conversation.
+        ids = (
+            [cited]
+            if validate_conv_id(cited)
+            else re.findall(rf"/(?:c/|explorations/|explorations\?conv=)({CONV_ID.pattern})(?![\w-])", cited)
+        )
+        conversation = next(filter(None, (store.get_conversation(i, include_messages=True) for i in ids)), None)
         if not conversation:
             print(f"Error: conversation not found: {args.show}", file=sys.stderr)
             sys.exit(1)

@@ -84,6 +84,8 @@ CITATIONS = {
     "ancien-permalien": (UUID, SITE + "/explorations/{id}/12/table-1-abcdef"),
     "lien-slack": (SHORT, "<" + SITE + "/c/{id}|Orientations>"),
     "lien-markdown": (UUID, "[la conversation](" + SITE + "/c/{id})"),
+    "lien-de-l-ancienne-liste-court": (SHORT, SITE + "/explorations?conv={id}"),
+    "lien-de-l-ancienne-liste-uuid": (UUID, "Vu sur " + SITE + "/explorations?conv={id}."),
     "identifiant-court": (SHORT, "{id}"),
     "identifiant-uuid": (UUID, "{id}"),
     "identifiant-entouré-de-blancs": (SHORT, "  {id}\n"),
@@ -99,6 +101,17 @@ def test_show_reads_a_conversation_cited_by_its_link_or_its_id(monkeypatch, caps
     out = capsys.readouterr().out
     assert "Orientations" in out
     assert "Taux d'orientation" in out
+
+
+def test_show_reads_the_first_cited_address_that_names_a_conversation(monkeypatch, capsys):
+    conversation(BOB, "Première citée", title="Première", conv_id=UUID)
+    conversation(BOB, "Seconde citée", title="Seconde", conv_id=SHORT)
+
+    run(monkeypatch, "--show", f"Pas https://example.org/c/zzzzzzzz mais {SITE}/c/{UUID}, puis {SITE}/c/{SHORT}")
+
+    out = capsys.readouterr().out
+    assert "Première citée" in out
+    assert "Seconde citée" not in out
 
 
 def test_show_does_not_read_a_conversation_from_the_number_of_one_of_its_messages(monkeypatch, capsys):
@@ -154,16 +167,19 @@ def test_show_leaves_out_tool_calls_and_their_output(monkeypatch, capsys):
     assert "lignes brutes" not in out
 
 
+@pytest.mark.parametrize("cited", ["{prefix}", SITE + "/c/{prefix}"], ids=["seul", "dans-une-adresse"])
 @pytest.mark.parametrize(
     ("conv_id", "prefix"),
     [(UUID, UUID[:8]), (UUID, UUID[:-1]), (SHORT, SHORT[:-1])],
     ids=["premier-groupe-d-un-uuid", "uuid-moins-un-caractère", "court-moins-un-caractère"],
 )
-def test_show_refuses_an_id_prefix(monkeypatch, capsys, conv_id, prefix):
+def test_show_refuses_an_id_prefix(monkeypatch, capsys, conv_id, prefix, cited):
+    # Why: le premier groupe d'un UUID a la forme d'un identifiant court ; seule une lecture à l'identifiant exact,
+    # jamais au préfixe, le refuse.
     conversation(BOB, "Taux d'orientation", conv_id=conv_id)
 
     with pytest.raises(SystemExit) as exc:
-        run(monkeypatch, "--show", prefix)
+        run(monkeypatch, "--show", cited.format(prefix=prefix))
 
     assert exc.value.code == 1
     assert "Taux d'orientation" not in capsys.readouterr().out
