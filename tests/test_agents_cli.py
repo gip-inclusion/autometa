@@ -179,15 +179,35 @@ def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_p
     assert workdir.stat().st_mode & 0o777 == 0o700
 
 
+def put_mark(folder, kind, outside):
+    """La marque d'un dossier : un fichier comme Autometa la dépose, ou ce que l'agent a pu mettre à sa place."""
+    mark = folder / cli.WORKDIR_MARK
+    if kind == "fichier":
+        mark.touch()
+    elif kind == "dossier":
+        mark.mkdir()
+    elif kind == "tube":
+        os.mkfifo(mark)
+    elif kind == "lien-vers-un-fichier":
+        (outside / "fichier").touch()
+        mark.symlink_to(outside / "fichier")
+    elif kind == "lien-vers-un-chemin-libre":
+        mark.symlink_to(outside / "libre")
+    elif kind == "lien-pendant":
+        mark.symlink_to(outside / "absent" / "libre")
+
+
 @pytest.mark.parametrize(
-    ("name", "marked", "idle", "pruned"),
+    ("name", "mark", "idle", "pruned"),
     [
-        (SHORT_A, True, True, True),
-        ("datasets", False, True, False),
-        (UUID_A, False, True, True),
-        (SHORT_A, True, False, False),
-        (UUID_A, False, False, False),
-        ("pas-une-conversation", True, True, False),
+        (SHORT_A, "fichier", True, True),
+        ("datasets", None, True, False),
+        (UUID_A, None, True, True),
+        (SHORT_A, "fichier", False, False),
+        (UUID_A, None, False, False),
+        ("pas-une-conversation", "fichier", True, False),
+        (SHORT_A, "dossier", True, False),
+        (SHORT_A, "lien-vers-un-fichier", True, False),
     ],
     ids=[
         "nom-court-marqué",
@@ -196,22 +216,48 @@ def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_p
         "nom-court-marqué-récent",
         "uuid-récent",
         "autre-nom-marqué",
+        "nom-court-marqué-d-un-dossier",
+        "nom-court-marqué-d-un-lien",
     ],
 )
 def test_prune_removes_a_conversation_folder_idle_for_a_week_known_by_its_mark_or_its_uuid_name(
-    mocker, tmp_path, name, marked, idle, pruned
+    mocker, tmp_path, name, mark, idle, pruned
 ):
-    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    folder = tmp_path / name
+    root, outside = tmp_path / "travail", tmp_path / "dehors"
+    root.mkdir()
+    outside.mkdir()
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", root)
+    folder = root / name
     folder.mkdir()
-    if marked:
-        (folder / cli.WORKDIR_MARK).touch()
+    put_mark(folder, mark, outside)
     if idle:
         os.utime(folder, (WEEK_AGO, WEEK_AGO))
 
     cli.prune_workdirs(time.time())
 
-    assert [p.name for p in tmp_path.iterdir()] == ([] if pruned else [name])
+    assert [p.name for p in root.iterdir()] == ([] if pruned else [name])
+
+
+@pytest.mark.parametrize(
+    "mark", ["lien-pendant", "lien-vers-un-chemin-libre", "lien-vers-un-fichier", "dossier", "tube"]
+)
+def test_a_mark_replaced_by_the_agent_never_keeps_the_turn_from_its_folder_nor_writes_outside_it(
+    mocker, tmp_path, caplog, mark
+):
+    root, outside = tmp_path / "travail", tmp_path / "dehors"
+    root.mkdir()
+    outside.mkdir()
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", root)
+    (root / SHORT_A).mkdir()
+    put_mark(root / SHORT_A, mark, outside)
+    before = {path: path.stat().st_mtime_ns for path in outside.rglob("*")}
+    time.sleep(0.01)
+
+    workdir = cli.conversation_workdir(SHORT_A)
+
+    assert workdir == root / SHORT_A
+    assert {path: path.stat().st_mtime_ns for path in outside.rglob("*")} == before
+    assert caplog.records[-1].levelname == "WARNING"
 
 
 @pytest.mark.parametrize("created_by_the_agent", [False, True], ids=["créé-par-autometa", "créé-par-l-agent"])

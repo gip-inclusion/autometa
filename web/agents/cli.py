@@ -46,7 +46,12 @@ def conversation_workdir(conversation_id: str) -> Path | None:
     workdir.mkdir(mode=0o700, exist_ok=True)
     # Why: `mode` ne vaut qu'à la création ; un dossier déjà créé par l'agent (`mkdir -p`) resterait en 755.
     workdir.chmod(0o700)
-    (workdir / WORKDIR_MARK).touch()
+    # Why: l'agent peut remplacer la marque par un lien, un dossier ou un tube ; on ne suit ni n'attend rien, et une
+    # marque manquée ne fait que soustraire le dossier au ménage, jamais échouer le tour.
+    try:
+        os.close(os.open(workdir / WORKDIR_MARK, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600))
+    except OSError as error:
+        logger.warning("Dossier de travail %s non marqué : %s", conversation_id, error)
     # Why: l'âge du ménage se lit sur la date du dossier, que l'écriture dans un sous-dossier ne change pas.
     os.utime(workdir)
     return workdir
@@ -55,8 +60,13 @@ def conversation_workdir(conversation_id: str) -> Path | None:
 def prune_workdirs(now: float) -> None:
     """Efface les dossiers de travail de conversation restés une semaine sans changement."""
     for path in config.WORKDIR_ROOT.iterdir():
-        # Why: un nom en UUID suffit, les dossiers d'avant la marque n'en ont pas.
-        if not (UUID_CONV_ID.fullmatch(path.name) or validate_conv_id(path.name) and (path / WORKDIR_MARK).is_file()):
+        # Why: un nom en UUID suffit, les dossiers d'avant la marque n'en ont pas ; un lien à la place de la marque n'en
+        # est pas une.
+        if not (
+            UUID_CONV_ID.fullmatch(path.name)
+            or validate_conv_id(path.name)
+            and (path / WORKDIR_MARK).is_file(follow_symlinks=False)
+        ):
             continue
         # Why: renommé avant d'être effacé — une conversation qui reprend pendant l'effacement, lent avec des clones
         # GitHub, recrée un dossier neuf au lieu de perdre le sien en cours de route.
