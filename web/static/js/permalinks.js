@@ -76,7 +76,8 @@ function attachPermalinks(block, ids, anchors) {
 }
 
 /**
- * Put the links on every finished answer; returns what the address being opened points to, if anything
+ * Put the links on every finished answer; returns the anchors and the target of the address being opened, null when
+ * they could not be loaded
  */
 async function refreshPermalinks() {
   const convId = currentConversationId;
@@ -104,7 +105,7 @@ async function refreshPermalinks() {
     if (ids.every((id) => id in body.anchors)) attachPermalinks(block, ids, body.anchors);
   }
   rebuildToc();
-  return body.target;
+  return body;
 }
 
 /**

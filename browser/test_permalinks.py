@@ -85,6 +85,7 @@ def test_opening_a_link_highlights_its_target_or_the_whole_answer_at_the_base32_
     expect(page.locator(highlighted)).to_have_count(1)
     expect(page.locator(".permalink-target")).to_have_count(1)
     expect(page).to_have_url(opened.replace("/m/", f"/explorations/{crockford.encode(conversation)}/"))
+    expect(page.locator(".event-error")).to_have_count(0)
 
 
 def test_a_link_opens_its_conversation_marked_in_the_sidebar_and_navigable(answer, conversation: str, page: Page):
@@ -207,6 +208,37 @@ def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
 
     expect(fresh.locator(".event-final-answer").last.get_by_text("Fin.")).to_be_in_viewport()
     expect(fresh.locator(".permalink-target")).to_have_count(0)
+    expect(fresh.locator(".event-error")).to_have_count(0)
+
+
+@pytest.mark.parametrize(
+    ("message_type", "elsewhere", "spell"),
+    [("assistant", True, crockford.encode), ("user", False, str), ("inconnu", False, crockford.encode)],
+    ids=["réponse-d-une-autre-conversation", "question", "message-inconnu"],
+)
+def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_address_and_says_so(
+    conversation: str,
+    visit: Callable[[str], None],
+    ask: Callable[[str], None],
+    page: Page,
+    message_type: str,
+    elsewhere: bool,
+    spell: Callable[[str], str],
+):
+    messages = page.request.get(f"/api/conversations/{conversation}").json()["messages"]
+    message = next((m["id"] for m in messages if m["type"] == message_type), 999_999_999)
+    opened = page.request.post("/api/conversations").json()["id"] if elsewhere else conversation
+
+    visit(f"/explorations/{spell(opened)}/{message}/table-1-000000")
+
+    expect(page.locator(".event-error")).to_have_text("Ce lien ne correspond à aucune réponse de cette conversation.")
+    expect(page).to_have_url(re.compile(rf"/explorations/{spell(opened)}$"))
+    expect(page.locator(".permalink-target")).to_have_count(0)
+
+    ask("Encore une question")
+
+    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : Encore", timeout=15_000)
+    expect(page.locator(".event-error")).to_have_count(1)
 
 
 def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: str, page: Page):

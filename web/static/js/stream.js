@@ -764,21 +764,25 @@ async function loadConversation(convId) {
       // Reset streaming state after DB load — these are static events, not a live stream
       streamingBlock = null;
     }
-    const target = await refreshPermalinks();
+    const permalinks = await refreshPermalinks();
     if (load !== loadSequence) return;
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
-    // Why: a new conversation opens with ?message=, which a reload would send again; the path stays as opened, a
-    // permalink's included, and so does the hash.
+    // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps the spelling it
+    // was opened with, and a permalink's message and element unless that message is none of the conversation's
+    // finished answers; the hash stays.
     const hash = window.location.hash;
     const opened = parseExplorationPath(window.location.pathname);
-    const path = opened?.conversation === convId ? window.location.pathname : `/explorations/${convId}`;
+    const own = opened?.conversation === convId ? opened : { spelled: convId };
+    const missed = permalinks && own.message && !permalinks.target;
+    const path = own.message && !missed ? window.location.pathname : `/explorations/${own.spelled}`;
     window.history.replaceState({}, '', `${path}${hash}`);
+    if (missed) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
-      if (target && showPermalinkTarget(target)) return;
+      if (permalinks?.target && showPermalinkTarget(permalinks.target)) return;
       if (hash) {
         const el = document.getElementById(hash.substring(1));
         if (el) {
