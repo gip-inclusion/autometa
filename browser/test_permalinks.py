@@ -69,6 +69,15 @@ def test_a_chart_gets_its_link_and_its_entry_in_the_table_of_contents(
     expect(page.locator("#tocContent .toc-entry").nth(1).locator(".ri-bar-chart-2-line")).to_have_count(1)
 
 
+@pytest.mark.parametrize("follower", ["- note", "> note", "---"], ids=["liste", "citation", "filet"])
+def test_a_table_closed_by_the_next_block_keeps_its_link(
+    conversation: str, ask: Callable[[str], None], page: Page, follower: str
+):
+    answer = answer_to(f"Tableau\n\n## Chiffres\n\n| a | b |\n|---|---|\n| 1 | 2 |\n{follower}\n\n## Fin", ask, page)
+
+    expect(answer.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
+
+
 @pytest.mark.parametrize(
     ("stale", "highlighted"),
     [(False, "table.permalink-target"), (True, ".event-assistant.permalink-target")],

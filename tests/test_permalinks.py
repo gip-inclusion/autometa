@@ -160,8 +160,14 @@ def test_code_fences_open_and_close_as_in_commonmark(text, expected):
 
 @pytest.mark.parametrize(
     "text",
-    ["a | b\n|" + "-" * 200_000 + "x", "```mermaid\nflowchart\n" + " \n" * 20_000 + "x\n```", "# a\n" * 20_000],
-    ids=["séparateur-de-tableau", "graphique-presque-vide", "titres-en-masse"],
+    [
+        "a | b\n|" + "-" * 200_000 + "x",
+        "```mermaid\nflowchart\n" + " \n" * 20_000 + "x\n```",
+        "# a\n" * 20_000,
+        "## a" + "_" * 40_000 + "a",
+        "**a" + "_" * 40_000 + "a**\n\n" + table("A"),
+    ],
+    ids=["séparateur-de-tableau", "graphique-presque-vide", "titres-en-masse", "titre-souligné", "légende-soulignée"],
 )
 def test_slicing_stays_fast_on_hostile_text(text):
     started = time.perf_counter()
@@ -169,6 +175,57 @@ def test_slicing_stays_fast_on_hostile_text(text):
     permalinks.anchors(text)
 
     assert time.perf_counter() - started < 1
+
+
+ROWS = "| a | b |\n|---|---|\n| 1 | 2 |"
+
+
+# Why: marked closes a table at a line that opens another block, so the server must count the same rows.
+@pytest.mark.parametrize(
+    ("after", "ends"),
+    [
+        ("- item", True),
+        ("* item", True),
+        ("+ item", True),
+        ("1. item", True),
+        ("1) item", True),
+        ("> cité", True),
+        ("   > cité", True),
+        ("---", True),
+        ("***", True),
+        ("___", True),
+        (" - - -", True),
+        ("2. item", False),
+        ("-item", False),
+        ("--", False),
+    ],
+    ids=[
+        "tiret",
+        "étoile",
+        "plus",
+        "un-point",
+        "un-parenthèse",
+        "citation",
+        "citation-indentée",
+        "filet-tirets",
+        "filet-étoiles",
+        "filet-soulignés",
+        "filet-espacé",
+        "deux-point",
+        "tiret-collé",
+        "deux-tirets",
+    ],
+)
+def test_a_table_ends_where_a_line_opens_another_block(after, ends):
+    found = next(a for a in permalinks.anchors(f"{ROWS}\n{after}") if a.kind == "table")
+
+    assert found.text == (ROWS if ends else f"{ROWS}\n{after}")
+
+
+def test_windows_line_endings_read_as_unix_ones():
+    found = permalinks.anchors("```\r\n## dans un bloc\r\n```\r\n\r\n## Dehors\r\n\r\ntexte\r\n")
+
+    assert [(a.title, a.text) for a in found] == [("Dehors", "## Dehors\n\ntexte")]
 
 
 @pytest.mark.parametrize(

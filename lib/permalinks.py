@@ -25,12 +25,13 @@ class Anchor:
 def plain(markdown: str) -> str:
     """Inline Markdown as plain text: a link gives its text, emphasis markers and backticks go."""
     linked = re.sub(r"!?\[([^\[\]]*)\]\([^()]*\)", r"\1", markdown)
-    return re.sub(r"[*`]+|(?<!\w)_+|_+(?!\w)", "", linked).strip()
+    # Why: (?<!_) starts a run of underscores at its first one only; tried from each, a long run is quadratic.
+    return re.sub(r"[*`]+|(?<!\w)_+|(?<!_)_+(?!\w)", "", linked).strip()
 
 
 def anchors(text: str) -> list[Anchor]:
     """The sections, tables and Mermaid charts of a message in reading order, each ranked among its kind and titled."""
-    lines = text.split("\n")
+    lines = text.replace("\r\n", "\n").split("\n")
     spans, unclosed, section, i = [], [], (0, ""), 0
     while i < len(lines):
         # Why: as in CommonMark, backticks followed by another backtick on their line open inline code, not a fence.
@@ -64,11 +65,16 @@ def anchors(text: str) -> list[Anchor]:
             and "|" in lines[i + 1]
             and re.fullmatch(r"[\s|:]*-[\s|:-]*", lines[i + 1])
         ):
+            # Why: as in marked, a table ends at a blank line or at a line opening another block: a heading, a fence,
+            # a blockquote, a list item able to interrupt a paragraph, a thematic break.
             end = next(
                 (
                     j
                     for j in range(i + 2, len(lines))
-                    if not lines[j].strip() or re.match(r" {0,3}(#{1,6}\s|`{3}|~{3})", lines[j])
+                    if not lines[j].strip()
+                    or re.match(
+                        r" {0,3}(?:#{1,6}\s|`{3}|~{3}|>|[*+-] |1[.)] |([-*_])[ \t]*(?:\1[ \t]*){2,}$)", lines[j]
+                    )
                 ),
                 len(lines),
             )
