@@ -243,6 +243,21 @@ def test_going_back_to_a_conversation_whose_address_the_page_changed_shows_its_a
     expect(page.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
 
 
+def test_a_touch_screen_shows_the_heading_links_only(answer, conversation: str, page: Page, base_url: str):
+    touch = page.context.browser.new_page(
+        base_url=base_url, viewport={"width": 375, "height": 667}, is_mobile=True, has_touch=True
+    )
+    touch.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+    touched = touch.locator(".event-final-answer").last
+    expect(touched.locator(".permalink-btn")).to_have_count(4)
+
+    assert touch.evaluate("matchMedia('(hover: none)').matches")
+    expect(touched.locator("h2 .permalink-btn:visible")).to_have_count(2)
+    expect(touched.locator(".permalink-figure > .permalink-btn")).to_have_css("display", "none")
+    expect(touched.locator(":scope > .permalink-btn")).to_have_css("display", "none")
+    touch.close()
+
+
 def test_putting_the_links_again_wraps_each_figure_once(answer, page: Page):
     expect(answer.locator(".permalink-btn")).to_have_count(4)
 

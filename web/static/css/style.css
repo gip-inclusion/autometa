@@ -4875,9 +4875,12 @@ body.no-sidebar .section-header .container-fluid {
   background: var(--bs-body-bg);
 }
 
+/* Why: with no pointer to reveal them, the answer's and the figures' links would cover a figure's corner and catch
+   taps; a touch screen shows the heading links only. */
 @media (hover: none) {
-  .event-assistant .permalink-btn {
-    opacity: 0.7;
+  .event-assistant > .permalink-btn,
+  .permalink-figure > .permalink-btn {
+    display: none;
   }
 }
 
