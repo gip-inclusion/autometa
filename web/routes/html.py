@@ -525,6 +525,18 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
     )
 
 
+@router.get("/m/{message_id:int}")
+@router.get("/m/{message_id:int}/{anchor}")
+def message_permalink(message_id: int, request: Request, user_email: str = Depends(get_current_user)):
+    """A short permalink leads to its message, and the element it names, in the message's conversation."""
+    conv_id = store.message_conversation_id(message_id)
+    if not conv_id:
+        return RedirectResponse("/conversations?show=convos", status_code=302)
+    spelled = crockford.encode(conv_id) if validate_conv_id(conv_id) else conv_id
+    segments = [spelled, str(message_id), request.path_params.get("anchor")]
+    return RedirectResponse("/explorations/" + "/".join(filter(None, segments)), status_code=302)
+
+
 def redirect_to_knowledge_file(path: str | None) -> RedirectResponse:
     """Redirige vers une fiche existante ; tout le reste retombe sur l'index."""
     if path and validate_knowledge_path(path):

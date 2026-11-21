@@ -38,13 +38,11 @@ def answer(conversation: str, ask: Callable[[str], None], page: Page):
     return answer_to(QUESTION, ask, page)
 
 
-def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(
-    answer, conversation: str, base_url: str
-):
+def test_a_finished_answer_offers_a_short_link_for_itself_each_section_and_each_table(answer, base_url: str):
     expect(answer.locator(".permalink-btn")).to_have_count(4)
     links = answer.locator(".permalink-btn").evaluate_all("buttons => buttons.map((b) => b.dataset.url)")
 
-    shape = rf"{base_url}/explorations/{conversation}/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
+    shape = rf"{base_url}/m/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
     shapes = [re.fullmatch(shape, link) for link in links]
     assert all(shapes), links
     assert sorted(shape[1] for shape in shapes if shape[1]) == ["section-1", "section-2", "table-1"]
@@ -76,8 +74,8 @@ def test_a_chart_gets_its_link_and_its_entry_in_the_table_of_contents(
     [(False, "table.permalink-target"), (True, ".event-assistant.permalink-target")],
     ids=["tableau", "empreinte-périmée"],
 )
-def test_opening_a_link_highlights_its_target_or_the_whole_answer(
-    answer, visit: Callable[[str], None], page: Page, stale: bool, highlighted: str
+def test_opening_a_link_highlights_its_target_or_the_whole_answer_at_the_base32_address(
+    answer, conversation: str, visit: Callable[[str], None], page: Page, stale: bool, highlighted: str
 ):
     link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
     opened = re.sub(r"[0-9a-f]{6}$", "000000", link) if stale else link
@@ -86,7 +84,7 @@ def test_opening_a_link_highlights_its_target_or_the_whole_answer(
 
     expect(page.locator(highlighted)).to_have_count(1)
     expect(page.locator(".permalink-target")).to_have_count(1)
-    expect(page).to_have_url(opened)
+    expect(page).to_have_url(opened.replace("/m/", f"/explorations/{crockford.encode(conversation)}/"))
 
 
 def test_a_link_opens_its_conversation_marked_in_the_sidebar_and_navigable(answer, conversation: str, page: Page):
@@ -108,7 +106,7 @@ def test_a_link_opens_its_conversation_marked_in_the_sidebar_and_navigable(answe
     expect(recent).to_have_class(re.compile(r"\bactive\b"))
 
 
-def test_the_table_of_contents_outlines_sections_and_figures(answer, conversation: str, page: Page):
+def test_the_table_of_contents_outlines_sections_and_figures(answer, page: Page):
     entries = page.locator("#tocContent .toc-entry")
 
     expect(entries).to_have_text(["Candidatures", "Candidatures", "Méthode"])
@@ -117,7 +115,7 @@ def test_the_table_of_contents_outlines_sections_and_figures(answer, conversatio
 
     entries.nth(1).dispatch_event("click")
 
-    expect(page).to_have_url(re.compile(rf"/explorations/{conversation}/\d+/table-1-[0-9a-f]{{6}}$"))
+    expect(page).to_have_url(re.compile(r"/m/\d+/table-1-[0-9a-f]{6}$"))
 
 
 def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_over_its_corner(answer, page: Page):

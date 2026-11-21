@@ -32,7 +32,8 @@ function permalinkButton(messageId, label, anchor) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'permalink-btn';
-  button.dataset.url = `${window.location.origin}/explorations/${currentConversationId}/${messageId}${element}`;
+  // Why: a message id names its conversation too; the server redirects the short form to the full address.
+  button.dataset.url = `${window.location.origin}/m/${messageId}${element}`;
   button.title = `Copier le lien vers ${label}`;
   button.setAttribute('aria-label', button.title);
   button.innerHTML = '<i class="ri-link" aria-hidden="true"></i>';
