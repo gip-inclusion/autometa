@@ -1,8 +1,11 @@
 import uuid
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from starlette.requests import Request
 
 from web.database import store
+from web.routes import html
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -97,6 +100,30 @@ def test_the_old_new_conversation_address_leads_to_the_new_one(client, query):
     page = client.get(f"/explorations/new{query}", headers=headers(), follow_redirects=False)
 
     assert (page.status_code, page.headers["location"]) == (302, f"/c/new{query}")
+
+
+@pytest.mark.parametrize(
+    ("query", "kept"),
+    [
+        (b"prefill=Cr\xc3\xa9e", "prefill=Cr%C3%A9e"),
+        (b"message=Caf\xc3\xa9%20%26%20th\xc3\xa9&x=1", "message=Caf%C3%A9%20%26%20th%C3%A9&x=1"),
+        (b"prefill=Cr%C3%A9e%20un%20tableau", "prefill=Cr%C3%A9e%20un%20tableau"),
+    ],
+    ids=["octets-utf8", "octets-et-encodage-mêlés", "déjà-encodée"],
+)
+def test_an_old_address_keeps_the_meaning_of_a_query_sent_as_raw_bytes(query, kept):
+    request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/explorations/new",
+        "query_string": query,
+        "headers": [],
+    })
+
+    location = html.explorations_redirect("new", request, "alice@example.com").headers["location"]
+
+    assert location == f"/c/new?{kept}"
+    assert parse_qs(urlsplit(location).query) == parse_qs(query.decode())
 
 
 @pytest.mark.parametrize(

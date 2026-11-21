@@ -2,8 +2,10 @@
 
 import logging
 import re
+import string
 from collections import OrderedDict
 from datetime import timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -468,8 +470,9 @@ def explorations_redirect(conv_id: str, request: Request, user_email: str = Depe
     # Why: le segment arrive décodé ; recopié tel quel, « x%3Fmessage%3D… » enverrait du texte depuis la page.
     kept = f"/{anchor}" if permalinks.ANCHOR_NAME.fullmatch(anchor) else ""
     address = f"/c/{conv_id}" if message is None else f"/c/{conv_id}/{message}{kept}"
-    # Why: la requête telle que reçue ; `request.url` relit le chemin décodé, où « x%3Fmessage%3D… » en ouvrirait une.
-    query = request.scope["query_string"].decode("latin-1")
+    # Why: la requête telle que reçue, ses seuls octets hors ASCII encodés ; `request.url` relit le chemin décodé, où
+    # « x%3Fmessage%3D… » en ouvrirait une.
+    query = quote(request.scope["query_string"], safe=string.punctuation)
     # Why: temporaire, permanente une fois /c/ installé pour de bon : un navigateur garde une redirection permanente, et
     # après un retour en arrière du déploiement il enverrait encore vers des adresses que le code d'avant ignore.
     return RedirectResponse(f"{address}?{query}" if query else address, status_code=302)
