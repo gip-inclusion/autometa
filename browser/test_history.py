@@ -229,3 +229,12 @@ def test_back_to_the_home_page_keeps_its_favourites_draggable(
     with page.expect_request(lambda r: r.method == "PATCH" and r.url.endswith("/api/favorites/order"), timeout=5000):
         tiles.nth(0).drag_to(tiles.nth(1))
     assert errors == []
+
+
+def test_the_page_copies_kept_by_htmx_2_0_4_are_removed(visit, page: Page):
+    visit("/")
+    page.evaluate("localStorage.setItem('htmx-history-cache', '[]')")
+
+    page.reload(wait_until="domcontentloaded")
+
+    assert page.evaluate("localStorage.getItem('htmx-history-cache')") is None

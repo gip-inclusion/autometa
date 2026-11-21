@@ -39,6 +39,10 @@ window.addEventListener('pageshow', (e) => {
   if (e.persisted && sending) window.location.reload();
 });
 
+// Why: htmx 2.0.4 kept its copies of pages in localStorage; later versions keep them in sessionStorage and leave
+// the old ones there for good.
+document.addEventListener('DOMContentLoaded', () => localStorage.removeItem('htmx-history-cache'));
+
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
