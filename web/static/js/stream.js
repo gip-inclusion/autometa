@@ -6,6 +6,7 @@
  *                         removeProgressIndicator, markFinalAnswer,
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
+ *             permalinks.js (refreshPermalinks, showPermalinkTarget)
  */
 
 let currentConversationId = null;
@@ -276,6 +277,7 @@ function startStream() {
     setTurnState('idle');
 
     markFinalAnswer();
+    refreshPermalinks();
 
     // Reconcile all sidebar spinners (catches background conversations that finished)
     reconcileSidebarSpinners();
@@ -760,16 +762,23 @@ async function loadConversation(convId) {
       // Reset streaming state after DB load — these are static events, not a live stream
       streamingBlock = null;
     }
+    const target = await refreshPermalinks();
     if (load !== loadSequence) return;
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
     // Update URL without reload (preserve hash if present)
     const hash = window.location.hash;
-    window.history.replaceState({}, '', `/explorations/${convId}${hash}`);
+    // Why: a new conversation opens with ?message=, which a reload would send again; only a permalink stays.
+    const search = target ? window.location.search : '';
+    window.history.replaceState({}, '', `/explorations/${convId}${search}${hash}`);
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
+      if (target) {
+        showPermalinkTarget(target);
+        return;
+      }
       if (hash) {
         const el = document.getElementById(hash.substring(1));
         if (el) {

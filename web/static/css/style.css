@@ -4831,3 +4831,49 @@ body.no-sidebar .section-header .container-fluid {
     top: calc(var(--staging-banner-height) + 56px);
   }
 }
+
+/* Permalinks: a link button on each finished answer, section, table and chart */
+.permalink-btn {
+  float: right;
+  margin-left: 0.4rem;
+  padding: 0 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.event-assistant:hover .permalink-btn,
+.permalink-btn:focus-visible {
+  opacity: 0.7;
+}
+
+.permalink-btn:hover {
+  opacity: 1;
+}
+
+.event-assistant :is(h1, h2, h3, h4, h5, h6) .permalink-btn {
+  float: none;
+}
+
+/* Why: the answer's own link is now its block's first child; a heading just after it keeps the first-child spacing. */
+.event-assistant > .permalink-btn:first-child + :is(h1, h2, h3) {
+  margin-top: 0;
+}
+
+.permalink-target {
+  border-radius: 4px;
+  outline: 2px solid #006adc;
+  outline-offset: 4px;
+}
+
+.toc-level-3 {
+  padding-left: 1.25rem;
+}
+
+.toc-level-4 {
+  padding-left: 2rem;
+}
