@@ -32,8 +32,13 @@ _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
 
 
+# Why: un nom de 8 caractères ne suffit pas à reconnaître une conversation (`datasets` en a la forme) ; le ménage
+# n'efface un dossier au nom court que s'il porte cette marque, déposée par Autometa.
+WORKDIR_MARK = ".autometa-conversation"
+
+
 def conversation_workdir(conversation_id: str) -> Path | None:
-    """Le dossier de travail d'une vraie conversation, créé au besoin."""
+    """Le dossier de travail d'une vraie conversation, créé au besoin et marqué comme tel."""
     # Why: la forme stricte d'un identifiant écarte `../` et les noms d'appels qui ne sont pas des conversations.
     if not validate_conv_id(conversation_id):
         return None
@@ -41,6 +46,7 @@ def conversation_workdir(conversation_id: str) -> Path | None:
     workdir.mkdir(mode=0o700, exist_ok=True)
     # Why: `mode` ne vaut qu'à la création ; un dossier déjà créé par l'agent (`mkdir -p`) resterait en 755.
     workdir.chmod(0o700)
+    (workdir / WORKDIR_MARK).touch()
     # Why: l'âge du ménage se lit sur la date du dossier, que l'écriture dans un sous-dossier ne change pas.
     os.utime(workdir)
     return workdir
@@ -49,7 +55,8 @@ def conversation_workdir(conversation_id: str) -> Path | None:
 def prune_workdirs(now: float) -> None:
     """Efface les dossiers de travail de conversation restés une semaine sans changement."""
     for path in config.WORKDIR_ROOT.iterdir():
-        if not UUID_CONV_ID.fullmatch(path.name):
+        # Why: un nom en UUID suffit, les dossiers d'avant la marque n'en ont pas.
+        if not (UUID_CONV_ID.fullmatch(path.name) or validate_conv_id(path.name) and (path / WORKDIR_MARK).is_file()):
             continue
         # Why: renommé avant d'être effacé — une conversation qui reprend pendant l'effacement, lent avec des clones
         # GitHub, recrée un dossier neuf au lieu de perdre le sien en cours de route.

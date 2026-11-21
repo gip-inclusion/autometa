@@ -179,15 +179,54 @@ def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_p
     assert workdir.stat().st_mode & 0o777 == 0o700
 
 
-def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
+@pytest.mark.parametrize(
+    ("name", "marked", "idle", "pruned"),
+    [
+        (SHORT_A, True, True, True),
+        ("datasets", False, True, False),
+        (UUID_A, False, True, True),
+        (SHORT_A, True, False, False),
+        (UUID_A, False, False, False),
+        ("pas-une-conversation", True, True, False),
+    ],
+    ids=[
+        "nom-court-marqué",
+        "nom-court-sans-marque",
+        "uuid-sans-marque",
+        "nom-court-marqué-récent",
+        "uuid-récent",
+        "autre-nom-marqué",
+    ],
+)
+def test_prune_removes_a_conversation_folder_idle_for_a_week_known_by_its_mark_or_its_uuid_name(
+    mocker, tmp_path, name, marked, idle, pruned
+):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    for name in (UUID_A, "pas-une-conversation"):
-        make_idle_folder(tmp_path / name)
-    (tmp_path / UUID_B).mkdir()
+    folder = tmp_path / name
+    folder.mkdir()
+    if marked:
+        (folder / cli.WORKDIR_MARK).touch()
+    if idle:
+        os.utime(folder, (WEEK_AGO, WEEK_AGO))
 
     cli.prune_workdirs(time.time())
 
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([UUID_B, "pas-une-conversation"])
+    assert [p.name for p in tmp_path.iterdir()] == ([] if pruned else [name])
+
+
+@pytest.mark.parametrize("created_by_the_agent", [False, True], ids=["créé-par-autometa", "créé-par-l-agent"])
+def test_a_short_named_folder_autometa_handed_to_a_conversation_is_pruned_once_idle(
+    mocker, tmp_path, created_by_the_agent
+):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    if created_by_the_agent:
+        (tmp_path / SHORT_A).mkdir()
+    workdir = cli.conversation_workdir(SHORT_A)
+    os.utime(workdir, (WEEK_AGO, WEEK_AGO))
+
+    cli.prune_workdirs(time.time())
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_conversation_resumed_while_the_prune_deletes_its_old_folder_still_has_one(mocker, tmp_path):
