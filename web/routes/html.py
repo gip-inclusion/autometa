@@ -8,7 +8,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
-from lib import crockford, permalinks
+from lib import permalinks
 from web import helpers
 from web.config import ADMIN_USERS
 from web.database import store
@@ -482,8 +482,6 @@ def explorations_conversation(conv_id: str, request: Request, user_email: str = 
     Allows viewing conversations owned by other users (shared via UUID link).
     The owner's email is shown in the header for shared conversations.
     """
-    # Why: an address may spell the conversation's UUID in Crockford base32; ids that are no UUID are read as written.
-    conv_id = crockford.decode(conv_id) or conv_id
     # Try to get conversation without user filter (allow shared access)
     current_conv = store.get_conversation(conv_id, include_messages=False)
 
@@ -535,7 +533,7 @@ def message_permalink(message_id: int, request: Request, user_email: str = Depen
     anchor = request.path_params.get("anchor", "")
     # Why: the segment arrives decoded; echoed as is, "x%3Fmessage%3D…" would send text from the conversation page.
     kept = f"/{anchor}" if permalinks.ANCHOR_NAME.fullmatch(anchor) else ""
-    return RedirectResponse(f"/explorations/{crockford.encode(conv_id)}/{message_id}{kept}", status_code=302)
+    return RedirectResponse(f"/explorations/{conv_id}/{message_id}{kept}", status_code=302)
 
 
 def redirect_to_knowledge_file(path: str | None) -> RedirectResponse:

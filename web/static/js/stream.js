@@ -770,14 +770,13 @@ async function loadConversation(convId) {
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
-    // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps the spelling it
-    // was opened with, and a permalink's message and element unless that message is none of the conversation's
-    // finished answers; the hash stays.
+    // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps a permalink's
+    // message and element unless that message is none of the conversation's finished answers; the hash stays.
     const hash = window.location.hash;
     const opened = parseExplorationPath(window.location.pathname);
-    const own = opened?.conversation === convId ? opened : { spelled: convId };
-    const missed = permalinks && own.message && !permalinks.target;
-    const path = own.message && !missed ? window.location.pathname : `/explorations/${own.spelled}`;
+    const message = opened?.conversation === convId && opened.message;
+    const missed = permalinks && message && !permalinks.target;
+    const path = message && !missed ? window.location.pathname : `/explorations/${convId}`;
     window.history.replaceState({}, '', `${path}${hash}`);
     if (missed) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 

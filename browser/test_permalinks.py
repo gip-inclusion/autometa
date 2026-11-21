@@ -1,14 +1,10 @@
-"""Preuves navigateur — lien vers une réponse, une section, un tableau, et mise en évidence à l'ouverture ;
-adresse d'une conversation en base32."""
+"""Preuves navigateur — lien vers une réponse, une section, un tableau, et mise en évidence à l'ouverture."""
 
 import re
-import uuid
 from collections.abc import Callable
 
 import pytest
 from playwright.sync_api import Locator, Page, expect
-
-from lib import crockford
 
 pytestmark = pytest.mark.browser
 
@@ -147,7 +143,7 @@ def test_a_table_closed_by_the_next_block_keeps_its_link(
     [(False, "table.permalink-target"), (True, ".event-assistant.permalink-target")],
     ids=["tableau", "empreinte-périmée"],
 )
-def test_opening_a_link_highlights_its_target_or_the_whole_answer_at_the_base32_address(
+def test_opening_a_link_highlights_its_target_or_the_whole_answer_at_its_conversation_s_address(
     answer, conversation: str, visit: Callable[[str], None], page: Page, stale: bool, highlighted: str
 ):
     link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
@@ -157,7 +153,7 @@ def test_opening_a_link_highlights_its_target_or_the_whole_answer_at_the_base32_
 
     expect(page.locator(highlighted)).to_have_count(1)
     expect(page.locator(".permalink-target")).to_have_count(1)
-    expect(page).to_have_url(opened.replace("/m/", f"/explorations/{crockford.encode(conversation)}/"))
+    expect(page).to_have_url(opened.replace("/m/", f"/explorations/{conversation}/"))
     expect(page.locator(".event-error")).to_have_count(0)
 
 
@@ -278,18 +274,16 @@ def test_a_heading_link_from_before_permalinks_still_lands(conversation: str, as
     expect(fresh.locator("h2#methode")).to_be_in_viewport()
 
 
-def test_a_conversation_opened_at_its_base32_address_keeps_it_and_plays_a_turn(
+def test_a_conversation_opened_at_its_address_keeps_it_and_plays_a_turn(
     conversation: str, visit: Callable[[str], None], ask: Callable[[str], None], page: Page
 ):
-    address = f"/explorations/{crockford.encode(conversation)}"
+    address = f"/explorations/{conversation}"
 
     visit(address)
 
     expect(page.locator(".event-final-answer")).to_have_count(1)
     expect(page).to_have_url(re.compile(rf"{address}$"))
-    expect(page.locator(f"#sidebar-recents a[href='/explorations/{conversation}']")).to_have_class(
-        re.compile(r"\bactive\b")
-    )
+    expect(page.locator(f"#sidebar-recents a[href='{address}']")).to_have_class(re.compile(r"\bactive\b"))
 
     ask("Deuxième question")
 
@@ -303,17 +297,6 @@ def test_a_conversation_opened_at_its_base32_address_keeps_it_and_plays_a_turn(
 
     expect(page).to_have_url(re.compile(rf"{address}$"))
     expect(page.locator(".event-final-answer")).to_have_count(2)
-
-
-def test_the_page_reads_a_base32_spelling_back_as_the_server_writes_it(visit: Callable[[str], None], page: Page):
-    values = ["00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff", str(uuid.uuid4())]
-    spellings = [*map(crockford.encode, values), crockford.encode(values[2]).upper()]
-    lookalikes = ["0" * 25 + "ſ", "0" * 25 + "K"]
-    visit("/explorations/new")
-
-    read = page.evaluate("(spellings) => spellings.map(conversationUuid)", [*spellings, *lookalikes])
-
-    assert read == [*values, values[2], *lookalikes]
 
 
 def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
@@ -337,8 +320,8 @@ def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
 
 
 @pytest.mark.parametrize(
-    ("message_type", "elsewhere", "spell"),
-    [("assistant", True, crockford.encode), ("user", False, str), ("inconnu", False, crockford.encode)],
+    ("message_type", "elsewhere"),
+    [("assistant", True), ("user", False), ("inconnu", False)],
     ids=["réponse-d-une-autre-conversation", "question", "message-inconnu"],
 )
 def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_address_and_says_so(
@@ -348,16 +331,15 @@ def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_
     page: Page,
     message_type: str,
     elsewhere: bool,
-    spell: Callable[[str], str],
 ):
     messages = page.request.get(f"/api/conversations/{conversation}").json()["messages"]
     message = next((m["id"] for m in messages if m["type"] == message_type), 999_999_999)
     opened = page.request.post("/api/conversations").json()["id"] if elsewhere else conversation
 
-    visit(f"/explorations/{spell(opened)}/{message}/table-1-000000")
+    visit(f"/explorations/{opened}/{message}/table-1-000000")
 
     expect(page.locator(".event-error")).to_have_text("Ce lien ne correspond à aucune réponse de cette conversation.")
-    expect(page).to_have_url(re.compile(rf"/explorations/{spell(opened)}$"))
+    expect(page).to_have_url(re.compile(rf"/explorations/{opened}$"))
     expect(page.locator(".permalink-target")).to_have_count(0)
 
     ask("Encore une question")
