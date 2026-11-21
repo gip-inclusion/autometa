@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import pytest
 from playwright.sync_api import Page, Route, expect
@@ -25,6 +25,17 @@ def errors(page: Page) -> list[str]:
     page.on("pageerror", lambda error: found.append(str(error)))
     page.on("console", lambda message: message.type == "error" and found.append(message.text))
     return found
+
+
+@pytest.fixture
+def favourites(page: Page) -> Iterator[list[str]]:
+    """Deux conversations en favori sur l'accueil, retirées des favoris à la fin."""
+    conversations = [page.request.post("/api/conversations").json()["id"] for _ in range(2)]
+    for conversation in conversations:
+        assert page.request.post(f"/api/favorites/conversation/{conversation}").ok
+    yield conversations
+    for conversation in conversations:
+        page.request.delete(f"/api/favorites/conversation/{conversation}")
 
 
 def start_conversation(page: Page, visit: Callable[[str], None], ask: Callable[[str], None], question: str) -> str:
@@ -203,4 +214,18 @@ def test_back_to_a_job_run_polls_that_run_and_only_while_shown(errors: list[str]
     page.go_back()
 
     expect(page.locator("#summary")).to_have_text("Après le retour")
+    assert errors == []
+
+
+def test_back_to_the_home_page_keeps_its_favourites_draggable(
+    errors: list[str], favourites: list[str], visit, page: Page
+):
+    visit("/")
+    leave_for_conversations(page)
+
+    page.go_back()
+
+    tiles = page.locator("#favoritesGrid .accueil-favorite")
+    with page.expect_request(lambda r: r.method == "PATCH" and r.url.endswith("/api/favorites/order"), timeout=5000):
+        tiles.nth(0).drag_to(tiles.nth(1))
     assert errors == []
