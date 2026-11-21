@@ -41,6 +41,54 @@ CHART = 'Graphique\n\n## Statuts \\#1\n\n```mermaid\npie title Par statut\n    "
 
 LONG = "Longue\n\n## Méthode\n\n" + "Une ligne de texte.\n\n" * 60 + "Fin."
 
+NESTED = (
+    "Plan\n\n## Candidatures\n\nTexte un.\n\n### Par mois\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |\n\n"
+    "## Méthode\n\nTexte deux."
+)
+
+# Why: un lien survolé entoure ce qu'il partage ; on lit dans la page les enfants des réponses que couvre un contour,
+# celui d'un élément ou celui que dessine le ::before d'un titre. Un titre s'y dit par son texte, une figure par sa sorte.
+MARKED = """output => {
+  const regions = [...output.querySelectorAll('*')].flatMap((element) => {
+    const box = element.getBoundingClientRect();
+    const before = getComputedStyle(element, '::before');
+    if (getComputedStyle(element).outlineStyle !== 'none') return [[box.top, box.bottom]];
+    return before.outlineStyle === 'none' ? [] : [[box.top, box.top + parseFloat(before.height)]];
+  });
+  return [...output.querySelectorAll('.event-assistant > :not(.permalink-btn)')]
+    .filter((child) => {
+      const box = child.getBoundingClientRect();
+      return regions.some(([top, bottom]) => box.top >= top - 0.5 && box.bottom <= bottom + 0.5);
+    })
+    .map((child) => {
+      const figure = child.matches('.permalink-figure');
+      return figure ? child.firstElementChild.dataset.anchorKind : child.textContent.trim();
+    });
+}"""
+
+BOXES = "output => [...output.querySelectorAll('*')].map((e) => JSON.stringify(e.getBoundingClientRect()))"
+
+SECTION_LINK = "h2:has-text('Candidatures') > .permalink-btn"
+TABLE_LINK = ".permalink-btn[data-url*='/table-1-']"
+
+HOVERS = {
+    "réponse": (
+        NESTED,
+        ":scope > .permalink-btn",
+        ["Réponse factice : Plan", "Candidatures", "Texte un.", "Par mois", "table", "Méthode", "Texte deux."],
+    ),
+    "section": (NESTED, SECTION_LINK, ["Candidatures", "Texte un.", "Par mois", "table"]),
+    "sous-section": (NESTED, "h3 > .permalink-btn", ["Par mois", "table"]),
+    "dernière-section": (NESTED, "h2:has-text('Méthode') > .permalink-btn", ["Méthode", "Texte deux."]),
+    "tableau": (NESTED, TABLE_LINK, ["table"]),
+    "graphique": (CHART, ".permalink-btn[data-url*='/chart-1-']", ["chart"]),
+}
+
+WHILE_HOVERED = {
+    "lien-copié": lambda page, link: link.click(),
+    "liens-reposés": lambda page, link: page.evaluate("refreshPermalinks()"),
+}
+
 # Why: Safari avant 17.4 n'a pas checkVisibility.
 WITHOUT_CHECK_VISIBILITY = "delete Element.prototype.checkVisibility"
 
@@ -216,6 +264,85 @@ def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_o
     link_box, table_box = figure_link.bounding_box(), table.bounding_box()
     assert table_box["x"] <= link_box["x"] and link_box["x"] + link_box["width"] <= table_box["x"] + table_box["width"]
     assert table_box["y"] <= link_box["y"] < table_box["y"] + table_box["height"] / 2
+
+
+@pytest.mark.parametrize(("question", "icon", "marked"), HOVERS.values(), ids=HOVERS.keys())
+def test_hovering_a_link_outlines_what_it_shares_without_moving_anything(
+    conversation: str, ask: Callable[[str], None], page: Page, question: str, icon: str, marked: list[str]
+):
+    link = answer_to(question, ask, page).locator(icon)
+    output = page.locator("#chatOutput")
+    link.scroll_into_view_if_needed()
+    page.mouse.move(0, 0)
+    boxes = output.evaluate(BOXES)
+
+    link.hover()
+
+    assert output.evaluate(MARKED) == marked
+    assert output.evaluate(BOXES) == boxes
+    page.mouse.move(0, 0)
+    assert output.evaluate(MARKED) == []
+
+
+def test_a_hover_outline_is_fainter_than_the_outline_of_an_opened_link(
+    answer, visit: Callable[[str], None], page: Page
+):
+    visit(answer.locator(TABLE_LINK).get_attribute("data-url"))
+    opened = page.locator(".event-final-answer").last
+    target = opened.locator("table.permalink-target")
+    expect(target).to_have_count(1)
+
+    opened.locator(":scope > .permalink-btn").hover()
+
+    expect(target).to_have_css("outline-width", "2px")
+    style = "e => [parseFloat(getComputedStyle(e).outlineWidth), getComputedStyle(e).outlineColor]"
+    (hovered_width, hovered_color), (target_width, target_color) = opened.evaluate(style), target.evaluate(style)
+    assert 0 < hovered_width < target_width
+    assert hovered_color != target_color
+
+
+@pytest.mark.parametrize("event", WHILE_HOVERED.values(), ids=WHILE_HOVERED.keys())
+@pytest.mark.parametrize("icon", [SECTION_LINK, TABLE_LINK], ids=["section", "tableau"])
+def test_an_outline_leaves_with_the_pointer_once_its_link_is_copied_or_put_again(
+    answer, page: Page, icon: str, event: Callable[[Page, Locator], None]
+):
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    output = page.locator("#chatOutput")
+    link = answer.locator(icon)
+    link.hover()
+    assert output.evaluate(MARKED) != []
+
+    event(page, link)
+    page.mouse.move(0, 0)
+
+    assert output.evaluate(MARKED) == []
+
+
+def test_a_keyboard_focus_on_a_heading_link_outlines_its_section_until_it_moves(answer, page: Page):
+    output = page.locator("#chatOutput")
+    answer.locator(":scope > .permalink-btn").focus()
+
+    page.keyboard.press("Tab")
+
+    expect(answer.locator(SECTION_LINK)).to_be_focused()
+    assert output.evaluate(MARKED) == ["Candidatures", "table"]
+    page.keyboard.press("Tab")
+    assert output.evaluate(MARKED) == ["table"]
+    page.keyboard.press("Tab")
+    assert output.evaluate(MARKED) == ["Méthode", "Texte."]
+
+
+def test_a_tap_on_a_heading_link_outlines_nothing(answer, conversation: str, page: Page, base_url: str):
+    touch = page.context.browser.new_page(
+        base_url=base_url, viewport={"width": 375, "height": 667}, is_mobile=True, has_touch=True
+    )
+    touch.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+    link = touch.locator(".event-final-answer").last.locator(SECTION_LINK)
+
+    link.tap()
+
+    assert touch.locator("#chatOutput").evaluate(MARKED) == []
+    touch.close()
 
 
 @pytest.mark.parametrize(
