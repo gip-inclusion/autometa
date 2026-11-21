@@ -57,6 +57,9 @@ OVERLAY = (
     '<button commandfor="session-expiree" command="show-popover">Voir le détail</button>'
 )
 
+# Why: sans createHTMLDocument, DOMPurify se déclare incapable de tourner et rend son entrée telle quelle.
+UNSUPPORTED = "Object.defineProperty(DOMImplementation.prototype, 'createHTMLDocument', { value: undefined });"
+
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
 # le navigateur exécuteraient sont jugés.
 UNSAFE_MARKUP = """([region, allowed]) => {
@@ -188,11 +191,15 @@ def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], Non
     expect(answer.locator("h2")).to_be_visible()
 
 
+@pytest.mark.parametrize("sanitizer", ["missing", "unsupported"])
 def test_without_the_sanitizer_an_answer_is_plain_text(
-    page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
+    page: Page, visit: Callable[[str], None], ask: Callable[[str], None], sanitizer: str
 ):
     page.add_init_script(PROBE)
-    page.route("**/npm/dompurify@*/**", lambda route: route.abort())
+    if sanitizer == "missing":
+        page.route("**/npm/dompurify@*/**", lambda route: route.abort())
+    else:
+        page.add_init_script(UNSUPPORTED)
     visit("/explorations/new")
     ask('<img src="x" onerror="probe(\'img\')">')
     assert_inert(page, ANSWERS, '<img src="x" onerror="probe(\'img\')">', [])

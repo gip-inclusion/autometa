@@ -269,8 +269,8 @@ function formatReport(content, reportInfo) {
 // renderMermaid and renderOptions read are kept. Data attributes would hand htmx requests and handlers (data-hx-*).
 // Popovers and invoker commands would show a hidden part of the answer above the page in one click (headings get
 // predictable ids for the table of contents); form and dialog furniture has no use in an answer, and the only input
-// kept is a Markdown task list's checkbox.
-const answerPurifier = typeof DOMPurify === 'undefined' ? null : DOMPurify();
+// kept is a Markdown task list's checkbox. Where DOMPurify cannot run, it hands its input back unchanged.
+const answerPurifier = typeof DOMPurify !== 'undefined' && DOMPurify.isSupported ? DOMPurify() : null;
 answerPurifier?.addHook('uponSanitizeAttribute', (node, data) => {
   if (data.attrName === 'class') data.keepAttr = node.nodeName === 'CODE' && /^language-[\w-]+$/.test(data.attrValue);
 });
