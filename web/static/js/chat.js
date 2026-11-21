@@ -75,6 +75,20 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   isPopState = false;
 });
 
+// Why: htmx swaps #main alone and keeps a copy of it, taken here. A dialog left open would leave its backdrop and the
+// body's scroll lock over the next page, and come back open in the copy, without the Bootstrap instance that closes it.
+document.body.addEventListener('htmx:beforeHistorySave', (e) => {
+  for (const dialog of e.detail.historyElt.querySelectorAll('.modal.show, .offcanvas.show')) {
+    (dialog.classList.contains('modal') ? bootstrap.Modal : bootstrap.Offcanvas).getInstance(dialog)?.hide();
+    // Why: Bootstrap finishes closing on transitionend, which it dispatches itself once the animation time is up.
+    dialog.dispatchEvent(new Event('transitionend'));
+  }
+  for (const backdrop of document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop')) {
+    backdrop.dispatchEvent(new Event('transitionend'));
+  }
+  for (const dialog of e.detail.historyElt.querySelectorAll('dialog[open]')) dialog.close();
+});
+
 // Restore scroll position on back/forward
 window.addEventListener('popstate', (e) => {
   isPopState = true;

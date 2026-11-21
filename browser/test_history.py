@@ -24,6 +24,28 @@ SENDS = {
     "entrée": lambda page: page.locator("#chatInput").press("Enter"),
 }
 
+# Why: les commandes du moteur factice sont trop courtes pour que leur action montre le bouton qui ouvre la modale.
+DIALOGS = {
+    "modale": (
+        {"width": 1280, "height": 720},
+        lambda page: page.evaluate("openActionModal('Commande', 'echo 0', true)"),
+        "#actionDetailModal",
+        "#actionDetailModal .btn-close",
+    ),
+    "volet": (
+        {"width": 375, "height": 667},
+        lambda page: page.locator(".action-footnote").click(),
+        "#actionsOffcanvas",
+        "#actionsOffcanvas .btn-close",
+    ),
+    "signalement": (
+        {"width": 1280, "height": 720},
+        lambda page: page.locator("#chatFlagBtn").click(),
+        "#flagDialog",
+        "#flagCancel",
+    ),
+}
+
 
 @pytest.fixture
 def errors(page: Page) -> list[str]:
@@ -179,6 +201,42 @@ def test_back_onto_a_running_turn_follows_it_to_its_end(
     expect(page.locator(".event-final-answer").last).to_contain_text("Morceau 4.", timeout=15000)
     expect(page.locator("#chatCancelBtn")).to_be_hidden()
     expect(page.locator("#chatSendBtn")).to_be_enabled()
+    assert errors == []
+
+
+@pytest.mark.parametrize("shown", DIALOGS.values(), ids=DIALOGS.keys())
+def test_back_and_forward_with_a_dialog_open_leave_both_pages_usable(
+    errors: list[str], conversation: str, visit, ask: Callable[[str], None], page: Page, shown
+):
+    viewport, open_dialog, dialog, close = shown
+    ask("[tools:1] Une action")
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15000)
+    visit("/conversations?show=convos")
+    entry = page.locator(f"#searchResultsList a[href='/explorations/{conversation}']")
+    entry.click()
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    page.set_viewport_size(viewport)
+    open_dialog(page)
+    # Why: Bootstrap ignore la fermeture d'une modale qui s'ouvre encore ; ouverte, elle a pris le focus.
+    expect(page.locator(f"{dialog}:focus-within")).to_be_visible()
+
+    page.go_back()
+
+    expect(page).to_have_url(re.compile(r"/conversations\?show=convos$"))
+    expect(page.locator(".modal-backdrop, .offcanvas-backdrop")).to_have_count(0)
+    expect(page.locator("body")).not_to_have_class(re.compile(r"\bmodal-open\b"))
+    expect(page.locator("body")).not_to_have_css("overflow", "hidden")
+    entry.click(trial=True)
+
+    page.go_forward()
+
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    expect(page.locator(dialog)).to_be_hidden()
+    open_dialog(page)
+    expect(page.locator(dialog)).to_be_visible()
+    page.locator(close).click()
+    expect(page.locator(dialog)).to_be_hidden()
+    expect(page.locator(".modal-backdrop, .offcanvas-backdrop")).to_have_count(0)
     assert errors == []
 
 
