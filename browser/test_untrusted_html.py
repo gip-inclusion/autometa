@@ -149,3 +149,26 @@ def test_a_report_header_shows_its_fields_as_text(conversation: str, page: Page)
     page.wait_for_timeout(1000)
     expect(header.locator("img")).to_have_count(0)
     assert probes(page) == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "[Uploaded file: note.txt]\n- Size: 12 bytes\n<img src=x onerror=\"probe('file')\">",
+        "<img src=x onerror=\"probe('rule')\">\n---\nsuite",
+    ],
+)
+def test_a_message_shows_its_html_as_text(
+    page: Page, visit: Callable[[str], None], ask: Callable[[str], None], message
+):
+    page.add_init_script(PROBE)
+    visit("/explorations/new")
+    ask(message)
+    answer_shown(page)
+    for _ in range(2):
+        question = page.locator(".event-user").first
+        expect(question).to_contain_text("<img src=x")
+        expect(question.locator("img")).to_have_count(0)
+        assert probes(page) == []
+        page.reload(wait_until="domcontentloaded")
+        answer_shown(page)

@@ -464,60 +464,44 @@ function formatUserContent(content) {
   // - Note: ... (optional)
   const fileBlockPattern = /\[Uploaded file: ([^\]]+)\]\n(?:- [^\n]+\n)+(?:```[\s\S]*?```\n?)?/g;
 
-  let result = content;
   const matches = content.match(fileBlockPattern);
-
-  if (matches) {
-    for (const match of matches) {
-      // Extract filename from the match
-      const filenameMatch = match.match(/\[Uploaded file: ([^\]]+)\]/);
-      const filename = filenameMatch ? filenameMatch[1] : 'Fichier';
-
-      // Extract file size
-      const sizeMatch = match.match(/- Size: ([\d,]+) bytes/);
-      const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''), 10)) : '';
-
-      // Extract file type
-      const typeMatch = match.match(/- Type: ([^\n]+)/);
-      const mimeType = typeMatch ? typeMatch[1] : '';
-
-      // Determine icon based on mime type
-      let icon = 'ri-file-line';
-      if (mimeType.startsWith('image/')) icon = 'ri-image-line';
-      else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml'))
-        icon = 'ri-file-text-line';
-      else if (mimeType.includes('pdf')) icon = 'ri-file-pdf-line';
-      else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
-        icon = 'ri-file-excel-line';
-      else if (mimeType.includes('word') || mimeType.includes('document')) icon = 'ri-file-word-line';
-
-      // Create pill HTML
-      const pill = `<span class="file-context-pill" title="${escapeHtml(mimeType)}"><i class="${icon}"></i> ${escapeHtml(filename)}${size ? ` <span class="file-context-size">(${size})</span>` : ''}</span>`;
-
-      result = result.replace(match, pill);
-    }
-  }
-
-  // Handle remaining content (the actual user message after ---)
-  // Split by --- separator if present
-  const parts = result.split(/\n---\n/);
-  if (parts.length > 1) {
-    // Pills are in first part, user message in second
-    const pills = parts[0];
-    const userText = parts.slice(1).join('\n---\n').trim();
-    if (userText) {
-      return `<div class="file-context-pills">${pills}</div><div class="user-text">${formatUserMarkdown(userText)}</div>`;
-    } else {
-      return `<div class="file-context-pills">${pills}</div>`;
-    }
-  }
-
-  // If no file blocks found, render as markdown
   if (!matches) {
     return `<div class="user-text">${formatUserMarkdown(content)}</div>`;
   }
 
-  return result;
+  const pills = matches.map((match) => {
+    // Extract filename from the match
+    const filenameMatch = match.match(/\[Uploaded file: ([^\]]+)\]/);
+    const filename = filenameMatch ? filenameMatch[1] : 'Fichier';
+
+    // Extract file size
+    const sizeMatch = match.match(/- Size: ([\d,]+) bytes/);
+    const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''), 10)) : '';
+
+    // Extract file type
+    const typeMatch = match.match(/- Type: ([^\n]+)/);
+    const mimeType = typeMatch ? typeMatch[1] : '';
+
+    // Determine icon based on mime type
+    let icon = 'ri-file-line';
+    if (mimeType.startsWith('image/')) icon = 'ri-image-line';
+    else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml'))
+      icon = 'ri-file-text-line';
+    else if (mimeType.includes('pdf')) icon = 'ri-file-pdf-line';
+    else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
+      icon = 'ri-file-excel-line';
+    else if (mimeType.includes('word') || mimeType.includes('document')) icon = 'ri-file-word-line';
+
+    return `<span class="file-context-pill" title="${escapeHtml(mimeType)}"><i class="${icon}"></i> ${escapeHtml(filename)}${size ? ` <span class="file-context-size">(${size})</span>` : ''}</span>`;
+  });
+
+  // Why: the text around the file blocks was typed by a person: rendered like any message, never as HTML.
+  const userText = content
+    .replace(fileBlockPattern, '')
+    .replace(/^\s*---\n/, '')
+    .trim();
+  const text = userText ? `<div class="user-text">${formatUserMarkdown(userText)}</div>` : '';
+  return `<div class="file-context-pills">${pills.join('')}</div>${text}`;
 }
 
 // Why: user content is untrusted. marked auto-escapes text content but passes
