@@ -1,21 +1,34 @@
 """Le script d'historique : il ne cherche que dans les conversations de l'utilisateur courant."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from skills import conversation_history as history
 from web.database import store
+from web.db import get_db
+from web.models import Conversation
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("app")]
 
 ALICE = "alice@example.com"
 BOB = "bob@example.com"
+SHORT = "k3v9x2mq"
+UUID = "21e937fb-0000-4000-8000-000000000001"
+SITE = "https://autometa.inclusion.gouv.fr"
 
 
-def conversation(user_id, content, title="Sujet"):
-    conv = store.create_conversation(user_id=user_id)
-    store.update_conversation(conv.id, title=title)
-    store.add_message(conv.id, "user", content)
-    return conv
+def conversation(user_id, content, title="Sujet", conv_id=None):
+    """Une conversation créée par l'application, ou insérée sous l'identifiant donné."""
+    if conv_id:
+        now = datetime.now(timezone.utc)
+        with get_db() as session:
+            session.add(Conversation(id=conv_id, user_id=user_id, created_at=now, updated_at=now))
+    else:
+        conv_id = store.create_conversation(user_id=user_id).id
+    store.update_conversation(conv_id, title=title)
+    store.add_message(conv_id, "user", content)
+    return store.get_conversation(conv_id, include_messages=False)
 
 
 def run(monkeypatch, *argv, user=ALICE, current=None):
@@ -62,14 +75,71 @@ def test_without_a_current_user_nothing_is_read(monkeypatch, capsys, argv):
     assert capsys.readouterr().out == ""
 
 
-def test_show_reads_a_conversation_cited_by_its_link(monkeypatch, capsys):
-    cited = conversation(BOB, "Taux d'orientation", title="Orientations")
+CITATIONS = {
+    "adresse-courte": (SHORT, SITE + "/c/{id}"),
+    "adresse-uuid": (UUID, SITE + "/c/{id}"),
+    "ancienne-adresse-uuid": (UUID, SITE + "/explorations/{id}"),
+    "ancienne-adresse-courte": (SHORT, SITE + "/explorations/{id}?message=Bonjour"),
+    "permalien-dans-une-phrase": (SHORT, "Regarde " + SITE + "/c/{id}/12/table-1-abcdef#methode, la suite."),
+    "ancien-permalien": (UUID, SITE + "/explorations/{id}/12/table-1-abcdef"),
+    "lien-slack": (SHORT, "<" + SITE + "/c/{id}|Orientations>"),
+    "lien-markdown": (UUID, "[la conversation](" + SITE + "/c/{id})"),
+    "identifiant-court": (SHORT, "{id}"),
+    "identifiant-uuid": (UUID, "{id}"),
+    "identifiant-entouré-de-blancs": (SHORT, "  {id}\n"),
+}
 
-    run(monkeypatch, "--show", f"https://autometa.inclusion.gouv.fr/explorations/{cited.id}")
+
+@pytest.mark.parametrize(("conv_id", "cited"), CITATIONS.values(), ids=CITATIONS.keys())
+def test_show_reads_a_conversation_cited_by_its_link_or_its_id(monkeypatch, capsys, conv_id, cited):
+    conversation(BOB, "Taux d'orientation", title="Orientations", conv_id=conv_id)
+
+    run(monkeypatch, "--show", cited.format(id=conv_id))
 
     out = capsys.readouterr().out
     assert "Orientations" in out
     assert "Taux d'orientation" in out
+
+
+def test_show_does_not_read_a_conversation_from_the_number_of_one_of_its_messages(monkeypatch, capsys):
+    cited = conversation(BOB, "Taux d'orientation")
+    message = store.add_message(cited.id, "assistant", "Réponse").id
+
+    with pytest.raises(SystemExit) as exc:
+        run(monkeypatch, "--show", f"{SITE}/m/{message}")
+
+    assert exc.value.code == 1
+    assert "Taux d'orientation" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "cited",
+    [
+        "Regarde les datasets du mois",
+        f"Voir la conversation {UUID} d'hier",
+        "datasets2",
+        f"{SITE}/c/datasets2",
+        f"{SITE}/c/{UUID}0",
+        "https://example.org/datasets",
+    ],
+    ids=[
+        "mot-de-huit-lettres",
+        "uuid-dans-une-phrase",
+        "neuf-caractères",
+        "adresse-à-neuf-caractères",
+        "adresse-à-uuid-prolongé",
+        "autre-adresse",
+    ],
+)
+def test_show_finds_no_conversation_in_a_text_that_does_not_cite_one(monkeypatch, capsys, cited):
+    conversation(BOB, "Jeux de données", conv_id="datasets")
+    conversation(BOB, "Jeux de données", conv_id=UUID)
+
+    with pytest.raises(SystemExit) as exc:
+        run(monkeypatch, "--show", cited)
+
+    assert exc.value.code == 1
+    assert "Jeux de données" not in capsys.readouterr().out
 
 
 def test_show_leaves_out_tool_calls_and_their_output(monkeypatch, capsys):
@@ -84,11 +154,16 @@ def test_show_leaves_out_tool_calls_and_their_output(monkeypatch, capsys):
     assert "lignes brutes" not in out
 
 
-def test_show_refuses_an_id_prefix(monkeypatch, capsys):
-    cited = conversation(BOB, "Taux d'orientation")
+@pytest.mark.parametrize(
+    ("conv_id", "prefix"),
+    [(UUID, UUID[:8]), (UUID, UUID[:-1]), (SHORT, SHORT[:-1])],
+    ids=["premier-groupe-d-un-uuid", "uuid-moins-un-caractère", "court-moins-un-caractère"],
+)
+def test_show_refuses_an_id_prefix(monkeypatch, capsys, conv_id, prefix):
+    conversation(BOB, "Taux d'orientation", conv_id=conv_id)
 
     with pytest.raises(SystemExit) as exc:
-        run(monkeypatch, "--show", cited.id[:8])
+        run(monkeypatch, "--show", prefix)
 
     assert exc.value.code == 1
     assert "Taux d'orientation" not in capsys.readouterr().out

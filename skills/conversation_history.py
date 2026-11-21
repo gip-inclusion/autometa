@@ -6,16 +6,26 @@ import sys
 
 from web import config
 from web.database import store
+from web.helpers import CONV_ID, validate_conv_id
 
-# Why: comme les routes de partage, une conversation ne s'ouvre que par son identifiant complet, jamais par un préfixe.
-CONVERSATION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# Why: comme les routes de partage, une conversation ne s'ouvre que par son identifiant complet, jamais par un préfixe ;
+# et 8 caractères ne la désignent que dans une de ses adresses, pas comme un mot d'une phrase (`datasets`).
+ADDRESS = re.compile(rf"/(?:c|explorations)/({CONV_ID.pattern})(?![\w-])")
+
+
+def cited_conversation_id(text: str) -> str | None:
+    """L'identifiant de la conversation citée : le texte entier, ou celui que porte une adresse de la conversation."""
+    if validate_conv_id(text.strip()):
+        return text.strip()
+    match = ADDRESS.search(text)
+    return match and match[1]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--search", metavar="TEXT", help="Current user's conversations containing every word")
-    action.add_argument("--show", metavar="LINK", help="Print a conversation from its link or full id")
+    action.add_argument("--show", metavar="LINK", help="Print a conversation from its link or its id")
     args = parser.parse_args()
     if args.search is not None and not args.search.split():
         parser.error("--search needs at least one word")
@@ -26,8 +36,8 @@ def main() -> None:
         sys.exit(2)
 
     if args.show:
-        match = CONVERSATION_ID.search(args.show)
-        conversation = match and store.get_conversation(match.group(), include_messages=True)
+        conv_id = cited_conversation_id(args.show)
+        conversation = conv_id and store.get_conversation(conv_id, include_messages=True)
         if not conversation:
             print(f"Error: conversation not found: {args.show}", file=sys.stderr)
             sys.exit(1)
