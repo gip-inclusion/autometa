@@ -49,7 +49,11 @@ def test_running_includes_legacy_conversations_without_owner(client):
     assert legacy.id in running
 
 
-@pytest.mark.parametrize("tail", ["", "/12", "/12/table-1-abcdef"], ids=["conversation", "réponse", "élément"])
+@pytest.mark.parametrize(
+    "tail",
+    ["", "/12", "/12/table-1-abcdef", f"/{2**31 - 1}"],
+    ids=["conversation", "réponse", "élément", "plus-grand-numéro-de-message"],
+)
 def test_the_conversation_page_answers_at_its_address_and_at_its_permalinks(client, tail):
     conv = store.create_conversation(user_id="alice@example.com")
 
@@ -71,11 +75,22 @@ def test_an_address_naming_no_conversation_leads_to_the_list(client, conv_id, ta
     assert (page.status_code, page.headers["location"]) == (302, "/conversations?show=convos")
 
 
-@pytest.mark.parametrize("tail", ["/files", "/12/table-1-abcdef/x"], ids=["segment-non-numérique", "segment-de-trop"])
-def test_other_addresses_under_a_conversation_match_nothing(client, tail):
+@pytest.mark.parametrize("prefix", ["/c", "/explorations"], ids=["adresse", "ancienne-adresse"])
+@pytest.mark.parametrize(
+    "tail",
+    ["/files", "/12/table-1-abcdef/x", f"/{10**10}", f"/{'9' * 5000}", f"/{'9' * 5000}/table-1-abcdef"],
+    ids=[
+        "segment-non-numérique",
+        "segment-de-trop",
+        "numéro-hors-borne",
+        "numéro-démesuré",
+        "élément-de-numéro-démesuré",
+    ],
+)
+def test_other_addresses_under_a_conversation_match_nothing(client, prefix, tail):
     conv = store.create_conversation(user_id="alice@example.com")
 
-    assert client.get(f"/c/{conv.id}{tail}", headers=headers()).status_code == 404
+    assert client.get(f"{prefix}/{conv.id}{tail}", headers=headers(), follow_redirects=False).status_code == 404
 
 
 @pytest.mark.parametrize("conv_id", [SHORT, UUID], ids=["court", "uuid"])
@@ -89,8 +104,18 @@ def test_other_addresses_under_a_conversation_match_nothing(client, tail):
         ("/12/table-1-abcdef?utm_source=slack&x=%2F%2Fa", "/12/table-1-abcdef?utm_source=slack&x=%2F%2Fa"),
         ("/12/x%3Fmessage%3Dhello", "/12"),
         ("/12/x%23frag", "/12"),
+        (f"/{2**31 - 1}", f"/{2**31 - 1}"),
     ],
-    ids=["conversation", "message-à-envoyer", "réponse", "élément", "paramètres", "requête-glissée", "fragment-glissé"],
+    ids=[
+        "conversation",
+        "message-à-envoyer",
+        "réponse",
+        "élément",
+        "paramètres",
+        "requête-glissée",
+        "fragment-glissé",
+        "plus-grand-numéro-de-message",
+    ],
 )
 def test_an_old_conversation_address_leads_to_its_new_one(client, conv_id, tail, kept):
     page = client.get(f"/explorations/{conv_id}{tail}", headers=headers(), follow_redirects=False)

@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
+from starlette.convertors import IntegerConvertor, register_url_convertor
 
 from lib import permalinks
 from web import helpers
@@ -27,6 +28,16 @@ from web.search_filters import build_search_facets
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class MessageNumber(IntegerConvertor):
+    """Le numéro d'un message dans une adresse, aussi long que le plus grand id `Integer` et pas plus."""
+
+    # Why: sans borne, `int` refuse au-delà de 4 300 chiffres et l'adresse échoue au lieu de ne rien désigner.
+    regex = "[0-9]{1,10}"
+
+
+register_url_convertor("message", MessageNumber())
 
 # FIXME(vperron): OH MY GOD - this is all VERY, VERY bad practice.
 
@@ -460,8 +471,8 @@ def explorations(
 
 
 @router.get("/explorations/{conv_id}")
-@router.get("/explorations/{conv_id}/{message:int}")
-@router.get("/explorations/{conv_id}/{message:int}/{anchor}")
+@router.get("/explorations/{conv_id}/{message:message}")
+@router.get("/explorations/{conv_id}/{message:message}/{anchor}")
 def explorations_redirect(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """Les adresses d'avant /c/ mènent à leur équivalent, segments et paramètres conservés."""
     if conv_id != "new" and not validate_conv_id(conv_id):
@@ -496,8 +507,8 @@ def new_conversation_page(request: Request, user_email: str = Depends(get_curren
 
 
 @router.get("/c/{conv_id}")
-@router.get("/c/{conv_id}/{message:int}")
-@router.get("/c/{conv_id}/{message:int}/{anchor}")
+@router.get("/c/{conv_id}/{message:message}")
+@router.get("/c/{conv_id}/{message:message}/{anchor}")
 def conversation_page(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """View a specific conversation.
 
