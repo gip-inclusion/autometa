@@ -82,6 +82,7 @@ UNSAFE_MARKUP = """([region, allowed]) => {
       if (tag === 'input' && !(el.type === 'checkbox' && el.disabled)) found.push('input');
       for (const { name, value } of el.attributes) {
         if (allowed.includes(`${tag}[${name}]`) || name.startsWith('data-anchor')) continue;
+        if (name === 'style' && el.style.length === 1 && el.style[0] === '--permalink-section-height') continue;
         if (/^(on|data-|hx-|popover|command)/.test(name) || ['style', 'srcdoc', 'id', 'name', 'target'].includes(name))
           found.push(`${tag}[${name}]`);
         const classes = name === 'class' ? value.split(/\\s+/).filter((c) => c && !permalinkClasses.includes(c)) : [];
@@ -180,6 +181,63 @@ def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], as
     ask(f"Graphiques\n\n{CHARTS}")
 
     assert_stays_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
+
+
+LINKED = "\n\n".join([
+    "Bilan",
+    "## Candidatures",
+    "| Mois | Total |\n|---|---|\n| Janvier | 12 |",
+    f'```mermaid\nflowchart TD\n  A["{LABEL}"] --> B\n```',
+    PAYLOADS,
+])
+
+
+def assert_linked(page: Page) -> None:
+    """Les liens de la réponse se copient, son sommaire mène à ses figures, un lien survolé entoure ce qu'il partage."""
+    answer = page.locator(".event-final-answer").last
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+    expect(answer.locator(".permalink-figure > :is(table, .mermaid)[data-anchor]")).to_have_count(2)
+    entries = page.locator("#tocContent .toc-entry")
+    expect(entries).to_have_count(3)
+    expect(entries.locator(".ri-table-line, .ri-bar-chart-2-line")).to_have_count(2)
+
+    heading, chart = answer.locator("h2"), answer.locator(".mermaid")
+    heading.locator(".permalink-btn").hover()
+    expect(heading).to_have_class(re.compile(r"\bpermalink-section-outline\b"))
+    answer.locator(".permalink-btn[data-url*='/chart-1-']").hover()
+    expect(chart).to_have_css("outline-style", "solid")
+    page.mouse.move(0, 0)
+    expect(heading).not_to_have_class(re.compile(r"\bpermalink-section-outline\b"))
+    expect(chart).to_have_css("outline-style", "none")
+
+    link = answer.locator(".permalink-btn[data-url*='/table-1-']")
+    url = link.get_attribute("data-url")
+    link.click()
+    expect(link.locator("i")).to_have_class("ri-check-line")
+    assert page.evaluate("navigator.clipboard.readText()") == url
+    entries.nth(1).dispatch_event("click")
+    expect(page).to_have_url(url)
+
+
+def test_an_answer_keeps_its_links_and_runs_none_of_its_html_once_reloaded_and_back(
+    page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
+):
+    page.add_init_script(PROBE)
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    requested = marker_requests(page)
+    visit("/c/new")
+    ask(LINKED)
+    expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
+
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=1)
+    assert_linked(page)
+    page.reload(wait_until="domcontentloaded")
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=1)
+    expect(page.locator("table.permalink-target")).to_have_count(1)
+    assert_linked(page)
+    away_and_back(page)
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=1)
+    assert_linked(page)
 
 
 def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
