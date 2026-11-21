@@ -300,3 +300,68 @@ def test_dod_4_send_message_with_mention_launches_nothing(client, submit_mock, m
     assert "« oui » explicite" in submit_mock.call_args.args[1]
     trigger.assert_not_called()
     jobs.trigger_run.assert_not_called()
+
+
+ANSWER = "## Titre\n\n| a | b |\n|---|---|\n| 1 | 2 |"
+
+
+def answered_conversation() -> tuple[str, str]:
+    conv = store.create_conversation(user_id=ALICE)
+    store.add_message(conv.id, "user", "Question")
+    return conv.id, str(store.add_message(conv.id, "assistant", ANSWER).id)
+
+
+def test_anchors_lists_each_agent_message_for_any_reader(client):
+    conv_id, answer = answered_conversation()
+
+    body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers(BOB)).json()
+
+    assert [(a["kind"], a["rank"], a["title"], a["level"]) for a in body["anchors"][answer]] == [
+        ("section", 1, "Titre", 2),
+        ("table", 1, "Titre", 3),
+    ]
+    assert body["target"] is None
+
+
+def test_anchors_leaves_out_the_running_turn(client):
+    conv_id, answer = answered_conversation()
+    store.start_turn(conv_id, "Deuxième question")
+    store.add_message(conv_id, "assistant", "## En cours")
+
+    body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers()).json()
+
+    assert list(body["anchors"]) == [answer]
+
+
+@pytest.mark.parametrize(
+    ("named", "expected"),
+    [
+        ("table-1-{digest}", {"kind": "table", "rank": 1}),
+        ("table-7-{digest}", {"kind": "table", "rank": 1}),
+        ("table-1-000000", {}),
+        ("n-importe-quoi", {}),
+        ("", {}),
+    ],
+    ids=["exact", "rang-décalé", "empreinte-inconnue", "illisible", "réponse-seule"],
+)
+def test_anchors_resolves_the_link_being_opened(client, named, expected):
+    conv_id, answer = answered_conversation()
+    url = f"/api/conversations/{conv_id}/anchors"
+    digest = client.get(url, headers=headers()).json()["anchors"][answer][1]["digest"]
+
+    body = client.get(url, params={"m": answer, "a": named.format(digest=digest)}, headers=headers()).json()
+
+    assert body["target"] == {"message": int(answer), **expected}
+
+
+@pytest.mark.parametrize("message", ["999999", "abc"], ids=["inconnu", "illisible"])
+def test_anchors_has_no_target_for_a_message_it_does_not_list(client, message):
+    conv_id, _ = answered_conversation()
+
+    body = client.get(f"/api/conversations/{conv_id}/anchors", params={"m": message}, headers=headers()).json()
+
+    assert body["target"] is None
+
+
+def test_anchors_of_unknown_conversation_is_404(client):
+    assert client.get("/api/conversations/nope/anchors", headers=headers()).status_code == 404

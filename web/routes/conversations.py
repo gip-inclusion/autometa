@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -10,7 +11,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from lib import job_mentions
+from lib import job_mentions, permalinks
 from lib.tag_suggestions import Subject, build_prompt, parse_response
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web import config, llm
@@ -243,6 +244,40 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
             "messages": f"/api/conversations/{conv_id}/messages",
             "stream": f"/api/conversations/{conv_id}/stream",
         },
+    }
+
+
+@router.get("/{conv_id}/anchors")
+def conversation_anchors(
+    conv_id: str,
+    message: str = Query(default="", alias="m"),
+    named: str = Query(default="", alias="a"),
+    user_email: str = Depends(get_current_user),
+):
+    """Sections and figures of each finished agent message, and the one the permalink being opened names."""
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    # Why: the text of the running turn's messages still changes; a link into them could not hold.
+    running_from = max((m.id for m in conv.messages if m.type == "user"), default=0) if conv.needs_response else None
+    found = {
+        str(m.id): permalinks.anchors(m.content)
+        for m in conv.messages
+        if m.type == "assistant" and (running_from is None or m.id < running_from)
+    }
+    target = None
+    if message in found:
+        parts = re.fullmatch(r"(section|table|chart)-(\d+)-([0-9a-f]{6})", named)
+        hit = parts and permalinks.resolve(found[message], parts[1], int(parts[2]), parts[3])
+        target = {"message": int(message), **({"kind": hit.kind, "rank": hit.rank} if hit else {})}
+    return {
+        "anchors": {
+            m: [
+                {"kind": a.kind, "rank": a.rank, "digest": a.digest, "title": a.title, "level": a.level} for a in listed
+            ]
+            for m, listed in found.items()
+        },
+        "target": target,
     }
 
 
