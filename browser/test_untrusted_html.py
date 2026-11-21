@@ -26,6 +26,7 @@ PAYLOADS = "\n\n".join([
     '<div style="position: fixed; inset: 0; z-index: 9999; background: #fff">Session expirée</div>',
     '<div class="position-fixed top-0 start-0 vw-100 vh-100 bg-white">Session expirée</div>',
     '<base href="https://example.invalid/">',
+    '<div data-hx-get="/api/auth/status" data-hx-trigger="load" hx-on:click="probe(\'htmx\')">htmx</div>',
 ])
 
 UNSAFE_MARKUP = """() => {
@@ -36,6 +37,7 @@ UNSAFE_MARKUP = """() => {
     for (const { name, value } of el.attributes) {
       if (name.startsWith('on') || name === 'style' || name === 'srcdoc') found.push(`${tag}[${name}]`);
       if (name === 'class' && tag !== 'code') found.push(`${tag}[class]`);
+      if (name.startsWith('data-') || name.startsWith('hx-')) found.push(`${tag}[${name}]`);
       if (/^\\s*javascript:/i.test(value)) found.push(`${tag}[${name}=javascript:]`);
     }
   }

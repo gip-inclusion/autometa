@@ -266,7 +266,7 @@ function formatReport(content, reportInfo) {
 
 // Why: agent text is untrusted — the agent repeats web pages, tickets, databases and files, and anyone signed in
 // can open any conversation. A class is a style too (Bootstrap's position-fixed…): only the code languages that
-// renderMermaid and renderOptions read are kept.
+// renderMermaid and renderOptions read are kept. Data attributes would hand htmx requests and handlers (data-hx-*).
 const answerPurifier = typeof DOMPurify === 'undefined' ? null : DOMPurify();
 answerPurifier?.addHook('uponSanitizeAttribute', (node, data) => {
   if (data.attrName === 'class') data.keepAttr = node.nodeName === 'CODE' && /^language-[\w-]+$/.test(data.attrValue);
@@ -275,6 +275,7 @@ const ANSWER_HTML = {
   USE_PROFILES: { html: true },
   FORBID_TAGS: ['style', 'form'],
   FORBID_ATTR: ['style', 'id', 'name'],
+  ALLOW_DATA_ATTR: false,
 };
 
 /**
