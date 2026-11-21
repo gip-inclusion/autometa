@@ -18,40 +18,47 @@ class Anchor:
     level: int
 
 
-def caption(lines: list[str], first: int) -> str:
-    """The bold line standing just above a figure, without its markers; empty when there is none."""
-    above = next((line.strip() for line in reversed(lines[:first]) if line.strip()), "")
-    bold = re.fullmatch(r"\*\*(.+?)\*\*\s*:?", above)
-    return bold[1] if bold else ""
+def plain(markdown: str) -> str:
+    """Inline Markdown as plain text: a link gives its text, emphasis markers and backticks go."""
+    linked = re.sub(r"!?\[([^\[\]]*)\]\([^()]*\)", r"\1", markdown)
+    return re.sub(r"[*`]+|(?<!\w)_+|_+(?!\w)", "", linked).strip()
 
 
 def anchors(text: str) -> list[Anchor]:
     """The sections, tables and Mermaid charts of a message in reading order, each ranked among its kind and titled."""
     lines = text.split("\n")
-    spans, headings, i = [], [], 0
+    spans, unclosed, section, i = [], [], (0, ""), 0
     while i < len(lines):
-        fence = re.match(r" {0,3}(`{3,}|~{3,})\s*(\w*)", lines[i])
-        heading = re.match(r" {0,3}(#{1,6})\s+\S", lines[i])
+        # Why: as in CommonMark, backticks followed by another backtick on their line open inline code, not a fence.
+        fence = re.match(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)", lines[i])
+        atx = re.match(r" {0,3}(#{1,6})[ \t]+(\S.*)", lines[i])
         if fence:
             end = next(
                 (
                     j
                     for j in range(i + 1, len(lines))
-                    if lines[j].strip().startswith(fence[1]) and set(lines[j].strip()) == {fence[1][0]}
+                    if (closer := re.fullmatch(r" {0,3}(`+|~+)[ \t]*", lines[j])) and closer[1].startswith(fence[1])
                 ),
                 len(lines),
             )
-            if fence[2] == "mermaid":
-                spans.append(("chart", i + 1, end))
+            if fence[2].split()[:1] == ["mermaid"]:
+                spans.append(["chart", i + 1, end, *section])
             i = end + 1
-        elif heading:
-            headings.append((len(heading[1]), i))
+        elif atx:
+            words = atx[2].strip()
+            closed = words.rstrip("#")
+            # Why: trailing hashes close a heading only after a space, so a title like C# keeps its own.
+            section = (len(atx[1]), plain(closed if not closed or closed[-1] in " \t" else words))
+            while unclosed and unclosed[-1][3] >= section[0]:
+                unclosed.pop()[2] = i
+            unclosed.append(["section", i, len(lines), *section])
+            spans.append(unclosed[-1])
             i += 1
         elif (
             "|" in lines[i]
             and i + 1 < len(lines)
             and "|" in lines[i + 1]
-            and re.fullmatch(r"[\s|:-]*-[\s|:-]*", lines[i + 1])
+            and re.fullmatch(r"[\s|:]*-[\s|:-]*", lines[i + 1])
         ):
             end = next(
                 (
@@ -61,25 +68,25 @@ def anchors(text: str) -> list[Anchor]:
                 ),
                 len(lines),
             )
-            spans.append(("table", i, end))
+            spans.append(["table", i, end, *section])
             i = end
         else:
             i += 1
-    spans += [
-        ("section", start, next((s for other, s in headings if s > start and other <= level), len(lines)))
-        for level, start in headings
-    ]
     ranks, found = Counter(), []
-    for kind, start, end in sorted(spans, key=lambda span: span[1]):
+    for kind, start, end, depth, heading in spans:
         ranks[kind] += 1
         body = "\n".join(lines[start:end]).strip()
-        above = [(level, at) for level, at in headings if at <= start]
-        depth, heading = (above[-1][0], lines[above[-1][1]].strip().strip("#").strip()) if above else (0, "")
-        native = re.search(r'^\s*title:?\s+"?(.+?)"?\s*$', body, re.M) if kind == "chart" else None
         title = heading
         if kind != "section":
-            # Why: a figure is quoted alone; its own title says more than the section it sits in.
-            title = (native and native[1]) or caption(lines, start - (kind == "chart")) or heading
+            native = kind == "chart" and re.search(
+                r"^[ \t]*(?:pie[ \t]+(?:showData[ \t]+)?)?title:?[ \t]+(.+)$", body, re.M
+            )
+            above = next(
+                (lines[j].strip() for j in range(start - (kind == "chart") - 1, -1, -1) if lines[j].strip()), ""
+            )
+            bold = re.fullmatch(r"\*\*(.+?)\*\*\s*:?", above)
+            # Why: a figure is quoted alone; its own title, or the bold line above it, says more than its section.
+            title = (native and native[1].strip().strip('"')) or (bold and plain(bold[1])) or heading
         digest = hashlib.sha256(body.encode()).hexdigest()[:6]
         found.append(Anchor(kind, ranks[kind], digest, body, title, depth + (kind != "section")))
     return found

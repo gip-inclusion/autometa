@@ -1,5 +1,7 @@
 """Slicing a message into sections, tables and charts, and finding the one a link names."""
 
+import time
+
 import pytest
 
 from lib import permalinks
@@ -75,13 +77,78 @@ def test_anchors_carry_a_title_and_an_outline_level():
         (table("A"), ""),
         ("```mermaid\n---\ntitle: Flux\n---\nflowchart LR\n```", "Flux"),
         ("**Répartition**\n\n```mermaid\nflowchart LR\n```", "Répartition"),
+        ('```mermaid\npie title Répartition\n    "A" : 1\n```', "Répartition"),
+        (f"**Total `2026`** :\n{table('A')}", "Total 2026"),
+        (f"## **Résultats**\n\n{table('A')}", "Résultats"),
+        ("| a | b |\n|---|---|\ntitle | x", ""),
     ],
-    ids=["ligne-en-gras", "titre-de-section", "sans-titre", "titre-mermaid", "gras-au-dessus-du-graphique"],
+    ids=[
+        "ligne-en-gras",
+        "titre-de-section",
+        "sans-titre",
+        "titre-mermaid",
+        "gras-au-dessus-du-graphique",
+        "camembert-sur-une-ligne",
+        "gras-avec-code",
+        "section-en-gras",
+        "ligne-title-dans-un-tableau",
+    ],
 )
 def test_a_figure_is_titled_by_itself_its_caption_or_its_section(text, expected):
     figure = next(a for a in permalinks.anchors(text) if a.kind != "section")
 
     assert figure.title == expected
+
+
+@pytest.mark.parametrize(
+    ("heading", "expected"),
+    [
+        ("## Langage C#", "Langage C#"),
+        ("## Résultats ##", "Résultats"),
+        ("## **Résultats** `2026`", "Résultats 2026"),
+        ("## Voir [la note](https://example.com/n-1) _complète_", "Voir la note complète"),
+        ("## nom_de_colonne", "nom_de_colonne"),
+    ],
+    ids=["dièse-final", "dièses-de-fermeture", "gras-et-code", "lien-et-italique", "tiret-bas-dans-un-mot"],
+)
+def test_a_section_is_titled_by_its_heading_as_plain_text(heading, expected):
+    assert [a.title for a in permalinks.anchors(heading)] == [expected]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("```x``` :\n\n## A\n\n```\n# B\n```\n", ["A"]),
+        ("```\n    ```\n## A\n```\n", []),
+        ("````\n```\n## A\n````\n", []),
+        ("```\n``` x\n## A\n```\n", []),
+        ("~~~\n```\n## A\n~~~\n", []),
+        ("```\n   `````  \n## A\n", ["A"]),
+    ],
+    ids=[
+        "code-en-ligne",
+        "fermeture-trop-indentée",
+        "fermeture-trop-courte",
+        "texte-après-la-fermeture",
+        "autre-caractère",
+        "fermeture-valide",
+    ],
+)
+def test_code_fences_open_and_close_as_in_commonmark(text, expected):
+    assert [a.title for a in permalinks.anchors(text) if a.kind == "section"] == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["a | b\n|" + "-" * 200_000 + "x", "```mermaid\nflowchart\n" + " \n" * 20_000 + "x\n```", "# a\n" * 20_000],
+    ids=["séparateur-de-tableau", "graphique-presque-vide", "titres-en-masse"],
+)
+def test_slicing_stays_fast_on_hostile_text(text):
+    started = time.perf_counter()
+
+    permalinks.anchors(text)
+
+    assert time.perf_counter() - started < 1
 
 
 @pytest.mark.parametrize(
