@@ -239,14 +239,14 @@ function formatReport(content, reportInfo) {
   let header = '<div class="report-header">';
   header += '<div class="report-title">';
   header += '<i class="ri-file-text-line"></i> ';
-  header += reportInfo.frontMatter['query category'] || 'Rapport';
+  header += escapeHtml(reportInfo.frontMatter['query category'] || 'Rapport');
   header += '</div>';
 
   if (reportInfo.frontMatter.date) {
-    header += `<div class="report-meta"><i class="ri-calendar-line"></i> ${reportInfo.frontMatter.date}</div>`;
+    header += `<div class="report-meta"><i class="ri-calendar-line"></i> ${escapeHtml(reportInfo.frontMatter.date)}</div>`;
   }
   if (reportInfo.frontMatter.website) {
-    header += `<div class="report-meta"><i class="ri-global-line"></i> ${reportInfo.frontMatter.website}</div>`;
+    header += `<div class="report-meta"><i class="ri-global-line"></i> ${escapeHtml(reportInfo.frontMatter.website)}</div>`;
   }
 
   // Add link to view full report if filename detected

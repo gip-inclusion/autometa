@@ -1,9 +1,10 @@
 """Preuves navigateur — le HTML qu'écrit un agent s'affiche sans jamais s'exécuter ni recouvrir la page."""
 
+import re
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 
 pytestmark = [pytest.mark.browser, pytest.mark.usefixtures("fake_agent")]
 
@@ -50,6 +51,17 @@ def answer_shown(page: Page) -> None:
 
 def probes(page: Page) -> list[str]:
     return page.evaluate("() => window.__probes || []")
+
+
+def with_stored_messages(page: Page, messages: list[dict]) -> None:
+    """Ajoute des messages à l'historique que la page relit, comme si l'agent les avait écrits."""
+
+    def extend(route: Route) -> None:
+        response = route.fetch()
+        conversation = response.json()
+        route.fulfill(response=response, json={**conversation, "messages": conversation["messages"] + messages})
+
+    page.route(re.compile(r"/api/conversations/[0-9a-f-]{36}$"), extend)
 
 
 def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -118,3 +130,22 @@ def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], N
         (".options-buttons button", 2),
     ]:
         expect(answer.locator(selector)).to_have_count(count)
+
+
+def test_a_report_header_shows_its_fields_as_text(conversation: str, page: Page):
+    page.add_init_script(PROBE)
+    field = "<img src=x onerror=\"probe('report')\">"
+    front_matter = f"query category: {field}\ndate: {field}\nwebsite: {field}"
+    with_stored_messages(
+        page,
+        [
+            {"id": 10**9, "type": "user", "content": "Un rapport ?"},
+            {"id": 10**9 + 1, "type": "assistant", "content": f"---\n{front_matter}\n---\nCorps"},
+        ],
+    )
+    page.reload(wait_until="domcontentloaded")
+    header = page.locator(".report-header")
+    expect(header).to_contain_text("<img src=x", timeout=15000)
+    page.wait_for_timeout(1000)
+    expect(header.locator("img")).to_have_count(0)
+    assert probes(page) == []
