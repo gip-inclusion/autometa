@@ -1,10 +1,11 @@
 """Retour et Avance du navigateur : la page que htmx remet en place vit, et suit ce qu'elle montre."""
 
 import re
+import uuid
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 
 pytestmark = pytest.mark.browser
 
@@ -176,4 +177,30 @@ def test_back_to_the_dashboards_page_copies_a_link_once(errors: list[str], visit
     expect(icon).to_have_class("ri-check-line text-success")
     expect(icon).to_have_class("ri-file-copy-line")
     assert page.evaluate("navigator.clipboard.readText()") == "/lien"
+    assert errors == []
+
+
+def test_back_to_a_job_run_polls_that_run_and_only_while_shown(errors: list[str], visit, page: Page):
+    run = str(uuid.uuid4())
+    summary = {"text": "Avant le départ"}
+    polls = []
+
+    def answer(route: Route) -> None:
+        polls.append(route.request.url)
+        route.fulfill(json={"id": run, "status": "running", "summary": summary["text"]})
+
+    page.route(f"**/api/jobs/runs/{run}", answer)
+    page.route(f"**/api/jobs/runs/{run}/events", lambda route: route.fulfill(json=[]))
+    visit(f"/jobs/runs/{run}")
+    expect(page.locator("#summary")).to_have_text("Avant le départ")
+    page.locator("#back-link").click()
+    expect(page).to_have_url(re.compile(r"/jobs$"))
+    shown = len(polls)
+    page.wait_for_timeout(3500)
+    assert len(polls) == shown
+    summary["text"] = "Après le retour"
+
+    page.go_back()
+
+    expect(page.locator("#summary")).to_have_text("Après le retour")
     assert errors == []
