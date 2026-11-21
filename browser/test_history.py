@@ -103,6 +103,28 @@ def test_back_to_the_conversations_list_keeps_it_usable(errors: list[str], conve
     assert errors == []
 
 
+def test_forward_after_back_shows_the_conversation_left(
+    errors: list[str], conversation: str, visit, ask: Callable[[str], None], page: Page
+):
+    other = start_conversation(page, visit, ask, SECTIONS)
+    visit(f"/explorations/{conversation}")
+    expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
+    page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
+    page.locator("#tocContent .toc-entry", has_text="Second point").click()
+    expect(page).to_have_url(re.compile(rf"/explorations/{other}#second-point$"))
+    page.go_back()
+    expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Première question"])
+
+    page.go_forward()
+
+    expect(page).to_have_url(re.compile(rf"/explorations/{other}#second-point$"))
+    expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Plan"])
+    with page.expect_request(f"**/api/conversations/{other}/messages", timeout=5000):
+        ask("Après l'avance")
+    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : Après l'avance", timeout=15000)
+    assert errors == []
+
+
 def test_back_onto_a_running_turn_follows_it_to_its_end(
     errors: list[str], conversation: str, ask: Callable[[str], None], page: Page
 ):

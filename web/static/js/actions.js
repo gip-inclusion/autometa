@@ -299,7 +299,7 @@ function addTocEntry(headingElement, text) {
   // Click to scroll to the heading and update URL hash
   entry.addEventListener('click', () => {
     if (headingElement?.id) {
-      history.replaceState(null, '', `#${headingElement.id}`);
+      history.replaceState(history.state, '', `#${headingElement.id}`);
       headingElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
