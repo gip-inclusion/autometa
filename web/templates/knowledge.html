@@ -201,7 +201,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (const file of stagedFiles) {
       html += `<li class="d-flex align-items-center gap-2 py-1">
         <i class="ri-file-text-line text-primary"></i>
-        <a href="#" class="staged-file-link small text-decoration-none" data-file="${file}">${file}</a>
+        <a href="#" class="staged-file-link small text-decoration-none" data-file="${escapeHtml(file)}">${escapeHtml(file)}</a>
       </li>`;
     }
     html += '</ul>';
@@ -220,9 +220,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (stagedFilesBtn) {
+    // Why: the agent names the staged files; the popover keeps Bootstrap's safe markup plus its own link and buttons.
+    const { allowList } = bootstrap.Popover.Default;
     popover = new bootstrap.Popover(stagedFilesBtn, {
       html: true,
-      sanitize: false,
+      allowList: { ...allowList, a: [...allowList.a, 'data-file'], button: ['type'] },
       content: buildPopoverContent,
       trigger: 'click',
     });

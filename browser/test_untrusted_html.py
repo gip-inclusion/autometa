@@ -320,17 +320,32 @@ def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: s
     assert page.evaluate(f"() => {links}.every((a) => a.closest('[hx-disable]'))")
 
 
-def with_knowledge_text(text: str) -> Callable[[Route], None]:
-    """Remplace le texte d'une fiche de connaissance dans la page servie."""
+def embed_json(body: str, script_id: str, value: object) -> str:
+    """Remplace le JSON qu'embarque un élément <script> de la page, échappé comme le fait `tojson`."""
+    return re.sub(
+        rf'(<script id="{script_id}"[^>]*>).*?(</script>)',
+        lambda match: match[1] + json.dumps(value).replace("<", "\\u003c") + match[2],
+        body,
+        flags=re.DOTALL,
+    )
+
+
+def with_knowledge_page(text: str, staged_files: list[str] | None = None) -> Callable[[Route], None]:
+    """Remplace le texte d'une fiche de connaissance ; avec `staged_files`, sert sa discussion active et ces fichiers."""
 
     def replace(route: Route) -> None:
         response = route.fetch()
-        body = re.sub(
-            r'(<script id="knowledgeRawContent"[^>]*>).*?(</script>)',
-            lambda match: match[1] + json.dumps(text).replace("<", "\\u003c") + match[2],
-            response.text(),
-            flags=re.DOTALL,
-        )
+        body = embed_json(response.text(), "knowledgeRawContent", text)
+        if staged_files is not None:
+            body = (
+                embed_json(body, "stagedFilesData", staged_files)
+                .replace(
+                    '<div class="markdown-body"',
+                    '<button type="button" id="stagedFilesBtn">Fichiers</button><div class="markdown-body"',
+                    1,
+                )
+                .replace("let currentConversationId = null;", "let currentConversationId = 'conversation';")
+            )
         route.fulfill(response=response, body=body)
 
     return replace
@@ -340,7 +355,7 @@ def with_knowledge_text(text: str) -> Callable[[Route], None]:
 def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str], None], through_htmx: bool):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
-    page.route("**/knowledge/matomo/README.md", with_knowledge_text(f"**gras**\n\n{PAYLOADS}\n\n{CHARTS}"))
+    page.route("**/knowledge/matomo/README.md", with_knowledge_page(f"**gras**\n\n{PAYLOADS}\n\n{CHARTS}"))
     if through_htmx:
         visit("/knowledge")
         page.locator('a[href="/knowledge/matomo/README.md"]').click()
@@ -354,9 +369,26 @@ def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str
 def test_without_the_sanitizer_a_knowledge_page_is_plain_text(page: Page, visit: Callable[[str], None]):
     page.add_init_script(PROBE)
     page.route("**/npm/dompurify@*/**", lambda route: route.abort())
-    page.route("**/knowledge/matomo/README.md", with_knowledge_text("<img src=x onerror=probe(1)> **gras**"))
+    page.route("**/knowledge/matomo/README.md", with_knowledge_page("<img src=x onerror=probe(1)> **gras**"))
     visit("/knowledge/matomo/README.md")
     expect(page.locator("#markdownContent strong")).to_have_text("gras")
 
     assert_inert(page, "#markdownContent", "<img src=x onerror=probe(1)>", [])
     expect(page.locator("#markdownContent img")).to_have_count(0)
+
+
+def test_a_staged_file_name_shows_as_text(page: Page, visit: Callable[[str], None]):
+    page.add_init_script(PROBE)
+    name = "<img src=x onerror=\"probe('staged')\">.md"
+    page.route("**/knowledge/matomo/README.md", with_knowledge_page("Fiche", staged_files=[name]))
+    visit("/knowledge/matomo/README.md")
+
+    page.locator("#stagedFilesBtn").click()
+
+    popover = page.locator(".popover-body")
+    expect(popover.locator(".staged-file-link")).to_have_text(name)
+    expect(popover.locator(".staged-file-link")).to_have_attribute("data-file", name)
+    expect(popover.locator("#popoverCommitBtn, #popoverAbandonBtn")).to_have_count(2)
+    page.wait_for_timeout(1000)
+    expect(popover.locator("img")).to_have_count(0)
+    assert probes(page) == []
