@@ -150,13 +150,13 @@ def with_stored_messages(page: Page, messages: list[dict]) -> None:
         conversation = response.json()
         route.fulfill(response=response, json={**conversation, "messages": conversation["messages"] + messages})
 
-    page.route(re.compile(r"/api/conversations/[0-9a-f-]{36}$"), extend)
+    page.route(re.compile(r"/api/conversations/(?:[0-9a-f-]{36}|[0-9a-z]{8})$"), extend)
 
 
 def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
-    visit("/explorations/new")
+    visit("/c/new")
     ask(PAYLOADS)
     expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
 
@@ -171,7 +171,7 @@ def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None
 def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
-    visit("/explorations/new")
+    visit("/c/new")
     ask(f"Graphiques\n\n{CHARTS}")
 
     assert_stays_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
@@ -179,7 +179,7 @@ def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], as
 
 def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
     requested = marker_requests(page)
-    visit("/explorations/new")
+    visit("/c/new")
     ask(OVERLAY)
     assert_inert(page, ANSWERS, "Afficher le tableau", requested, TOC_IDS)
     answer = page.locator(".event-assistant").last
@@ -200,14 +200,14 @@ def test_without_the_sanitizer_an_answer_is_plain_text(
         page.route("**/npm/dompurify@*/**", lambda route: route.abort())
     else:
         page.add_init_script(UNSUPPORTED)
-    visit("/explorations/new")
+    visit("/c/new")
     ask('<img src="x" onerror="probe(\'img\')">')
     assert_inert(page, ANSWERS, '<img src="x" onerror="probe(\'img\')">', [])
     expect(page.locator(ANSWERS).locator("img")).to_have_count(0)
 
 
 def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
-    visit("/explorations/new")
+    visit("/c/new")
     ask(
         "\n\n".join([
             "Bilan",
@@ -291,7 +291,7 @@ def test_a_message_shows_its_html_as_text(
 ):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
-    visit("/explorations/new")
+    visit("/c/new")
     ask(message)
     expect(page.locator(".event-assistant").last).to_contain_text("Réponse factice", timeout=15000)
 
