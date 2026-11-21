@@ -156,3 +156,24 @@ def test_back_to_the_new_conversation_page_starts_one(
         "Réponse factice : Depuis la page remise en place", timeout=15000
     )
     assert errors == []
+
+
+def test_back_to_the_dashboards_page_copies_a_link_once(errors: list[str], visit, page: Page):
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    visit("/dashboards")
+    leave_for_conversations(page)
+
+    page.go_back()
+
+    # Why: la page ne montre de bouton de copie qu'à côté d'un TDB publié ; on en pose un pareil.
+    page.locator("#section-dashboards").evaluate(
+        "(section, html) => section.insertAdjacentHTML('beforeend', html)",
+        '<button type="button" id="copyProbe" data-action="copy-url" data-url="/lien">'
+        '<i class="ri-file-copy-line"></i></button>',
+    )
+    icon = page.locator("#copyProbe i")
+    page.locator("#copyProbe").click()
+    expect(icon).to_have_class("ri-check-line text-success")
+    expect(icon).to_have_class("ri-file-copy-line")
+    assert page.evaluate("navigator.clipboard.readText()") == "/lien"
+    assert errors == []
