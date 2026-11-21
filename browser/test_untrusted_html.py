@@ -10,8 +10,9 @@ from playwright.sync_api import Page, Route, expect
 pytestmark = [pytest.mark.browser, pytest.mark.usefixtures("fake_agent")]
 
 PROBE = "window.probe = (name) => (window.__probes = window.__probes || []).push(name);"
+MARKER = "/__untrusted-probe__"
 
-# Why: chaque charge appelle probe() si elle s'exécute ; les adresses en .invalid ne mènent nulle part.
+# Why: chaque charge appelle probe() ou demande MARKER si elle agit ; les adresses en .invalid ne mènent nulle part.
 PAYLOADS = "\n\n".join([
     '<img src="x" onerror="probe(\'img\')">',
     "<details open ontoggle=\"probe('details')\"><summary>Résumé</summary>Détail</details>",
@@ -25,35 +26,75 @@ PAYLOADS = "\n\n".join([
     "<style>.chat-input { display: none }</style>",
     '<div style="position: fixed; inset: 0; z-index: 9999; background: #fff">Session expirée</div>',
     '<div class="position-fixed top-0 start-0 vw-100 vh-100 bg-white">Session expirée</div>',
+    '<code class="position-fixed top-0 start-0 vw-100 vh-100 bg-white">Session expirée</code>',
     '<base href="https://example.invalid/">',
-    '<div data-hx-get="/api/auth/status" data-hx-trigger="load" hx-on:click="probe(\'htmx\')">htmx</div>',
+    f'<div data-hx-get="{MARKER}/answer" data-hx-trigger="load" hx-on:click="probe(\'htmx\')">htmx</div>',
+    '<a href="https://example.org/" target="_top" id="probe-id" name="probe-name">cible</a>',
 ])
 
-UNSAFE_MARKUP = """() => {
+UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
-  for (const el of document.querySelectorAll('#chatOutput .event-assistant *')) {
-    const tag = el.tagName.toLowerCase();
-    if (['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta'].includes(tag)) found.push(tag);
-    for (const { name, value } of el.attributes) {
-      if (name.startsWith('on') || name === 'style' || name === 'srcdoc') found.push(`${tag}[${name}]`);
-      if (name === 'class' && tag !== 'code') found.push(`${tag}[class]`);
-      if (name.startsWith('data-') || name.startsWith('hx-')) found.push(`${tag}[${name}]`);
-      if (/^\\s*javascript:/i.test(value)) found.push(`${tag}[${name}=javascript:]`);
+  const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta'];
+  for (const root of document.querySelectorAll(region)) {
+    for (const el of root.querySelectorAll('*')) {
+      const tag = el.tagName.toLowerCase();
+      if (tags.includes(tag)) found.push(tag);
+      for (const { name, value } of el.attributes) {
+        if (allowed.includes(`${tag}[${name}]`)) continue;
+        if (/^(on|data-|hx-)/.test(name) || ['style', 'srcdoc', 'id', 'name', 'target'].includes(name))
+          found.push(`${tag}[${name}]`);
+        if (name === 'class' && value && !(tag === 'code' && /^language-[\\w-]+$/.test(value))) found.push(`${tag}[class]`);
+        if (/^\\s*javascript:/i.test(value)) found.push(`${tag}[${name}=javascript:]`);
+      }
     }
   }
   return found;
 }"""
 
-
-def answer_shown(page: Page) -> None:
-    expect(page.locator(".event-assistant").last).to_contain_text("Réponse factice", timeout=15000)
-    # Why: rien n'annonce qu'un gestionnaire ne s'exécutera pas ; on laisse aux erreurs d'image et aux animations
-    # le temps de se déclencher.
-    page.wait_for_timeout(1000)
+ANSWERS = "#chatOutput .event-assistant"
+TOC_IDS = ("h2[id]",)
 
 
 def probes(page: Page) -> list[str]:
     return page.evaluate("() => window.__probes || []")
+
+
+def marker_requests(page: Page) -> list[str]:
+    """Les adresses MARKER que la page demande, à mesure qu'elles partent."""
+    requested: list[str] = []
+
+    def record(route: Route) -> None:
+        requested.append(route.request.url)
+        route.fulfill(body="")
+
+    page.route(f"**{MARKER}/**", record)
+    return requested
+
+
+def assert_inert(page: Page, region: str, text: str, requested: list[str], allowed: tuple[str, ...] = ()) -> None:
+    """`region` montre `text` et reste inerte : aucun balisage actif, aucune sonde déclenchée, aucune requête partie."""
+    expect(page.locator(region).last).to_contain_text(text, timeout=15000)
+    # Why: rien n'annonce qu'un gestionnaire ne s'exécutera pas ; on laisse aux erreurs d'image et aux animations
+    # le temps de se déclencher.
+    page.wait_for_timeout(1000)
+    assert page.evaluate(UNSAFE_MARKUP, [region, list(allowed)]) == []
+    assert probes(page) == []
+    assert requested == []
+
+
+def away_and_back(page: Page) -> None:
+    page.locator('#nav-primary a[href="/conversations?show=convos"]').click()
+    page.wait_for_url("**/conversations?show=convos")
+    page.go_back()
+
+
+def assert_stays_inert(page: Page, region: str, text: str, requested: list[str], allowed: tuple[str, ...] = ()) -> None:
+    """Inerte une fois affichée, après un rechargement, puis au retour par Précédent qu'htmx restaure."""
+    assert_inert(page, region, text, requested, allowed)
+    page.reload(wait_until="domcontentloaded")
+    assert_inert(page, region, text, requested, allowed)
+    away_and_back(page)
+    assert_inert(page, region, text, requested, allowed)
 
 
 def with_stored_messages(page: Page, messages: list[dict]) -> None:
@@ -69,27 +110,17 @@ def with_stored_messages(page: Page, messages: list[dict]) -> None:
 
 def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
     page.add_init_script(PROBE)
+    requested = marker_requests(page)
     visit("/explorations/new")
     ask(PAYLOADS)
     expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
-    answer_shown(page)
+
+    assert_stays_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS)
+    answer = page.locator(".event-assistant").last
+    answer.get_by_text("lien markdown").click()
+    answer.get_by_text("lien html").click()
     assert probes(page) == []
-    assert page.evaluate(UNSAFE_MARKUP) == []
     expect(page.locator("#chatInput")).to_be_visible()
-    page.locator(".event-assistant").get_by_text("lien markdown").click()
-    page.locator(".event-assistant").get_by_text("lien html").click()
-    assert probes(page) == []
-
-    page.reload(wait_until="domcontentloaded")
-    answer_shown(page)
-    assert probes(page) == []
-    assert page.evaluate(UNSAFE_MARKUP) == []
-
-    page.locator('#nav-primary a[href="/conversations?show=convos"]').click()
-    page.wait_for_url("**/conversations?show=convos")
-    page.go_back()
-    answer_shown(page)
-    assert probes(page) == []
 
 
 def test_without_the_sanitizer_an_answer_is_plain_text(
@@ -99,11 +130,8 @@ def test_without_the_sanitizer_an_answer_is_plain_text(
     page.route("**/npm/dompurify@*/**", lambda route: route.abort())
     visit("/explorations/new")
     ask('<img src="x" onerror="probe(\'img\')">')
-    answer_shown(page)
-    answer = page.locator(".event-assistant").last
-    expect(answer).to_contain_text('<img src="x" onerror="probe(\'img\')">')
-    expect(answer.locator("img")).to_have_count(0)
-    assert probes(page) == []
+    assert_inert(page, ANSWERS, '<img src="x" onerror="probe(\'img\')">', [])
+    expect(page.locator(ANSWERS).locator("img")).to_have_count(0)
 
 
 def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -135,23 +163,24 @@ def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], N
         expect(answer.locator(selector)).to_have_count(count)
 
 
-def test_a_report_header_shows_its_fields_as_text(conversation: str, page: Page):
+def test_a_report_shows_its_header_and_body_without_running_them(conversation: str, page: Page):
     page.add_init_script(PROBE)
+    requested = marker_requests(page)
     field = "<img src=x onerror=\"probe('report')\">"
     front_matter = f"query category: {field}\ndate: {field}\nwebsite: {field}"
     with_stored_messages(
         page,
         [
             {"id": 10**9, "type": "user", "content": "Un rapport ?"},
-            {"id": 10**9 + 1, "type": "assistant", "content": f"---\n{front_matter}\n---\nCorps"},
+            {"id": 10**9 + 1, "type": "assistant", "content": f"---\n{front_matter}\n---\n{PAYLOADS}"},
         ],
     )
     page.reload(wait_until="domcontentloaded")
     header = page.locator(".report-header")
     expect(header).to_contain_text("<img src=x", timeout=15000)
-    page.wait_for_timeout(1000)
     expect(header.locator("img")).to_have_count(0)
-    assert probes(page) == []
+
+    assert_stays_inert(page, "#chatOutput .report-body", "Session expirée", requested, TOC_IDS)
 
 
 @pytest.mark.parametrize(
@@ -165,16 +194,25 @@ def test_a_message_shows_its_html_as_text(
     page: Page, visit: Callable[[str], None], ask: Callable[[str], None], message
 ):
     page.add_init_script(PROBE)
+    requested = marker_requests(page)
     visit("/explorations/new")
     ask(message)
-    answer_shown(page)
-    for _ in range(2):
-        question = page.locator(".event-user").first
-        expect(question).to_contain_text("<img src=x")
-        expect(question.locator("img")).to_have_count(0)
-        assert probes(page) == []
-        page.reload(wait_until="domcontentloaded")
-        answer_shown(page)
+    expect(page.locator(".event-assistant").last).to_contain_text("Réponse factice", timeout=15000)
+
+    assert_stays_inert(page, "#chatOutput .event-user .user-text", "<img src=x", requested, ("a[target]",))
+    expect(page.locator(".event-user").first.locator("img")).to_have_count(0)
+
+
+def test_a_waiting_message_shows_its_html_as_text(conversation: str, page: Page, ask: Callable[[str], None]):
+    page.add_init_script(PROBE)
+    requested = marker_requests(page)
+    page.reload(wait_until="domcontentloaded")
+    ask("[hang] q0")
+    expect(page.locator("#chatCancelBtn")).to_be_visible()
+    page.locator("#chatInput").fill(PAYLOADS)
+    page.locator("#chatInput").press("Enter")
+
+    assert_stays_inert(page, "#chatQueue .user-text", "<img src=", requested, ("a[target]",))
 
 
 def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: str, page: Page):
@@ -199,7 +237,7 @@ def with_knowledge_text(text: str) -> Callable[[Route], None]:
         response = route.fetch()
         body = re.sub(
             r'(<script id="knowledgeRawContent"[^>]*>).*?(</script>)',
-            lambda match: match[1] + json.dumps(text) + match[2],
+            lambda match: match[1] + json.dumps(text).replace("<", "\\u003c") + match[2],
             response.text(),
             flags=re.DOTALL,
         )
@@ -211,14 +249,24 @@ def with_knowledge_text(text: str) -> Callable[[Route], None]:
 @pytest.mark.parametrize("through_htmx", [False, True])
 def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str], None], through_htmx: bool):
     page.add_init_script(PROBE)
-    page.route("**/knowledge/matomo/README.md", with_knowledge_text("<img src=x onerror=probe(1)> **gras**"))
+    requested = marker_requests(page)
+    page.route("**/knowledge/matomo/README.md", with_knowledge_text(f"**gras**\n\n{PAYLOADS}"))
     if through_htmx:
         visit("/knowledge")
         page.locator('a[href="/knowledge/matomo/README.md"]').click()
     else:
         visit("/knowledge/matomo/README.md")
-    content = page.locator("#markdownContent")
-    expect(content.locator("strong")).to_have_text("gras")
-    page.wait_for_timeout(1000)
-    expect(content.locator("img[onerror]")).to_have_count(0)
-    assert probes(page) == []
+    expect(page.locator("#markdownContent strong")).to_have_text("gras")
+
+    assert_stays_inert(page, "#markdownContent", "Session expirée", requested)
+
+
+def test_without_the_sanitizer_a_knowledge_page_is_plain_text(page: Page, visit: Callable[[str], None]):
+    page.add_init_script(PROBE)
+    page.route("**/npm/dompurify@*/**", lambda route: route.abort())
+    page.route("**/knowledge/matomo/README.md", with_knowledge_text("<img src=x onerror=probe(1)> **gras**"))
+    visit("/knowledge/matomo/README.md")
+    expect(page.locator("#markdownContent strong")).to_have_text("gras")
+
+    assert_inert(page, "#markdownContent", "<img src=x onerror=probe(1)>", [])
+    expect(page.locator("#markdownContent img")).to_have_count(0)
