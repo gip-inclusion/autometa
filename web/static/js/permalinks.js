@@ -86,12 +86,12 @@ function attachPermalinks(block, ids, anchors) {
   }
 }
 
+let permalinksRequest = 0;
+
 /**
  * Put the links on every finished answer; returns the anchors and the target of the address being opened, null when
  * they could not be loaded
  */
-let permalinksRequest = 0;
-
 async function refreshPermalinks() {
   const convId = currentConversationId;
   if (!convId) return null;
