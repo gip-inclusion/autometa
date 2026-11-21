@@ -120,7 +120,9 @@ def test_back_to_a_saved_conversation_binds_the_page_to_it(
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15000)
     other = start_conversation(page, visit, ask, "Autre conversation")
     visit(f"/explorations/{conversation}")
+    # Why: la pose des liens refait le sommaire ; les entrées marquées doivent être les dernières que la page a faites.
     expect(page.locator("#tocContent .toc-entry")).to_have_count(2)
+    expect(page.locator(".event-assistant h2[data-anchor]")).to_have_count(2)
     page.locator("#tocContent .toc-entry").evaluate_all("entries => entries.forEach((e) => { e.dataset.left = ''; })")
     page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
     expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Autre conversation"])
@@ -184,14 +186,17 @@ def test_forward_after_back_shows_the_conversation_left(
     visit(f"/explorations/{conversation}")
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
     page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
+    # Why: le sommaire prend l'adresse d'une section une fois ses liens posés ; avant, il prend celle de son titre.
+    expect(page.locator(".permalink-btn[data-url*='/section-2-']")).to_have_count(1)
     page.locator("#tocContent .toc-entry", has_text="Second point").click()
-    expect(page).to_have_url(re.compile(rf"/explorations/{other}#second-point$"))
+    section = re.compile(rf"/explorations/{other}/\d+/section-2-[0-9a-f]{{6}}$")
+    expect(page).to_have_url(section)
     page.go_back()
     expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Première question"])
 
     page.go_forward()
 
-    expect(page).to_have_url(re.compile(rf"/explorations/{other}#second-point$"))
+    expect(page).to_have_url(section)
     expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Plan"])
     with page.expect_request(f"**/api/conversations/{other}/messages", timeout=5000):
         ask("Après l'avance")
