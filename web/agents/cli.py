@@ -17,7 +17,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from web import config, memory_introspect, session_sync
-from web.helpers import format_future_date
+from web.helpers import UUID_CONV_ID, format_future_date, validate_conv_id
 
 from .base import AgentBackend, AgentMessage, build_system_prompt
 
@@ -31,13 +31,11 @@ tracer = trace.get_tracer(__name__)
 _TRANSIENT_STATUS_RE = re.compile(r"API Error:\s*(429|5\d\d)\b")
 _TRANSIENT_TYPE_RE = re.compile(r'"type"\s*:\s*"(overloaded_error|api_error|rate_limit_error)"')
 
-CONVERSATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-
 
 def conversation_workdir(conversation_id: str) -> Path | None:
     """Le dossier de travail d'une vraie conversation, créé au besoin."""
-    # Why: un identifiant de conversation est un UUID — c'est aussi ce que le ménage reconnaît, et ce qui écarte `../`.
-    if not CONVERSATION_ID_RE.fullmatch(conversation_id):
+    # Why: la forme stricte d'un identifiant écarte `../` et les noms d'appels qui ne sont pas des conversations.
+    if not validate_conv_id(conversation_id):
         return None
     workdir = config.WORKDIR_ROOT / conversation_id
     workdir.mkdir(mode=0o700, exist_ok=True)
@@ -51,7 +49,7 @@ def conversation_workdir(conversation_id: str) -> Path | None:
 def prune_workdirs(now: float) -> None:
     """Efface les dossiers de travail de conversation restés une semaine sans changement."""
     for path in config.WORKDIR_ROOT.iterdir():
-        if not CONVERSATION_ID_RE.fullmatch(path.name):
+        if not UUID_CONV_ID.fullmatch(path.name):
             continue
         # Why: renommé avant d'être effacé — une conversation qui reprend pendant l'effacement, lent avec des clones
         # GitHub, recrée un dossier neuf au lieu de perdre le sien en cours de route.

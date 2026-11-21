@@ -14,6 +14,8 @@ from web.environment import Environment
 
 UUID_A = "21e937fb-0000-4000-8000-000000000001"
 UUID_B = "21e937fb-0000-4000-8000-000000000002"
+SHORT_A = "k3v9x2mq"
+MALFORMED_IDS = ["../etc", "a/b", "", "bench-sonnet", "c1", "../x", "k3v9x2m", "k3v9x2mi", "K3V9X2MQ"]
 WEEK_AGO = time.time() - 8 * 24 * 3600
 
 
@@ -148,7 +150,7 @@ def test_build_env_points_tmpdir_to_the_conversation_folder(tmp_path):
     assert env["TMPDIR"] == str(tmp_path / "c1")
 
 
-@pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "bench-sonnet", "c1"])
+@pytest.mark.parametrize("conversation_id", MALFORMED_IDS)
 def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation_id):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
     assert cli.conversation_workdir(conversation_id) is None
@@ -526,14 +528,25 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
 
 
-def test_the_agent_runs_in_its_own_folder(stub_config, tmp_path):
+@pytest.mark.parametrize("conversation_id", [UUID_A, SHORT_A], ids=["uuid", "court"])
+def test_the_agent_runs_in_its_own_folder(stub_config, tmp_path, conversation_id):
     stub_config('echo "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\necho \'{"type": "result", "subtype": "success"}\'')
 
-    collect_messages(make_backend(), conversation_id=UUID_A)
+    collect_messages(make_backend(), conversation_id=conversation_id)
 
-    workdir = tmp_path / "tmp" / UUID_A
+    workdir = tmp_path / "tmp" / conversation_id
     assert workdir.is_dir()
     assert (tmp_path / "tmpdir.txt").read_text().strip() == str(workdir)
+
+
+@pytest.mark.parametrize("conversation_id", MALFORMED_IDS)
+def test_an_agent_with_a_malformed_conversation_id_runs_without_a_folder(stub_config, tmp_path, conversation_id):
+    stub_config('echo "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\necho \'{"type": "result", "subtype": "success"}\'')
+
+    collect_messages(make_backend(), conversation_id=conversation_id)
+
+    assert list((tmp_path / "tmp").iterdir()) == []
+    assert not (tmp_path / "tmpdir.txt").read_text().startswith(str(tmp_path / "tmp"))
 
 
 FOLDER_LINE = "Dossier de travail de cette conversation, déjà créé : {workdir}/"

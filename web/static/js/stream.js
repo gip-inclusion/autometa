@@ -14,10 +14,14 @@ let currentConversationId = null;
 let loadSequence = 0; // Latest loadConversation call, so an older one finishing late is dropped
 
 /**
- * Validate that a conversation ID is a valid UUID to prevent URL manipulation.
+ * Whether an id has the shape of a conversation's, as the server writes it: a UUID for the older ones, 8 characters for
+ * the newer; checked before it goes into an address
  */
 function isValidConversationId(id) {
-  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  return (
+    typeof id === 'string' &&
+    /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0123456789abcdefghjkmnpqrstvwxyz]{8})$/.test(id)
+  );
 }
 
 /**
