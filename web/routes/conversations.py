@@ -223,7 +223,7 @@ def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_cu
 def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Get a conversation with all messages.
 
-    Allows read-only access to any conversation (shared via UUID link).
+    Allows read-only access to any conversation (shared via its link).
     Returns is_owner flag to indicate if current user owns the conversation.
     """
     conv = store.get_conversation(conv_id)

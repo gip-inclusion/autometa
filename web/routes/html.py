@@ -495,7 +495,7 @@ def new_conversation_page(request: Request, user_email: str = Depends(get_curren
 def conversation_page(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """View a specific conversation.
 
-    Allows viewing conversations owned by other users (shared via UUID link).
+    Allows viewing conversations owned by other users (shared via their link).
     The owner's email is shown in the header for shared conversations.
     """
     # Try to get conversation without user filter (allow shared access)
