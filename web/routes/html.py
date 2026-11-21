@@ -8,7 +8,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
-from lib import crockford
+from lib import crockford, permalinks
 from web import helpers
 from web.config import ADMIN_USERS
 from web.database import store
@@ -532,9 +532,10 @@ def message_permalink(message_id: int, request: Request, user_email: str = Depen
     conv_id = store.message_conversation_id(message_id)
     if not conv_id:
         return RedirectResponse("/conversations?show=convos", status_code=302)
-    spelled = crockford.encode(conv_id) if validate_conv_id(conv_id) else conv_id
-    segments = [spelled, str(message_id), request.path_params.get("anchor")]
-    return RedirectResponse("/explorations/" + "/".join(filter(None, segments)), status_code=302)
+    anchor = request.path_params.get("anchor", "")
+    # Why: the segment arrives decoded; echoed as is, "x%3Fmessage%3D…" would send text from the conversation page.
+    kept = f"/{anchor}" if permalinks.ANCHOR_NAME.fullmatch(anchor) else ""
+    return RedirectResponse(f"/explorations/{crockford.encode(conv_id)}/{message_id}{kept}", status_code=302)
 
 
 def redirect_to_knowledge_file(path: str | None) -> RedirectResponse:

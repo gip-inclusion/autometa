@@ -16,7 +16,8 @@ def encode(value: str) -> str:
 
 def decode(text: str) -> str | None:
     """The UUID a 26-character spelling stands for, None for any other text."""
-    if not re.fullmatch(r"[0-9a-hjkmnp-tv-z]{26}", text, re.IGNORECASE):
+    # Why: without re.ASCII, IGNORECASE folds look-alikes such as the long s (ſ) and the Kelvin sign into the alphabet.
+    if not re.fullmatch(r"[0-9a-hjkmnp-tv-z]{26}", text, re.IGNORECASE | re.ASCII):
         return None
     number = 0
     for char in text.lower():

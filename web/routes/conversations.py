@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import re
 import threading
 import time
 import uuid
@@ -268,7 +267,7 @@ def conversation_anchors(
     }
     target = None
     if message in found:
-        parts = re.fullmatch(r"(section|table|chart)-(\d{1,6})-([0-9a-f]{6})", named)
+        parts = permalinks.ANCHOR_NAME.fullmatch(named)
         hit = parts and permalinks.resolve(found[message], parts[1], int(parts[2]), parts[3])
         target = {"message": int(message), **({"kind": hit.kind, "rank": hit.rank} if hit else {})}
     return {

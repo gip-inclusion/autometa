@@ -36,8 +36,30 @@ def test_a_spelling_reads_back_whatever_its_case():
 
 @pytest.mark.parametrize(
     "text",
-    ["0" * 25, "0" * 27, "0" * 25 + "u", "0" * 25 + "-", "8" + "0" * 25, "", "new", str(uuid.uuid4())],
-    ids=["trop-court", "trop-long", "lettre-exclue", "tiret", "plus-de-128-bits", "vide", "mot", "uuid"],
+    [
+        "0" * 25,
+        "0" * 27,
+        "0" * 25 + "u",
+        "0" * 25 + "-",
+        "8" + "0" * 25,
+        "",
+        "new",
+        str(uuid.uuid4()),
+        "0" * 25 + "ſ",
+        "0" * 25 + "K",
+    ],
+    ids=[
+        "trop-court",
+        "trop-long",
+        "lettre-exclue",
+        "tiret",
+        "plus-de-128-bits",
+        "vide",
+        "mot",
+        "uuid",
+        "s-long",
+        "signe-kelvin",
+    ],
 )
 def test_any_other_text_has_no_uuid(text):
     assert crockford.decode(text) is None

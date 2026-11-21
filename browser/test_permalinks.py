@@ -187,9 +187,12 @@ def test_a_conversation_opened_at_its_base32_address_keeps_it_and_plays_a_turn(
 def test_the_page_reads_a_base32_spelling_back_as_the_server_writes_it(visit: Callable[[str], None], page: Page):
     values = ["00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff", str(uuid.uuid4())]
     spellings = [*map(crockford.encode, values), crockford.encode(values[2]).upper()]
+    lookalikes = ["0" * 25 + "ſ", "0" * 25 + "K"]
     visit("/explorations/new")
 
-    assert page.evaluate("(spellings) => spellings.map(conversationUuid)", spellings) == [*values, values[2]]
+    read = page.evaluate("(spellings) => spellings.map(conversationUuid)", [*spellings, *lookalikes])
+
+    assert read == [*values, values[2], *lookalikes]
 
 
 def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(

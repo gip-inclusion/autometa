@@ -5,7 +5,10 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-__all__ = ["Anchor", "anchors", "resolve"]
+__all__ = ["ANCHOR_NAME", "Anchor", "anchors", "resolve"]
+
+# Why: the element part of a permalink; anything else in its place is dropped, never echoed into an address.
+ANCHOR_NAME = re.compile(r"(section|table|chart)-(\d{1,6})-([0-9a-f]{6})")
 
 
 @dataclass(frozen=True)

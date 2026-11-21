@@ -11,14 +11,16 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 // Scroll position management for htmx navigation
 let isPopState = false;
 
-const CROCKFORD = '0123456789abcdefghjkmnpqrstvwxyz';
-
 /**
  * The UUID a conversation address spells in Crockford base32 (26 characters, any case); any other id as written
  */
 function conversationUuid(spelled) {
+  // Why: without the u flag, the i flag folds ASCII only, so look-alikes such as ſ or the Kelvin sign stay out.
   if (!/^[0-9a-hjkmnp-tv-z]{26}$/i.test(spelled)) return spelled;
-  const number = [...spelled.toLowerCase()].reduce((n, char) => (n << 5n) | BigInt(CROCKFORD.indexOf(char)), 0n);
+  const number = [...spelled.toLowerCase()].reduce(
+    (n, char) => (n << 5n) | BigInt('0123456789abcdefghjkmnpqrstvwxyz'.indexOf(char)),
+    0n,
+  );
   // Why: 26 characters hold 130 bits; a first character above 7 spells more than a UUID's 128.
   if (number >> 128n) return spelled;
   const hex = number.toString(16).padStart(32, '0');
