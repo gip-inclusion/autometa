@@ -336,7 +336,7 @@ def test_a_tap_on_a_heading_link_outlines_nothing(answer, conversation: str, pag
     touch = page.context.browser.new_page(
         base_url=base_url, viewport={"width": 375, "height": 667}, is_mobile=True, has_touch=True
     )
-    touch.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+    touch.goto(f"/c/{conversation}", wait_until="domcontentloaded")
     link = touch.locator(".event-final-answer").last.locator(SECTION_LINK)
 
     link.tap()
