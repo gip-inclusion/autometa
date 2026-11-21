@@ -1,10 +1,14 @@
-"""Preuves navigateur — lien vers une réponse, une section, un tableau, et mise en évidence à l'ouverture."""
+"""Preuves navigateur — lien vers une réponse, une section, un tableau, et mise en évidence à l'ouverture ;
+adresse d'une conversation en base32."""
 
 import re
+import uuid
 from collections.abc import Callable
 
 import pytest
 from playwright.sync_api import Locator, Page, expect
+
+from lib import crockford
 
 pytestmark = pytest.mark.browser
 
@@ -152,6 +156,41 @@ def test_a_heading_link_from_before_permalinks_still_lands(conversation: str, as
     fresh.goto(f"/explorations/{conversation}#methode", wait_until="domcontentloaded")
 
     expect(fresh.locator("h2#methode")).to_be_in_viewport()
+
+
+def test_a_conversation_opened_at_its_base32_address_keeps_it_and_plays_a_turn(
+    conversation: str, visit: Callable[[str], None], ask: Callable[[str], None], page: Page
+):
+    address = f"/explorations/{crockford.encode(conversation)}"
+
+    visit(address)
+
+    expect(page.locator(".event-final-answer")).to_have_count(1)
+    expect(page).to_have_url(re.compile(rf"{address}$"))
+    expect(page.locator(f"#sidebar-recents a[href='/explorations/{conversation}']")).to_have_class(
+        re.compile(r"\bactive\b")
+    )
+
+    ask("Deuxième question")
+
+    expect(page.locator(".event-final-answer").last).to_contain_text("Deuxième question", timeout=15_000)
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    expect(page).to_have_url(re.compile(rf"{address}$"))
+
+    page.locator("#sidebar a[href='/explorations/new']").click()
+    expect(page).to_have_url(re.compile(r"/explorations/new$"))
+    page.go_back()
+
+    expect(page).to_have_url(re.compile(rf"{address}$"))
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+
+
+def test_the_page_reads_a_base32_spelling_back_as_the_server_writes_it(visit: Callable[[str], None], page: Page):
+    values = ["00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff", str(uuid.uuid4())]
+    spellings = [*map(crockford.encode, values), crockford.encode(values[2]).upper()]
+    visit("/explorations/new")
+
+    assert page.evaluate("(spellings) => spellings.map(conversationUuid)", spellings) == [*values, values[2]]
 
 
 def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(

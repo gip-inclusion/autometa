@@ -11,14 +11,29 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 // Scroll position management for htmx navigation
 let isPopState = false;
 
+const CROCKFORD = '0123456789abcdefghjkmnpqrstvwxyz';
+
 /**
- * What a conversation page's path names: its conversation, and for a permalink a message and an element of it
+ * The UUID a conversation address spells in Crockford base32 (26 characters, any case); any other id as written
+ */
+function conversationUuid(spelled) {
+  if (!/^[0-9a-hjkmnp-tv-z]{26}$/i.test(spelled)) return spelled;
+  const number = [...spelled.toLowerCase()].reduce((n, char) => (n << 5n) | BigInt(CROCKFORD.indexOf(char)), 0n);
+  // Why: 26 characters hold 130 bits; a first character above 7 spells more than a UUID's 128.
+  if (number >> 128n) return spelled;
+  const hex = number.toString(16).padStart(32, '0');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * What a conversation page's path names: its conversation as spelled and as a UUID, and a permalink's message and
+ * element
  */
 function parseExplorationPath(path) {
   const match = path.match(/^\/explorations\/([^/]+)(?:\/(\d+)(?:\/([^/]+))?)?$/);
   if (!match || match[1] === 'new') return null;
-  const [, conversation, message, anchor] = match;
-  return { conversation, message, anchor };
+  const [, spelled, message, anchor] = match;
+  return { spelled, conversation: conversationUuid(spelled), message, anchor };
 }
 
 // Save scroll position before htmx request
