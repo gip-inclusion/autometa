@@ -6,9 +6,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from web.database import store
+from web.db import get_db
 from web.helpers import CONV_ID_ALPHABET, UUID_CONV_ID, new_conv_id, validate_conv_id
+from web.models import Conversation
+from web.stores.conversations import insert_conversation
 
 STREAM_JS = Path(__file__).parent.parent / "web" / "static" / "js" / "stream.js"
 
@@ -109,3 +113,13 @@ def test_a_draw_stuck_on_a_taken_id_gives_up_after_a_few_tries(app, mocker):
         store.create_conversation(user_id="bob@example.com")
 
     assert draws.call_count == 1 + 5
+
+
+@pytest.mark.integration
+def test_an_integrity_error_other_than_a_taken_id_is_raised_without_drawing_again(app, mocker):
+    draws = mocker.patch("web.stores.conversations.new_conv_id", side_effect=["aaaaaaaa", "bbbbbbbb"])
+
+    with pytest.raises(IntegrityError), get_db() as session:
+        insert_conversation(session, Conversation(user_id="alice@example.com"))
+
+    assert draws.call_count == 1
