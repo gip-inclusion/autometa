@@ -4831,3 +4831,102 @@ body.no-sidebar .section-header .container-fluid {
     top: calc(var(--staging-banner-height) + 56px);
   }
 }
+
+/* Permalinks: a link button on each finished answer, section, table and chart */
+.permalink-btn {
+  float: right;
+  margin-left: 0.4rem;
+  padding: 0 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Why: a heading's link sits on its line and always shows, muted; the others show only where the pointer is. */
+.event-assistant :is(h1, h2, h3, h4, h5, h6) .permalink-btn {
+  float: none;
+  opacity: 0.45;
+}
+
+.event-assistant:hover > .permalink-btn,
+.permalink-figure:hover > .permalink-btn {
+  opacity: 0.7;
+}
+
+.event-assistant .permalink-btn:is(:hover, :focus-visible) {
+  opacity: 1;
+}
+
+/* Why: a figure's link lies over its top-right corner, so the figure keeps its place and its width. */
+.permalink-figure {
+  position: relative;
+}
+
+.permalink-figure > .permalink-btn {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  margin: 0;
+  border-radius: 4px;
+  background: var(--bs-body-bg);
+}
+
+/* Why: with no pointer to reveal them, the answer's and the figures' links would cover a figure's corner and catch
+   taps; a touch screen shows the heading links only. */
+@media (hover: none) {
+  .event-assistant > .permalink-btn,
+  .permalink-figure > .permalink-btn {
+    display: none;
+  }
+}
+
+/* Why: the answer's own link is now its block's first child; a heading just after it keeps the first-child spacing. */
+.event-assistant > .permalink-btn:first-child + :is(h1, h2, h3) {
+  margin-top: 0;
+}
+
+/* Why: the conversation scrolls under its header; the margin keeps the outline and a table's bold title line above
+   the target in view. */
+.permalink-target {
+  border-radius: 4px;
+  outline: 2px solid #006adc;
+  outline-offset: 4px;
+  scroll-margin-top: 4rem;
+}
+
+/* Why: a link under the pointer or the keyboard outlines what it shares, more faintly than an opened link; an opened
+   link's target keeps its own outline. */
+.event-assistant:not(.permalink-target):has(> .permalink-btn:is(:hover, :focus-visible)),
+.permalink-figure:has(> .permalink-btn:is(:hover, :focus-visible)) > [data-anchor]:not(.permalink-target) {
+  border-radius: 4px;
+  outline: 1px solid rgb(0 106 220 / 45%);
+  outline-offset: 4px;
+}
+
+/* Why: a section is not one element; permalinks.js marks its heading, whose ::before runs down to the section's end. */
+.permalink-section-outline {
+  position: relative;
+}
+
+.permalink-section-outline::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--permalink-section-height);
+  border-radius: 4px;
+  outline: 1px solid rgb(0 106 220 / 45%);
+  outline-offset: 4px;
+  pointer-events: none;
+}
+
+.toc-level-3 {
+  padding-left: 1.25rem;
+}
+
+.toc-level-4 {
+  padding-left: 2rem;
+}

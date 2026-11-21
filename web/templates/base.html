@@ -14,6 +14,9 @@
 
   <!-- htmx -->
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <!-- Why: htmx files its snapshot under the address it last pushed; when the page rewrote it (a permalink, a table of
+       contents entry, ?message=), Back misses the snapshot, and only a reload brings the conversation back. -->
+  <meta name="htmx-config" content='{"refreshOnHistoryMiss": true}'>
 
   <!-- App styles -->
   <link rel="stylesheet" href="{{ static_url('css/style.css') }}">
@@ -234,6 +237,7 @@
   <script src="{{ static_url('js/actions.js') }}"></script>
   <script src="{{ static_url('js/render.js') }}"></script>
   <script src="{{ static_url('js/stream.js') }}"></script>
+  <script src="{{ static_url('js/permalinks.js') }}"></script>
   <script src="{{ static_url('js/queue.js') }}"></script>
   <script src="{{ static_url('js/notify.js') }}"></script>
   <script src="{{ static_url('js/chat.js') }}"></script>
@@ -256,7 +260,9 @@
   <!-- Sidebar active state management -->
   <script>
   function updateSidebarActive() {
-    const path = window.location.pathname;
+    const opened = parseExplorationPath(window.location.pathname);
+    // Why: a permalink opens its conversation's page, whose link in the recents stays the active one.
+    const path = opened ? `/explorations/${opened.conversation}` : window.location.pathname;
     const show = new URLSearchParams(window.location.search).get('show') || '';
     // La vue Rapports couvre l'onglet ?show=reports et les pages de détail /rapports/...
     const onReports = path.startsWith('/rapports') || (path === '/conversations' && show === 'reports');
