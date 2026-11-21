@@ -1,11 +1,18 @@
 """Retour et Avance du navigateur : la page que htmx remet en place vit, et suit ce qu'elle montre."""
 
 import re
+import shutil
 import uuid
 from collections.abc import Callable, Iterator
 
 import pytest
 from playwright.sync_api import Page, Route, expect
+from sqlalchemy import delete
+
+from lib.dashboards import create_dashboard
+from web import config, s3
+from web.db import get_db
+from web.models import Dashboard
 
 pytestmark = pytest.mark.browser
 
@@ -36,6 +43,29 @@ def favourites(page: Page) -> Iterator[list[str]]:
     yield conversations
     for conversation in conversations:
         page.request.delete(f"/api/favorites/conversation/{conversation}")
+
+
+@pytest.fixture
+def dashboard() -> Iterator[str]:
+    """Un TDB à cron, créé par la bibliothèque de l'application, retiré à la fin."""
+    slug = f"e2e-history-{uuid.uuid4().hex[:8]}"
+    create_dashboard(
+        slug=slug,
+        title="Parcours historique",
+        description="e2e",
+        website=None,
+        category=None,
+        tags=[],
+        has_cron=True,
+        first_author_email="e2e@inclusion.gouv.fr",
+        created_in_conversation_id=None,
+    )
+    yield slug
+    with get_db() as session:
+        session.execute(delete(Dashboard).where(Dashboard.slug == slug))
+    shutil.rmtree(config.INTERACTIVE_DIR / slug, ignore_errors=True)
+    for entry in s3.interactive.list_files(f"{slug}/"):
+        s3.interactive.delete(entry["path"])
 
 
 def start_conversation(page: Page, visit: Callable[[str], None], ask: Callable[[str], None], question: str) -> str:
@@ -188,6 +218,19 @@ def test_back_to_the_dashboards_page_copies_a_link_once(errors: list[str], visit
     expect(icon).to_have_class("ri-check-line text-success")
     expect(icon).to_have_class("ri-file-copy-line")
     assert page.evaluate("navigator.clipboard.readText()") == "/lien"
+    assert errors == []
+
+
+def test_back_to_a_dashboard_settings_page_keeps_its_buttons(errors: list[str], dashboard: str, visit, page: Page):
+    visit(f"/dashboards/{dashboard}/edit")
+    leave_for_conversations(page)
+
+    page.go_back()
+
+    page.locator("[data-action='edit-title']").click()
+    expect(page.locator("#titleInput")).to_be_visible()
+    page.locator("[data-action='cron-history']").click()
+    expect(page.locator("#cronLogModal")).to_contain_text("Aucun historique")
     assert errors == []
 
 
