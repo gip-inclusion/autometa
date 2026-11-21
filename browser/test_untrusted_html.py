@@ -1,5 +1,6 @@
 """Preuves navigateur — le HTML qu'écrit un agent s'affiche sans jamais s'exécuter ni recouvrir la page."""
 
+import json
 import re
 from collections.abc import Callable
 
@@ -172,3 +173,18 @@ def test_a_message_shows_its_html_as_text(
         assert probes(page) == []
         page.reload(wait_until="domcontentloaded")
         answer_shown(page)
+
+
+def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: str, page: Page):
+    signal = {"source": "matomo", "method": "VisitsSummary.get", "url": "javascript:alert(1)"}
+    with_stored_messages(
+        page,
+        [
+            {"id": 10**9, "type": "tool_use", "content": json.dumps({"tool": "Bash", "input": {"command": "echo"}})},
+            {"id": 10**9 + 1, "type": "tool_result", "content": json.dumps({"output": "x", "api_calls": [signal]})},
+        ],
+    )
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".action-api-link").first).to_contain_text("VisitsSummary.get", timeout=15000)
+    hrefs = page.evaluate("() => [...document.querySelectorAll('.action-api-link')].map((a) => a.getAttribute('href'))")
+    assert set(hrefs) == {None}
