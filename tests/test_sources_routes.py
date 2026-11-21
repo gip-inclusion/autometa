@@ -162,6 +162,16 @@ def test_detail_page_links_a_knowledge_document(client):
     assert 'href="/knowledge/matomo/README.md"' in body
 
 
+def test_a_source_document_keeps_none_of_its_active_html(client, mocker, tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n\n**gras** <img src=x onerror=alert(1)>\n")
+    mocker.patch("web.routes.sources.doc_path", return_value=doc)
+
+    body = client.get("/sources/matomo").text
+    assert "<strong>gras</strong>" in body
+    assert "onerror=alert(1)" not in body
+
+
 def test_source_without_documentation_says_so(client):
     body = client.get("/sources/s3").text
     assert "pas encore de documentation" in body
