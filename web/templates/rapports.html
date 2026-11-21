@@ -47,7 +47,7 @@
           <div class="report-meta"><i class="ri-global-line"></i> {{ report_front_matter['website'] }}</div>
           {% endif %}
         </div>
-        <div class="report-body" id="reportBody">{{ report_html }}</div>
+        <div class="report-body" id="reportBody" hx-disable>{{ report_html }}</div>
       </div>
       <div class="report-footer text-muted small mt-3">
         {% if current_report.source_conversation_id %}

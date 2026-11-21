@@ -594,7 +594,9 @@ function formatPillContent(toolUse, toolResult) {
     for (const call of toolResult.api_calls) {
       const linkText = call.method || `${call.sql?.replace(/^[\s\\n]+/, '').substring(0, 50)}...` || 'View';
       const icon = call.source === 'matomo' ? 'ri-bar-chart-line' : 'ri-database-2-line';
-      html += `<a href="${escapeHtml(call.url)}" target="_blank" class="action-api-link">
+      // Why: the signal is read from the tool's output, which the agent or a page it fetched can forge.
+      const href = isSafeUserUrl(call.url) ? ` href="${escapeHtml(call.url)}"` : '';
+      html += `<a${href} target="_blank" class="action-api-link">
         <i class="${icon}"></i>
         <span>${escapeHtml(linkText)}</span>
         <i class="ri-external-link-line"></i>
