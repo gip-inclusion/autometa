@@ -287,21 +287,25 @@ function addTocEntry(target) {
   const emptyState = tocContent.querySelector('.toc-empty');
   if (emptyState) emptyState.remove();
 
-  const { anchorKind, anchorTitle, anchorLevel, permalink } = target.dataset;
-  const icon = { table: 'ri-table-line', chart: 'ri-bar-chart-2-line' }[anchorKind];
-  const text = anchorTitle || { table: 'Tableau', chart: 'Graphique' }[anchorKind] || target.textContent.trim();
+  const { anchorKind, anchorTitle, anchorLevel, anchorUrl } = target.dataset;
+  const figure = {
+    table: { icon: 'ri-table-line', name: 'Tableau' },
+    chart: { icon: 'ri-bar-chart-2-line', name: 'Graphique' },
+  }[anchorKind];
+  // Why: a section reads as on the page; a figure has no text of its own to show, so it takes the server's title.
+  const text = figure ? anchorTitle || figure.name : target.textContent.trim();
   const entry = document.createElement('div');
   // Why: answers usually start at ##, so levels 1 and 2 share the margin; a figure sits one notch under its section.
   entry.className = `toc-entry toc-level-${Math.min(Number(anchorLevel) || 1, 4)}`;
   entry.innerHTML = `
-    ${icon ? `<div class="toc-entry-icon"><i class="${icon}" aria-hidden="true"></i></div>` : ''}
+    ${figure ? `<div class="toc-entry-icon"><i class="${figure.icon}" aria-hidden="true"></i></div>` : ''}
     <div class="toc-entry-content">
       <div class="toc-entry-text">${escapeHtml(text)}</div>
     </div>
   `;
 
   entry.addEventListener('click', () => {
-    if (permalink) history.replaceState(null, '', permalink);
+    if (anchorUrl) history.replaceState(null, '', anchorUrl);
     else if (target.id) history.replaceState(null, '', `#${target.id}`);
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });

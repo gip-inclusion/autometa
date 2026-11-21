@@ -118,6 +118,26 @@ def test_a_section_is_titled_by_its_heading_as_plain_text(heading, expected):
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
+        ("## Résultats [détaillés](https://example.com/a-1) en 2026", ["Résultatsdétaillésen2026"]),
+        ("## " + "mot " * 20, ["mot" * 13 + "m"]),
+        ("| a | b \\| c |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |", ["2x2"]),
+        ("a | b | c\n---|---|---", ["3x0"]),
+        ('```mermaid\npie title Répartition\n    "A" : 1\n```', ["pietitleRépartitionA1"]),
+        (
+            "Désaccord\n\n## Contexte\n\n> ## Note importante\n> texte\n\n"
+            "<details>\n## Détail des calculs\n</details>\n\n## Résultats",
+            ["Contexte", "Détaildescalculs", "Résultats"],
+        ),
+    ],
+    ids=["section", "section-longue", "tableau", "tableau-sans-ligne", "graphique", "citation-et-html"],
+)
+def test_each_anchor_carries_a_witness_the_page_checks_it_against(text, expected):
+    assert [a.witness for a in permalinks.anchors(text)] == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
         ("```x``` :\n\n## A\n\n```\n# B\n```\n", ["A"]),
         ("```\n    ```\n## A\n```\n", []),
         ("````\n```\n## A\n````\n", []),

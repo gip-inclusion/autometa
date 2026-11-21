@@ -4,18 +4,32 @@ import re
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 pytestmark = pytest.mark.browser
 
 QUESTION = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |\n\n## Méthode\n\nTexte."
 
+# Why: le serveur voit un titre dans le bloc HTML, la page un titre dans la citation — autant de titres de part et
+# d'autre, pas les mêmes.
+DISAGREEMENT = (
+    "Désaccord\n\n## Contexte\n\n> ## Note importante\n> texte\n\n"
+    "<details>\n## Détail des calculs\n</details>\n\n## Résultats"
+)
+
+# Why: le titre du serveur garde l'échappement « \# » ; le sommaire montre la section telle que la page l'affiche.
+CHART = 'Graphique\n\n## Statuts \\#1\n\n```mermaid\npie title Par statut\n    "Acceptées" : 3\n    "Refusées" : 1\n```'
+
+
+def answer_to(question: str, ask: Callable[[str], None], page: Page) -> Locator:
+    ask(question)
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    return page.locator(".event-final-answer").last
+
 
 @pytest.fixture
 def answer(conversation: str, ask: Callable[[str], None], page: Page):
-    ask(QUESTION)
-    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
-    return page.locator(".event-final-answer").last
+    return answer_to(QUESTION, ask, page)
 
 
 def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(answer, conversation: str):
@@ -28,6 +42,27 @@ def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(
         "section-2",
         "table-1",
     ]
+
+
+def test_an_answer_the_page_reads_otherwise_than_the_server_keeps_its_own_link_only(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    answer = answer_to(DISAGREEMENT, ask, page)
+
+    expect(answer.locator(".permalink-btn")).to_have_count(1)
+    expect(answer.locator("h2")).to_have_text(["Contexte", "Note importante", "Résultats"])
+    expect(page.locator("#tocContent .toc-entry")).to_have_text(["Contexte", "Note importante", "Résultats"])
+    expect(page.locator("#tocContent .toc-entry.toc-level-1")).to_have_count(3)
+
+
+def test_a_chart_gets_its_link_and_its_entry_in_the_table_of_contents(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    answer = answer_to(CHART, ask, page)
+
+    expect(answer.locator(".permalink-btn[data-url*='a=chart-1-']")).to_have_count(1)
+    expect(page.locator("#tocContent .toc-entry")).to_have_text(["Statuts #1", "Par statut"])
+    expect(page.locator("#tocContent .toc-entry").nth(1).locator(".ri-bar-chart-2-line")).to_have_count(1)
 
 
 @pytest.mark.parametrize(

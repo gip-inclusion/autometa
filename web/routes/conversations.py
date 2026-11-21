@@ -273,7 +273,15 @@ def conversation_anchors(
     return {
         "anchors": {
             m: [
-                {"kind": a.kind, "rank": a.rank, "digest": a.digest, "title": a.title, "level": a.level} for a in listed
+                {
+                    "kind": a.kind,
+                    "rank": a.rank,
+                    "digest": a.digest,
+                    "title": a.title,
+                    "level": a.level,
+                    "witness": a.witness,
+                }
+                for a in listed
             ]
             for m, listed in found.items()
         },

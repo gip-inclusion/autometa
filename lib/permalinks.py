@@ -16,6 +16,7 @@ class Anchor:
     text: str
     title: str
     level: int
+    witness: str
 
 
 def plain(markdown: str) -> str:
@@ -77,6 +78,12 @@ def anchors(text: str) -> list[Anchor]:
         ranks[kind] += 1
         body = "\n".join(lines[start:end]).strip()
         title = heading
+        if kind == "table":
+            cells = re.split(r"(?<!\\)\|", re.sub(r"^\||(?<!\\)\|$", "", lines[start].strip()))
+            witness = f"{len(cells)}x{end - start - 2}"
+        else:
+            # Why: the page checks each pairing against what it rendered; letters and digits survive any Markdown.
+            witness = "".join(filter(str.isalnum, body if kind == "chart" else heading))[:40]
         if kind != "section":
             native = kind == "chart" and re.search(
                 r"^[ \t]*(?:pie[ \t]+(?:showData[ \t]+)?)?title:?[ \t]+(.+)$", body, re.M
@@ -88,7 +95,7 @@ def anchors(text: str) -> list[Anchor]:
             # Why: a figure is quoted alone; its own title, or the bold line above it, says more than its section.
             title = (native and native[1].strip().strip('"')) or (bold and plain(bold[1])) or heading
         digest = hashlib.sha256(body.encode()).hexdigest()[:6]
-        found.append(Anchor(kind, ranks[kind], digest, body, title, depth + (kind != "section")))
+        found.append(Anchor(kind, ranks[kind], digest, body, title, depth + (kind != "section"), witness))
     return found
 
 

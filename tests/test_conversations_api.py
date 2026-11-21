@@ -316,9 +316,9 @@ def test_anchors_lists_each_agent_message_for_any_reader(client):
 
     body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers(BOB)).json()
 
-    assert [(a["kind"], a["rank"], a["title"], a["level"]) for a in body["anchors"][answer]] == [
-        ("section", 1, "Titre", 2),
-        ("table", 1, "Titre", 3),
+    assert [(a["kind"], a["rank"], a["title"], a["level"], a["witness"]) for a in body["anchors"][answer]] == [
+        ("section", 1, "Titre", 2, "Titre"),
+        ("table", 1, "Titre", 3, "2x1"),
     ]
     assert body["target"] is None
 
