@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Callable, Iterator
 
 import pytest
-from playwright.sync_api import Page, Route, expect
+from playwright.sync_api import ConsoleMessage, Page, Route, expect
 from sqlalchemy import delete
 
 from lib.dashboards import create_dashboard
@@ -48,11 +48,19 @@ DIALOGS = {
 
 
 @pytest.fixture
-def errors(page: Page) -> list[str]:
-    """Les erreurs JavaScript de la page, levées ou écrites dans la console."""
+def errors(page: Page, base_url: str) -> list[str]:
+    """Les erreurs JavaScript de la page, levées ou écrites dans la console, hors pannes de réseau."""
     found: list[str] = []
+
+    def on_console(message: ConsoleMessage) -> None:
+        # Why: un CDN tiers indisponible, ou une requête qu'une navigation complète coupe, ne dit rien des scripts.
+        source = message.location["url"]
+        third_party_load = message.text.startswith("Failed to load resource") and not source.startswith(base_url)
+        if message.type == "error" and not third_party_load and "Failed to fetch" not in message.text:
+            found.append(message.text)
+
     page.on("pageerror", lambda error: found.append(str(error)))
-    page.on("console", lambda message: message.type == "error" and found.append(message.text))
+    page.on("console", on_console)
     return found
 
 
@@ -161,9 +169,11 @@ def test_back_to_the_conversations_list_keeps_it_usable(errors: list[str], conve
     page.go_back()
 
     expect(page).to_have_url(re.compile(r"/conversations\?show=convos$"))
+    page.evaluate("window.sameDocument = true")
     entry.click()
     expect(page).to_have_url(re.compile(rf"/explorations/{conversation}$"))
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
+    assert page.evaluate("window.sameDocument") is True
     assert errors == []
 
 
@@ -295,21 +305,26 @@ def test_back_to_a_dashboard_settings_page_keeps_its_buttons(errors: list[str], 
 def test_back_to_a_job_run_polls_that_run_and_only_while_shown(errors: list[str], visit, page: Page):
     run = str(uuid.uuid4())
     summary = {"text": "Avant le départ"}
-    polls = []
 
     def answer(route: Route) -> None:
-        polls.append(route.request.url)
         route.fulfill(json={"id": run, "status": "running", "summary": summary["text"]})
 
     page.route(f"**/api/jobs/runs/{run}", answer)
     page.route(f"**/api/jobs/runs/{run}/events", lambda route: route.fulfill(json=[]))
+    page.clock.install()
     visit(f"/jobs/runs/{run}")
     expect(page.locator("#summary")).to_have_text("Avant le départ")
     page.locator("#back-link").click()
     expect(page).to_have_url(re.compile(r"/jobs$"))
-    shown = len(polls)
-    page.wait_for_timeout(3500)
-    assert len(polls) == shown
+    page.evaluate(
+        "run => { window.polls = 0; const fetch = window.fetch;"
+        " window.fetch = (url, options) => { if (String(url).includes(run)) window.polls += 1;"
+        " return fetch(url, options); }; }",
+        run,
+    )
+    # Why: la page interroge le run toutes les 3 s ; l'horloge de la page fait passer plusieurs échéances d'un coup.
+    page.clock.run_for(10_000)
+    assert page.evaluate("window.polls") == 0
     summary["text"] = "Après le retour"
 
     page.go_back()
