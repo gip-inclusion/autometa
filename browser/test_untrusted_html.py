@@ -2,7 +2,7 @@
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import pytest
 from playwright.sync_api import Page, Route, expect
@@ -32,6 +32,25 @@ PAYLOADS = "\n\n".join([
     '<a href="https://example.org/" target="_top" id="probe-id" name="probe-name">cible</a>',
 ])
 
+# Why: Mermaid nettoie lui-même les étiquettes qu'il dessine ; un déclencheur différé attend qu'htmx relise la page
+# restaurée par Précédent. Les deux derniers graphiques tentent d'assouplir ce nettoyage.
+LABEL = (
+    f"<span data-hx-get='{MARKER}/chart' data-hx-trigger='load delay:300ms' data-hx-on--trigger='probe(1)' "
+    f"data-hx-on-mouseover='probe(2)'>Étape</span><img src='{MARKER}/image'>"
+)
+DIAGRAMS = [
+    f'flowchart TD\n  A["{LABEL}"] -->|"{LABEL}"| B',
+    f'classDiagram\n  class A["{LABEL}"]',
+    f"stateDiagram-v2\n  s1 : {LABEL}",
+    f'erDiagram\n  A ||--o{{ B : "{LABEL}"',
+    f'block-beta\n  a["{LABEL}"]',
+    f'%%{{init: {{"securityLevel": "loose", "dompurifyConfig": {{"ALLOW_DATA_ATTR": true}}}}}}%%\nflowchart TD\n  A["{LABEL}"]',
+    f'---\nconfig:\n  dompurifyConfig:\n    ALLOW_DATA_ATTR: true\n---\nflowchart TD\n  A["{LABEL}"]',
+]
+CHARTS = "\n\n".join(f"```mermaid\n{code}\n```" for code in DIAGRAMS)
+
+# Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
+# le navigateur exécuteraient sont jugés.
 UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
   const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta'];
@@ -39,6 +58,10 @@ UNSAFE_MARKUP = """([region, allowed]) => {
     if (!root.closest('[hx-disable]')) found.push('read by htmx');
     for (const el of root.querySelectorAll('*')) {
       const tag = el.tagName.toLowerCase();
+      if (el.closest('.mermaid')) {
+        for (const { name } of el.attributes) if (/^(on|hx-|data-hx-)/.test(name)) found.push(`chart ${tag}[${name}]`);
+        continue;
+      }
       if (tags.includes(tag)) found.push(tag);
       for (const { name, value } of el.attributes) {
         if (allowed.includes(`${tag}[${name}]`)) continue;
@@ -51,6 +74,9 @@ UNSAFE_MARKUP = """([region, allowed]) => {
   }
   return found;
 }"""
+
+HOVER_CHARTS = """() => document.querySelectorAll('.mermaid *')
+  .forEach((el) => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))"""
 
 ANSWERS = "#chatOutput .event-assistant"
 TOC_IDS = ("h2[id]",)
@@ -72,11 +98,14 @@ def marker_requests(page: Page) -> list[str]:
     return requested
 
 
-def assert_inert(page: Page, region: str, text: str, requested: list[str], allowed: tuple[str, ...] = ()) -> None:
+def assert_inert(
+    page: Page, region: str, text: str, requested: list[str], allowed: tuple[str, ...] = (), charts: int = 0
+) -> None:
     """`region` montre `text` et reste inerte : aucun balisage actif, aucune sonde déclenchée, aucune requête partie."""
     expect(page.locator(region).last).to_contain_text(text, timeout=15000)
-    # Why: rien n'annonce qu'un gestionnaire ne s'exécutera pas ; on laisse aux erreurs d'image et aux animations
-    # le temps de se déclencher.
+    expect(page.locator(f"{region} .mermaid svg")).to_have_count(charts)
+    page.evaluate(HOVER_CHARTS)
+    # Why: rien n'annonce qu'un gestionnaire ne s'exécutera pas ; une seconde dépasse tout délai des charges (300 ms).
     page.wait_for_timeout(1000)
     assert page.evaluate(UNSAFE_MARKUP, [region, list(allowed)]) == []
     assert probes(page) == []
@@ -89,13 +118,15 @@ def away_and_back(page: Page) -> None:
     page.go_back()
 
 
-def assert_stays_inert(page: Page, region: str, text: str, requested: list[str], allowed: tuple[str, ...] = ()) -> None:
+def assert_stays_inert(
+    page: Page, region: str, text: str, requested: list[str], allowed: tuple[str, ...] = (), charts: int = 0
+) -> None:
     """Inerte une fois affichée, après un rechargement, puis au retour par Précédent qu'htmx restaure."""
-    assert_inert(page, region, text, requested, allowed)
+    assert_inert(page, region, text, requested, allowed, charts)
     page.reload(wait_until="domcontentloaded")
-    assert_inert(page, region, text, requested, allowed)
+    assert_inert(page, region, text, requested, allowed, charts)
     away_and_back(page)
-    assert_inert(page, region, text, requested, allowed)
+    assert_inert(page, region, text, requested, allowed, charts)
 
 
 def with_stored_messages(page: Page, messages: list[dict]) -> None:
@@ -124,6 +155,15 @@ def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None
     expect(page.locator("#chatInput")).to_be_visible()
 
 
+def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
+    page.add_init_script(PROBE)
+    requested = marker_requests(page)
+    visit("/explorations/new")
+    ask(f"Graphiques\n\n{CHARTS}")
+
+    assert_stays_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
+
+
 def test_without_the_sanitizer_an_answer_is_plain_text(
     page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
 ):
@@ -145,7 +185,7 @@ def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], N
             "[Documentation](https://example.org/doc)",
             "<details><summary>Plus</summary>Détail caché</details>",
             "H<sub>2</sub>O et 10<sup>3</sup>",
-            "```mermaid\ngraph TD\n  A --> B\n```",
+            "```mermaid\ngraph TD\n  A[Ligne 1<br/>ligne 2] --> B\n```",
             "```options\nOui\nNon | Non merci\n```",
         ])
     )
@@ -159,6 +199,7 @@ def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], N
         ("details summary", 1),
         ("sub", 1),
         ("sup", 1),
+        (".mermaid svg .node br", 1),
         (".options-buttons button", 2),
     ]:
         expect(answer.locator(selector)).to_have_count(count)
@@ -182,6 +223,26 @@ def test_a_report_shows_its_header_and_body_without_running_them(conversation: s
     expect(header.locator("img")).to_have_count(0)
 
     assert_stays_inert(page, "#chatOutput .report-body", "Session expirée", requested, TOC_IDS)
+
+
+@pytest.fixture
+def report(page: Page) -> Iterator[int]:
+    """Un rapport écrit par l'agent, porteur des charges et des graphiques, retiré ensuite."""
+    content = f"# Rapport\n\n## Section\n\n{PAYLOADS}\n\n{CHARTS}"
+    response = page.request.post("/api/reports", data={"title": "Rapport non fiable", "content": content})
+    assert response.status == 201, response.text()
+    report_id = response.json()["id"]
+    yield report_id
+    page.request.delete(f"/api/reports/{report_id}")
+
+
+def test_a_report_page_runs_none_of_its_html(report: int, page: Page, visit: Callable[[str], None]):
+    page.add_init_script(PROBE)
+    requested = marker_requests(page)
+    visit(f"/rapports/{report}")
+    heading_ids = tuple(f"h{level}[id]" for level in range(1, 7))
+
+    assert_stays_inert(page, "#reportBody", "Session expirée", requested, heading_ids, charts=len(DIAGRAMS))
 
 
 @pytest.mark.parametrize(
@@ -252,7 +313,7 @@ def with_knowledge_text(text: str) -> Callable[[Route], None]:
 def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str], None], through_htmx: bool):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
-    page.route("**/knowledge/matomo/README.md", with_knowledge_text(f"**gras**\n\n{PAYLOADS}"))
+    page.route("**/knowledge/matomo/README.md", with_knowledge_text(f"**gras**\n\n{PAYLOADS}\n\n{CHARTS}"))
     if through_htmx:
         visit("/knowledge")
         page.locator('a[href="/knowledge/matomo/README.md"]').click()
@@ -260,7 +321,7 @@ def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str
         visit("/knowledge/matomo/README.md")
     expect(page.locator("#markdownContent strong")).to_have_text("gras")
 
-    assert_stays_inert(page, "#markdownContent", "Session expirée", requested)
+    assert_stays_inert(page, "#markdownContent", "Session expirée", requested, charts=len(DIAGRAMS))
 
 
 def test_without_the_sanitizer_a_knowledge_page_is_plain_text(page: Page, visit: Callable[[str], None]):
