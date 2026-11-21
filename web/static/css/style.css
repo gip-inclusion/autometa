@@ -4846,17 +4846,39 @@ body.no-sidebar .section-header .container-fluid {
   cursor: pointer;
 }
 
-.event-assistant:hover .permalink-btn,
-.permalink-btn:focus-visible {
+/* Why: a heading's link sits on its line and always shows, muted; the others show only where the pointer is. */
+.event-assistant :is(h1, h2, h3, h4, h5, h6) .permalink-btn {
+  float: none;
+  opacity: 0.45;
+}
+
+.event-assistant:hover > .permalink-btn,
+.permalink-figure:hover > .permalink-btn {
   opacity: 0.7;
 }
 
-.permalink-btn:hover {
+.event-assistant .permalink-btn:is(:hover, :focus-visible) {
   opacity: 1;
 }
 
-.event-assistant :is(h1, h2, h3, h4, h5, h6) .permalink-btn {
-  float: none;
+/* Why: a figure's link lies over its top-right corner, so the figure keeps its place and its width. */
+.permalink-figure {
+  position: relative;
+}
+
+.permalink-figure > .permalink-btn {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  margin: 0;
+  border-radius: 4px;
+  background: var(--bs-body-bg);
+}
+
+@media (hover: none) {
+  .event-assistant .permalink-btn {
+    opacity: 0.7;
+  }
 }
 
 /* Why: the answer's own link is now its block's first child; a heading just after it keeps the first-child spacing. */

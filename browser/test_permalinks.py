@@ -96,6 +96,35 @@ def test_the_table_of_contents_outlines_sections_and_figures(answer, page: Page)
     expect(page).to_have_url(re.compile(r"a=table-1-[0-9a-f]{6}$"))
 
 
+def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_over_its_corner(answer, page: Page):
+    table = answer.locator("table")
+    figure_link = answer.locator(".permalink-btn[data-url*='a=table-1-']")
+    expect(figure_link).to_have_count(1)
+
+    page.mouse.move(0, 0)
+
+    expect(answer.locator("h2 .permalink-btn").first).not_to_have_css("opacity", "0")
+    expect(figure_link).to_have_css("opacity", "0")
+
+    table.hover()
+
+    expect(figure_link).not_to_have_css("opacity", "0")
+    link_box, table_box = figure_link.bounding_box(), table.bounding_box()
+    assert table_box["x"] <= link_box["x"] and link_box["x"] + link_box["width"] <= table_box["x"] + table_box["width"]
+    assert table_box["y"] <= link_box["y"] < table_box["y"] + table_box["height"] / 2
+
+
+def test_putting_the_links_again_wraps_each_figure_once(answer, page: Page):
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+
+    page.evaluate("refreshPermalinks()")
+    page.evaluate("refreshPermalinks()")
+
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+    expect(answer.locator(".permalink-figure")).to_have_count(1)
+    expect(answer.locator(".permalink-figure > table")).to_have_count(1)
+
+
 def test_a_heading_link_from_before_permalinks_still_lands(conversation: str, ask: Callable[[str], None], page: Page):
     answer_to(LONG, ask, page)
     fresh = page.context.new_page()

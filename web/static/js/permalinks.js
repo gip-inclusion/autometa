@@ -64,8 +64,15 @@ function attachPermalinks(block, ids, anchors) {
       anchorLevel: anchor.level,
       anchorUrl: button.dataset.url,
     });
-    if (anchor.kind === 'section') element.append(button);
-    else element.before(button);
+    if (anchor.kind === 'section') {
+      element.append(button);
+      continue;
+    }
+    // Why: a figure's link lies over its corner, out of the flow, so the figure keeps its place and its width.
+    const figure = document.createElement('div');
+    figure.className = 'permalink-figure';
+    element.replaceWith(figure);
+    figure.append(element, button);
   }
 }
 
@@ -89,6 +96,7 @@ async function refreshPermalinks() {
   if (!body || convId !== currentConversationId) return null;
   for (const block of document.querySelectorAll('#chatOutput .event-assistant')) {
     for (const button of block.querySelectorAll('.permalink-btn')) button.remove();
+    for (const figure of block.querySelectorAll('.permalink-figure')) figure.replaceWith(...figure.childNodes);
     for (const element of block.querySelectorAll('[data-anchor]')) {
       for (const key of Object.keys(element.dataset)) if (key.startsWith('anchor')) delete element.dataset[key];
     }
