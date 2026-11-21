@@ -90,33 +90,38 @@ function attachPermalinks(block, ids, anchors) {
  * Put the links on every finished answer; returns the anchors and the target of the address being opened, null when
  * they could not be loaded
  */
+let permalinksRequest = 0;
+
 async function refreshPermalinks() {
   const convId = currentConversationId;
   if (!convId) return null;
-  const { message, anchor } = parseExplorationPath(window.location.pathname) ?? {};
-  const url = new URL(`/api/conversations/${convId}/anchors`, window.location.origin);
-  if (message) url.searchParams.set('m', message);
-  if (anchor) url.searchParams.set('a', anchor);
-  let body = null;
+  const request = ++permalinksRequest;
+  // Why: links are an extra; whatever fails here must not keep a conversation from loading or resuming.
   try {
+    const { message, anchor } = parseExplorationPath(window.location.pathname) ?? {};
+    const url = new URL(`/api/conversations/${convId}/anchors`, window.location.origin);
+    if (message) url.searchParams.set('m', message);
+    if (anchor) url.searchParams.set('a', anchor);
     const response = await fetch(url);
-    if (response.ok) body = await response.json();
-  } catch (error) {
-    console.error('Failed to load permalinks:', error);
-  }
-  if (!body || convId !== currentConversationId) return null;
-  for (const block of document.querySelectorAll('#chatOutput .event-assistant')) {
-    for (const button of block.querySelectorAll('.permalink-btn')) button.remove();
-    for (const figure of block.querySelectorAll('.permalink-figure')) figure.replaceWith(...figure.childNodes);
-    for (const element of block.querySelectorAll('[data-anchor]')) {
-      for (const key of Object.keys(element.dataset)) if (key.startsWith('anchor')) delete element.dataset[key];
+    const body = response.ok ? await response.json() : null;
+    // Why: calls may answer out of order (a turn's user event, then its end); only the latest one applies.
+    if (!body || request !== permalinksRequest || convId !== currentConversationId) return null;
+    for (const block of document.querySelectorAll('#chatOutput .event-assistant')) {
+      for (const button of block.querySelectorAll('.permalink-btn')) button.remove();
+      for (const figure of block.querySelectorAll('.permalink-figure')) figure.replaceWith(...figure.childNodes);
+      for (const element of block.querySelectorAll('[data-anchor]')) {
+        for (const key of Object.keys(element.dataset)) if (key.startsWith('anchor')) delete element.dataset[key];
+      }
+      const ids = block.dataset.msgId.split(' ');
+      // Why: the server lists finished messages only; an answer still being written gets no link.
+      if (ids.every((id) => id in body.anchors)) attachPermalinks(block, ids, body.anchors);
     }
-    const ids = block.dataset.msgId.split(' ');
-    // Why: the server lists finished messages only; an answer still being written gets no link.
-    if (ids.every((id) => id in body.anchors)) attachPermalinks(block, ids, body.anchors);
+    rebuildToc();
+    return body;
+  } catch (error) {
+    console.error('Failed to put the permalinks:', error);
+    return null;
   }
-  rebuildToc();
-  return body;
 }
 
 /**
@@ -126,8 +131,9 @@ function showPermalinkTarget(target) {
   const block = document.querySelector(`#chatOutput [data-msg-id~="${target.message}"]`);
   const named = target.kind && block?.querySelector(`[data-anchor="${target.message}-${target.kind}-${target.rank}"]`);
   const element = named || block;
-  // Why: the minimal view hides the answers that are not final; scrolling to one would land nowhere.
-  if (!element?.checkVisibility()) return false;
+  // Why: the minimal view hides the answers that are not final; scrolling to one would land nowhere. An element not
+  // displayed has no boxes, in every browser (checkVisibility is too recent for Safari before 17.4).
+  if (!element?.getClientRects().length) return false;
   element.classList.add('permalink-target');
   element.scrollIntoView({ block: 'start' });
   return true;

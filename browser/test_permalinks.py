@@ -45,6 +45,37 @@ CHART = 'Graphique\n\n## Statuts \\#1\n\n```mermaid\npie title Par statut\n    "
 
 LONG = "Longue\n\n## Méthode\n\n" + "Une ligne de texte.\n\n" * 60 + "Fin."
 
+# Why: Safari avant 17.4 n'a pas checkVisibility.
+WITHOUT_CHECK_VISIBILITY = "delete Element.prototype.checkVisibility"
+
+# Why: un navigateur plus ancien refuse :has() et lève une exception pendant la pose des liens.
+WITHOUT_HAS = (
+    "const select = Element.prototype.querySelectorAll;"
+    "Element.prototype.querySelectorAll = function (selector) {"
+    "  if (selector.includes(':has(')) throw new DOMException('unsupported', 'SyntaxError');"
+    "  return select.call(this, selector);"
+    "}"
+)
+
+# Why: la première demande de liens répond après la seconde, avec des ancres périmées (aucune).
+STALE_FIRST = """async () => {
+  const fetchAnchors = window.fetch;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let calls = 0;
+  window.fetch = async (url, options) => {
+    calls += 1;
+    if (calls > 1) return fetchAnchors(url, options);
+    await held;
+    return new Response(JSON.stringify({ anchors: {}, target: null }));
+  };
+  const first = refreshPermalinks();
+  await refreshPermalinks();
+  release();
+  await first;
+  window.fetch = fetchAnchors;
+}"""
+
 
 def answer_to(question: str, ask: Callable[[str], None], page: Page) -> Locator:
     ask(question)
@@ -149,6 +180,16 @@ def test_a_link_opens_its_conversation_marked_in_the_sidebar_and_navigable(answe
     expect(recent).to_have_class(re.compile(r"\bactive\b"))
 
 
+def test_a_link_highlights_its_target_in_a_browser_without_check_visibility(answer, page: Page):
+    link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
+    fresh = page.context.new_page()
+    fresh.add_init_script(WITHOUT_CHECK_VISIBILITY)
+
+    fresh.goto(link, wait_until="domcontentloaded")
+
+    expect(fresh.locator("table.permalink-target")).to_have_count(1)
+
+
 def test_the_table_of_contents_outlines_sections_and_figures(answer, page: Page):
     entries = page.locator("#tocContent .toc-entry")
 
@@ -177,6 +218,29 @@ def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_o
     link_box, table_box = figure_link.bounding_box(), table.bounding_box()
     assert table_box["x"] <= link_box["x"] and link_box["x"] + link_box["width"] <= table_box["x"] + table_box["width"]
     assert table_box["y"] <= link_box["y"] < table_box["y"] + table_box["height"] / 2
+
+
+@pytest.mark.parametrize(
+    ("opened", "toc_click"),
+    [("/explorations/{conversation}", True), ("/explorations/{conversation}/999999999/table-1-000000", False)],
+    ids=["entrée-du-sommaire", "lien-vers-aucune-réponse"],
+)
+def test_going_back_to_a_conversation_whose_address_the_page_changed_shows_its_answers(
+    answer, conversation: str, visit: Callable[[str], None], page: Page, opened: str, toc_click: bool
+):
+    other = page.request.post("/api/conversations").json()["id"]
+    visit(opened.format(conversation=conversation))
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    if toc_click:
+        page.locator("#tocContent .toc-entry").nth(1).dispatch_event("click")
+    expect(page).not_to_have_url(re.compile(re.escape(opened.format(conversation=conversation)) + "$"))
+
+    page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
+    expect(page).to_have_url(re.compile(rf"/explorations/{other}$"))
+    page.go_back()
+
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    expect(page.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
 
 
 def test_putting_the_links_again_wraps_each_figure_once(answer, page: Page):
@@ -248,6 +312,7 @@ def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
         "addEventListener('DOMContentLoaded', () => document.head.insertAdjacentHTML("
         "'beforeend', '<style>.event-assistant:has(table) { display: none }</style>'))"
     )
+    fresh.add_init_script(WITHOUT_CHECK_VISIBILITY)
 
     fresh.goto(link, wait_until="domcontentloaded")
 
@@ -296,21 +361,65 @@ def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: s
 
 
 @pytest.mark.parametrize(
-    "failure",
-    [lambda route: route.abort(), lambda route: route.fulfill(status=200, body="<html>")],
-    ids=["réseau", "réponse-illisible"],
+    "fail",
+    [
+        lambda fresh: fresh.route("**/anchors*", lambda route: route.abort()),
+        lambda fresh: fresh.route("**/anchors*", lambda route: route.fulfill(status=200, body="<html>")),
+        lambda fresh: fresh.add_init_script(WITHOUT_HAS),
+    ],
+    ids=["réseau", "réponse-illisible", "sélecteur-refusé"],
 )
 def test_a_running_conversation_resumes_when_its_permalinks_fail(
-    conversation: str, ask: Callable[[str], None], page: Page, failure: Callable
+    conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Page], None]
 ):
     ask("[slow:6] Longue réponse")
     expect(page.locator("#chatCancelBtn")).to_be_visible()
     fresh = page.context.new_page()
-    fresh.route("**/anchors*", failure)
+    fail(fresh)
 
     fresh.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
 
     expect(fresh.locator(".event-final-answer").last).to_contain_text("Réponse factice : [slow:6]", timeout=15_000)
+
+
+def test_only_the_latest_request_for_links_applies(answer, page: Page):
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+
+    page.evaluate(STALE_FIRST)
+
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+
+
+@pytest.mark.parametrize("elsewhere", [False, True], ids=["nouvelle-conversation", "autre-conversation"])
+def test_a_first_message_is_not_sent_once_the_page_has_left_its_conversation(
+    conversation: str, page: Page, elsewhere: bool
+):
+    target = page.request.post("/api/conversations").json()["id"]
+    destination = f"/explorations/{conversation}" if elsewhere else "/explorations/new"
+    fresh = page.context.new_page()
+    held = []
+
+    def hold_the_first(route):
+        if held:
+            route.continue_()
+        else:
+            held.append(route)
+
+    fresh.route("**/anchors*", hold_the_first)
+    with fresh.expect_request(f"**/{target}/anchors*"):
+        fresh.goto(f"/explorations/{target}?message=Bonjour", wait_until="domcontentloaded")
+    fresh.locator(f"#sidebar a[href='{destination}']").click()
+    # Why: htmx écrit l'adresse avant d'installer la page ; on attend qu'elle ait pris sa conversation.
+    fresh.wait_for_function("(id) => currentConversationId === id", arg=conversation if elsewhere else None)
+
+    held[0].continue_()
+    fresh.wait_for_timeout(1500)
+
+    expect(fresh).to_have_url(re.compile(rf"{destination}$"))
+    expect(fresh.locator("#chatOutput .event-user", has_text="Bonjour")).to_have_count(0)
+    for conv_id in (target, conversation):
+        messages = page.request.get(f"/api/conversations/{conv_id}").json()["messages"]
+        assert "Bonjour" not in [m["content"] for m in messages]
 
 
 def test_an_answer_gets_its_links_as_soon_as_a_waiting_message_follows_it(

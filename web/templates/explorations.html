@@ -344,10 +344,10 @@
     const pendingMessage = new URLSearchParams(window.location.search).get('message');
 
     // Load existing conversation
-    await loadConversation('{{ current_conv.id }}');
+    const loaded = await loadConversation('{{ current_conv.id }}');
 
-    // Send pending message if any
-    if (pendingMessage) {
+    // Why: the page may have left this conversation while it loaded; the message must not land in another one.
+    if (pendingMessage && loaded?.id === '{{ current_conv.id }}' && currentConversationId === loaded.id) {
       lastUserMessage = pendingMessage;
       await sendToAgent(pendingMessage, { bubble: appendEvent('user', { content: pendingMessage }) });
     }

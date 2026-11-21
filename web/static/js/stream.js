@@ -765,7 +765,8 @@ async function loadConversation(convId) {
       streamingBlock = null;
     }
     const permalinks = await refreshPermalinks();
-    if (load !== loadSequence) return;
+    // Why: while the links loaded, the page may have moved to another conversation or to a page without one.
+    if (load !== loadSequence || currentConversationId !== conv.id) return;
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
