@@ -18,6 +18,7 @@ pytestmark = pytest.mark.browser
 
 FILLER = "Du texte pour que la réponse dépasse la hauteur de l'écran. " * 120
 SECTIONS = f"Plan\n\n## Premier point\n\n{FILLER}\n\n## Second point\n\n{FILLER}"
+FIGURES = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |\n\n## Méthode\n\nTexte."
 
 SENDS = {
     "bouton": lambda page: page.locator("#chatSendBtn").click(),
@@ -112,6 +113,13 @@ def leave_for_conversations(page: Page) -> None:
     expect(page.locator("#rechercherSearchInput")).to_be_focused()
 
 
+def ask_in(page: Page, ask: Callable[[str], None], conversation: str, text: str) -> None:
+    """Envoie `text` par la barre de saisie : la page le poste à `conversation` et en montre la réponse."""
+    with page.expect_request(f"**/api/conversations/{conversation}/messages", timeout=5000):
+        ask(text)
+    expect(page.locator(".event-final-answer").last).to_contain_text(f"Réponse factice : {text}", timeout=15000)
+
+
 @pytest.mark.parametrize("send", SENDS.values(), ids=SENDS.keys())
 def test_back_to_a_saved_conversation_binds_the_page_to_it(
     errors: list[str], conversation: str, visit, ask: Callable[[str], None], page: Page, send
@@ -198,9 +206,43 @@ def test_forward_after_back_shows_the_conversation_left(
 
     expect(page).to_have_url(section)
     expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Plan"])
-    with page.expect_request(f"**/api/conversations/{other}/messages", timeout=5000):
-        ask("Après l'avance")
-    expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : Après l'avance", timeout=15000)
+    ask_in(page, ask, other, "Après l'avance")
+    assert errors == []
+
+
+def test_back_to_a_conversation_opened_at_a_permalink_keeps_it_alive_after_a_table_of_contents_click(
+    errors: list[str], conversation: str, visit, ask: Callable[[str], None], page: Page
+):
+    ask(FIGURES)
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15000)
+    link = page.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
+    other = page.request.post("/api/conversations").json()["id"]
+    recent = page.locator(f"#sidebar-recents a[href='/c/{other}']")
+    visit(link)
+    expect(page.locator("table.permalink-target")).to_have_count(1)
+    # Why: une page que le navigateur recharge perd cette marque ; htmx ne recharge plus sur une page qu'il n'a pas.
+    page.evaluate("window.sameDocument = true")
+    recent.click()
+    page.wait_for_function("(id) => currentConversationId === id", arg=other)
+
+    page.go_back()
+
+    expect(page).to_have_url(link)
+    expect(page.locator("table.permalink-target")).to_have_count(1)
+    ask_in(page, ask, conversation, "Après le premier retour")
+    page.locator("#tocContent .toc-entry", has_text="Méthode").click()
+    section = re.compile(rf"/c/{conversation}/\d+/section-2-[0-9a-f]{{6}}$")
+    expect(page).to_have_url(section)
+    recent.click()
+    page.wait_for_function("(id) => currentConversationId === id", arg=other)
+
+    page.go_back()
+
+    expect(page).to_have_url(section)
+    expect(page.locator(".event-final-answer")).to_have_count(3)
+    ask_in(page, ask, conversation, "Après le second retour")
+    assert page.evaluate("window.sameDocument") is True
+    assert page.evaluate("htmx.config.refreshOnHistoryMiss") is False
     assert errors == []
 
 
