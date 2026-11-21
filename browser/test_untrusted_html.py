@@ -30,6 +30,8 @@ PAYLOADS = "\n\n".join([
     '<base href="https://example.invalid/">',
     f'<div data-hx-get="{MARKER}/answer" data-hx-trigger="load" hx-on:click="probe(\'htmx\')">htmx</div>',
     '<a href="https://example.org/" target="_top" id="probe-id" name="probe-name">cible</a>',
+    '<input type="text" placeholder="Mot de passe"> <input type="checkbox">',
+    "<dialog open>Fenêtre</dialog> <marquee>Défilant</marquee> <label>Étiquette</label>",
 ])
 
 # Why: Mermaid nettoie lui-même les étiquettes qu'il dessine ; un déclencheur différé attend qu'htmx relise la page
@@ -49,11 +51,18 @@ DIAGRAMS = [
 ]
 CHARTS = "\n\n".join(f"```mermaid\n{code}\n```" for code in DIAGRAMS)
 
+OVERLAY = (
+    '<h2 popover="manual">Session expirée</h2>\n\n'
+    '<button popovertarget="session-expiree" popovertargetaction="show">Afficher le tableau</button> '
+    '<button commandfor="session-expiree" command="show-popover">Voir le détail</button>'
+)
+
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
 # le navigateur exécuteraient sont jugés.
 UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
-  const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta'];
+  const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta', 'dialog', 'button',
+    'select', 'textarea', 'option', 'datalist', 'fieldset', 'legend', 'output', 'label', 'marquee'];
   for (const root of document.querySelectorAll(region)) {
     if (!root.closest('[hx-disable]')) found.push('read by htmx');
     for (const el of root.querySelectorAll('*')) {
@@ -63,9 +72,10 @@ UNSAFE_MARKUP = """([region, allowed]) => {
         continue;
       }
       if (tags.includes(tag)) found.push(tag);
+      if (tag === 'input' && !(el.type === 'checkbox' && el.disabled)) found.push('input');
       for (const { name, value } of el.attributes) {
         if (allowed.includes(`${tag}[${name}]`)) continue;
-        if (/^(on|data-|hx-)/.test(name) || ['style', 'srcdoc', 'id', 'name', 'target'].includes(name))
+        if (/^(on|data-|hx-|popover|command)/.test(name) || ['style', 'srcdoc', 'id', 'name', 'target'].includes(name))
           found.push(`${tag}[${name}]`);
         if (name === 'class' && value && !(tag === 'code' && /^language-[\\w-]+$/.test(value))) found.push(`${tag}[class]`);
         if (/^\\s*javascript:/i.test(value)) found.push(`${tag}[${name}=javascript:]`);
@@ -164,6 +174,20 @@ def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], as
     assert_stays_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
 
 
+def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
+    requested = marker_requests(page)
+    visit("/explorations/new")
+    ask(OVERLAY)
+    assert_inert(page, ANSWERS, "Afficher le tableau", requested, TOC_IDS)
+    answer = page.locator(".event-assistant").last
+
+    answer.get_by_text("Afficher le tableau").click()
+    answer.get_by_text("Voir le détail").click()
+
+    assert page.evaluate("() => document.querySelectorAll(':popover-open').length") == 0
+    expect(answer.locator("h2")).to_be_visible()
+
+
 def test_without_the_sanitizer_an_answer_is_plain_text(
     page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
 ):
@@ -185,6 +209,7 @@ def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], N
             "[Documentation](https://example.org/doc)",
             "<details><summary>Plus</summary>Détail caché</details>",
             "H<sub>2</sub>O et 10<sup>3</sup>",
+            "- [x] fait\n- [ ] à faire",
             "```mermaid\ngraph TD\n  A[Ligne 1<br/>ligne 2] --> B\n```",
             "```options\nOui\nNon | Non merci\n```",
         ])
@@ -199,6 +224,8 @@ def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], N
         ("details summary", 1),
         ("sub", 1),
         ("sup", 1),
+        ("li input[type=checkbox][disabled]", 2),
+        ("li input:checked", 1),
         (".mermaid svg .node br", 1),
         (".options-buttons button", 2),
     ]:

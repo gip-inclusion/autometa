@@ -267,14 +267,36 @@ function formatReport(content, reportInfo) {
 // Why: agent text is untrusted — the agent repeats web pages, tickets, databases and files, and anyone signed in
 // can open any conversation. A class is a style too (Bootstrap's position-fixed…): only the code languages that
 // renderMermaid and renderOptions read are kept. Data attributes would hand htmx requests and handlers (data-hx-*).
+// Popovers and invoker commands would show a hidden part of the answer above the page in one click (headings get
+// predictable ids for the table of contents); form and dialog furniture has no use in an answer, and the only input
+// kept is a Markdown task list's checkbox.
 const answerPurifier = typeof DOMPurify === 'undefined' ? null : DOMPurify();
 answerPurifier?.addHook('uponSanitizeAttribute', (node, data) => {
   if (data.attrName === 'class') data.keepAttr = node.nodeName === 'CODE' && /^language-[\w-]+$/.test(data.attrValue);
 });
+answerPurifier?.addHook('afterSanitizeAttributes', (node) => {
+  if (node.nodeName !== 'INPUT') return;
+  if (node.type === 'checkbox') node.setAttribute('disabled', '');
+  else node.remove();
+});
 const ANSWER_HTML = {
   USE_PROFILES: { html: true },
-  FORBID_TAGS: ['style', 'form'],
-  FORBID_ATTR: ['style', 'id', 'name'],
+  FORBID_TAGS: [
+    'style',
+    'form',
+    'dialog',
+    'button',
+    'select',
+    'textarea',
+    'option',
+    'datalist',
+    'fieldset',
+    'legend',
+    'output',
+    'label',
+    'marquee',
+  ],
+  FORBID_ATTR: ['style', 'id', 'name', 'popover', 'popovertarget', 'popovertargetaction', 'command', 'commandfor'],
   ALLOW_DATA_ATTR: false,
 };
 
