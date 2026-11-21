@@ -1,6 +1,6 @@
 /**
  * Permalinks: a "copy link" on each finished answer, section, table and chart, and the highlight of a link's target.
- * Depends on: stream.js (currentConversationId), actions.js (rebuildToc), chat.js (parseExplorationPath)
+ * Depends on: stream.js (currentConversationId), actions.js (rebuildToc), chat.js (parseConversationPath)
  */
 
 /**
@@ -42,7 +42,7 @@ function permalinkButton(messageId, label, anchor) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'permalink-btn';
-  button.dataset.url = `${window.location.origin}/explorations/${currentConversationId}/${messageId}${element}`;
+  button.dataset.url = `${window.location.origin}/c/${currentConversationId}/${messageId}${element}`;
   button.title = `Copier le lien vers ${label}`;
   button.setAttribute('aria-label', button.title);
   button.innerHTML = '<i class="ri-link" aria-hidden="true"></i>';
@@ -97,7 +97,7 @@ async function refreshPermalinks() {
   const request = ++permalinksRequest;
   // Why: links are an extra; whatever fails here must not keep a conversation from loading or resuming.
   try {
-    const { message, anchor } = parseExplorationPath(window.location.pathname) ?? {};
+    const { message, anchor } = parseConversationPath(window.location.pathname) ?? {};
     const url = new URL(`/api/conversations/${convId}/anchors`, window.location.origin);
     if (message) url.searchParams.set('m', message);
     if (anchor) url.searchParams.set('a', anchor);

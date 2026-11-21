@@ -79,7 +79,7 @@ def test_the_home_page_starts_a_conversation_without_the_sidebar(visit: Callable
 
     tile.click()
 
-    expect(page).to_have_url(re.compile(r"/explorations/new$"))
+    expect(page).to_have_url(re.compile(r"/c/new$"))
     expect(page.locator("#chatInput")).to_be_visible()
 
 
@@ -111,7 +111,7 @@ def test_nothing_sticks_out_sideways_on_a_small_phone(conversation: str, ask: Ca
 @pytest.mark.parametrize("viewport", [PHONE, {"width": 844, "height": 390}], ids=["portrait", "paysage"])
 def test_text_fields_are_large_enough_for_ios_not_to_zoom(conversation: str, page: Page, base_url: str, viewport: dict):
     touch = page.context.browser.new_page(base_url=base_url, viewport=viewport, is_mobile=True, has_touch=True)
-    touch.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+    touch.goto(f"/c/{conversation}", wait_until="domcontentloaded")
 
     sizes = touch.locator("input[type=text], textarea, select").evaluate_all(
         "fields => fields.map((field) => parseFloat(getComputedStyle(field).fontSize))"

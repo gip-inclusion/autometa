@@ -4,7 +4,11 @@ Users can fork conversations to continue from someone else's conversation
 or to branch their own conversation.
 """
 
+import uuid
+
 import pytest
+
+from web.helpers import validate_conv_id
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -30,6 +34,7 @@ def test_fork_database_creates_new_conversation(app, conversation_with_messages)
 
     assert forked is not None
     assert forked.id != conversation_with_messages.id
+    assert validate_conv_id(forked.id) and len(forked.id) == 8
     assert forked.user_id == "forker@example.com"
 
 
@@ -90,6 +95,7 @@ def test_fork_database_copies_session_when_source_has_one(app, conversation_with
 
     assert forked.session_id is not None
     assert forked.session_id != "original-session"
+    assert str(uuid.UUID(forked.session_id)) == forked.session_id
     copy_mock.assert_called_once_with("original-session", forked.session_id)
 
 
@@ -200,7 +206,7 @@ def test_fork_api_endpoint_returns_links(app, client, conversation_with_messages
     assert "links" in data
     assert "self" in data["links"]
     assert "view" in data["links"]
-    assert data["id"] in data["links"]["view"]
+    assert data["links"]["view"] == f"/c/{data['id']}"
 
 
 def test_fork_api_nonexistent_returns_404(app, client):
@@ -258,7 +264,7 @@ def test_fork_api_owner_can_fork_own_conversation(app, client, conversation_with
 def test_fork_ui_button_visible_on_shared_conversation(app, client, conversation_with_messages):
     """Fork button is visible when viewing someone else's conversation."""
     response = client.get(
-        f"/explorations/{conversation_with_messages.id}",
+        f"/c/{conversation_with_messages.id}",
         headers={"X-Forwarded-Email": "guest@example.com"},
     )
 
@@ -270,7 +276,7 @@ def test_fork_ui_button_visible_on_shared_conversation(app, client, conversation
 def test_fork_ui_button_visible_on_own_conversation(app, client, conversation_with_messages):
     """Fork button is visible on own conversation (in header)."""
     response = client.get(
-        f"/explorations/{conversation_with_messages.id}",
+        f"/c/{conversation_with_messages.id}",
         headers={"X-Forwarded-Email": "owner@example.com"},
     )
 
@@ -287,7 +293,7 @@ def test_fork_ui_forked_from_shown_in_header(app, client, conversation_with_mess
 
     # View the fork
     response = client.get(
-        f"/explorations/{forked.id}",
+        f"/c/{forked.id}",
         headers={"X-Forwarded-Email": "forker@example.com"},
     )
 

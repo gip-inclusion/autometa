@@ -52,7 +52,7 @@ def stuck_conversation(app):
 def test_shared_access_guest_can_view_shared_conversation(app, guest_client, conversation):
     """Guest can view a conversation owned by someone else."""
     response = guest_client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": "guest@example.com"},
     )
     assert response.status_code == 200
@@ -64,7 +64,7 @@ def test_shared_access_guest_can_view_shared_conversation(app, guest_client, con
 def test_shared_access_guest_sees_readonly_chat_bar(app, guest_client, conversation):
     """Guest sees read-only chat bar instead of input."""
     response = guest_client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": "guest@example.com"},
     )
     assert response.status_code == 200
@@ -75,7 +75,7 @@ def test_shared_access_guest_sees_readonly_chat_bar(app, guest_client, conversat
 def test_shared_access_owner_sees_chat_input(app, owner_client, conversation):
     """Owner sees the chat input, not read-only bar."""
     response = owner_client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": "owner@example.com"},
     )
     assert response.status_code == 200
@@ -86,7 +86,7 @@ def test_shared_access_owner_sees_chat_input(app, owner_client, conversation):
 def test_shared_access_nonexistent_conversation_redirects(app, guest_client):
     """Accessing a non-existent conversation redirects to list."""
     response = guest_client.get(
-        "/explorations/nonexistent-uuid",
+        "/c/nonexistent-uuid",
         headers={"X-Forwarded-Email": "guest@example.com"},
         follow_redirects=False,
     )
@@ -163,7 +163,7 @@ def test_shared_api_returns_messages_for_shared_conversation(app, guest_client, 
 def test_relaunch_admin_sees_relaunch_button(app, guest_client, stuck_conversation):
     """Admin viewing a stuck shared conversation sees the Relancer button."""
     response = guest_client.get(
-        f"/explorations/{stuck_conversation.id}",
+        f"/c/{stuck_conversation.id}",
         headers={"X-Forwarded-Email": "admin@localhost"},
     )
     assert response.status_code == 200
@@ -173,7 +173,7 @@ def test_relaunch_admin_sees_relaunch_button(app, guest_client, stuck_conversati
 def test_relaunch_non_admin_does_not_see_relaunch(app, guest_client, stuck_conversation):
     """Non-admin guest does not see the Relancer button."""
     response = guest_client.get(
-        f"/explorations/{stuck_conversation.id}",
+        f"/c/{stuck_conversation.id}",
         headers={"X-Forwarded-Email": "guest@example.com"},
     )
     assert response.status_code == 200
@@ -184,7 +184,7 @@ def test_relaunch_non_admin_does_not_see_relaunch(app, guest_client, stuck_conve
 def test_relaunch_owner_does_not_see_relaunch(app, owner_client, stuck_conversation):
     """Owner sees the normal chat input, not the relaunch button."""
     response = owner_client.get(
-        f"/explorations/{stuck_conversation.id}",
+        f"/c/{stuck_conversation.id}",
         headers={"X-Forwarded-Email": "owner@example.com"},
     )
     assert response.status_code == 200
@@ -195,7 +195,7 @@ def test_relaunch_owner_does_not_see_relaunch(app, owner_client, stuck_conversat
 def test_relaunch_no_relaunch_when_last_message_is_assistant(app, guest_client, conversation):
     """No relaunch button when last message is from assistant (conversation completed)."""
     response = guest_client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": "admin@localhost"},
     )
     assert response.status_code == 200

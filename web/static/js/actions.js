@@ -306,7 +306,7 @@ function addTocEntry(target) {
 
   entry.addEventListener('click', () => {
     if (anchorUrl) history.replaceState(null, '', anchorUrl);
-    else if (target.id) history.replaceState(null, '', `/explorations/${currentConversationId}#${target.id}`);
+    else if (target.id) history.replaceState(null, '', `/c/${currentConversationId}#${target.id}`);
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 

@@ -53,11 +53,11 @@ def come_back(page: Page, conversation: str, how: str) -> Page:
         return page
     if how == "autre onglet":
         other = page.context.new_page()
-        other.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+        other.goto(f"/c/{conversation}", wait_until="domcontentloaded")
         return other
-    page.locator("#sidebar a[href='/explorations/new']").click()
-    expect(page).to_have_url(re.compile(r"/explorations/new$"))
-    page.locator(f"#sidebar a[href='/explorations/{conversation}']").first.click()
+    page.locator("#sidebar a[href='/c/new']").click()
+    expect(page).to_have_url(re.compile(r"/c/new$"))
+    page.locator(f"#sidebar a[href='/c/{conversation}']").first.click()
     return page
 
 

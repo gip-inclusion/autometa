@@ -14,8 +14,8 @@ let isPopState = false;
 /**
  * What a conversation page's path names: its conversation, and for a permalink a message and an element of it
  */
-function parseExplorationPath(path) {
-  const match = path.match(/^\/explorations\/([^/]+)(?:\/(\d+)(?:\/([^/]+))?)?$/);
+function parseConversationPath(path) {
+  const match = path.match(/^\/c\/([^/]+)(?:\/(\d+)(?:\/([^/]+))?)?$/);
   if (!match || match[1] === 'new') return null;
   const [, conversation, message, anchor] = match;
   return { conversation, message, anchor };
@@ -37,7 +37,7 @@ function isMainSwap(e) {
 }
 
 // htmx navigation handler
-// Why: restored from the back-forward cache after creating a conversation, /explorations/new would keep its
+// Why: restored from the back-forward cache after creating a conversation, /c/new would keep its
 // send in progress and the id of the conversation it created.
 window.addEventListener('pageshow', (e) => {
   if (e.persisted && sending) window.location.reload();
@@ -48,7 +48,7 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
 
   const path = window.location.pathname;
-  const convId = parseExplorationPath(path)?.conversation ?? null;
+  const convId = parseConversationPath(path)?.conversation ?? null;
 
   closeEventSource();
   currentConversationId = convId;
@@ -67,7 +67,7 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
     if (!isPopState) document.getElementById('main')?.focus({ preventScroll: true });
   } else if (!isPopState) {
     window.scrollTo(0, 0);
-    if (path === '/explorations/new') {
+    if (path === '/c/new') {
       document.getElementById('chatInput')?.focus();
     }
   }

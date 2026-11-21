@@ -29,13 +29,13 @@ def test_home_page_serves_the_application(visit: Callable[[str], None], page: Pa
 
 
 def test_first_message_creates_a_conversation(visit: Callable[[str], None], page: Page):
-    visit("/explorations/new")
+    visit("/c/new")
 
     question = f"Question de socle {uuid.uuid4()}"
     page.locator("#chatInput").fill(question)
     page.locator("#chatSendBtn").click()
 
-    expect(page).to_have_url(re.compile(r"/explorations/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-z]{8}(?![\w-])"))
     expect(page.get_by_text(question)).to_be_visible()
 
 

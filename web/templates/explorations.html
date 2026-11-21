@@ -25,7 +25,7 @@
                 Conversation
               {% endif %}
               {% if current_conv.forked_from %}
-                · <a href="/explorations/{{ current_conv.forked_from }}" class="text-muted"><i class="ri-git-branch-line"></i> fork</a>
+                · <a href="/c/{{ current_conv.forked_from }}" class="text-muted"><i class="ri-git-branch-line"></i> fork</a>
               {% endif %}
               <span id="tokenDisplay" class="{% if not (current_conv.usage_input_tokens or current_conv.usage_output_tokens) %}d-none{% endif %}"
                     data-input="{{ current_conv.usage_input_tokens or 0 }}"

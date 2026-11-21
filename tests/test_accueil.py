@@ -64,6 +64,7 @@ def test_home_shows_my_favorites_in_order(client):
 
     assert "Favoris" in html
     assert html.index("Mon TDB") < html.index("Ma conversation")
+    assert f'href="/c/{conv_id}"' in html
 
 
 def test_home_shows_a_favorite_report(client):

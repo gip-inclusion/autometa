@@ -512,7 +512,7 @@ def extract(run_id: int, batches: int | None = None) -> dict:
     run = open_daily_run(run_id)
     window = {"first": run.after_message_id, "last": run.last_message_id}
     excluded = {r.conversation_id for r in load_runs() if r.conversation_id}
-    # Why: les ids de conversation sont des UUID en texte ; « 0 » les précède tous.
+    # Why: les ids de conversation sont du texte en chiffres et minuscules, UUID ou 8 caractères ; « 0 » les précède tous.
     convs = {
         c["id"]: {**c, "title": scrub(c["title"] or "")}
         for c in fetch_pages(CONVERSATIONS_SQL, "0", **window)
@@ -805,7 +805,7 @@ def set_criterion_status(code: str, status: str) -> Criterion:
 
 
 def link(base_url: str, conversation_id: str) -> str:
-    return f"{base_url}/explorations/{conversation_id}"
+    return f"{base_url}/c/{conversation_id}"
 
 
 def severity_counts(findings: list[Finding]) -> str:

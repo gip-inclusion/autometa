@@ -90,7 +90,7 @@ def test_dashboard_page_offers_a_favorite_star(client):
 def test_conversation_page_offers_a_favorite_star(client):
     conv_id = _make_conversation()
 
-    html = client.get(f"/explorations/{conv_id}", headers=_h()).text
+    html = client.get(f"/c/{conv_id}", headers=_h()).text
 
     assert "toggleFavorite(this)" in html
 

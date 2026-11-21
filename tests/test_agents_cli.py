@@ -14,6 +14,8 @@ from web.environment import Environment
 
 UUID_A = "21e937fb-0000-4000-8000-000000000001"
 UUID_B = "21e937fb-0000-4000-8000-000000000002"
+SHORT_A = "k3v9x2mq"
+MALFORMED_IDS = ["../etc", "a/b", "", "bench-sonnet", "c1", "../x", "k3v9x2m", "k3v9x2mi", "K3V9X2MQ"]
 WEEK_AGO = time.time() - 8 * 24 * 3600
 
 
@@ -148,7 +150,7 @@ def test_build_env_points_tmpdir_to_the_conversation_folder(tmp_path):
     assert env["TMPDIR"] == str(tmp_path / "c1")
 
 
-@pytest.mark.parametrize("conversation_id", ["../etc", "a/b", "", "bench-sonnet", "c1"])
+@pytest.mark.parametrize("conversation_id", MALFORMED_IDS)
 def test_an_unsafe_conversation_id_gets_no_folder(mocker, tmp_path, conversation_id):
     mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
     assert cli.conversation_workdir(conversation_id) is None
@@ -177,15 +179,100 @@ def test_the_conversation_folder_is_private_to_the_process_account(mocker, tmp_p
     assert workdir.stat().st_mode & 0o777 == 0o700
 
 
-def test_prune_removes_only_conversation_folders_idle_for_a_week(mocker, tmp_path):
-    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
-    for name in (UUID_A, "pas-une-conversation"):
-        make_idle_folder(tmp_path / name)
-    (tmp_path / UUID_B).mkdir()
+def put_mark(folder, kind, outside):
+    """La marque d'un dossier : un fichier comme Autometa la dépose, ou ce que l'agent a pu mettre à sa place."""
+    mark = folder / cli.WORKDIR_MARK
+    if kind == "fichier":
+        mark.touch()
+    elif kind == "dossier":
+        mark.mkdir()
+    elif kind == "tube":
+        os.mkfifo(mark)
+    elif kind == "lien-vers-un-fichier":
+        (outside / "fichier").touch()
+        mark.symlink_to(outside / "fichier")
+    elif kind == "lien-vers-un-chemin-libre":
+        mark.symlink_to(outside / "libre")
+    elif kind == "lien-pendant":
+        mark.symlink_to(outside / "absent" / "libre")
+
+
+@pytest.mark.parametrize(
+    ("name", "mark", "idle", "pruned"),
+    [
+        (SHORT_A, "fichier", True, True),
+        ("datasets", None, True, False),
+        (UUID_A, None, True, True),
+        (SHORT_A, "fichier", False, False),
+        (UUID_A, None, False, False),
+        ("pas-une-conversation", "fichier", True, False),
+        (SHORT_A, "dossier", True, False),
+        (SHORT_A, "lien-vers-un-fichier", True, False),
+    ],
+    ids=[
+        "nom-court-marqué",
+        "nom-court-sans-marque",
+        "uuid-sans-marque",
+        "nom-court-marqué-récent",
+        "uuid-récent",
+        "autre-nom-marqué",
+        "nom-court-marqué-d-un-dossier",
+        "nom-court-marqué-d-un-lien",
+    ],
+)
+def test_prune_removes_a_conversation_folder_idle_for_a_week_known_by_its_mark_or_its_uuid_name(
+    mocker, tmp_path, name, mark, idle, pruned
+):
+    root, outside = tmp_path / "travail", tmp_path / "dehors"
+    root.mkdir()
+    outside.mkdir()
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", root)
+    folder = root / name
+    folder.mkdir()
+    put_mark(folder, mark, outside)
+    if idle:
+        os.utime(folder, (WEEK_AGO, WEEK_AGO))
 
     cli.prune_workdirs(time.time())
 
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([UUID_B, "pas-une-conversation"])
+    assert [p.name for p in root.iterdir()] == ([] if pruned else [name])
+
+
+@pytest.mark.parametrize(
+    "mark", ["lien-pendant", "lien-vers-un-chemin-libre", "lien-vers-un-fichier", "dossier", "tube"]
+)
+def test_a_mark_replaced_by_the_agent_never_keeps_the_turn_from_its_folder_nor_writes_outside_it(
+    mocker, tmp_path, caplog, mark
+):
+    root, outside = tmp_path / "travail", tmp_path / "dehors"
+    root.mkdir()
+    outside.mkdir()
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", root)
+    (root / SHORT_A).mkdir()
+    put_mark(root / SHORT_A, mark, outside)
+    before = {path: path.stat().st_mtime_ns for path in outside.rglob("*")}
+    time.sleep(0.01)
+
+    workdir = cli.conversation_workdir(SHORT_A)
+
+    assert workdir == root / SHORT_A
+    assert {path: path.stat().st_mtime_ns for path in outside.rglob("*")} == before
+    assert caplog.records[-1].levelname == "WARNING"
+
+
+@pytest.mark.parametrize("created_by_the_agent", [False, True], ids=["créé-par-autometa", "créé-par-l-agent"])
+def test_a_short_named_folder_autometa_handed_to_a_conversation_is_pruned_once_idle(
+    mocker, tmp_path, created_by_the_agent
+):
+    mocker.patch.object(cli.config, "WORKDIR_ROOT", tmp_path)
+    if created_by_the_agent:
+        (tmp_path / SHORT_A).mkdir()
+    workdir = cli.conversation_workdir(SHORT_A)
+    os.utime(workdir, (WEEK_AGO, WEEK_AGO))
+
+    cli.prune_workdirs(time.time())
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_conversation_resumed_while_the_prune_deletes_its_old_folder_still_has_one(mocker, tmp_path):
@@ -526,14 +613,25 @@ def test_resume_sends_catchup_history_in_the_actual_cli_prompt(stub_config, mock
     assert argv[-1] == "Assistant: rattrapage\n\nUser: suite"
 
 
-def test_the_agent_runs_in_its_own_folder(stub_config, tmp_path):
+@pytest.mark.parametrize("conversation_id", [UUID_A, SHORT_A], ids=["uuid", "court"])
+def test_the_agent_runs_in_its_own_folder(stub_config, tmp_path, conversation_id):
     stub_config('echo "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\necho \'{"type": "result", "subtype": "success"}\'')
 
-    collect_messages(make_backend(), conversation_id=UUID_A)
+    collect_messages(make_backend(), conversation_id=conversation_id)
 
-    workdir = tmp_path / "tmp" / UUID_A
+    workdir = tmp_path / "tmp" / conversation_id
     assert workdir.is_dir()
     assert (tmp_path / "tmpdir.txt").read_text().strip() == str(workdir)
+
+
+@pytest.mark.parametrize("conversation_id", MALFORMED_IDS)
+def test_an_agent_with_a_malformed_conversation_id_runs_without_a_folder(stub_config, tmp_path, conversation_id):
+    stub_config('echo "$TMPDIR" > "$(dirname "$0")/tmpdir.txt"\necho \'{"type": "result", "subtype": "success"}\'')
+
+    collect_messages(make_backend(), conversation_id=conversation_id)
+
+    assert list((tmp_path / "tmp").iterdir()) == []
+    assert not (tmp_path / "tmpdir.txt").read_text().startswith(str(tmp_path / "tmp"))
 
 
 FOLDER_LINE = "Dossier de travail de cette conversation, déjà créé : {workdir}/"

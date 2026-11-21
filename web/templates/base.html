@@ -68,7 +68,7 @@
     <nav class="sidebar-nav" role="navigation" id="nav-primary" aria-label="Navigation principale" tabindex="-1">
       <ul class="nav flex-column">
         <li class="nav-item">
-          <a href="/explorations/new" class="nav-link nav-link-primary {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}
+          <a href="/c/new" class="nav-link nav-link-primary {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-add-line" aria-hidden="true"></i>
             <span>Nouvelle conversation</span>
@@ -109,7 +109,7 @@
         <ul class="nav flex-column">
           {% for conv in conversations[:10] %}
           <li class="nav-item">
-            <a href="/explorations/{{ conv.id }}"
+            <a href="/c/{{ conv.id }}"
                class="nav-link nav-link-conversation {% if current_conv and current_conv.id == conv.id %}active{% endif %}"
                hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
                title="{{ conv.title or 'Sans titre' }}">
@@ -156,7 +156,7 @@
       <nav role="navigation">
         <ul class="nav flex-column">
           <li class="nav-item">
-            <a href="/explorations/new" class="nav-link {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}>
+            <a href="/c/new" class="nav-link {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}>
               <i class="ri-add-line me-2"></i>Nouvelle conversation
             </a>
           </li>
@@ -182,7 +182,7 @@
         <ul class="nav flex-column">
           {% for conv in conversations[:10] %}
           <li class="nav-item">
-            <a href="/explorations/{{ conv.id }}" class="nav-link nav-link-conversation {% if current_conv and current_conv.id == conv.id %}active{% endif %}">
+            <a href="/c/{{ conv.id }}" class="nav-link nav-link-conversation {% if current_conv and current_conv.id == conv.id %}active{% endif %}">
               {{ conv.title or 'Sans titre' }}
             </a>
           </li>
@@ -260,9 +260,9 @@
   <!-- Sidebar active state management -->
   <script>
   function updateSidebarActive() {
-    const opened = parseExplorationPath(window.location.pathname);
+    const opened = parseConversationPath(window.location.pathname);
     // Why: a permalink opens its conversation's page, whose link in the recents stays the active one.
-    const path = opened ? `/explorations/${opened.conversation}` : window.location.pathname;
+    const path = opened ? `/c/${opened.conversation}` : window.location.pathname;
     const show = new URLSearchParams(window.location.search).get('show') || '';
     // La vue Rapports couvre l'onglet ?show=reports et les pages de détail /rapports/...
     const onReports = path.startsWith('/rapports') || (path === '/conversations' && show === 'reports');

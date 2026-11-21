@@ -2,12 +2,16 @@
 
 import logging
 import re
+import string
 from collections import OrderedDict
 from datetime import timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
+from starlette.convertors import IntegerConvertor, register_url_convertor
 
+from lib import permalinks
 from web import helpers
 from web.config import ADMIN_USERS
 from web.database import store
@@ -24,6 +28,16 @@ from web.search_filters import build_search_facets
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class MessageNumber(IntegerConvertor):
+    """Le numéro d'un message dans une adresse, aussi long que le plus grand id `Integer` et pas plus."""
+
+    # Why: sans borne, `int` refuse au-delà de 4 300 chiffres et l'adresse échoue au lieu de ne rien désigner.
+    regex = "[0-9]{1,10}"
+
+
+register_url_convertor("message", MessageNumber())
 
 # FIXME(vperron): OH MY GOD - this is all VERY, VERY bad practice.
 
@@ -106,7 +120,7 @@ def resolve_item(
         if not conv:
             return None
         return {
-            "url": f"/explorations/{item_id}",
+            "url": f"/c/{item_id}",
             "title": humanize_title(conv.title) if conv.title else label,
             "icon": "ri-chat-3-fill",
             "updated_at": conv.updated_at,
@@ -446,17 +460,37 @@ def explorations(
 ):
     """Legacy explorations list — redirects to /conversations."""
     if conv:
-        # Validate conv is a UUID to prevent open redirect
+        # Why: seul un identifiant de conversation entre dans l'adresse, jamais un domaine ou un chemin. Temporaire
+        # comme les autres redirections vers /c/ (voir `explorations_redirect`).
         if validate_conv_id(conv):
-            return RedirectResponse(f"/explorations/{conv}", status_code=301)
+            return RedirectResponse(f"/c/{conv}", status_code=302)
         return RedirectResponse("/conversations?show=convos", status_code=301)
 
     target = "/conversations?show=mine" if mine == "1" else "/conversations?show=convos"
     return RedirectResponse(target, status_code=301)
 
 
-@router.get("/explorations/new")
-def explorations_new(request: Request, user_email: str = Depends(get_current_user)):
+@router.get("/explorations/{conv_id}")
+@router.get("/explorations/{conv_id}/{message:message}")
+@router.get("/explorations/{conv_id}/{message:message}/{anchor}")
+def explorations_redirect(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    """Les adresses d'avant /c/ mènent à leur équivalent, segments et paramètres conservés."""
+    if conv_id != "new" and not validate_conv_id(conv_id):
+        return RedirectResponse("/conversations?show=convos", status_code=302)
+    message, anchor = request.path_params.get("message"), request.path_params.get("anchor", "")
+    # Why: le segment arrive décodé ; recopié tel quel, « x%3Fmessage%3D… » enverrait du texte depuis la page.
+    kept = f"/{anchor}" if permalinks.ANCHOR_NAME.fullmatch(anchor) else ""
+    address = f"/c/{conv_id}" if message is None else f"/c/{conv_id}/{message}{kept}"
+    # Why: la requête telle que reçue, ses seuls octets hors ASCII encodés ; `request.url` relit le chemin décodé, où
+    # « x%3Fmessage%3D… » en ouvrirait une.
+    query = quote(request.scope["query_string"], safe=string.punctuation)
+    # Why: temporaire, permanente une fois /c/ installé pour de bon : un navigateur garde une redirection permanente, et
+    # après un retour en arrière du déploiement il enverrait encore vers des adresses que le code d'avant ignore.
+    return RedirectResponse(f"{address}?{query}" if query else address, status_code=302)
+
+
+@router.get("/c/new")
+def new_conversation_page(request: Request, user_email: str = Depends(get_current_user)):
     """Start a new conversation - empty chat UI."""
     data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
@@ -472,17 +506,17 @@ def explorations_new(request: Request, user_email: str = Depends(get_current_use
     )
 
 
-@router.get("/explorations/{conv_id}")
-@router.get("/explorations/{conv_id}/{message:int}")
-@router.get("/explorations/{conv_id}/{message:int}/{anchor}")
-def explorations_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+@router.get("/c/{conv_id}")
+@router.get("/c/{conv_id}/{message:message}")
+@router.get("/c/{conv_id}/{message:message}/{anchor}")
+def conversation_page(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """View a specific conversation.
 
-    Allows viewing conversations owned by other users (shared via UUID link).
+    Allows viewing conversations owned by other users (shared via their link).
     The owner's email is shown in the header for shared conversations.
     """
-    # Try to get conversation without user filter (allow shared access)
-    current_conv = store.get_conversation(conv_id, include_messages=False)
+    # Why: une adresse qui ne porte pas un identifiant ne va pas jusqu'à la base, où un octet nul la ferait échouer.
+    current_conv = validate_conv_id(conv_id) and store.get_conversation(conv_id, include_messages=False)
 
     if not current_conv:
         return RedirectResponse("/conversations?show=convos", status_code=302)

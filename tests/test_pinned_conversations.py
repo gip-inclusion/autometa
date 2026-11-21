@@ -152,7 +152,7 @@ def test_pin_sidebar_no_pins_no_pushpin(client):
 
 def test_pin_sidebar_admin_sees_pin_button(app, client, conversation):
     resp = client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": ADMIN_EMAIL},
     )
     assert resp.status_code == 200
@@ -161,7 +161,7 @@ def test_pin_sidebar_admin_sees_pin_button(app, client, conversation):
 
 def test_pin_sidebar_non_admin_no_pin_button(app, client, conversation):
     resp = client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": NON_ADMIN_EMAIL},
     )
     assert resp.status_code == 200
@@ -175,7 +175,7 @@ def test_pin_sidebar_admin_sees_unpin_on_pinned(app, client, conversation):
     store.pin_conversation(conversation.id, "Test")
 
     resp = client.get(
-        f"/explorations/{conversation.id}",
+        f"/c/{conversation.id}",
         headers={"X-Forwarded-Email": ADMIN_EMAIL},
     )
     assert resp.status_code == 200
