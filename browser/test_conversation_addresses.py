@@ -17,6 +17,7 @@ pytestmark = pytest.mark.browser
 
 TABLE = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |"
 NOTE = {"name": "note.txt", "mimeType": "text/plain", "buffer": b"contenu de la note"}
+SPINNING = re.compile(r"\bri-spin\b")
 
 # Why: le lien d'une carte de rapport ou d'application de la liste passe par onclick, pas par href.
 ADDRESSES = """() => [...document.querySelectorAll('[href], [hx-get], [hx-push-url], [data-url], [onclick]')].flatMap(
@@ -154,3 +155,32 @@ def test_no_page_links_a_conversation_at_its_old_address_and_each_link_opens_its
         assert opened.ok, path
         expected = 'id="chatInput"' if path == "/c/new" else f"loadConversation('{path.split('/')[2]}')"
         assert expected in opened.text(), path
+
+
+def sidebar_icon(page: Page, conversation: str) -> Locator:
+    """L'icône du lien d'une conversation dans les récentes de la barre latérale."""
+    return page.locator(f"#sidebar-recents a[href='/c/{conversation}'] i")
+
+
+def test_the_sidebar_link_of_a_conversation_spins_while_its_turn_runs(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    ask("[slow:3] Question lente")
+
+    expect(sidebar_icon(page, conversation)).to_have_class(SPINNING)
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    expect(sidebar_icon(page, conversation)).not_to_have_class(SPINNING)
+
+
+def test_the_spinner_of_a_conversation_left_running_goes_once_its_turn_ends(
+    conversation: str, ask: Callable[[str], None], visit: Callable[[str], None], page: Page
+):
+    ask("[slow:4] Question lente")
+    expect(page.locator("#chatOutput")).to_contain_text("Morceau 1.", timeout=15_000)
+    other = page.request.post("/api/conversations").json()["id"]
+
+    visit(f"/c/{other}")
+
+    expect(sidebar_icon(page, conversation)).to_have_class(SPINNING)
+    expect(sidebar_icon(page, conversation)).not_to_have_class(SPINNING, timeout=20_000)
+    page.request.delete(f"/api/conversations/{other}")
