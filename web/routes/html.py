@@ -447,9 +447,10 @@ def explorations(
 ):
     """Legacy explorations list — redirects to /conversations."""
     if conv:
-        # Why: seul un identifiant de conversation entre dans l'adresse, jamais un domaine ou un chemin.
+        # Why: seul un identifiant de conversation entre dans l'adresse, jamais un domaine ou un chemin. Temporaire
+        # comme les autres redirections vers /c/ (voir `explorations_redirect`).
         if validate_conv_id(conv):
-            return RedirectResponse(f"/c/{conv}", status_code=301)
+            return RedirectResponse(f"/c/{conv}", status_code=302)
         return RedirectResponse("/conversations?show=convos", status_code=301)
 
     target = "/conversations?show=mine" if mine == "1" else "/conversations?show=convos"
@@ -469,7 +470,9 @@ def explorations_redirect(conv_id: str, request: Request, user_email: str = Depe
     address = f"/c/{conv_id}" if message is None else f"/c/{conv_id}/{message}{kept}"
     # Why: la requête telle que reçue ; `request.url` relit le chemin décodé, où « x%3Fmessage%3D… » en ouvrirait une.
     query = request.scope["query_string"].decode("latin-1")
-    return RedirectResponse(f"{address}?{query}" if query else address, status_code=301)
+    # Why: temporaire, permanente une fois /c/ installé pour de bon : un navigateur garde une redirection permanente, et
+    # après un retour en arrière du déploiement il enverrait encore vers des adresses que le code d'avant ignore.
+    return RedirectResponse(f"{address}?{query}" if query else address, status_code=302)
 
 
 @router.get("/c/new")

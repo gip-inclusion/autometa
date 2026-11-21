@@ -87,7 +87,7 @@ def test_other_addresses_under_a_conversation_match_nothing(client, tail):
 def test_an_old_conversation_address_leads_to_its_new_one(client, conv_id, tail, kept):
     page = client.get(f"/explorations/{conv_id}{tail}", headers=headers(), follow_redirects=False)
 
-    assert (page.status_code, page.headers["location"]) == (301, f"/c/{conv_id}{kept}")
+    assert (page.status_code, page.headers["location"]) == (302, f"/c/{conv_id}{kept}")
 
 
 @pytest.mark.parametrize(
@@ -96,7 +96,7 @@ def test_an_old_conversation_address_leads_to_its_new_one(client, conv_id, tail,
 def test_the_old_new_conversation_address_leads_to_the_new_one(client, query):
     page = client.get(f"/explorations/new{query}", headers=headers(), follow_redirects=False)
 
-    assert (page.status_code, page.headers["location"]) == (301, f"/c/new{query}")
+    assert (page.status_code, page.headers["location"]) == (302, f"/c/new{query}")
 
 
 @pytest.mark.parametrize(
@@ -116,20 +116,20 @@ def test_an_old_address_with_a_slash_for_an_id_matches_nothing(client, path):
 
 
 @pytest.mark.parametrize(
-    ("query", "location"),
+    ("query", "status", "location"),
     [
-        (f"?conv={SHORT}", f"/c/{SHORT}"),
-        (f"?conv={UUID}", f"/c/{UUID}"),
-        ("?conv=//evil.com", "/conversations?show=convos"),
-        ("", "/conversations?show=convos"),
-        ("?mine=1", "/conversations?show=mine"),
+        (f"?conv={SHORT}", 302, f"/c/{SHORT}"),
+        (f"?conv={UUID}", 302, f"/c/{UUID}"),
+        ("?conv=//evil.com", 301, "/conversations?show=convos"),
+        ("", 301, "/conversations?show=convos"),
+        ("?mine=1", 301, "/conversations?show=mine"),
     ],
     ids=["court", "uuid", "pas-un-identifiant", "liste", "mes-conversations"],
 )
-def test_the_old_explorations_list_leads_to_a_conversation_or_the_list(client, query, location):
+def test_the_old_explorations_list_leads_to_a_conversation_or_the_list(client, query, status, location):
     page = client.get(f"/explorations{query}", headers=headers(), follow_redirects=False)
 
-    assert (page.status_code, page.headers["location"]) == (301, location)
+    assert (page.status_code, page.headers["location"]) == (status, location)
 
 
 def test_a_new_conversation_page_answers_at_its_address(client):
