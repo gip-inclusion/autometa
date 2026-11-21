@@ -39,3 +39,20 @@ def test_running_includes_legacy_conversations_without_owner(client):
     running = client.get("/api/conversations/running", headers=headers()).json()["running"]
 
     assert legacy.id in running
+
+
+@pytest.mark.parametrize("tail", ["", "/12", "/12/table-1-abcdef"], ids=["conversation", "réponse", "élément"])
+def test_the_conversation_page_answers_at_its_address_and_at_its_permalinks(client, tail):
+    conv = store.create_conversation(user_id="alice@example.com")
+
+    page = client.get(f"/explorations/{conv.id}{tail}", headers=headers(), follow_redirects=False)
+
+    assert page.status_code == 200
+    assert f"loadConversation('{conv.id}')" in page.text
+
+
+@pytest.mark.parametrize("tail", ["/files", "/12/table-1-abcdef/x"], ids=["segment-non-numérique", "segment-de-trop"])
+def test_other_addresses_under_a_conversation_match_nothing(client, tail):
+    conv = store.create_conversation(user_id="alice@example.com")
+
+    assert client.get(f"/explorations/{conv.id}{tail}", headers=headers()).status_code == 404

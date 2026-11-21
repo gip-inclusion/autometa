@@ -34,16 +34,16 @@ def answer(conversation: str, ask: Callable[[str], None], page: Page):
     return answer_to(QUESTION, ask, page)
 
 
-def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(answer, conversation: str):
+def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(
+    answer, conversation: str, base_url: str
+):
     expect(answer.locator(".permalink-btn")).to_have_count(4)
     links = answer.locator(".permalink-btn").evaluate_all("buttons => buttons.map((b) => b.dataset.url)")
 
-    assert all(f"/explorations/{conversation}?m=" in link for link in links)
-    assert sorted(re.sub(r"-[0-9a-f]{6}$", "", link.split("&a=")[1]) for link in links if "&a=" in link) == [
-        "section-1",
-        "section-2",
-        "table-1",
-    ]
+    shape = rf"{base_url}/explorations/{conversation}/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
+    shapes = [re.fullmatch(shape, link) for link in links]
+    assert all(shapes), links
+    assert sorted(shape[1] for shape in shapes if shape[1]) == ["section-1", "section-2", "table-1"]
 
 
 def test_an_answer_the_page_reads_otherwise_than_the_server_keeps_its_own_link_only(
@@ -62,7 +62,7 @@ def test_a_chart_gets_its_link_and_its_entry_in_the_table_of_contents(
 ):
     answer = answer_to(CHART, ask, page)
 
-    expect(answer.locator(".permalink-btn[data-url*='a=chart-1-']")).to_have_count(1)
+    expect(answer.locator(".permalink-btn[data-url*='/chart-1-']")).to_have_count(1)
     expect(page.locator("#tocContent .toc-entry")).to_have_text(["Statuts #1", "Par statut"])
     expect(page.locator("#tocContent .toc-entry").nth(1).locator(".ri-bar-chart-2-line")).to_have_count(1)
 
@@ -75,16 +75,36 @@ def test_a_chart_gets_its_link_and_its_entry_in_the_table_of_contents(
 def test_opening_a_link_highlights_its_target_or_the_whole_answer(
     answer, visit: Callable[[str], None], page: Page, stale: bool, highlighted: str
 ):
-    link = answer.locator(".permalink-btn[data-url*='a=table-1-']").get_attribute("data-url")
+    link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
+    opened = re.sub(r"[0-9a-f]{6}$", "000000", link) if stale else link
 
-    visit(re.sub(r"[0-9a-f]{6}$", "000000", link) if stale else link)
+    visit(opened)
 
     expect(page.locator(highlighted)).to_have_count(1)
     expect(page.locator(".permalink-target")).to_have_count(1)
-    assert "a=table-1-" in page.url
+    expect(page).to_have_url(opened)
 
 
-def test_the_table_of_contents_outlines_sections_and_figures(answer, page: Page):
+def test_a_link_opens_its_conversation_marked_in_the_sidebar_and_navigable(answer, conversation: str, page: Page):
+    link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
+    fresh = page.context.new_page()
+    recent = fresh.locator(f"#sidebar-recents a[href='/explorations/{conversation}']")
+
+    fresh.goto(link, wait_until="domcontentloaded")
+
+    expect(fresh.locator("table.permalink-target")).to_have_count(1)
+    expect(recent).to_have_class(re.compile(r"\bactive\b"))
+
+    fresh.locator("#sidebar a[href='/explorations/new']").click()
+    expect(fresh).to_have_url(re.compile(r"/explorations/new$"))
+    recent.click()
+
+    expect(fresh).to_have_url(re.compile(rf"/explorations/{conversation}$"))
+    expect(fresh.locator(".event-final-answer")).to_have_count(2)
+    expect(recent).to_have_class(re.compile(r"\bactive\b"))
+
+
+def test_the_table_of_contents_outlines_sections_and_figures(answer, conversation: str, page: Page):
     entries = page.locator("#tocContent .toc-entry")
 
     expect(entries).to_have_text(["Candidatures", "Candidatures", "Méthode"])
@@ -93,12 +113,12 @@ def test_the_table_of_contents_outlines_sections_and_figures(answer, page: Page)
 
     entries.nth(1).dispatch_event("click")
 
-    expect(page).to_have_url(re.compile(r"a=table-1-[0-9a-f]{6}$"))
+    expect(page).to_have_url(re.compile(rf"/explorations/{conversation}/\d+/table-1-[0-9a-f]{{6}}$"))
 
 
 def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_over_its_corner(answer, page: Page):
     table = answer.locator("table")
-    figure_link = answer.locator(".permalink-btn[data-url*='a=table-1-']")
+    figure_link = answer.locator(".permalink-btn[data-url*='/table-1-']")
     expect(figure_link).to_have_count(1)
 
     page.mouse.move(0, 0)
@@ -137,7 +157,7 @@ def test_a_heading_link_from_before_permalinks_still_lands(conversation: str, as
 def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
     answer, ask: Callable[[str], None], page: Page
 ):
-    link = answer.locator(".permalink-btn[data-url*='a=table-1-']").get_attribute("data-url")
+    link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
     answer_to(LONG, ask, page)
     fresh = page.context.new_page()
     # Why: la vue minimale masque ainsi les réponses intermédiaires, que l'agent factice ne sait pas produire.
@@ -156,7 +176,7 @@ def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: s
     fresh = page.context.new_page()
 
     with fresh.expect_request("**/anchors*") as request:
-        fresh.goto(f"/explorations/{conversation}?utm_source=slack&m=1&a=table-1-000000", wait_until="domcontentloaded")
+        fresh.goto(f"/explorations/{conversation}/1/table-1-000000?utm_source=slack", wait_until="domcontentloaded")
 
     assert request.value.url.endswith(f"/api/conversations/{conversation}/anchors?m=1&a=table-1-000000")
 
@@ -191,4 +211,4 @@ def test_an_answer_gets_its_links_as_soon_as_a_waiting_message_follows_it(
 
     expect(page.locator("#chatOutput .event-user").last).to_have_text("[slow:8] Suite", timeout=15_000)
 
-    expect(page.locator(".permalink-btn[data-url*='a=section-1-']")).to_have_count(1, timeout=4_000)
+    expect(page.locator(".permalink-btn[data-url*='/section-1-']")).to_have_count(1, timeout=4_000)

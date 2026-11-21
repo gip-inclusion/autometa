@@ -473,6 +473,8 @@ def explorations_new(request: Request, user_email: str = Depends(get_current_use
 
 
 @router.get("/explorations/{conv_id}")
+@router.get("/explorations/{conv_id}/{message:int}")
+@router.get("/explorations/{conv_id}/{message:int}/{anchor}")
 def explorations_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """View a specific conversation.
 

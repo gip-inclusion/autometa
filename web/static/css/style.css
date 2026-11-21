@@ -4886,10 +4886,13 @@ body.no-sidebar .section-header .container-fluid {
   margin-top: 0;
 }
 
+/* Why: the conversation scrolls under its header; the margin keeps the outline and a table's bold title line above
+   the target in view. */
 .permalink-target {
   border-radius: 4px;
   outline: 2px solid #006adc;
   outline-offset: 4px;
+  scroll-margin-top: 4rem;
 }
 
 .toc-level-3 {

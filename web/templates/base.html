@@ -257,7 +257,9 @@
   <!-- Sidebar active state management -->
   <script>
   function updateSidebarActive() {
-    const path = window.location.pathname;
+    const opened = parseExplorationPath(window.location.pathname);
+    // Why: a permalink opens its conversation's page, whose link in the recents stays the active one.
+    const path = opened ? `/explorations/${opened.conversation}` : window.location.pathname;
     const show = new URLSearchParams(window.location.search).get('show') || '';
     // La vue Rapports couvre l'onglet ?show=reports et les pages de détail /rapports/...
     const onReports = path.startsWith('/rapports') || (path === '/conversations' && show === 'reports');

@@ -7,6 +7,7 @@
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
  *             permalinks.js (refreshPermalinks, showPermalinkTarget)
+ *             chat.js (parseExplorationPath)
  */
 
 let currentConversationId = null;
@@ -768,11 +769,12 @@ async function loadConversation(convId) {
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
-    // Update URL without reload (preserve hash if present)
+    // Why: a new conversation opens with ?message=, which a reload would send again; the path stays as opened, a
+    // permalink's included, and so does the hash.
     const hash = window.location.hash;
-    // Why: a new conversation opens with ?message=, which a reload would send again; only a permalink stays.
-    const search = target ? window.location.search : '';
-    window.history.replaceState({}, '', `/explorations/${convId}${search}${hash}`);
+    const opened = parseExplorationPath(window.location.pathname);
+    const path = opened?.conversation === convId ? window.location.pathname : `/explorations/${convId}`;
+    window.history.replaceState({}, '', `${path}${hash}`);
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {

@@ -1,6 +1,6 @@
 /**
  * Permalinks: a "copy link" on each finished answer, section, table and chart, and the highlight of a link's target.
- * Depends on: stream.js (currentConversationId), actions.js (rebuildToc)
+ * Depends on: stream.js (currentConversationId), actions.js (rebuildToc), chat.js (parseExplorationPath)
  */
 
 function firstLetters(text) {
@@ -28,13 +28,11 @@ const PERMALINK_ELEMENTS = {
 };
 
 function permalinkButton(messageId, label, anchor) {
-  const url = new URL(`/explorations/${currentConversationId}`, window.location.origin);
-  url.searchParams.set('m', messageId);
-  if (anchor) url.searchParams.set('a', `${anchor.kind}-${anchor.rank}-${anchor.digest}`);
+  const element = anchor ? `/${anchor.kind}-${anchor.rank}-${anchor.digest}` : '';
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'permalink-btn';
-  button.dataset.url = url.toString();
+  button.dataset.url = `${window.location.origin}/explorations/${currentConversationId}/${messageId}${element}`;
   button.title = `Copier le lien vers ${label}`;
   button.setAttribute('aria-label', button.title);
   button.innerHTML = '<i class="ri-link" aria-hidden="true"></i>';
@@ -82,10 +80,10 @@ function attachPermalinks(block, ids, anchors) {
 async function refreshPermalinks() {
   const convId = currentConversationId;
   if (!convId) return null;
-  const opened = new URLSearchParams(window.location.search);
+  const { message, anchor } = parseExplorationPath(window.location.pathname) ?? {};
   const url = new URL(`/api/conversations/${convId}/anchors`, window.location.origin);
-  // Why: the route only reads the permalink; a new conversation's ?message= has no business in its logs.
-  for (const key of ['m', 'a']) if (opened.has(key)) url.searchParams.set(key, opened.get(key));
+  if (message) url.searchParams.set('m', message);
+  if (anchor) url.searchParams.set('a', anchor);
   let body = null;
   try {
     const response = await fetch(url);
