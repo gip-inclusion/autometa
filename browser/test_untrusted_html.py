@@ -188,3 +188,35 @@ def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: s
     expect(page.locator(".action-api-link").first).to_contain_text("VisitsSummary.get", timeout=15000)
     hrefs = page.evaluate("() => [...document.querySelectorAll('.action-api-link')].map((a) => a.getAttribute('href'))")
     assert set(hrefs) == {None}
+
+
+def with_knowledge_text(text: str) -> Callable[[Route], None]:
+    """Remplace le texte d'une fiche de connaissance dans la page servie."""
+
+    def replace(route: Route) -> None:
+        response = route.fetch()
+        body = re.sub(
+            r'(<script id="knowledgeRawContent"[^>]*>).*?(</script>)',
+            lambda match: match[1] + json.dumps(text) + match[2],
+            response.text(),
+            flags=re.DOTALL,
+        )
+        route.fulfill(response=response, body=body)
+
+    return replace
+
+
+@pytest.mark.parametrize("through_htmx", [False, True])
+def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str], None], through_htmx: bool):
+    page.add_init_script(PROBE)
+    page.route("**/knowledge/matomo/README.md", with_knowledge_text("<img src=x onerror=probe(1)> **gras**"))
+    if through_htmx:
+        visit("/knowledge")
+        page.locator('a[href="/knowledge/matomo/README.md"]').click()
+    else:
+        visit("/knowledge/matomo/README.md")
+    content = page.locator("#markdownContent")
+    expect(content.locator("strong")).to_have_text("gras")
+    page.wait_for_timeout(1000)
+    expect(content.locator("img[onerror]")).to_have_count(0)
+    assert probes(page) == []

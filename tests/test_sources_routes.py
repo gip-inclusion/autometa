@@ -89,6 +89,15 @@ def test_legacy_path_redirect_cannot_be_steered(client, payload):
         assert "//" not in location.removeprefix("/knowledge")
 
 
+@pytest.mark.parametrize("closing", ["</script>", "</SCRIPT>", "</script >"])
+def test_a_knowledge_page_keeps_its_text_inside_its_data_element(client, mocker, tmp_path, closing):
+    fiche = tmp_path / "fiche.md"
+    fiche.write_text(f"# Fiche\n\n{closing}<img src=x onerror=alert(1)>\n")
+    mocker.patch("web.routes.html.validate_knowledge_path", return_value=fiche)
+
+    assert "<img src=x onerror" not in client.get("/knowledge/fiche.md").text
+
+
 def test_page_groups_sources_by_role(client):
     body = client.get("/sources").text
     for group in ("Données métier", "Analytiques web", "Connecteurs", "Interne"):
