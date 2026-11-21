@@ -3,8 +3,11 @@
  * Depends on: stream.js (currentConversationId), actions.js (rebuildToc), chat.js (parseExplorationPath)
  */
 
-function firstLetters(text) {
-  return text.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 40);
+/**
+ * The letters and digits of a text, one code point each, as the server counts them
+ */
+function letters(text) {
+  return [...text.replace(/[^\p{L}\p{N}]/gu, '')];
 }
 
 // Why: a chart is a div.mermaid once drawn, and stays a code block when Mermaid is unavailable. Each element yields
@@ -13,17 +16,24 @@ const PERMALINK_ELEMENTS = {
   section: {
     selector: 'h1, h2, h3, h4, h5, h6',
     label: 'cette section',
-    witness: (heading) => firstLetters(heading.textContent),
+    witness: (heading) => letters(heading.textContent).slice(0, 40).join(''),
   },
   table: {
     selector: 'table',
     label: 'ce tableau',
-    witness: (table) => `${table.rows[0]?.cells.length ?? 0}x${table.tBodies[0]?.rows.length ?? 0}`,
+    witness: (table) => {
+      const header = [...(table.rows[0]?.cells ?? [])];
+      const names = letters(header.map((cell) => cell.textContent).join(''));
+      return `${header.length}x${table.tBodies[0]?.rows.length ?? 0}:${names.slice(0, 40).join('')}`;
+    },
   },
   chart: {
     selector: '.mermaid, pre:has(> code.language-mermaid)',
     label: 'ce graphique',
-    witness: (chart) => firstLetters(chart.dataset.source ?? chart.textContent),
+    witness: (chart) => {
+      const source = letters(chart.dataset.source ?? chart.textContent);
+      return `${source.length}:${source.slice(0, 40).join('')}`;
+    },
   },
 };
 
@@ -45,7 +55,8 @@ function attachPermalinks(block, ids, anchors) {
   const pairs = [];
   for (const [kind, { selector, witness }] of Object.entries(PERMALINK_ELEMENTS)) {
     const expected = ids.flatMap((id) => anchors[id].filter((a) => a.kind === kind).map((a) => ({ ...a, id })));
-    const elements = [...block.querySelectorAll(selector)];
+    // Why: the server does not read inside blockquotes; what the page draws there gets no link and pairs with nothing.
+    const elements = [...block.querySelectorAll(selector)].filter((element) => !element.closest('blockquote'));
     // Why: the page and the server read Markdown with different parsers; when they disagree on any element, the
     // answer keeps its own link only — no link beats a wrong one.
     if (elements.length !== expected.length) return;

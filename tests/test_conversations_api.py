@@ -318,7 +318,7 @@ def test_anchors_lists_each_agent_message_for_any_reader(client):
 
     assert [(a["kind"], a["rank"], a["title"], a["level"], a["witness"]) for a in body["anchors"][answer]] == [
         ("section", 1, "Titre", 2, "Titre"),
-        ("table", 1, "Titre", 3, "2x1"),
+        ("table", 1, "Titre", 3, "2x1:ab"),
     ]
     assert body["target"] is None
 

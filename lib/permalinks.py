@@ -29,6 +29,11 @@ def plain(markdown: str) -> str:
     return re.sub(r"[*`]+|(?<!\w)_+|(?<!_)_+(?!\w)", "", linked).strip()
 
 
+def letters(text: str) -> str:
+    """The letters and digits of a text, in order."""
+    return "".join(filter(str.isalnum, text))
+
+
 def anchors(text: str) -> list[Anchor]:
     """The sections, tables and Mermaid charts of a message in reading order, each ranked among its kind and titled."""
     lines = text.replace("\r\n", "\n").split("\n")
@@ -87,12 +92,18 @@ def anchors(text: str) -> list[Anchor]:
         ranks[kind] += 1
         body = "\n".join(lines[start:end]).strip()
         title = heading
+        # Why: the page checks each pairing against what it rendered. Letters and digits mostly read alike on both
+        # sides; entities, images, reference links or inline HTML make them differ, and the answer then keeps only
+        # its own link.
         if kind == "table":
-            cells = re.split(r"(?<!\\)\|", re.sub(r"^\||(?<!\\)\|$", "", lines[start].strip()))
-            witness = f"{len(cells)}x{end - start - 2}"
+            header = re.sub(r"^\||(?<!\\)\|$", "", lines[start].strip())
+            cells = re.split(r"(?<!\\)\|", header)
+            witness = f"{len(cells)}x{end - start - 2}:{letters(plain(header))[:40]}"
+        elif kind == "chart":
+            source = letters(body)
+            witness = f"{len(source)}:{source[:40]}"
         else:
-            # Why: the page checks each pairing against what it rendered; letters and digits survive any Markdown.
-            witness = "".join(filter(str.isalnum, body if kind == "chart" else heading))[:40]
+            witness = letters(heading)[:40]
         if kind != "section":
             native = kind == "chart" and re.search(
                 r"^[ \t]*(?:pie[ \t]+(?:showData[ \t]+)?)?title:?[ \t]+(.+)$", body, re.M

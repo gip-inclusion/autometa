@@ -15,10 +15,29 @@ pytestmark = pytest.mark.browser
 QUESTION = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |\n\n## Méthode\n\nTexte."
 
 # Why: le serveur voit un titre dans le bloc HTML, la page un titre dans la citation — autant de titres de part et
-# d'autre, pas les mêmes.
-DISAGREEMENT = (
-    "Désaccord\n\n## Contexte\n\n> ## Note importante\n> texte\n\n"
-    "<details>\n## Détail des calculs\n</details>\n\n## Résultats"
+# d'autre ; dans DISAGREEMENTS, ni les mêmes, ni d'autres mais de même texte, ni des tableaux de même forme.
+DISAGREEMENTS = {
+    "titres-différents": (
+        "Désaccord\n\n## Contexte\n\n> ## Note importante\n> texte\n\n"
+        "<details>\n## Détail des calculs\n</details>\n\n## Résultats",
+        ["Contexte", "Note importante", "Résultats"],
+    ),
+    "même-titre": (
+        "Désaccord\n\n## Contexte\n\n> ## Résultats\n> texte\n\n<details>\n## Résultats\ncalcul\n</details>\n\n## Méthode",
+        ["Contexte", "Résultats", "Méthode"],
+    ),
+    "tableaux-de-même-forme": (
+        "Désaccord\n\n## Chiffres\n\n<details>\n| a | b |\n|---|---|\n| 1 | 2 |\n</details>\n\n"
+        "<table><thead><tr><th>x</th><th>y</th></tr></thead>"
+        "<tbody><tr><td>3</td><td>4</td></tr><tr><td>5</td><td>6</td></tr></tbody></table>",
+        ["Chiffres"],
+    ),
+}
+
+# Why: le serveur ne lit pas les citations ; la page les écarte aussi, et le reste de la réponse s'apparie.
+QUOTED = (
+    "Citation\n\n## Contexte\n\n> ## Note\n>\n> | a | b |\n> |---|---|\n> | 1 | 2 |\n\n"
+    "| c | d |\n|---|---|\n| 3 | 4 |\n\n## Résultats"
 )
 
 # Why: le titre du serveur garde l'échappement « \# » ; le sommaire montre la section telle que la page l'affiche.
@@ -48,15 +67,29 @@ def test_a_finished_answer_offers_a_short_link_for_itself_each_section_and_each_
     assert sorted(shape[1] for shape in shapes if shape[1]) == ["section-1", "section-2", "table-1"]
 
 
+@pytest.mark.parametrize(("question", "headings"), DISAGREEMENTS.values(), ids=DISAGREEMENTS.keys())
 def test_an_answer_the_page_reads_otherwise_than_the_server_keeps_its_own_link_only(
-    conversation: str, ask: Callable[[str], None], page: Page
+    conversation: str, ask: Callable[[str], None], page: Page, question: str, headings: list[str]
 ):
-    answer = answer_to(DISAGREEMENT, ask, page)
+    answer = answer_to(question, ask, page)
 
     expect(answer.locator(".permalink-btn")).to_have_count(1)
-    expect(answer.locator("h2")).to_have_text(["Contexte", "Note importante", "Résultats"])
-    expect(page.locator("#tocContent .toc-entry")).to_have_text(["Contexte", "Note importante", "Résultats"])
-    expect(page.locator("#tocContent .toc-entry.toc-level-1")).to_have_count(3)
+    expect(answer.locator("[data-anchor]")).to_have_count(0)
+    expect(answer.locator("h2")).to_have_text(headings)
+    expect(page.locator("#tocContent .toc-entry")).to_have_text(headings)
+    expect(page.locator("#tocContent .toc-entry.toc-level-1")).to_have_count(len(headings))
+
+
+def test_a_quoted_heading_or_table_gets_no_link_while_the_rest_of_the_answer_does(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    answer = answer_to(QUOTED, ask, page)
+
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+    expect(answer.locator("blockquote :is(.permalink-btn, [data-anchor])")).to_have_count(0)
+    expect(answer.locator("blockquote :is(h2, table)")).to_have_count(2)
+    expect(answer.locator(".permalink-figure th")).to_have_text(["c", "d"])
+    expect(page.locator("#tocContent .toc-entry")).to_have_text(["Contexte", "Contexte", "Résultats"])
 
 
 def test_a_chart_gets_its_link_and_its_entry_in_the_table_of_contents(
