@@ -264,21 +264,33 @@ function formatReport(content, reportInfo) {
   return `${header}<div class="report-body">${formattedBody}</div>`;
 }
 
+// Why: agent text is untrusted — the agent repeats web pages, tickets, databases and files, and anyone signed in
+// can open any conversation. A class is a style too (Bootstrap's position-fixed…): only the code languages that
+// renderMermaid and renderOptions read are kept.
+const answerPurifier = typeof DOMPurify === 'undefined' ? null : DOMPurify();
+answerPurifier?.addHook('uponSanitizeAttribute', (node, data) => {
+  if (data.attrName === 'class') data.keepAttr = node.nodeName === 'CODE' && /^language-[\w-]+$/.test(data.attrValue);
+});
+const ANSWER_HTML = {
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: ['style', 'form'],
+  FORBID_ATTR: ['style', 'id', 'name'],
+};
+
 /**
  * Format assistant content using marked.js for proper markdown
  */
 function formatAssistantContent(content) {
   if (!content) return '';
 
-  // Use marked.js if available, fallback to simple formatting
-  if (typeof marked !== 'undefined') {
-    // Configure marked for safe rendering
+  // Why: without the sanitizer, the answer is shown as escaped text, never as unclean HTML.
+  if (typeof marked !== 'undefined' && answerPurifier) {
     marked.setOptions({
       breaks: true, // GFM line breaks
       gfm: true, // GitHub Flavored Markdown
     });
 
-    return marked.parse(content);
+    return answerPurifier.sanitize(marked.parse(content), ANSWER_HTML);
   }
 
   // Fallback: simple markdown-ish
