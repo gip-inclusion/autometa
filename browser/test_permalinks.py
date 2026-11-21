@@ -155,25 +155,25 @@ def test_opening_a_link_highlights_its_target_or_the_whole_answer_and_keeps_its_
 
     expect(page.locator(highlighted)).to_have_count(1)
     expect(page.locator(".permalink-target")).to_have_count(1)
-    expect(page).to_have_url(opened)
+    expect(page).to_have_url(opened.replace("/explorations/", "/c/"))
     expect(page.locator(".event-error")).to_have_count(0)
 
 
 def test_a_link_opens_its_conversation_marked_in_the_sidebar_and_navigable(answer, conversation: str, page: Page):
     link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
     fresh = page.context.new_page()
-    recent = fresh.locator(f"#sidebar-recents a[href='/explorations/{conversation}']")
+    recent = fresh.locator(f"#sidebar-recents a[href='/c/{conversation}']")
 
     fresh.goto(link, wait_until="domcontentloaded")
 
     expect(fresh.locator("table.permalink-target")).to_have_count(1)
     expect(recent).to_have_class(re.compile(r"\bactive\b"))
 
-    fresh.locator("#sidebar a[href='/explorations/new']").click()
-    expect(fresh).to_have_url(re.compile(r"/explorations/new$"))
+    fresh.locator("#sidebar a[href='/c/new']").click()
+    expect(fresh).to_have_url(re.compile(r"/c/new$"))
     recent.click()
 
-    expect(fresh).to_have_url(re.compile(rf"/explorations/{conversation}$"))
+    expect(fresh).to_have_url(re.compile(rf"/c/{conversation}$"))
     expect(fresh.locator(".event-final-answer")).to_have_count(2)
     expect(recent).to_have_class(re.compile(r"\bactive\b"))
 
@@ -220,7 +220,7 @@ def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_o
 
 @pytest.mark.parametrize(
     ("opened", "toc_click"),
-    [("/explorations/{conversation}", True), ("/explorations/{conversation}/999999999/table-1-000000", False)],
+    [("/c/{conversation}", True), ("/c/{conversation}/999999999/table-1-000000", False)],
     ids=["entrée-du-sommaire", "lien-vers-aucune-réponse"],
 )
 def test_going_back_to_a_conversation_whose_address_the_page_changed_shows_its_answers(
@@ -233,8 +233,8 @@ def test_going_back_to_a_conversation_whose_address_the_page_changed_shows_its_a
         page.locator("#tocContent .toc-entry").nth(1).dispatch_event("click")
     expect(page).not_to_have_url(re.compile(re.escape(opened.format(conversation=conversation)) + "$"))
 
-    page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
-    expect(page).to_have_url(re.compile(rf"/explorations/{other}$"))
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    expect(page).to_have_url(re.compile(rf"/c/{other}$"))
     page.go_back()
 
     expect(page.locator(".event-final-answer")).to_have_count(2)
@@ -245,7 +245,7 @@ def test_a_touch_screen_shows_the_heading_links_only(answer, conversation: str, 
     touch = page.context.browser.new_page(
         base_url=base_url, viewport={"width": 375, "height": 667}, is_mobile=True, has_touch=True
     )
-    touch.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+    touch.goto(f"/c/{conversation}", wait_until="domcontentloaded")
     touched = touch.locator(".event-final-answer").last
     expect(touched.locator(".permalink-btn")).to_have_count(4)
 
@@ -267,19 +267,23 @@ def test_putting_the_links_again_wraps_each_figure_once(answer, page: Page):
     expect(answer.locator(".permalink-figure > table")).to_have_count(1)
 
 
-def test_a_heading_link_from_before_permalinks_still_lands(conversation: str, ask: Callable[[str], None], page: Page):
+@pytest.mark.parametrize("address", ["/c/{conversation}", "/explorations/{conversation}"], ids=["adresse", "ancienne"])
+def test_a_heading_link_from_before_permalinks_still_lands(
+    conversation: str, ask: Callable[[str], None], page: Page, address: str
+):
     answer_to(LONG, ask, page)
     fresh = page.context.new_page()
 
-    fresh.goto(f"/explorations/{conversation}#methode", wait_until="domcontentloaded")
+    fresh.goto(f"{address.format(conversation=conversation)}#methode", wait_until="domcontentloaded")
 
     expect(fresh.locator("h2#methode")).to_be_in_viewport()
+    expect(fresh).to_have_url(re.compile(rf"/c/{conversation}#methode$"))
 
 
 def test_a_conversation_opened_at_its_address_keeps_it_and_plays_a_turn(
     conversation: str, visit: Callable[[str], None], ask: Callable[[str], None], page: Page
 ):
-    address = f"/explorations/{conversation}"
+    address = f"/c/{conversation}"
 
     visit(address)
 
@@ -293,8 +297,8 @@ def test_a_conversation_opened_at_its_address_keeps_it_and_plays_a_turn(
     expect(page.locator(".event-final-answer")).to_have_count(2)
     expect(page).to_have_url(re.compile(rf"{address}$"))
 
-    page.locator("#sidebar a[href='/explorations/new']").click()
-    expect(page).to_have_url(re.compile(r"/explorations/new$"))
+    page.locator("#sidebar a[href='/c/new']").click()
+    expect(page).to_have_url(re.compile(r"/c/new$"))
     page.go_back()
 
     expect(page).to_have_url(re.compile(rf"{address}$"))
@@ -338,10 +342,10 @@ def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_
     message = next((m["id"] for m in messages if m["type"] == message_type), 999_999_999)
     opened = page.request.post("/api/conversations").json()["id"] if elsewhere else conversation
 
-    visit(f"/explorations/{opened}/{message}/table-1-000000")
+    visit(f"/c/{opened}/{message}/table-1-000000")
 
     expect(page.locator(".event-error")).to_have_text("Ce lien ne correspond à aucune réponse de cette conversation.")
-    expect(page).to_have_url(re.compile(rf"/explorations/{opened}$"))
+    expect(page).to_have_url(re.compile(rf"/c/{opened}$"))
     expect(page.locator(".permalink-target")).to_have_count(0)
 
     ask("Encore une question")
@@ -354,7 +358,7 @@ def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: s
     fresh = page.context.new_page()
 
     with fresh.expect_request("**/anchors*") as request:
-        fresh.goto(f"/explorations/{conversation}/1/table-1-000000?utm_source=slack", wait_until="domcontentloaded")
+        fresh.goto(f"/c/{conversation}/1/table-1-000000?utm_source=slack", wait_until="domcontentloaded")
 
     assert request.value.url.endswith(f"/api/conversations/{conversation}/anchors?m=1&a=table-1-000000")
 
@@ -376,7 +380,7 @@ def test_a_running_conversation_resumes_when_its_permalinks_fail(
     fresh = page.context.new_page()
     fail(fresh)
 
-    fresh.goto(f"/explorations/{conversation}", wait_until="domcontentloaded")
+    fresh.goto(f"/c/{conversation}", wait_until="domcontentloaded")
 
     expect(fresh.locator(".event-final-answer").last).to_contain_text("Réponse factice : [slow:6]", timeout=15_000)
 
@@ -394,7 +398,7 @@ def test_a_first_message_is_not_sent_once_the_page_has_left_its_conversation(
     conversation: str, page: Page, elsewhere: bool
 ):
     target = page.request.post("/api/conversations").json()["id"]
-    destination = f"/explorations/{conversation}" if elsewhere else "/explorations/new"
+    destination = f"/c/{conversation}" if elsewhere else "/c/new"
     fresh = page.context.new_page()
     held = []
 
@@ -406,7 +410,7 @@ def test_a_first_message_is_not_sent_once_the_page_has_left_its_conversation(
 
     fresh.route("**/anchors*", hold_the_first)
     with fresh.expect_request(f"**/{target}/anchors*"):
-        fresh.goto(f"/explorations/{target}?message=Bonjour", wait_until="domcontentloaded")
+        fresh.goto(f"/c/{target}?message=Bonjour", wait_until="domcontentloaded")
     fresh.locator(f"#sidebar a[href='{destination}']").click()
     # Why: htmx écrit l'adresse avant d'installer la page ; on attend qu'elle ait pris sa conversation.
     fresh.wait_for_function("(id) => currentConversationId === id", arg=conversation if elsewhere else None)

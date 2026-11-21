@@ -9,7 +9,7 @@ pytestmark = pytest.mark.browser
 
 
 def test_guide_banner_scrolls_away_with_the_conversation(visit: Callable[[str], None], page: Page):
-    visit("/explorations/new")
+    visit("/c/new")
     banner = page.locator(".chat-guide-banner")
     expect(banner).to_be_in_viewport()
 
@@ -23,7 +23,7 @@ def test_guide_banner_scrolls_away_with_the_conversation(visit: Callable[[str], 
 
 def test_guide_icon_sits_on_the_first_line(visit: Callable[[str], None], page: Page):
     page.set_viewport_size({"width": 992, "height": 800})
-    visit("/explorations/new")
+    visit("/c/new")
     icon = page.locator(".chat-guide-banner > i").bounding_box()
     lines = page.locator(".chat-guide-banner > a").evaluate(
         "a => { const text = document.createRange(); text.selectNodeContents(a);"
@@ -35,7 +35,7 @@ def test_guide_icon_sits_on_the_first_line(visit: Callable[[str], None], page: P
 
 
 def test_guide_banner_has_as_much_space_below_as_above(visit: Callable[[str], None], page: Page):
-    visit("/explorations/new")
+    visit("/c/new")
     above, below = page.locator(".chat-guide-banner > a").evaluate(
         "a => { const text = document.createRange(); text.selectNodeContents(a); const lines = text.getClientRects();"
         " const top = document.querySelector('.chat-main').getBoundingClientRect().top;"
@@ -48,7 +48,7 @@ def test_guide_banner_has_as_much_space_below_as_above(visit: Callable[[str], No
 
 def test_guide_banner_is_hidden_on_a_phone(visit: Callable[[str], None], page: Page):
     page.set_viewport_size({"width": 375, "height": 667})
-    visit("/explorations/new")
+    visit("/c/new")
 
     expect(page.locator("#chatInput")).to_be_visible()
     expect(page.locator(".chat-guide-banner")).to_be_hidden()

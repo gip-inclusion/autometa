@@ -8,6 +8,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
+from lib import permalinks
 from web import helpers
 from web.config import ADMIN_USERS
 from web.database import store
@@ -106,7 +107,7 @@ def resolve_item(
         if not conv:
             return None
         return {
-            "url": f"/explorations/{item_id}",
+            "url": f"/c/{item_id}",
             "title": humanize_title(conv.title) if conv.title else label,
             "icon": "ri-chat-3-fill",
             "updated_at": conv.updated_at,
@@ -446,17 +447,33 @@ def explorations(
 ):
     """Legacy explorations list — redirects to /conversations."""
     if conv:
-        # Validate conv is a UUID to prevent open redirect
+        # Why: seul un identifiant de conversation entre dans l'adresse, jamais un domaine ou un chemin.
         if validate_conv_id(conv):
-            return RedirectResponse(f"/explorations/{conv}", status_code=301)
+            return RedirectResponse(f"/c/{conv}", status_code=301)
         return RedirectResponse("/conversations?show=convos", status_code=301)
 
     target = "/conversations?show=mine" if mine == "1" else "/conversations?show=convos"
     return RedirectResponse(target, status_code=301)
 
 
-@router.get("/explorations/new")
-def explorations_new(request: Request, user_email: str = Depends(get_current_user)):
+@router.get("/explorations/{conv_id}")
+@router.get("/explorations/{conv_id}/{message:int}")
+@router.get("/explorations/{conv_id}/{message:int}/{anchor}")
+def explorations_redirect(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+    """Les adresses d'avant /c/ mènent à leur équivalent, segments et paramètres conservés."""
+    if conv_id != "new" and not validate_conv_id(conv_id):
+        return RedirectResponse("/conversations?show=convos", status_code=302)
+    message, anchor = request.path_params.get("message"), request.path_params.get("anchor", "")
+    # Why: le segment arrive décodé ; recopié tel quel, « x%3Fmessage%3D… » enverrait du texte depuis la page.
+    kept = f"/{anchor}" if permalinks.ANCHOR_NAME.fullmatch(anchor) else ""
+    address = f"/c/{conv_id}" if message is None else f"/c/{conv_id}/{message}{kept}"
+    # Why: la requête telle que reçue ; `request.url` relit le chemin décodé, où « x%3Fmessage%3D… » en ouvrirait une.
+    query = request.scope["query_string"].decode("latin-1")
+    return RedirectResponse(f"{address}?{query}" if query else address, status_code=301)
+
+
+@router.get("/c/new")
+def new_conversation_page(request: Request, user_email: str = Depends(get_current_user)):
     """Start a new conversation - empty chat UI."""
     data = get_sidebar_data(user_email, request)
     return templates.TemplateResponse(
@@ -472,10 +489,10 @@ def explorations_new(request: Request, user_email: str = Depends(get_current_use
     )
 
 
-@router.get("/explorations/{conv_id}")
-@router.get("/explorations/{conv_id}/{message:int}")
-@router.get("/explorations/{conv_id}/{message:int}/{anchor}")
-def explorations_conversation(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
+@router.get("/c/{conv_id}")
+@router.get("/c/{conv_id}/{message:int}")
+@router.get("/c/{conv_id}/{message:int}/{anchor}")
+def conversation_page(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """View a specific conversation.
 
     Allows viewing conversations owned by other users (shared via UUID link).

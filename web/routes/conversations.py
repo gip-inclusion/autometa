@@ -425,7 +425,7 @@ def fork_conversation(conv_id: str, user_email: str = Depends(get_current_user))
         "forked_from": conv_id,
         "links": {
             "self": f"/api/conversations/{new_conv.id}",
-            "view": f"/explorations/{new_conv.id}",
+            "view": f"/c/{new_conv.id}",
         },
     }
 

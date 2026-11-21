@@ -53,7 +53,7 @@ def test_double_enter_creates_one_conversation(visit: Callable[[str], None], pag
         "**/api/conversations",
         lambda route: held.append(route) if route.request.method == "POST" else route.continue_(),
     )
-    visit("/explorations/new")
+    visit("/c/new")
     draft = page.locator("#chatInput")
     draft.fill("Question envoyée deux fois")
     draft.press("Enter")
@@ -62,7 +62,7 @@ def test_double_enter_creates_one_conversation(visit: Callable[[str], None], pag
 
     assert len(held) == 1
     held[0].continue_()
-    expect(page).to_have_url(re.compile(r"/explorations/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
 
 
 def test_the_composer_is_drawn_from_its_state_when_the_page_loads(visit: Callable[[str], None], page: Page):
@@ -70,18 +70,18 @@ def test_the_composer_is_drawn_from_its_state_when_the_page_loads(visit: Callabl
     page.add_init_script(
         "document.addEventListener('DOMContentLoaded', () => { document.getElementById('chatSendBtn').disabled = true; })"
     )
-    visit("/explorations/new")
+    visit("/c/new")
     expect(page.locator("#chatSendBtn")).to_be_enabled()
 
 
 def test_back_to_a_new_conversation_starts_afresh(fake_agent, playwright: Playwright, base_url: str):
-    # Why: Playwright turns the back-forward cache off; restoring /explorations/new from it is the case here.
+    # Why: Playwright turns the back-forward cache off; restoring /c/new from it is the case here.
     browser = playwright.chromium.launch(channel="chromium", ignore_default_args=["--disable-back-forward-cache"])
     page = browser.new_page(base_url=base_url)
-    page.goto("/explorations/new", wait_until="domcontentloaded")
+    page.goto("/c/new", wait_until="domcontentloaded")
     page.locator("#chatInput").fill("Question avant le retour")
     page.locator("#chatInput").press("Enter")
-    expect(page).to_have_url(re.compile(r"/explorations/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
 
     page.go_back(wait_until="commit")
     expect(page.locator("#chatSendBtn")).to_be_enabled()
@@ -98,12 +98,12 @@ def test_pending_files_do_not_follow_navigation(conversation: str, page: Page):
     page.locator("#chatFileInput").set_input_files(files=[NOTE])
     expect(page.locator(".pending-file")).to_have_count(1)
 
-    page.locator("#sidebar a[href='/explorations/new']").click()
-    expect(page).to_have_url(re.compile(r"/explorations/new"))
+    page.locator("#sidebar a[href='/c/new']").click()
+    expect(page).to_have_url(re.compile(r"/c/new"))
     page.wait_for_function("() => currentConversationId === null")
     page.locator("#chatInput").fill("Une autre question")
     page.locator("#chatInput").press("Enter")
-    expect(page).to_have_url(re.compile(r"/explorations/[0-9a-f-]{36}"))
+    expect(page).to_have_url(re.compile(r"/c/[0-9a-f-]{36}"))
 
     assert uploads == []
 

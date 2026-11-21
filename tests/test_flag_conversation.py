@@ -259,7 +259,7 @@ class TestRenderFlagButton:
         if flagged_by:
             _post_flag(client, conv.id, {"X-Forwarded-Email": flagged_by}, reason="test reason")
 
-        resp = client.get(f"/explorations/{conv.id}", headers=alice_headers)
+        resp = client.get(f"/c/{conv.id}", headers=alice_headers)
         assert resp.status_code == 200
         html = resp.text
 
@@ -274,7 +274,7 @@ class TestRenderFlagButton:
 
     def test_admin_sees_can_remove_on_other_user_flag(self, app, client, conv, admin_headers, alice_headers):
         _post_flag(client, conv.id, alice_headers, reason="R")
-        resp = client.get(f"/explorations/{conv.id}", headers=admin_headers)
+        resp = client.get(f"/c/{conv.id}", headers=admin_headers)
         assert resp.status_code == 200
         button_tag = next(chunk for chunk in resp.text.split("<button") if 'id="chatFlagBtn"' in chunk).split(">", 1)[0]
         assert 'data-can-remove="1"' in button_tag

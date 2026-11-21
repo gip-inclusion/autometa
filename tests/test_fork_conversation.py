@@ -200,7 +200,7 @@ def test_fork_api_endpoint_returns_links(app, client, conversation_with_messages
     assert "links" in data
     assert "self" in data["links"]
     assert "view" in data["links"]
-    assert data["id"] in data["links"]["view"]
+    assert data["links"]["view"] == f"/c/{data['id']}"
 
 
 def test_fork_api_nonexistent_returns_404(app, client):
@@ -258,7 +258,7 @@ def test_fork_api_owner_can_fork_own_conversation(app, client, conversation_with
 def test_fork_ui_button_visible_on_shared_conversation(app, client, conversation_with_messages):
     """Fork button is visible when viewing someone else's conversation."""
     response = client.get(
-        f"/explorations/{conversation_with_messages.id}",
+        f"/c/{conversation_with_messages.id}",
         headers={"X-Forwarded-Email": "guest@example.com"},
     )
 
@@ -270,7 +270,7 @@ def test_fork_ui_button_visible_on_shared_conversation(app, client, conversation
 def test_fork_ui_button_visible_on_own_conversation(app, client, conversation_with_messages):
     """Fork button is visible on own conversation (in header)."""
     response = client.get(
-        f"/explorations/{conversation_with_messages.id}",
+        f"/c/{conversation_with_messages.id}",
         headers={"X-Forwarded-Email": "owner@example.com"},
     )
 
@@ -287,7 +287,7 @@ def test_fork_ui_forked_from_shown_in_header(app, client, conversation_with_mess
 
     # View the fork
     response = client.get(
-        f"/explorations/{forked.id}",
+        f"/c/{forked.id}",
         headers={"X-Forwarded-Email": "forker@example.com"},
     )
 

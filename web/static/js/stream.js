@@ -7,7 +7,7 @@
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
  *             permalinks.js (refreshPermalinks, showPermalinkTarget)
- *             chat.js (parseExplorationPath)
+ *             chat.js (parseConversationPath)
  */
 
 let currentConversationId = null;
@@ -115,7 +115,7 @@ async function sendMessage() {
 
       const fullMessage = buildMessageWithFiles(message, await uploadPendingFiles(data.id));
       // Redirect to conversation page (refreshes sidebar with new conversation)
-      window.location.href = `/explorations/${data.id}?message=${encodeURIComponent(fullMessage)}`;
+      window.location.href = `/c/${data.id}?message=${encodeURIComponent(fullMessage)}`;
     } catch (error) {
       console.error('Failed to create conversation:', error);
       showError('Impossible de créer la conversation');
@@ -508,7 +508,7 @@ function setTurnState(state) {
  */
 function setSidebarSpinner(convId, spinning) {
   if (!convId) return;
-  const link = document.querySelector(`a.nav-link-conversation[href="/explorations/${convId}"]`);
+  const link = document.querySelector(`a.nav-link-conversation[href="/c/${convId}"]`);
   if (!link) return;
   const icon = link.querySelector('i');
   if (!icon) return;
@@ -546,7 +546,7 @@ async function reconcileSidebarSpinners() {
       const link = icon.closest('a');
       if (!link) return;
       const href = link.getAttribute('href');
-      const match = href?.match(/\/explorations\/(.+)/);
+      const match = href?.match(/^\/c\/([^/]+)$/);
       if (!match) return;
       const convId = match[1];
       if (!runningSet.has(convId)) {
@@ -777,10 +777,10 @@ async function loadConversation(convId) {
     // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps a permalink's
     // message and element unless that message is none of the conversation's finished answers; the hash stays.
     const hash = window.location.hash;
-    const opened = parseExplorationPath(window.location.pathname);
+    const opened = parseConversationPath(window.location.pathname);
     const message = opened?.conversation === convId && opened.message;
     const missed = permalinks && message && !permalinks.target;
-    const path = message && !missed ? window.location.pathname : `/explorations/${convId}`;
+    const path = message && !missed ? window.location.pathname : `/c/${convId}`;
     window.history.replaceState({}, '', `${path}${hash}`);
     if (missed) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
@@ -843,7 +843,7 @@ function startFreshConversation() {
   }
 
   // Update URL
-  window.history.replaceState({}, '', '/explorations/new');
+  window.history.replaceState({}, '', '/c/new');
 
   // Focus input
   const input = document.getElementById('chatInput');
