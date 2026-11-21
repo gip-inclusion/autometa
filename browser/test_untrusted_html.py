@@ -61,26 +61,31 @@ OVERLAY = (
 UNSUPPORTED = "Object.defineProperty(DOMImplementation.prototype, 'createHTMLDocument', { value: undefined });"
 
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
-# le navigateur exécuteraient sont jugés.
+# le navigateur exécuteraient sont jugés. Il en va de même des liens que permalinks.js pose sur une réponse une fois
+# nettoyée (bouton, enveloppe d'une figure) ; les ancres qu'il apparie et les contours qu'il trace sont les siens.
 UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
   const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta', 'dialog', 'button',
     'select', 'textarea', 'option', 'datalist', 'fieldset', 'legend', 'output', 'label', 'marquee'];
+  const permalinkClasses = ['permalink-target', 'permalink-section-outline'];
   for (const root of document.querySelectorAll(region)) {
     if (!root.closest('[hx-disable]')) found.push('read by htmx');
     for (const el of root.querySelectorAll('*')) {
       const tag = el.tagName.toLowerCase();
-      if (el.closest('.mermaid')) {
-        for (const { name } of el.attributes) if (/^(on|hx-|data-hx-)/.test(name)) found.push(`chart ${tag}[${name}]`);
+      const permalink = el.matches('.permalink-btn, .permalink-btn > i, .permalink-figure');
+      const drawn = el.closest('.mermaid') ? 'chart' : permalink ? 'permalink' : '';
+      if (drawn) {
+        for (const { name } of el.attributes) if (/^(on|hx-|data-hx-)/.test(name)) found.push(`${drawn} ${tag}[${name}]`);
         continue;
       }
       if (tags.includes(tag)) found.push(tag);
       if (tag === 'input' && !(el.type === 'checkbox' && el.disabled)) found.push('input');
       for (const { name, value } of el.attributes) {
-        if (allowed.includes(`${tag}[${name}]`)) continue;
+        if (allowed.includes(`${tag}[${name}]`) || name.startsWith('data-anchor')) continue;
         if (/^(on|data-|hx-|popover|command)/.test(name) || ['style', 'srcdoc', 'id', 'name', 'target'].includes(name))
           found.push(`${tag}[${name}]`);
-        if (name === 'class' && value && !(tag === 'code' && /^language-[\\w-]+$/.test(value))) found.push(`${tag}[class]`);
+        const classes = name === 'class' ? value.split(/\\s+/).filter((c) => c && !permalinkClasses.includes(c)) : [];
+        if (classes.length && !(tag === 'code' && /^language-[\\w-]+$/.test(classes.join(' ')))) found.push(`${tag}[class]`);
         if (/^\\s*javascript:/i.test(value)) found.push(`${tag}[${name}=javascript:]`);
       }
     }
