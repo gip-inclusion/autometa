@@ -93,6 +93,12 @@ document.body.addEventListener('htmx:beforeHistorySave', (e) => {
   for (const dialog of e.detail.historyElt.querySelectorAll('dialog[open]')) dialog.close();
 });
 
+// Why: on Back or Forward to a page it kept no copy of, htmx asks the server for it while the address already names the
+// entry; a conversation still loading would write its own address over that entry, and the page put back would load it.
+document.body.addEventListener('htmx:historyCacheMiss', () => {
+  loadSequence += 1;
+});
+
 // Restore scroll position on back/forward
 window.addEventListener('popstate', (e) => {
   isPopState = true;
