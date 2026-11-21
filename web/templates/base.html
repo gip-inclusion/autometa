@@ -13,10 +13,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/gip-inclusion/itou-theme@v1.4.5/dist/stylesheets/app.css">
 
   <!-- htmx -->
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
-  <!-- Why: htmx files its snapshot under the address it last pushed; when the page rewrote it (a permalink, a table of
-       contents entry, ?message=), Back misses the snapshot, and only a reload brings the conversation back. -->
-  <meta name="htmx-config" content='{"refreshOnHistoryMiss": true}'>
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js"></script>
 
   <!-- App styles -->
   <link rel="stylesheet" href="{{ static_url('css/style.css') }}">
@@ -209,8 +206,9 @@
     </div>
   </div>
 
-  <!-- Main content area -->
-  <main class="app-main" role="main" id="main" tabindex="-1">
+  <!-- Main content area. hx-history-elt: Back and Forward put back this element alone, like a navigation —
+       the app's scripts outside it are not run twice, and chat.js sets the page up again -->
+  <main class="app-main" role="main" id="main" tabindex="-1" hx-history-elt>
     {% block content %}{% endblock %}
   </main>
 

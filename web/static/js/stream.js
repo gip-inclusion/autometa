@@ -781,7 +781,8 @@ async function loadConversation(convId) {
     const message = opened?.conversation === convId && opened.message;
     const missed = permalinks && message && !permalinks.target;
     const path = message && !missed ? window.location.pathname : `/c/${convId}`;
-    window.history.replaceState({}, '', `${path}${hash}`);
+    // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
+    window.history.replaceState(window.history.state, '', `${path}${hash}`);
     if (missed) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
     // Scroll after layout settles (both main chat and actions sidebar)

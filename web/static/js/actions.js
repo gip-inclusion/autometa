@@ -305,8 +305,8 @@ function addTocEntry(target) {
   `;
 
   entry.addEventListener('click', () => {
-    if (anchorUrl) history.replaceState(null, '', anchorUrl);
-    else if (target.id) history.replaceState(null, '', `/c/${currentConversationId}#${target.id}`);
+    if (anchorUrl) history.replaceState(history.state, '', anchorUrl);
+    else if (target.id) history.replaceState(history.state, '', `/c/${currentConversationId}#${target.id}`);
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
@@ -980,8 +980,9 @@ function removeFavoriteTile(btn) {
 
 function initFavoritesDnd() {
   const grid = document.getElementById('favoritesGrid');
-  if (!grid || grid.dataset.dndReady) return;
-  grid.dataset.dndReady = '1';
+  // Why: a property, not a data attribute — Back puts back a saved copy of the page's HTML, attributes included.
+  if (!grid || grid.dndReady) return;
+  grid.dndReady = true;
   let dragged = null;
 
   grid.addEventListener('dragstart', (event) => {
