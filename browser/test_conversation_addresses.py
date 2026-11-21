@@ -45,11 +45,9 @@ def old_conversation(fake_agent, page: Page) -> Iterator[str]:
     page.request.delete(f"/api/conversations/{conv_id}")
 
 
-def table_permalink(conversation: str, answer: Locator) -> str:
-    """L'adresse du tableau d'une réponse, faite du message et de l'élément que nomme son lien copié."""
-    copied = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
-    message, element = urlsplit(copied).path.split("/")[-2:]
-    return f"/c/{conversation}/{message}/{element}"
+def table_permalink(answer: Locator) -> str:
+    """L'adresse que copie le lien du tableau d'une réponse."""
+    return urlsplit(answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")).path
 
 
 def test_a_new_conversation_keeps_its_short_address_through_a_whole_journey(
@@ -69,7 +67,7 @@ def test_a_new_conversation_keeps_its_short_address_through_a_whole_journey(
     expect(page.locator(".event-user .file-context-pill")).to_contain_text("note.txt")
     expect(page).to_have_url(re.compile(rf"/c/{conversation}$"))
     expect(page.locator(".event-final-answer").last.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
-    permalink = table_permalink(conversation, page.locator(".event-final-answer").last)
+    permalink = table_permalink(page.locator(".event-final-answer").last)
 
     page.locator("#forkConvBtn").click()
     expect(page).to_have_url(re.compile(rf"/c/(?!{conversation})[0-9a-z]{{8}}$"))
@@ -103,7 +101,7 @@ def test_a_conversation_with_a_uuid_opens_at_its_old_address_plays_a_turn_and_op
     expect(answer).to_contain_text("Réponse factice : Chiffres", timeout=15_000)
     expect(answer.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
     expect(page).to_have_url(re.compile(rf"/c/{old_conversation}$"))
-    permalink = table_permalink(old_conversation, answer)
+    permalink = table_permalink(answer)
     fresh = page.context.new_page()
 
     fresh.goto(permalink.replace("/c/", "/explorations/", 1), wait_until="domcontentloaded")
@@ -118,7 +116,7 @@ def test_an_old_permalink_opens_its_element_at_the_new_address(
     ask(TABLE)
     answer = page.locator(".event-final-answer").last
     expect(answer.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
-    permalink = table_permalink(conversation, answer)
+    permalink = table_permalink(answer)
     fresh = page.context.new_page()
 
     fresh.goto(permalink.replace("/c/", "/explorations/", 1), wait_until="domcontentloaded")

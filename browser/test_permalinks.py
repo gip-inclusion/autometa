@@ -90,7 +90,7 @@ def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(
     expect(answer.locator(".permalink-btn")).to_have_count(4)
     links = answer.locator(".permalink-btn").evaluate_all("buttons => buttons.map((b) => b.dataset.url)")
 
-    shape = rf"{base_url}/explorations/{conversation}/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
+    shape = rf"{base_url}/c/{conversation}/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
     shapes = [re.fullmatch(shape, link) for link in links]
     assert all(shapes), links
     assert sorted(shape[1] for shape in shapes if shape[1]) == ["section-1", "section-2", "table-1"]
@@ -155,7 +155,7 @@ def test_opening_a_link_highlights_its_target_or_the_whole_answer_and_keeps_its_
 
     expect(page.locator(highlighted)).to_have_count(1)
     expect(page.locator(".permalink-target")).to_have_count(1)
-    expect(page).to_have_url(opened.replace("/explorations/", "/c/"))
+    expect(page).to_have_url(opened)
     expect(page.locator(".event-error")).to_have_count(0)
 
 
@@ -197,7 +197,7 @@ def test_the_table_of_contents_outlines_sections_and_figures(answer, conversatio
 
     entries.nth(1).dispatch_event("click")
 
-    expect(page).to_have_url(re.compile(rf"/explorations/{conversation}/\d+/table-1-[0-9a-f]{{6}}$"))
+    expect(page).to_have_url(re.compile(rf"/c/{conversation}/\d+/table-1-[0-9a-f]{{6}}$"))
 
 
 def test_a_heading_link_shows_at_rest_and_a_figure_link_only_under_the_pointer_over_its_corner(answer, page: Page):
