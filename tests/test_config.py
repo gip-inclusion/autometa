@@ -72,3 +72,19 @@ def test_the_api_key_is_what_sends_conversations_off_premises(monkeypatch, api_k
         monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         importlib.reload(config)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, ""), ("entity", "entity"), ("BOTH", "both"), ("true", ""), ("", "")],
+)
+def test_work_objects_are_off_unless_a_known_mode_is_asked(monkeypatch, value, expected):
+    if value is None:
+        monkeypatch.delenv("SLACK_WORK_OBJECTS", raising=False)
+    else:
+        monkeypatch.setenv("SLACK_WORK_OBJECTS", value)
+    try:
+        assert importlib.reload(config).SLACK_WORK_OBJECTS == expected
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)

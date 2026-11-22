@@ -127,14 +127,18 @@ def ascii_table(rows: list[list[str]], lines: int) -> list[dict]:
     ]
 
 
+def inert(text: str) -> str:
+    """Le texte où Slack ne peut lire ni « <!channel> » ni « @here » : une espace sans largeur après « < » et « @ »."""
+    # Why: sa documentation ne dit pas que le texte brut d'une cellule ou d'un Work Object n'est pas lu.
+    return re.sub(r"([<@])", "\\1\u200b", text)
+
+
 NUMBER = re.compile(r"[-+−]?\d[\d\s.,]*\s*[%€]?")
 
 
 def slack_table(rows: list[list[str]], lines: int) -> list[dict]:
     """Un tableau en bloc table de Slack : 20 lignes et 20 colonnes au plus, cellules en texte brut, nombres à droite."""
-    # Why: Slack lit « <!channel> » et « @here » dans du texte ; une espace sans largeur après « < » et « @ » les
-    # laisse lisibles et sans effet, sa documentation ne disant pas qu'une cellule raw_text n'est pas lue.
-    cells = [[re.sub(r"([<@])", "\\1\u200b", shortened(cell, 80)) or " " for cell in row[:20]] for row in rows[:21]]
+    cells = [[inert(shortened(cell, 80)) or " " for cell in row[:20]] for row in rows[:21]]
     # Why: Slack refuse un tableau de plus de 10 000 caractères, toutes cellules réunies.
     while sum(len(cell) for row in cells for cell in row) > 9000:
         cells.pop()

@@ -206,6 +206,9 @@ SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
 SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
 # Why: dessiner un graphique lance un navigateur sans écran, quelques centaines de Mo le temps d'un rendu.
 SLACK_CHART_IMAGES = os.getenv("SLACK_CHART_IMAGES", "false").lower() == "true"
+# À l'essai : « entity » pose un lien de conversation en Work Object de Slack, « both » y joint la carte en blocs.
+SLACK_WORK_OBJECTS = os.getenv("SLACK_WORK_OBJECTS", "").lower()
+SLACK_WORK_OBJECTS = SLACK_WORK_OBJECTS if SLACK_WORK_OBJECTS in ("entity", "both") else ""
 
 
 def destination_targets(raw: str) -> dict[str, str]:
