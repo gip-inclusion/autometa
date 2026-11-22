@@ -2,6 +2,7 @@
 
 import http.client
 import json
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -1283,3 +1284,40 @@ def test_another_shortcut_or_window_is_not_ours(mocker):
     slack_listener.handle(mocker.MagicMock(), interactive({"type": "message_action", "callback_id": "autre"}))
 
     shortcut.assert_not_called()
+
+
+def test_the_log_of_a_post_says_how_long_since_slack_event_and_what_reading_and_slack_took(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
+    client, conv, permalink = work_object_links(mocker, monkeypatch)
+    clock = mocker.MagicMock(time=lambda: 1700000001.8)
+    clock.monotonic.side_effect = [10.0, 10.04, 15.0, 20.0, 20.32]
+    mocker.patch.object(slack_listener, "time", clock)
+
+    slack_listener.handle(client, link_shared([conv], **POSTED, event_ts="1700000000.000000"))
+
+    assert "Work Objects Slack posés : 1 (événement +1,8 s, lecture 40 ms, Slack 320 ms)" in caplog.text
+
+
+@pytest.mark.parametrize("event_ts", [None, "", "C0TEST.composer"], ids=["absent", "empty", "not a time"])
+def test_a_post_whose_event_has_no_time_logs_its_own_times_alone(event_ts):
+    assert slack_listener.took(event_ts, 0.04, slack_listener.time.monotonic()).startswith("(lecture 40 ms, Slack ")
+
+
+def test_the_log_of_a_details_pane_carries_the_same_times(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
+    client, url, _ = work_object_links(mocker, monkeypatch)
+
+    slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1", event_ts="1700000000.5"))
+
+    assert re.search(
+        r"Volet de détails Slack rempli : \[.*\] \(événement \+[\d,]+ s, lecture \d+ ms, Slack \d+ ms\)", caplog.text
+    )
+
+
+def test_the_log_of_block_cards_carries_the_times_too(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
+    client, _, permalink = work_object_links(mocker, monkeypatch, on=False)
+
+    slack_listener.handle(client, link_shared([permalink]))
+
+    assert re.search(r"Cartes Slack posées : \[\[.*\]\] \(lecture \d+ ms, Slack \d+ ms\)", caplog.text)

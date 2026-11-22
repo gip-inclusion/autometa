@@ -156,7 +156,15 @@ def drawn(found: dict[str, dict], images: bool, tables: bool) -> dict[str, dict]
     }
 
 
-def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> tuple[bool, bool]:
+def took(event_ts: str | None, read: float, began: float) -> str:
+    """Ce qu'une pose a pris, pour sa ligne de journal : depuis l'événement de Slack, à lire, puis à appeler Slack."""
+    parts = [f"lecture {read * 1000:.0f} ms", f"Slack {(time.monotonic() - began) * 1000:.0f} ms"]
+    if re.fullmatch(r"\d+(\.\d+)?", event_ts or ""):
+        parts.insert(0, f"événement +{time.time() - float(event_ts):.1f} s".replace(".", ","))
+    return f"({', '.join(parts)})"
+
+
+def post_cards(web: WebClient, target: dict, found: dict[str, dict], timed: tuple) -> tuple[bool, bool]:
     """Pose les cartes en blocs, sous la première forme que Slack accepte ; dit si elle a ses images, ses blocs table."""
     # Why: la documentation de Slack ne dit pas qu'une carte accepte un bloc table ni l'image d'un fichier : refusée,
     # elle est reposée dans l'instant avec le tableau en chasse fixe, puis sans l'image.
@@ -164,6 +172,7 @@ def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> tuple[bo
     forms = [
         f for rank, f in enumerate(forms) if drawn(found, *f) not in [drawn(found, *seen) for seen in forms[:rank]]
     ]
+    began = time.monotonic()
     for images, tables in forms:
         try:
             web.chat_unfurl(**target, unfurls=drawn(found, images, tables))
@@ -179,24 +188,28 @@ def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> tuple[bo
                 error.response.get("response_metadata"),
             )
     logger.info(
-        "Cartes Slack posées : %s",
+        "Cartes Slack posées : %s %s",
         [[block["type"] for block in card["blocks"]] for card in drawn(found, images, tables).values()],
+        took(*timed, began),
     )
     return images, tables
 
 
-def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
+def post(web: WebClient, target: dict, found: dict[str, dict], timed: tuple) -> None:
     """Pose objets et cartes sans attendre leurs graphiques : une carte sans son image la demande au fil qui dessine."""
     metadata = {"entities": [{"app_unfurl_url": url} | card["entity"] for url, card in found.items() if card["entity"]]}
     objects, together, images, tables = len(metadata["entities"]), {}, True, True
     cards = {url: card for url, card in found.items() if not card["entity"]}
     # Why: la documentation de Slack ne dit pas qu'un appel accepte `unfurls` et `metadata` pour des adresses
     # différentes : refusés ensemble, ils partent en deux appels ; les objets refusés seuls, tout part en cartes.
+    began = time.monotonic()
     if objects and cards:
         try:
             web.chat_unfurl(**target, unfurls=drawn(cards, True, True), metadata=metadata)
             together = {"metadata": metadata}
-            logger.info("Work Objects et cartes Slack posés en un appel : %s et %s", objects, len(cards))
+            logger.info(
+                "Work Objects et cartes Slack posés en un appel : %s et %s %s", objects, len(cards), took(*timed, began)
+            )
         except SlackApiError as error:
             logger.warning(
                 "Work Objects et cartes Slack refusés en un appel, posés en deux : %s %s",
@@ -205,8 +218,9 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
             )
     if objects and not together:
         try:
+            began = time.monotonic()
             web.chat_unfurl(**target, metadata=metadata)
-            logger.info("Work Objects Slack posés : %s", objects)
+            logger.info("Work Objects Slack posés : %s %s", objects, took(*timed, began))
         except SlackApiError as error:
             # Why: un tableau de bord n'a pas de carte en blocs ; son objet refusé, son lien reste nu.
             cards = {url: card for url, card in found.items() if card["blocks"]}
@@ -216,7 +230,7 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
                 error.response.get("response_metadata"),
             )
     if cards and not together:
-        images, tables = post_cards(web, target, cards)
+        images, tables = post_cards(web, target, cards, timed)
     charts = [block["source"] for card in cards.values() for block in card["blocks"] if block["type"] == "chart"]
     shown = images and all(slack_charts.key(source) in slack_charts.files for source in charts)
     # Why: une carte partie sans l'image d'un fichier déjà déposé (Slack ne l'avait pas encore traité) la redemande.
@@ -296,7 +310,9 @@ def panes(url: str) -> list[dict] | None:
 def present(web: WebClient, event: dict) -> None:
     """Remplit le volet de détails que Slack ouvre au clic sur un Work Object, ou y dit l'objet introuvable."""
     url, trigger = event.get("app_unfurl_url") or event.get("entity_url"), event.get("trigger_id")
+    began = time.monotonic()
     found = panes(url) if url and trigger else None
+    read, began = time.monotonic() - began, time.monotonic()
     if found is None:
         logger.warning("Détails d'un Work Object Slack demandés sans adresse de cette instance, ignorés")
         return
@@ -308,7 +324,9 @@ def present(web: WebClient, event: dict) -> None:
     try:
         web.entity_presentDetails(trigger_id=trigger, metadata=full)
         logger.info(
-            "Volet de détails Slack rempli : %s", [shown["key"] for shown in full["entity_payload"]["custom_fields"]]
+            "Volet de détails Slack rempli : %s %s",
+            [shown["key"] for shown in full["entity_payload"]["custom_fields"]],
+            took(event.get("event_ts"), read, began),
         )
     except SlackApiError as error:
         if full["entity_payload"]["custom_fields"] == bare["entity_payload"]["custom_fields"]:
@@ -342,9 +360,10 @@ def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
             present(client.web_client, event)
             return
         urls, target = found
+        began = time.monotonic()
         unfurls = cards(urls)
         if unfurls:
-            post(client.web_client, target, unfurls)
+            post(client.web_client, target, unfurls, (event.get("event_ts"), time.monotonic() - began))
     except SlackApiError as error:
         logger.warning("Carte Slack refusée : %s", error.response.get("error"))
     except OSError:
