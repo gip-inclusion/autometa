@@ -5,7 +5,7 @@ import logging
 import re
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
@@ -33,7 +33,8 @@ def located(url: str) -> tuple[str, int | None, str | None] | None:
         parts = urlsplit(url)
     except ValueError:
         return None
-    found = CONVERSATION_PATH.fullmatch(parts.path)
+    # Why: comme la route, qui lit le chemin décodé : « %73ection-… » y désigne une section.
+    found = CONVERSATION_PATH.fullmatch(unquote(parts.path))
     same_host = parts.netloc and parts.netloc.lower() == urlsplit(config.BASE_URL).netloc.lower()
     if not found or not same_host:
         return None
@@ -53,9 +54,20 @@ def card(conv: Conversation, excerpt: list[dict] = ()) -> dict:
     # Why: tout en plain_text, que Slack affiche tel quel : dans du mrkdwn, un titre ferait vivre @channel et liens.
     return {
         "blocks": [
-            {"type": "section", "text": {"type": "plain_text", "text": conv.title or "Conversation sans titre"}},
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": slack_excerpts.shortened(conv.title or "Conversation sans titre", 150),
+                },
+            },
             *excerpt,
-            {"type": "context", "elements": [{"type": "plain_text", "text": " · ".join(f for f in facts if f)}]},
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "plain_text", "text": slack_excerpts.shortened(" · ".join(f for f in facts if f), 300)}
+                ],
+            },
             {
                 "type": "actions",
                 "elements": [
@@ -80,8 +92,14 @@ def cards(urls: list[str]) -> dict[str, dict]:
     for url in urls:
         conv_id, message_id, anchor = located(url) or (None, None, None)
         conv = conv_id and store.get_conversation(conv_id, include_messages=False)
-        if conv:
+        if not conv:
+            continue
+        try:
             found[url] = card(conv, slack_excerpts.excerpt(conv, message_id, anchor))
+        except LookupError, ValueError, TypeError, AttributeError, RecursionError:
+            # Why: une réponse que l'extrait ne sait pas lire garde sa carte, et les autres liens du message la leur.
+            logger.exception("Extrait Slack impossible pour la conversation %s, carte sans extrait", conv_id)
+            found[url] = card(conv)
     return found
 
 

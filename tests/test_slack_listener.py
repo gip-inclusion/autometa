@@ -119,6 +119,7 @@ def test_only_a_conversation_address_of_this_instance_names_a_conversation(url, 
         (f"/explorations/{LEGACY}/7/section-2-00ff00", (LEGACY, 7, "section-2-00ff00")),
         (f"/c/{SHORT}/12345678901", (SHORT, None, None)),
         (f"/c/{SHORT}/abc", (SHORT, None, None)),
+        (f"/c/{SHORT}/412/%73ection-1-9f3a0c", (SHORT, 412, "section-1-9f3a0c")),
     ],
 )
 def test_a_permalink_names_its_message_and_its_element(path, expected):
@@ -518,3 +519,37 @@ def test_refreshing_a_permalink_card_keeps_its_excerpt(mocker):
     slack_listener.handle(client, refresh_click(url))
 
     assert "Toujours là." in card_text(client.web_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+
+
+def test_a_long_or_direction_changing_title_is_cut_and_cleaned_on_the_card():
+    shown = slack_listener.card(conversation(title=f"\u202e{'mot ' * 100}"))["blocks"][0]["text"]["text"]
+
+    assert shown.startswith("mot mot")
+    assert shown.endswith("mot …")
+    assert len(shown) <= 152
+
+
+@pytest.mark.parametrize("error", [IndexError("x"), ValueError("x"), TypeError("x"), RecursionError("x")])
+def test_an_excerpt_that_cannot_be_built_leaves_its_card_and_the_other_links_theirs(mocker, caplog, error):
+    known(mocker, messages=[(2, "assistant", "Lisible.")])
+    real = slack_listener.slack_excerpts.excerpt
+    mocker.patch.object(
+        slack_listener.slack_excerpts,
+        "excerpt",
+        side_effect=lambda conv, message_id, anchor: (
+            real(conv, message_id, anchor) if message_id == 2 else raise_(error)
+        ),
+    )
+    client = mocker.MagicMock()
+    broken, fine = f"{BASE}/c/{SHORT}/1", f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, link_shared([broken, fine]))
+
+    unfurls = client.web_client.chat_unfurl.call_args.kwargs["unfurls"]
+    assert [block["type"] for block in unfurls[broken]["blocks"]] == ["section", "context", "actions"]
+    assert "Lisible." in card_text(unfurls[fine])
+    assert "Extrait Slack impossible" in caplog.text
+
+
+def raise_(error):
+    raise error
