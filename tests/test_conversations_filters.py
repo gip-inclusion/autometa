@@ -101,8 +101,8 @@ def test_dod_8_filtre_fantome_ignore_et_liste_non_videe(client):
 
 
 def test_cocher_un_filtre_ne_deplace_pas_les_autres_termes(client):
-    make_tag("frequent", "theme", "Fréquent")
-    make_tag("rare", "theme", "Rare")
+    make_tag("frequent", "theme", "Zèbre")
+    make_tag("rare", "theme", "Abeille")
     tagged_conversation(["frequent"])
     tagged_conversation(["frequent"])
     tagged_conversation(["rare"])
