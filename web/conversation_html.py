@@ -95,37 +95,43 @@ def permalink_button(url: str, label: str) -> Markup:
     ).format(url, label)
 
 
-def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> tuple[Link, ...]:
-    """The link of each section, table and chart of an answer, at its line in the text once its messages are joined."""
-    links, line, glued = [], -skipped, False
-    labels = {"section": "cette section", "table": "ce tableau", "chart": "ce graphique"}
+def answer_anchors(parts: list[tuple[int, str]]) -> list[tuple[int, int, permalinks.Anchor]]:
+    """Each section, table and chart of an answer: its message, that message's first line once joined, its anchor."""
+    found, line, glued = [], 0, False
     for message_id, content in parts:
         content = content.replace("\r\n", "\n")
         # Why: a lone carriage return is a line break for the renderer and not for the slicer; lines would not agree.
         if "\r" in content:
-            return ()
-        for anchor in permalinks.anchors(content):
-            # Why: joined to a message that does not end its last line, a first line starts no element.
-            if anchor.start == 0 and glued:
-                continue
-            url = f"/c/{conv_id}/{message_id}/{anchor.kind}-{anchor.rank}-{anchor.digest}"
-            attributes = Markup(
-                'data-anchor="{}-{}-{}" data-anchor-kind="{}" data-anchor-title="{}" data-anchor-level="{}" '
-                'data-anchor-url="{}"'
-            ).format(message_id, anchor.kind, anchor.rank, anchor.kind, anchor.title, anchor.level, url)
-            links.append(
-                Link(
-                    anchor.kind,
-                    line + anchor.start,
-                    line + anchor.end,
-                    anchor.level,
-                    attributes,
-                    permalink_button(url, labels[anchor.kind]),
-                )
-            )
+            return []
+        # Why: joined to a message that does not end its last line, a first line starts no element.
+        found += [(message_id, line, a) for a in permalinks.anchors(content) if a.start or not glued]
         line += content.count("\n")
         if content:
             glued = not content.endswith("\n")
+    return found
+
+
+def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> tuple[Link, ...]:
+    """The link of each section, table and chart of an answer, at its line in the text once its messages are joined."""
+    links = []
+    labels = {"section": "cette section", "table": "ce tableau", "chart": "ce graphique"}
+    for message_id, first, anchor in answer_anchors(parts):
+        line = first - skipped
+        url = f"/c/{conv_id}/{message_id}/{anchor.kind}-{anchor.rank}-{anchor.digest}"
+        attributes = Markup(
+            'data-anchor="{}-{}-{}" data-anchor-kind="{}" data-anchor-title="{}" data-anchor-level="{}" '
+            'data-anchor-url="{}"'
+        ).format(message_id, anchor.kind, anchor.rank, anchor.kind, anchor.title, anchor.level, url)
+        links.append(
+            Link(
+                anchor.kind,
+                line + anchor.start,
+                line + anchor.end,
+                anchor.level,
+                attributes,
+                permalink_button(url, labels[anchor.kind]),
+            )
+        )
     return tuple(links)
 
 
@@ -208,12 +214,9 @@ def block(conv_id: str, kind: str, parts: list[tuple[int, str]]) -> dict:
     return {"kind": kind, "ids": [message_id], "html": html}
 
 
-def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -> list[dict]:
-    """The blocks of the thread that hold a message after `after`; each turn's last answer is final unless a report."""
+def thread(messages: list[tuple[int, str, str]]) -> list[tuple[str, list[tuple[int, str]]]]:
+    """The thread's blocks, each its kind and messages: consecutive agent messages make one answer."""
     grouped, joining = [], False
-    # Why: the page puts a reference under an answer for each tool call of its turn, once it has read them
-    # (actions.js, replayActions, whose count this follows). Their place is kept, so nothing moves when they come.
-    references, answer, waiting, unplaced = Counter(), None, 0, 0
     for message_id, kind, content in messages:
         if kind == "assistant" and joining:
             grouped[-1][1].append((message_id, content))
@@ -222,13 +225,24 @@ def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -
         # Why: the page reads tool calls for its sidebar only; in the thread they just end the answer being joined.
         if kind in ("user", "assistant", "report", "limit", "tool_use", "tool_result"):
             joining = kind == "assistant"
+    return grouped
+
+
+def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -> list[dict]:
+    """The blocks of the thread that hold a message after `after`; each turn's last answer is final unless a report."""
+    grouped = thread(messages)
+    place = {message_id: index for index, (_, parts) in enumerate(grouped) for message_id, _ in parts}
+    # Why: the page puts a reference under an answer for each tool call of its turn, once it has read them
+    # (actions.js, replayActions, whose count this follows). Their place is kept, so nothing moves when they come.
+    references, answer, waiting, unplaced = Counter(), None, 0, 0
+    for message_id, kind, _ in messages:
         if kind in ("user", "assistant"):
             # Why: calls made before a turn's first answer go under it, unless later ones already did.
             if answer is not None and not references[answer]:
                 references[answer] = unplaced
             if answer is not None or kind == "user":
                 unplaced = 0
-            answer = len(grouped) - 1 if kind == "assistant" else None
+            answer = place[message_id] if kind == "assistant" else None
         elif kind == "tool_use":
             waiting += 1
         elif kind == "tool_result" and waiting:
@@ -262,11 +276,25 @@ def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -
     return found
 
 
-def output(conv_id: str, running: bool, after: int = 0) -> dict:
-    """The finished turns of a conversation from the block after message `after`, and where its stream resumes."""
+def finished(conv_id: str, running: bool) -> tuple[list[tuple[int, str, str]], int]:
+    """The messages of a conversation's finished turns, and the id of the last of them."""
     messages = store.get_displayed_messages(conv_id)
     # Why: the text of the running turn's messages still changes; the stream draws them, from the question on.
     question = max((message_id for message_id, kind, _ in messages if kind == "user"), default=1) if running else None
     last_id = question - 1 if running else max((message_id for message_id, _, _ in messages), default=0)
-    shown = [message for message in messages if message[0] <= last_id]
+    return [message for message in messages if message[0] <= last_id], last_id
+
+
+def output(conv_id: str, running: bool, after: int = 0) -> dict:
+    """The finished turns of a conversation from the block after message `after`, and where its stream resumes."""
+    shown, last_id = finished(conv_id, running)
     return {"blocks": blocks(conv_id, shown, after), "last_id": last_id, "running": running}
+
+
+def finished_answer(conv_id: str, running: bool, message_id: int) -> list[tuple[int, str]] | None:
+    """The messages of the finished answer that holds `message_id`, joined as on the page; None when none does."""
+    shown, _ = finished(conv_id, running)
+    return next(
+        (parts for kind, parts in thread(shown) if kind == "assistant" and message_id in dict(parts)),
+        None,
+    )

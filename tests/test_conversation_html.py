@@ -401,3 +401,46 @@ def test_the_output_holds_the_finished_turns_and_the_message_the_stream_resumes_
     assert ([b["ids"] for b in found["blocks"]], found["last_id"]) == expected
     assert found["running"] is running
     read.assert_called_once_with(CONV)
+
+
+def test_the_thread_is_grouped_for_excerpts_exactly_as_for_the_page():
+    messages = [
+        (1, "user", "Q"),
+        (2, "assistant", "a"),
+        (3, "system", "{}"),
+        (4, "assistant", "b"),
+        (5, "tool_use", ""),
+        (6, "tool_result", ""),
+        (7, "assistant", "c"),
+        (8, "report", "{}"),
+        (9, "assistant", "d"),
+    ]
+
+    page = [b["ids"] for b in conversation_html.blocks(CONV, messages) if b["kind"] == "assistant"]
+
+    assert [[i for i, _ in parts] for kind, parts in conversation_html.thread(messages) if kind == "assistant"] == page
+    assert page == [[2, 4], [7], [9]]
+
+
+def test_a_finished_answer_is_found_by_any_of_its_messages_and_only_among_finished_turns(mocker):
+    messages = [
+        (1, "user", "Q"),
+        (2, "assistant", "a"),
+        (3, "assistant", "b"),
+        (4, "user", "Q2"),
+        (5, "assistant", "c"),
+    ]
+    mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=messages)
+
+    assert conversation_html.finished_answer(CONV, True, 3) == [(2, "a"), (3, "b")]
+    assert conversation_html.finished_answer(CONV, True, 5) is None
+    assert conversation_html.finished_answer(CONV, False, 5) == [(5, "c")]
+    assert conversation_html.finished_answer(CONV, False, 1) is None
+
+
+def test_the_elements_of_an_answer_are_those_of_each_message_at_its_line_once_joined():
+    found = conversation_html.answer_anchors([(2, "## A\n\ntexte\n"), (3, "## B\n")])
+
+    assert [(holder, line, a.title) for holder, line, a in found] == [(2, 0, "A"), (3, 3, "B")]
+    assert conversation_html.answer_anchors([(2, "## A\rB\n")]) == []
+    assert conversation_html.answer_anchors([(2, "début "), (3, "## pas un titre\n")]) == []
