@@ -266,7 +266,7 @@ Si vous souhaitez partir d’une situation rencontrée par votre équipe, nous p
 Bonne journée,
 ```
 
-À reprendre aujourd'hui : « La plateforme de l'inclusion » dans sa casse ; « créer votre compte » sort ; le lien vise une page profonde avec `mtm_` ; la salutation suit la section 3 (`<var name="customAttribute1" default="Bonjour,"/>`), et les autres variables aussi.
+À reprendre aujourd'hui : « La plateforme de l'inclusion » dans sa casse ; « créer votre compte » sort ; le lien vise une page profonde avec `mtm_` ; la salutation suit la section 3 (`<var name="customAttribute1" default="Bonjour,"/>`), et une autre variable, comme le département, prend un autre attribut (`customAttribute2`) dans la même syntaxe.
 
 ### Relation, LGM : unions départementales de CCAS (20/07)
 
@@ -298,7 +298,7 @@ De votre côté, il n'y a qu'un créneau à ouvrir. Nous arrivons avec la démon
 Y a-t-il une date dans vos prochaines semaines où cela pourrait se caler ?
 ```
 
-À reprendre aujourd'hui : DORA ne se nomme plus, l'objet et le corps décrivent l'acte dans La plateforme de l'inclusion ; la dernière relance annonce la fin des relances et pose une dernière question utile. « Nous ouvrir un temps de présentation » et « il n'y a qu'un créneau à ouvrir » se disent sans image : présenter l'outil aux adhérents lors d'une réunion déjà prévue.
+À reprendre aujourd'hui : DORA ne se nomme plus, l'objet et le corps décrivent l'acte dans La plateforme de l'inclusion ; la dernière relance annonce la fin des relances et pose une dernière question utile. « Nous ouvrir un temps de présentation » et « il n'y a qu'un créneau à ouvrir » se disent sans image : présenter l'outil aux adhérents lors d'une réunion déjà prévue. Les variables suivent la même règle que l'exemple précédent : la salutation suit la section 3 (`<var name="customAttribute1" default="Bonjour,"/>`), et une autre variable, comme le département, prend un autre attribut (`customAttribute2`) dans la même syntaxe.
 
 ### Activation, Brevo : une échéance propre à la personne (07/09)
 
@@ -396,7 +396,7 @@ Le livrable se donne dans la conversation, dans cet ordre :
 Demande ou carte PDI : <titre> (<id>)
 Genre : relation | activation · valide : <qui>
 Produit et acte : La plateforme de l'inclusion · <acte>
-Cible : <métier> · <liste ou audience> (<n> contacts au <date>, ou « à compter »)
+Cible : <métier> · <liste ou audience> (<n> contacts au <date>, ou « à compter » si Attio ne répond pas)
 Outil : Brevo, compte marketing | LGM
 Expéditeur : <nom affiché>
 Salutation : <prénom ou civilité et nom> · repli : Bonjour,
@@ -418,4 +418,4 @@ Préheader (Brevo) : …
 Objet : …   (LGM : aucun, même fil)
 ```
 
-La campagne est prête quand les dix contrôles valent « oui » et qu'aucune question ne bloque. L'agent la dépose alors dans la base Notion « Campagnes à valider » (https://app.notion.com/p/41b5f321b604817eae26ef63156da10f) avec la skill `notion` : une page par campagne, avec les propriétés Campagne, Statut « À valider », Outil, Genre, Cible (les critères), Départements, Structures, Contacts, Expéditeur et Conversation Autometa, et dans le corps le livrable ci-dessus. Dans la page, l'email s'écrit en paragraphes simples, sans citation ni bloc de code. La réponse donne le lien de la page et rappelle en une phrase que le growth valide avant tout chargement, et que rien ne part sans lui.
+La campagne est prête quand les dix contrôles valent « oui » et qu'aucune question ne bloque. L'agent la dépose alors dans la base Notion « Campagnes à valider » (https://app.notion.com/p/41b5f321b604817eae26ef63156da10f) avec la skill `notion` : une page par campagne, avec les propriétés Campagne, Statut « À valider », Outil, Genre, Cible (les critères), Départements, Structures et Contacts (des effectifs, jamais une liste nominative), Expéditeur et Conversation Autometa, et dans le corps le livrable ci-dessus. Dans la page, l'email s'écrit en paragraphes simples, sans citation ni bloc de code. La réponse donne le lien de la page et rappelle en une phrase que le growth valide avant tout chargement, et que rien ne part sans lui.
