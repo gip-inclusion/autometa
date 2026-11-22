@@ -22,13 +22,12 @@ __all__ = ["Link", "render_answer", "render_user"]
 MARKED_URL = re.compile(r"((?:ftp|https?)://|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*", re.I)
 # marked leaves these as entities in text, so the browser decodes them, inside a bare URL too.
 ENTITY = re.compile(r"&(?:#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);")
-EMAIL_DOMAIN = r"@[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])"
-MARKED_EMAIL = re.compile(r"[A-Za-z0-9._+-]+" + EMAIL_DOMAIN)
-EMAIL_DOMAIN_AT = re.compile(EMAIL_DOMAIN)
+EMAIL_DOMAIN = re.compile(r"@[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])")
 BACKPEDAL = re.compile(r"(?:[^?!.,:;*_'\"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'\"~)]+(?!$))+")
 # markdown-it's text terminators, plus where marked's text rule stops for an autolink to start.
 TEXT_STOP = re.compile(
-    r"[\n!#$%&*+\-:<=>@\[\\\]^_`{}~]|(?:https?|ftp)://|www\.|(?<![A-Za-z0-9._+-])" + MARKED_EMAIL.pattern
+    r"[\n!#$%&*+\-:<=>@\[\\\]^_`{}~]|(?:https?|ftp)://|www\.|(?<![A-Za-z0-9._+-])[A-Za-z0-9._+-]+"
+    + EMAIL_DOMAIN.pattern
 )
 
 
@@ -90,7 +89,7 @@ def email_at(state):
         start = at
         while start and (src[start - 1].isascii() and src[start - 1].isalnum() or src[start - 1] in "._+-"):
             start -= 1
-        domain = EMAIL_DOMAIN_AT.match(src, at, end)
+        domain = EMAIL_DOMAIN.match(src, at, end)
         state.emails[at, end] = (start, domain.end() if domain else 0)
     start, stop = state.emails[at, end]
     return src[pos:stop] if start <= pos and stop else None

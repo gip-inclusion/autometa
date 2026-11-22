@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from lib import answer_html
 from lib.answer_html import Link, render_answer, render_user
 
 CASES = json.loads((Path(__file__).parent / "fixtures" / "answer_html_cases.json").read_text())
@@ -72,14 +73,14 @@ def test_text_cannot_write_what_only_the_application_adds(text):
     assert not [name for _, attrs in found for name in attrs if name == "class" or name.startswith(("on", "data-"))]
 
 
-def test_the_mark_of_a_render_is_not_the_mark_of_the_next():
-    first = render_answer("- [x] fait")
+def test_each_render_marks_what_it_adds_with_a_class_of_its_own(mocker):
+    cleaned = mocker.spy(answer_html.nh3, "clean")
 
-    assert (
-        render_answer("- [x] fait")
-        == first
-        == '<ul>\n<li><input checked="" disabled="" type="checkbox"> fait</li>\n</ul>\n'
-    )
+    rendered = [render_answer("- [x] fait") for _ in range(2)]
+
+    marks = [re.search(r'<span class="(m[0-9a-f]{32})c1"></span>', call.args[0])[1] for call in cleaned.call_args_list]
+    assert len(set(marks)) == 2
+    assert rendered == ['<ul>\n<li><input checked="" disabled="" type="checkbox"> fait</li>\n</ul>\n'] * 2
 
 
 LINKED = "Intro\n\n## Titre **gras**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n```mermaid\npie\n```\n"
