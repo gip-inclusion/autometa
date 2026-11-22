@@ -36,7 +36,8 @@ def conversation(**fields):
     return Conversation(**(defaults | fields))
 
 
-def known(mocker, conv=None):
+def known(mocker, conv=None, messages=()):
+    mocker.patch.object(slack_listener.store, "get_displayed_messages", return_value=list(messages))
     return mocker.patch.object(slack_listener.store, "get_conversation", return_value=conv or conversation())
 
 
@@ -106,14 +107,29 @@ def card_text(card):
     ],
 )
 def test_only_a_conversation_address_of_this_instance_names_a_conversation(url, expected):
-    assert slack_listener.conversation_id(url) == expected
+    assert (slack_listener.located(url) or [None])[0] == expected
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        (f"/c/{SHORT}", (SHORT, None, None)),
+        (f"/c/{SHORT}/412", (SHORT, 412, None)),
+        (f"/c/{SHORT}/412/table-1-9f3a0c", (SHORT, 412, "table-1-9f3a0c")),
+        (f"/explorations/{LEGACY}/7/section-2-00ff00", (LEGACY, 7, "section-2-00ff00")),
+        (f"/c/{SHORT}/12345678901", (SHORT, None, None)),
+        (f"/c/{SHORT}/abc", (SHORT, None, None)),
+    ],
+)
+def test_a_permalink_names_its_message_and_its_element(path, expected):
+    assert slack_listener.located(f"{BASE}{path}") == expected
 
 
 def test_no_address_names_a_conversation_when_the_instance_has_no_public_address(monkeypatch):
     monkeypatch.setattr(config, "BASE_URL", "")
 
-    assert slack_listener.conversation_id(f"/c/{SHORT}") is None
-    assert slack_listener.conversation_id(f"{BASE}/c/{SHORT}") is None
+    assert slack_listener.located(f"/c/{SHORT}") is None
+    assert slack_listener.located(f"{BASE}/c/{SHORT}") is None
 
 
 @pytest.mark.parametrize(
@@ -479,3 +495,26 @@ def test_a_raw_slack_envelope_goes_through_the_real_client_to_a_card(mocker):
 
     assert json.loads(acknowledged.call_args.args[0]) == {"envelope_id": "env-9"}
     assert list(web.chat_unfurl.call_args.kwargs["unfurls"]) == [url]
+
+
+def test_a_permalink_gets_the_card_with_the_excerpt_between_title_and_facts(mocker):
+    known(mocker, messages=[(1, "user", "Question"), (2, "assistant", "La réponse **tient** en une ligne.")])
+    client = mocker.MagicMock()
+    url = f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, link_shared([url]))
+
+    shown = [block for block in client.web_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"]]
+    assert [block["type"] for block in shown] == ["section", "section", "context", "actions"]
+    assert shown[0]["text"]["text"] == "Candidatures par région"
+    assert shown[1]["text"]["text"] == "La réponse tient en une ligne."
+
+
+def test_refreshing_a_permalink_card_keeps_its_excerpt(mocker):
+    known(mocker, messages=[(2, "assistant", "Toujours là.")])
+    client = mocker.MagicMock()
+    url = f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, refresh_click(url))
+
+    assert "Toujours là." in card_text(client.web_client.chat_unfurl.call_args.kwargs["unfurls"][url])

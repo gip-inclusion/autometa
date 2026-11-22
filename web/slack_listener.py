@@ -14,32 +14,35 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import config
+from . import config, slack_excerpts
 from .database import store
 from .helpers import CONV_ID, to_local, utcnow
 from .stores.records import Conversation
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PATH = re.compile(rf"/(?:c|explorations)/({CONV_ID.pattern})(?:/.*)?")
+CONVERSATION_PATH = re.compile(rf"/(?:c|explorations)/({CONV_ID.pattern})(?:/([0-9]{{1,10}})(?:/([^/]+))?)?(?:/.*)?")
 REFRESH_ACTION = "refresh_conversation_card"
 
 refreshed: dict[str, float] = {}
 
 
-def conversation_id(url: str) -> str | None:
-    """L'identifiant de la conversation qu'adresse `url` sur cette instance, sinon None."""
+def located(url: str) -> tuple[str, int | None, str | None] | None:
+    """La conversation qu'adresse `url` sur cette instance, avec le message et l'élément d'un permalien ; sinon None."""
     try:
         parts = urlsplit(url)
     except ValueError:
         return None
     found = CONVERSATION_PATH.fullmatch(parts.path)
     same_host = parts.netloc and parts.netloc.lower() == urlsplit(config.BASE_URL).netloc.lower()
-    return found.group(1) if found and same_host else None
+    if not found or not same_host:
+        return None
+    conv_id, message, anchor = found.groups()
+    return conv_id, message and int(message), anchor
 
 
-def card(conv: Conversation) -> dict:
-    """La carte Slack d'une conversation : titre, état, auteur, dates, bouton d'actualisation."""
+def card(conv: Conversation, excerpt: list[dict] = ()) -> dict:
+    """La carte Slack d'une conversation : titre, extrait s'il y en a un, état, auteur, dates, actualisation."""
     facts = [
         "⏳ En cours" if conv.needs_response else "✅ Terminée",
         (conv.user_id or "").split("@")[0],
@@ -51,6 +54,7 @@ def card(conv: Conversation) -> dict:
     return {
         "blocks": [
             {"type": "section", "text": {"type": "plain_text", "text": conv.title or "Conversation sans titre"}},
+            *excerpt,
             {"type": "context", "elements": [{"type": "plain_text", "text": " · ".join(f for f in facts if f)}]},
             {
                 "type": "actions",
@@ -74,10 +78,10 @@ def cards(urls: list[str]) -> dict[str, dict]:
     """La carte de chaque adresse qui mène à une conversation connue de cette instance."""
     found = {}
     for url in urls:
-        conv_id = conversation_id(url)
+        conv_id, message_id, anchor = located(url) or (None, None, None)
         conv = conv_id and store.get_conversation(conv_id, include_messages=False)
         if conv:
-            found[url] = card(conv)
+            found[url] = card(conv, slack_excerpts.excerpt(conv, message_id, anchor))
     return found
 
 
