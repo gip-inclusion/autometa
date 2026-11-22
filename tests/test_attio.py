@@ -211,6 +211,27 @@ def test_dod_4_an_email_typed_into_a_text_attribute_is_dropped(crm):
     assert run("records", {"object": "people"}) == [{"id": "r1", "job_title": "Directrice"}]
 
 
+@pytest.mark.parametrize("phone", ["06 12 34 56 78", "+33 6 12 34 56 78", "01.23.45.67.89", "0612345678"])
+def test_dod_4_a_phone_typed_into_a_text_attribute_is_dropped(crm, phone):
+    record = {
+        "id": {"record_id": "r1"},
+        "values": {"description": [{"attribute_type": "text", "value": f"Tél. {phone}"}]},
+    }
+    crm.patch("lib.attio.AttioClient.query_records", return_value=[record])
+    assert run("records", {"object": "people"}) == [{"id": "r1"}]
+
+
+@pytest.mark.parametrize(
+    "filter",
+    [{"email_addresses": "x@exemple.fr"}, {"phone_numbers": "+33600000000"}, {"name": {"$contains": "a@b.fr"}}],
+)
+def test_dod_4_a_filter_cannot_probe_an_email_or_a_phone(crm, filter):
+    session = crm.patch("httpx.Client.request")
+    with pytest.raises(AttioInvalidRequest):
+        run("count", {"object": "people", "filter": filter})
+    session.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "method,params",
     [
@@ -226,6 +247,7 @@ def test_dod_4_an_email_typed_into_a_text_attribute_is_dropped(crm):
         ("count", {"object": "people", "by": ["role"]}),
         ("records", {"object": "people", "fields": "name"}),
         ("records", {"object": "people", "filter": "role=Pilote"}),
+        ("attributes", {"object": "people\n"}),
     ],
 )
 def test_dod_5_unplanned_requests_are_refused_before_any_call(crm, method, params):
@@ -247,6 +269,21 @@ def test_dod_5_refused_parameter_lists_the_allowed_ones(crm):
         run("records", {"object": "people", "sorts": []})
     for allowed in ("object", "filter", "fields", "limit"):
         assert allowed in str(refus.value)
+
+
+@pytest.mark.parametrize(
+    "params,expected",
+    [
+        ({"object": "people", "limit": "beaucoup"}, "un entier"),
+        ({"object": "people/records?x="}, "lettres, chiffres"),
+        ({"object": "people", "filter": "role=Pilote"}, "un objet JSON"),
+        ({"object": "people", "fields": "name"}, "une liste"),
+    ],
+)
+def test_dod_5_refused_value_says_what_is_expected(crm, params, expected):
+    with pytest.raises(AttioInvalidRequest) as refus:
+        run("records", params)
+    assert expected in str(refus.value)
 
 
 def test_dod_6_probe_counts_objects(mocker):

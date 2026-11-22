@@ -1,5 +1,6 @@
 """Client Attio (CRM de l'équipe) — lecture des objets, enregistrements et listes (lecture seule, phase 1)."""
 
+import json
 import logging
 import re
 from typing import Any, Iterator, Optional
@@ -129,6 +130,8 @@ def _valeur(v: dict) -> Any:
 
 COORDONNEES = ("email-address", "phone-number")
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# Numéros français, avec ou sans +33 et séparateurs : les seuls qu'on trouve dans ce CRM.
+PHONE = re.compile(r"(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
 
 
 def _lisible(v: dict) -> Any:
@@ -136,7 +139,7 @@ def _lisible(v: dict) -> Any:
     if v.get("attribute_type") in COORDONNEES:
         return None
     x = _valeur(v)
-    return None if isinstance(x, str) and EMAIL.search(x) else x
+    return None if isinstance(x, str) and (EMAIL.search(x) or PHONE.search(x)) else x
 
 
 def aplatir(record: dict, champs: Optional[list[str]] = None) -> dict:
@@ -230,18 +233,35 @@ METHODS = {
 
 # Why: `object`, `attribute` et `list` entrent dans le chemin de l'URL ; un `/` ou un `?` y viserait une autre
 # route d'Attio, écriture comprise. Un slug ou un identifiant n'a ni l'un ni l'autre.
-SLUG = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-TYPES = {"object": str, "attribute": str, "list": str, "by": str, "filter": dict, "fields": list, "limit": int}
+SLUG = re.compile(r"[A-Za-z0-9_-]{1,64}")
+SLUG_TEXT = "un slug ou un identifiant (lettres, chiffres, _ et -)"
+EXPECTED = {
+    "object": (str, SLUG_TEXT),
+    "attribute": (str, SLUG_TEXT),
+    "list": (str, SLUG_TEXT),
+    "by": (str, "un nom d'attribut"),
+    "filter": (dict, "un objet JSON au format des filtres Attio"),
+    "fields": (list, "une liste de noms d'attributs"),
+    "limit": (int, "un entier"),
+}
+# Why: filtrer sur un email ou un téléphone dirait, par un total de 0 ou 1, si cette personne est dans le CRM.
+COORDONNEES_FILTRE = re.compile(r"email_addresses|phone_numbers|@|\+33")
 
 
 def _check(params: dict) -> None:
     for name, value in params.items():
         if value is None:
             continue
-        if not isinstance(value, TYPES[name]) or (name in ("object", "attribute", "list") and not SLUG.match(value)):
-            raise AttioInvalidRequest(f"valeur non permise pour {name} : {value!r}")
-        if name == "fields" and not all(isinstance(f, str) for f in value):
-            raise AttioInvalidRequest(f"fields doit être une liste de noms d'attributs, reçu {value!r}")
+        kind, text = EXPECTED[name]
+        valid = isinstance(value, kind) and not isinstance(value, bool)
+        if valid and name in ("object", "attribute", "list"):
+            valid = SLUG.fullmatch(value) is not None
+        if valid and name == "fields":
+            valid = all(isinstance(f, str) for f in value)
+        if not valid:
+            raise AttioInvalidRequest(f"{name} doit être {text}, reçu {value!r}")
+        if name == "filter" and COORDONNEES_FILTRE.search(json.dumps(value)):
+            raise AttioInvalidRequest("un filtre ne porte ni sur un email ni sur un téléphone")
 
 
 def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
