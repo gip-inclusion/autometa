@@ -436,10 +436,14 @@ function removeRecoveryMessage() {
 }
 
 /**
- * Retry the last message, optionally in a new conversation
+ * Ask the thread's last question again, optionally in a new conversation
  */
 async function recover({ createNew = false } = {}) {
-  if (!lastUserMessage) {
+  // Why: the last question of the thread, as the server holds it: it may have left from the queue, or been asked
+  // before this page was opened. One the server has not rendered yet is the one this page just sent.
+  const asked = [...document.querySelectorAll('#chatOutput > .event-user')].at(-1);
+  const message = asked?.dataset.question ?? lastUserMessage;
+  if (!message) {
     showError('Pas de message à réessayer');
     return;
   }
@@ -460,7 +464,7 @@ async function recover({ createNew = false } = {}) {
   }
 
   retryCount = 0;
-  await sendToAgent(lastUserMessage);
+  await sendToAgent(message);
 }
 
 /**

@@ -3,14 +3,19 @@
 import json
 import re
 import time
+from pathlib import Path
 
 import pytest
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from lib import permalinks
 from web import conversation_html
 from web.conversation_html import Live, answer_block, file_blocks, file_size, output, progress, thread, user_html
 
 CONV = "abcd2345"
+TEMPLATES = Environment(
+    loader=FileSystemLoader(Path(__file__).parent.parent / "web" / "templates"), autoescape=select_autoescape()
+)
 TABLE = "| a | b |\n|---|---|\n| 1 | 2 |\n"
 
 
@@ -644,3 +649,14 @@ def test_a_stream_gives_a_section_its_button_once_its_turn_says_more(mocker):
 
     assert [b["ids"] for b in shown["blocks"]] == [[2], [5]]
     assert section_buttons(shown["blocks"]) == [1, 0]
+
+
+def test_a_question_block_carries_its_text_as_sent_for_the_page_to_ask_it_again():
+    asked = '[Uploaded file: a.txt]\n- Size: 2 bytes\n\n---\n\n**Encore** "ça" ?\nligne'
+    found = blocks(CONV, [(1, "user", asked), (2, "assistant", "Réponse")])
+
+    html = TEMPLATES.get_template("_conversation_blocks.html").render(blocks=found)
+
+    assert [b.get("question") for b in found] == [asked, None]
+    assert html.count("data-question=") == 1
+    assert 'data-question="[Uploaded file: a.txt]\n- Size: 2 bytes\n\n---\n\n**Encore** &#34;ça&#34; ?\nligne">' in html

@@ -6,6 +6,8 @@ from collections.abc import Callable
 import pytest
 from playwright.sync_api import Page, Route, expect
 
+from web.database import store
+
 pytestmark = pytest.mark.browser
 
 RECONNECTS = {
@@ -156,3 +158,24 @@ def test_a_page_opened_during_a_turn_shows_the_finished_turns_then_follows_the_r
         assert block_ids(fresh, kind) == stored_ids(fresh, conversation, kind)
     expect(fresh.locator("#actionsContent .action-pill")).to_have_count(1)
     assert fresh.locator(".event-block").all_inner_texts() == page.locator(".event-block").all_inner_texts()
+
+
+def test_asking_again_sends_the_last_question_of_the_thread_even_on_a_page_that_did_not_send_it(
+    conversation: str, page: Page
+):
+    store.add_message(conversation, "user", "Partie de la file")
+    store.add_message(conversation, "assistant", "Réponse à la file")
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+
+    page.evaluate("recover()")
+
+    expect(page.locator(".event-final-answer").last).to_contain_text(
+        "Réponse factice : Partie de la file", timeout=15_000
+    )
+    expect(page.locator("#chatOutput .event-user")).to_have_text([
+        "Première question",
+        "Partie de la file",
+        "Partie de la file",
+    ])
+    expect(page.locator(".event-error")).to_have_count(0)

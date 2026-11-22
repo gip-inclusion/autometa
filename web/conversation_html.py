@@ -288,6 +288,9 @@ def thread(
         partial = question is not None and joining and index == len(grouped) - 1
         key = (kind, tuple(parts), partial, index in alone)
         shown = {"kind": kind, "ids": [message_id for message_id, _ in parts], "partial": partial}
+        # Why: the page asks again the last question of its thread; it reads it here, as it was sent.
+        if kind == "user":
+            shown["question"] = parts[0][1]
         # Why: a block is read whole, so one that `after` cuts is given again from its first message.
         if parts[-1][0] > after:
             rendered[key] = known.get(key) or block(conv_id, kind, parts, partial, index in alone)
