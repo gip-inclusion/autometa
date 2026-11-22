@@ -6,6 +6,26 @@ def _tag(name, facet, label):
     return Tag(name=name, type=facet, label=label)
 
 
+def test_theme_reseau_et_bloc_fonctionnel_viennent_en_tete_depliees_les_autres_repliees():
+    all_tags = {
+        "source": [_tag("matomo", "source", "Matomo")],
+        "usage": [_tag("analyse", "usage", "Analyse")],
+        "feature": [_tag("appli", "feature", "Application")],
+        "audience": [_tag("siae", "audience", "SIAE")],
+        "theme": [_tag("trafic", "theme", "Trafic")],
+    }
+
+    facets = [(facet["name"], facet["folded"]) for facet in build_search_facets(all_tags)]
+
+    assert facets == [
+        ("theme", False),
+        ("audience", False),
+        ("feature", False),
+        ("usage", True),
+        ("source", True),
+    ]
+
+
 def test_dod_1_affiche_les_facettes_reelles_dans_l_ordre_conversation():
     all_tags = {
         "product": [_tag("les-emplois", "product", "Les Emplois")],
@@ -17,7 +37,7 @@ def test_dod_1_affiche_les_facettes_reelles_dans_l_ordre_conversation():
 
     names = [facet["name"] for facet in build_search_facets(all_tags)]
 
-    assert names == ["feature", "audience", "source"]
+    assert names == ["audience", "feature", "source"]
     assert "product" not in names
     assert "type_demande" not in names
 
