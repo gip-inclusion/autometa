@@ -65,10 +65,15 @@ def slack(mocker, replies=()):
     return web
 
 
-def stored(mocker, owns=False, running=False, messages=()):
-    """Un magasin factice : la conversation créée, puis relue avec le message du bot qu'on lui a retenu."""
+def stored(mocker, owns=False, running=False, messages=(), existing=False, owner="camille.martin@inclusion.gouv.fr"):
+    """Un magasin factice : la conversation créée ou déjà là, relue avec le message du bot qu'on lui a retenu."""
     store = mocker.patch.object(slack_ask, "store")
-    state = {"conv": Conversation(id=CONV, origin="slack", slack_channel="C0TEST", slack_thread_ts=EVENT["ts"])}
+    conv = Conversation(id=CONV, user_id=owner, origin="slack", slack_channel="C0TEST", slack_thread_ts=EVENT["ts"])
+    state = {"conv": conv}
+    store.slack_conversation.return_value = CONV if existing else None
+    store.queue_message.side_effect = lambda conv_id, content, slack=None: [{"id": "e1"}] if running else None
+    store.pending_messages.return_value = []
+    store.slack_live_conversations.return_value = []
     store.owns_conversations.return_value = owns
     store.create_conversation.return_value = state["conv"]
     store.get_conversation.side_effect = lambda conv_id, include_messages=True: state["conv"]
@@ -412,3 +417,136 @@ def test_the_bot_learns_who_it_is_at_its_first_mention(mocker, monkeypatch):
 
     assert slack_ask.workspace["bot"] == BOT
     begin.assert_called_once_with(web, EVENT)
+
+
+def test_a_second_mention_in_a_thread_continues_its_conversation(mocker):
+    web, store = slack(mocker), stored(mocker, existing=True)
+
+    begun = slack_ask.begin(web, EVENT | {"thread_ts": "1700000000.000100"})
+
+    store.slack_conversation.assert_called_once_with("C0TEST", "1700000000.000100")
+    store.create_conversation.assert_not_called()
+    store.start_turn.assert_called_once_with(CONV, "combien de candidatures ?")
+    assert begun == (CONV, "combien de candidatures ?", "camille.martin@inclusion.gouv.fr")
+    assert web.chat_postMessage.call_args.kwargs["text"] == "Autometa regarde…"
+
+
+def test_a_follow_up_by_someone_else_enters_under_their_name_and_plays_for_the_owner(mocker):
+    web, store = slack(mocker), stored(mocker, existing=True, owns=True)
+
+    begun = slack_ask.begin(web, EVENT | {"user": "U2"})
+
+    store.start_turn.assert_called_once_with(CONV, "Louis D. : combien de candidatures ?")
+    assert begun == (CONV, "Louis D. : combien de candidatures ?", "camille.martin@inclusion.gouv.fr")
+
+
+def test_a_follow_up_by_someone_not_admitted_is_refused_and_does_not_enter(mocker):
+    web, store = slack(mocker), stored(mocker, existing=True)
+
+    assert slack_ask.begin(web, EVENT | {"user": "U2"}) is None
+
+    store.start_turn.assert_not_called()
+    store.queue_message.assert_not_called()
+    assert web.chat_postEphemeral.call_args.kwargs["user"] == "U2"
+
+
+def test_a_mention_during_a_turn_joins_the_queue_with_the_thread_since_the_previous_one(mocker):
+    replies = [
+        reply("U1", f"<@{BOT}> première demande", "1700000000.000100"),
+        reply("U2", "entre-temps", "1700000200.000100"),
+        reply("U1", EVENT["text"], EVENT["ts"]),
+    ]
+    web, store = slack(mocker, replies), stored(mocker, existing=True, running=True)
+
+    begun = slack_ask.begin(web, EVENT | {"thread_ts": "1700000000.000100"})
+
+    assert begun == (CONV, None, "camille.martin@inclusion.gouv.fr")
+    conv_id, content, held = store.queue_message.call_args.args
+    assert (conv_id, content) == (CONV, "combien de candidatures ?")
+    assert [m["text"] for m in json.loads(held["context"])["messages"]] == ["entre-temps"]
+    assert held["prompt"].startswith("[Fil Slack") and held["prompt"].endswith("[Demande]\ncombien de candidatures ?")
+    store.start_turn.assert_not_called()
+    web.chat_postMessage.assert_not_called()
+    waits = web.chat_postEphemeral.call_args.kwargs
+    assert (waits["user"], waits["thread_ts"]) == ("U1", "1700000000.000100")
+    assert "prendra votre demande" in waits["text"]
+
+
+def test_mentions_waiting_together_leave_with_the_whole_thread_since_the_running_turn(mocker):
+    web, store = (
+        slack(mocker, [reply("U2", "second", "1700000250.000100")]),
+        stored(mocker, existing=True, running=True),
+    )
+    first = json.dumps({"messages": [{"author": "Louis D.", "at": "x", "text": "premier"}], "note": ""})
+    waiting = [{"id": "e0", "status": "waiting", "content": "q", "slack": {"context": first, "prompt": "p"}}]
+    store.get_conversation.side_effect = None
+    store.get_conversation.return_value = Conversation(
+        id=CONV, user_id="camille.martin@inclusion.gouv.fr", needs_response=True, pending_messages=waiting
+    )
+
+    slack_ask.begin(web, EVENT | {"thread_ts": "1700000000.000100"})
+
+    held = store.queue_message.call_args.args[2]
+    assert [m["text"] for m in json.loads(held["context"])["messages"]] == ["premier", "second"]
+    assert "premier" in held["prompt"] and "second" in held["prompt"]
+
+
+def test_a_queued_mention_only_signals_the_queue_and_starts_no_second_follower(mocker):
+    web = slack(mocker)
+    stored(mocker, existing=True, running=True)
+    runner = mocker.patch.object(slack_ask, "runner")
+    runner.notify, runner.submit = mocker.AsyncMock(), mocker.AsyncMock()
+    followed = mocker.patch.object(slack_ask, "follow", mocker.AsyncMock())
+    slack_ask.following[CONV] = mocker.MagicMock()
+
+    asyncio.run(slack_ask.asked(web, EVENT))
+
+    runner.notify.assert_awaited_once_with(CONV, "queue")
+    runner.submit.assert_not_awaited()
+    followed.assert_not_awaited()
+
+
+def test_when_the_queue_leaves_the_finished_turn_gets_its_answer_and_the_next_its_own_message(mocker):
+    web, store = slack(mocker), live_conversation(mocker, running=False)
+    store.last_user_message_id.side_effect = [1, 6, 6]
+    web.chat_postMessage.return_value = {"ts": "1700000500.000100"}
+
+    follow(mocker, store, web, "queue", "done:6")
+
+    first, second = web.chat_update.call_args_list
+    assert (first.kwargs["ts"], second.kwargs["ts"]) == ("1700000301.000200", "1700000500.000100")
+    assert first.kwargs["blocks"][0]["text"]["text"] == "42 candidatures."
+    assert web.chat_postMessage.call_args.kwargs["text"] == "Autometa regarde…"
+    assert [call.args[1] for call in store.get_thread_messages.call_args_list] == [1, 6]
+
+
+def test_mentions_left_waiting_by_a_turn_that_failed_are_said_not_to_have_left(mocker):
+    web, store = slack(mocker), live_conversation(mocker, running=False)
+    store.pending_messages.return_value = [
+        {"id": "e1", "status": "returned", "content": "q1", "slack": {"context": "", "prompt": "q1"}},
+        {"id": "e2", "status": "returned", "content": "depuis la page"},
+    ]
+
+    slack_ask.give_back(web, CONV)
+
+    store.take_queued.assert_called_once_with(CONV, "e1")
+    said = web.chat_postMessage.call_args.kwargs
+    assert said["thread_ts"] == EVENT["ts"] and "Redemandez-moi" in said["text"]
+
+
+def test_after_a_restart_messages_left_on_a_verb_are_followed_again_or_completed(mocker):
+    web, store = slack(mocker), live_conversation(mocker, running=False)
+    store.slack_live_conversations.return_value = [CONV]
+    runner = mocker.patch.object(slack_ask, "runner")
+    runner.subscribe = mocker.AsyncMock(return_value=Signals())
+    runner.is_done = mocker.AsyncMock(return_value=False)
+
+    async def restart():
+        await slack_ask.recover(web)
+        await asyncio.gather(*slack_ask.following.values())
+
+    asyncio.run(restart())
+
+    assert web.chat_update.call_args.kwargs["blocks"][0]["text"]["text"] == "42 candidatures."
+    store.update_conversation.assert_called_with(CONV, slack_message_ts=None)
+    assert slack_ask.following == {}

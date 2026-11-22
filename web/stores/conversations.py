@@ -3,6 +3,7 @@
 import json
 import logging
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -647,8 +648,8 @@ class ConversationsMixin:
         with get_db() as session:
             return claim_turn(session, conv_id)
 
-    def queue_message(self, conv_id: str, content: str) -> Optional[list[dict]]:
-        """Met le message en attente de la fin du tour en cours ; None si aucun tour n'y tourne."""
+    def queue_message(self, conv_id: str, content: str, slack: dict | None = None) -> Optional[list[dict]]:
+        """Met le message en attente de la fin du tour en cours, avec le fil Slack d'une mention ; None sans tour."""
         with get_db() as session:
             c = lock_conversation(session, conv_id)
             if not c or not c.needs_response:
@@ -658,6 +659,7 @@ class ConversationsMixin:
                 "content": content,
                 "status": "waiting",
                 "created_at": utcnow().isoformat(),
+                **({"slack": slack} if slack else {}),
             }
             c.pending_messages = [*(c.pending_messages or []), entry]
             return with_status(c.pending_messages, "waiting")
@@ -673,7 +675,15 @@ class ConversationsMixin:
             returned = with_status(pending, "returned")
             if flush and waiting:
                 c.pending_messages = returned or None
-                return [insert_message(session, c, "user", e["content"]) for e in waiting]
+                sent = [insert_message(session, c, "user", e["content"]) for e in waiting]
+                # Why: une mention Slack attend avec le fil venu depuis la demande précédente ; il part en message à
+                # part sous les questions, et la dernière demande revient telle que l'agent doit la lire, fil compris.
+                slack = next((e["slack"] for e in reversed(waiting) if e.get("slack")), None)
+                if slack and slack.get("context"):
+                    insert_message(session, c, "slack_context", slack["context"])
+                if waiting[-1].get("slack"):
+                    sent[-1] = replace(sent[-1], content=waiting[-1]["slack"]["prompt"])
+                return sent
             c.pending_messages = [*returned, *({**e, "status": "returned"} for e in waiting)] or None
             c.needs_response = 0
             c.updated_at = utcnow()

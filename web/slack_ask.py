@@ -1,4 +1,4 @@
-"""Demander à Autometa depuis Slack : une mention ouvre une conversation, y joue un tour, répond dans le fil."""
+"""Demander à Autometa depuis Slack : une mention ouvre ou reprend la conversation de son fil, et y a sa réponse."""
 
 import asyncio
 import html
@@ -222,7 +222,7 @@ def say(web: WebClient, conv: Conversation, verb: str) -> None:
 
 
 async def follow(web: WebClient, conv_id: str) -> None:
-    """Suit un tour jusqu'à sa fin : le verbe change quand l'agent avance, puis le message devient la réponse."""
+    """Suit une conversation jusqu'à la fin de ses tours : le verbe change, puis le message devient la réponse."""
     question = await asyncio.to_thread(store.last_user_message_id, conv_id)
     # Why: s'abonner avant de vérifier la fin du tour — un tour fini entre les deux n'enverrait son signal à personne.
     pubsub = await runner.subscribe(conv_id)
@@ -232,12 +232,19 @@ async def follow(web: WebClient, conv_id: str) -> None:
         while not ended and time.monotonic() - began < 7200:
             heard = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30)
             conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
-            if not conv or not conv.slack_message_ts:
+            if not conv:
                 return
             if heard is None or heard["data"].startswith("done:"):
                 # Why: le signal de fin peut manquer (redémarrage, Redis) ; l'état de la conversation fait foi.
                 ended = not conv.needs_response
-            elif heard["data"] == "update" and time.monotonic() - changed >= 4:
+            elif heard["data"] == "queue":
+                latest = await asyncio.to_thread(store.last_user_message_id, conv_id)
+                # Why: les demandes en attente sont parties ; le tour fini a sa réponse, le suivant son message.
+                if latest != question:
+                    await asyncio.to_thread(finish, web, conv_id, question)
+                    await asyncio.to_thread(open_live, web, conv_id)
+                    question = latest
+            elif conv.slack_message_ts and time.monotonic() - changed >= 4:
                 # Why: le verbe ne change que si l'agent avance, et pas plus d'une fois toutes les 4 secondes.
                 changed, verb = time.monotonic(), random.choice([v for v in VERBS if v != verb])
                 await asyncio.to_thread(say, web, conv, verb)
@@ -246,6 +253,31 @@ async def follow(web: WebClient, conv_id: str) -> None:
         await pubsub.aclose()
         following.pop(conv_id, None)
     await asyncio.to_thread(finish, web, conv_id, question)
+    await asyncio.to_thread(give_back, web, conv_id)
+
+
+def give_back(web: WebClient, conv_id: str) -> None:
+    """Dit dans le fil que les mentions restées en attente d'un tour qui n'a pas abouti ne sont pas parties."""
+    left = [entry for entry in store.pending_messages(conv_id) if entry.get("slack") and entry["status"] == "returned"]
+    if not left:
+        return
+    for entry in left:
+        store.take_queued(conv_id, entry["id"])
+    conv = store.get_conversation(conv_id, include_messages=False)
+    said = "Les demandes arrivées entre-temps ne sont pas parties : la réponse en cours n'a pas abouti. Redemandez-moi."
+    try:
+        web.chat_postMessage(channel=conv.slack_channel, thread_ts=conv.slack_thread_ts, text=said)
+    except SlackApiError as error:
+        logger.warning("Demandes Slack rendues sans le dire dans le fil : %s", error.response.get("error"))
+    except (SlackClientError, OSError) as error:
+        logger.warning("Demandes Slack rendues sans le dire dans le fil, Slack injoignable : %s", error)
+
+
+async def recover(web: WebClient) -> None:
+    """Au démarrage : reprend le suivi des tours encore en cours, complète les messages restés sur un verbe."""
+    for conv_id in await asyncio.to_thread(store.slack_live_conversations):
+        if conv_id not in following:
+            following[conv_id] = asyncio.get_running_loop().create_task(follow(web, conv_id))
 
 
 def refuse(web: WebClient, channel: str, user: str, thread_ts: str | None) -> None:
@@ -253,8 +285,9 @@ def refuse(web: WebClient, channel: str, user: str, thread_ts: str | None) -> No
     web.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=REFUSAL.format(config.BASE_URL))
 
 
-def begin(web: WebClient, event: dict) -> tuple[str, str, str] | None:
-    """Ouvre la conversation d'une mention et son tour : son identifiant, la demande pour l'agent, son auteur."""
+def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
+    """Ouvre ou reprend la conversation d'une mention : son identifiant, la demande pour l'agent ou None si elle
+    attend la fin du tour en cours, la personne au nom de qui le tour se joue."""
     channel, asker, said = event["channel"], event["user"], event.get("text", "")
     thread_ts = event.get("thread_ts") or event["ts"]
     who = person(web, asker)
@@ -266,17 +299,36 @@ def begin(web: WebClient, event: dict) -> tuple[str, str, str] | None:
     context = thread_context(web, channel, thread_ts, event["ts"]) if shared else []
     request = readable(web, said.replace(f"<@{workspace['bot']}>", "")).strip() or "(demande sans texte)"
     note = "" if shared else PRIVATE
-    conv = store.create_conversation(user_id=who["email"], slack_thread=(channel, thread_ts))
+    stored = json.dumps({"messages": context, "note": note}, ensure_ascii=False) if context or note else ""
+    conv_id = store.slack_conversation(channel, thread_ts)
+    conv = store.get_conversation(conv_id, include_messages=False) if conv_id else None
+    if conv and who["email"] != (conv.user_id or "").lower():
+        # Why: une relance d'une autre personne entre dans la conversation de la première, sous son propre nom.
+        request = f"{who['name']} : {request}"
+    if conv:
+        # Why: le fil des mentions déjà en attente part avec la dernière ; elle seule revient à l'agent.
+        waiting = [e["slack"]["context"] for e in conv.pending_messages if e.get("slack") and e["status"] == "waiting"]
+        earlier = [m for held in waiting if held for m in json.loads(held)["messages"]]
+        held = json.dumps({"messages": [*earlier, *context], "note": note}, ensure_ascii=False) if earlier else stored
+        slack = {"context": held, "prompt": prompt([*earlier, *context], request)}
+        if store.queue_message(conv.id, request, slack) is not None:
+            waits = "Autometa finit sa réponse en cours, puis prendra votre demande."
+            web.chat_postEphemeral(channel=channel, user=asker, thread_ts=thread_ts, text=waits)
+            return conv.id, None, conv.user_id
+    conv = conv or store.create_conversation(user_id=who["email"], slack_thread=(channel, thread_ts))
     try:
         open_live(web, conv.id, note)
     except SlackApiError, SlackClientError, OSError:
-        # Why: sans son message dans le fil, la demande n'a pas commencé ; la conversation vide ne reste pas.
-        store.delete_conversation(conv.id)
+        # Why: sans son message dans le fil, la demande n'a pas commencé ; une conversation neuve et vide ne reste pas.
+        if not conv_id:
+            store.delete_conversation(conv.id)
         raise
-    store.start_turn(conv.id, request)
-    if context or note:
-        store.add_message(conv.id, "slack_context", json.dumps({"messages": context, "note": note}, ensure_ascii=False))
-    return conv.id, prompt(context, request), who["email"]
+    if store.start_turn(conv.id, request) is None:
+        logger.warning("Demande Slack perdue : un tour a commencé entre-temps dans la conversation %s", conv.id)
+        return None
+    if stored:
+        store.add_message(conv.id, "slack_context", stored)
+    return conv.id, prompt(context, request), conv.user_id
 
 
 async def asked(web: WebClient, event: dict) -> None:
@@ -294,16 +346,21 @@ async def asked(web: WebClient, event: dict) -> None:
     if not begun:
         return
     conv_id, request, email = begun
-    submitted = False
+    submitted = request is None
     try:
-        await runner.submit(conv_id, request, [], email)
-        submitted = True
+        if request is None:
+            await runner.notify(conv_id, "queue")
+        else:
+            await runner.submit(conv_id, request, [], email)
+            submitted = True
     finally:
         if not submitted:
             # Why: le tour est déjà réservé ; sans lui, la conversation resterait bloquée en cours.
             await asyncio.to_thread(store.end_turn, conv_id, False)
-    following[conv_id] = asyncio.current_task()
-    await follow(web, conv_id)
+    # Why: une seule tâche suit une conversation ; celle d'un tour en cours prendra aussi les demandes en attente.
+    if conv_id not in following:
+        following[conv_id] = asyncio.current_task()
+        await follow(web, conv_id)
 
 
 def reported(done) -> None:

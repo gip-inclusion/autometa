@@ -162,3 +162,60 @@ def test_a_fork_leaves_the_queue_behind():
 
     assert [e["content"] for e in store.get_conversation(conv.id).pending_messages] == ["q1"]
     assert fork.pending_messages == []
+
+
+def kinds(conv_id: str) -> list[tuple[str, str]]:
+    return [(m.type, m.content) for m in store.get_conversation(conv_id).messages]
+
+
+def test_a_queued_slack_mention_leaves_with_its_thread_as_a_message_of_its_own_and_the_agent_reads_both():
+    conv = make_conversation()
+    store.queue_message(conv.id, "q1")
+    store.queue_message(conv.id, "Louis : q2", slack={"context": '{"messages": []}', "prompt": "[Fil]\n…\nq2"})
+
+    sent = store.end_turn(conv.id, flush=True)
+
+    assert [m.content for m in sent] == ["q1", "[Fil]\n…\nq2"]
+    assert kinds(conv.id)[1:] == [("user", "q1"), ("user", "Louis : q2"), ("slack_context", '{"messages": []}')]
+
+
+def test_a_message_queued_from_the_page_after_a_mention_is_read_as_typed_and_the_thread_is_kept():
+    conv = make_conversation()
+    store.queue_message(conv.id, "q1", slack={"context": "fil", "prompt": "fil + q1"})
+    store.queue_message(conv.id, "q2")
+
+    sent = store.end_turn(conv.id, flush=True)
+
+    assert [m.content for m in sent] == ["q1", "q2"]
+    assert kinds(conv.id)[-1] == ("slack_context", "fil")
+
+
+def test_a_queued_mention_without_thread_adds_no_context_message():
+    conv = make_conversation()
+    store.queue_message(conv.id, "q1", slack={"context": "", "prompt": "q1"})
+
+    store.end_turn(conv.id, flush=True)
+
+    assert [kind for kind, _ in kinds(conv.id)] == ["user", "user"]
+
+
+def test_a_conversation_opened_from_slack_keeps_its_thread_and_is_found_by_it():
+    conv = store.create_conversation(user_id=ALICE, slack_thread=("C0QUEUE", "1700000000.000100"))
+    store.update_conversation(conv.id, slack_message_ts="1700000001.000200")
+
+    read = store.get_conversation(conv.id)
+
+    assert (read.origin, read.slack_channel, read.slack_thread_ts) == ("slack", "C0QUEUE", "1700000000.000100")
+    assert store.slack_conversation("C0QUEUE", "1700000000.000100") == conv.id
+    assert store.slack_conversation("C0QUEUE", "1700000000.999999") is None
+    assert conv.id in store.slack_live_conversations()
+    store.update_conversation(conv.id, slack_message_ts=None)
+    assert conv.id not in store.slack_live_conversations()
+    assert store.get_conversation(make_conversation().id).origin == "web"
+
+
+def test_a_person_owns_conversations_whatever_the_case_of_their_address():
+    make_conversation()
+
+    assert store.owns_conversations("Alice@Example.com") is True
+    assert store.owns_conversations("personne@example.com") is False
