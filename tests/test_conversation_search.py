@@ -1,10 +1,11 @@
 """Recherche de conversations et de rapports par mots."""
 
 import pytest
+from sqlalchemy import event, text
 
 from web.database import store
-from web.db import get_db
-from web.models import Tag
+from web.db import get_db, get_engine
+from web.models import Message, Tag
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -75,6 +76,31 @@ def test_les_sorties_d_outils_ne_sont_pas_fouillees(client):
 
     assert f"conv-{conv.id}" in search(client, "douze")
     assert f"conv-{conv.id}" not in search(client, "zorglub")
+
+
+def test_la_recherche_dans_les_echanges_passe_par_l_index_trigramme():
+    executed = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        executed.append((statement, parameters))
+
+    event.listen(get_engine(), "before_cursor_execute", capture)
+    try:
+        store.search_conversation_ids_by_keyword("candidats")
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", capture)
+    statement, parameters = executed[-1]
+
+    index = next(i for i in Message.__table__.indexes if i.name == "idx_messages_search")
+    with get_db() as session:
+        # Why: `create_all` n'ajoute pas un index à une table déjà créée par une version antérieure.
+        index.create(session.connection(), checkfirst=True)
+        # Why: sur une table de test presque vide le planificateur préfère la lecture complète ;
+        # l'écarter montre si l'index partiel est utilisable par la requête, pas s'il est rentable.
+        session.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = session.connection().exec_driver_sql(f"EXPLAIN {statement}", parameters).scalars().all()
+
+    assert "idx_messages_search" in "\n".join(plan)
 
 
 @pytest.mark.parametrize(("q", "trouvee"), [("julien", True), ("DUPONT pass", True), ("gouv", False)])
