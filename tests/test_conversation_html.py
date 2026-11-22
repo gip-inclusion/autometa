@@ -106,7 +106,7 @@ def test_an_answer_opening_with_front_matter_is_a_report_its_header_apart_from_i
     block = blocks(CONV, [(1, "user", "Rapport ?"), (2, "assistant", REPORT)])[1]
 
     assert (block["report"], block.get("final")) == (True, None)
-    assert block["html"].count("permalink-btn") == 2
+    assert block["html"].count("permalink-btn") == 1
     assert (
         '<div class="report-header"><div class="report-title"><i class="ri-file-text-line"></i> Trafic &lt;b&gt;</div>'
         '<div class="report-meta"><i class="ri-calendar-line"></i> 2026-01-05</div>'
@@ -401,3 +401,19 @@ def test_the_output_holds_the_finished_turns_and_the_message_the_stream_resumes_
     assert ([b["ids"] for b in found["blocks"]], found["last_id"]) == expected
     assert found["running"] is running
     read.assert_called_once_with(CONV)
+
+
+@pytest.mark.parametrize(
+    ("text", "buttons"),
+    [
+        ("## Seule\n\nTexte.\n", ["cette réponse"]),
+        ("## Seule\n\nTexte.\n\n### Dessous\n\nTexte.\n", ["cette réponse", "cette section"]),
+        ("## Une\n\nTexte.\n\n## Deux\n\nTexte.\n", ["cette réponse", "cette section", "cette section"]),
+        ("Intro.\n\n## Après\n\nTexte.\n", ["cette réponse", "cette section"]),
+    ],
+)
+def test_a_section_that_is_the_whole_answer_has_no_link_button_of_its_own(text, buttons):
+    html = conversation_html.answer_block(CONV, [(7, text)])["html"]
+
+    assert re.findall(r'title="Copier le lien vers ([^"]+)"', html) == buttons
+    assert html.count('data-anchor-kind="section"') == len(re.findall(r"^#+ ", text, re.M))
