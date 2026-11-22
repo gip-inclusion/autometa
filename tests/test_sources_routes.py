@@ -90,12 +90,16 @@ def test_legacy_path_redirect_cannot_be_steered(client, payload):
 
 
 @pytest.mark.parametrize("closing", ["</script>", "</SCRIPT>", "</script >"])
-def test_a_knowledge_page_keeps_its_text_inside_its_data_element(client, mocker, tmp_path, closing):
+def test_a_knowledge_page_is_served_rendered_without_what_its_text_would_run(client, mocker, tmp_path, closing):
     fiche = tmp_path / "fiche.md"
-    fiche.write_text(f"# Fiche\n\n{closing}<img src=x onerror=alert(1)>\n")
+    fiche.write_text(f"# Fiche\n\n**gras** {closing}<img src=x onerror=alert(1)>\n")
     mocker.patch("web.routes.html.validate_knowledge_path", return_value=fiche)
 
-    assert "<img src=x onerror" not in client.get("/knowledge/fiche.md").text
+    page = client.get("/knowledge/fiche.md").text
+
+    assert '<div class="markdown-body" id="markdownContent" hx-disable><h1>Fiche</h1>' in page
+    assert "<strong>gras</strong>" in page
+    assert "onerror" not in page and closing not in page.split('id="markdownContent"')[1].split("</div>")[0]
 
 
 def test_page_groups_sources_by_role(client):

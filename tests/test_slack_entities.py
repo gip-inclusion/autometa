@@ -94,7 +94,7 @@ def test_every_address_of_a_conversation_is_the_same_object():
 
 def thread(mocker, *messages, running=False, tags=()):
     mocker.patch.object(slack_entities.store, "get_conversation_tags", return_value=list(tags))
-    mocker.patch.object(slack_entities.conversation_html.store, "get_displayed_messages", return_value=list(messages))
+    mocker.patch.object(slack_entities.conversation_html.store, "get_thread_messages", return_value=list(messages))
     return {field["key"]: field for field in slack_entities.details(conversation(needs_response=running))}
 
 

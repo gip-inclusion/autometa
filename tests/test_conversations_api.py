@@ -1,5 +1,7 @@
 """Tests for web/routes/conversations.py — ownership and permission rules."""
 
+import re
+
 import pytest
 
 from web.config import ADMIN_USERS
@@ -311,55 +313,100 @@ def answered_conversation() -> tuple[str, str]:
     return conv.id, str(store.add_message(conv.id, "assistant", ANSWER).id)
 
 
-def test_blocks_renders_the_finished_turns_for_any_reader(client):
+def test_thread_messages_leave_out_the_text_of_results_that_called_no_api():
     conv_id, answer = answered_conversation()
-
-    body = client.get(f"/api/conversations/{conv_id}/blocks", headers=headers(BOB)).json()
-
-    assert (body["last_id"], body["running"]) == (int(answer), False)
-    assert body["html"].count('class="event-block') == 2
-    assert f'class="event-block event-assistant event-final-answer" data-msg-id="{answer}"' in body["html"]
-    assert f'<h2 data-anchor="{answer}-section-1"' in body["html"]
-    assert f'<div class="permalink-figure"><table data-anchor="{answer}-table-1"' in body["html"]
-
-
-def test_blocks_leaves_out_the_running_turn(client):
-    conv_id, _ = answered_conversation()
-    question = store.start_turn(conv_id, "Deuxième question")
-    store.add_message(conv_id, "assistant", "## En cours")
-
-    body = client.get(f"/api/conversations/{conv_id}/blocks", headers=headers()).json()
-
-    assert (body["last_id"], body["running"]) == (question.id - 1, True)
-    assert body["html"].count('class="event-block') == 2
-    assert "En cours" not in body["html"]
-
-
-def test_blocks_after_a_message_holds_only_what_follows_it(client):
-    conv_id, answer = answered_conversation()
-    store.add_message(conv_id, "user", "Deuxième question")
-    second = store.add_message(conv_id, "assistant", "Deuxième réponse")
-
-    body = client.get(f"/api/conversations/{conv_id}/blocks", params={"after": answer}, headers=headers()).json()
-
-    assert body["last_id"] == second.id
-    assert body["html"].count('class="event-block') == 2
-    assert "Titre" not in body["html"] and "Deuxième réponse" in body["html"]
-
-
-def test_blocks_of_unknown_conversation_is_404(client):
-    assert client.get("/api/conversations/nope/blocks", headers=headers()).status_code == 404
-
-
-def test_displayed_messages_read_the_text_of_the_displayed_types_only():
-    conv_id, answer = answered_conversation()
+    store.add_message(conv_id, "tool_use", '{"tool": "Bash"}')
     store.add_message(conv_id, "tool_result", "sortie volumineuse")
+    called = store.add_message(conv_id, "tool_result", '{"output": "x", "api_calls": []}')
 
-    found = store.get_displayed_messages(conv_id)
+    found = store.get_thread_messages(conv_id)
 
     assert [(kind, content) for _, kind, content in found] == [
         ("user", "Question"),
         ("assistant", ANSWER),
+        ("tool_use", '{"tool": "Bash"}'),
         ("tool_result", ""),
+        ("tool_result", '{"output": "x", "api_calls": []}'),
     ]
     assert found[1][0] == int(answer)
+    assert store.get_thread_messages(conv_id, called.id) == [found[-1]]
+    assert store.get_message_kinds(conv_id) == [(message_id, kind) for message_id, kind, _ in found]
+
+
+def tooled_conversation() -> tuple[str, list[int]]:
+    conv = store.create_conversation(user_id=ALICE)
+    stored = [
+        ("user", "Question"),
+        ("tool_use", '{"tool": "Bash", "category": "Shell: echo", "input": {"command": "' + "x" * 600 + '"}}'),
+        ("tool_result", '{"tool": "Bash", "output": "' + "sortie volumineuse " * 500 + '"}'),
+        ("tool_use", '{"tool": "Bash", "category": "API: Matomo", "input": {"command": "curl"}}'),
+        (
+            "tool_result",
+            '{"output": {"output": "' + "y" * 600 + '"}, "api_calls": [{"source": "matomo", "method": "M.get"}]}',
+        ),
+        ("assistant", ANSWER),
+    ]
+    return conv.id, [store.add_message(conv.id, kind, content).id for kind, content in stored]
+
+
+def test_the_page_gives_any_reader_the_pills_of_the_tool_calls_without_their_outputs(client):
+    conv_id, ids = tooled_conversation()
+
+    page = client.get(f"/c/{conv_id}", headers=headers(BOB)).text
+
+    assert re.findall(r'class="action-pill[^"]*" data-action-index="(\d+)" data-msg-id="(\d+)"( data-data)?', page) == [
+        ("1", str(ids[2]), ""),
+        ("2", str(ids[4]), " data-data"),
+    ]
+    assert f'<div class="action-kv-value">{"x" * 500}...</div>' in page
+    assert f'data-whole="/api/conversations/{conv_id}/messages/{ids[1]}/value?input=command"' in page
+    assert f'<div class="action-kv-value">{"y" * 500}...</div>' in page
+    assert f'data-whole="/api/conversations/{conv_id}/messages/{ids[4]}/value"' in page
+    assert "sortie volumineuse" not in page
+    assert page.count('<span class="action-footnote" data-action-index=') == 2
+
+
+def test_a_value_is_read_whole_from_its_own_conversation_only(client):
+    conv_id, ids = tooled_conversation()
+    other, _ = tooled_conversation()
+    address = f"/api/conversations/{conv_id}/messages"
+
+    command = client.get(f"{address}/{ids[1]}/value", params={"input": "command"}, headers=headers(BOB))
+    output = client.get(f"{address}/{ids[2]}/value", headers=headers(BOB))
+    statuses = [
+        client.get(url, headers=headers()).status_code
+        for url in (
+            f"/api/conversations/{other}/messages/{ids[2]}/value",
+            f"{address}/999999999/value",
+            f"{address}/{ids[1]}/value?input=absente",
+            f"{address}/{ids[4]}/value?sql=0",
+        )
+    ]
+
+    assert command.json() == {"text": "x" * 600}
+    assert output.json()["text"].count("sortie volumineuse") == 500
+    assert statuses == [404, 404, 404, 404]
+
+
+def test_the_full_conversation_still_carries_every_message_whole(client):
+    conv_id, ids = tooled_conversation()
+
+    messages = client.get(f"/api/conversations/{conv_id}", headers=headers()).json()["messages"]
+
+    assert [m["id"] for m in messages] == ids
+    assert messages[2]["content"].count("sortie volumineuse") == 500
+
+
+def test_a_stored_half_character_pair_breaks_neither_the_value_nor_the_page(client):
+    conv = store.create_conversation(user_id=ALICE)
+    store.add_message(conv.id, "user", "Question \\ud83d")
+    call = store.add_message(conv.id, "tool_use", '{"tool": "T", "input": {"texte": "coupé \\ud83d"}}')
+    store.add_message(conv.id, "tool_result", '{"output": "coupé \\ud83d", "api_calls": [{"source": "matomo"}]}')
+    store.add_message(conv.id, "assistant", "Réponse \\ud83d")
+
+    whole = client.get(f"/api/conversations/{conv.id}/messages/{call.id}/value?input=texte", headers=headers())
+    page = client.get(f"/c/{conv.id}", headers=headers())
+
+    assert (whole.status_code, page.status_code) == (200, 200)
+    assert whole.json() == {"text": "coupé \ufffd"}
+    assert page.text.count('<div class="action-kv-value">coupé \ufffd</div>') == 2

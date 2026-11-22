@@ -1,5 +1,6 @@
 """Preuves navigateur — la page d'une conversation arrive dessinée par le serveur, sans attendre ses messages."""
 
+import json
 import re
 from collections.abc import Callable
 
@@ -49,12 +50,34 @@ FIRST_FRAMES = """(() => {
   };
   requestAnimationFrame(look);
 })()"""
+# Why: note combien de dessins de graphiques la page mène de front ; deux à la fois se marchent sur les identifiants.
+WATCH_CHART_RUNS = """(() => {
+  window.chartRuns = { now: 0, most: 0 };
+  let lib;
+  Object.defineProperty(window, 'mermaid', {
+    configurable: true,
+    get: () => lib,
+    set: (value) => {
+      const run = value.run.bind(value);
+      value.run = async (...args) => {
+        window.chartRuns.now += 1;
+        window.chartRuns.most = Math.max(window.chartRuns.most, window.chartRuns.now);
+        try {
+          return await run(...args);
+        } finally {
+          window.chartRuns.now -= 1;
+        }
+      };
+      lib = value;
+    },
+  });
+})()"""
 MARK_TOC = "entries => entries.forEach((entry) => { entry.dataset.left = ''; })"
 
 
 def hold_the_api(page: Page) -> None:
-    """Laisse sans réponse ce que la page demande sur ses conversations : messages et rendu des tours."""
-    page.route(re.compile(r"/api/conversations/[^/]+(/blocks.*)?$"), lambda route: None)
+    """Laisse sans réponse ce que la page demande sur ses conversations : leurs messages et leur flux."""
+    page.route(re.compile(r"/api/conversations/[^/]+(/stream.*)?$"), lambda route: None)
 
 
 @pytest.fixture
@@ -138,7 +161,7 @@ def test_the_end_of_a_turn_leaves_the_blocks_a_reload_gives(conversation: str, a
     blocks = page.locator("#chatOutput > *")
     ask(RICH)
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
-    expect(page.locator("#chatOutput > [data-live]")).to_have_count(0)
+    expect(page.locator("#chatOutput > [data-partial]")).to_have_count(0)
     expect(page.locator(".action-footnote")).to_have_count(1)
     expect(page.locator(".options-buttons button")).to_have_count(2)
     handed_over = blocks.evaluate_all(BLOCKS)
@@ -151,11 +174,11 @@ def test_the_end_of_a_turn_leaves_the_blocks_a_reload_gives(conversation: str, a
     expect(page.locator("#chatInput")).to_have_value("Non")
 
 
-def test_a_conversation_whose_rendered_turns_never_come_does_not_hold_the_next_one(
+def test_a_conversation_whose_stream_never_answers_does_not_hold_the_next_one(
     conversation: str, visit: Callable[[str], None], ask: Callable[[str], None], page: Page
 ):
     other = page.request.post("/api/conversations").json()["id"]
-    page.route(f"**/api/conversations/{conversation}/blocks*", lambda route: None)
+    page.route(f"**/api/conversations/{conversation}/stream*", lambda route: None)
     visit(f"/c/{conversation}")
     expect(page.locator(".event-final-answer")).to_have_count(1)
 
@@ -166,7 +189,7 @@ def test_a_conversation_whose_rendered_turns_never_come_does_not_hold_the_next_o
     expect(page.locator(".event-final-answer")).to_contain_text(
         "Réponse factice : [tools:1] Dans l'autre", timeout=15_000
     )
-    expect(page.locator("#chatOutput > [data-live]")).to_have_count(0)
+    expect(page.locator("#chatOutput > [data-partial]")).to_have_count(0)
     expect(page.locator("#actionsContent .action-pill")).to_have_count(1)
     page.request.post(f"/api/conversations/{other}/cancel")
 
@@ -204,17 +227,17 @@ def test_back_onto_a_relaunched_turn_shows_its_question_once(fake_agent, visit: 
     page.go_back()
 
     expect(page.locator(".event-final-answer").last).to_contain_text("Réponse factice : [slow:4]", timeout=20_000)
-    expect(page.locator("#chatOutput > [data-live]")).to_have_count(0)
+    expect(page.locator("#chatOutput > [data-partial]")).to_have_count(0)
     expect(page.locator("#chatOutput .event-user")).to_have_text(["Première question", "[slow:4] relance"])
     store.delete_conversation(shared)
 
 
 def test_an_answer_that_grew_after_its_turn_takes_the_place_of_the_one_shown(conversation: str, page: Page):
     blocks = page.locator("#chatOutput > *")
-    expect(page.locator("#chatOutput > [data-live]")).to_have_count(0)
+    expect(page.locator("#chatOutput > [data-partial]")).to_have_count(0)
     store.add_message(conversation, "assistant", "\n\n*Interrompu.*")
 
-    page.evaluate("syncOutput()")
+    page.evaluate("startStream({ quiet: true })")
 
     expect(page.locator(".event-final-answer em")).to_have_text("Interrompu.")
     expect(page.locator(".event-assistant")).to_have_count(1)
@@ -224,7 +247,7 @@ def test_an_answer_that_grew_after_its_turn_takes_the_place_of_the_one_shown(con
     assert blocks.evaluate_all(BLOCKS) == synced
 
 
-def test_the_actions_of_a_turn_rendered_before_the_stream_brought_it_are_listed(
+def test_a_turn_its_stream_never_brought_comes_whole_with_its_actions_at_the_next_one(
     conversation: str, ask: Callable[[str], None], page: Page
 ):
     page.route("**/stream*", lambda route: None)
@@ -234,13 +257,34 @@ def test_the_actions_of_a_turn_rendered_before_the_stream_brought_it_are_listed(
         if not stored["is_running"] and "Avec des outils" in stored["messages"][-1]["content"]:
             break
         page.wait_for_timeout(20)
+    page.unroute("**/stream*")
 
-    page.evaluate("syncOutput()")
+    page.evaluate("startStream({ quiet: true })")
 
     expect(page.locator(".event-final-answer")).to_have_count(2)
+    expect(page.locator("#chatOutput .event-user")).to_have_count(2)
     expect(page.locator("#actionsContent .action-pill")).to_have_count(2)
     expect(page.locator(".event-final-answer").last.locator(".action-footnote")).to_have_count(2)
-    expect(page.locator("#chatOutput:not([data-running])")).to_have_count(1)
+    expect(page.locator("#chatCancelBtn")).to_be_hidden()
+
+
+def test_a_reference_comes_under_an_answer_without_redrawing_it(conversation: str, page: Page):
+    store.start_turn(conversation, "Un tour à outils")
+    store.add_message(conversation, "assistant", CHART)
+    store.add_message(conversation, "tool_use", json.dumps({"tool": "Bash", "input": {"command": "echo"}}))
+    page.add_init_script(COUNT_CHARTS)
+    page.reload(wait_until="domcontentloaded")
+    answer = page.locator("#chatOutput > .event-assistant").last
+    expect(answer.locator(".mermaid svg")).to_have_count(1)
+    answer.evaluate("block => { block.dataset.probe = 'kept'; }")
+
+    # Why: sans runner pour le signaler, le flux le lit à son sondage de secours, toutes les cinq secondes.
+    store.add_message(conversation, "tool_result", json.dumps({"tool": "Bash", "output": "ok"}))
+
+    expect(answer.locator(":scope > .action-footnotes:last-child .action-footnote")).to_have_count(1, timeout=10_000)
+    expect(page.locator("#chatOutput > .event-assistant[data-probe=kept]")).to_have_count(1)
+    assert page.evaluate("window.chartsDrawn") == 1
+    store.end_turn(conversation, flush=False)
 
 
 def test_a_chart_is_drawn_once_when_its_turn_ends(conversation: str, ask: Callable[[str], None], page: Page):
@@ -249,7 +293,7 @@ def test_a_chart_is_drawn_once_when_its_turn_ends(conversation: str, ask: Callab
 
     ask(CHART)
 
-    expect(page.locator("#chatOutput > [data-live]")).to_have_count(0, timeout=15_000)
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
     expect(page.locator(".event-final-answer .permalink-figure > .mermaid svg")).to_have_count(1)
     assert page.evaluate("window.chartsDrawn") == 1
 
@@ -266,8 +310,8 @@ def test_a_link_opened_on_a_page_rendered_before_the_last_turn_lands_on_its_targ
     fresh = page.context.new_page()
     fresh.route(f"**{opened}", lambda route: route.fulfill(body=rendered_before, content_type="text/html"))
 
-    # Why: la file, vide, est dessinée à la réception des messages ; elle ne doit pas ramener la page à sa fin.
-    with fresh.expect_response(f"**/api/conversations/{figures}"):
+    # Why: la file, vide, est dessinée à l'arrivée du flux ; elle ne doit pas ramener la page à sa fin.
+    with fresh.expect_request(f"**/api/conversations/{figures}/stream*"):
         fresh.goto(opened, wait_until="domcontentloaded")
 
     expect(fresh.locator(".event-final-answer")).to_have_count(3)
@@ -283,14 +327,14 @@ def test_waiting_messages_bring_the_page_to_its_end_and_an_empty_queue_leaves_it
     conversation: str, ask: Callable[[str], None], page: Page
 ):
     ask(LONG)
-    expect(page.locator("#chatOutput > [data-live]")).to_have_count(0, timeout=15_000)
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
     first, end = page.locator(".event-user").first, page.locator(".event-final-answer").last.get_by_text("Fin.")
     first.scroll_into_view_if_needed()
 
     page.evaluate("renderQueue([])")
     expect(first).to_be_in_viewport()
     expect(end).not_to_be_in_viewport()
-    page.evaluate("renderQueue([{ id: 'attente', content: 'En attente' }])")
+    page.evaluate("renderQueue([{ id: 'attente', html: '<div class=\"user-text\"><p>En attente</p></div>' }])")
 
     expect(page.locator("#chatQueue .event-queued")).to_have_text("En attente")
     expect(page.locator("#chatQueue .event-queued")).to_be_in_viewport()
@@ -348,49 +392,6 @@ def test_the_first_image_of_a_conversation_opened_at_a_link_shows_its_target(lon
     assert frame["table"] is not None and frame["fromEnd"] > 0
 
 
-def test_a_tool_call_the_stream_brought_without_its_result_is_listed_once_with_it(
-    conversation: str, ask: Callable[[str], None], page: Page
-):
-    page.route("**/stream*", lambda route: None)
-    ask("[tools:2] Avec des outils")
-    for _ in range(250):
-        stored = page.request.get(f"/api/conversations/{conversation}").json()
-        if not stored["is_running"] and "Avec des outils" in stored["messages"][-1]["content"]:
-            break
-        page.wait_for_timeout(20)
-    first_call = next(m["id"] for m in stored["messages"] if m["type"] == "tool_use")
-    page.evaluate(
-        "id => appendEvent('tool_use', { id, content: { tool: 'Bash', input: { command: 'echo 0' } } })", first_call
-    )
-
-    page.evaluate("syncOutput()")
-
-    commands = page.locator("#actionsContent .action-pill .action-kv-value")
-    expect(commands).to_have_text(["echo 0", "echo 1"])
-    assert page.evaluate("pendingToolUses.length") == 0
-
-
-def test_actions_that_could_not_be_read_are_built_the_next_time_turns_are_brought(
-    conversation: str, ask: Callable[[str], None], page: Page
-):
-    ask("[tools:2] Avec des outils")
-    expect(page.locator("#actionsContent .action-pill")).to_have_count(2, timeout=15_000)
-    failed = []
-    page.route(
-        f"**/api/conversations/{conversation}",
-        lambda route: route.continue_() if failed else failed.append(route.abort()),
-    )
-    page.reload(wait_until="domcontentloaded")
-    expect(page.locator(".event-final-answer")).to_have_count(2)
-    page.wait_for_function("catchingUpFor === null && unreplayed.length === 1")
-    expect(page.locator("#actionsContent .action-pill")).to_have_count(0)
-
-    page.evaluate("syncOutput()")
-
-    expect(page.locator("#actionsContent .action-pill")).to_have_count(2)
-    expect(page.locator(".action-footnote")).to_have_count(2)
-
-
 def test_conversations_the_page_has_left_are_let_go(figures: str, visit: Callable[[str], None], page: Page):
     other = page.request.post("/api/conversations").json()["id"]
     visit(f"/c/{figures}")
@@ -424,25 +425,21 @@ SHIFTS = """() => {
 }"""
 
 
-def test_nothing_moves_when_the_references_of_a_conversation_are_built(
+def test_a_conversation_arrives_with_its_references_and_nothing_moves_once_it_is_installed(
     conversation: str, ask: Callable[[str], None], page: Page
 ):
     for turn, question in enumerate(["[tools:3] Un", "[tools:40] Deux", f"[tools:2] {LONG}"], 2):
         ask(question)
         expect(page.locator(".event-final-answer")).to_have_count(turn, timeout=15_000)
-    references = page.locator("#chatOutput .action-footnote:not(.action-footnote-kept)")
+    references = page.locator("#chatOutput .action-footnote")
     other = page.request.post("/api/conversations").json()["id"]
-    held = []
-    page.route(f"**/api/conversations/{conversation}", lambda route: route.continue_() if held else held.append(route))
-    page.reload(wait_until="domcontentloaded")
-    expect(page.locator("#chatOutput .action-footnote-kept")).to_have_count(45)
-    expect(references).to_have_count(0)
-    page.evaluate(SHIFTS)
+    assert page.request.get(f"/c/{conversation}").text().count('<span class="action-footnote"') == 45
+    page.add_init_script(f"({SHIFTS})()")
 
-    held[0].continue_()
+    page.reload(wait_until="domcontentloaded")
 
     expect(references).to_have_count(45)
-    expect(page.locator("#chatOutput .action-footnote-kept")).to_have_count(0)
+    page.wait_for_function("(id) => currentConversationId === id && !!conversationHold", arg=conversation)
     page.wait_for_timeout(300)
     assert page.evaluate("window.shifts") == []
     page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
@@ -453,3 +450,170 @@ def test_nothing_moves_when_the_references_of_a_conversation_are_built(
     expect(references).to_have_count(45)
     page.wait_for_timeout(300)
     assert page.evaluate("window.shifts") == []
+
+
+def test_opening_a_conversation_fetches_none_of_its_messages(conversation: str, ask: Callable[[str], None], page: Page):
+    ask("[tools:3] Avec des outils")
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    other = page.request.post("/api/conversations").json()["id"]
+    pills = page.locator("#actionsContent .action-pill")
+
+    def open_through_the_sidebar(target: str, shown: int) -> None:
+        page.locator(f"#sidebar-recents a[href='/c/{target}']").click()
+        # Why: htmx installe la page un instant après l'avoir échangée ; un Retour avant cela l'installerait deux fois.
+        page.wait_for_function("(id) => currentConversationId === id && !!conversationHold", arg=target)
+        expect(pills).to_have_count(shown)
+
+    asked = []
+    page.on("request", lambda request: asked.append(request.url.split("/api/conversations/")[-1]))
+
+    page.reload(wait_until="domcontentloaded")
+    expect(pills).to_have_count(3)
+    open_through_the_sidebar(other, 0)
+    open_through_the_sidebar(conversation, 3)
+    open_through_the_sidebar(other, 0)
+    page.go_back()
+
+    expect(pills).to_have_count(3)
+    expect(page.locator(".action-footnote")).to_have_count(3)
+    assert {url for url in asked if url.startswith(conversation) and "/stream?" not in url} == {
+        f"{conversation}/dashboards"
+    }
+
+
+SIGNAL = '[AUTOMETA:API:{"source": "matomo", "method": "VisitsSummary.get"}]\n'
+COMMAND, OUTPUT = "echo " + "é" * 600, "ligne\n" * 200
+
+
+@pytest.fixture
+def cut_values(conversation: str, page: Page) -> list[int]:
+    """Une action dont la commande et le résultat dépassent ce qu'une pastille montre, sa pastille ouverte."""
+    ids = [
+        store.add_message(conversation, kind, json.dumps(content)).id
+        for kind, content in [
+            ("tool_use", {"tool": "Bash", "category": "API: Matomo", "input": {"command": COMMAND}}),
+            (
+                "tool_result",
+                {"output": {"tool": "Bash", "output": SIGNAL + OUTPUT}, "api_calls": [{"source": "matomo"}]},
+            ),
+        ]
+    ]
+    page.reload(wait_until="domcontentloaded")
+    page.locator(".sidebar-tab-btn[data-tab='actions']").click()
+    page.locator(".actions-filter-btn[data-filter='detailed']").click()
+    page.locator("#actionsContent .action-pill-header").click()
+    return ids
+
+
+def test_a_value_cut_short_in_a_pill_is_fetched_whole_when_its_reader_asks(cut_values: list[int], page: Page):
+    asked = []
+    page.on("request", lambda r: asked.append(r.url.split("/messages/")[-1]) if "/messages/" in r.url else None)
+    values = page.locator("#actionsContent .action-kv")
+    modal = page.locator("#actionDetailModalBody")
+
+    expect(values.locator(".action-kv-value")).to_have_text([COMMAND[:500] + "...", OUTPUT.strip()[:500] + "..."])
+    assert asked == []
+    values.nth(0).locator(".action-expand-btn").click()
+
+    expect(modal).to_have_text(COMMAND)
+    page.locator("#actionDetailModal .btn-close").click()
+    expect(page.locator("#actionDetailModal")).to_be_hidden()
+    values.nth(1).locator(".action-expand-btn").click()
+
+    expect(modal.locator("pre")).to_have_text(OUTPUT.strip())
+    assert asked == [f"{cut_values[0]}/value?input=command", f"{cut_values[1]}/value"]
+
+
+def test_a_value_that_cannot_be_fetched_whole_shows_its_start_and_says_so(cut_values: list[int], page: Page):
+    page.route("**/messages/**", lambda route: route.abort())
+
+    page.locator("#actionsContent .action-expand-btn").first.click()
+
+    expect(page.locator("#actionDetailModalBody")).to_have_text(
+        COMMAND[:500] + "\n\n… (la suite n'a pas pu être chargée)"
+    )
+
+
+def test_a_value_asked_twice_while_on_its_way_opens_once(cut_values: list[int], page: Page):
+    held = []
+    page.route("**/messages/**", lambda route: held.append(route))
+    button = page.locator("#actionsContent .action-expand-btn").first
+
+    button.click()
+    button.click()
+    page.wait_for_timeout(200)
+    for route in held:
+        route.continue_()
+
+    expect(page.locator("#actionDetailModalBody")).to_have_text(COMMAND)
+    assert len(held) == 1
+    expect(page.locator(".modal-backdrop")).to_have_count(1)
+
+
+def test_a_value_arriving_once_the_page_shows_another_conversation_opens_nothing(
+    cut_values: list[int], conversation: str, page: Page
+):
+    other = page.request.post("/api/conversations").json()["id"]
+    page.reload(wait_until="domcontentloaded")
+    page.locator("#actionsContent .action-pill-header").click()
+    held = []
+    page.route("**/messages/**", lambda route: held.append(route))
+
+    page.locator("#actionsContent .action-expand-btn").first.click()
+    page.wait_for_timeout(200)
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    page.wait_for_function("(id) => currentConversationId === id", arg=other)
+    held[0].continue_()
+    page.wait_for_timeout(500)
+
+    expect(page.locator("#actionDetailModal.show, .modal-backdrop")).to_have_count(0)
+
+
+def test_a_start_of_result_ending_in_spaces_is_shown_as_the_server_cut_it(conversation: str, page: Page):
+    output = "x" * 498 + "  " + "y" * 10
+    store.add_message(conversation, "tool_use", json.dumps({"tool": "Bash", "category": "API: Matomo", "input": {}}))
+    store.add_message(conversation, "tool_result", json.dumps({"output": output, "api_calls": [{"source": "matomo"}]}))
+    page.reload(wait_until="domcontentloaded")
+
+    shown = page.locator("#actionsContent .action-kv-value")
+
+    expect(shown).to_have_count(1)
+    assert shown.evaluate("value => value.textContent") == "x" * 498 + "  ..."
+
+
+def test_the_charts_of_several_answers_are_drawn_one_after_the_other(visit: Callable[[str], None], page: Page):
+    shared = store.create_conversation(user_id="quelqu.un@example.com").id
+    for kind, content in [("user", "Un"), ("assistant", CHART), ("user", "Deux"), ("assistant", CHART)]:
+        store.add_message(shared, kind, content)
+    page.add_init_script(WATCH_CHART_RUNS)
+
+    visit(f"/c/{shared}")
+
+    expect(page.locator("#chatOutput .mermaid svg")).to_have_count(2)
+    drawn = page.evaluate(
+        "[window.chartRuns.most, new Set([...document.querySelectorAll('.mermaid svg')].map(s => s.id)).size]"
+    )
+    store.delete_conversation(shared)
+    assert drawn == [1, 2]
+
+
+def test_a_chart_s_source_shows_only_when_it_cannot_be_drawn(
+    visit: Callable[[str], None], page: Page, browser, browser_context_args
+):
+    broken = "Raté\n\n```mermaid\npie title\n    ceci n'est pas un graphique\n```"
+    shared = store.create_conversation(user_id="quelqu.un@example.com").id
+    for kind, content in [("user", "Un"), ("assistant", CHART), ("user", "Deux"), ("assistant", broken)]:
+        store.add_message(shared, kind, content)
+
+    visit(f"/c/{shared}")
+
+    expect(page.locator("#chatOutput .mermaid svg")).to_have_count(1)
+    expect(page.locator("#chatOutput pre.mermaid-failed")).to_have_text(re.compile("ceci n'est pas un graphique"))
+    expect(page.locator("#chatOutput pre.mermaid-failed")).to_be_visible()
+    unscripted = browser.new_context(**{**browser_context_args, "java_script_enabled": False}).new_page()
+    unscripted.goto(page.url)
+    hidden = unscripted.locator("#chatOutput pre:has(> code.language-mermaid)")
+    seen = hidden.evaluate_all("blocks => blocks.map((block) => getComputedStyle(block).visibility)")
+    unscripted.context.close()
+    store.delete_conversation(shared)
+    assert seen == ["hidden", "hidden"]

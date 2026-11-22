@@ -200,11 +200,30 @@ def section_end(tokens, heading: int) -> int | None:
     return None
 
 
+def section_rest(following: list[tuple[str, list[tuple[int, str]]]], tag: str) -> list[str]:
+    """La suite d'une section dans les réponses suivantes de son tour, jusqu'au premier titre de son rang ou au-dessus."""
+    rest = []
+    for kind, parts in following:
+        if kind == "user":
+            break
+        if kind != "assistant":
+            continue
+        lines = unfronted("".join(content for _, content in parts)).replace("\r\n", "\n").split("\n")
+        tokens = ANSWER.parse("\n".join(lines))
+        ends = [t.map[0] for t in tokens if t.type == "heading_open" and t.level == 0 and t.tag <= tag]
+        rest += lines[: ends[0]] if ends else lines
+        if ends:
+            break
+    return rest
+
+
 def excerpt(conv: Conversation, message_id: int | None, anchor_name: str | None) -> list[dict]:
     """Les blocs Slack de ce que désigne un permalien, comme la page le résout ; aucun pour la conversation seule."""
-    parts = message_id and conversation_html.finished_answer(conv.id, conv.needs_response, message_id)
-    if not parts:
+    grouped = conversation_html.grouping(conversation_html.finished(conv.id, conv.needs_response)[0])[0]
+    answers = [n for n, (kind, parts) in enumerate(grouped) if kind == "assistant" and message_id in dict(parts)]
+    if not answers:
         return []
+    parts = grouped[answers[0]][1]
     joined = "".join(content for _, content in parts)
     text = unfronted(joined)
     named = permalinks.ANCHOR_NAME.fullmatch(anchor_name or "")
@@ -217,7 +236,7 @@ def excerpt(conv: Conversation, message_id: int | None, anchor_name: str | None)
     kind, rank, digest = named.groups()
     # Why: la page ne pose un lien que là où le découpage, l'analyseur et le nettoyage du HTML laissent un élément ;
     # son rendu fait foi, et tout autre nom mène à la réponse entière, comme sur la page.
-    html = conversation_html.answer_block(conv.id, parts)["html"]
+    html = conversation_html.answer_block(conv.id, parts, False, False)["html"]
     same = [
         (anchor, first)
         for holder, first, anchor in conversation_html.answer_anchors(parts)
@@ -234,9 +253,14 @@ def excerpt(conv: Conversation, message_id: int | None, anchor_name: str | None)
         return table_blocks(anchor)
     if kind == "chart":
         return [chart_block(anchor)]
-    # Why: la page entoure une section jusqu'au titre suivant de la réponse jointe, au-delà du message de son titre.
+    # Why: la page entoure une section jusqu'au titre suivant de son rang, au-delà du message de son titre et, si
+    # aucun ne la ferme dans sa réponse, à travers les réponses suivantes de son tour.
     tokens = ANSWER.parse(text)
     line = first + anchor.start - joined[: len(joined) - len(text)].count("\n")
     heading = next(i for i, token in enumerate(tokens) if token.type == "heading_open" and token.map[0] == line)
     lines = text.replace("\r\n", "\n").split("\n")
-    return text_blocks(anchor.title, "\n".join(lines[tokens[heading].map[1] : section_end(tokens, heading)]))
+    end = section_end(tokens, heading)
+    section = lines[tokens[heading].map[1] : end]
+    if end is None:
+        section += section_rest(grouped[answers[0] + 1 :], tokens[heading].tag)
+    return text_blocks(anchor.title, "\n".join(section))

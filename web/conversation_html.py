@@ -1,15 +1,16 @@
-"""A conversation's finished turns as the HTML of its page: questions, answers, report cards and limit notices."""
+"""A conversation as the HTML of its page: questions, answers, report cards, limit notices, action pills; on open and as a turn runs."""
 
 import json
 import logging
 import re
-from collections import Counter
+from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
 from markupsafe import Markup, escape
 
 from lib import permalinks
 from lib.answer_html import Link, render_answer, render_user
+from web import conversation_actions
 from web.database import store
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ def answer_anchors(parts: list[tuple[int, str]]) -> list[tuple[int, int, permali
     return found
 
 
-def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> tuple[Link, ...]:
+def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int, alone: bool) -> tuple[Link, ...]:
     """The link of each section, table and chart of an answer, at its line in the text once its messages are joined."""
     links = []
     labels = {"section": "cette section", "table": "ce tableau", "chart": "ce graphique"}
@@ -132,7 +133,21 @@ def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> t
                 permalink_button(url, labels[anchor.kind]),
             )
         )
-    return tuple(links)
+    return tuple(whole_turn_unlinked(links, parts, skipped, alone))
+
+
+def whole_turn_unlinked(links: list[Link], parts: list[tuple[int, str]], skipped: int, alone: bool) -> list[Link]:
+    """The links, without the button of a section that is all its turn says: the answer's own link names the same."""
+    sections = [link for link in links if link.kind == "section"]
+    lines = "".join(content for _, content in parts).replace("\r\n", "\n").split("\n")[skipped:]
+    first = next((n for n, line in enumerate(lines) if line.strip()), None)
+    # Why: a section runs through the answers after its own; where the turn says more than this answer, the answer's
+    # link names less than the section, which then keeps its own.
+    if not alone or not sections or sections[0].start != first:
+        return links
+    if any(s.level <= sections[0].level for s in sections[1:]):
+        return links
+    return [replace(link, button=Markup("")) if link is sections[0] else link for link in links]
 
 
 def report_file(text: str) -> str | None:
@@ -169,21 +184,17 @@ def report_header(text: str, front_matter: str) -> Markup:
     return Markup('<div class="report-header">{}</div>').format(header)
 
 
-def answer_block(conv_id: str, parts: list[tuple[int, str]]) -> dict:
-    """An answer: consecutive agent messages read as one text, as the page joins them."""
+def answer_block(conv_id: str, parts: list[tuple[int, str]], partial: bool, alone: bool) -> dict:
+    """An answer: consecutive agent messages read as one text. One still being written has no link yet."""
     text = "".join(content for _, content in parts)
     front_matter = re.match(r"---\n(.*?)\n---\n", text, re.S)
     start = front_matter.end() if front_matter else 0
-    body = Markup(render_answer(text[start:], element_links(conv_id, parts, text[:start].count("\n"))))
+    links = () if partial else element_links(conv_id, parts, text[:start].count("\n"), alone)
+    body = Markup(render_answer(text[start:], links))
     if front_matter:
         body = report_header(text, front_matter[1]) + Markup('<div class="report-body">{}</div>').format(body)
-    link = permalink_button(f"/c/{conv_id}/{parts[0][0]}", "cette réponse")
-    return {
-        "kind": "assistant",
-        "ids": [message_id for message_id, _ in parts],
-        "report": bool(front_matter),
-        "html": link + body,
-    }
+    link = "" if partial else permalink_button(f"/c/{conv_id}/{parts[0][0]}", "cette réponse")
+    return {"report": bool(front_matter), "html": link + body}
 
 
 def report_card(content: str) -> Markup:
@@ -201,100 +212,204 @@ def report_card(content: str) -> Markup:
     ).format(next(ids, 0), data.get("title") or "Rapport")
 
 
-def block(conv_id: str, kind: str, parts: list[tuple[int, str]]) -> dict:
-    if kind == "assistant":
-        return answer_block(conv_id, parts)
-    message_id, content = parts[0]
-    if kind == "user":
-        html = user_html(content)
-    elif kind == "report":
-        html = report_card(content)
-    else:
-        html = Markup('<i class="ri-time-line" aria-hidden="true"></i><div>{}</div>').format(content)
-    return {"kind": kind, "ids": [message_id], "html": html}
+def block(conv_id: str, kind: str, parts: list[tuple[int, str]], partial: bool, alone: bool) -> dict:
+    """A block's HTML, and whether it is a report; its text alone when the renderer cannot read it."""
+    try:
+        if kind == "assistant":
+            return answer_block(conv_id, parts, partial, alone)
+        content = parts[0][1]
+        if kind == "user":
+            return {"html": user_html(content)}
+        if kind == "report":
+            return {"html": report_card(content)}
+        return {"html": Markup('<i class="ri-time-line" aria-hidden="true"></i><div>{}</div>').format(content)}
+    except Exception:
+        # Why: a message the renderer cannot read must not make its whole conversation impossible to open.
+        # Why: the conversation's id comes from the address asked for, which a log must not repeat as it is; the
+        # message's, read from the database, names the conversation as well.
+        logger.exception("Block %s could not be rendered", parts[0][0])
+        return {"html": Markup("<pre>{}</pre>").format("".join(content for _, content in parts))}
 
 
-def thread(messages: list[tuple[int, str, str]]) -> list[tuple[str, list[tuple[int, str]]]]:
-    """The thread's blocks, each its kind and messages: consecutive agent messages make one answer."""
+def reference(action: dict) -> Markup:
+    return Markup('<span class="action-footnote" data-action-index="{}" title="{}"><i class="{}"></i></span>').format(
+        action["index"], action["label"], action["icon"]
+    )
+
+
+def grouping(messages: list[tuple[int, str, str]]) -> tuple[list[tuple[str, list[tuple[int, str]]]], bool]:
+    """The thread's blocks, each its kind and messages, consecutive agent messages making one answer; whether it ends on one."""
     grouped, joining = [], False
     for message_id, kind, content in messages:
         if kind == "assistant" and joining:
             grouped[-1][1].append((message_id, content))
         elif kind in ("user", "assistant", "report", "limit"):
             grouped.append((kind, [(message_id, content)]))
-        # Why: the page reads tool calls for its sidebar only; in the thread they just end the answer being joined.
+        # Why: tool calls show in the sidebar; in the thread they just end the answer being joined.
         if kind in ("user", "assistant", "report", "limit", "tool_use", "tool_result"):
             joining = kind == "assistant"
-    return grouped
+    return grouped, joining
 
 
-def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -> list[dict]:
-    """The blocks of the thread that hold a message after `after`; each turn's last answer is final unless a report."""
-    grouped = thread(messages)
+def thread(
+    conv_id: str,
+    messages: list[tuple[int, str, str]],
+    after: int = 0,
+    question: int | None = None,
+    actions_before: int = 0,
+    rendered: dict | None = None,
+) -> dict:
+    """The blocks holding a message after `after` and the pills of the tool calls answered after it, from a turn's start."""
+    grouped, joining = grouping(messages)
     place = {message_id: index for index, (_, parts) in enumerate(grouped) for message_id, _ in parts}
-    # Why: the page puts a reference under an answer for each tool call of its turn, once it has read them
-    # (actions.js, replayActions, whose count this follows). Their place is kept, so nothing moves when they come.
-    references, answer, waiting, unplaced = Counter(), None, 0, 0
-    for message_id, kind, _ in messages:
+    # Why: a tool call is referenced under the answer before it; those made before a turn's first answer go under
+    # that one, unless later calls already did.
+    actions, references, answer, waiting, unplaced = [], {}, None, [], []
+    for message_id, kind, content in messages:
         if kind in ("user", "assistant"):
-            # Why: calls made before a turn's first answer go under it, unless later ones already did.
-            if answer is not None and not references[answer]:
+            if answer is not None and not references.get(answer):
                 references[answer] = unplaced
             if answer is not None or kind == "user":
-                unplaced = 0
+                unplaced = []
+            # Why: a call left unanswered by a turn cut short is not answered by a result of the next.
+            if kind == "user":
+                waiting = []
             answer = place[message_id] if kind == "assistant" else None
         elif kind == "tool_use":
-            waiting += 1
+            waiting.append((message_id, content))
         elif kind == "tool_result" and waiting:
-            waiting, unplaced = waiting - 1, unplaced + 1
-            references[answer] += answer is not None
-    if answer is not None and not references[answer]:
+            action = conversation_actions.pill(
+                conv_id, actions_before + len(actions) + 1, waiting.pop(0), (message_id, content)
+            )
+            actions.append(action)
+            unplaced = [*unplaced, action]
+            if answer is not None:
+                references[answer] = [*references.get(answer, []), action]
+    if answer is not None and not references.get(answer):
         references[answer] = unplaced
-    found = []
-    # Why: a block is read whole, so one that `after` cuts is given again from its first message.
+    # Why: a section that is all its turn says has no link of its own; that is read on the answers of the whole turn.
+    alone, speaking = set(), []
+    for index, (kind, parts) in enumerate([*grouped, ("user", [])]):
+        if kind == "user":
+            alone.update(speaking * (len(speaking) == 1))
+            speaking = []
+        elif kind == "assistant" and "".join(content for _, content in parts).strip():
+            speaking.append(index)
+    # Why: `rendered` is left holding what this reading used and nothing else, for the next to find it there.
+    known, rendered = dict(rendered or {}), {} if rendered is None else rendered
+    rendered.clear()
+    found, last = [], None
     for index, (kind, parts) in enumerate(grouped):
-        if parts[-1][0] <= after:
-            continue
-        try:
-            found.append(block(conv_id, kind, parts))
-            if references[index]:
-                found[-1]["html"] += Markup('<div class="action-footnotes">{}</div>').format(
-                    Markup('<span class="action-footnote action-footnote-kept"><i class="ri-tools-line"></i></span>')
-                    * references[index]
-                )
-        except Exception:
-            # Why: a message the renderer cannot read must not make its whole conversation impossible to open.
-            logger.exception("Block %s of conversation %s could not be rendered", parts[0][0], conv_id)
-            text = Markup("<pre>{}</pre>").format("".join(content for _, content in parts))
-            found.append({"kind": kind, "ids": [message_id for message_id, _ in parts], "html": text})
-    last = None
-    for shown in [*found, {"kind": "user"}]:
-        if shown["kind"] == "assistant" and not shown.get("report"):
+        # Why: the answer a running turn ends on may still grow, and is not yet the turn's final one.
+        partial = question is not None and joining and index == len(grouped) - 1
+        key = (kind, tuple(parts), partial, index in alone)
+        shown = {"kind": kind, "ids": [message_id for message_id, _ in parts], "partial": partial}
+        # Why: the page asks again the last question of its thread; it reads it here, as it was sent.
+        if kind == "user":
+            shown["question"] = parts[0][1]
+        # Why: a block is read whole, so one that `after` cuts is given again from its first message.
+        if parts[-1][0] > after:
+            rendered[key] = known.get(key) or block(conv_id, kind, parts, partial, index in alone)
+            shown |= rendered[key]
+            shown["references"] = [reference(action) for action in references.get(index, [])]
+            found.append(shown)
+        elif kind == "assistant":
+            shown["report"] = bool(re.match(r"---\n.*?\n---\n", "".join(content for _, content in parts), re.S))
+        if kind == "assistant" and not shown.get("report"):
             last = shown
-        elif shown["kind"] == "user" and last:
+        elif kind == "user" and last:
             last["final"], last = True, None
-    return found
+    if last and question is None:
+        last["final"] = True
+    pills = [action for action in actions if action["message"] > after]
+    return {"blocks": found, "pills": pills}
 
 
 def finished(conv_id: str, running: bool) -> tuple[list[tuple[int, str, str]], int]:
     """The messages of a conversation's finished turns, and the id of the last of them."""
-    messages = store.get_displayed_messages(conv_id)
-    # Why: the text of the running turn's messages still changes; the stream draws them, from the question on.
+    messages = store.get_thread_messages(conv_id)
+    # Why: the text of the running turn's messages still changes; the stream brings them, from the question on.
     question = max((message_id for message_id, kind, _ in messages if kind == "user"), default=1) if running else None
     last_id = question - 1 if running else max((message_id for message_id, _, _ in messages), default=0)
     return [message for message in messages if message[0] <= last_id], last_id
 
 
-def output(conv_id: str, running: bool, after: int = 0) -> dict:
-    """The finished turns of a conversation from the block after message `after`, and where its stream resumes."""
-    shown, last_id = finished(conv_id, running)
-    return {"blocks": blocks(conv_id, shown, after), "last_id": last_id, "running": running}
+def output(conv_id: str, running: bool) -> dict:
+    """The finished turns of a conversation and their pills, and the message its stream resumes after."""
+    messages, last_id = finished(conv_id, running)
+    return {**thread(conv_id, messages), "last_id": last_id}
 
 
-def finished_answer(conv_id: str, running: bool, message_id: int) -> list[tuple[int, str]] | None:
-    """The messages of the finished answer that holds `message_id`, joined as on the page; None when none does."""
-    shown, _ = finished(conv_id, running)
-    return next(
-        (parts for kind, parts in thread(shown) if kind == "assistant" and message_id in dict(parts)),
-        None,
-    )
+def progress(messages: list[tuple[int, str, str]]) -> str:
+    """What the agent is doing, from the last message that says it: a tool call, an answer, an API call retried."""
+    for _, kind, content in reversed(messages):
+        if kind == "assistant":
+            return "Appel modèle · génération de la réponse"
+        read = conversation_actions.stored(content, {}) if kind in ("tool_use", "system") else {}
+        if kind == "tool_use" and read.get("tool"):
+            return f"Outil · {read['tool']}"
+        if read.get("subtype") == "api_retry":
+            status = f" · dernier statut {read['error_status']}" if read.get("error_status") not in (None, "") else ""
+            tries = f"{read.get('attempt', '?')}/{read.get('max_retries', '?')}"
+            return f"Appel API · tentative {tries}{status} · {read.get('error') or 'erreur'}"
+        if kind == "user":
+            break
+    return ""
+
+
+class Live:
+    """A conversation as a stream follows it: at each look, the blocks and pills that changed since the last one."""
+
+    def __init__(self, conv_id: str, after: int):
+        self.conv_id, self.after = conv_id, after
+        kinds = store.get_message_kinds(conv_id)
+        reached = min((message_id for message_id, _ in kinds if message_id > after), default=after)
+        # Why: read from the start of the turn the page lacks a part of; what a block shows depends on its whole turn.
+        self.start = max(
+            (message_id for message_id, kind in kinds if kind == "user" and message_id <= reached), default=0
+        )
+        self.actions_before, waiting = 0, 0
+        for message_id, kind in kinds:
+            if message_id >= self.start:
+                break
+            if kind == "user":
+                waiting = 0
+            elif kind == "tool_use":
+                waiting += 1
+            elif kind == "tool_result" and waiting:
+                waiting, self.actions_before = waiting - 1, self.actions_before + 1
+        self.rendered, self.sent, self.cited, self.pills_sent, self.status = {}, None, {}, 0, ""
+
+    def look(self, running: bool) -> dict | None:
+        """What to put in the page now: blocks and references that changed, new pills, progress; None if all is as it was."""
+        messages = store.get_thread_messages(self.conv_id, self.start)
+        question = (
+            max((message_id for message_id, kind, _ in messages if kind == "user"), default=0) if running else None
+        )
+        shown = thread(self.conv_id, messages, self.after, question, self.actions_before, self.rendered)
+        marks = [(block["ids"], block["html"], block.get("final"), block["partial"]) for block in shown["blocks"]]
+        first_look, known = self.sent is None, self.sent or []
+        changed = [block for n, block in enumerate(shown["blocks"]) if n >= len(known) or known[n] != marks[n]]
+        # Why: a reference comes under an answer long after it; sent apart, it leaves in place what the page drew there.
+        cited = {block["ids"][0]: Markup().join(block["references"]) for block in shown["blocks"]}
+        references = {
+            first: html
+            for first, html in cited.items()
+            if html != self.cited.get(first, "") or (html and any(block["ids"][0] == first for block in changed))
+        }
+        pills = [pill for pill in shown["pills"] if pill["index"] > self.pills_sent]
+        self.sent, self.cited = marks, cited
+        self.pills_sent = max([self.pills_sent, *(pill["index"] for pill in pills)])
+        status, said = progress(messages) if running else "", self.status
+        self.status = status
+        if not (first_look or pills or changed or references or status != said):
+            return None
+        settled = question - 1 if question else max((message_id for message_id, _, _ in messages), default=self.after)
+        return {
+            "blocks": [{**block, "references": []} for block in changed],
+            "references": references,
+            "pills": pills,
+            "settled": max(settled, self.after) if not running else settled,
+            "running": running,
+            "status": status,
+        }

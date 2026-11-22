@@ -1,163 +1,60 @@
 /**
- * Actions sidebar, TOC, pills, footnotes, and progress indicator.
- * Depends on: utils.js (escapeHtml, isAtBottom, scrollToBottom)
+ * Actions sidebar (pills the server renders, their filter and what opens from them), table of contents, favourites.
+ * Depends on: utils.js (escapeHtml), stream.js (conversationHold, currentConversationId)
  */
 
-// Actions sidebar state
-let actionIndex = 0;
-const actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, icon}
-let pendingToolUses = []; // Queue for tool_use waiting for their results (supports parallel calls)
-let pendingToolUseIds = []; // Their message ids, in the same order
-let lastAssistantBlock = null; // Track last assistant block for footnotes
-let currentTurnActions = []; // Actions in current turn (for footnotes)
-let streamingBlock = null; // Current block being streamed into
-const assistantParts = new Map(); // message id -> content of each assistant row on screen
-let lastSeenId = 0; // Highest message id rendered or sent
 let actionsFilterMode = localStorage.getItem('actionsFilterMode') || 'data';
 
 // TOC (table of contents) state
 let tocEntries = []; // Array of {headingElement, text, element}
 let currentSidebarTab = localStorage.getItem('sidebarTab') || 'toc';
 
-// Progress indicator state
-let progressIndicator = null;
-let progressDots = '';
-
-// Store full values for expand buttons (indexed)
-let expandDataStore = [];
-
-/**
- * Icon mapping for tool categories
- */
-const CATEGORY_ICONS = {
-  'API:': 'ri-cloud-line',
-  'Read:': 'ri-file-text-line',
-  'Write:': 'ri-file-add-line',
-  'Edit:': 'ri-edit-line',
-  'Search:': 'ri-search-line',
-  'Execute:': 'ri-play-line',
-  'Query:': 'ri-database-2-line',
-  'Shell:': 'ri-terminal-line',
-  'Skill:': 'ri-magic-line',
-  'Thinking:': 'ri-lightbulb-line',
-  'System:': 'ri-settings-3-line',
-  'Web:': 'ri-global-line',
-  'Interaction:': 'ri-question-line',
-};
-
-/**
- * French translations for tool categories
- */
-const CATEGORY_TRANSLATIONS = {
-  // API
-  'API: Matomo': 'API Matomo',
-  'API: Metabase': 'API Metabase',
-  'API: Matomo + Metabase': 'API Matomo + Metabase',
-  'API: Matomo (curl)': 'API Matomo (curl)',
-  'API: GitHub': 'API GitHub',
-  'API: GitHub (clone)': 'API GitHub (clone)',
-  'API: curl': 'API curl',
-  // Read
-  'Read: knowledge': 'Lecture de la base de connaissances',
-  'Read: skill definition': "Lecture d'une définition de skill",
-  'Read: skill code': "Lecture du code d'un skill",
-  'Read: code': 'Lecture du code',
-  'Read: docs': 'Lecture de la documentation',
-  'Read: temp': "Lecture d'un fichier temporaire",
-  'Read: other': "Lecture d'un fichier",
-  // Write
-  'Write: temp': "Écriture d'un fichier temporaire",
-  'Write: interactive': "Écriture d'une appli",
-  'Write: script': "Rédaction d'un programme",
-  'Write: knowledge': 'Écriture dans la base de connaissances',
-  'Write: other': "Écriture d'un fichier",
-  // Edit
-  'Edit: knowledge': 'Modification de la base de connaissances',
-  'Edit: skill': "Modification d'un skill",
-  'Edit: code': 'Modification du code',
-  'Edit: other': "Modification d'un fichier",
-  // Execute
-  'Execute: script': "Exécution d'un programme",
-  // Query
-  'Query: SQLite': 'Requête SQLite',
-  // Search
-  'Search: codebase': 'Recherche dans le code',
-  // System
-  'Thinking: todo': 'Réflexion',
-  'System: task': 'Liste de tâches',
-  'Web: fetch': 'Requête web',
-  'Interaction: ask user': 'Interaction',
-};
-
-// =============================================================================
-// Category helpers
-// =============================================================================
-
-/**
- * Translate a category to French
- */
-function translateCategory(category) {
-  if (!category) return 'Action';
-  // Exact match
-  if (CATEGORY_TRANSLATIONS[category]) {
-    return CATEGORY_TRANSLATIONS[category];
-  }
-  // Shell, Skill, Other: keep as-is
-  if (category.startsWith('Shell: ') || category.startsWith('Skill: ') || category.startsWith('Other: ')) {
-    return category;
-  }
-  return category;
-}
-
-/**
- * Get icon class for a category
- */
-function getIconForCategory(category) {
-  if (!category) return 'ri-tools-line';
-  for (const [prefix, icon] of Object.entries(CATEGORY_ICONS)) {
-    if (category.startsWith(prefix)) return icon;
-  }
-  return 'ri-tools-line';
-}
-
 // =============================================================================
 // Filter
 // =============================================================================
 
 /**
- * Check if an action is a "data" type (knowledge read or has API calls)
+ * Show the pills the filter keeps, each named for it: a tool that called APIs is named by their count among the data
  */
-function isDataAction(toolUse, toolResult) {
-  // Knowledge reads
-  if (toolUse.category === 'Read: knowledge') return true;
-  // Any action with API calls (Matomo, Metabase queries)
-  if (toolResult?.api_calls?.length > 0) return true;
-  return false;
+function applyActionsFilter() {
+  const data = actionsFilterMode === 'data';
+  for (const pill of document.querySelectorAll('.action-pill')) {
+    pill.classList.toggle('filtered-out', data && !('data' in pill.dataset));
+    const summary = pill.querySelector('.action-pill-label > [data-summary]');
+    if (!summary) continue;
+    const name = pill.querySelector('.action-pill-label > :not([data-summary])');
+    const [main, sub] = data ? [summary, name] : [name, summary];
+    main.className = 'action-pill-label-main';
+    sub.className = 'action-pill-label-sub';
+    main.after(sub);
+  }
 }
 
 /**
- * Apply the current filter to all pills (visibility + label updates)
+ * Put pills the server rendered in the sidebar, each in place of the one of its tool call if there is one, and copy
+ * the sidebar to the phone's panel
  */
-function applyActionsFilter() {
-  const pills = document.querySelectorAll('.action-pill');
-  pills.forEach((pill) => {
-    const idx = parseInt(pill.dataset.actionIndex, 10);
-    const action = actionsMap.get(idx);
-    if (!action) return;
-
-    const isData = isDataAction(action.toolUse, action.toolResult);
-    if (actionsFilterMode === 'data' && !isData) {
-      pill.classList.add('filtered-out');
-    } else {
-      pill.classList.remove('filtered-out');
-    }
-
-    // Re-render label (main/sub swap depends on filter mode)
-    const labelEl = pill.querySelector('.action-pill-label');
-    if (labelEl) {
-      labelEl.innerHTML = pillLabelHtml(action.pillData);
-    }
-  });
+function showPills(html) {
+  const actionsContent = document.getElementById('actionsContent');
+  if (!actionsContent) return;
+  // Safe: the server escapes what a pill shows of a tool call (web/templates/_action_pill.html)
+  const rendered = document.createElement('template');
+  rendered.innerHTML = html;
+  for (const pill of [...rendered.content.children]) {
+    const shown = actionsContent.querySelector(`[data-action-index="${pill.dataset.actionIndex}"]`);
+    // Why: a stream that resumes brings its turn's pills again; one that comes as it was stays, and one that changed
+    // stays open if its reader had opened it.
+    pill.served = pill.outerHTML;
+    if (shown?.served === pill.served) continue;
+    pill.classList.toggle('expanded', !!shown?.classList.contains('expanded'));
+    if (shown) shown.replaceWith(pill);
+    else actionsContent.appendChild(pill);
+  }
+  document
+    .getElementById('actionsOffcanvasContent')
+    ?.replaceChildren(...[...actionsContent.children].map((pill) => pill.cloneNode(true)));
+  applyActionsFilter();
+  scrollActionsToBottom();
 }
 
 /**
@@ -357,22 +254,6 @@ function ensureUniqueId(baseId) {
 }
 
 /**
- * Scroll to URL hash section on page load
- */
-function scrollToHashSection() {
-  const hash = window.location.hash;
-  if (!hash) return;
-
-  const element = document.getElementById(hash.substring(1));
-  if (element) {
-    // Delay to ensure DOM is ready
-    setTimeout(() => {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-  }
-}
-
-/**
  * Rebuild the table of contents from every assistant block, after one was re-rendered
  */
 function rebuildToc() {
@@ -394,305 +275,8 @@ function resetTocState() {
 }
 
 // =============================================================================
-// Pill labels
+// Pills: what opens from them
 // =============================================================================
-
-/**
- * Extract label data for a pill (pure data, no presentation logic)
- * Returns { label: string, apiSummary: string|null }
- */
-function extractPillData(toolUse, toolResult) {
-  const category = toolUse.category || '';
-  let label = translateCategory(category) || toolUse.tool || 'Action';
-  let apiSummary = null;
-
-  // For Read operations, show the filename
-  if (category.startsWith('Read:') && toolUse.input?.file_path) {
-    label = toolUse.input.file_path.split('/').pop();
-  }
-
-  // For direct API calls, show the method
-  if (category.startsWith('API:') && toolResult?.api_calls?.length > 0) {
-    const call = toolResult.api_calls[0];
-    if (call.method) label = call.method;
-    else if (call.sql) label = 'Requête SQL';
-  }
-
-  // Summarize API calls from non-API tools (scripts, etc.)
-  if (toolResult?.api_calls?.length > 0 && !category.startsWith('API:')) {
-    const counts = {};
-    for (const call of toolResult.api_calls) {
-      const source = call.source || 'API';
-      counts[source] = (counts[source] || 0) + 1;
-    }
-    apiSummary = Object.entries(counts)
-      .map(([source, count]) => {
-        const name = source.charAt(0).toUpperCase() + source.slice(1);
-        return `${count} requête${count > 1 ? 's' : ''} ${name}`;
-      })
-      .join(', ');
-  }
-
-  return { label, apiSummary };
-}
-
-/**
- * Render pill label HTML from pill data.
- * In data mode: API summary is prominent. In detailed mode: tool label is prominent.
- */
-function pillLabelHtml({ label, apiSummary }) {
-  const main = actionsFilterMode === 'data' && apiSummary ? apiSummary : label;
-  const sub = actionsFilterMode === 'data' && apiSummary ? label : apiSummary;
-  let html = `<span class="action-pill-label-main">${escapeHtml(main)}</span>`;
-  if (sub) html += `<span class="action-pill-label-sub">${escapeHtml(sub)}</span>`;
-  return html;
-}
-
-// =============================================================================
-// Pills: creation, content, listeners
-// =============================================================================
-
-/**
- * Create an action pill and append to sidebar
- */
-function createAndAppendAction(toolUse, toolResult, messageId) {
-  actionIndex++;
-  const idx = actionIndex;
-  const category = toolUse.category || `Other: ${toolUse.tool}`;
-  const icon = getIconForCategory(category);
-  const pillData = extractPillData(toolUse, toolResult);
-
-  // Store in map
-  actionsMap.set(idx, { toolUse, toolResult, category, icon, pillData });
-  currentTurnActions.push(idx);
-
-  // Create pill element
-  const pill = createActionPill(idx, icon, pillData, toolUse, toolResult);
-  if (messageId) pill.dataset.msgId = messageId;
-
-  // Apply filter
-  const isData = isDataAction(toolUse, toolResult);
-  if (actionsFilterMode === 'data' && !isData) {
-    pill.classList.add('filtered-out');
-  }
-
-  // Append to sidebar and keep it anchored at the bottom
-  const actionsContent = document.getElementById('actionsContent');
-  if (actionsContent) {
-    insertPill(actionsContent, pill);
-    scrollActionsToBottom();
-  }
-
-  // Also append to mobile offcanvas
-  const offcanvasContent = document.getElementById('actionsOffcanvasContent');
-  if (offcanvasContent) {
-    const clonedPill = pill.cloneNode(true);
-    insertPill(offcanvasContent, clonedPill);
-    // Re-attach event listeners to cloned element
-    attachPillListeners(clonedPill, idx);
-  }
-
-  // Add footnote to current assistant block immediately (progressive)
-  if (lastAssistantBlock) {
-    const footnote = createFootnoteIcon(idx);
-    if (footnote) addFootnote(lastAssistantBlock, footnote);
-  }
-}
-
-/**
- * Put a pill in the sidebar at the place of its message: those built from the conversation's messages may come after
- * later ones the stream brought
- */
-function insertPill(container, pill) {
-  const id = Number(pill.dataset.msgId);
-  let before = null;
-  let previous = container.lastElementChild;
-  while (id && previous && Number(previous.dataset.msgId) > id) {
-    before = previous;
-    previous = previous.previousElementSibling;
-  }
-  container.insertBefore(pill, before);
-}
-
-/**
- * Create a pill element for an action
- */
-function createActionPill(idx, icon, pillData, toolUse, toolResult) {
-  const pill = document.createElement('div');
-  pill.className = 'action-pill';
-  pill.dataset.actionIndex = idx;
-
-  const header = document.createElement('div');
-  header.className = 'action-pill-header';
-
-  header.innerHTML = `
-    <i class="${icon}"></i>
-    <div class="action-pill-label">${pillLabelHtml(pillData)}</div>
-  `;
-
-  const content = document.createElement('div');
-  content.className = 'action-pill-content';
-  content.innerHTML = formatPillContent(toolUse, toolResult);
-
-  pill.appendChild(header);
-  pill.appendChild(content);
-
-  attachPillListeners(pill, idx);
-
-  return pill;
-}
-
-/**
- * Attach event listeners to a pill
- */
-function attachPillListeners(pill, idx) {
-  const header = pill.querySelector('.action-pill-header');
-
-  // Click to expand/collapse
-  header.addEventListener('click', () => {
-    pill.classList.toggle('expanded');
-  });
-
-  // Hover to highlight footnote
-  pill.addEventListener('mouseenter', () => {
-    highlightFootnote(idx, true);
-  });
-  pill.addEventListener('mouseleave', () => {
-    highlightFootnote(idx, false);
-  });
-}
-
-/**
- * Plain-text output of a tool result, without API signal lines
- */
-function toolOutputText(toolResult) {
-  let out = toolResult.output;
-  if (out?.output !== undefined) out = out.output;
-  if (Array.isArray(out)) out = out.map((block) => block.text ?? '').join('\n');
-  else if (typeof out === 'object') out = JSON.stringify(out, null, 2);
-  return String(out ?? '')
-    .replace(/\[(?:AUTOMETA|MATOMETA):API:\{.*?\}\]\n?/g, '')
-    .trim();
-}
-
-/**
- * Format the expanded content of a pill
- */
-function formatPillContent(toolUse, toolResult) {
-  let html = '';
-  const category = toolUse.category || '';
-  let hasKnowledgeLink = false;
-
-  // Knowledge files: link into the knowledge section
-  if (category === 'Read: knowledge' && toolUse.input?.file_path) {
-    const fullPath = toolUse.input.file_path;
-    const match = fullPath.match(/\/knowledge\/(.+)$/);
-    if (match) {
-      hasKnowledgeLink = true;
-      const relativePath = match[1];
-      const fileName = relativePath.split('/').pop();
-      html += `<a href="/knowledge/${escapeHtml(relativePath)}" target="_blank" class="action-knowledge-link">
-        <i class="ri-book-open-line"></i>
-        <span>Ouvrir ${escapeHtml(fileName)}</span>
-        <i class="ri-external-link-line"></i>
-      </a>`;
-    }
-  }
-
-  // API calls: show clickable links + SQL preview
-  if (toolResult?.api_calls?.length > 0) {
-    html += '<div class="action-api-links">';
-    for (const call of toolResult.api_calls) {
-      const linkText = call.method || `${call.sql?.replace(/^[\s\\n]+/, '').substring(0, 50)}...` || 'View';
-      const icon = call.source === 'matomo' ? 'ri-bar-chart-line' : 'ri-database-2-line';
-      // Why: the signal is read from the tool's output, which the agent or a page it fetched can forge.
-      const href = isSafeUserUrl(call.url) ? ` href="${escapeHtml(call.url)}"` : '';
-      html += `<a${href} target="_blank" class="action-api-link">
-        <i class="${icon}"></i>
-        <span>${escapeHtml(linkText)}</span>
-        <i class="ri-external-link-line"></i>
-      </a>`;
-      // Show SQL preview for Metabase queries
-      if (call.sql) {
-        const sqlClean = call.sql.replace(/^[\s\\n]+/, '');
-        const sqlPreview = sqlClean.length > 200 ? `${sqlClean.substring(0, 200)}...` : sqlClean;
-        html += `<pre class="action-sql-preview">${escapeHtml(sqlPreview)}</pre>`;
-        if (sqlClean.length > 200) {
-          const expandIdx = registerExpandData('SQL', sqlClean, true);
-          html += `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
-            <i class="ri-expand-diagonal-line"></i> Voir la requete complète
-          </button>`;
-        }
-      }
-    }
-    html += '</div>';
-  }
-
-  // Show input as key-value pairs
-  if (toolUse.input && typeof toolUse.input === 'object') {
-    html += '<div class="action-kv-list">';
-    // Sort keys with "description" first
-    const entries = Object.entries(toolUse.input).sort(([a], [b]) => {
-      if (a === 'description') return -1;
-      if (b === 'description') return 1;
-      return 0;
-    });
-    if (toolResult?.api_calls?.length > 0) entries.push(['résultat', toolOutputText(toolResult)]);
-    for (const [key, value] of entries) {
-      // Skip file_path if we already show a knowledge link
-      if (key === 'file_path' && hasKnowledgeLink) continue;
-
-      const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-      const MAX_INLINE = 500;
-      const needsTruncation = displayValue.length > MAX_INLINE;
-      const truncated = needsTruncation ? `${displayValue.substring(0, MAX_INLINE)}...` : displayValue;
-
-      // Expand button before the value when truncated
-      let expandBtnHtml = '';
-      if (needsTruncation) {
-        const isCode = key === 'command' || key === 'query' || key === 'content' || key === 'résultat';
-        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode);
-        expandBtnHtml = `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
-          <i class="ri-expand-diagonal-line"></i> Voir tout
-        </button>`;
-      }
-
-      // Description: no header, different styling
-      if (key === 'description') {
-        html += `<div class="action-description">${escapeHtml(truncated)}</div>`;
-      } else {
-        html += `<div class="action-kv">
-          <div class="action-kv-key">${escapeHtml(key.toUpperCase())}${expandBtnHtml}</div>
-          <div class="action-kv-value">${escapeHtml(truncated)}</div>
-        </div>`;
-      }
-    }
-    html += '</div>';
-  } else if (toolUse.input) {
-    // Fallback for non-object input
-    html += `<div class="action-kv-list">
-      <div class="action-kv">
-        <div class="action-kv-key">INPUT</div>
-        <div class="action-kv-value">${escapeHtml(String(toolUse.input))}</div>
-      </div>
-    </div>`;
-  }
-
-  return html || '<em>No details available</em>';
-}
-
-// =============================================================================
-// Expand modal
-// =============================================================================
-
-/**
- * Register a value for the expand button and return its index
- */
-function registerExpandData(title, value, isCode) {
-  const idx = expandDataStore.length;
-  expandDataStore.push({ title, value, isCode });
-  return idx;
-}
 
 /**
  * Open the detail modal with full content
@@ -711,112 +295,52 @@ function openActionModal(title, content, isCode) {
   new bootstrap.Modal(modal).show();
 }
 
-// Event delegation for expand buttons
+// Why: pills and references come from the server as HTML, at any time; what they answer to is listened for on the page.
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.action-expand-btn');
-  if (!btn) return;
-  const idx = parseInt(btn.dataset.expandIdx, 10);
-  if (Number.isNaN(idx) || !expandDataStore[idx]) return;
-  const { title, value, isCode } = expandDataStore[idx];
-  openActionModal(title, value, isCode);
+  const header = e.target.closest('.action-pill-header');
+  if (header) return header.parentElement.classList.toggle('expanded');
+  const footnote = e.target.closest('.action-footnote');
+  if (footnote) return scrollToPillAndExpand(footnote.dataset.actionIndex);
+
+  // A value the pill shows cut short: the server gives it whole
+  const button = e.target.closest('.action-expand-btn');
+  // Why: a second click while the value is on its way would open it twice.
+  if (!button || button.asked) return;
+  button.asked = true;
+  const { title, whole } = button.dataset;
+  const isCode = 'code' in button.dataset;
+  // Why: given up when the page leaves the conversation; its answer would open over another page.
+  const hold = conversationHold;
+  fetch(whole, { signal: hold?.signal })
+    .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
+    .then(({ text }) => hold?.signal.aborted || openActionModal(title, text, isCode))
+    .catch((error) => {
+      if (hold?.signal.aborted) return;
+      console.error('Failed to load the whole value:', error);
+      const shown = button.closest('.action-kv')?.querySelector('.action-kv-value') ?? button.previousElementSibling;
+      const start = shown.textContent.replace(/\.\.\.$/, '');
+      openActionModal(title, `${start}\n\n… (la suite n'a pas pu être chargée)`, isCode);
+    })
+    .finally(() => {
+      button.asked = false;
+    });
 });
+
+for (const [type, highlight] of [
+  ['mouseover', true],
+  ['mouseout', false],
+]) {
+  document.addEventListener(type, (e) => {
+    const pill = e.target.closest?.('.action-pill');
+    if (pill) highlightFootnote(pill.dataset.actionIndex, highlight);
+    const footnote = e.target.closest?.('.action-footnote');
+    if (footnote) highlightPill(footnote.dataset.actionIndex, highlight);
+  });
+}
 
 // =============================================================================
 // Footnotes & highlighting
 // =============================================================================
-
-/**
- * Create a single footnote icon element for an action
- */
-function createFootnoteIcon(idx) {
-  const action = actionsMap.get(idx);
-  if (!action) return null;
-
-  const footnote = document.createElement('span');
-  footnote.className = 'action-footnote';
-  footnote.dataset.actionIndex = idx;
-  footnote.innerHTML = `<i class="${action.icon}"></i>`;
-  footnote.title = action.pillData.label;
-  footnote.addEventListener('click', () => scrollToPillAndExpand(idx));
-  footnote.addEventListener('mouseenter', () => highlightPill(idx, true));
-  footnote.addEventListener('mouseleave', () => highlightPill(idx, false));
-  return footnote;
-}
-
-/**
- * Put a reference under an answer. The server keeps their place under each rendered answer, with as many hidden
- * squares; each reference takes the place of one, so that nothing moves, not even while they are being built.
- */
-function addFootnote(block, footnote) {
-  let footnotes = block.querySelector(':scope > .action-footnotes');
-  if (!footnotes) {
-    footnotes = document.createElement('div');
-    footnotes.className = 'action-footnotes';
-    block.appendChild(footnotes);
-  }
-  const kept = footnotes.querySelector('.action-footnote-kept');
-  if (kept) kept.replaceWith(footnote);
-  else footnotes.appendChild(footnote);
-}
-
-/**
- * Add footnotes to the last assistant block (batch, for loaded conversations)
- */
-function addFootnotesToLastAssistant() {
-  if (!lastAssistantBlock || currentTurnActions.length === 0) return;
-
-  // Skip if footnotes were already added progressively during streaming
-  if (lastAssistantBlock.querySelector('.action-footnote:not(.action-footnote-kept)')) {
-    currentTurnActions = [];
-    return;
-  }
-
-  for (const idx of currentTurnActions) {
-    const footnote = createFootnoteIcon(idx);
-    if (footnote) addFootnote(lastAssistantBlock, footnote);
-  }
-
-  currentTurnActions = [];
-}
-
-function parsedToolContent(content, fallback) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    return fallback;
-  }
-}
-
-/**
- * Build the sidebar pills and the references under the answers for the tool calls of each stretch of messages,
- * [after, through], that the server rendered and the stream does not bring
- */
-function replayActions(messages, stretches) {
-  const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput) return;
-  const last = Math.max(...stretches.map(([, through]) => through));
-  const within = (id) => stretches.some(([after, through]) => id > after && id <= through);
-  // Why: a turn may be coming from the stream meanwhile; what it has pending is put back once these are built.
-  const live = { pendingToolUses, lastAssistantBlock, currentTurnActions };
-  pendingToolUses = [];
-  lastAssistantBlock = null;
-  currentTurnActions = [];
-  for (const msg of messages) {
-    if (msg.id > last) continue;
-    if (msg.type === 'user' || msg.type === 'assistant') {
-      addFootnotesToLastAssistant();
-      if (msg.type === 'user') currentTurnActions = [];
-      lastAssistantBlock = msg.type === 'user' ? null : chatOutput.querySelector(`[data-msg-id~="${msg.id}"]`);
-    } else if (within(msg.id) && msg.type === 'tool_use') {
-      pendingToolUses.push(parsedToolContent(msg.content, { tool: 'unknown', input: msg.content }));
-    } else if (within(msg.id) && msg.type === 'tool_result' && pendingToolUses.length > 0) {
-      const toolResult = parsedToolContent(msg.content, { output: msg.content });
-      createAndAppendAction(pendingToolUses.shift(), toolResult, msg.id);
-    }
-  }
-  addFootnotesToLastAssistant();
-  ({ pendingToolUses, lastAssistantBlock, currentTurnActions } = live);
-}
 
 /**
  * Highlight a pill by index
@@ -875,75 +399,7 @@ function scrollToPillAndExpand(idx) {
 }
 
 // =============================================================================
-// Progress indicator
-// =============================================================================
-
-/**
- * Update or create progress indicator for hidden tool activity
- */
-function updateProgressIndicator() {
-  const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput) return;
-
-  // Check scroll position BEFORE modifying DOM
-  const wasAtBottom = isAtBottom();
-
-  progressDots += '.';
-  if (progressDots.length > 20) {
-    progressDots = '.';
-  }
-
-  if (!progressIndicator) {
-    progressIndicator = document.createElement('div');
-    progressIndicator.className = 'progress-indicator';
-    progressIndicator.id = 'progressIndicator';
-    chatOutput.appendChild(progressIndicator);
-  }
-
-  progressIndicator.innerHTML = `<span class="dots">${progressDots}</span>`;
-
-  // Only scroll if user was at bottom
-  if (wasAtBottom) {
-    scrollToBottom();
-  }
-}
-
-/**
- * Remove progress indicator
- */
-function removeProgressIndicator() {
-  if (progressIndicator) {
-    progressIndicator.remove();
-    progressIndicator = null;
-    progressDots = '';
-  }
-}
-
-// =============================================================================
-// Final answer marking
-// =============================================================================
-
-/**
- * Mark the last assistant message as a final answer
- * Called when streaming completes
- */
-function markFinalAnswer() {
-  // Add footnotes to the last assistant message
-  addFootnotesToLastAssistant();
-
-  const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput) return;
-
-  // Find the last assistant message (that's not already a report)
-  const assistantMessages = chatOutput.querySelectorAll('.event-assistant:not(.event-report)');
-  if (assistantMessages.length > 0) {
-    const lastAssistant = assistantMessages[assistantMessages.length - 1];
-    lastAssistant.classList.add('event-final-answer');
-  }
-}
-
-// =============================================================================
-// Reset & misc
+// Misc
 // =============================================================================
 
 /**
@@ -954,37 +410,6 @@ function scrollActionsToBottom() {
   if (actionsContent) {
     actionsContent.scrollTop = actionsContent.scrollHeight;
   }
-}
-
-/**
- * Reset actions state for new conversation
- */
-function resetActionsState() {
-  actionIndex = 0;
-  actionsMap.clear();
-  pendingToolUses = [];
-  pendingToolUseIds = [];
-  lastAssistantBlock = null;
-  currentTurnActions = [];
-  streamingBlock = null;
-  assistantParts.clear();
-  lastSeenId = 0;
-
-  // Reset TOC state
-  resetTocState();
-
-  // Clear sidebar content
-  const actionsContent = document.getElementById('actionsContent');
-  if (actionsContent) actionsContent.innerHTML = '';
-
-  const offcanvasContent = document.getElementById('actionsOffcanvasContent');
-  if (offcanvasContent) offcanvasContent.innerHTML = '';
-
-  // Reset expand data store
-  expandDataStore = [];
-
-  // Re-sync tab visibility from localStorage (fixes desync after htmx swap)
-  syncSidebarTabState();
 }
 
 // Hide public warning banner if previously dismissed - runs on every htmx load

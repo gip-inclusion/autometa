@@ -15,7 +15,7 @@ ANSWER = f"Intro.\n\n## Méthode\n\nOn compte **tout**.\n\n## Résultats\n\n{TAB
 
 def excerpt(mocker, messages, message_id, anchor=None, running=False, native=False):
     """L'extrait tel que Slack le reçoit, ses tableaux en chasse fixe, ou en bloc table avec `native`."""
-    mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=messages)
+    mocker.patch.object(conversation_html.store, "get_thread_messages", return_value=messages)
     blocks = slack_excerpts.excerpt(Conversation(id=CONV, needs_response=running), message_id, anchor)
     return slack_excerpts.with_tables(blocks, native)
 
@@ -316,7 +316,7 @@ def test_a_huge_cell_does_not_hold_the_server(mocker):
 def test_an_element_the_page_does_not_link_gets_the_answer_excerpt_as_on_the_page(mocker, text):
     messages = [(2, "assistant", text)]
     sliced = [a for a in permalinks.anchors(text) if a.kind == "section"]
-    html = str(conversation_html.blocks(CONV, messages)[0]["html"])
+    html = str(conversation_html.thread(CONV, messages)["blocks"][0]["html"])
 
     assert "data-anchor=" not in html
     for anchor in sliced:
@@ -350,7 +350,7 @@ def test_a_title_inside_a_list_ends_its_section_with_the_list(mocker):
     text = "- item\n  ## Dans la liste\n\n  dedans\n\nAprès la liste.\n"
     messages = [(2, "assistant", text)]
 
-    assert 'data-anchor="2-section-1"' in str(conversation_html.blocks(CONV, messages)[0]["html"])
+    assert 'data-anchor="2-section-1"' in str(conversation_html.thread(CONV, messages)["blocks"][0]["html"])
     assert shown(excerpt(mocker, messages, 2, name(text, "section"))) == "Dans la liste\ndedans"
 
 
@@ -485,7 +485,7 @@ def test_a_table_block_cell_cannot_mention_and_carries_no_direction_character(mo
 
 
 def test_a_table_carries_both_forms_until_the_listener_chooses(mocker):
-    mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=[(2, "assistant", TABLE)])
+    mocker.patch.object(conversation_html.store, "get_thread_messages", return_value=[(2, "assistant", TABLE)])
 
     blocks = slack_excerpts.excerpt(Conversation(id=CONV), 2, name(TABLE, "table"))
 
@@ -506,3 +506,50 @@ def test_a_table_carries_both_forms_until_the_listener_chooses(mocker):
 )
 def test_a_text_is_cut_after_a_word_even_when_its_start_is_blank(text, limit, shown):
     assert slack_excerpts.shortened(text, limit) == shown
+
+
+def turn(*answers):
+    """Un tour dont chaque réponse est suivie d'un appel d'outil, comme l'agent les sépare."""
+    messages = [(1, "user", "Question")]
+    for text in answers:
+        messages += [(len(messages) + 1, "assistant", text), (len(messages) + 2, "tool_use", "{}")]
+    return messages
+
+
+@pytest.mark.parametrize(
+    ("later", "expected"),
+    [
+        (["La suite, sans titre.\n"], "Une\nTexte.\nLa suite, sans titre."),
+        (["Suite.\n\n### Dessous\n\nDétail.\n"], "Une\nTexte.\nSuite.\nDessous\nDétail."),
+        (["Suite.\n\n## Deux\n\nAutre.\n"], "Une\nTexte.\nSuite."),
+        (["## Deux\n\nAutre.\n"], "Une\nTexte."),
+        (["", "Encore.\n", "# Haut\n\nFin.\n", "Après.\n"], "Une\nTexte.\nEncore."),
+        (["---\ntitle: x\n---\nCorps du rapport.\n"], "Une\nTexte.\nCorps du rapport."),
+    ],
+    ids=["text", "lower title", "same level after text", "same level at once", "across several", "report"],
+)
+def test_a_section_runs_through_the_later_answers_of_its_turn_to_the_next_title_of_its_level(mocker, later, expected):
+    first = "## Une\n\nTexte.\n"
+    messages = turn(first, *later)
+
+    assert shown(excerpt(mocker, messages, 2, name(first, "section"))) == expected
+
+
+def test_a_section_closed_in_its_answer_does_not_take_the_later_answers(mocker):
+    first = "## Une\n\nTexte.\n\n## Deux\n\nAutre.\n"
+
+    assert shown(excerpt(mocker, turn(first, "Suite.\n"), 2, name(first, "section"))) == "Une\nTexte."
+
+
+def test_a_section_ends_with_its_turn(mocker):
+    first = "## Une\n\nTexte.\n"
+    messages = [*turn(first), (4, "user", "Autre question"), (5, "assistant", "Autre réponse.\n")]
+
+    assert shown(excerpt(mocker, messages, 2, name(first, "section"))) == "Une\nTexte."
+
+
+def test_a_section_does_not_take_the_answers_of_a_turn_still_running(mocker):
+    first = "## Une\n\nTexte.\n"
+    messages = [*turn(first), (4, "user", "Autre question"), (5, "assistant", "En cours.\n")]
+
+    assert shown(excerpt(mocker, messages, 2, name(first, "section"), running=True)) == "Une\nTexte."

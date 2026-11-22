@@ -41,7 +41,7 @@ def conversation(**fields):
 
 
 def known(mocker, conv=None, messages=()):
-    mocker.patch.object(slack_listener.store, "get_displayed_messages", return_value=list(messages))
+    mocker.patch.object(slack_listener.store, "get_thread_messages", return_value=list(messages))
     return mocker.patch.object(slack_listener.store, "get_conversation", return_value=conv or conversation())
 
 
@@ -813,7 +813,7 @@ def test_a_card_with_a_table_and_an_image_drops_the_table_block_first_then_the_i
 
 def test_the_image_joins_a_card_in_the_table_form_slack_accepted(mocker, monkeypatch):
     client, chart = chart_link(mocker, monkeypatch)
-    slack_listener.store.get_displayed_messages.return_value = [
+    slack_listener.store.get_thread_messages.return_value = [
         (2, "assistant", CHART_ANSWER),
         (3, "user", "Q"),
         (4, "assistant", TABLE_ANSWER),

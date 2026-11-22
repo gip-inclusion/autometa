@@ -1237,6 +1237,17 @@ body.has-sidebar {
 }
 
 /* Mermaid diagrams */
+/* A chart shows once drawn: its source is only worth reading when it cannot be */
+.event-assistant pre:not(.mermaid-failed):has(> code.language-mermaid),
+.event-assistant .mermaid:not([data-processed]) {
+  visibility: hidden;
+}
+
+/* An answer still being written may hold half a list of options: their place stays blank until they are buttons */
+.event-assistant[data-partial] pre:has(> code.language-options) {
+  visibility: hidden;
+}
+
 .event-assistant .mermaid {
   background: var(--bs-body-bg);
   padding: 1rem;
@@ -3708,11 +3719,6 @@ body.has-sidebar {
   margin-top: 0.375rem;
 }
 
-/* Kept by the server under a rendered answer until the page builds its references: the room, not the square. */
-.action-footnote-kept {
-  visibility: hidden;
-}
-
 .action-footnote {
   display: inline-flex;
   align-items: center;
@@ -4912,7 +4918,8 @@ body.no-sidebar .section-header .container-fluid {
   outline-offset: 4px;
 }
 
-/* Why: a section is not one element; permalinks.js marks its heading, whose ::before runs down to the section's end. */
+/* Why: a section is not one element; permalinks.js marks its heading, whose ::before runs down to the section's end,
+   and what it starts with in each later answer it runs through. */
 .permalink-section-outline {
   position: relative;
 }

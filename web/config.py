@@ -113,6 +113,8 @@ DATABASE_URL = (os.getenv("DATABASE_URL") or "").replace("postgres://", "postgre
 
 SSE_MESSAGE_WAIT_TIMEOUT = float(os.getenv("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "3"))
 SSE_MAX_SECONDS = float(os.getenv("AUTOMETA_SSE_MAX_SECONDS", "300"))
+# Le temps que le flux d'une conversation laisse au moins entre deux rendus du tour en cours.
+SSE_RENDER_INTERVAL = float(os.getenv("AUTOMETA_SSE_RENDER_INTERVAL", "0.2"))
 
 # Agent-produced scripts directory
 SCRIPTS_DIR = DATA_DIR / "scripts"

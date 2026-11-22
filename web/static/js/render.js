@@ -1,343 +1,23 @@
 /**
- * Message rendering: appendEvent dispatcher, format functions, mermaid/options.
- * Depends on: utils.js (escapeHtml, isAtBottom, scrollToBottom, formatFileSize, appendToComposer)
- *             actions.js (streamingBlock, assistantParts, lastSeenId, pendingToolUses, lastAssistantBlock,
- *                         currentTurnActions, createAndAppendAction, addFootnotesToLastAssistant,
- *                         scanHeadingsForToc, rebuildToc)
- * Finished turns arrive rendered by the server (web/conversation_html.py); this file draws the running one.
+ * What the server leaves to the page in the blocks it renders: drawing charts and option buttons. Messages, pills and
+ * references arrive as HTML (web/conversation_html.py), on open and from the stream.
+ * Depends on: utils.js (scrollToBottom)
  */
-
-/**
- * Update token display with new usage data
- */
-function updateTokenDisplay(usage) {
-  const tokenDisplay = document.getElementById('tokenDisplay');
-  const tokenCount = document.getElementById('tokenCount');
-  if (!tokenDisplay || !tokenCount) return;
-
-  // Get current values from data attributes
-  let currentInput = parseInt(tokenDisplay.dataset.input, 10) || 0;
-  let currentOutput = parseInt(tokenDisplay.dataset.output, 10) || 0;
-
-  // Add new usage
-  const newInput = usage.input_tokens || 0;
-  const newOutput = usage.output_tokens || 0;
-  currentInput += newInput;
-  currentOutput += newOutput;
-
-  // Update data attributes
-  tokenDisplay.dataset.input = currentInput;
-  tokenDisplay.dataset.output = currentOutput;
-
-  // Update display
-  const total = currentInput + currentOutput;
-  tokenCount.textContent = total.toLocaleString();
-  tokenDisplay.title = `Tokens utilisés: ${currentInput.toLocaleString()} entrée, ${currentOutput.toLocaleString()} sortie`;
-
-  // Show if hidden
-  tokenDisplay.classList.remove('d-none');
-}
-
-function renderAssistantBlock(block) {
-  const text = block.dataset.msgId
-    .split(' ')
-    .map((id) => assistantParts.get(id))
-    .join('');
-  const reportInfo = detectReport(text);
-  const footnotes = block.querySelector('.action-footnotes');
-  block.dataset.rawContent = text;
-  block.classList.toggle('event-report', Boolean(reportInfo));
-  block.innerHTML = reportInfo ? formatReport(text, reportInfo) : formatAssistantContent(text);
-  if (footnotes) block.appendChild(footnotes);
-}
-
-function updateAssistantBlock(block, partId, content) {
-  const wasAtBottom = isAtBottom();
-  assistantParts.set(partId, content);
-  renderAssistantBlock(block);
-  if (block.isConnected && block.querySelector('h2')) rebuildToc();
-  if (block !== streamingBlock) {
-    renderMermaid(block);
-    renderOptions(block);
-  }
-  if (wasAtBottom) scrollToBottom();
-}
-
-/**
- * Append an event to the chat output, or update the block that already shows it
- */
-function appendEvent(type, data) {
-  const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput) return;
-
-  if (data.id) {
-    const known = chatOutput.querySelector(`[data-msg-id~="${data.id}"]`);
-    // Why: a block the server rendered is finished; the stream names it again only to resume after it, or because
-    // its turn was relaunched on a question already shown.
-    if (known && !('live' in known.dataset)) return;
-    if (type === 'assistant' && known) {
-      if (assistantParts.get(String(data.id)) !== data.content) {
-        updateAssistantBlock(known, String(data.id), data.content);
-      }
-      return;
-    }
-    if (data.id <= lastSeenId) return;
-    lastSeenId = data.id;
-  }
-
-  // System events: check for usage data, then skip display
-  if (type === 'system') {
-    if (data.raw?.usage) {
-      updateTokenDisplay(data.raw.usage);
-    }
-    if (typeof window.updateLoadingLastEvent === 'function') {
-      window.updateLoadingLastEvent('system', data);
-    }
-    return;
-  }
-
-  // Non-assistant event ends the streaming accumulation
-  if (type !== 'assistant' && streamingBlock) {
-    renderMermaid(streamingBlock);
-    renderOptions(streamingBlock);
-    streamingBlock = null;
-  }
-
-  // Tool events: add to sidebar instead of main chat
-  if (type === 'tool_use') {
-    // Queue tool_use - supports parallel tool calls
-    pendingToolUses.push(data.content);
-    pendingToolUseIds.push(data.id);
-    return;
-  }
-
-  if (type === 'tool_result') {
-    if (pendingToolUses.length > 0) {
-      // Pair with first queued tool_use (FIFO order)
-      const toolUse = pendingToolUses.shift();
-      pendingToolUseIds.shift();
-      const toolResult = data.content;
-      createAndAppendAction(toolUse, toolResult, data.id);
-    }
-    return;
-  }
-
-  // Check scroll position BEFORE adding content (for smart auto-scroll)
-  const wasAtBottom = isAtBottom();
-
-  // When user speaks, add footnotes to previous assistant message and reset turn
-  if (type === 'user') {
-    addFootnotesToLastAssistant();
-    currentTurnActions = [];
-    lastAssistantBlock = null;
-  }
-
-  if (type === 'assistant') {
-    addFootnotesToLastAssistant();
-  }
-
-  // Why: knowledge.html renders its history without message ids.
-  const partId = String(data.id ?? `local-${assistantParts.size}`);
-
-  if (type === 'assistant' && streamingBlock) {
-    streamingBlock.dataset.msgId += ` ${partId}`;
-    updateAssistantBlock(streamingBlock, partId, data.content);
-    lastAssistantBlock = streamingBlock;
-    return streamingBlock;
-  }
-
-  const block = document.createElement('div');
-  block.className = `event-block event-${type}`;
-  // Why: drawn by this page, until the server's rendering of its turn takes its place.
-  block.dataset.live = '';
-  if (data.id) block.dataset.msgId = data.id;
-
-  if (type === 'user') {
-    // Safe: formatUserContent escapes all user text via escapeHtml()
-    block.innerHTML = formatUserContent(data.content);
-  } else if (type === 'assistant') {
-    streamingBlock = block;
-    lastAssistantBlock = block;
-    block.dataset.msgId = partId;
-    updateAssistantBlock(block, partId, data.content);
-    // Why: pas de mermaid ici — le contenu est encore partiel pendant le streaming.
-    // Les diagrammes sont rendus une fois le bloc complet (fin de stream, chargement d'historique).
-    setTimeout(() => renderOptions(block), 0);
-  } else if (type === 'limit') {
-    block.innerHTML = `<i class="ri-time-line" aria-hidden="true"></i><div>${escapeHtml(data.content || '')}</div>`;
-  } else if (type === 'error') {
-    block.innerHTML = escapeHtml(data.content || '');
-  } else if (type === 'report') {
-    // Report card - parse JSON content
-    let reportData = data.content;
-    if (typeof reportData === 'string') {
-      try {
-        reportData = JSON.parse(reportData);
-      } catch {}
-    }
-    // Safe: formatReportCard escapes title via escapeHtml() and validates reportId
-    block.innerHTML = formatReportCard(reportData);
-  }
-
-  chatOutput.appendChild(block);
-
-  // Keep the loading indicator at the bottom (appendChild moves existing elements)
-  const loadingEl = document.getElementById('loadingIndicator');
-  if (loadingEl) {
-    chatOutput.appendChild(loadingEl);
-  }
-
-  // Scan assistant messages for <h2> headings to populate TOC
-  if (type === 'assistant') {
-    scanHeadingsForToc(block);
-  }
-
-  // Only auto-scroll if user was already at bottom (preserves scroll position if reading history)
-  if (wasAtBottom) {
-    scrollToBottom();
-  }
-
-  return block;
-}
-
-// =============================================================================
-// Format functions
-// =============================================================================
-
-/**
- * Detect if content is a report (has YAML front-matter)
- * Returns report info object or null
- */
-function detectReport(content) {
-  if (!content) return null;
-
-  // Check for YAML front-matter (starts with ---)
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!fmMatch) return null;
-
-  const frontMatter = fmMatch[1];
-  const info = { frontMatter: {} };
-
-  // Parse front-matter fields
-  const lines = frontMatter.split('\n');
-  for (const line of lines) {
-    const match = line.match(/^(\w[\w\s]*?):\s*(.+)$/);
-    if (match) {
-      info.frontMatter[match[1].trim()] = match[2].trim();
-    }
-  }
-
-  // Try to find report filename (YYYY-MM-*.md pattern)
-  const filenameMatch = content.match(/(\d{4}-\d{2}-[\w-]+\.md)/);
-  if (filenameMatch) {
-    info.filename = filenameMatch[1];
-  }
-
-  return info;
-}
-
-/**
- * Format a report with special styling and link
- */
-function formatReport(content, reportInfo) {
-  // Remove YAML front-matter for display
-  const bodyContent = content.replace(/^---\n[\s\S]*?\n---\n/, '');
-
-  // Build report header with metadata
-  let header = '<div class="report-header">';
-  header += '<div class="report-title">';
-  header += '<i class="ri-file-text-line"></i> ';
-  header += escapeHtml(reportInfo.frontMatter['query category'] || 'Rapport');
-  header += '</div>';
-
-  if (reportInfo.frontMatter.date) {
-    header += `<div class="report-meta"><i class="ri-calendar-line"></i> ${escapeHtml(reportInfo.frontMatter.date)}</div>`;
-  }
-  if (reportInfo.frontMatter.website) {
-    header += `<div class="report-meta"><i class="ri-global-line"></i> ${escapeHtml(reportInfo.frontMatter.website)}</div>`;
-  }
-
-  // Add link to view full report if filename detected
-  if (reportInfo.filename) {
-    header += `<a href="/api/reports/${reportInfo.filename}" target="_blank" class="report-link">`;
-    header += '<i class="ri-external-link-line"></i> Voir le rapport complet';
-    header += '</a>';
-  }
-
-  header += '</div>';
-
-  // Format the body content
-  const formattedBody = formatAssistantContent(bodyContent);
-
-  return `${header}<div class="report-body">${formattedBody}</div>`;
-}
-
-// Why: agent text is untrusted — the agent repeats web pages, tickets, databases and files, and anyone signed in
-// can open any conversation. A class is a style too (Bootstrap's position-fixed…): only the code languages that
-// renderMermaid and renderOptions read are kept. Data attributes would hand htmx requests and handlers (data-hx-*).
-// Popovers and invoker commands would show a hidden part of the answer above the page in one click (headings get
-// predictable ids for the table of contents); form and dialog furniture has no use in an answer, and the only input
-// kept is a Markdown task list's checkbox. Where DOMPurify cannot run, it hands its input back unchanged.
-const answerPurifier = typeof DOMPurify !== 'undefined' && DOMPurify.isSupported ? DOMPurify() : null;
-answerPurifier?.addHook('uponSanitizeAttribute', (node, data) => {
-  if (data.attrName === 'class') data.keepAttr = node.nodeName === 'CODE' && /^language-[\w-]+$/.test(data.attrValue);
-});
-answerPurifier?.addHook('afterSanitizeAttributes', (node) => {
-  if (node.nodeName !== 'INPUT') return;
-  if (node.type === 'checkbox') node.setAttribute('disabled', '');
-  else node.remove();
-});
-const ANSWER_HTML = {
-  USE_PROFILES: { html: true },
-  FORBID_TAGS: [
-    'style',
-    'form',
-    'dialog',
-    'button',
-    'select',
-    'textarea',
-    'option',
-    'datalist',
-    'fieldset',
-    'legend',
-    'output',
-    'label',
-    'marquee',
-  ],
-  FORBID_ATTR: ['style', 'id', 'name', 'popover', 'popovertarget', 'popovertargetaction', 'command', 'commandfor'],
-  ALLOW_DATA_ATTR: false,
-};
-
-/**
- * Format assistant content using marked.js for proper markdown
- */
-function formatAssistantContent(content) {
-  if (!content) return '';
-
-  // Why: without the sanitizer, the answer is shown as escaped text, never as unclean HTML.
-  if (typeof marked !== 'undefined' && answerPurifier) {
-    marked.setOptions({
-      breaks: true, // GFM line breaks
-      gfm: true, // GitHub Flavored Markdown
-    });
-
-    return answerPurifier.sanitize(marked.parse(content), ANSWER_HTML);
-  }
-
-  // Fallback: simple markdown-ish
-  let html = escapeHtml(content);
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\n/g, '<br>');
-  return html;
-}
 
 /**
  * Render mermaid diagrams in an element
  */
-async function renderMermaid(element) {
-  if (typeof mermaid === 'undefined') return;
+// Why: two runs started in the same millisecond give their charts the same id, and the second comes out broken.
+let chartsDrawn = Promise.resolve();
+
+function renderMermaid(element) {
+  if (typeof mermaid === 'undefined') {
+    // Why: without the library nothing will ever draw them, so their source is all there is to show.
+    for (const block of element.querySelectorAll('pre code.language-mermaid')) {
+      block.parentElement.classList.add('mermaid-failed');
+    }
+    return;
+  }
 
   const nodes = [];
   for (const block of element.querySelectorAll('pre code.language-mermaid')) {
@@ -353,11 +33,31 @@ async function renderMermaid(element) {
   }
   if (!nodes.length) return;
 
-  try {
-    await mermaid.run({ nodes });
-  } catch (err) {
-    console.error('Mermaid rendering failed:', err);
+  chartsDrawn = chartsDrawn.then(async () => {
+    for (const node of nodes) {
+      const source = node.textContent;
+      try {
+        await mermaid.run({ nodes: [node] });
+      } catch (err) {
+        console.error('Mermaid rendering failed:', err);
+        showChartSource(node, source);
+      }
+    }
+  });
+  return chartsDrawn;
+}
+
+/**
+ * Put a chart Mermaid could not draw back as its source: the only time the source is worth reading
+ */
+function showChartSource(node, source) {
+  const failed = document.createElement('pre');
+  failed.className = 'mermaid-failed';
+  for (const { name, value } of node.attributes) {
+    if (name.startsWith('data-anchor')) failed.setAttribute(name, value);
   }
+  failed.appendChild(document.createElement('code')).textContent = source;
+  node.replaceWith(failed);
 }
 
 /**
@@ -402,188 +102,27 @@ function renderOptions(element) {
 }
 
 /**
- * Format tool use event - collapsible with tool name on first line
+ * Draw the charts and options of an answer the server has finished rendering; resolves once its charts are drawn
  */
-function formatToolUse(content) {
-  if (!content) return '';
-
-  const tool = content.tool || 'Unknown';
-  const input = content.input || {};
-
-  const inputStr = typeof input === 'object' ? JSON.stringify(input, null, 2) : String(input);
-  const lines = inputStr.split('\n');
-  const isLong = lines.length > 2;
-
-  // Preview: first 2 lines
-  const preview = lines.slice(0, 2).join('\n') + (isLong ? '\n…' : '');
-
-  let html = `<div class="tool-header" onclick="toggleToolContent(this)">`;
-  html += `<span class="tool-name">${escapeHtml(tool)}</span>`;
-  if (isLong) {
-    html += `<span class="tool-toggle"><i class="ri-arrow-down-s-line"></i></span>`;
-  }
-  html += `</div>`;
-
-  html += `<div class="tool-content tool-preview">${escapeHtml(preview)}</div>`;
-  if (isLong) {
-    html += `<div class="tool-content tool-full">${escapeHtml(inputStr)}</div>`;
-  }
-
-  return html;
+function drawBlock(block) {
+  // Why: an answer still being written may hold half a chart; it comes again once whole.
+  if (!block.matches('.event-assistant:not([data-partial])')) return;
+  renderOptions(block);
+  return renderMermaid(block);
 }
 
 /**
- * Format tool result event - collapsible with tool name on first line
- */
-function formatToolResult(content) {
-  if (!content) return '';
-
-  const tool = content.tool || '';
-  const output = content.output || '';
-
-  const outputStr = typeof output === 'object' ? JSON.stringify(output, null, 2) : String(output);
-  const lines = outputStr.split('\n');
-  const isLong = lines.length > 2;
-
-  // Preview: first 2 lines
-  const preview = lines.slice(0, 2).join('\n') + (isLong ? '\n…' : '');
-
-  let html = `<div class="tool-header" onclick="toggleToolContent(this)">`;
-  if (tool) {
-    html += `<span class="tool-name">${escapeHtml(tool)}</span>`;
-  }
-  if (isLong) {
-    html += `<span class="tool-toggle"><i class="ri-arrow-down-s-line"></i></span>`;
-  }
-  html += `</div>`;
-
-  html += `<div class="tool-content tool-preview">${escapeHtml(preview)}</div>`;
-  if (isLong) {
-    html += `<div class="tool-content tool-full">${escapeHtml(outputStr)}</div>`;
-  }
-
-  return html;
-}
-
-/**
- * Toggle tool content visibility
- */
-function toggleToolContent(header) {
-  const block = header.closest('.event-block');
-  if (!block) return;
-
-  block.classList.toggle('tool-expanded');
-
-  // Update icon
-  const icon = header.querySelector('.tool-toggle i');
-  if (icon) {
-    if (block.classList.contains('tool-expanded')) {
-      icon.className = 'ri-arrow-up-s-line';
-    } else {
-      icon.className = 'ri-arrow-down-s-line';
-    }
-  }
-}
-
-/**
- * Format user message content, converting file context blocks to pills
- */
-function formatUserContent(content) {
-  // Pattern to match file context blocks:
-  // [Uploaded file: filename]
-  // - Size: ...
-  // - Type: ...
-  // - Path: ...
-  // - Content (...): (optional, with code block)
-  // - Note: ... (optional)
-  const fileBlockPattern = /\[Uploaded file: ([^\]]+)\]\n(?:- [^\n]+\n)+(?:```[\s\S]*?```\n?)?/g;
-
-  const matches = content.match(fileBlockPattern);
-  if (!matches) {
-    return `<div class="user-text">${formatUserMarkdown(content)}</div>`;
-  }
-
-  const pills = matches.map((match) => {
-    // Extract filename from the match
-    const filenameMatch = match.match(/\[Uploaded file: ([^\]]+)\]/);
-    const filename = filenameMatch ? filenameMatch[1] : 'Fichier';
-
-    // Extract file size
-    const sizeMatch = match.match(/- Size: ([\d,]+) bytes/);
-    const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''), 10)) : '';
-
-    // Extract file type
-    const typeMatch = match.match(/- Type: ([^\n]+)/);
-    const mimeType = typeMatch ? typeMatch[1] : '';
-
-    // Determine icon based on mime type
-    let icon = 'ri-file-line';
-    if (mimeType.startsWith('image/')) icon = 'ri-image-line';
-    else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml'))
-      icon = 'ri-file-text-line';
-    else if (mimeType.includes('pdf')) icon = 'ri-file-pdf-line';
-    else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
-      icon = 'ri-file-excel-line';
-    else if (mimeType.includes('word') || mimeType.includes('document')) icon = 'ri-file-word-line';
-
-    return `<span class="file-context-pill" title="${escapeHtml(mimeType)}"><i class="${icon}"></i> ${escapeHtml(filename)}${size ? ` <span class="file-context-size">(${size})</span>` : ''}</span>`;
-  });
-
-  // Why: the text around the file blocks was typed by a person: rendered like any message, never as HTML.
-  const userText = content
-    .replace(fileBlockPattern, '')
-    .replace(/^\s*---\n/, '')
-    .trim();
-  const text = userText ? `<div class="user-text">${formatUserMarkdown(userText)}</div>` : '';
-  return `<div class="file-context-pills">${pills.join('')}</div>${text}`;
-}
-
-// Why: user content is untrusted. marked auto-escapes text content but passes
-// raw HTML through and emits unsanitized link/image hrefs — override those
-// three renderer hooks to neutralize <script>/<img>, javascript:/data: hrefs,
-// and external image loads.
-function formatUserMarkdown(text) {
-  if (!text) return '';
-
-  if (typeof marked === 'undefined') {
-    return escapeHtml(text).replace(/\n/g, '<br>');
-  }
-
-  const renderer = new marked.Renderer();
-  renderer.link = function ({ href, title, tokens }) {
-    const inner = this.parser.parseInline(tokens);
-    if (!isSafeUserUrl(href)) return inner;
-    const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-    return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer nofollow ugc"${titleAttr}>${inner}</a>`;
-  };
-  renderer.image = ({ text, title }) => escapeHtml(text || title || '');
-  renderer.html = ({ text }) => escapeHtml(text);
-
-  return marked.parse(text, { breaks: true, gfm: true, renderer });
-}
-
-/**
- * Format a report card for display in conversation
- */
-function formatReportCard(data) {
-  const reportId = typeof data.report_id === 'number' ? data.report_id : typeof data.id === 'number' ? data.id : 0;
-  const title = data.title || 'Rapport';
-  const viewUrl = `/rapports/${reportId}`;
-
-  return `
-    <div class="report-card-inline">
-      <a href="${viewUrl}" class="report-card-link">
-        <i class="ri-file-text-line"></i>
-        <span class="report-card-title">${escapeHtml(title)}</span>
-        <i class="ri-arrow-right-s-line"></i>
-      </a>
-    </div>
-  `;
-}
-
-/**
- * Show error message
+ * Show an error of the page's own in the thread
  */
 function showError(message) {
-  appendEvent('error', { content: message });
+  const chatOutput = document.getElementById('chatOutput');
+  if (!chatOutput) return;
+  const block = document.createElement('div');
+  block.className = 'event-block event-error';
+  block.textContent = message;
+  chatOutput.appendChild(block);
+  // Keep the loading indicator at the bottom (appendChild moves existing elements)
+  const loading = document.getElementById('loadingIndicator');
+  if (loading) chatOutput.appendChild(loading);
+  scrollToBottom();
 }

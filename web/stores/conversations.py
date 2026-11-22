@@ -704,14 +704,29 @@ class ConversationsMixin:
             models = session.scalars(stmt).all()
             return [model_to_message(m) for m in models]
 
-    def get_displayed_messages(self, conv_id: str) -> list[tuple[int, str, str]]:
-        """Chaque message d'une conversation (id, type, texte), le texte lu pour les seuls types que le fil affiche."""
+    def get_thread_messages(self, conv_id: str, since: int = 0) -> list[tuple[int, str, str]]:
+        """Chaque message d'une conversation à partir de `since` (id, type, texte), sans le texte des résultats d'outils."""
         with get_db() as session:
             kind = func.coalesce(MsgModel.type, MsgModel.role)
-            # Why: les sorties d'outils pèsent des mégaoctets ; la page n'en affiche que la place dans le fil.
-            content = case((kind.in_(("user", "assistant", "report", "limit")), MsgModel.content), else_="")
-            stmt = select(MsgModel.id, kind, content).where(MsgModel.conversation_id == conv_id)
+            # Why: la page ne lit d'un résultat que ses appels d'API ; les autres, des mégaoctets, restent en base.
+            unread = (kind == "tool_result") & ~MsgModel.content.contains('"api_calls"')
+            content = case((unread, ""), else_=MsgModel.content)
+            stmt = select(MsgModel.id, kind, content).where(MsgModel.conversation_id == conv_id, MsgModel.id >= since)
             return [tuple(row) for row in session.execute(stmt.order_by(MsgModel.timestamp, MsgModel.id))]
+
+    def get_message_kinds(self, conv_id: str) -> list[tuple[int, str]]:
+        """Chaque message d'une conversation, dans l'ordre : son identifiant et son type."""
+        with get_db() as session:
+            kind = func.coalesce(MsgModel.type, MsgModel.role)
+            stmt = select(MsgModel.id, kind).where(MsgModel.conversation_id == conv_id)
+            return [tuple(row) for row in session.execute(stmt.order_by(MsgModel.timestamp, MsgModel.id))]
+
+    def get_message(self, conv_id: str, message_id: int) -> Optional[Message]:
+        with get_db() as session:
+            m = session.scalars(
+                select(MsgModel).where(MsgModel.conversation_id == conv_id, MsgModel.id == message_id)
+            ).first()
+            return model_to_message(m) if m else None
 
     def get_messages_since(self, conv_id: str, after_id: int) -> list[Message]:
         with get_db() as session:

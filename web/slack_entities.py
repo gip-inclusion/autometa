@@ -22,7 +22,7 @@ def author(email: str) -> dict:
 
 def details(conv: Conversation) -> list[dict]:
     """Ce que le volet de détails ajoute à l'objet : sa première question, sa dernière réponse, ses titres, ses tags."""
-    grouped = conversation_html.thread(conversation_html.finished(conv.id, conv.needs_response)[0])
+    grouped = conversation_html.grouping(conversation_html.finished(conv.id, conv.needs_response)[0])[0]
     question = next((parts[0][1] for kind, parts in grouped if kind == "user"), "")
     answers = ("".join(content for _, content in parts) for kind, parts in reversed(grouped) if kind == "assistant")
     answer = slack_excerpts.unfronted(next(answers, ""))

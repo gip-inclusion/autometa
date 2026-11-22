@@ -134,7 +134,7 @@
           <i class="ri-compass-3-line" aria-hidden="true"></i>
           <a href="https://autometa.inclusion.gouv.fr/rapports/309">Pensez à utiliser le guide pratique d'investigation des données pour vos problématiques data</a>
         </div>
-        <div class="chat-output" id="chatOutput" hx-disable data-last-id="{{ output.last_id }}"{% if output.running %} data-running{% endif %}{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
+        <div class="chat-output" id="chatOutput" hx-disable data-last-id="{{ output.last_id }}"{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
           {%- with blocks = output.blocks %}{% include "_conversation_blocks.html" %}{% endwith -%}
         </div>
         <div class="chat-output chat-queue" id="chatQueue" hx-disable></div>
@@ -160,7 +160,7 @@
             <!-- TOC entries will be inserted here by JS -->
           </div>
           <div class="sidebar-tab-content" id="actionsContent">
-            <!-- Pills will be inserted here by JS -->
+            {%- for pill in output.pills %}{% include "_action_pill.html" %}{% endfor -%}
           </div>
         </div>
         <div class="actions-sidebar-footer" id="actionsFooter">
@@ -380,7 +380,7 @@
     // Why: the page may have left this conversation meanwhile; the message must not land in another one.
     if (pendingMessage && installed && currentConversationId === '{{ current_conv.id }}') {
       lastUserMessage = pendingMessage;
-      await sendToAgent(pendingMessage, { bubble: appendEvent('user', { content: pendingMessage }) });
+      await sendToAgent(pendingMessage, { bubble: showPendingQuestion(pendingMessage) });
     }
     {% elif is_new %}
     // New conversation mode - prefill input if param present, then focus
