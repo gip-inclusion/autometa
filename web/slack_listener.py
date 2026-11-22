@@ -15,7 +15,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import config, slack_charts, slack_dashboards, slack_entities, slack_excerpts
+from . import config, slack_charts, slack_dashboards, slack_entities, slack_excerpts, slack_icons
 from .database import store
 from .helpers import CONV_ID, to_local, utcnow
 from .stores.records import Conversation
@@ -196,7 +196,13 @@ def post_cards(web: WebClient, target: dict, found: dict[str, dict], timed: tupl
 
 def post(web: WebClient, target: dict, found: dict[str, dict], timed: tuple) -> None:
     """Pose objets et cartes sans attendre leurs graphiques : une carte sans son image la demande au fil qui dessine."""
-    metadata = {"entities": [{"app_unfurl_url": url} | card["entity"] for url, card in found.items() if card["entity"]]}
+    metadata = {
+        "entities": [
+            {"app_unfurl_url": url} | slack_icons.with_icon(web, card["entity"])
+            for url, card in found.items()
+            if card["entity"]
+        ]
+    }
     objects, together, images, tables = len(metadata["entities"]), {}, True, True
     cards = {url: card for url, card in found.items() if not card["entity"]}
     # Why: la documentation de Slack ne dit pas qu'un appel accepte `unfurls` et `metadata` pour des adresses
@@ -319,7 +325,7 @@ def present(web: WebClient, event: dict) -> None:
         web.entity_presentDetails(trigger_id=trigger, error={"status": "not_found"})
         logger.info("Détails d'un Work Object Slack demandés pour un objet inconnu : %s", urlsplit(url).path)
         return
-    full, bare = found
+    full, bare = (slack_icons.with_icon(web, shown) for shown in found)
     try:
         web.entity_presentDetails(trigger_id=trigger, metadata=full)
         logger.info(

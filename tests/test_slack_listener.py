@@ -1283,3 +1283,22 @@ def test_the_log_of_block_cards_carries_the_times_too(mocker, monkeypatch, caplo
     slack_listener.handle(client, link_shared([permalink]))
 
     assert re.search(r"Cartes Slack posées : \[\[.*\]\] \(lecture \d+ ms, Slack \d+ ms\)", caplog.text)
+
+
+def test_objects_and_their_details_pane_carry_the_icon_of_their_kind(mocker, monkeypatch, tmp_path):
+    (tmp_path / "conversation.png").write_bytes(b"image")
+    monkeypatch.setattr(slack_listener.slack_icons, "ICONS", tmp_path)
+    monkeypatch.setattr(slack_listener.slack_icons, "files", {})
+    client, conv, _ = work_object_links(mocker, monkeypatch)
+    client.web_client.files_upload_v2.return_value = {"files": [{"id": "F0ICON"}]}
+
+    slack_listener.handle(client, link_shared([conv]))
+    slack_listener.handle(client, link_shared([conv]))
+    slack_listener.handle(client, details_requested(app_unfurl_url=conv, trigger_id="T1"))
+
+    first, second = client.web_client.chat_unfurl.call_args_list
+    icon = {"alt_text": "Conversation", "slack_file": {"id": "F0ICON"}}
+    assert "product_icon" not in first.kwargs["metadata"]["entities"][0]["entity_payload"]["attributes"]
+    assert second.kwargs["metadata"]["entities"][0]["entity_payload"]["attributes"]["product_icon"] == icon
+    pane = client.web_client.entity_presentDetails.call_args.kwargs["metadata"]
+    assert pane["entity_payload"]["attributes"]["product_icon"] == icon
