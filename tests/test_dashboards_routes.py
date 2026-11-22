@@ -237,6 +237,28 @@ def test_rechercher_omits_dashboards(client):
     assert "ZZZ-Unique-Dashboard-Title" not in r2.text
 
 
+@pytest.mark.parametrize("view", ["latest", "published"])
+@pytest.mark.parametrize(
+    ("q", "found"),
+    [
+        ("julien", True),
+        ("DUPONT", True),
+        ("gouv", False),
+        ("julien dupont", True),
+        ("orientations julien", True),
+        ("julien martin", False),
+    ],
+)
+def test_search_matches_each_word_in_title_or_author_without_the_shared_domain(client, view, q, found):
+    slug = f"by-author-{view}"
+    _make_dashboard(slug, author="julien.dupont@inclusion.gouv.fr", title="Suivi des orientations")
+    _make_publication(slug, "production", datetime.now(timezone.utc), "abc123")
+
+    r = client.get("/dashboards", params={"view": view, "q": q}, headers=_h())
+
+    assert ("Suivi des orientations" in r.text) is found
+
+
 def test_rename_dashboard(client):
     _make_dashboard("rename-me", title="Old")
     r = client.post("/api/dashboards/rename-me/rename", json={"title": "Brand New"}, headers=_h())
@@ -719,6 +741,14 @@ def test_published_view_offers_facets_and_filters_by_tag(client, mocker):
     assert "TDB Territoire" in r.text
     assert "TDB Autre" not in r.text
     assert "TDB Brouillon" not in r.text
+
+    r = client.get("/dashboards?view=published&tag=territoire&q=tdb", headers=_h())
+    assert "TDB Territoire" in r.text
+    assert "TDB Autre" not in r.text
+
+    r = client.get("/dashboards?view=published&tag=territoire&q=autre", headers=_h())
+    assert "TDB Territoire" not in r.text
+    assert "TDB Autre" not in r.text
 
 
 def test_published_view_empty_state(client):

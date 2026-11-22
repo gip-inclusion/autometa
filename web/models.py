@@ -90,6 +90,13 @@ class Message(Base):
     __table_args__ = (
         Index("idx_messages_conversation", "conversation_id"),
         Index("idx_messages_conv_id", "conversation_id", "id"),
+        Index(
+            "idx_messages_search",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+            postgresql_where=text("type IN ('user', 'assistant')"),
+        ),
     )
 
 
