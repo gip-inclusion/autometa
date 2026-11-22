@@ -50,6 +50,11 @@ def shortened(text: str, limit: int) -> str:
     return f"{text[:limit].rsplit(None, 1)[0]} …"
 
 
+def unfronted(markdown: str) -> str:
+    """Une réponse sans l'en-tête YAML qui l'ouvre parfois."""
+    return re.sub(r"\A---\n.*?\n---\n", "", markdown, flags=re.S)
+
+
 def text_block(title: str, text: str) -> list[dict]:
     """Un titre et un texte déjà lisibles en un bloc plain_text, que Slack ne lit pas ; aucun s'ils sont vides."""
     shown = "\n".join(part for part in (shortened(title, 150), text) if part)
@@ -199,7 +204,7 @@ def excerpt(conv: Conversation, message_id: int | None, anchor_name: str | None)
     if not parts:
         return []
     joined = "".join(content for _, content in parts)
-    text = re.sub(r"\A---\n.*?\n---\n", "", joined, flags=re.S)
+    text = unfronted(joined)
     named = permalinks.ANCHOR_NAME.fullmatch(anchor_name or "")
     if not named:
         return text_blocks("", text)

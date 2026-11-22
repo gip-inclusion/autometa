@@ -244,11 +244,29 @@ def present(web: WebClient, event: dict) -> None:
         logger.warning("Détails d'un Work Object Slack demandés sans adresse de cette instance, ignorés")
         return
     conv = store.get_conversation(conv_id, include_messages=False)
-    if conv:
-        web.entity_presentDetails(trigger_id=trigger, metadata=slack_entities.entity(url, conv))
-    else:
+    if not conv:
         web.entity_presentDetails(trigger_id=trigger, error={"status": "not_found"})
         logger.info("Détails d'un Work Object Slack demandés pour une conversation inconnue : %s", conv_id)
+        return
+    try:
+        details = slack_entities.details(conv)
+    except LookupError, ValueError, TypeError, AttributeError, RecursionError:
+        # Why: une conversation que le volet ne sait pas lire garde son volet, réduit à ce que l'objet dit déjà.
+        logger.exception("Détails Slack impossibles pour la conversation %s, volet sans eux", conv_id)
+        details = []
+    try:
+        web.entity_presentDetails(trigger_id=trigger, metadata=slack_entities.entity(url, conv, details))
+        logger.info("Volet de détails Slack rempli : %s", [field["key"] for field in details])
+    except SlackApiError as error:
+        if not details:
+            raise
+        # Why: la documentation de Slack ne borne pas un champ long ; refusé avec eux, le volet garde l'objet seul.
+        logger.warning(
+            "Volet de détails Slack refusé avec ses champs, rempli sans eux : %s %s",
+            error.response.get("error"),
+            error.response.get("response_metadata"),
+        )
+        web.entity_presentDetails(trigger_id=trigger, metadata=slack_entities.entity(url, conv))
 
 
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
