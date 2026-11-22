@@ -275,10 +275,9 @@ def test_once_locked_the_mentions_of_others_leave_the_queue_and_the_owners_stay(
     store.start_turn(conv_id, "q0", ALICE)
     store.queue_message(conv_id, "de Bob", slack=thread("a"), author=BOB, slack_user="U2")
     store.queue_message(conv_id, "d'Alice par Slack", slack=thread("b"), author=ALICE, slack_user="U1")
-    store.queue_message(conv_id, "d'Alice sur le site")
-
     assert store.turned_away(conv_id) == []
-    store.update_conversation(conv_id, slack_locked=True)
+
+    store.queue_message(conv_id, "d'Alice sur le site")
     away = store.turned_away(conv_id)
 
     assert [(e["content"], e["slack_user"]) for e in away] == [("de Bob", "U2")]
@@ -411,3 +410,67 @@ def test_a_person_owns_conversations_whatever_the_case_of_their_address():
 
     assert store.owns_conversations("Alice@Example.com") is True
     assert store.owns_conversations("personne@example.com") is False
+
+
+def test_once_locked_the_mention_of_another_person_neither_waits_nor_starts_nor_gets_a_turn():
+    conv_id, _ = store.slack_thread_conversation("C0SHUT", f"{uuid.uuid4().int % 10**10}.000100", ALICE)
+    store.start_turn(conv_id, "q0", ALICE)
+    store.queue_message(conv_id, "de Bob, avant le verrou", slack=thread("a"), author=BOB, slack_user="U2")
+    store.update_conversation(conv_id, slack_locked=True)
+
+    assert store.queue_message(conv_id, "de Bob", slack=thread("b"), author=BOB, slack_user="U2") is None
+    assert store.queue_message(conv_id, "d'Alice", slack=thread("c"), author="Alice@Example.com") is not None
+    assert store.end_turn(conv_id, flush=True)[-1].content.split("\n")[-2] == "d'Alice"
+    store.end_turn(conv_id, flush=False)
+
+    assert store.next_turn(conv_id) is None
+    assert store.start_turn(conv_id, "de Bob", BOB) is None
+    assert store.start_turn(conv_id, "d'Alice", ALICE) is not None
+
+
+def test_the_owner_writing_from_the_site_locks_a_conversation_from_slack_only_when_the_message_is_taken():
+    conv_id, _ = store.slack_thread_conversation("C0TAKEN", f"{uuid.uuid4().int % 10**10}.000100", ALICE)
+    store.start_turn(conv_id, "q0", BOB)
+
+    assert store.start_turn(conv_id, "refusé, un tour tourne") is None
+    assert store.get_conversation(conv_id).slack_locked is False
+    assert store.queue_message(conv_id, "du site, en attente") is not None
+    assert store.get_conversation(conv_id).slack_locked is True
+
+    other, _ = store.slack_thread_conversation("C0TAKEN", f"{uuid.uuid4().int % 10**10}.000100", ALICE)
+    store.start_turn(other, "par Slack", ALICE)
+    store.end_turn(other, flush=False)
+    assert store.get_conversation(other).slack_locked is False
+    store.start_turn(other, "du site")
+    assert store.get_conversation(other).slack_locked is True
+    page = make_conversation(running=False)
+    store.start_turn(page.id, "q")
+    assert store.get_conversation(page.id).slack_locked is False
+
+
+def test_queueing_gives_the_page_its_own_messages_never_a_mention_waiting_from_slack():
+    conv = make_conversation()
+    store.queue_message(conv.id, "de Bob", slack=thread("a"), author=BOB, slack_user="U2")
+
+    assert [e["content"] for e in store.queue_message(conv.id, "du site")] == ["du site"]
+    assert store.queue_message(conv.id, "de Bob encore", slack=thread("b"), author=BOB, slack_user="U2") == [
+        e for e in store.pending_messages(conv.id) if not e.get("slack")
+    ]
+
+
+def test_a_person_from_slack_is_written_as_the_site_already_writes_them():
+    spelled = f"Zoe.{uuid.uuid4().hex[:6]}@Example.com"
+    store.create_conversation(user_id=spelled)
+
+    assert store.owner_spelling(spelled.lower()) == spelled
+    assert store.owner_spelling("inconnue@example.com") == "inconnue@example.com"
+
+
+def test_only_conversations_with_a_living_message_or_requests_really_waiting_are_followed_again():
+    conv_id, _ = store.slack_thread_conversation("C0WAIT", f"{uuid.uuid4().int % 10**10}.000100", ALICE)
+    store.start_turn(conv_id, "q0", ALICE)
+    store.queue_message(conv_id, "du site")
+    store.end_turn(conv_id, flush=False)
+
+    assert store.pending_messages(conv_id)[0]["status"] == "returned"
+    assert conv_id not in store.slack_live_conversations()

@@ -162,7 +162,7 @@ def slack_conversation(running: bool = True):
     return conv_id
 
 
-def test_writing_from_the_site_in_a_conversation_from_slack_locks_it_for_others_once(client, runner):
+def test_writing_from_the_site_in_a_conversation_from_slack_locks_it_once_the_message_is_taken(client, runner):
     conv_id = slack_conversation(running=False)
 
     first = client.post(f"/api/conversations/{conv_id}/messages", headers=headers(), json={"content": "du site"})
@@ -170,7 +170,41 @@ def test_writing_from_the_site_in_a_conversation_from_slack_locks_it_for_others_
     assert first.status_code == 200
     assert store.get_conversation(conv_id).slack_locked is True
     runner.notify.assert_awaited_once_with(conv_id, "queue")
-    assert store.get_conversation(store.create_conversation(user_id=ALICE).id).slack_locked is False
+
+
+def test_a_message_the_site_refuses_does_not_lock_a_conversation_from_slack(client, runner):
+    conv_id = slack_conversation()
+
+    refused = client.post(f"/api/conversations/{conv_id}/messages", headers=headers(), json={"content": "du site"})
+    missing = client.post(f"/api/conversations/{conv_id}/messages", headers=headers(), json={})
+
+    assert (refused.status_code, missing.status_code) == (409, 400)
+    assert store.get_conversation(conv_id).slack_locked is False
+
+
+def test_queueing_from_the_site_answers_with_the_site_messages_and_counts_only_them(client, runner):
+    conv_id = slack_conversation()
+    store.queue_message(conv_id, "x" * 19_000, slack="{}", author=BOB, slack_user="U2")
+
+    queued = send_later(client, conv_id, "y" * 5_000)
+
+    assert queued.status_code == 200
+    assert [len(e["content"]) for e in queued.json()["queue"]] == [5_000]
+    assert "slack" not in str(queued.json())
+
+
+def test_a_conversation_from_slack_is_not_relaunched_even_by_an_admin(client, runner, mocker):
+    mocker.patch("web.routes.conversations.config.ADMIN_USERS", [ALICE])
+    conv_id = slack_conversation(running=False)
+    store.start_turn(conv_id, "de Bob", BOB)
+    store.end_turn(conv_id, flush=False)
+
+    relaunched = client.post(f"/api/conversations/{conv_id}/relaunch", headers=headers())
+
+    assert relaunched.status_code == 409
+    assert "venue de Slack ne se relance pas" in relaunched.json()["error"]
+    runner.submit.assert_not_awaited()
+    assert store.get_conversation(conv_id).needs_response is False
 
 
 def test_the_page_of_a_conversation_from_slack_never_shows_or_hands_back_the_mentions_waiting(client, runner, mocker):

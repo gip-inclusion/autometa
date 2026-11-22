@@ -78,9 +78,9 @@ def test_a_slack_context_without_messages_or_that_cannot_be_read_shows_nothing(c
 
 
 def test_a_slack_context_says_what_it_did_not_take():
-    content = json.dumps({"messages": [], "note": "Canal privé.", "left_out": "1 message d'invités non repris"})
+    content = json.dumps({"messages": [], "note": "Canal privé.", "left_out": 1})
 
     html = str(conversation_html.thread(CONV, [(1, "user", "Q"), (2, "slack_context", content)])["blocks"][1]["html"])
 
     assert "Contexte du fil Slack · 0 message<" in html
-    assert "<em>Canal privé. 1 message d&#39;invités non repris</em>" in html
+    assert "<em>Canal privé. 1 message d&#39;invités ou de personnes extérieures non repris</em>" in html

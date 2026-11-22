@@ -114,7 +114,7 @@ def test_a_turn_that_failed_or_was_stopped_says_so_whatever_the_agent_had_writte
     web, conv_id, question = started(mocker, world)
     answered(world, conv_id, *spoken)
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     final = web.chat_update.call_args.kwargs
     assert final["text"] == "La demande n'a pas abouti."
@@ -125,7 +125,7 @@ def test_the_complexity_alert_is_neither_the_answer_nor_glued_to_it(mocker, worl
     web, conv_id, question = started(mocker, world)
     answered(world, conv_id, ("assistant", "La vraie réponse."), ("assistant", complexity.ALERT_MESSAGE))
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     assert web.chat_update.call_args.kwargs["blocks"][0]["text"]["text"] == "La vraie réponse."
 
@@ -134,7 +134,7 @@ def test_an_answer_that_merely_starts_with_italics_is_an_answer(mocker, world):
     web, conv_id, question = started(mocker, world)
     answered(world, conv_id, ("assistant", "*Interrompu* n'est pas le mot : voici la réponse."))
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     assert web.chat_update.call_args.kwargs["text"].startswith("Interrompu n'est pas le mot")
 
@@ -143,7 +143,7 @@ def test_nothing_the_agent_wrote_is_read_by_slack(mocker, world):
     web, conv_id, question = started(mocker, world)
     answered(world, conv_id, ("assistant", "<!channel> @here <https://evil.example|ici> *gras* `code`\n"))
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     final = web.chat_update.call_args.kwargs
     assert [block["text"]["type"] for block in final["blocks"][:-1]] == ["plain_text"]
@@ -154,7 +154,7 @@ def test_an_answer_too_long_for_a_message_is_cut_and_says_where_the_rest_is(mock
     web, conv_id, question = started(mocker, world)
     answered(world, conv_id, ("assistant", "phrase assez longue. " * 2000))
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     blocks = web.chat_update.call_args.kwargs["blocks"]
     assert blocks[-2]["text"]["text"] == "… suite dans Autometa"
@@ -166,7 +166,7 @@ def test_a_table_slack_refuses_is_posted_again_in_monospace(mocker, world):
     answered(world, conv_id, ("assistant", "Voici.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"))
     web.chat_update.side_effect = [refused(mocker, "invalid_blocks"), None]
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     first, second = web.chat_update.call_args_list
     assert [block["type"] for block in first.kwargs["blocks"]] == ["section", "table", "context"]
@@ -178,9 +178,9 @@ def test_a_rate_limited_final_answer_waits_as_slack_asks_then_goes_in_the_same_f
     answered(world, conv_id, ("assistant", "Voici.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"))
     web.chat_update.side_effect = [refused(mocker, "ratelimited", "7"), refused(mocker, "ratelimited"), None]
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
-    assert [call.args[0] for call in slack_ask.time.sleep.call_args_list] == [7, 5]
+    assert [call.args[0] for call in slack_ask.asyncio.sleep.await_args_list] == [7, 5]
     kinds = [[block["type"] for block in call.kwargs["blocks"]] for call in web.chat_update.call_args_list]
     assert kinds == [["section", "table", "context"]] * 3
     assert world.store.get_conversation(conv_id).slack_message_ts is None
@@ -191,7 +191,7 @@ def test_a_final_answer_slack_keeps_rate_limiting_is_never_dropped_and_stays_to_
     answered(world, conv_id, ("assistant", "Réponse."))
     web.chat_update.side_effect = refused(mocker, "ratelimited", "60")
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     assert world.store.get_conversation(conv_id).slack_message_ts == LIVE
     assert conv_id in world.store.slack_live_conversations()
@@ -203,7 +203,7 @@ def test_slack_unreachable_at_the_end_is_tried_again_then_given_up_with_a_log_li
     answered(world, conv_id, ("assistant", "Réponse."))
     web.chat_update.side_effect = OSError("réseau")
 
-    slack_ask.finish(web, conv_id, question)
+    asyncio.run(slack_ask.finish(web, conv_id, question))
 
     assert web.chat_update.call_count == 2
     assert f"Réponse de la conversation {conv_id} abandonnée dans Slack" in caplog.text
@@ -435,14 +435,70 @@ def test_once_the_owner_writes_from_the_site_the_mentions_others_had_waiting_are
     world.runner.submit.assert_not_awaited()
 
 
-def test_a_request_whose_turn_cannot_be_submitted_gives_its_turn_back(mocker, world):
+def test_a_request_whose_turn_cannot_be_submitted_gives_its_turn_back_and_is_said_not_to_have_left(mocker, world):
     world.store.owners = {"louis@ailleurs.example"}
     web, conv_id, _ = started(mocker, world)
     slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100"})
     world.runner.submit.side_effect = ConnectionError("redis")
 
-    with pytest.raises(ConnectionError):
-        followed(world, web, conv_id, lambda: answered(world, conv_id, ("assistant", "ok"), flush=True) and None)
+    followed(world, web, conv_id, lambda: answered(world, conv_id, ("assistant", "ok"), flush=True) and None)
 
     assert world.store.get_conversation(conv_id).needs_response is False
     assert slack_ask.following == {}
+    assert any("Redemandez-moi" in call.kwargs["text"] for call in web.chat_postMessage.call_args_list)
+    assert texts(web)[-1] == "La demande n'a pas abouti."
+
+
+def test_a_failure_while_opening_the_next_turn_does_not_stop_the_follower(mocker, world, caplog):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": "de Louis"})
+    real, calls = world.store.next_turn, []
+
+    def flaky(conv):
+        calls.append(conv)
+        if len(calls) == 1:
+            raise slack_ask.SQLAlchemyError("base")
+        return real(conv)
+
+    mocker.patch.object(world.store, "next_turn", side_effect=flaky)
+    first = lambda: answered(world, conv_id, ("assistant", "ok"), flush=True) and None  # noqa: E731
+    second = lambda: answered(world, conv_id, ("assistant", "Réponse à Louis.")) and None  # noqa: E731
+
+    followed(world, web, conv_id, first, second)
+
+    assert "panne, nouvel essai dans 10 s" in caplog.text
+    assert texts(web)[-1] == "Réponse à Louis."
+    world.runner.submit.assert_awaited_once()
+
+
+def test_the_final_answer_waits_in_the_coroutine_and_keeps_the_followers_lock_alive(mocker, world):
+    web, conv_id, question = started(mocker, world)
+    answered(world, conv_id, ("assistant", "Réponse."))
+    web.chat_update.side_effect = [refused(mocker, "ratelimited", "30"), refused(mocker, "ratelimited", "30"), None]
+    renew = mocker.AsyncMock()
+
+    asyncio.run(slack_ask.finish(web, conv_id, question, renew))
+
+    assert renew.await_count == 3
+    assert [call.args[0] for call in slack_ask.asyncio.sleep.await_args_list] == [30, 30]
+    slack_ask.time.sleep.assert_not_called()
+
+
+def test_every_minute_conversations_waiting_without_a_follower_get_one(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": "de Louis"})
+    answered(world, conv_id, ("assistant", "Réponse à Camille."), flush=True)
+
+    class Stop(BaseException):
+        """Arrête la ronde, que rien d'autre ne termine."""
+
+    async def round_then_stop():
+        slack_ask.asyncio.sleep.side_effect = [None, Stop()]
+        try:
+            await slack_ask.sweep(web)
+        except Stop:
+            return list(slack_ask.following)
+
+    assert asyncio.run(round_then_stop()) == [conv_id]

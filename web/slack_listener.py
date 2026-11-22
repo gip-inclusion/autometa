@@ -393,5 +393,6 @@ def start(loop: asyncio.AbstractEventLoop | None = None) -> SocketModeClient | N
     slack_ask.workspace["loop"] = loop
     if loop:
         loop.create_task(slack_ask.recover(client.web_client)).add_done_callback(slack_ask.reported)
+        loop.create_task(slack_ask.sweep(client.web_client)).add_done_callback(slack_ask.reported)
     threading.Thread(target=connect, args=(client,), daemon=True, name="slack-listener").start()
     return client

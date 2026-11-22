@@ -12,6 +12,7 @@ from lib import permalinks
 from lib.answer_html import Link, render_answer, render_user
 from web import conversation_actions
 from web.database import store
+from web.slack_context import left_out
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +223,8 @@ def slack_context(content: str) -> Markup:
         )
         for m in messages
     )
-    said = " ".join(part for part in (read.get("note"), read.get("left_out")) if part)
+    away = read.get("left_out")
+    said = " ".join(part for part in (read.get("note"), left_out(away if isinstance(away, int) else 0)) if part)
     # Why: une demande sans fil garde son message, qui dit jusqu'où le fil a été lu ; la page n'en montre rien.
     if not messages and not said:
         return Markup("")

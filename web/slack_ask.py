@@ -60,6 +60,11 @@ def introduce(web: WebClient) -> None:
     workspace.update(url=known.get("url") or "", bot=known.get("user_id") or "", bot_id=known.get("bot_id") or "")
 
 
+def one_line(name: str | None) -> str:
+    """Un nom que choisit une personne ou une application, sur une seule ligne : il ne peut pas en ouvrir une autre."""
+    return " ".join((name or "").split())[:80]
+
+
 def person(web: WebClient, user_id: str) -> dict:
     """Le nom d'un membre de Slack, son adresse, s'il est invité ou extérieur, et s'il est membre à part entière."""
     known = people.get(user_id)
@@ -74,7 +79,8 @@ def person(web: WebClient, user_id: str) -> dict:
     people[user_id] = (
         time.monotonic() + 600,
         {
-            "name": profile.get("display_name") or user.get("real_name") or profile.get("real_name") or "Quelqu'un",
+            "name": one_line(profile.get("display_name") or user.get("real_name") or profile.get("real_name"))
+            or "Quelqu'un",
             "email": (profile.get("email") or "").lower(),
             "guest": guest,
             "member": not (guest or user.get("is_bot") or user.get("deleted")),
@@ -123,7 +129,7 @@ def said_by(web: WebClient, message: dict) -> dict | None:
     if message.get("bot_id") or message.get("app") or not message.get("user"):
         # Why: une alerte ou un message d'intégration compte dans le fil, donné pour ce qu'il est.
         name = message.get("app") or (message.get("bot_profile") or {}).get("name") or message.get("username")
-        who = {"name": f"Application {name}" if name else "Une application", "guest": False}
+        who = {"name": f"Application {one_line(name)}" if one_line(name) else "Une application", "guest": False}
     else:
         try:
             who = person(web, message["user"])
@@ -234,29 +240,39 @@ def retry_after(error: SlackApiError) -> int:
     return min(int(asked), 60) if asked.isdigit() else 5
 
 
-def finish(web: WebClient, conv_id: str, question_id: int) -> None:
+async def unhurried() -> None:
+    """Le suivi sans verrou à prolonger."""
+
+
+async def finish(web: WebClient, conv_id: str, question_id: int, renew=unhurried) -> None:
     """Fait du message du bot la réponse finale du tour, sous la première forme que Slack accepte."""
-    conv = store.get_conversation(conv_id, include_messages=False)
+    conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
     if not conv or not conv.slack_message_ts:
         return
-    said, blocks = answer(conv_id, question_id)
+    said, blocks = await asyncio.to_thread(answer, conv_id, question_id)
     charts = [block["source"] for block in blocks if block["type"] == "chart"]
+    fresh = [await asyncio.to_thread(slack_charts.deposit, web, source) for source in charts]
     # Why: Slack refuse quelques secondes l'image d'un fichier qu'il vient de recevoir.
-    if config.SLACK_CHART_IMAGES and any([slack_charts.deposit(web, source) for source in charts]):
-        time.sleep(4)
+    if config.SLACK_CHART_IMAGES and any(fresh):
+        await asyncio.sleep(4)
     forms, waited, unreachable = [(True, True), (True, False), (False, False)], 0, 0
     while forms:
         images, tables = forms[0]
         shown = slack_excerpts.with_tables(slack_charts.shown(blocks, images), tables)
+        # Why: seul l'appel à Slack occupe un fil ; les attentes se passent ici, verrou du suivi prolongé, pour
+        # qu'une limite de débit de tout l'espace ne retienne pas un fil par conversation.
+        await renew()
         try:
-            web.chat_update(channel=conv.slack_channel, ts=conv.slack_message_ts, text=said, blocks=shown)
+            await asyncio.to_thread(
+                web.chat_update, channel=conv.slack_channel, ts=conv.slack_message_ts, text=said, blocks=shown
+            )
             break
         except SlackApiError as error:
             wait = retry_after(error)
             if wait and waited < 300:
                 # Why: une limite de débit n'est pas un refus de la forme ; la même repart après le délai demandé.
                 waited += wait
-                time.sleep(wait)
+                await asyncio.sleep(wait)
                 continue
             if wait:
                 # Why: jamais de réponse perdue pour une limite : le message reste à compléter, au prochain démarrage.
@@ -272,11 +288,11 @@ def finish(web: WebClient, conv_id: str, question_id: int) -> None:
             if unreachable > 1:
                 forms = []
             else:
-                time.sleep(5)
+                await asyncio.sleep(5)
     if not forms:
         logger.warning("Réponse de la conversation %s abandonnée dans Slack", conv_id)
     # Why: une mention arrivée pendant l'envoi a pu poser son propre message ; seul celui qu'on vient de compléter s'oublie.
-    store.clear_slack_message(conv_id, conv.slack_message_ts)
+    await asyncio.to_thread(store.clear_slack_message, conv_id, conv.slack_message_ts)
 
 
 def open_live(web: WebClient, conv_id: str, note: str = "") -> None:
@@ -303,21 +319,21 @@ def say(web: WebClient, conv: Conversation, verb: str, note: str) -> int:
     return 0
 
 
-def moved_on(web: WebClient, conv_id: str, question_id: int, latest: int) -> None:
+async def moved_on(web: WebClient, conv_id: str, question_id: int, latest: int, renew=unhurried) -> None:
     """Un tour a succédé à celui qu'on suivait : celui-ci a sa réponse ; le suivant son message s'il vient de Slack."""
-    finish(web, conv_id, question_id)
+    await finish(web, conv_id, question_id, renew)
     # Why: un message écrit sur la page pendant un tour venu de Slack a sa réponse sur la page, pas dans le fil.
-    if not store.slack_contexts(conv_id, latest):
+    if not await asyncio.to_thread(store.slack_contexts, conv_id, latest):
         return
     try:
-        open_live(web, conv_id, turn_note(conv_id, latest))
+        await asyncio.to_thread(open_live, web, conv_id, await asyncio.to_thread(turn_note, conv_id, latest))
     except SlackApiError as error:
         logger.warning("Message Slack du tour suivant non posé : %s", error.response.get("error"))
     except (SlackClientError, OSError) as error:
         logger.warning("Message Slack du tour suivant non posé, Slack injoignable : %s", error)
 
 
-async def begun_next(web: WebClient, conv_id: str, question_id: int, started: tuple) -> None:
+async def begun_next(web: WebClient, conv_id: str, question_id: int, started: tuple, renew=unhurried) -> None:
     """Lance le tour qui vient de s'ouvrir pour la première personne en attente, au nom de celle-ci."""
     latest, asked, author, _ = started
     submitted = False
@@ -326,9 +342,11 @@ async def begun_next(web: WebClient, conv_id: str, question_id: int, started: tu
         submitted = True
     finally:
         if not submitted:
-            # Why: le tour est déjà réservé ; sans lui, la conversation resterait bloquée en cours.
+            # Why: le tour est déjà réservé ; sans lui, la conversation resterait bloquée en cours. Les demandes
+            # ont quitté la file sans partir : le fil le dit.
             await asyncio.to_thread(store.end_turn, conv_id, False)
-    await asyncio.to_thread(moved_on, web, conv_id, question_id, latest)
+            await asyncio.to_thread(not_left, web, conv_id)
+    await moved_on(web, conv_id, question_id, latest, renew)
 
 
 def turn_away(web: WebClient, conv: Conversation) -> None:
@@ -366,38 +384,40 @@ async def watch(web: WebClient, conv_id: str, renew) -> None:
             try:
                 conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
                 latest = await asyncio.to_thread(store.last_user_message_id, conv_id)
-            except SQLAlchemyError as error:
-                logger.warning("Suivi Slack de %s : base illisible, nouvel essai : %s", conv_id, error)
+                if not conv:
+                    # Why: une conversation supprimée pendant son tour ne laisse pas son message sur un verbe.
+                    if where:
+                        await asyncio.to_thread(orphaned, web, *where)
+                    return
+                where = (conv.slack_channel, conv.slack_message_ts) if conv.slack_message_ts else where
+                if conv.slack_locked:
+                    await asyncio.to_thread(turn_away, web, conv)
+                # Why: l'état en base fait foi, pas le signal reçu : un signal peut manquer, ou dater d'un tour passé.
+                if latest != question:
+                    await moved_on(web, conv_id, question, latest, renew)
+                    question, note = latest, await asyncio.to_thread(turn_note, conv_id, latest)
+                    continue
+                if not conv.needs_response:
+                    # Why: les demandes d'une autre personne que celle du tour fini attendent encore ; le serveur
+                    # ne les relance pas lui-même, leur tour s'ouvre ici, à leur nom.
+                    started = await asyncio.to_thread(store.next_turn, conv_id)
+                    if not started:
+                        break
+                    await begun_next(web, conv_id, question, started, renew)
+                    question, note = started[0], await asyncio.to_thread(turn_note, conv_id, started[0])
+                    continue
+                moved = heard is not None and heard["data"] == "update"
+                if moved and conv.slack_message_ts and time.monotonic() - changed >= 4 and time.monotonic() >= quiet:
+                    # Why: le verbe ne change que si l'agent avance, pas plus d'une fois toutes les 4 secondes, et
+                    # jamais tant que Slack demande d'attendre : ce débit doit rester à la réponse finale.
+                    changed, verb = time.monotonic(), random.choice([v for v in VERBS if v != verb])
+                    quiet = time.monotonic() + await asyncio.to_thread(say, web, conv, verb, note)
+            except (SQLAlchemyError, RedisError, SlackApiError, SlackClientError, OSError) as error:
+                # Why: des demandes attendent que ce suivi ouvre leur tour ; une panne de la base, de Redis ou de
+                # Slack ne doit pas l'arrêter, il reprend là où l'état de la conversation en est.
+                logger.warning("Suivi Slack de %s : panne, nouvel essai dans 10 s : %s", conv_id, error)
                 await asyncio.sleep(10)
                 continue
-            if not conv:
-                # Why: une conversation supprimée pendant son tour ne laisse pas son message sur un verbe.
-                if where:
-                    await asyncio.to_thread(orphaned, web, *where)
-                return
-            where = (conv.slack_channel, conv.slack_message_ts) if conv.slack_message_ts else where
-            # Why: l'état en base fait foi, pas le signal reçu : un signal peut manquer, ou dater d'un tour passé.
-            if latest != question:
-                await asyncio.to_thread(moved_on, web, conv_id, question, latest)
-                question, note = latest, await asyncio.to_thread(turn_note, conv_id, latest)
-                continue
-            if conv.slack_locked:
-                await asyncio.to_thread(turn_away, web, conv)
-            if not conv.needs_response:
-                # Why: les demandes d'une autre personne que celle du tour fini attendent encore ; le serveur ne
-                # les relance pas lui-même, leur tour s'ouvre ici, à leur nom.
-                started = await asyncio.to_thread(store.next_turn, conv_id)
-                if not started:
-                    break
-                await begun_next(web, conv_id, question, started)
-                question, note = started[0], await asyncio.to_thread(turn_note, conv_id, started[0])
-                continue
-            moved = heard is not None and heard["data"] == "update"
-            if moved and conv.slack_message_ts and time.monotonic() - changed >= 4 and time.monotonic() >= quiet:
-                # Why: le verbe ne change que si l'agent avance, pas plus d'une fois toutes les 4 secondes, et
-                # jamais tant que Slack demande d'attendre : ce débit doit rester à la réponse finale.
-                changed, verb = time.monotonic(), random.choice([v for v in VERBS if v != verb])
-                quiet = time.monotonic() + await asyncio.to_thread(say, web, conv, verb, note)
             await renew()
             try:
                 if pubsub:
@@ -414,7 +434,7 @@ async def watch(web: WebClient, conv_id: str, renew) -> None:
                 await pubsub.aclose()
             except (RedisError, OSError) as error:
                 logger.info("Abonnement Slack de %s non fermé : %s", conv_id, error)
-    await asyncio.to_thread(finish, web, conv_id, question)
+    await finish(web, conv_id, question, renew)
     await asyncio.to_thread(give_back, web, conv_id)
 
 
@@ -464,6 +484,11 @@ def give_back(web: WebClient, conv_id: str) -> None:
         return
     for entry in left:
         store.take_queued(conv_id, entry["id"], slack=True)
+    not_left(web, conv_id)
+
+
+def not_left(web: WebClient, conv_id: str) -> None:
+    """Dit dans le fil que des demandes ne sont pas parties, pour qu'on les redemande."""
     conv = store.get_conversation(conv_id, include_messages=False)
     said = "Les demandes arrivées entre-temps ne sont pas parties : la réponse en cours n'a pas abouti. Redemandez-moi."
     try:
@@ -487,6 +512,21 @@ async def recover(web: WebClient) -> None:
         if conv_id not in following:
             following[conv_id] = asyncio.get_running_loop().create_task(follow(web, conv_id))
             following[conv_id].add_done_callback(reported)
+
+
+async def sweep(web: WebClient) -> None:
+    """Chaque minute, reprend le suivi des conversations qui attendent sans que personne ne les suive."""
+    # Why: après le tour d'une autre personne, le message en attente de la propriétaire ou la mention d'un tiers ne
+    # partent que si un suivi ouvre leur tour ; un suivi arrêté ne doit laisser personne attendre un redémarrage.
+    while True:
+        await asyncio.sleep(60)
+        try:
+            for conv_id in await asyncio.to_thread(store.slack_live_conversations):
+                if conv_id not in following:
+                    following[conv_id] = asyncio.get_running_loop().create_task(follow(web, conv_id))
+                    following[conv_id].add_done_callback(reported)
+        except SQLAlchemyError as error:
+            logger.warning("Conversations Slack en attente non relues : %s", error)
 
 
 def whisper(web: WebClient, channel: str, user: str, thread_ts: str | None, said: str) -> None:
@@ -535,21 +575,21 @@ def thread_of(web: WebClient, event: dict, conv_id: str | None, shared: bool) ->
         notes += (
             ["Le message choisi, trop long, n'a été repris qu'en partie."] if chosen.get("cut") and not whole else []
         )
-    plural = "s" if left_out > 1 else ""
-    left = f"{left_out} message{plural} d'invités ou de personnes extérieures non repris" if left_out else ""
     note = " ".join(part for part in notes if part)
-    return json.dumps({"messages": messages, "note": note, "left_out": left, "through": through}, ensure_ascii=False)
+    return json.dumps(
+        {"messages": messages, "note": note, "left_out": int(left_out), "through": through}, ensure_ascii=False
+    )
 
 
-def attached(conv_id: str, kept: str, email: str) -> tuple[str, str]:
+def attached(conv_id: str, kept: str, email: str, waiting: list[str]) -> tuple[str, str]:
     """Le fil d'une demande, joint en fichier à la question quand il est long : le fil retenu, et l'annonce du fichier."""
     read = json.loads(kept)
-    lines = slack_context.quoted(read["messages"])
-    # Why: en deçà, le fil tient dans la demande ; au-delà, elle dépasserait ce qu'une question et la commande de
-    # l'agent acceptent. Le fichier porte le fil entier, sous le même avertissement que dans la demande.
-    if sum(len(line) + 1 for line in lines) <= 12_000:
+    # Why: les mentions déjà en attente partiront avec celle-ci, leurs fils réunis ; c'est leur somme qui doit
+    # tenir dans la demande. Au-delà, le fichier porte le fil entier, sous le même avertissement que la demande.
+    whole = [*(m for held in waiting for m in json.loads(held).get("messages") or []), *read["messages"]]
+    if slack_context.size(whole) <= 12_000:
         return kept, ""
-    text = "\n".join([slack_context.HEAD, *lines]).encode()
+    text = "\n".join([slack_context.HEAD, *slack_context.quoted(whole)]).encode()
     if len(text) > 5_000_000:
         raise ValueError("fil trop volumineux")
     try:
@@ -584,23 +624,24 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
         return None
     kept = thread_of(web, event, existing, public(web, channel, event.get("channel_type")))
     request = readable(web, said.replace(f"<@{workspace['bot']}>", "")).strip() or "(demande sans texte)"
-    conv_id, created = (
-        (existing, False) if existing else store.slack_thread_conversation(channel, thread_ts, who["email"])
-    )
+    # Why: le site reconnaît la propriétaire d'une conversation à l'adresse exacte que lui donne son proxy ; la
+    # personne garde ici l'écriture que le site lui connaît déjà.
+    identity = store.owner_spelling(who["email"])
+    conv_id, created = (existing, False) if existing else store.slack_thread_conversation(channel, thread_ts, identity)
     conv = store.get_conversation(conv_id, include_messages=False)
+    waiting = [e for e in conv.pending_messages if e["status"] == "waiting"]
     # Why: une relance d'une autre personne entre dans la conversation de la première sous son nom et son adresse,
     # que Slack certifie, pas sous un nom d'affichage qu'elle choisit.
     shown = request if who["email"] == (conv.user_id or "").lower() else f"{who['name']} ({who['email']}) : {request}"
     try:
-        kept, block = attached(conv_id, kept, who["email"])
+        kept, block = attached(conv_id, kept, identity, [e["slack"] for e in waiting if e.get("slack")])
     except ValueError:
         whisper(web, channel, asker, thread_ts, "Ce fil dépasse 5 Mo : je ne peux pas le reprendre.")
         if created:
             store.delete_conversation(conv_id)
         return None
     content = f"{block}\n\n---\n\n{shown}" if block else shown
-    waiting = [e for e in conv.pending_messages if e["status"] == "waiting"]
-    mention = {"slack": kept, "author": who["email"], "slack_user": asker}
+    mention = {"slack": kept, "author": identity, "slack_user": asker}
     # Why: une demande n'en double pas d'autres : elle attend derrière le tour en cours et celles qui attendent.
     queued = None
     if conv.needs_response or waiting:
@@ -609,16 +650,18 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
             whisper(web, channel, asker, thread_ts, "Trop de demandes attendent déjà la fin de la réponse en cours.")
             return None
         queued = store.queue_message(conv_id, content, **mention)
-    if queued is None and store.start_turn(conv_id, content, who["email"]) is None:
+    if queued is None and store.start_turn(conv_id, content, identity) is None:
         # Why: un tour vient de s'ouvrir entre les deux ; la demande attend sa fin.
         queued = store.queue_message(conv_id, content, **mention)
         if queued is None:
-            whisper(web, channel, asker, thread_ts, "Je n'ai pas pu prendre votre demande : redemandez-moi.")
+            # Why: la propriétaire a pu écrire depuis le site entre-temps ; le magasin refuse alors sous son verrou.
+            locked = store.get_conversation(conv_id, include_messages=False).slack_locked
+            sorry = "Je n'ai pas pu prendre votre demande : redemandez-moi."
+            whisper(web, channel, asker, thread_ts, LOCKED.format(config.BASE_URL, conv_id) if locked else sorry)
             return None
     if queued is not None:
         whisper(web, channel, asker, thread_ts, "Autometa finit sa réponse en cours, puis prendra votre demande.")
-        return conv_id, None, who["email"]
-    store.add_message(conv_id, "slack_context", kept)
+        return conv_id, None, identity
     note = json.loads(kept)["note"]
     try:
         try:
@@ -639,11 +682,14 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
         else:
             whisper(web, channel, asker, None, "Je ne peux plus écrire dans ce fil : votre demande n'est pas partie.")
         raise
+    # Why: le fil n'est tenu pour lu jusqu'ici qu'une fois la demande vraiment entrée dans la conversation ; une
+    # demande qui n'a pas pu partir laisse la suivante reprendre le fil d'où il en était.
+    store.add_message(conv_id, "slack_context", kept)
     if created:
         generate_conversation_title(request, conv_id)
         generate_conversation_tags(request, conv_id)
     # Why: le tour se joue au nom de la personne qui a demandé, quelle que soit la propriétaire de la conversation.
-    return conv_id, slack_context.prompt(kept, shown), who["email"]
+    return conv_id, slack_context.prompt(kept, shown), identity
 
 
 async def first_delivery(event: dict) -> bool:

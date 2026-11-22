@@ -81,9 +81,15 @@ def author_of(c: ConvModel, entry: dict | None = None) -> str:
     return ((entry.get("author") if entry else c.turn_user) or c.user_id or "").lower()
 
 
+def shut_out(c: ConvModel, author: str | None) -> bool:
+    """Vrai pour la demande Slack d'une autre que la propriétaire, une fois la conversation verrouillée."""
+    return bool(c.slack_locked and author and author.lower() != (c.user_id or "").lower())
+
+
 def first_group(c: ConvModel) -> list[dict]:
     """Les messages en attente de la personne arrivée la première : un tour se joue au nom d'une seule."""
-    waiting = with_status(c.pending_messages or [], "waiting")
+    # Why: verrouillée, la conversation ne joue plus les mentions des autres ; elles attendent d'être écartées.
+    waiting = [e for e in with_status(c.pending_messages or [], "waiting") if not shut_out(c, e.get("author"))]
     return [entry for entry in waiting if author_of(c, entry) == author_of(c, waiting[0])]
 
 
@@ -520,7 +526,19 @@ class ConversationsMixin:
         """Les conversations venues de Slack dont un message du bot attend sa réponse, ou des demandes leur tour."""
         with get_db() as session:
             unsettled = or_(ConvModel.slack_message_ts.is_not(None), ConvModel.pending_messages.is_not(None))
-            return list(session.scalars(select(ConvModel.id).where(ConvModel.origin == "slack", unsettled)))
+            stmt = select(ConvModel.id, ConvModel.slack_message_ts, ConvModel.pending_messages)
+            found = session.execute(stmt.where(ConvModel.origin == "slack", unsettled)).all()
+            return [conv_id for conv_id, live, pending in found if live or with_status(pending or [], "waiting")]
+
+    def owner_spelling(self, email: str) -> str:
+        """L'adresse d'une personne telle que le site l'écrit pour ses conversations ; à défaut, telle que donnée."""
+        # Why: le site reconnaît la propriétaire d'une conversation à l'adresse exacte que lui donne son proxy.
+        with get_db() as session:
+            stmt = select(ConvModel.user_id).where(func.lower(ConvModel.user_id) == email.lower())
+            known = session.scalar(
+                stmt.order_by((ConvModel.origin == "web").desc(), ConvModel.created_at.desc()).limit(1)
+            )
+            return known or email
 
     def turned_away(self, conv_id: str) -> list[dict]:
         """Retire et rend les mentions en attente d'autres que la propriétaire, une fois la conversation verrouillée."""
@@ -709,9 +727,13 @@ class ConversationsMixin:
     def start_turn(self, conv_id: str, content: str, author: str | None = None) -> Optional[Message]:
         """Passe la conversation en cours, au nom de `author`, et y ajoute la question ; None si un tour y tourne."""
         with get_db() as session:
-            if not claim_turn(session, conv_id, author):
+            c = lock_conversation(session, conv_id)
+            if not c or shut_out(c, author) or not claim_turn(session, conv_id, author):
                 return None
-            return insert_message(session, session.get(ConvModel, conv_id), "user", content)
+            # Why: dès que sa propriétaire y écrit depuis le site, une conversation venue de Slack ne prend plus
+            # les demandes des autres ; le verrou se pose avec le message accepté, pas avant.
+            c.slack_locked = c.slack_locked or (c.origin == "slack" and author is None)
+            return insert_message(session, c, "user", content)
 
     def next_turn(self, conv_id: str) -> Optional[tuple[int, str, str | None, bool]]:
         """Ouvre, si rien ne tourne, le tour de la première personne en attente : question, demande, pour qui, de Slack ?"""
@@ -735,6 +757,9 @@ class ConversationsMixin:
             # Why: une mention arrivée entre deux tours attend derrière celles qui attendent déjà, sans les doubler.
             if not c or not (c.needs_response or (slack and with_status(c.pending_messages or [], "waiting"))):
                 return None
+            if shut_out(c, slack.get("author")):
+                return None
+            c.slack_locked = c.slack_locked or (c.origin == "slack" and not slack)
             entry = {
                 "id": uuid.uuid4().hex,
                 "content": content,
@@ -743,7 +768,7 @@ class ConversationsMixin:
                 **slack,
             }
             c.pending_messages = [*(c.pending_messages or []), entry]
-            return with_status(c.pending_messages, "waiting")
+            return page_entries(c.pending_messages, "waiting")
 
     def end_turn(self, conv_id: str, flush: bool) -> list[Message]:
         """Clôt le tour : avec `flush`, les messages en attente partent et le tour continue ; sinon ils sont rendus."""

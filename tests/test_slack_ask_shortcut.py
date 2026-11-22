@@ -190,7 +190,7 @@ def test_a_message_chosen_from_a_guest_is_left_out_and_the_context_says_so(mocke
 
     kept = world.store.thread(conv_id)
     assert kept["messages"] == []
-    assert kept["left_out"] == "1 message d'invités ou de personnes extérieures non repris"
+    assert kept["left_out"] == 1
     assert "> (1 message d'invités" in asked
 
 

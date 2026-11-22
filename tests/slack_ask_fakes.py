@@ -58,6 +58,7 @@ class Store:
 
     def __init__(self, owners=()):
         self.convs, self.messages, self.owners, self.ids = {}, {}, set(owners), iter(range(1, 1000))
+        self.spellings = {}
 
     def owns_conversations(self, user_id):
         return user_id in self.owners
@@ -94,23 +95,34 @@ class Store:
         conv = self.convs[conv_id]
         return ((entry.get("author") if entry else conv.turn_user) or conv.user_id or "").lower()
 
+    def shut_out(self, conv_id, author):
+        conv = self.convs[conv_id]
+        return bool(conv.slack_locked and author and author.lower() != (conv.user_id or "").lower())
+
+    def owner_spelling(self, email):
+        return self.spellings.get(email.lower(), email)
+
     def start_turn(self, conv_id, content, author=None):
-        if self.convs[conv_id].needs_response:
+        conv = self.convs[conv_id]
+        if conv.needs_response or self.shut_out(conv_id, author):
             return None
-        self.update_conversation(conv_id, needs_response=True, turn_user=author)
+        locked = conv.slack_locked or (conv.origin == "slack" and author is None)
+        self.update_conversation(conv_id, needs_response=True, turn_user=author, slack_locked=locked)
         return self.add_message(conv_id, "user", content)
 
     def queue_message(self, conv_id, content, **slack):
         conv = self.convs[conv_id]
         waiting = [e for e in conv.pending_messages if e["status"] == "waiting"]
-        if not (conv.needs_response or (slack and waiting)):
+        if not (conv.needs_response or (slack and waiting)) or self.shut_out(conv_id, slack.get("author")):
             return None
         entry = {"id": f"e{next(self.ids)}", "content": content, "status": "waiting", **slack}
-        self.update_conversation(conv_id, pending_messages=[*conv.pending_messages, entry])
-        return self.convs[conv_id].pending_messages
+        locked = conv.slack_locked or (conv.origin == "slack" and not slack)
+        self.update_conversation(conv_id, pending_messages=[*conv.pending_messages, entry], slack_locked=locked)
+        return [e for e in self.convs[conv_id].pending_messages if not e.get("slack")]
 
     def first_group(self, conv_id):
-        waiting = [e for e in self.convs[conv_id].pending_messages if e["status"] == "waiting"]
+        pending = self.convs[conv_id].pending_messages
+        waiting = [e for e in pending if e["status"] == "waiting" and not self.shut_out(conv_id, e.get("author"))]
         return [e for e in waiting if self.author_of(conv_id, e) == self.author_of(conv_id, waiting[0])]
 
     def leave(self, conv_id, group):
@@ -175,7 +187,11 @@ class Store:
         return [m for m in self.messages.get(conv_id, []) if m[0] >= since]
 
     def slack_live_conversations(self):
-        return [c.id for c in self.convs.values() if c.slack_message_ts]
+        return [
+            c.id
+            for c in self.convs.values()
+            if c.slack_message_ts or [e for e in c.pending_messages if e["status"] == "waiting"]
+        ]
 
     def thread(self, conv_id):
         """Le dernier fil gardé par la conversation, lu."""
@@ -234,6 +250,7 @@ def instance(mocker, monkeypatch):
     monkeypatch.setattr(slack_ask, "people", {})
     monkeypatch.setattr(slack_ask, "following", {})
     mocker.patch.object(slack_ask.time, "sleep")
+    mocker.patch.object(slack_ask.asyncio, "sleep", mocker.AsyncMock(return_value=None))
     mocker.patch.object(slack_ask, "generate_conversation_title")
     mocker.patch.object(slack_ask, "generate_conversation_tags")
     store = mocker.patch.object(slack_ask, "store", Store())
