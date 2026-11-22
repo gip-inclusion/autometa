@@ -61,6 +61,34 @@ def test_reconnect_resumes_without_reloading(conversation: str, ask: Callable[[s
     assert page.locator(".event-block").all_inner_texts() == streamed
 
 
+# Why: htmx installe la page suivante un moment après l'avoir échangée ; allongé, ce moment laisse au flux de la
+# conversation quittée le temps d'apporter la suite de son tour.
+SLOW_SETTLE = "document.addEventListener('DOMContentLoaded', () => { htmx.config.defaultSettleDelay = 2500; })"
+# Why: sans la fermeture du flux au départ de la page, pour que seul le refus de ses événements soit éprouvé.
+KEEP_THE_STREAM = "closeEventSource = () => {}"
+
+
+@pytest.mark.parametrize("closed", [True, False], ids=["flux-fermé-au-départ", "flux-resté-ouvert"])
+def test_the_stream_of_a_conversation_left_by_the_sidebar_writes_nothing_in_the_next_one(
+    conversation: str, ask: Callable[[str], None], page: Page, closed: bool
+):
+    other = page.request.post("/api/conversations").json()["id"]
+    page.add_init_script(SLOW_SETTLE)
+    page.reload(wait_until="domcontentloaded")
+    ask("[tools:1] [slow:5] Réponse lente")
+    expect(page.locator(".event-assistant", has_text="Morceau 1.")).to_be_visible()
+    if not closed:
+        page.evaluate(KEEP_THE_STREAM)
+
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    expect(page.locator("#chatOutput[data-last-id='0']")).to_have_count(1)
+    page.wait_for_timeout(2000)
+
+    expect(page.locator("#chatOutput .event-block")).to_have_count(0)
+    expect(page.locator("#chatOutput[data-last-id='0']")).to_have_count(1)
+    expect(page.locator("#actionsContent .action-pill")).to_have_count(0)
+
+
 def test_text_rewritten_in_place_grows_live_without_repeating(
     conversation: str, ask: Callable[[str], None], page: Page
 ):

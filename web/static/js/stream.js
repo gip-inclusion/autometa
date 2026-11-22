@@ -84,7 +84,6 @@ async function showRepublishAlert(convId) {
 }
 
 let eventSource = null;
-let eventSourceConversationId = null; // Track which conversation the eventSource belongs to
 let retryCount = 0;
 let lastUserMessage = null;
 const MAX_RETRIES = 3;
@@ -230,7 +229,6 @@ function closeEventSource() {
   if (eventSource) {
     eventSource.close();
     eventSource = null;
-    eventSourceConversationId = null;
   }
 }
 
@@ -325,30 +323,39 @@ function startStream({ quiet = false } = {}) {
     showLoading();
   }
 
-  const after = Number(document.getElementById('chatOutput')?.dataset.lastId) || 0;
-  eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream?after=${after}`);
-  eventSourceConversationId = currentConversationId;
+  const convId = currentConversationId;
+  const chatOutput = document.getElementById('chatOutput');
+  const after = Number(chatOutput?.dataset.lastId) || 0;
+  const source = new EventSource(`/api/conversations/${convId}/stream?after=${after}`);
+  eventSource = source;
+  // Why: a stream outlives its page for a moment — a click in the sidebar swaps the thread before the next
+  // conversation is installed. What it brings then belongs to a thread that is gone, and must not land in the new one.
+  const whileShown = (handle) => (e) => {
+    if (eventSource !== source || currentConversationId !== convId || !chatOutput?.isConnected) return source.close();
+    return handle(e);
+  };
+  const listen = (type, handle) => source.addEventListener(type, whileShown(handle));
 
   // Blocks — reset retry counter (agent is alive and producing output)
-  eventSource.addEventListener('blocks', (e) => {
+  listen('blocks', (e) => {
     retryCount = 0;
     showBlocks(JSON.parse(e.data));
     brought?.();
   });
 
-  eventSource.addEventListener('queue', (e) => renderQueue(JSON.parse(e.data).queue));
-  eventSource.addEventListener('returned', (e) => takeReturned(eventSourceConversationId, JSON.parse(e.data).returned));
+  listen('queue', (e) => renderQueue(JSON.parse(e.data).queue));
+  listen('returned', (e) => takeReturned(convId, JSON.parse(e.data).returned));
 
   // Why: the server rotates the stream every few minutes while the agent keeps working.
-  eventSource.addEventListener('timeout', () => startStream({ quiet: turnState === 'idle' }));
+  listen('timeout', () => startStream({ quiet: turnState === 'idle' }));
 
   // Server heartbeat — resets retry counter during quiet periods (long tool calls)
-  eventSource.addEventListener('heartbeat', () => {
+  listen('heartbeat', () => {
     retryCount = 0;
   });
 
   // Completion — the server sends this when no turn is running: at the end of one, or at once when there was none
-  eventSource.addEventListener('done', () => {
+  listen('done', () => {
     closeEventSource();
     brought?.();
     if (turnState === 'idle') return;
@@ -364,8 +371,7 @@ function startStream({ quiet = false } = {}) {
 
   // Connection lost — resume from the last turn held whole. The server answers `done` at once
   // when the run ended meanwhile.
-  eventSource.onerror = async () => {
-    const convId = currentConversationId;
+  source.onerror = whileShown(async () => {
     closeEventSource();
     brought?.();
 
@@ -380,7 +386,7 @@ function startStream({ quiet = false } = {}) {
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
 
     if (currentConversationId === convId && !eventSource) startStream({ quiet: turnState === 'idle' });
-  };
+  });
 }
 
 // =============================================================================

@@ -47,6 +47,11 @@ window.addEventListener('pageshow', (e) => {
 // the old ones there for good.
 document.addEventListener('DOMContentLoaded', () => localStorage.removeItem('htmx-history-cache'));
 
+// Why: the thread a stream writes in is about to leave the page; the next one opens its own once installed.
+document.body.addEventListener('htmx:beforeSwap', (e) => {
+  if (isMainSwap(e)) closeEventSource();
+});
+
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
