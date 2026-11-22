@@ -4,14 +4,31 @@ import json
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
-from markupsafe import Markup
+from markupsafe import Markup, escape
 
 from lib import permalinks
 from lib.answer_html import Link, render_answer, render_user
 from web.database import store
 
-# What web/uploads.py writes into a question for each attached file, with the file's text when it is short.
-FILE_BLOCK = re.compile(r"\[Uploaded file: ([^\]]+)\]\n(?:- [^\n]+\n)+(?:```[\s\S]*?```\n?)?")
+# What follows the name of an attached file in a question: its properties, then its text when it is short.
+FILE_PROPERTIES = re.compile(r"\]\n(?:- [^\n]+\n)+(?:```[\s\S]*?```\n?)?")
+
+
+def file_blocks(content: str) -> list[tuple[int, int, str]]:
+    """Where web/uploads.py described an attached file in a question: (start, end, file name), in order."""
+    found, start, bracket = [], content.find("[Uploaded file: "), -1
+    while start != -1:
+        name = start + len("[Uploaded file: ")
+        # Why: the bracket that closes a name is looked for once, however many openings come before it.
+        if bracket < name:
+            bracket = content.find("]", name)
+            if bracket == -1:
+                break
+        properties = FILE_PROPERTIES.match(content, bracket) if bracket > name else None
+        if properties:
+            found.append((start, properties.end(), content[name:bracket]))
+        start = content.find("[Uploaded file: ", properties.end() if properties else name)
+    return found
 
 
 def file_size(size: int) -> str:
@@ -34,26 +51,36 @@ def file_icon(mime: str) -> str:
     return "ri-file-word-line" if "word" in mime or "document" in mime else "ri-file-line"
 
 
-def file_pill(block: re.Match) -> Markup:
-    size = re.search(r"- Size: ([0-9,]+) bytes", block[0])
-    mime = (re.search(r"- Type: ([^\n]+)", block[0]) or ["", ""])[1]
+def file_pill(name: str, block: str) -> Markup:
+    size = re.search(r"- Size: ([0-9,]+) bytes", block)
+    mime = (re.search(r"- Type: ([^\n]+)", block) or ["", ""])[1]
     shown = size and Markup(' <span class="file-context-size">({})</span>').format(
         file_size(int(size[1].replace(",", "")))
     )
     return Markup('<span class="file-context-pill" title="{}"><i class="{}"></i> {}{}</span>').format(
-        mime, file_icon(mime), block[1], shown or ""
+        mime, file_icon(mime), name, shown or ""
     )
 
 
 def user_html(content: str) -> Markup:
     """A question: its attached files as pills, then its text."""
-    pills = [file_pill(block) for block in FILE_BLOCK.finditer(content)]
-    text = content
-    if pills:
-        text = re.sub(r"^\s*---\n", "", FILE_BLOCK.sub("", content)).strip()
-    shown = Markup('<div class="user-text">{}</div>').format(Markup(render_user(text))) if text or not pills else ""
-    if not pills:
+    blocks, text, at = file_blocks(content), [], 0
+    for start, end, _ in blocks:
+        text.append(content[at:start])
+        at = end
+    text = "".join([*text, content[at:]])
+    if blocks:
+        text = re.sub(r"^\s*---\n", "", text).strip()
+    # Why: past the length the queue accepts for waiting messages, a question is shown as typed, without Markdown;
+    # reading it would hold the server's only worker for seconds.
+    if len(text) > 20_000:
+        rendered = escape(text).replace("\n", Markup("<br>"))
+    else:
+        rendered = Markup(render_user(text))
+    shown = Markup('<div class="user-text">{}</div>').format(rendered) if text or not blocks else ""
+    if not blocks:
         return shown
+    pills = [file_pill(name, content[start:end]) for start, end, name in blocks]
     return Markup('<div class="file-context-pills">{}</div>{}').format(Markup().join(pills), shown)
 
 
@@ -98,24 +125,37 @@ def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> t
     return tuple(links)
 
 
+def report_file(text: str) -> str | None:
+    """The first report file name in a text: YYYY-MM-, then letters, digits, hyphens or underscores, then .md."""
+    # Why: read word by word; tried from each of its dates, a long word that ends in no .md would be read as many times.
+    for word in re.finditer(r"[A-Za-z0-9_-]+", text):
+        if text.startswith(".md", word.end()) and (name := re.search(r"[0-9]{4}-[0-9]{2}-[A-Za-z0-9_-]", word[0])):
+            return f"{word[0][name.start() :]}.md"
+    return None
+
+
 def report_header(text: str, front_matter: str) -> Markup:
     """The header of an answer that opens with front matter: its category, date, site and the report file it names."""
     fields = {}
     for line in front_matter.split("\n"):
-        # Why: the page's JavaScript reads names in ASCII, and a value up to any of its line terminators.
-        if field := re.fullmatch(r"([A-Za-z0-9_][A-Za-z0-9_\s]*?):\s*([^\n\r\u2028\u2029]+)", line):
-            fields[field[1].strip()] = field[2].strip()
+        name, _, rest = line.partition(":")
+        # Why: as the page's JavaScript reads a field — an ASCII name, then spaces, then what is left of the line
+        # after its last line terminator; read by hand, since a regex tries each run of spaces again and again.
+        value = rest[max(rest.rfind(end) for end in "\r\u2028\u2029") + 1 :]
+        blank = rest[: len(rest) - len(value)]
+        if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_\s]*", name) and value and (not blank or blank.isspace()):
+            fields[name.strip()] = value.strip()
     header = Markup('<div class="report-title"><i class="ri-file-text-line"></i> {}</div>').format(
         fields.get("query category") or "Rapport"
     )
     for name, icon in (("date", "ri-calendar-line"), ("website", "ri-global-line")):
         if fields.get(name):
             header += Markup('<div class="report-meta"><i class="{}"></i> {}</div>').format(icon, fields[name])
-    if filename := re.search(r"[0-9]{4}-[0-9]{2}-[A-Za-z0-9_-]+\.md", text):
+    if filename := report_file(text):
         header += Markup(
             '<a href="/api/reports/{}" target="_blank" class="report-link">'
             '<i class="ri-external-link-line"></i> Voir le rapport complet</a>'
-        ).format(filename[0])
+        ).format(filename)
     return Markup('<div class="report-header">{}</div>').format(header)
 
 

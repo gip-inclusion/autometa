@@ -1,12 +1,13 @@
 """Les tours terminés d'une conversation tels que le serveur les rend : blocs, liens, rapports, pastilles de fichiers."""
 
 import re
+import time
 
 import pytest
 
 from lib import permalinks
 from web import conversation_html
-from web.conversation_html import blocks, file_size, output, user_html
+from web.conversation_html import answer_block, blocks, file_blocks, file_size, output, user_html
 
 CONV = "abcd2345"
 TABLE = "| a | b |\n|---|---|\n| 1 | 2 |\n"
@@ -125,6 +126,47 @@ def test_a_report_without_fields_is_titled_rapport_and_the_last_plain_answer_bef
 
 
 @pytest.mark.parametrize(
+    ("front_matter", "title"),
+    [
+        ("query category: Trafic\nquery category:  ", "Rapport"),
+        ("query category:\r Trafic", "Trafic"),
+        ("query category: Tra\rfic", "Rapport"),
+        ("query category: Trafic\r", "Rapport"),
+        ("catégorie: Trafic\nquery category Trafic", "Rapport"),
+        ("query category: a: b", "a: b"),
+    ],
+    ids=[
+        "valeur-vide-en-dernier",
+        "retour-avant-la-valeur",
+        "retour-dans-la-valeur",
+        "retour-final",
+        "pas-un-champ",
+        "deux-points",
+    ],
+)
+def test_a_report_field_is_read_as_the_page_reads_it(front_matter, title):
+    html = answer_block(CONV, [(1, f"---\n{front_matter}\n---\nCorps")])["html"]
+
+    assert f'<div class="report-title"><i class="ri-file-text-line"></i> {title}</div>' in html
+
+
+@pytest.mark.parametrize(
+    ("text", "linked"),
+    [
+        ("voir 2026-01-trafic.md et 2026-02-autre.md", "2026-01-trafic.md"),
+        ("x2026-01-a_b-c.md", "2026-01-a_b-c.md"),
+        ("2026-01-.md puis 12026-02-ok.md", "2026-02-ok.md"),
+        ("2026-01-trafic.txt, 2026-1-a.md, 2026-01-trafic .md", None),
+    ],
+    ids=["premier-nom", "au-milieu-d-un-mot", "nom-vide-écarté", "aucun"],
+)
+def test_a_report_links_the_first_report_file_its_text_names(text, linked):
+    html = answer_block(CONV, [(1, f"---\n\n---\n{text}")])["html"]
+
+    assert re.findall(r'href="/api/reports/([^"]+)"', html) == [linked] * bool(linked)
+
+
+@pytest.mark.parametrize(
     ("content", "address", "title"),
     [
         ('{"report_id": 12, "title": "Bilan <2026>"}', "/rapports/12", "Bilan &lt;2026&gt;"),
@@ -192,6 +234,55 @@ def test_an_attached_file_shows_as_a_pill_with_the_icon_of_its_type(mime, icon):
 )
 def test_a_question_shows_its_files_then_its_text(content, expected):
     assert user_html(content) == expected
+
+
+@pytest.mark.parametrize(
+    ("content", "names"),
+    [
+        ("[Uploaded file: a]\n- x\n[Uploaded file: b]\n- y\n", ["a", "b"]),
+        ("[Uploaded file: [Uploaded file: a]\n- x\n", ["[Uploaded file: a"]),
+        ("[Uploaded file: ]\n- x\n[Uploaded file: b]\n- y\n", ["b"]),
+        ("[Uploaded file: a] \n- x\n[Uploaded file: b]\n- y\n", ["b"]),
+        ("[Uploaded file: a]\n- x\n```\n[Uploaded file: b]\n- y\n```\n", ["a"]),
+        ("[Uploaded file: a]\nsans propriété\n", []),
+    ],
+    ids=["deux-fichiers", "ouverture-répétée", "nom-vide", "nom-mal-fermé", "bloc-dans-un-contenu", "sans-propriété"],
+)
+def test_file_blocks_are_found_where_the_page_finds_them(content, names):
+    assert [name for _, _, name in file_blocks(content)] == names
+
+
+def test_a_question_past_the_queue_s_limit_is_shown_as_typed():
+    text = "**gras** <b>x</b>\nligne " + "a" * 20_000
+
+    html = user_html(FILE.format(name="a.txt", size="12", mime="text/plain") + "\n---\n\n" + text)
+
+    assert html.count('class="file-context-pill"') == 1
+    assert f'<div class="user-text">**gras** &lt;b&gt;x&lt;/b&gt;<br>ligne {"a" * 20_000}</div>' in html
+
+
+def test_a_question_at_the_queue_s_limit_is_still_read_as_markdown():
+    assert "<strong>gras</strong>" in user_html("**gras** " + "a" * 19_991)
+
+
+N = 200_000
+HOSTILE = {
+    "champ-d-espaces": lambda: answer_block(CONV, [(1, "---\na:" + " " * N + "\r\n---\nx")]),
+    "champ-de-deux-points": lambda: answer_block(CONV, [(1, "---\n" + "a:" * (N // 2) + "\r\n---\nx")]),
+    "dates-sans-fichier": lambda: answer_block(CONV, [(1, "---\n\n---\n" + "0000-00-" * (N // 8))]),
+    "fichiers-jamais-nommés": lambda: user_html("[Uploaded file: " * (N // 16)),
+    "fichiers-nommés-à-la-fin": lambda: user_html("[Uploaded file: " * (N // 16) + "]"),
+    "longue-question": lambda: user_html("http://a" + "~*_'\"" * (N // 5)),
+}
+
+
+@pytest.mark.parametrize("render", HOSTILE.values(), ids=HOSTILE.keys())
+def test_a_block_stays_fast_on_hostile_text(render):
+    started = time.perf_counter()
+
+    render()
+
+    assert time.perf_counter() - started < 5
 
 
 @pytest.mark.parametrize(
