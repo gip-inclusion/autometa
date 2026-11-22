@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from web import slack_entities
-from web.stores.records import Conversation
+from web.stores.records import Conversation, Tag
 
 URL = "https://autometa.example/c/0a1b2c3d"
 CREATED = datetime(2026, 11, 20, 9, 5, tzinfo=timezone.utc)
@@ -92,7 +92,8 @@ def test_every_address_of_a_conversation_is_the_same_object():
     assert legacy["external_ref"] == slack_entities.entity(URL, conversation())["external_ref"]
 
 
-def thread(mocker, *messages, running=False):
+def thread(mocker, *messages, running=False, tags=()):
+    mocker.patch.object(slack_entities.store, "get_conversation_tags", return_value=list(tags))
     mocker.patch.object(slack_entities.conversation_html.store, "get_displayed_messages", return_value=list(messages))
     return {field["key"]: field for field in slack_entities.details(conversation(needs_response=running))}
 
@@ -183,3 +184,43 @@ def test_the_details_join_the_state_in_the_object(mocker):
     fields = slack_entities.entity(URL, conversation(needs_response=True), more)["entity_payload"]["custom_fields"]
 
     assert [field["key"] for field in fields] == ["state", "question"]
+
+
+def test_the_details_list_the_tags_by_facet_as_the_search_page_does(mocker):
+    assigned = [
+        Tag(name="insertion", type="theme", label="Insertion"),
+        Tag(name="siae", type="audience", label="SIAE"),
+        Tag(name="candidatures", type="feature", label="Candidatures"),
+        Tag(name="diagnostic", type="feature", label="Diagnostic"),
+        Tag(name="perdu", type="facette-inconnue", label="Perdu"),
+    ]
+
+    assert list(thread(mocker, tags=assigned).values()) == [
+        {
+            "key": "tags_feature",
+            "label": "Bloc fonctionnel",
+            "type": "array",
+            "item_type": "string",
+            "value": [{"value": "Candidatures"}, {"value": "Diagnostic"}],
+        },
+        {
+            "key": "tags_audience",
+            "label": "Réseau",
+            "type": "array",
+            "item_type": "string",
+            "value": [{"value": "SIAE"}],
+        },
+        {
+            "key": "tags_theme",
+            "label": "Thème",
+            "type": "array",
+            "item_type": "string",
+            "value": [{"value": "Insertion"}],
+        },
+    ]
+
+
+def test_a_tag_label_can_neither_mention_nor_link(mocker):
+    shown = thread(mocker, tags=[Tag(name="x", type="theme", label="<!channel> http://evil.example")])
+
+    assert shown["tags_theme"]["value"] == [{"value": "<\u200b!channel> http:\u200b//evil.example"}]

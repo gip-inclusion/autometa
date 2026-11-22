@@ -12,7 +12,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from sqlalchemy.exc import OperationalError
 
 from web import config, slack_listener
-from web.stores.records import Conversation
+from web.stores.records import Conversation, Tag
 
 BASE = "https://autometa.example"
 SHORT = "0a1b2c3d"
@@ -824,6 +824,8 @@ def work_object_links(mocker, monkeypatch, on=True, answer="Du texte."):
     """Une instance aux Work Objects, l'adresse d'une conversation et un permalien vers sa réponse."""
     monkeypatch.setattr(config, "SLACK_WORK_OBJECTS", on)
     known(mocker, messages=[(1, "user", "Une question ?"), (2, "assistant", answer)])
+    theme = Tag(name="insertion", type="theme", label="Insertion")
+    mocker.patch.object(slack_listener.store, "get_conversation_tags", return_value=[theme])
     return mocker.MagicMock(), f"{BASE}/c/{SHORT}", f"{BASE}/c/{SHORT}/2"
 
 
@@ -979,6 +981,7 @@ def test_opening_a_work_object_fills_its_details_pane_with_the_conversation(mock
     assert {field["key"]: field["value"] for field in sent["metadata"]["entity_payload"]["custom_fields"]} == {
         "question": "Une question ?",
         "answer": "Du texte.",
+        "tags_theme": [{"value": "Insertion"}],
     }
     client.web_client.chat_unfurl.assert_not_called()
 

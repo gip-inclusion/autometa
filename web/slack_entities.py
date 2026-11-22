@@ -1,9 +1,12 @@
 """Une conversation en Work Object de Slack : l'objet de son lien collé, et ce que son volet de détails en dit."""
 
 from lib import permalinks
+from lib.taxonomy import ordered_facets
 from web import conversation_html, slack_excerpts
+from web.database import store
 from web.helpers import utcnow
-from web.stores.records import Conversation
+from web.search_filters import SEARCH_FACET_LABELS
+from web.stores.records import Conversation, Tag
 
 
 def plain(text: str, limit: int) -> str:
@@ -12,7 +15,7 @@ def plain(text: str, limit: int) -> str:
 
 
 def details(conv: Conversation) -> list[dict]:
-    """Ce que le volet de détails ajoute à l'objet : la première question, le début de la dernière réponse, ses titres."""
+    """Ce que le volet de détails ajoute à l'objet : sa première question, sa dernière réponse, ses titres, ses tags."""
     grouped = conversation_html.thread(conversation_html.finished(conv.id, conv.needs_response)[0])
     question = next((parts[0][1] for kind, parts in grouped if kind == "user"), "")
     answers = ("".join(content for _, content in parts) for kind, parts in reversed(grouped) if kind == "assistant")
@@ -25,10 +28,26 @@ def details(conv: Conversation) -> list[dict]:
         ("sections", "Sections de la réponse", "\n".join(f"• {plain(title, 100)}" for title in titles)),
     ]
     # Why: un champ « string » sans `format` est du texte que Slack ne met pas en forme ; `long` lui donne la largeur.
-    return [
+    texts = [
         {"key": key, "label": label, "value": value, "type": "string", "long": True}
         for key, label, value in found
         if value
+    ]
+    return texts + tags(store.get_conversation_tags(conv.id), "conversation")
+
+
+def tags(assigned: list[Tag], object_type: str) -> list[dict]:
+    """Les tags d'un objet, un champ par facette dans l'ordre et sous les libellés de l'interface ; aucun sans tag."""
+    return [
+        {
+            "key": f"tags_{facet.name}",
+            "label": SEARCH_FACET_LABELS.get(facet.name, facet.label),
+            "type": "array",
+            "item_type": "string",
+            "value": [{"value": plain(tag.label, 80)} for tag in assigned if tag.type == facet.name],
+        }
+        for facet in ordered_facets(object_type)
+        if any(tag.type == facet.name for tag in assigned)
     ]
 
 
