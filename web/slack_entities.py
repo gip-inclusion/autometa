@@ -6,7 +6,7 @@ from web import conversation_html, slack_excerpts
 from web.database import store
 from web.helpers import utcnow
 from web.search_filters import SEARCH_FACET_LABELS
-from web.stores.records import Conversation, Tag
+from web.stores.records import Conversation
 
 
 def plain(text: str, limit: int) -> str:
@@ -33,21 +33,22 @@ def details(conv: Conversation) -> list[dict]:
         for key, label, value in found
         if value
     ]
-    return texts + tags(store.get_conversation_tags(conv.id), "conversation")
+    assigned = [(tag.type, tag.label) for tag in store.get_conversation_tags(conv.id)]
+    return texts + tags(assigned, "conversation", SEARCH_FACET_LABELS)
 
 
-def tags(assigned: list[Tag], object_type: str) -> list[dict]:
-    """Les tags d'un objet, un champ par facette dans l'ordre et sous les libellés de l'interface ; aucun sans tag."""
+def tags(assigned: list[tuple[str, str]], object_type: str, renamed: dict[str, str]) -> list[dict]:
+    """Les tags d'un objet (facette, libellé), un champ par facette dans l'ordre de l'interface ; aucun sans tag."""
     return [
         {
             "key": f"tags_{facet.name}",
-            "label": SEARCH_FACET_LABELS.get(facet.name, facet.label),
+            "label": renamed.get(facet.name, facet.label),
             "type": "array",
             "item_type": "string",
-            "value": [{"value": plain(tag.label, 80)} for tag in assigned if tag.type == facet.name],
+            "value": [{"value": plain(label, 80)} for name, label in assigned if name == facet.name],
         }
         for facet in ordered_facets(object_type)
-        if any(tag.type == facet.name for tag in assigned)
+        if any(name == facet.name for name, _ in assigned)
     ]
 
 

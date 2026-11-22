@@ -14,7 +14,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import config, slack_charts, slack_entities, slack_excerpts
+from . import config, slack_charts, slack_dashboards, slack_entities, slack_excerpts
 from .database import store
 from .helpers import CONV_ID, to_local, utcnow
 from .stores.records import Conversation
@@ -83,11 +83,14 @@ def card(conv: Conversation, excerpt: list[dict] = ()) -> dict:
 
 
 def cards(urls: list[str]) -> dict[str, dict]:
-    """La carte de chaque adresse qui mène à une conversation connue de cette instance."""
+    """La carte et l'objet éventuel de chaque adresse qui mène à une conversation ou un tableau de bord connus."""
     found = {}
     for url in urls:
         conv_id, message_id, anchor = located(url) or (None, None, None)
         conv = conv_id and store.get_conversation(conv_id, include_messages=False)
+        dashboard = None if conv_id or not config.SLACK_WORK_OBJECTS else slack_dashboards.entity(url)
+        if dashboard:
+            found[url] = {"blocks": None, "entity": dashboard}
         if not conv:
             continue
         try:
@@ -96,7 +99,8 @@ def cards(urls: list[str]) -> dict[str, dict]:
             # Why: une réponse que l'extrait ne sait pas lire garde sa carte, et les autres liens du message la leur.
             logger.exception("Extrait Slack impossible pour la conversation %s, carte sans extrait", conv_id)
             excerpt = []
-        found[url] = card(conv, excerpt) | {"conv": conv, "object": config.SLACK_WORK_OBJECTS and message_id is None}
+        whole = config.SLACK_WORK_OBJECTS and message_id is None
+        found[url] = card(conv, excerpt) | {"entity": slack_entities.entity(url, conv) if whole else None}
     return found
 
 
@@ -177,15 +181,9 @@ def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> bool:
 
 def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
     """Pose objets et cartes, puis dessine et dépose les graphiques encore inconnus de Slack et repose leurs cartes."""
-    metadata = {
-        "entities": [
-            {"app_unfurl_url": url} | slack_entities.entity(url, card["conv"])
-            for url, card in found.items()
-            if card["object"]
-        ]
-    }
+    metadata = {"entities": [{"app_unfurl_url": url} | card["entity"] for url, card in found.items() if card["entity"]]}
     objects, together, tables = len(metadata["entities"]), {}, True
-    cards = {url: card for url, card in found.items() if not card["object"]}
+    cards = {url: card for url, card in found.items() if not card["entity"]}
     # Why: la documentation de Slack ne dit pas qu'un appel accepte `unfurls` et `metadata` pour des adresses
     # différentes : refusés ensemble, ils partent en deux appels ; les objets refusés seuls, tout part en cartes.
     if objects and cards:
@@ -204,7 +202,8 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
             web.chat_unfurl(**target, metadata=metadata)
             logger.info("Work Objects Slack posés : %s", objects)
         except SlackApiError as error:
-            cards = found
+            # Why: un tableau de bord n'a pas de carte en blocs ; son objet refusé, son lien reste nu.
+            cards = {url: card for url, card in found.items() if card["blocks"]}
             logger.warning(
                 "Work Objects Slack refusés, cartes posées à la place : %s %s",
                 error.response.get("error"),
@@ -236,29 +235,44 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
     logger.warning("Carte Slack laissée sans son image : Slack ne l'a pas acceptée dans les 15 s après le dépôt")
 
 
-def present(web: WebClient, event: dict) -> None:
-    """Remplit le volet de détails que Slack ouvre au clic sur un Work Object, ou y dit la conversation introuvable."""
-    url, trigger = event.get("app_unfurl_url") or event.get("entity_url"), event.get("trigger_id")
-    conv_id = url and trigger and (located(url) or [None])[0]
+def panes(url: str) -> list[dict] | None:
+    """Le volet de détails de l'objet qu'adresse `url`, puis l'objet seul ; aucun s'il est inconnu, None hors instance."""
+    conv_id = (located(url) or [None])[0]
     if not conv_id:
-        logger.warning("Détails d'un Work Object Slack demandés sans adresse de cette instance, ignorés")
-        return
+        if not slack_dashboards.located(url):
+            return None
+        return [shown for shown in (slack_dashboards.entity(url, detailed=True), slack_dashboards.entity(url)) if shown]
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
-        web.entity_presentDetails(trigger_id=trigger, error={"status": "not_found"})
-        logger.info("Détails d'un Work Object Slack demandés pour une conversation inconnue : %s", conv_id)
-        return
+        return []
     try:
         details = slack_entities.details(conv)
     except LookupError, ValueError, TypeError, AttributeError, RecursionError:
         # Why: une conversation que le volet ne sait pas lire garde son volet, réduit à ce que l'objet dit déjà.
         logger.exception("Détails Slack impossibles pour la conversation %s, volet sans eux", conv_id)
         details = []
+    return [slack_entities.entity(url, conv, details), slack_entities.entity(url, conv)]
+
+
+def present(web: WebClient, event: dict) -> None:
+    """Remplit le volet de détails que Slack ouvre au clic sur un Work Object, ou y dit l'objet introuvable."""
+    url, trigger = event.get("app_unfurl_url") or event.get("entity_url"), event.get("trigger_id")
+    found = panes(url) if url and trigger else None
+    if found is None:
+        logger.warning("Détails d'un Work Object Slack demandés sans adresse de cette instance, ignorés")
+        return
+    if not found:
+        web.entity_presentDetails(trigger_id=trigger, error={"status": "not_found"})
+        logger.info("Détails d'un Work Object Slack demandés pour un objet inconnu : %s", urlsplit(url).path)
+        return
+    full, bare = found
     try:
-        web.entity_presentDetails(trigger_id=trigger, metadata=slack_entities.entity(url, conv, details))
-        logger.info("Volet de détails Slack rempli : %s", [field["key"] for field in details])
+        web.entity_presentDetails(trigger_id=trigger, metadata=full)
+        logger.info(
+            "Volet de détails Slack rempli : %s", [shown["key"] for shown in full["entity_payload"]["custom_fields"]]
+        )
     except SlackApiError as error:
-        if not details:
+        if full["entity_payload"]["custom_fields"] == bare["entity_payload"]["custom_fields"]:
             raise
         # Why: la documentation de Slack ne borne pas un champ long ; refusé avec eux, le volet garde l'objet seul.
         logger.warning(
@@ -266,7 +280,7 @@ def present(web: WebClient, event: dict) -> None:
             error.response.get("error"),
             error.response.get("response_metadata"),
         )
-        web.entity_presentDetails(trigger_id=trigger, metadata=slack_entities.entity(url, conv))
+        web.entity_presentDetails(trigger_id=trigger, metadata=bare)
 
 
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:

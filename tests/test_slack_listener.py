@@ -1060,3 +1060,111 @@ def test_a_refused_details_pane_is_logged_and_leaves_the_listener_running(mocker
     slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1"))
 
     assert "invalid_metadata" in caplog.text
+
+
+DASHBOARD = {
+    "url": f"{BASE}/interactive/suivi-iae/",
+    "external_ref": {"id": "suivi-iae"},
+    "entity_type": "slack#/entities/content_item",
+    "entity_payload": {"attributes": {"title": {"text": "Suivi de l'IAE"}}, "fields": {}, "custom_fields": []},
+}
+DETAILED = DASHBOARD | {
+    "entity_payload": DASHBOARD["entity_payload"]
+    | {"custom_fields": [{"key": "product", "label": "Produit", "value": "emplois", "type": "string"}]}
+}
+
+
+def dashboard_link(mocker, monkeypatch, on=True):
+    """Une instance aux Work Objects qui connaît un tableau de bord, et son adresse."""
+    client, _, _ = work_object_links(mocker, monkeypatch, on)
+    entity = mocker.patch.object(
+        slack_listener.slack_dashboards,
+        "entity",
+        side_effect=lambda url, detailed=False: (DETAILED if detailed else DASHBOARD) if "suivi-iae" in url else None,
+    )
+    return client, DASHBOARD["url"], entity
+
+
+def test_a_dashboard_link_is_posted_as_a_work_object(mocker, monkeypatch):
+    client, url, _ = dashboard_link(mocker, monkeypatch)
+
+    slack_listener.handle(client, link_shared([url, f"{BASE}/interactive/inconnu/"]))
+
+    sent = client.web_client.chat_unfurl.call_args.kwargs
+    assert sent["metadata"] == {"entities": [{"app_unfurl_url": url} | DASHBOARD]}
+    assert "unfurls" not in sent
+    client.web_client.chat_unfurl.assert_called_once()
+
+
+def test_without_the_opt_in_a_dashboard_link_gets_nothing(mocker, monkeypatch):
+    client, url, entity = dashboard_link(mocker, monkeypatch, on=False)
+
+    slack_listener.handle(client, link_shared([url]))
+
+    entity.assert_not_called()
+    client.web_client.chat_unfurl.assert_not_called()
+
+
+def test_an_unknown_dashboard_link_gets_nothing(mocker, monkeypatch):
+    client, _, _ = dashboard_link(mocker, monkeypatch)
+
+    slack_listener.handle(client, link_shared([f"{BASE}/interactive/inconnu/"]))
+
+    client.web_client.chat_unfurl.assert_not_called()
+
+
+def test_a_dashboard_a_conversation_and_a_permalink_go_together(mocker, monkeypatch):
+    client, url, _ = dashboard_link(mocker, monkeypatch)
+    conv, permalink = f"{BASE}/c/{SHORT}", f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, link_shared([url, permalink, conv]))
+
+    assert entity_urls(client.web_client.chat_unfurl.call_args) == [url, conv]
+    assert list(client.web_client.chat_unfurl.call_args.kwargs["unfurls"]) == [permalink]
+
+
+def test_a_refused_dashboard_object_leaves_its_link_bare_and_the_conversation_its_card(mocker, monkeypatch):
+    client, url, _ = dashboard_link(mocker, monkeypatch)
+    conv = f"{BASE}/c/{SHORT}"
+    client.web_client.chat_unfurl.side_effect = [refused(mocker, "invalid_metadata_format"), None]
+
+    slack_listener.handle(client, link_shared([url, conv]))
+
+    last = client.web_client.chat_unfurl.call_args.kwargs
+    assert "metadata" not in last
+    assert list(last["unfurls"]) == [conv]
+
+
+def test_a_refused_dashboard_object_alone_posts_nothing_else(mocker, monkeypatch, caplog):
+    client, url, _ = dashboard_link(mocker, monkeypatch)
+    client.web_client.chat_unfurl.side_effect = refused(mocker, "invalid_metadata_format")
+
+    slack_listener.handle(client, link_shared([url]))
+
+    client.web_client.chat_unfurl.assert_called_once()
+    assert "Work Objects Slack refusés" in caplog.text
+
+
+def test_opening_a_dashboard_object_fills_its_details_pane(mocker, monkeypatch):
+    client, url, _ = dashboard_link(mocker, monkeypatch)
+
+    slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1"))
+
+    client.web_client.entity_presentDetails.assert_called_once_with(trigger_id="T1", metadata=DETAILED)
+
+
+def test_a_dashboard_pane_refused_with_its_fields_is_filled_without_them(mocker, monkeypatch):
+    client, url, _ = dashboard_link(mocker, monkeypatch)
+    client.web_client.entity_presentDetails.side_effect = [refused(mocker, "invalid_metadata"), None]
+
+    slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1"))
+
+    assert client.web_client.entity_presentDetails.call_args.kwargs == {"trigger_id": "T1", "metadata": DASHBOARD}
+
+
+def test_details_of_an_unknown_dashboard_are_answered_not_found(mocker, monkeypatch):
+    client, _, _ = dashboard_link(mocker, monkeypatch)
+
+    slack_listener.handle(client, details_requested(app_unfurl_url=f"{BASE}/interactive/inconnu/", trigger_id="T1"))
+
+    client.web_client.entity_presentDetails.assert_called_once_with(trigger_id="T1", error={"status": "not_found"})

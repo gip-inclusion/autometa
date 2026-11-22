@@ -206,7 +206,7 @@ SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
 SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
 # Why: dessiner un graphique lance un navigateur sans écran, quelques centaines de Mo le temps d'un rendu.
 SLACK_CHART_IMAGES = os.getenv("SLACK_CHART_IMAGES", "false").lower() == "true"
-# Un lien de conversation devient un Work Object de Slack ; un permalien garde sa carte en blocs.
+# Un lien de conversation ou de tableau de bord devient un Work Object de Slack ; un permalien garde sa carte.
 SLACK_WORK_OBJECTS = os.getenv("SLACK_WORK_OBJECTS", "false").lower() == "true"
 
 

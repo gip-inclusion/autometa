@@ -45,3 +45,8 @@ class Environment(StrEnum):
     def posts_alerts(self) -> bool:
         """True only for prod: the shared Slack alert channel must not carry staging or review noise."""
         return self is Environment.PROD
+
+    @property
+    def answers_public_dashboard_links(self) -> bool:
+        """True only for prod: one Slack app serves every instance, and a single one must answer for the public site."""
+        return self is Environment.PROD
