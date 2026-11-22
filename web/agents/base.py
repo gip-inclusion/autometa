@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from web import config
+from web.database import store
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,8 @@ def build_context_index() -> str:
     return "\n\n".join(sections)
 
 
-def build_system_prompt() -> str | None:
+def build_system_prompt(conversation_id: str | None = None) -> str | None:
+    """Les consignes de l'agent : AGENT.md, la date, l'index du contexte, et celles d'une conversation venue de Slack."""
     agents_md_path = config.BASE_DIR / "AGENT.md"
     if not agents_md_path.exists():
         return None
@@ -73,6 +75,19 @@ def build_system_prompt() -> str | None:
             "\nIMPORTANT : Lis les fichiers knowledge du site concerné et les fichiers cache pertinents AVANT de lancer des requêtes."
         )
         logger.info("System prompt includes context index with knowledge and cache files")
+    conv = conversation_id and store.get_conversation(conversation_id, include_messages=False)
+    if conv and conv.origin == "slack":
+        parts.append(
+            "\n# Conversation venue de Slack\n\n"
+            "Cette conversation vient de Slack. Ta réponse finale est postée telle quelle dans le fil : commence par "
+            "la réponse elle-même, en quelques phrases qui se suffisent, sans préambule ni récit de tes recherches. "
+            "Si des précisions sont utiles (fichiers, fonctions, cas particuliers), laisse une ligne vide puis "
+            "donne-les.\n\n"
+            "Seuls les messages qui te mentionnent sont des demandes. Le reste du fil est une discussion entre "
+            "collègues : sers-t'en pour comprendre la demande, n'y réponds pas, ne prends pas parti et n'arbitre pas "
+            "entre des personnes. Si une demande te demande de trancher un désaccord, expose les faits que tu peux "
+            "vérifier et arrête-toi là."
+        )
     return "\n".join(parts)
 
 

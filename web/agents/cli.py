@@ -273,7 +273,7 @@ class CLIBackend(AgentBackend):
         for d in config.ADDITIONAL_DIRS:
             cmd.extend(["--add-dir", d])
 
-        system_prompt = build_system_prompt()
+        system_prompt = build_system_prompt(conversation_id)
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
 
