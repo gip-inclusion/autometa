@@ -28,7 +28,8 @@ def render(source: str) -> bytes | None:
     ]
     try:
         # Why: le délai de merman est coopératif ; celui-ci tue le processus s'il ne le respecte pas.
-        drawn = subprocess.run(command, input=source.encode(), capture_output=True, timeout=10, check=False)
+        # Why: aucun environnement : un analyseur de texte non fiable ne tient pas les secrets du serveur.
+        drawn = subprocess.run(command, input=source.encode(), capture_output=True, timeout=10, check=False, env={})
     except OSError as error:
         logger.warning("Graphique non dessiné, merman-cli inutilisable (`make merman` l'installe) : %s", error)
         return None
