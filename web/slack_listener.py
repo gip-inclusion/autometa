@@ -1,5 +1,6 @@
 """Écoute Slack en Socket Mode : un lien collé devient une carte ou un Work Object, rafraîchis à la demande."""
 
+import asyncio
 import http.client
 import logging
 import queue
@@ -15,7 +16,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import config, slack_charts, slack_dashboards, slack_entities, slack_excerpts
+from . import config, slack_ask, slack_charts, slack_dashboards, slack_entities, slack_excerpts
 from .database import store
 from .helpers import CONV_ID, to_local, utcnow
 from .stores.records import Conversation
@@ -322,9 +323,12 @@ def present(web: WebClient, event: dict) -> None:
 
 
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
-    """Accuse réception, puis pose ou rafraîchit les cartes des liens que l'événement désigne."""
+    """Accuse réception, puis confie une mention, ou pose ou rafraîchit les cartes des liens que l'événement désigne."""
     client.send_socket_mode_response(SocketModeResponse(envelope_id=request.envelope_id))
     event = request.payload.get("event") or {}
+    if request.type == "events_api" and event.get("type") == "app_mention":
+        slack_ask.mentioned(client.web_client, event)
+        return
     details = request.type == "events_api" and event.get("type") == "entity_details_requested"
     found = None if details else asked(request)
     if not found and not (details and config.SLACK_WORK_OBJECTS):
@@ -360,8 +364,8 @@ def connect(client: SocketModeClient) -> None:
         return
 
 
-def start() -> SocketModeClient | None:
-    """Ouvre l'écoute si l'instance la demande ; rend le client à fermer à l'arrêt, sinon None."""
+def start(loop: asyncio.AbstractEventLoop | None = None) -> SocketModeClient | None:
+    """Ouvre l'écoute si l'instance la demande, les demandes jouées sur `loop` ; rend le client à fermer, sinon None."""
     if not config.SLACK_CHAT_LISTEN:
         return None
     base = urlsplit(config.BASE_URL)
@@ -376,5 +380,6 @@ def start() -> SocketModeClient | None:
         app_token=config.SLACK_CHAT_APP_TOKEN, web_client=WebClient(token=config.SLACK_CHAT_BOT_TOKEN, timeout=10)
     )
     client.socket_mode_request_listeners.append(handle)
+    slack_ask.workspace["loop"] = loop
     threading.Thread(target=connect, args=(client,), daemon=True, name="slack-listener").start()
     return client

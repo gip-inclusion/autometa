@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
 
     agent_config.warn_target_gaps()
     await runner.startup()
-    slack_client = slack_listener.start()
+    slack_client = slack_listener.start(asyncio.get_running_loop())
     mem_task = asyncio.create_task(_memory_profile_loop()) if config.MEMORY_PROFILE_INTERVAL > 0 else None
 
     yield

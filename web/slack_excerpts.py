@@ -24,8 +24,8 @@ def inline_text(token) -> str:
     return " ".join("".join(words).split())
 
 
-def read(markdown: str) -> tuple[list[str], list[tuple[int, str, int]]]:
-    """Un Markdown en lignes lisibles, sans code ni boutons d'options, et ses tableaux et graphiques là où ils tombent."""
+def read(markdown: str, code: bool = False) -> tuple[list[str], list[tuple[int, str, int]]]:
+    """Un Markdown en lignes lisibles, sans boutons d'options ni code sauf demandé, ses tableaux et graphiques situés."""
     lines, figures, in_table, bullet = [], [], False, ""
     for token in ANSWER.parse(markdown):
         mermaid = token.type == "fence" and token.info.split()[:1] == ["mermaid"]
@@ -35,6 +35,8 @@ def read(markdown: str) -> tuple[list[str], list[tuple[int, str, int]]]:
             figures.append((sum(len(line) + 1 for line in lines), "chart" if mermaid else "table", token.map[0]))
         if token.type in ("table_open", "fence", "code_block"):
             bullet = ""
+            if code and token.type != "table_open" and not mermaid:
+                lines += token.content.rstrip("\n").split("\n")
         elif token.type == "list_item_open":
             bullet = "• "
         elif token.type == "inline" and not in_table:
@@ -81,6 +83,35 @@ def text_blocks(title: str, markdown: str) -> list[dict]:
         if anchor:
             blocks += table_blocks(anchor, titled=False) if kind == "table" else [chart_block(anchor)]
     return blocks
+
+
+def answer_blocks(markdown: str, limit: int = 9000) -> tuple[list[dict], bool]:
+    """Une réponse entière en blocs : son texte et son code en clair, ses tableaux et graphiques à leur place ; coupée ?"""
+    # Why: Slack borne un message à 50 blocs et un texte à 3 000 caractères ; au-delà de `limit`, la suite se lit dans
+    # Autometa. Seul le début d'une réponse démesurée est lu.
+    markdown = markdown.replace("\r\n", "\n")[:60_000]
+    lines = markdown.split("\n")
+    figures = [anchor for anchor in permalinks.anchors(markdown) if anchor.kind in ("table", "chart")]
+    blocks, at, cut = [], 0, False
+    for figure in [*figures, None]:
+        text = "\n".join(read("\n".join(lines[at : figure.start if figure else None]), code=True)[0])
+        cut = len(text) > limit or len(blocks) > 40
+        if cut:
+            text = shortened(text, max(limit, 0))
+        # Why: un texte coupé au plus près de 2 900 caractères, à une fin de ligne quand il y en a une.
+        while text:
+            piece = text if len(text) <= 2900 else text[: text.rfind("\n", 1, 2900) if "\n" in text[1:2900] else 2900]
+            blocks += text_block("", piece.strip("\n"))
+            text = text[len(piece) :]
+            limit -= len(piece)
+        if cut or not figure:
+            break
+        # Why: un seul bloc table par message, Slack refuse le second ; les suivants passent en chasse fixe.
+        shown = table_blocks(figure, titled=False) if figure.kind == "table" else [chart_block(figure)]
+        native = not any(block["type"] == "table_excerpt" for block in blocks)
+        blocks += shown if native else with_tables(shown, False)
+        at = figure.end
+    return blocks, cut
 
 
 def table_rows(markdown: str) -> list[list[str]]:

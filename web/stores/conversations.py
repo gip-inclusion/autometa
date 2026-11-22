@@ -449,10 +449,31 @@ class ConversationsMixin:
                 c.needs_response = 0
             return ids
 
+    def slack_conversation(self, channel: str, thread_ts: str) -> Optional[str]:
+        """L'identifiant de la conversation ouverte depuis ce fil Slack, None s'il n'en a pas."""
+        with get_db() as session:
+            return session.scalar(
+                select(ConvModel.id)
+                .where(ConvModel.slack_channel == channel, ConvModel.slack_thread_ts == thread_ts)
+                .order_by(ConvModel.created_at)
+                .limit(1)
+            )
+
+    def slack_live_conversations(self) -> list[str]:
+        """Les conversations dont le message du bot dans Slack attend encore sa réponse."""
+        with get_db() as session:
+            return list(session.scalars(select(ConvModel.id).where(ConvModel.slack_message_ts.is_not(None))))
+
+    def owns_conversations(self, user_id: str) -> bool:
+        """Vrai si cette personne a au moins une conversation."""
+        with get_db() as session:
+            owned = select(ConvModel.id).where(func.lower(ConvModel.user_id) == user_id.lower()).limit(1)
+            return session.scalar(owned) is not None
+
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
         allowed = {
             *("title", "session_id", "engine_state", "user_id", "status", "pr_url", "needs_response"),
-            "slack_message_ts",
+            *("slack_channel", "slack_thread_ts", "slack_message_ts"),
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
