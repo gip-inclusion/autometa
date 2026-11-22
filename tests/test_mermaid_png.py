@@ -24,7 +24,13 @@ def test_a_chart_is_drawn_by_merman_given_its_source_on_stdin(mocker):
 
     command = run.call_args.args[0]
     assert command[:7] == [str(mermaid_png.MERMAN / "merman-cli"), "render", "-", "--format", "png", "--output", "-"]
-    assert run.call_args.kwargs == {"input": b"pie title Parts", "capture_output": True, "timeout": 10, "check": False}
+    assert run.call_args.kwargs == {
+        "input": b"pie title Parts",
+        "capture_output": True,
+        "timeout": 10,
+        "check": False,
+        "env": {},
+    }
 
 
 def options(command):
@@ -99,3 +105,12 @@ def test_a_wide_chart_reduced_to_the_width_limit_is_still_shown(mocker):
     merman(mocker, out=png(width=2400, height=300))
 
     assert mermaid_png.render("graph LR") == png(width=2400, height=300)
+
+
+def test_merman_is_given_none_of_the_environment_of_the_server(mocker, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://secret")
+    run = merman(mocker)
+
+    mermaid_png.render("graph TD; A-->B")
+
+    assert run.call_args.kwargs["env"] == {}
