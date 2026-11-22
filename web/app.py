@@ -82,10 +82,12 @@ async def lifespan(app: FastAPI):
     warmup_task.cancel()
     if mem_task:
         mem_task.cancel()
-    if slack_client:
-        slack_client.close()
     await runner.shutdown()
-    await close_redis()
+    try:
+        if slack_client:
+            await asyncio.to_thread(slack_client.close)
+    finally:
+        await close_redis()
 
 
 # Create FastAPI app
