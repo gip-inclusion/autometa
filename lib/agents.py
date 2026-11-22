@@ -114,7 +114,8 @@ def propose(session: Session, slug: str, action: str, payload: dict) -> AgentPro
         id=f"{datetime.now():%Y-%m-%d-%H%M%S}-{slug}-{uuid.uuid4().hex[:6]}",
         agent_slug=slug,
         action=action,
-        payload=payload,
+        # Why: dans une conversation à plusieurs, seule la personne à qui la proposition a été faite la confirme.
+        payload=payload | {"proposed_to": config.agent_user_email()},
         status="planned",
         conversation_id=conversation_id,
         after_message_id=last_user_message_id(conversation_id),
@@ -133,6 +134,9 @@ def confirm(session: Session, proposal: AgentProposal) -> str:
         raise PermissionError("la confirmation doit venir de la conversation où la proposition a été présentée")
     if last_user_message_id(conversation_id) <= proposal.after_message_id:
         raise PermissionError("aucune confirmation : attendre un message ultérieur de l'utilisateur")
+    asked = proposal.payload.get("proposed_to")
+    if asked and asked.lower() != (config.agent_user_email() or "").lower():
+        raise PermissionError("seule la personne à qui la proposition a été faite peut la confirmer")
     decided_by = config.agent_user_email() or "inconnu"
     spent = session.scalar(
         update(AgentProposal)
@@ -177,7 +181,7 @@ def as_manifest(proposal: AgentProposal) -> dict:
         "id": proposal.id,
         "status": proposal.status,
         "kind": proposal.action,
-        **proposal.payload,
+        **{key: value for key, value in proposal.payload.items() if key != "proposed_to"},
         "shown": {"conversation_id": proposal.conversation_id, "after_message_id": proposal.after_message_id},
         "decided_by": proposal.decided_by,
     }
