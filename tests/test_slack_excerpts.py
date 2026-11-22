@@ -13,9 +13,11 @@ TABLE = "| Région | Candidatures |\n|---|---|\n| Bretagne | 12 |\n| Corse | 3 |
 ANSWER = f"Intro.\n\n## Méthode\n\nOn compte **tout**.\n\n## Résultats\n\n{TABLE}\n```mermaid\npie title Parts\n```\n"
 
 
-def excerpt(mocker, messages, message_id, anchor=None, running=False):
+def excerpt(mocker, messages, message_id, anchor=None, running=False, native=False):
+    """L'extrait tel que Slack le reçoit, ses tableaux en chasse fixe, ou en bloc table avec `native`."""
     mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=messages)
-    return slack_excerpts.excerpt(Conversation(id=CONV, needs_response=running), message_id, anchor)
+    blocks = slack_excerpts.excerpt(Conversation(id=CONV, needs_response=running), message_id, anchor)
+    return slack_excerpts.with_tables(blocks, native)
 
 
 def name(text, kind, rank=1):
@@ -392,3 +394,101 @@ def test_an_answer_just_under_the_length_limit_keeps_its_element_excerpts(mocker
     text = f"## Titre\n\n{'mot ' * 74_000}\n"
 
     assert shown(excerpt(mocker, [(2, "assistant", text)], 2, name(text, "section"))).startswith("Titre\nmot mot")
+
+
+def cells(table):
+    return [[cell["text"] for cell in row] for row in table["rows"]]
+
+
+def test_a_table_is_given_to_slack_as_a_table_block_of_raw_text_cells(mocker):
+    blocks = excerpt(mocker, [(2, "assistant", ANSWER)], 2, name(ANSWER, "table"), native=True)
+
+    assert blocks[0]["text"]["text"] == "Résultats"
+    assert blocks[1] == {
+        "type": "table",
+        "column_settings": [{"is_wrapped": True}, {"align": "right"}],
+        "rows": [
+            [{"type": "raw_text", "text": "Région"}, {"type": "raw_text", "text": "Candidatures"}],
+            [{"type": "raw_text", "text": "Bretagne"}, {"type": "raw_text", "text": "12"}],
+            [{"type": "raw_text", "text": "Corse"}, {"type": "raw_text", "text": "3"}],
+        ],
+    }
+    assert len(blocks) == 2
+
+
+def test_an_answer_shows_its_first_table_as_a_table_block_too(mocker):
+    blocks = excerpt(mocker, [(2, "assistant", ANSWER)], 2, native=True)
+
+    assert [block["type"] for block in blocks] == ["section", "table"]
+
+
+@pytest.mark.parametrize(
+    "column,right",
+    [
+        (["8 412", "9\u202f104", "-3,5", "12 %", "1.5", "45 €", "−2"], True),
+        (["12", "", "7"], True),
+        (["12", "n/a"], False),
+        (["2026-04", "2026-05"], False),
+        (["Bretagne", "Corse"], False),
+        (["", ""], True),
+    ],
+)
+def test_a_column_of_numbers_is_aligned_right_and_any_other_wraps(mocker, column, right):
+    table = "| a | b |\n|---|---|\n" + "".join(f"| x | {cell} |\n" for cell in column)
+
+    block = excerpt(mocker, [(2, "assistant", table)], 2, name(table, "table"), native=True)[0]
+
+    assert block["column_settings"] == [{"is_wrapped": True}, {"align": "right"} if right else {"is_wrapped": True}]
+
+
+def test_a_table_block_holds_twenty_rows_and_twenty_columns_and_says_what_is_left(mocker):
+    header = "| " + " | ".join(f"c{i}" for i in range(25)) + " |"
+    body = [[f"l{r}c{i}" for i in range(25)] for r in range(60)]
+    drawn = ["| " + " | ".join(row) + " |" for row in body]
+    table = "\n".join([header, "|" + "---|" * 25, *drawn, ""])
+
+    blocks = excerpt(mocker, [(2, "assistant", table)], 2, name(table, "table"), native=True)
+
+    shown = cells(blocks[0])
+    assert len(shown) == 21
+    assert {len(row) for row in shown} == {20}
+    assert shown[0][:2] == ["c0", "c1"]
+    assert shown[20][19] == "l19c19"
+    assert len(blocks[0]["column_settings"]) == 20
+    assert blocks[1]["elements"][0]["text"] == "… 40 lignes et 5 colonnes de plus"
+
+
+def test_a_table_block_stays_under_the_characters_slack_accepts_and_counts_the_rows_it_drops(mocker):
+    wide = " | ".join("mot " * 30 for _ in range(10))
+    table = f"| {' | '.join('abcdefghij')} |\n|{'---|' * 10}\n" + f"| {wide} |\n" * 30
+
+    blocks = excerpt(mocker, [(2, "assistant", table)], 2, name(table, "table"), native=True)
+
+    shown = cells(blocks[0])
+    assert sum(len(cell) for row in shown for cell in row) <= 10_000
+    assert all(len(cell) <= 82 for row in shown for cell in row)
+    assert shown[1][0].endswith("mot …")
+    assert blocks[1]["elements"][0]["text"] == f"… {30 - (len(shown) - 1)} lignes de plus"
+    assert 1 < len(shown) < 21
+
+
+def test_a_table_block_cell_cannot_mention_and_carries_no_direction_character(mocker):
+    table = f"| a{BIDI} | b |\n|---|---|\n| \\<!channel> @here | @channel <@U1> |\n|  | x |\n"
+
+    blocks = excerpt(mocker, [(2, "assistant", table)], 2, name(table, "table"), native=True)
+
+    shown = cells(blocks[0])
+    assert shown[0] == ["a", "b"]
+    assert shown[1] == ["<\u200b!channel> @\u200bhere", "@\u200bchannel <\u200b@\u200bU1>"]
+    assert shown[2] == [" ", "x"]
+    assert {cell["type"] for row in blocks[0]["rows"] for cell in row} == {"raw_text"}
+
+
+def test_a_table_carries_both_forms_until_the_listener_chooses(mocker):
+    mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=[(2, "assistant", TABLE)])
+
+    blocks = slack_excerpts.excerpt(Conversation(id=CONV), 2, name(TABLE, "table"))
+
+    assert [block["type"] for block in blocks] == ["table_excerpt"]
+    assert [block["type"] for block in slack_excerpts.with_tables(blocks, True)] == ["table"]
+    assert slack_excerpts.with_tables(blocks, False)[0]["text"]["text"].startswith("```\n")

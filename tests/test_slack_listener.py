@@ -677,7 +677,7 @@ def test_a_card_slack_refuses_with_its_known_image_is_posted_without_it(mocker, 
         ["section", "image", "context", "actions"],
         ["section", "section", "context", "actions"],
     ]
-    assert "posée sans elle : invalid_blocks" in caplog.text
+    assert "(tableau Slack : True, image : True), reposée autrement : invalid_blocks" in caplog.text
 
 
 def test_a_card_without_image_that_slack_refuses_is_not_sent_twice(mocker, monkeypatch, caplog):
@@ -690,3 +690,110 @@ def test_a_card_without_image_that_slack_refuses_is_not_sent_twice(mocker, monke
 
     assert client.web_client.chat_unfurl.call_count == 1
     assert "Carte Slack refusée : cannot_unfurl_url" in caplog.text
+
+
+TABLE_ANSWER = "| Mois | Orientations |\n|---|---|\n| 2026-04 | 8 412 |\n"
+
+
+def refused(mocker, error="invalid_blocks"):
+    return SlackApiError("refused", mocker.MagicMock(get={"error": error}.get))
+
+
+def test_a_table_is_posted_as_a_slack_table_block(mocker):
+    known(mocker, messages=[(2, "assistant", TABLE_ANSWER)])
+    client = mocker.MagicMock()
+    url = f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert sent_kinds(client, url) == [["section", "table", "context", "actions"]]
+
+
+def test_a_card_slack_refuses_with_a_table_block_is_posted_again_at_once_in_monospace(mocker, caplog):
+    known(mocker, messages=[(2, "assistant", TABLE_ANSWER)])
+    client = mocker.MagicMock()
+    client.web_client.chat_unfurl.side_effect = [refused(mocker), None]
+    url = f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert sent_kinds(client, url) == [
+        ["section", "table", "context", "actions"],
+        ["section"] * 2 + ["context", "actions"],
+    ]
+    fallback = client.web_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][1]["text"]
+    assert fallback["text"].startswith("```\nMois")
+    assert "(tableau Slack : True, image : True), reposée autrement : invalid_blocks" in caplog.text
+
+
+def test_when_one_card_of_a_message_is_refused_all_its_cards_fall_back_together(mocker):
+    known(mocker, messages=[(2, "assistant", TABLE_ANSWER), (3, "user", "Q"), (4, "assistant", "Du texte.")])
+    client = mocker.MagicMock()
+    client.web_client.chat_unfurl.side_effect = [refused(mocker), None]
+    table, text = f"{BASE}/c/{SHORT}/2", f"{BASE}/c/{SHORT}/4"
+
+    slack_listener.handle(client, link_shared([table, text]))
+
+    last = client.web_client.chat_unfurl.call_args.kwargs["unfurls"]
+    assert set(last) == {table, text}
+    assert "table" not in [block["type"] for block in last[table]["blocks"]]
+    assert "Du texte." in card_text(last[text])
+
+
+def test_refreshing_a_table_card_tries_the_table_block_again_then_falls_back(mocker):
+    known(mocker, messages=[(2, "assistant", TABLE_ANSWER)])
+    client = mocker.MagicMock()
+    client.web_client.chat_unfurl.side_effect = [refused(mocker), None]
+    url = f"{BASE}/c/{SHORT}/2"
+
+    slack_listener.handle(client, refresh_click(url))
+
+    assert [kinds[1] for kinds in sent_kinds(client, url)] == ["table", "section"]
+
+
+def test_a_card_refused_in_every_form_is_given_up_and_logged(mocker, caplog):
+    known(mocker, messages=[(2, "assistant", TABLE_ANSWER)])
+    client = mocker.MagicMock()
+    client.web_client.chat_unfurl.side_effect = refused(mocker, "cannot_unfurl_url")
+
+    slack_listener.handle(client, link_shared([f"{BASE}/c/{SHORT}/2"]))
+
+    assert client.web_client.chat_unfurl.call_count == 2
+    assert "Carte Slack refusée : cannot_unfurl_url" in caplog.text
+
+
+def test_a_card_with_a_table_and_an_image_drops_the_table_block_first_then_the_image(mocker, monkeypatch):
+    monkeypatch.setattr(config, "SLACK_CHART_IMAGES", False)
+    known(
+        mocker,
+        messages=[(2, "assistant", TABLE_ANSWER), (3, "user", "Q"), (4, "assistant", CHART_ANSWER)],
+    )
+    monkeypatch.setitem(slack_listener.slack_charts.files, slack_listener.slack_charts.key("pie title Parts"), "F0TEST")
+    client = mocker.MagicMock()
+    client.web_client.chat_unfurl.side_effect = [refused(mocker), refused(mocker), None]
+    table, chart = f"{BASE}/c/{SHORT}/2", f"{BASE}/c/{SHORT}/4"
+
+    slack_listener.handle(client, link_shared([table, chart]))
+
+    tried = [
+        (call.kwargs["unfurls"][table]["blocks"][1]["type"], call.kwargs["unfurls"][chart]["blocks"][1]["type"])
+        for call in client.web_client.chat_unfurl.call_args_list
+    ]
+    assert tried == [("table", "image"), ("section", "image"), ("table", "section")]
+
+
+def test_the_image_joins_a_card_in_the_table_form_slack_accepted(mocker, monkeypatch):
+    client, chart = chart_link(mocker, monkeypatch)
+    slack_listener.store.get_displayed_messages.return_value = [
+        (2, "assistant", CHART_ANSWER),
+        (3, "user", "Q"),
+        (4, "assistant", TABLE_ANSWER),
+    ]
+    client.web_client.chat_unfurl.side_effect = [refused(mocker), None, None]
+    table = f"{BASE}/c/{SHORT}/4"
+
+    slack_listener.handle(client, link_shared([chart, table]))
+
+    last = client.web_client.chat_unfurl.call_args.kwargs["unfurls"]
+    assert last[chart]["blocks"][1]["type"] == "image"
+    assert last[table]["blocks"][1]["type"] == "section"

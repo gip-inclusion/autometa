@@ -139,21 +139,34 @@ def asked(request: SocketModeRequest) -> tuple[list[str], dict] | None:
 def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
     """Pose les cartes, puis dessine et dépose leurs graphiques encore inconnus de Slack et les repose avec l'image."""
 
-    def drawn(images: bool) -> dict[str, dict]:
-        return {url: {"blocks": slack_charts.shown(card["blocks"], images)} for url, card in found.items()}
+    def drawn(images: bool, tables: bool) -> dict[str, dict]:
+        return {
+            url: {"blocks": slack_excerpts.with_tables(slack_charts.shown(card["blocks"], images), tables)}
+            for url, card in found.items()
+        }
 
-    try:
-        web.chat_unfurl(**target, unfurls=drawn(True))
-    except SlackApiError as error:
-        if drawn(True) == drawn(False):
-            raise
-        logger.warning(
-            "Carte Slack refusée avec son image, posée sans elle : %s %s",
-            error.response.get("error"),
-            error.response.get("response_metadata"),
-        )
-        web.chat_unfurl(**target, unfurls=drawn(False))
-    logger.info("Cartes Slack posées : %s", [[block["type"] for block in card["blocks"]] for card in found.values()])
+    # Why: la documentation de Slack ne dit pas qu'une carte accepte un bloc table ni l'image d'un fichier : refusée,
+    # elle est reposée dans l'instant avec le tableau en chasse fixe, puis sans l'image.
+    forms = [(True, True), (True, False), (False, True), (False, False)]
+    forms = [form for rank, form in enumerate(forms) if drawn(*form) not in [drawn(*seen) for seen in forms[:rank]]]
+    for images, tables in forms:
+        try:
+            web.chat_unfurl(**target, unfurls=drawn(images, tables))
+            break
+        except SlackApiError as error:
+            if (images, tables) == forms[-1]:
+                raise
+            logger.warning(
+                "Carte Slack refusée (tableau Slack : %s, image : %s), reposée autrement : %s %s",
+                tables,
+                images,
+                error.response.get("error"),
+                error.response.get("response_metadata"),
+            )
+    logger.info(
+        "Cartes Slack posées : %s",
+        [[block["type"] for block in card["blocks"]] for card in drawn(images, tables).values()],
+    )
     if not config.SLACK_CHART_IMAGES:
         return
     charts = [block["source"] for card in found.values() for block in card["blocks"] if block["type"] == "chart"]
@@ -163,7 +176,7 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
     for wait in (1, 2, 4):
         time.sleep(wait)
         try:
-            web.chat_unfurl(**target, unfurls=drawn(True))
+            web.chat_unfurl(**target, unfurls=drawn(True, tables))
             return
         except SlackApiError as error:
             logger.warning(

@@ -95,16 +95,21 @@ def code_safe(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("`", "ˋ")
 
 
-def table_blocks(anchor: permalinks.Anchor, titled: bool = True) -> list[dict]:
+def left_note(rows: int, columns: int) -> list[dict]:
+    """Ce qu'un tableau montré laisse de côté, en une ligne sous lui ; rien s'il est entier."""
+    left = [
+        f"{count} {name}{'s' if count > 1 else ''}"
+        for count, name in ((rows, "ligne"), (columns, "colonne"))
+        if count > 0
+    ]
+    if not left:
+        return []
+    return [{"type": "context", "elements": [{"type": "plain_text", "text": f"… {' et '.join(left)} de plus"}]}]
+
+
+def ascii_table(rows: list[list[str]], lines: int) -> list[dict]:
     """Un tableau en chasse fixe : 10 lignes, des colonnes sur 72 caractères au plus, et ce qui a été laissé."""
-    lines = anchor.text.split("\n")
-    # Why: seules les premières lignes sont lues, et 1 000 caractères de chacune : une cellule démesurée occuperait
-    # l'analyseur, donc le serveur, pendant des secondes.
-    rows = table_rows("\n".join(line[:1000] for line in lines[:12]))
-    title = anchor.title if titled else ""
-    if not rows:
-        return text_block(title, shortened("\n".join(read(anchor.text[:4000])[0]), 500))
-    rows = [[cell if len(cell) <= 24 else f"{cell[:23]}…" for cell in row] for row in rows]
+    rows = [[cell if len(cell) <= 24 else f"{cell[:23]}…" for cell in row] for row in rows[:11]]
     widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
     kept = 1
     while kept < len(widths) and sum(widths[: kept + 1]) + 3 * kept <= 72:
@@ -116,19 +121,58 @@ def table_blocks(anchor: permalinks.Anchor, titled: bool = True) -> list[dict]:
     while len(table) > 2900:
         drawn.pop()
         table = code_safe("\n".join(drawn))
-    left = [
-        f"{count} {name}{'s' if count > 1 else ''}"
-        for count, name in ((len(lines) - len(drawn), "ligne"), (len(widths) - kept, "colonne"))
-        if count > 0
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "verbatim": True, "text": f"```\n{table}\n```"}},
+        *left_note(lines - len(drawn), len(widths) - kept),
+    ]
+
+
+NUMBER = re.compile(r"[-+−]?\d[\d\s.,]*\s*[%€]?")
+
+
+def slack_table(rows: list[list[str]], lines: int) -> list[dict]:
+    """Un tableau en bloc table de Slack : 20 lignes et 20 colonnes au plus, cellules en texte brut, nombres à droite."""
+    # Why: Slack lit « <!channel> » et « @here » dans du texte ; une espace sans largeur après « < » et « @ » les
+    # laisse lisibles et sans effet, sa documentation ne disant pas qu'une cellule raw_text n'est pas lue.
+    cells = [[re.sub(r"([<@])", "\\1\u200b", shortened(cell, 80)) or " " for cell in row[:20]] for row in rows[:21]]
+    # Why: Slack refuse un tableau de plus de 10 000 caractères, toutes cellules réunies.
+    while sum(len(cell) for row in cells for cell in row) > 9000:
+        cells.pop()
+    numeric = [
+        len(cells) > 1 and all(NUMBER.fullmatch(row[column]) or not row[column].strip() for row in cells[1:])
+        for column in range(len(cells[0]))
     ]
     return [
+        {
+            "type": "table",
+            "column_settings": [{"align": "right"} if number else {"is_wrapped": True} for number in numeric],
+            "rows": [[{"type": "raw_text", "text": cell} for cell in row] for row in cells],
+        },
+        *left_note(lines - 1 - len(cells), len(rows[0]) - len(cells[0])),
+    ]
+
+
+def table_blocks(anchor: permalinks.Anchor, titled: bool = True) -> list[dict]:
+    """Un tableau sous son titre, en bloc table de Slack et en chasse fixe : l'écoute pose l'un, sinon l'autre."""
+    lines = anchor.text.split("\n")
+    # Why: seules les premières lignes sont lues, et 1 000 caractères de chacune : une cellule démesurée occuperait
+    # l'analyseur, donc le serveur, pendant des secondes.
+    rows = table_rows("\n".join(line[:1000] for line in lines[:22]))
+    title = anchor.title if titled else ""
+    if not rows:
+        return text_block(title, shortened("\n".join(read(anchor.text[:4000])[0]), 500))
+    return [
         *text_block(title, ""),
-        {"type": "section", "text": {"type": "mrkdwn", "verbatim": True, "text": f"```\n{table}\n```"}},
-        *(
-            [{"type": "context", "elements": [{"type": "plain_text", "text": f"… {' et '.join(left)} de plus"}]}]
-            if left
-            else []
-        ),
+        {"type": "table_excerpt", "native": slack_table(rows, len(lines)), "ascii": ascii_table(rows, len(lines))},
+    ]
+
+
+def with_tables(blocks: list[dict], native: bool) -> list[dict]:
+    """Les blocs tels que Slack les reçoit, chaque tableau en bloc table ou, à défaut, en chasse fixe."""
+    return [
+        shown
+        for block in blocks
+        for shown in (block["native" if native else "ascii"] if block["type"] == "table_excerpt" else [block])
     ]
 
 
