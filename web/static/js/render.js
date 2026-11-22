@@ -336,7 +336,10 @@ function formatAssistantContent(content) {
 /**
  * Render mermaid diagrams in an element
  */
-async function renderMermaid(element) {
+// Why: two runs started in the same millisecond give their charts the same id, and the second comes out broken.
+let chartsDrawn = Promise.resolve();
+
+function renderMermaid(element) {
   if (typeof mermaid === 'undefined') return;
 
   const nodes = [];
@@ -353,11 +356,10 @@ async function renderMermaid(element) {
   }
   if (!nodes.length) return;
 
-  try {
-    await mermaid.run({ nodes });
-  } catch (err) {
-    console.error('Mermaid rendering failed:', err);
-  }
+  chartsDrawn = chartsDrawn
+    .then(() => mermaid.run({ nodes }))
+    .catch((err) => console.error('Mermaid rendering failed:', err));
+  return chartsDrawn;
 }
 
 /**
