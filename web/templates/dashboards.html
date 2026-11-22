@@ -274,7 +274,8 @@ function filterByText(query) {
   }, 300);
 }
 
-document.body.addEventListener('click', async (e) => {
+// Why: posé sur la section, que chaque visite remplace, et non sur body où chaque passage en ajouterait un.
+document.getElementById('section-dashboards').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action="copy-url"]');
   if (!btn) return;
   e.preventDefault();

@@ -305,8 +305,8 @@ function addTocEntry(target) {
   `;
 
   entry.addEventListener('click', () => {
-    if (anchorUrl) history.replaceState(null, '', anchorUrl);
-    else if (target.id) history.replaceState(null, '', `/c/${currentConversationId}#${target.id}`);
+    if (anchorUrl) history.replaceState(history.state, '', anchorUrl);
+    else if (target.id) history.replaceState(history.state, '', `/c/${currentConversationId}#${target.id}`);
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
@@ -594,7 +594,9 @@ function formatPillContent(toolUse, toolResult) {
     for (const call of toolResult.api_calls) {
       const linkText = call.method || `${call.sql?.replace(/^[\s\\n]+/, '').substring(0, 50)}...` || 'View';
       const icon = call.source === 'matomo' ? 'ri-bar-chart-line' : 'ri-database-2-line';
-      html += `<a href="${escapeHtml(call.url)}" target="_blank" class="action-api-link">
+      // Why: the signal is read from the tool's output, which the agent or a page it fetched can forge.
+      const href = isSafeUserUrl(call.url) ? ` href="${escapeHtml(call.url)}"` : '';
+      html += `<a${href} target="_blank" class="action-api-link">
         <i class="${icon}"></i>
         <span>${escapeHtml(linkText)}</span>
         <i class="ri-external-link-line"></i>
@@ -980,8 +982,9 @@ function removeFavoriteTile(btn) {
 
 function initFavoritesDnd() {
   const grid = document.getElementById('favoritesGrid');
-  if (!grid || grid.dataset.dndReady) return;
-  grid.dataset.dndReady = '1';
+  // Why: a property, not a data attribute — Back puts back a saved copy of the page's HTML, attributes included.
+  if (!grid || grid.dndReady) return;
+  grid.dndReady = true;
   let dragged = null;
 
   grid.addEventListener('dragstart', (event) => {

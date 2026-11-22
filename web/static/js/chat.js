@@ -43,6 +43,10 @@ window.addEventListener('pageshow', (e) => {
   if (e.persisted && sending) window.location.reload();
 });
 
+// Why: htmx 2.0.4 kept its copies of pages in localStorage; later versions keep them in sessionStorage and leave
+// the old ones there for good.
+document.addEventListener('DOMContentLoaded', () => localStorage.removeItem('htmx-history-cache'));
+
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
@@ -75,6 +79,26 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   isPopState = false;
 });
 
+// Why: htmx swaps #main alone and keeps a copy of it, taken here. A dialog left open would leave its backdrop and the
+// body's scroll lock over the next page, and come back open in the copy, without the Bootstrap instance that closes it.
+document.body.addEventListener('htmx:beforeHistorySave', (e) => {
+  for (const dialog of e.detail.historyElt.querySelectorAll('.modal.show, .offcanvas.show')) {
+    (dialog.classList.contains('modal') ? bootstrap.Modal : bootstrap.Offcanvas).getInstance(dialog)?.hide();
+    // Why: Bootstrap finishes closing on transitionend, which it dispatches itself once the animation time is up.
+    dialog.dispatchEvent(new Event('transitionend'));
+  }
+  for (const backdrop of document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop')) {
+    backdrop.dispatchEvent(new Event('transitionend'));
+  }
+  for (const dialog of e.detail.historyElt.querySelectorAll('dialog[open]')) dialog.close();
+});
+
+// Why: on Back or Forward to a page it kept no copy of, htmx asks the server for it while the address already names the
+// entry; a conversation still loading would write its own address over that entry, and the page put back would load it.
+document.body.addEventListener('htmx:historyCacheMiss', () => {
+  loadSequence += 1;
+});
+
 // Restore scroll position on back/forward
 window.addEventListener('popstate', (e) => {
   isPopState = true;
@@ -99,18 +123,8 @@ async function initKnowledge() {
 
   if (!markdownContent || !rawContentScript) return;
 
-  // Render markdown
-  if (typeof marked !== 'undefined') {
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
-
-    const rawContent = rawContentScript.textContent;
-    markdownContent.innerHTML = marked.parse(rawContent);
-
-    await renderMermaid(markdownContent);
-  }
+  markdownContent.innerHTML = formatAssistantContent(JSON.parse(rawContentScript.textContent));
+  await renderMermaid(markdownContent);
 }
 
 /**

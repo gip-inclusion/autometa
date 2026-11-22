@@ -89,6 +89,15 @@ def test_legacy_path_redirect_cannot_be_steered(client, payload):
         assert "//" not in location.removeprefix("/knowledge")
 
 
+@pytest.mark.parametrize("closing", ["</script>", "</SCRIPT>", "</script >"])
+def test_a_knowledge_page_keeps_its_text_inside_its_data_element(client, mocker, tmp_path, closing):
+    fiche = tmp_path / "fiche.md"
+    fiche.write_text(f"# Fiche\n\n{closing}<img src=x onerror=alert(1)>\n")
+    mocker.patch("web.routes.html.validate_knowledge_path", return_value=fiche)
+
+    assert "<img src=x onerror" not in client.get("/knowledge/fiche.md").text
+
+
 def test_page_groups_sources_by_role(client):
     body = client.get("/sources").text
     for group in ("Données métier", "Analytiques web", "Connecteurs", "Interne"):
@@ -151,6 +160,16 @@ def test_detail_page_renders_the_agent_document(client):
 def test_detail_page_links_a_knowledge_document(client):
     body = client.get("/sources/matomo").text
     assert 'href="/knowledge/matomo/README.md"' in body
+
+
+def test_a_source_document_keeps_none_of_its_active_html(client, mocker, tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n\n**gras** <img src=x onerror=alert(1)>\n")
+    mocker.patch("web.routes.sources.doc_path", return_value=doc)
+
+    body = client.get("/sources/matomo").text
+    assert "<strong>gras</strong>" in body
+    assert "onerror=alert(1)" not in body
 
 
 def test_source_without_documentation_says_so(client):
