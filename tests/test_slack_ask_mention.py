@@ -91,7 +91,9 @@ def test_the_thread_since_the_previous_request_is_context_written_by_people_of_t
     replies = [
         reply("U2", "Avant la première demande", "1700000000.000100"),
         reply("U1", f"<@{BOT}> une première demande", "1700000100.000100"),
-        reply(None, "Autometa regarde…", "1700000101.000100", bot_id="B1"),
+        reply(BOT, "Autometa regarde…", "1700000101.000100", bot_id="B0BOT"),
+        reply(None, "", "1700000150.000100", bot_id="B9", subtype="bot_message", bot_profile={"name": "Sentry"})
+        | {"attachments": [{"fallback": "Erreur 500 sur /candidatures"}]},
         reply("U2", "D'accord <@U1> &amp; un <https://exemple.example/x|lien>", "1700000200.000100"),
         reply("U2", "a rejoint le canal", "1700000210.000100", subtype="channel_join"),
         reply("U2", "aussi envoyé au canal", "1700000220.000100", subtype="thread_broadcast"),
@@ -112,6 +114,7 @@ def test_the_thread_since_the_previous_request_is_context_written_by_people_of_t
     assert conv_id == first
     kept = world.store.thread(conv_id)
     assert [(m["author"], m["text"]) for m in kept["messages"]] == [
+        ("Application Sentry", "Erreur 500 sur /candidatures"),
         ("Louis D.", "D'accord @Camille Martin & un lien (https://exemple.example/x)"),
         ("Louis D.", "aussi envoyé au canal"),
         ("Noa", "avec un fichier"),
@@ -189,14 +192,61 @@ def test_two_requests_never_share_their_marker():
     assert len(markers) == 5
 
 
-def test_a_thread_too_long_for_the_agent_is_refused_in_words_and_opens_nothing(mocker, world):
-    web = slack(mocker, [reply("U2", "mot " * 30_000, "1700000000.000100")])
+def test_a_long_thread_is_kept_whole_in_a_file_attached_to_the_question(mocker, world):
+    replies = [reply("U2", f"message {rank} " + "mot " * 30, f"{1700000000 + rank}.000100") for rank in range(200)]
+    web = slack(mocker, replies)
+    stored = mocker.MagicMock(storage_path="/data/uploads/conv/fil-slack.txt", original_filename="fil-slack.txt")
+    stored.file_size, stored.mime_type, stored.is_text = 30_000, "text/plain", True
+    slack_ask.uploads.upload_file.return_value = (stored, None)
+
+    conv_id, asked, _ = slack_ask.begin(web, EVENT)
+
+    file_obj, name, where = slack_ask.uploads.upload_file.call_args.args
+    text = file_obj.getvalue().decode()
+    assert (name, where) == ("fil-slack.txt", conv_id)
+    assert slack_ask.uploads.upload_file.call_args.kwargs == {"user_id": OWNER, "check_duplicate": False}
+    assert text.startswith("Contexte : messages du fil Slack") and text.count("\n> ") == 200
+    question = world.store.messages[conv_id][0][2]
+    assert question.startswith("[Uploaded file: fil-slack.txt]\n- Size: 30,000 bytes")
+    assert question.endswith("\n\n---\n\ncombien de candidatures ?")
+    kept = world.store.thread(conv_id)
+    assert len(kept["messages"]) == 200 and kept["files"] == ["/data/uploads/conv/fil-slack.txt"]
+    assert "Le fil entier (200 messages, du " in asked and "/data/uploads/conv/fil-slack.txt : lis-le" in asked
+    assert len([line for line in asked.split("\n") if line.startswith("> ")]) == 5
+    assert len(asked) < 3000
+    assert "message 199 " in asked and "message 194 " not in asked
+
+
+def test_a_long_thread_that_cannot_be_attached_gives_its_end_and_says_the_rest_is_missing(mocker, world, caplog):
+    web = slack(mocker, [reply("U2", "mot " * 40, f"{1700000000 + rank}.000100") for rank in range(200)])
+    slack_ask.uploads.upload_file.side_effect = slack_ask.uploads.AVScanFailedError("virus")
+
+    conv_id, asked, _ = slack_ask.begin(web, EVENT)
+
+    assert world.store.thread(conv_id)["partial"] is True
+    assert "n'a pas pu être joint" in asked and len(asked) < 3000
+    assert world.store.messages[conv_id][0][2] == "combien de candidatures ?"
+    assert "non joint en fichier" in caplog.text
+
+
+def test_a_short_thread_stays_in_the_request_and_no_file_is_made(mocker, world):
+    web = slack(mocker, [reply("U2", "avant", "1700000000.000100")])
+
+    conv_id, asked, _ = slack_ask.begin(web, EVENT)
+
+    slack_ask.uploads.upload_file.assert_not_called()
+    assert "files" not in world.store.thread(conv_id)
+    assert "> Louis D., " in asked
+
+
+def test_a_thread_beyond_five_megabytes_is_refused_in_words_and_opens_nothing(mocker, world):
+    web = slack(mocker, [reply("U2", "mot " * 9_000, f"{1700000000 + rank}.000100") for rank in range(150)])
 
     assert slack_ask.begin(web, EVENT) is None
 
-    assert "trop long" in web.chat_postEphemeral.call_args.kwargs["text"]
+    assert "5 Mo" in web.chat_postEphemeral.call_args.kwargs["text"]
     assert world.store.convs == {}
-    web.chat_postMessage.assert_not_called()
+    slack_ask.uploads.upload_file.assert_not_called()
 
 
 def test_a_mention_whose_living_message_cannot_be_posted_gives_its_turn_back_and_leaves_no_conversation(mocker, world):
@@ -222,7 +272,7 @@ def test_two_mentions_at_once_give_one_conversation_one_living_message_and_no_lo
     assert "prendra votre demande" in web.chat_postEphemeral.call_args.kwargs["text"]
 
 
-def test_a_follow_up_by_someone_else_enters_under_their_name_and_plays_for_the_owner(mocker, world):
+def test_a_follow_up_by_someone_else_enters_under_their_certified_identity_and_plays_as_them(mocker, world):
     world.store.owners = {"louis@ailleurs.example"}
     web = slack(mocker)
     conv_id, _, _ = slack_ask.begin(web, EVENT)
@@ -230,9 +280,61 @@ def test_a_follow_up_by_someone_else_enters_under_their_name_and_plays_for_the_o
 
     begun = slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000500.000100"})
 
-    assert begun == (conv_id, "Louis D. : combien de candidatures ?", OWNER)
+    asked = "Louis D. (louis@ailleurs.example) : combien de candidatures ?"
+    assert begun == (conv_id, asked, "louis@ailleurs.example")
+    conv = world.store.get_conversation(conv_id)
+    assert (conv.user_id, conv.turn_user) == (OWNER, "louis@ailleurs.example")
     assert len(world.store.convs) == 1
     slack_ask.generate_conversation_title.assert_called_once()
+
+
+def test_each_turn_is_submitted_under_the_identity_of_who_asked(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web = slack(mocker)
+    mocker.patch.object(slack_ask, "follow", mocker.AsyncMock())
+    asyncio.run(slack_ask.asked(web, EVENT))
+    conv_id = next(iter(world.store.convs))
+    world.store.end_turn(conv_id, False)
+
+    asyncio.run(slack_ask.asked(web, EVENT | {"user": "U2", "ts": "1700000500.000100"}))
+
+    assert [call.args[3] for call in world.runner.submit.await_args_list] == [OWNER, "louis@ailleurs.example"]
+
+
+def test_a_mention_arriving_between_two_turns_waits_behind_those_already_waiting(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web = slack(mocker)
+    conv_id, _, _ = slack_ask.begin(web, EVENT)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": "de Louis"})
+    world.store.end_turn(conv_id, True)
+
+    begun = slack_ask.begin(web, EVENT | {"user": "U5", "ts": "1700000402.000100", "text": "de Noa"})
+
+    assert begun == (conv_id, None, "noa@inclusion.gouv.fr")
+    assert [(e["author"], e["slack_user"]) for e in world.store.pending_messages(conv_id)] == [
+        ("louis@ailleurs.example", "U2"),
+        ("noa@inclusion.gouv.fr", "U5"),
+    ]
+    assert world.store.get_conversation(conv_id).needs_response is False
+
+
+@pytest.mark.parametrize(("user", "runs"), [("U1", True), ("U5", False)], ids=["the owner", "someone else"])
+def test_once_its_owner_wrote_from_the_site_a_conversation_only_takes_the_owner_from_slack(mocker, world, user, runs):
+    web = slack(mocker)
+    conv_id, _, _ = slack_ask.begin(web, EVENT)
+    world.store.end_turn(conv_id, False)
+    world.store.update_conversation(conv_id, slack_locked=True)
+    web.chat_postMessage.reset_mock()
+
+    begun = slack_ask.begin(web, EVENT | {"user": user, "ts": "1700000500.000100"})
+
+    assert (begun is not None) is runs
+    assert web.chat_postMessage.called is runs
+    if not runs:
+        said = web.chat_postEphemeral.call_args.kwargs
+        assert said["user"] == "U5"
+        assert said["text"] == f"Cette conversation se poursuit dans Autometa : {BASE}/c/{conv_id}"
+        assert world.store.get_conversation(conv_id).needs_response is False
 
 
 def test_a_follow_up_by_someone_not_admitted_is_refused_and_does_not_enter(mocker, world):

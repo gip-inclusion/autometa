@@ -428,6 +428,12 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
 
     content = data["content"]
 
+    # Why: une conversation venue de Slack est partagée tant que seul Slack y écrit ; dès que sa propriétaire y
+    # écrit depuis le site, elle ne prend plus les demandes des autres.
+    if conv.origin == "slack" and not conv.slack_locked:
+        store.update_conversation(conv_id, slack_locked=True)
+        await runner.notify(conv_id, "queue")
+
     if data.get("queue") and conv.conv_type != "knowledge":
         waiting = with_status(conv.pending_messages, "waiting")
         # Why: les messages d'un groupe, sauf le dernier, passent par le rattrapage, plafonné à 30 000 caractères ;

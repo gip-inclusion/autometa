@@ -18,6 +18,7 @@ PEOPLE = {
     "U3": {"real_name": "Invitée", "is_restricted": True, "profile": {"email": "x@inclusion.gouv.fr"}},
     "U4": {"real_name": "Externe", "is_stranger": True, "profile": {}},
     "U5": {"real_name": "Noa", "profile": {"email": "noa@inclusion.gouv.fr", "display_name": "Noa"}},
+    "U6": {"real_name": "Admin", "profile": {"email": "admin@inclusion.gouv.fr", "display_name": "Admin"}},
     BOT: {"real_name": "Autometa", "is_bot": True, "profile": {}},
 }
 
@@ -89,39 +90,65 @@ class Store:
         self.messages[conv_id].append((next(self.ids), kind, content))
         return self.messages[conv_id][-1][0]
 
-    def start_turn(self, conv_id, content):
+    def author_of(self, conv_id, entry=None):
+        conv = self.convs[conv_id]
+        return ((entry.get("author") if entry else conv.turn_user) or conv.user_id or "").lower()
+
+    def start_turn(self, conv_id, content, author=None):
         if self.convs[conv_id].needs_response:
             return None
-        self.update_conversation(conv_id, needs_response=True)
+        self.update_conversation(conv_id, needs_response=True, turn_user=author)
         return self.add_message(conv_id, "user", content)
 
-    def queue_message(self, conv_id, content, slack=None):
+    def queue_message(self, conv_id, content, **slack):
         conv = self.convs[conv_id]
-        if not conv.needs_response:
+        waiting = [e for e in conv.pending_messages if e["status"] == "waiting"]
+        if not (conv.needs_response or (slack and waiting)):
             return None
-        entry = {
-            "id": f"e{next(self.ids)}",
-            "content": content,
-            "status": "waiting",
-            **({"slack": slack} if slack else {}),
-        }
+        entry = {"id": f"e{next(self.ids)}", "content": content, "status": "waiting", **slack}
         self.update_conversation(conv_id, pending_messages=[*conv.pending_messages, entry])
         return self.convs[conv_id].pending_messages
 
+    def first_group(self, conv_id):
+        waiting = [e for e in self.convs[conv_id].pending_messages if e["status"] == "waiting"]
+        return [e for e in waiting if self.author_of(conv_id, e) == self.author_of(conv_id, waiting[0])]
+
+    def leave(self, conv_id, group):
+        kept = [e for e in self.convs[conv_id].pending_messages if e not in group]
+        self.update_conversation(conv_id, pending_messages=kept)
+        sent = [self.add_message(conv_id, "user", entry["content"]) for entry in group]
+        threads = [e["slack"] for e in group if e.get("slack")]
+        if not threads:
+            return sent, group[-1]["content"], False
+        self.add_message(conv_id, "slack_context", slack_context.merged(threads))
+        return sent, slack_context.prompt(slack_context.merged(threads), group[-1]["content"]), True
+
     def end_turn(self, conv_id, flush):
         conv = self.convs[conv_id]
-        waiting = [e for e in conv.pending_messages if e["status"] == "waiting"]
-        if flush and waiting:
-            self.update_conversation(conv_id, pending_messages=[])
-            for entry in waiting:
-                self.add_message(conv_id, "user", entry["content"])
-            threads = [e["slack"] for e in waiting if e.get("slack")]
-            if threads:
-                self.add_message(conv_id, "slack_context", slack_context.merged(threads))
-            return waiting
-        returned = [{**e, "status": "returned"} for e in conv.pending_messages]
-        self.update_conversation(conv_id, pending_messages=returned, needs_response=False)
+        group = self.first_group(conv_id)
+        if flush and group and self.author_of(conv_id, group[0]) == self.author_of(conv_id):
+            return self.leave(conv_id, group)[0]
+        if not (flush and group):
+            returned = [{**e, "status": "returned"} for e in conv.pending_messages]
+            self.update_conversation(conv_id, pending_messages=returned)
+        self.update_conversation(conv_id, needs_response=False)
         return []
+
+    def next_turn(self, conv_id):
+        group = self.first_group(conv_id) if conv_id in self.convs else []
+        if not group or self.convs[conv_id].needs_response:
+            return None
+        self.update_conversation(conv_id, needs_response=True, turn_user=group[0].get("author"))
+        sent, asked, from_slack = self.leave(conv_id, group)
+        return sent[-1], asked, group[0].get("author") or self.convs[conv_id].user_id, from_slack
+
+    def turned_away(self, conv_id):
+        conv = self.convs[conv_id]
+        if not conv.slack_locked:
+            return []
+        others = [e for e in conv.pending_messages if e.get("slack") and e.get("author") != conv.user_id]
+        self.update_conversation(conv_id, pending_messages=[e for e in conv.pending_messages if e not in others])
+        return others
 
     def pending_messages(self, conv_id):
         return self.convs[conv_id].pending_messages
@@ -200,7 +227,10 @@ def instance(mocker, monkeypatch):
     """Une instance qui écoute, un magasin vide, un moteur et un Redis factices."""
     monkeypatch.setattr(config, "BASE_URL", BASE)
     monkeypatch.setattr(config, "SLACK_CHART_IMAGES", False)
-    monkeypatch.setattr(slack_ask, "workspace", {"url": "https://equipe.slack.com/", "bot": BOT, "loop": None})
+    monkeypatch.setattr(
+        slack_ask, "workspace", {"url": "https://equipe.slack.com/", "bot": BOT, "bot_id": "B0BOT", "loop": None}
+    )
+    mocker.patch.object(slack_ask.uploads, "upload_file")
     monkeypatch.setattr(slack_ask, "people", {})
     monkeypatch.setattr(slack_ask, "following", {})
     mocker.patch.object(slack_ask.time, "sleep")

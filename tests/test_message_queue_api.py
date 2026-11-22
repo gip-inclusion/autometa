@@ -153,3 +153,39 @@ def test_stop_hands_the_waiting_messages_back(client):
 
     assert r.json()["status"] == "cancelled"
     assert [e["content"] for e in r.json()["returned"]] == ["q1"]
+
+
+def slack_conversation(running: bool = True):
+    conv_id, _ = store.slack_thread_conversation("C0API", f"{id(object())}.000100", ALICE)
+    if running:
+        store.start_turn(conv_id, "q0", ALICE)
+    return conv_id
+
+
+def test_writing_from_the_site_in_a_conversation_from_slack_locks_it_for_others_once(client, runner):
+    conv_id = slack_conversation(running=False)
+
+    first = client.post(f"/api/conversations/{conv_id}/messages", headers=headers(), json={"content": "du site"})
+
+    assert first.status_code == 200
+    assert store.get_conversation(conv_id).slack_locked is True
+    runner.notify.assert_awaited_once_with(conv_id, "queue")
+    assert store.get_conversation(store.create_conversation(user_id=ALICE).id).slack_locked is False
+
+
+def test_the_page_of_a_conversation_from_slack_never_shows_or_hands_back_the_mentions_waiting(client, runner, mocker):
+    conv_id = slack_conversation()
+    store.queue_message(conv_id, "de Slack", slack="{}", author=BOB, slack_user="U2")
+    send_later(client, conv_id, "du site")
+
+    runner.cancel = mocker.AsyncMock(side_effect=lambda conv: store.end_turn(conv, flush=False))
+
+    shown = client.get(f"/api/conversations/{conv_id}", headers=headers()).json()
+    stopped = client.post(f"/api/conversations/{conv_id}/cancel", headers=headers()).json()
+
+    assert [e["content"] for e in shown["queue"]] == ["du site"]
+    assert [e["content"] for e in stopped["returned"]] == ["du site"]
+    mention = next(e["id"] for e in store.pending_messages(conv_id) if e.get("slack"))
+    taken = client.delete(f"/api/conversations/{conv_id}/queue/{mention}", headers=headers())
+    assert taken.status_code == 409
+    assert [e["content"] for e in store.pending_messages(conv_id) if e.get("slack")] == ["de Slack"]

@@ -198,6 +198,8 @@ class Conversation:
     slack_channel: Optional[str] = None
     slack_thread_ts: Optional[str] = None
     slack_message_ts: Optional[str] = None
+    slack_locked: bool = False
+    turn_user: Optional[str] = None
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
 

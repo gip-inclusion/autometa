@@ -214,3 +214,24 @@ def test_every_validation_of_the_window_is_a_request_even_about_the_same_message
     conv_id = next(iter(world.store.convs))
     assert world.runner.submit.await_count == 1
     assert [e["content"] for e in world.store.pending_messages(conv_id)] == ["Et encore ?"]
+
+
+def test_the_shortcut_may_be_used_on_a_message_from_an_application(mocker, world):
+    alert = {"bot_id": "B9", "ts": CHOSEN["ts"], "text": "", "bot_profile": {"name": "Sentry"}}
+    alert |= {"attachments": [{"fallback": "Erreur 500 sur /candidatures"}]}
+    web = slack(mocker)
+
+    slack_ask.shortcut(web, ACTION | {"message": alert, "channel": {"id": CHANNEL, "name": "privategroup"}})
+    kept = json.loads(web.views_open.call_args.kwargs["view"]["private_metadata"])
+    conv_id, asked, _ = slack_ask.begin(web, {**kept, "user": "U1", "text": "Que s'est-il passé ?", "ts": CHOSEN["ts"]})
+
+    assert kept["chosen"] == {
+        "user": None,
+        "ts": CHOSEN["ts"],
+        "text": "Erreur 500 sur /candidatures",
+        "cut": False,
+    } | {"app": "Sentry"}
+    assert [(m["author"], m["text"]) for m in world.store.thread(conv_id)["messages"]] == [
+        ("Application Sentry", "Erreur 500 sur /candidatures")
+    ]
+    assert "> Application Sentry, " in asked

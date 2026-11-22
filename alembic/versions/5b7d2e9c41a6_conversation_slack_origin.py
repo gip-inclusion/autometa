@@ -1,4 +1,4 @@
-"""Origine d'une conversation et, pour celles venues de Slack, leur fil et le message du bot à compléter."""
+"""Origine d'une conversation, au nom de qui son tour se joue, et pour celles venues de Slack leur fil et leur état."""
 
 from typing import Sequence, Union
 
@@ -17,6 +17,10 @@ def upgrade() -> None:
     op.add_column("conversations", sa.Column("slack_channel", sa.Text(), nullable=True))
     op.add_column("conversations", sa.Column("slack_thread_ts", sa.Text(), nullable=True))
     op.add_column("conversations", sa.Column("slack_message_ts", sa.Text(), nullable=True))
+    op.add_column(
+        "conversations", sa.Column("slack_locked", sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    )
+    op.add_column("conversations", sa.Column("turn_user", sa.Text(), nullable=True))
     op.create_index(
         "idx_conversations_slack_thread",
         "conversations",
@@ -28,6 +32,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("idx_conversations_slack_thread", table_name="conversations")
+    op.drop_column("conversations", "turn_user")
+    op.drop_column("conversations", "slack_locked")
     op.drop_column("conversations", "slack_message_ts")
     op.drop_column("conversations", "slack_thread_ts")
     op.drop_column("conversations", "slack_channel")

@@ -54,6 +54,10 @@ class Conversation(Base):
     slack_channel: Mapped[str | None] = mapped_column(Text)
     slack_thread_ts: Mapped[str | None] = mapped_column(Text)
     slack_message_ts: Mapped[str | None] = mapped_column(Text)
+    # Why: dès que sa propriétaire y écrit depuis le site, une conversation venue de Slack ne prend plus que ses demandes.
+    slack_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Why: un tour se joue au nom de qui l'a demandé ; sans valeur, de la propriétaire de la conversation.
+    turn_user: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

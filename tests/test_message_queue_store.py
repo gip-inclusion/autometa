@@ -11,6 +11,7 @@ from web.database import page_entries, store
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
 ALICE = "alice@example.com"
+BOB = "bob@example.com"
 
 
 def make_conversation(running: bool = True):
@@ -177,13 +178,13 @@ def thread(*texts: str, through: str = "1700000000.0", note: str = "") -> str:
 
 def test_queued_slack_mentions_leave_with_their_threads_as_one_message_and_the_agent_reads_thread_and_request():
     conv = make_conversation()
-    store.queue_message(conv.id, "q1", slack=thread("a", through="1.0"))
-    store.queue_message(conv.id, "Louis : q2", slack=thread("b", "c", through="2.0", note="Canal privé."))
+    store.queue_message(conv.id, "q1", slack=thread("a", through="1.0"), author=ALICE)
+    store.queue_message(conv.id, "q2", slack=thread("b", "c", through="2.0", note="Canal privé."), author=ALICE)
 
     sent = store.end_turn(conv.id, flush=True)
 
     assert [m.content for m in sent][0] == "q1"
-    assert sent[1].content.startswith("Contexte :") and "\nLouis : q2\n" in sent[1].content
+    assert sent[1].content.startswith("Contexte :") and "\nq2\n" in sent[1].content
     assert [line for line in sent[1].content.split("\n") if line.startswith("> ")] == [
         "> Louis, 22/11 14:05 : a",
         "> Louis, 22/11 14:05 : b",
@@ -191,38 +192,127 @@ def test_queued_slack_mentions_leave_with_their_threads_as_one_message_and_the_a
     ]
     stored = kinds(conv.id)[1:]
     assert [kind for kind, _ in stored] == ["user", "user", "slack_context"]
-    assert stored[1] == ("user", "Louis : q2")
+    assert stored[1] == ("user", "q2")
     kept = json.loads(stored[2][1])
     assert [m["text"] for m in kept["messages"]] == ["a", "b", "c"]
     assert (kept["through"], kept["note"]) == ("2.0", "Canal privé.")
     assert store.pending_messages(conv.id) == []
 
 
-def test_a_message_queued_from_the_page_after_a_mention_is_read_as_typed_and_the_thread_is_kept():
+def test_a_mention_and_a_page_message_of_the_same_person_leave_together_and_the_agent_reads_the_thread():
     conv = make_conversation()
-    store.queue_message(conv.id, "q1", slack=thread("a"))
+    store.queue_message(conv.id, "q1", slack=thread("a"), author=ALICE)
     store.queue_message(conv.id, "q2")
 
     sent = store.end_turn(conv.id, flush=True)
 
-    assert [m.content for m in sent] == ["q1", "q2"]
+    assert sent[0].content == "q1"
+    assert sent[1].content.startswith("Contexte :") and sent[1].content.split("\n")[-2] == "q2"
     assert json.loads(kinds(conv.id)[-1][1])["messages"][0]["text"] == "a"
+
+
+def test_the_server_only_relaunches_the_queue_of_the_person_whose_turn_ends():
+    conv = make_conversation()
+    store.queue_message(conv.id, "de Bob", slack=thread("a"), author=BOB, slack_user="U2")
+    store.queue_message(conv.id, "d'Alice")
+
+    assert store.end_turn(conv.id, flush=True) == []
+
+    read = store.get_conversation(conv.id)
+    assert read.needs_response is False
+    assert [e["content"] for e in store.pending_messages(conv.id) if e["status"] == "waiting"] == ["de Bob", "d'Alice"]
+
+
+def test_waiting_requests_get_their_turn_one_person_at_a_time_under_their_own_identity():
+    conv = make_conversation()
+    store.queue_message(conv.id, "Bob 1", slack=thread("a", through="1.0"), author=BOB, slack_user="U2")
+    store.queue_message(conv.id, "d'Alice")
+    store.queue_message(conv.id, "Bob 2", slack=thread("b", through="2.0"), author="Bob@Example.com", slack_user="U2")
+    store.end_turn(conv.id, flush=True)
+
+    question, asked, author, from_slack = store.next_turn(conv.id)
+
+    assert (author, from_slack) == (BOB, True)
+    assert asked.startswith("Contexte :") and asked.split("\n")[-2] == "Bob 2"
+    assert [kind for kind, _ in kinds(conv.id)][-3:] == ["user", "user", "slack_context"]
+    assert question == store.last_user_message_id(conv.id)
+    read = store.get_conversation(conv.id)
+    assert (read.needs_response, read.turn_user) == (True, BOB)
+    assert store.next_turn(conv.id) is None
+
+    assert [m.content for m in store.end_turn(conv.id, flush=True)] == []
+    assert store.next_turn(conv.id)[1:] == ("d'Alice", ALICE, False)
+    assert store.get_conversation(conv.id).turn_user is None
+
+
+def test_a_turn_runs_under_the_name_it_was_started_with_and_the_owner_by_default():
+    conv = make_conversation(running=False)
+
+    store.start_turn(conv.id, "de Bob", BOB)
+    store.queue_message(conv.id, "encore Bob", slack=thread("a"), author=BOB)
+
+    assert store.get_conversation(conv.id).turn_user == BOB
+    assert [m.content.split("\n")[-2] for m in store.end_turn(conv.id, flush=True)] == ["encore Bob"]
+    store.end_turn(conv.id, flush=False)
+    store.start_turn(conv.id, "d'Alice")
+    assert store.get_conversation(conv.id).turn_user is None
+
+
+def test_a_mention_may_wait_behind_others_between_two_turns_but_never_in_an_idle_empty_queue():
+    conv = make_conversation(running=False)
+
+    assert store.queue_message(conv.id, "seule", slack=thread("a"), author=BOB) is None
+    store.start_turn(conv.id, "q", BOB)
+    store.queue_message(conv.id, "première", slack=thread("a"), author=ALICE)
+    store.end_turn(conv.id, flush=True)
+
+    assert store.queue_message(conv.id, "du site") is None
+    assert store.queue_message(conv.id, "seconde", slack=thread("b"), author=BOB) is not None
+
+
+def test_once_locked_the_mentions_of_others_leave_the_queue_and_the_owners_stay():
+    conv_id, _ = store.slack_thread_conversation("C0LOCK", f"{uuid.uuid4().int % 10**10}.000100", "Alice@example.com")
+    store.start_turn(conv_id, "q0", ALICE)
+    store.queue_message(conv_id, "de Bob", slack=thread("a"), author=BOB, slack_user="U2")
+    store.queue_message(conv_id, "d'Alice par Slack", slack=thread("b"), author=ALICE, slack_user="U1")
+    store.queue_message(conv_id, "d'Alice sur le site")
+
+    assert store.turned_away(conv_id) == []
+    store.update_conversation(conv_id, slack_locked=True)
+    away = store.turned_away(conv_id)
+
+    assert [(e["content"], e["slack_user"]) for e in away] == [("de Bob", "U2")]
+    assert [e["content"] for e in store.pending_messages(conv_id)] == ["d'Alice par Slack", "d'Alice sur le site"]
+    assert store.turned_away(conv_id) == []
+
+
+def test_conversations_from_slack_with_requests_waiting_are_found_after_a_restart():
+    conv_id, _ = store.slack_thread_conversation("C0LIVE", f"{uuid.uuid4().int % 10**10}.000100", ALICE)
+    page = make_conversation()
+    store.queue_message(page.id, "du site")
+    assert conv_id not in store.slack_live_conversations()
+
+    store.start_turn(conv_id, "q0", ALICE)
+    store.queue_message(conv_id, "de Bob", slack=thread("a"), author=BOB)
+
+    live = store.slack_live_conversations()
+    assert conv_id in live and page.id not in live
 
 
 def test_a_queued_mention_without_thread_still_keeps_how_far_the_thread_was_read():
     conv = make_conversation()
-    store.queue_message(conv.id, "q1", slack=thread(through="5.0"))
+    store.queue_message(conv.id, "q1", slack=thread(through="5.0"), author=ALICE)
 
     sent = store.end_turn(conv.id, flush=True)
 
     assert sent[0].content == "q1"
-    assert store.slack_contexts(conv.id) == [thread(through="5.0")]
+    assert json.loads(store.slack_contexts(conv.id)[0])["through"] == "5.0"
 
 
 def test_the_page_neither_sees_takes_nor_gets_back_a_mention_waiting_from_slack():
     conv = make_conversation()
     store.queue_message(conv.id, "de la page")
-    store.queue_message(conv.id, "de Slack", slack=thread("a"))
+    store.queue_message(conv.id, "de Slack", slack=thread("a"), author=BOB, slack_user="U2")
     mention = next(e["id"] for e in store.pending_messages(conv.id) if e.get("slack"))
 
     assert [e["content"] for e in page_entries(store.pending_messages(conv.id), "waiting")] == ["de la page"]

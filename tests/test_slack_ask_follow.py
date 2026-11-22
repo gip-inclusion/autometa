@@ -374,3 +374,75 @@ def test_a_restart_without_slack_still_follows_what_it_can(mocker, world, caplog
 
     assert asyncio.run(restart()) == [conv_id]
     assert "Espace Slack non lu au démarrage" in caplog.text
+
+
+def test_a_mention_queued_by_someone_else_gets_its_own_turn_under_their_identity_and_its_own_message(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": f"<@{BOT}> et par région ?"})
+    first = lambda: answered(world, conv_id, ("assistant", "Réponse à Camille."), flush=True) or "done:1"  # noqa: E731
+    second = lambda: answered(world, conv_id, ("assistant", "Réponse à Louis.")) or "done:9"  # noqa: E731
+
+    followed(world, web, conv_id, first, second)
+
+    world.runner.submit.assert_awaited_once()
+    submitted = world.runner.submit.await_args.args
+    assert (submitted[0], submitted[3]) == (conv_id, "louis@ailleurs.example")
+    assert submitted[1] == "Louis D. (louis@ailleurs.example) : et par région ?"
+    assert [(call.kwargs["ts"], call.kwargs["text"]) for call in web.chat_update.call_args_list] == [
+        (LIVE, "Réponse à Camille."),
+        ("1700000902.0", "Réponse à Louis."),
+    ]
+    assert world.store.pending_messages(conv_id) == []
+    assert world.store.get_conversation(conv_id).turn_user == "louis@ailleurs.example"
+
+
+def test_queued_requests_leave_one_person_at_a_time_in_order_of_arrival(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    for user, ts, text in (("U2", "401", "Louis 1"), ("U5", "402", "Noa"), ("U2", "403", "Louis 2")):
+        slack_ask.begin(web, EVENT | {"user": user, "ts": f"1700000{ts}.000100", "text": text})
+    ends = [lambda: answered(world, conv_id, ("assistant", "ok"), flush=True) and None for _ in range(3)]  # noqa: E731
+
+    followed(world, web, conv_id, *ends)
+
+    assert [(call.args[1], call.args[3]) for call in world.runner.submit.await_args_list] == [
+        ("Louis D. (louis@ailleurs.example) : Louis 2", "louis@ailleurs.example"),
+        ("Noa (noa@inclusion.gouv.fr) : Noa", "noa@inclusion.gouv.fr"),
+    ]
+    asked = [content for _, kind, content in world.store.messages[conv_id] if kind == "user"]
+    assert [text.rsplit(" : ", 1)[-1] for text in asked[1:]] == ["Louis 1", "Louis 2", "Noa"]
+
+
+def test_once_the_owner_writes_from_the_site_the_mentions_others_had_waiting_are_turned_away(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": "de Louis"})
+    slack_ask.begin(web, EVENT | {"ts": "1700000402.000100", "text": "de Camille, par Slack"})
+    world.store.update_conversation(conv_id, slack_locked=True)
+    world.store.queue_message(conv_id, "de Camille, sur le site")
+    web.chat_postEphemeral.reset_mock()
+    ends = [lambda: answered(world, conv_id, ("assistant", "ok"), flush=True) and None for _ in range(2)]  # noqa: E731
+
+    followed(world, web, conv_id, *ends)
+
+    told = [call.kwargs for call in web.chat_postEphemeral.call_args_list]
+    assert [(said["user"], said["text"]) for said in told] == [
+        ("U2", f"Cette conversation se poursuit dans Autometa : {BASE}/c/{conv_id}")
+    ]
+    asked = [content for _, kind, content in world.store.messages[conv_id] if kind == "user"]
+    assert asked[1:] == ["de Camille, par Slack", "de Camille, sur le site"]
+    world.runner.submit.assert_not_awaited()
+
+
+def test_a_request_whose_turn_cannot_be_submitted_gives_its_turn_back(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100"})
+    world.runner.submit.side_effect = ConnectionError("redis")
+
+    with pytest.raises(ConnectionError):
+        followed(world, web, conv_id, lambda: answered(world, conv_id, ("assistant", "ok"), flush=True) and None)
+
+    assert world.store.get_conversation(conv_id).needs_response is False
+    assert slack_ask.following == {}
