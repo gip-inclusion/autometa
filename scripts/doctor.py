@@ -135,7 +135,7 @@ def warn_chart_renderer(settings):
         return None
     return (
         "SLACK_CHART_IMAGES est posé mais merman-cli n'est pas installé : les cartes Slack nommeront les graphiques "
-        "sans les montrer. Lancez `bin/install_merman.sh`."
+        "sans les montrer. Lancez `make merman`."
     )
 
 

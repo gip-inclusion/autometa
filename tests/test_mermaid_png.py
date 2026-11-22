@@ -80,7 +80,7 @@ def test_without_merman_installed_a_chart_gives_nothing_and_says_how_to_install_
     merman(mocker).side_effect = FileNotFoundError("merman-cli")
 
     assert mermaid_png.render("graph TD; A-->B") is None
-    assert "bin/install_merman.sh l'installe" in caplog.text
+    assert "`make merman` l'installe" in caplog.text
 
 
 @pytest.mark.parametrize(

@@ -30,7 +30,7 @@ def render(source: str) -> bytes | None:
         # Why: le délai de merman est coopératif ; celui-ci tue le processus s'il ne le respecte pas.
         drawn = subprocess.run(command, input=source.encode(), capture_output=True, timeout=10, check=False)
     except OSError as error:
-        logger.warning("Graphique non dessiné, merman-cli inutilisable (bin/install_merman.sh l'installe) : %s", error)
+        logger.warning("Graphique non dessiné, merman-cli inutilisable (`make merman` l'installe) : %s", error)
         return None
     except subprocess.TimeoutExpired:
         logger.warning("Graphique non dessiné : rendu arrêté après 10 s")

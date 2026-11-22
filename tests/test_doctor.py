@@ -176,7 +176,7 @@ def test_a_missing_chart_renderer_is_noted_only_where_chart_images_are_asked(
 
     problem = _module.warn_chart_renderer({"SLACK_CHART_IMAGES": asked})
 
-    assert ("bin/install_merman.sh" in problem) if noted else (problem is None)
+    assert ("make merman" in problem) if noted else (problem is None)
 
 
 def test_the_playwright_cache_defaults_to_the_place_of_the_platform(mocker):

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Rendu des graphiques Mermaid en image pour les cartes Slack (SLACK_CHART_IMAGES) : merman-cli et la police qu'il
-# mesure et peint, posés dans $HOME/.merman. Appelé par bin/post_compile sur Scalingo, à la main en local.
+# mesure et peint, posés dans $HOME/.merman. Appelé par bin/post_compile sur Scalingo, par `make merman` en local.
 #
 # Version et empreintes épinglées : une archive qui n'a pas l'empreinte attendue est refusée, rien n'est installé.
 # La police est fournie plutôt que cherchée sur le système, pour un même dessin sur toutes les machines.
