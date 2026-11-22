@@ -42,6 +42,11 @@ function showPills(html) {
   rendered.innerHTML = html;
   for (const pill of [...rendered.content.children]) {
     const shown = actionsContent.querySelector(`[data-action-index="${pill.dataset.actionIndex}"]`);
+    // Why: a stream that resumes brings its turn's pills again; one that comes as it was stays, and one that changed
+    // stays open if its reader had opened it.
+    pill.served = pill.outerHTML;
+    if (shown?.served === pill.served) continue;
+    pill.classList.toggle('expanded', !!shown?.classList.contains('expanded'));
     if (shown) shown.replaceWith(pill);
     else actionsContent.appendChild(pill);
   }

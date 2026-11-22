@@ -91,6 +91,27 @@ def test_the_stream_of_a_conversation_left_by_the_sidebar_writes_nothing_in_the_
     expect(page.locator("#actionsContent .action-pill")).to_have_count(0)
 
 
+@pytest.mark.parametrize("trigger", RECONNECTS.values(), ids=RECONNECTS.keys())
+def test_a_pill_its_reader_opened_stays_open_when_the_stream_resumes(
+    conversation: str, ask: Callable[[str], None], page: Page, trigger: str
+):
+    ask("[tools:2] [slow:4] Réponse lente")
+    expect(page.locator(".event-assistant", has_text="Morceau 1.")).to_be_visible()
+    page.locator(".sidebar-tab-btn[data-tab='actions']").click()
+    page.locator(".actions-filter-btn[data-filter='detailed']").click()
+    pills = page.locator("#actionsContent .action-pill")
+    pills.first.locator(".action-pill-header").click()
+    pills.evaluate_all("pills => pills.forEach((pill) => { pill.dataset.probe = 'kept'; })")
+
+    with page.expect_request(re.compile(r"/stream\?after=\d+$")):
+        page.evaluate(trigger)
+
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    expect(page.locator("#actionsContent .action-pill[data-probe=kept]")).to_have_count(2)
+    expect(pills.first).to_have_class(re.compile(r"\bexpanded\b"))
+    expect(pills.first.locator(".action-kv-value")).to_be_visible()
+
+
 def test_text_rewritten_in_place_grows_live_without_repeating(
     conversation: str, ask: Callable[[str], None], page: Page
 ):
