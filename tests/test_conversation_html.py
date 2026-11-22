@@ -150,7 +150,7 @@ def test_a_report_without_fields_is_titled_rapport_and_the_last_plain_answer_bef
     ],
 )
 def test_a_report_field_is_read_as_the_page_reads_it(front_matter, title):
-    html = answer_block(CONV, [(1, f"---\n{front_matter}\n---\nCorps")], False, None)["html"]
+    html = answer_block(CONV, [(1, f"---\n{front_matter}\n---\nCorps")], False, True)["html"]
 
     assert f'<div class="report-title"><i class="ri-file-text-line"></i> {title}</div>' in html
 
@@ -166,7 +166,7 @@ def test_a_report_field_is_read_as_the_page_reads_it(front_matter, title):
     ids=["premier-nom", "au-milieu-d-un-mot", "nom-vide-écarté", "aucun"],
 )
 def test_a_report_links_the_first_report_file_its_text_names(text, linked):
-    html = answer_block(CONV, [(1, f"---\n\n---\n{text}")], False, None)["html"]
+    html = answer_block(CONV, [(1, f"---\n\n---\n{text}")], False, True)["html"]
 
     assert re.findall(r'href="/api/reports/([^"]+)"', html) == [linked] * bool(linked)
 
@@ -272,9 +272,9 @@ def test_a_question_at_the_queue_s_limit_is_still_read_as_markdown():
 
 N = 200_000
 HOSTILE = {
-    "champ-d-espaces": lambda: answer_block(CONV, [(1, "---\na:" + " " * N + "\r\n---\nx")], False, None),
-    "champ-de-deux-points": lambda: answer_block(CONV, [(1, "---\n" + "a:" * (N // 2) + "\r\n---\nx")], False, None),
-    "dates-sans-fichier": lambda: answer_block(CONV, [(1, "---\n\n---\n" + "0000-00-" * (N // 8))], False, None),
+    "champ-d-espaces": lambda: answer_block(CONV, [(1, "---\na:" + " " * N + "\r\n---\nx")], False, True),
+    "champ-de-deux-points": lambda: answer_block(CONV, [(1, "---\n" + "a:" * (N // 2) + "\r\n---\nx")], False, True),
+    "dates-sans-fichier": lambda: answer_block(CONV, [(1, "---\n\n---\n" + "0000-00-" * (N // 8))], False, True),
     "fichiers-jamais-nommés": lambda: user_html("[Uploaded file: " * (N // 16)),
     "fichiers-nommés-à-la-fin": lambda: user_html("[Uploaded file: " * (N // 16) + "]"),
     "longue-question": lambda: user_html("http://a" + "~*_'\"" * (N // 5)),
@@ -602,27 +602,25 @@ def section_buttons(found: list[dict]) -> list[int]:
 @pytest.mark.parametrize(
     ("answers", "expected"),
     [
-        (["## Seule\n\nTexte.\n", "La suite, sans titre.\n"], [0, 0]),
-        (["## Seule\n\nTexte.\n", "Suite.\n\n### Dessous\n\nTexte.\n"], [0, 1]),
+        (["## Seule\n\nTexte.\n"], [0]),
+        (["", "## Seule\n\nTexte.\n"], [0, 0]),
+        (["## Seule\n\nTexte.\n", "La suite, sans titre.\n"], [1, 0]),
+        (["## Seule\n\nTexte.\n", "Suite.\n\n### Dessous\n\nTexte.\n"], [1, 1]),
         (["## Une\n\nTexte.\n", "Suite.\n\n## Deux\n\nTexte.\n"], [1, 1]),
-        (["## Une\n\nTexte.\n", "Suite.\n", "# Au-dessus\n"], [1, 0, 1]),
         (["Intro.\n", "## Après\n\nTexte.\n"], [0, 1]),
-        (["", "## Seule\n\nTexte.\n", "Suite.\n"], [0, 0, 0]),
-        (["## Une\n\nTexte.\n", "```\n## Dans du code\n```\n"], [0, 0]),
-        (["---\ndate: 2026-01-05\n---\n## Rapport\n\nTexte.\n", "Suite.\n\n## Annexe\n"], [1, 1]),
+        (["---\ndate: 2026-01-05\n---\n## Rapport\n\nTexte.\n"], [0]),
     ],
     ids=[
+        "seule-réponse",
+        "réponse-vide-avant",
         "suite-sans-titre",
         "sous-section-plus-loin",
         "même-niveau-plus-loin",
-        "niveau-au-dessus-plus-loin",
         "texte-avant",
-        "réponse-vide-avant",
-        "titre-dans-du-code",
         "rapport",
     ],
 )
-def test_a_section_is_read_through_the_answers_of_its_turn_to_know_if_it_is_all_the_turn_says(answers, expected):
+def test_a_section_keeps_its_link_unless_its_answer_is_the_only_one_of_its_turn_to_say_something(answers, expected):
     messages = [(1, "user", "Question")]
     for text in answers:
         messages += [(len(messages) + 1, "assistant", text), (len(messages) + 2, "tool_use", "{}")]
@@ -636,12 +634,12 @@ def test_a_section_ends_with_its_turn():
     assert section_buttons(blocks(CONV, messages)) == [0, 0]
 
 
-def test_a_stream_gives_a_section_its_button_once_a_later_answer_ends_it(mocker):
-    messages = [(1, U, "Question"), (2, A, "## Une\n\nTexte.\n"), (3, CALL, "{}"), (4, RESULT, ""), (5, A, "Suite.\n")]
+def test_a_stream_gives_a_section_its_button_once_its_turn_says_more(mocker):
+    messages = [(1, U, "Question"), (2, A, "## Une\n\nTexte.\n"), (3, CALL, "{}"), (4, RESULT, "")]
     stream = live(mocker, messages, 0)
 
-    assert section_buttons(stream.look(True)["blocks"]) == [0, 0]
-    messages[-1] = (5, A, "Suite.\n\n## Deux\n")
+    assert section_buttons(stream.look(True)["blocks"]) == [0]
+    messages += [(5, A, "Suite.\n")]
     shown = stream.look(True)
 
     assert [b["ids"] for b in shown["blocks"]] == [[2], [5]]
