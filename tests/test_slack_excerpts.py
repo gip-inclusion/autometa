@@ -492,3 +492,17 @@ def test_a_table_carries_both_forms_until_the_listener_chooses(mocker):
     assert [block["type"] for block in blocks] == ["table_excerpt"]
     assert [block["type"] for block in slack_excerpts.with_tables(blocks, True)] == ["table"]
     assert slack_excerpts.with_tables(blocks, False)[0]["text"]["text"].startswith("```\n")
+
+
+@pytest.mark.parametrize(
+    "text,limit,shown",
+    [
+        ("un deux trois", 20, "un deux trois"),
+        ("un deux trois", 8, "un …"),
+        ("   \n  suite", 4, " …"),
+        (" " * 10, 4, " …"),
+    ],
+    ids=["short", "cut after a word", "blank start", "blank only"],
+)
+def test_a_text_is_cut_after_a_word_even_when_its_start_is_blank(text, limit, shown):
+    assert slack_excerpts.shortened(text, limit) == shown

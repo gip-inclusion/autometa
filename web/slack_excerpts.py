@@ -47,7 +47,8 @@ def shortened(text: str, limit: int) -> str:
     text = BIDI.sub("", text)
     if len(text) <= limit:
         return text
-    return f"{text[:limit].rsplit(None, 1)[0]} …"
+    # Why: un début fait de blancs seuls n'a pas de mot après lequel couper.
+    return f"{(text[:limit].rsplit(None, 1) or [''])[0]} …"
 
 
 def unfronted(markdown: str) -> str:
