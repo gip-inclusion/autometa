@@ -328,7 +328,9 @@
 
 <script>
 // Why: filtres et recherche sont résolus côté serveur. Une frappe ou un clic annule la requête
-// en cours au lieu d'attendre derrière elle : seul le dernier état compte.
+// en cours au lieu d'attendre derrière elle : seul le dernier état compte. La promesse d'htmx est
+// rejetée sans valeur, pour une annulation comme pour une panne : rien à y distinguer, et htmx
+// écrit déjà l'une et l'autre en console (`htmx:sendAbort`, `htmx:sendError`).
 function refreshList(url) {
   htmx.trigger('#section-rechercher', 'htmx:abort');
   htmx.ajax('GET', url.toString(), {
